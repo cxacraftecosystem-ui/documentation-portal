@@ -1,10 +1,3 @@
-"""The duplicate-artisan score, run from the vector file both portals share.
-
-``shared/duplicate-score-vectors.json`` is identical in the designer portal; a vector that only the
-designer portal can score (its Field Repository link reason) carries ``"portal": "designer"`` and is
-skipped here. No database: the scorer is pure.
-"""
-
 from __future__ import annotations
 
 import json
@@ -51,7 +44,7 @@ def test_name_similarity(vector):
 def test_pairs(vector):
     a = dup.profile_from_dict(vector["a"])
     b = dup.profile_from_dict(vector["b"])
-    for left, right in ((a, b), (b, a)):  # the score never depends on which side is which
+    for left, right in ((a, b), (b, a)):
         result = dup.score_pair(left, right)
         if vector["score"] is None:
             assert result is None
@@ -73,7 +66,6 @@ def test_designer_portal_vectors_are_skipped_here_not_lost():
 
 @pytest.mark.parametrize("vector", VECTORS["vectors"], ids=lambda v: v["name"])
 def test_vectors(vector):
-    """The designer portal's flat-profile vectors. Below 0.60 the scorer stores nothing."""
     a, b = dup.profile_from_dict(vector["a"]), dup.profile_from_dict(vector["b"])
     expect = vector["expect"]
     for left, right in ((a, b), (b, a)):

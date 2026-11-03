@@ -3,16 +3,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response, StreamingResponse
 
-# _seg (filesystem-safe segment) and _uniq (collision-free path) are SHARED with the data browser
-# rather than re-implemented here: both modules emit the same manifest shape into the same
-# client-side zip builder, so the two must name and de-duplicate paths identically or the same
-# repository would unpack differently depending on which endpoint produced the manifest.
-# workshop_reaches_artisan is shared for the same reason one level up — WHICH artisans a workshop
-# contains. Restating that rule here is what let the zip and the browser disagree; see its use below.
-# manifest_ndjson_response is shared for the same reason and one more: the streamed shape has to be
-# byte-identical between the two endpoints or the ONE client-side reader that consumes both
-# (FieldRepository.readManifest on Android) would need two parsers, which is how the two manifests
-# drifted apart the last time they were written separately.
 from app.api.routes.data_browser import (
     data_status,
     _seg,
@@ -34,12 +24,7 @@ from app.services import naming
 
 router = APIRouter(prefix="/export", tags=["export"])
 
-# Per-table row cap. The whole repository is pulled into memory here and this runs on a
-# single-worker t3.micro, so an unbounded find_many is one bad day away from an OOM; 5000 matches
-# the data browser's per-sheet cap (REPORT_TAKE). Hitting any cap raises the response's
-# ``truncated`` flag so the client can say so instead of quietly handing over a partial dataset.
 EXPORT_TAKE = 5000
-# Media rows are the one table that legitimately runs into five figures.
 MEDIA_TAKE = 20000
 
 
@@ -51,29 +36,10 @@ def csv_response(filename: str, body: str) -> Response:
     )
 
 
-# ---------------------------------------------------------------------------
-# Full-dataset manifest. The client downloads every media object straight from
-# S3 (keeping the t3.micro out of the heavy path) and zips them into a directory
-# tree:  Workshops/<workshop>/<craft>/<artisan>/{Products/<p>/Processes/<proc>,
-# Tools/<t>, Questionnaires/<i>} plus an _Unlinked area so nothing is dropped.
-# Each leaf carries the record's media (original, already-nomenclatured filenames)
-# and a details.txt. Records with no workshop land under _Unlinked.
-#
-# Every details.txt body comes from the shared field registry
-# (app/services/record_fields.py), so this manifest, the data browser's info cards and the .xlsx
-# report always describe a record with the same fields, the same labels and the same value
-# coercion — including the masking the registry applies to an artisan's Aadhaar number.
-# ---------------------------------------------------------------------------
-
-# Relation includes chosen so every getter in the registry's spec can resolve: a product's
-# workshop title, an interview's artisan names, a process's parent product, and the createdBy the
-# CSV's provenance columns report.
 _WORKSHOP_INCLUDE = {
     "crafts": {"include": {"craft": True}},
     "artisans": {"include": {"artisan": True}},
 }
-# `location` carries the artisan's State and Pincode, which the record spec prints into details.txt
-# and the workbook; without it those two cells silently fall back to the legacy extraMetadata.
 _ARTISAN_INCLUDE = {
     "craft": True,
     "workshops": {"include": {"workshop": True}},
@@ -82,39 +48,12 @@ _ARTISAN_INCLUDE = {
 _PRODUCT_INCLUDE = {"workshop": True}
 _TOOL_INCLUDE = {"workshop": True}
 _PROCESS_INCLUDE = {"steps": True, "product": True}
-# ``questionnaire`` IS HYDRATED FOR THE FOLDER NAME, NOT FOR A FIELD ON details.txt.
-#
-# ``record_fields.interview_label`` names an interview after the artisans it covers, and since
-# 2026-09-13 it appends the INSTRUMENT in parentheses when - and only when - the ``questionnaire``
-# relation is actually loaded (record_fields.py:167). It has to: migration
-# ``20260913100000_questionnaire_instruments`` dropped the global unique on ``artisanSetKey``, so
-# the same artisan set sitting twice - once for the 2nd Craft Toolkit Workshop's instrument, once
-# for the 3rd - is now two legitimate rows, and a label built from the artisans ALONE returns the
-# identical string for both.
-#
-# Without this line the zip's folder for the second sitting was named by ``_uniq`` instead, as
-# "Kanhu Charan Sahu, Sanjukta Devi (2)". Nothing was overwritten - ``_uniq`` is doing its job - but
-# "(2)" is not a fact about the fieldwork. It tells a researcher unpacking a ministry deliverable
-# that there were two folders, not WHICH WORKSHOP each one holds, and the answers.txt inside them
-# both open with the same artisan names. The two sittings are years apart and section V does not
-# even mean the same thing in the two instruments ("International Exposure and Overseas Travel"
-# against "NETWORK / ECOSYSTEM MAPPING"), so a reader who guesses wrong reads one workshop's answers
-# as the other's.
-#
-# One extra relation on at most EXPORT_TAKE interview rows, for the one string that tells two
-# folders apart. The data browser resolves the same label (data_browser.py:1174) and the .xlsx
-# report prints it into a cell (data_browser.py:2691); this is the call site that turns it into a
-# DIRECTORY NAME somebody keeps on disk, which is the one that has to be legible a year later.
 _INTERVIEW_INCLUDE = {
     "artisans": {"include": {"artisan": True}},
     "responses": {"include": {"question": True}},
     "questionnaire": True,
 }
 
-# A media row is filed under exactly ONE record folder, most specific relation first — the same
-# precedence data_browser._media_owner_id uses. A row commonly carries several links at once (a
-# product photo that also names its workshop, a typed FK alongside the string tag pair), and
-# without a single winner the same object would be zipped into two or three folders.
 _MEDIA_FK_SLOTS = (
     ("productId", "product"),
     ("toolId", "tool"),
@@ -122,20 +61,13 @@ _MEDIA_FK_SLOTS = (
     ("artisanId", "artisan"),
     ("workshopId", "workshop"),
 )
-# Finer-grained than any FK column, because process/process-step attachments have no FK of their
-# own and are carried by the tag pair alone.
 _MEDIA_TAG_SLOTS = ("process", "processstep")
-# The interview tag is written both ways in the wild; the tree slot is "questionnaire".
 _TAG_ALIASES = {"questionnaireinterview": "questionnaire"}
 
-# The craft folder for artisans with no craft on file. Spelled exactly as the data browser labels
-# that folder (_craft_folder_entries), so a researcher who downloads the zip after browsing the
-# tree finds the same artisan under the same name.
 NO_CRAFT_FOLDER = "No craft"
 
 
 def _media_slot(media: Any) -> tuple[str, str] | None:
-    """The one ``(record kind, record id)`` slot a media row belongs in, or None when unattached."""
     tag = (media.linkedRecordType or "").strip().lower()
     if tag in _MEDIA_TAG_SLOTS and media.linkedRecordId:
         return tag, media.linkedRecordId
@@ -149,7 +81,6 @@ def _media_slot(media: Any) -> tuple[str, str] | None:
 
 
 def _details(kind: str, record: Any) -> str:
-    """A record's ``details.txt`` body, straight from the shared field registry."""
     return info_text(info_panel(kind, record))
 
 
@@ -159,21 +90,6 @@ async def dataset_manifest(
     stream: bool = False,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any] | StreamingResponse:
-    """Build the downloadable manifest.
-
-    Without ``ownerId`` this is the whole repository and requires the global dataset-download
-    permission. With ``ownerId`` it is scoped to one researcher's data and is authorized by tiered
-    data access: an all-data DOWNLOAD+ grant yields everything that owner uploaded; a subset grant
-    yields only the granted records. Admins/global downloaders/the owner always get everything.
-
-    Response: ``{files, totalFiles, totalMedia, truncated}`` — ``truncated`` is true when any table
-    hit its row cap, so the client can warn rather than present a partial zip as complete.
-
-    ``stream=1`` answers the same entries as NDJSON with the three numbers in headers instead of a
-    wrapper object. Opt-in, because every deployed client reads the JSON object; see
-    :func:`app.api.routes.data_browser.manifest_ndjson_response` for the allocation failure it
-    exists to stop.
-    """
     rec_where: dict[str, Any] = {}
     media_vis: dict[str, Any] = {}
     scope: dict[str, set[str]] | None = None
@@ -188,9 +104,6 @@ async def dataset_manifest(
         )
     else:
         rec_where = await owned_or_granted_where(current_user)
-        # Media carries its own owner column, and the repository-wide download is not a licence to
-        # read uploads the caller cannot see anywhere else in the app (GET /media, /search and the
-        # data browser all filter on uploadedById). Empty — a no-op — for Professor and above.
         media_vis = await owned_or_granted_where(current_user, owner_field="uploadedById")
 
     def _in_scope(rtype: str, rid: str) -> bool:
@@ -220,20 +133,14 @@ async def dataset_manifest(
     )
 
     if scope is not None:
-        # Subset grant: keep only the explicitly granted records of each type.
         workshops = [w for w in workshops if _in_scope("workshop", w.id)]
         artisans = [a for a in artisans if _in_scope("artisan", a.id)]
         products = [p for p in products if _in_scope("product", p.id)]
         tools = [t for t in tools if _in_scope("tool", t.id)]
         interviews = [i for i in interviews if _in_scope("questionnaire", i.id)]
 
-    # Media is fetched BY the records that will be emitted rather than by scanning the table: only
-    # attached media is ever placed in the tree, so ``where={}`` was a full-table read whose extra
-    # rows were all discarded. One OR query, so a row matching several conditions is deduped by id.
     media_or: list[dict[str, Any]] = []
     if ownerId:
-        # An owner's dataset must also carry media that OTHER users uploaded onto the owner's
-        # in-scope records, not just media the owner uploaded themselves.
         media_or.append({"uploadedById": ownerId})
     for fk, tags, rows in (
         ("artisanId", ["artisan"], artisans),
@@ -249,13 +156,9 @@ async def dataset_manifest(
         ids = [r.id for r in rows]
         if ids:
             media_or.append({fk: {"in": ids}})
-            # The typed FK alone misses rows attached only by the string tag pair, and the tag pair
-            # alone misses rows attached only by the FK (a NULL linkedRecordType) — which is how a
-            # whole class of media used to be fetched and then never emitted. Both, always.
             media_or.append(
                 {"AND": [{"linkedRecordType": {"in": tags}}, {"linkedRecordId": {"in": ids}}]}
             )
-    # Processes and their steps have no FK column on MediaFile; they are tag-only attachments.
     proc_ids = [p.id for p in processes]
     step_ids = [s.id for p in processes for s in (p.steps or [])]
     for tag, ids in (("process", proc_ids), ("processstep", step_ids)):
@@ -271,7 +174,6 @@ async def dataset_manifest(
         media = await db.mediafile.find_many(where=live_media_where(media_where), take=MEDIA_TAKE)
         truncated = truncated or len(media) >= MEDIA_TAKE
 
-    # Group media by the single slot it belongs in.
     media_by: dict[tuple[str, str], list[Any]] = {}
     for m in media:
         slot = _media_slot(m)
@@ -279,10 +181,6 @@ async def dataset_manifest(
             media_by.setdefault(slot, []).append(m)
 
     files: list[dict[str, str]] = []
-    # Two same-named products (or two photos with the same original filename) used to resolve to
-    # the same path and silently overwrite each other when the client zipped them. Folder paths and
-    # file paths are de-duplicated separately: a duplicate RECORD has to move its whole subtree
-    # ("Chair (2)/..."), while a duplicate FILE only renames itself.
     used_dirs: set[str] = set()
     used_files: set[str] = set()
 
@@ -325,20 +223,6 @@ async def dataset_manifest(
 
     def emit_interview(prefix: str, interview: Any) -> None:
         placed_interviews.add(interview.id)
-        # An interview is identified by the artisans it covers, not its internal title — the
-        # registry's title function, so the folder matches what the browser calls it. Since
-        # 2026-09-13 that label also carries the INSTRUMENT, which is what tells one artisan set's
-        # two sittings apart; ``_INTERVIEW_INCLUDE`` hydrates the relation it needs, and the long
-        # note there is the argument for the extra join.
-        #
-        # ``_uniq`` STAYS, AND IS NOT MADE REDUNDANT BY THE BETTER LABEL. It is the last line of
-        # defence for a collision the label cannot resolve at all: two sittings of the same artisan
-        # set on the SAME instrument (legal for an artisan-less interview, whose key is NULL and
-        # therefore exempt from ``@@unique([questionnaireId, artisanSetKey])``, and reachable for any
-        # interview while a stale key is waiting for ``scripts/reconcile_interview_set_keys``), or
-        # an instrument an admin has titled the same as another. Without it the second folder's
-        # answers.txt and every one of its clips would be written at paths the first already owns,
-        # and a client-side zip builder resolves that by overwriting.
         label = _seg(interview_label(interview), interview.id)
         base = _uniq(f"{prefix}/Questionnaires/{label}", used_dirs)
         answers = []
@@ -360,10 +244,6 @@ async def dataset_manifest(
         for link in (it.artisans or []):
             interviews_for_artisan.setdefault(link.artisanId, []).append(it)
 
-    # Products and tools are filed under exactly one (workshop, artisan) folder, so index them by
-    # that pair once. The reachability rule below puts far more artisans in each workshop's tree
-    # than the WorkshopArtisan-only rule did, and re-scanning both 5000-row lists for every one of
-    # them is a needless workshops x artisans x records sweep on a single-worker box.
     products_by_slot: dict[tuple[str, str], list[Any]] = {}
     for product in products:
         if product.workshopId and product.artisanId:
@@ -374,41 +254,22 @@ async def dataset_manifest(
             tools_by_slot.setdefault((tool.workshopId, tool.artisanId), []).append(tool)
 
     workshops_with_sessions = {getattr(it, "workshopId", None) for it in interviews}
-    # The shared questionnaire's answers for these sessions (UNIFY C10; empty, no query, while v2 is off).
     v2_answers = await questionnaire_readers.session_answers([i.id for i in interviews], client=db) if get_settings().questionnaire_v2 else {}
     for ws in workshops:
         wbase = _uniq(f"Workshops/{_seg(ws.title, ws.id)}", used_dirs)
         add_text(wbase, "details.txt", _details("workshop", ws))
         add_media(wbase, "workshop", ws.id)
-        # THE QUESTIONNAIRE ANNEXURE (UNIFY A12): the workshop's forms grouped by kind with their
-        # answers from live sessions. Only on the whole-repository export: it names every
-        # researcher's answers in the workshop, which an owner-scoped download is not entitled to.
-        # v2 answers exist only while QUESTIONNAIRE_V2 is on, and only where the workshop has sessions.
         if scope is None and get_settings().questionnaire_v2 and ws.id in workshops_with_sessions:
             annexure = await questionnaire_library.annexure(ws.id, client=db)
             if annexure["groups"]:
                 add_text(wbase, "Questionnaire annexure.txt", questionnaire_library.annexure_text(annexure))
-        # Which artisans this workshop contains. A workshop reaches its artisans three ways —
-        # WorkshopArtisan, Artisan.workshopId, and WorkshopCraft -> Artisan.craftId — and this
-        # counted route 1 alone. On the live repository route 1 is EMPTY (artisans reach their
-        # workshop through their craft), so every artisan the browser lists under this workshop was
-        # silently absent from the zip: no details.txt, none of their own photographs or clips, and
-        # their products and tools demoted to _Unlinked. workshop_reaches_artisan is the browser's
-        # own predicate (data_browser._linked_artisans runs it as a query), evaluated over the
-        # artisan rows already loaded, so the two endpoints cannot answer this question differently.
         ws_artisans = [a for a in artisans if workshop_reaches_artisan(ws, a)]
 
-        # One folder per craft, built the way the browser's _craft_folder_entries builds them: the
-        # crafts the workshop declares, unioned with the crafts of the artisans it reaches. An
-        # artisan with no craft lands in "No craft" rather than the old "_OtherCrafts" lump, which
-        # also swallowed artisans whose craft simply was not on the workshop's declared list.
         craft_names: dict[str, str] = {}
         for link in (ws.crafts or []):
             if link.craftId:
                 craft = getattr(link, "craft", None)
                 craft_names.setdefault(link.craftId, _seg(getattr(craft, "name", None), link.craftId))
-        # Declared crafts first (so the zip's folder order matches the workshop's own list), then
-        # any further craft an artisan brought with them.
         buckets: dict[str | None, list[Any]] = {craft_id: [] for craft_id in craft_names}
         for artisan in ws_artisans:
             if artisan.craftId and artisan.craftId not in craft_names:
@@ -418,7 +279,7 @@ async def dataset_manifest(
 
         for craft_id, bucket in buckets.items():
             if not bucket:
-                continue  # a declared craft no visible artisan practises contributes no files
+                continue
             cbase = _uniq(f"{wbase}/{craft_names.get(craft_id) or NO_CRAFT_FOLDER}", used_dirs)
             for artisan in bucket:
                 abase = _uniq(f"{cbase}/{_seg(artisan.name, artisan.id)}", used_dirs)
@@ -431,8 +292,6 @@ async def dataset_manifest(
                 for it in interviews_for_artisan.get(artisan.id, []):
                     emit_interview(abase, it)
 
-    # Anything not attached to a workshop goes here so nothing is lost. The per-artisan grouping
-    # prefix is deliberately NOT uniqued — every record of one artisan belongs in the same folder.
     for product in products:
         if product.id not in placed_products:
             emit_product(f"_Unlinked/{_seg(product.artisanName, 'artisan')}", product)
@@ -455,7 +314,6 @@ async def dataset_manifest(
 
 
 def _require_dataset_download(current_user: Any) -> None:
-    """CSV exports are full-dataset downloads — gate them exactly like /export/dataset."""
     if not can_download_dataset(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -465,16 +323,12 @@ def _require_dataset_download(current_user: Any) -> None:
 
 
 def _with_status(where: dict[str, Any], status_value: str | None) -> dict[str, Any]:
-    """Narrow an export to one review status (C21: an export means "approved"). ALL or absent keeps
-    every row, which is what an older client asking without the parameter has always had."""
     wanted = data_status(status_value)
     if not wanted:
         return where
     return {"AND": [where, {"status": wanted}]} if where else {"status": wanted}
 
 
-# createdBy feeds the "Created by" provenance column the registry appends to every row; media and
-# workshop feed the media columns and the row's workshop title.
 _CSV_INCLUDE = {"media": True, "createdBy": True, "workshop": True}
 
 

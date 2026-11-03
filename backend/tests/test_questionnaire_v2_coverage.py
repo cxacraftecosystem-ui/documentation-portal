@@ -1,5 +1,3 @@
-"""Coverage computed on read (DESIGN 3.1-3.5; tests 9-16 and 32). Real Postgres."""
-
 from __future__ import annotations
 
 from qv2_fixtures import connect, needs_db, no_outside_calls, patch_db, record_take, run, seed, session_create, t

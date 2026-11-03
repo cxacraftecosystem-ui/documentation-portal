@@ -1,15 +1,3 @@
-"""The hosted providers, exercised end to end with a stubbed transport and no network.
-
-These also still run with none of the optional dependencies installed. That is possible precisely
-because every dependency is imported inside the function that uses it: a stub can be put in
-``sys.modules`` before the call and the provider picks it up, which would be impossible if the
-module had imported requests at the top. So this file is both a test of remove.bg's error mapping
-and a demonstration that the lazy-import rule buys testability as well as boot time.
-
-Nothing here talks to remove.bg or vectorizer.ai. Their real behaviour needs an account and spends
-a credit; ``docs/AI_FEATURES.md`` has the one-line curl to try that by hand when someone does.
-"""
-
 import importlib.machinery
 import struct
 import sys
@@ -68,8 +56,6 @@ class _StubResponse:
 
 
 class _StubRequests:
-    """The three names ``post_image`` touches: post, Timeout, RequestException."""
-
     class RequestException(Exception):
         pass
 
@@ -79,9 +65,6 @@ class _StubRequests:
     def __init__(self, response: _StubResponse | Exception) -> None:
         self.response = response
         self.calls: list[dict] = []
-        # The registry asks find_spec("requests") whether the provider is installed, and
-        # find_spec reads __spec__ off whatever is in sys.modules. Without this the stub would
-        # make the readiness check answer "requests is missing" and the call would never happen.
         self.__spec__ = importlib.machinery.ModuleSpec("requests", None)
 
     def post(self, url: str, **kwargs):
@@ -93,8 +76,6 @@ class _StubRequests:
 
 @pytest.fixture
 def stub_requests(monkeypatch: pytest.MonkeyPatch):
-    """Install a stub in place of requests for the duration of one test."""
-
     def install(response: _StubResponse | Exception) -> _StubRequests:
         stub = _StubRequests(response)
         monkeypatch.setitem(sys.modules, "requests", stub)
@@ -126,10 +107,6 @@ def _vector_settings(**overrides: str):
     return build_settings(base)
 
 
-# --------------------------------------------------------------------------------------------
-# The happy path, all the way through the public entry point.
-# --------------------------------------------------------------------------------------------
-
 
 def test_hosted_background_removal_returns_the_cutout(stub_requests) -> None:
     cutout = _png(8, 6)
@@ -146,7 +123,6 @@ def test_hosted_background_removal_returns_the_cutout(stub_requests) -> None:
     sent = stub.calls[0]
     assert sent["url"] == "https://api.remove.bg/v1.0/removebg"
     assert sent["headers"]["X-Api-Key"] == "test-key"
-    # format=png or the transparency we are here for can come back flattened.
     assert sent["data"]["format"] == "png"
     assert sent["timeout"][0] <= 10.0
 
@@ -172,10 +148,6 @@ def test_production_mode_is_only_ever_chosen_deliberately(stub_requests) -> None
     assert stub.calls[0]["data"]["mode"] == "production"
     assert not any("watermark" in note for note in result.notes)
 
-
-# --------------------------------------------------------------------------------------------
-# Every failure a hosted provider can hand us, and the class it turns into.
-# --------------------------------------------------------------------------------------------
 
 
 def test_out_of_credit_is_a_provider_failure_with_a_way_out(stub_requests) -> None:
@@ -259,15 +231,9 @@ def test_vendor_error_bodies_are_summarised_whatever_shape_they_are(body: bytes,
     assert expected in describe_error_body(body)
 
 
-# --------------------------------------------------------------------------------------------
-# The capability that needs more than the hosted call.
-# --------------------------------------------------------------------------------------------
-
 
 @pytest.mark.skipif(registry.module_available("PIL"), reason="Pillow is installed in this venv")
 def test_hosted_separation_without_pillow_says_so_before_spending_a_credit(stub_requests) -> None:
-    # The readiness check runs before the provider is even loaded, so a missing Pillow costs
-    # nothing: no upload, no credit, and an error that names the package.
     stub = stub_requests(_StubResponse(200, {"Content-Type": "image/png"}, _png()))
     settings = build_settings(
         {
@@ -284,7 +250,6 @@ def test_hosted_separation_without_pillow_says_so_before_spending_a_credit(stub_
 
 
 def test_background_removal_is_available_where_separation_is_not() -> None:
-    """The distinction the extra_modules field exists to make, seen through the probe."""
     settings = build_settings(
         {
             "AI_FEATURES_ENABLED": "true",

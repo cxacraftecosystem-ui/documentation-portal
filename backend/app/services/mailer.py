@@ -1,21 +1,3 @@
-"""E-MAIL: the Amazon SES sender and the templates it sends.
-
-The same construction as the Design Prototype Workshop's ``app/services/mailer.py``. This module
-turns a message KIND and its parameters into a subject, a plain-text body and a small HTML body,
-and hands those to SES. Queueing, retries and the send log are :mod:`app.services.email_outbox`,
-the only caller of :func:`send`.
-
-Mail is on exactly when ``MAIL_FROM_ADDRESS`` is set (:func:`mail_configured`). Unset is a complete,
-quiet product: nothing is queued, ``GET /preferences/notifications`` answers ``available: false``,
-and the web hides every e-mail control without a sentence about it.
-
-No body ever reaches a log line, and no body is stored: the outbox keeps the kind and the template
-parameters and renders at send time. SESv2 ``send_email`` with ``Content.Simple`` (subject, text and
-HTML, UTF-8), using the media bucket's ``AWS_ACCESS_KEY_ID``/``AWS_SECRET_ACCESS_KEY`` — that IAM user
-needs ``ses:SendEmail`` on the verified identity. A throttle or an SES fault is TRANSIENT and is
-retried; a rejected message or an unverified sender is PERMANENT and is not.
-"""
-
 from __future__ import annotations
 
 import html
@@ -29,28 +11,14 @@ from app.core.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
-#: Message kinds. Stored on ``EmailMessage.kind``; renaming one orphans the rows already queued.
 ACCESS_GRANTED = "ACCESS_GRANTED"
 TASK_SUBMITTED = "TASK_SUBMITTED"
 TASK_SENT_BACK = "TASK_SENT_BACK"
 TASK_APPROVED = "TASK_APPROVED"
-#: Somebody got past the password and then entered too many wrong verification codes. A security
-#: notice: always sent (no opt-out), carries no code and no address, only when the pause ends.
 SECOND_FACTOR_LOCKED = "SECOND_FACTOR_LOCKED"
-#: A single-use set-password link, from an administrator ("Email them a password link") or from the
-#: person themselves ("Forgot your password?"). The link never sits in ``params``: it travels sealed on
-#: the outbox row (``EmailMessage.sealed``) and reaches :func:`render` as ``secret``.
 PASSWORD_LINK = "PASSWORD_LINK"
-#: SECURITY NOTICES (2026-10-16): a password was added to an account that had none, and an account's
-#: password was changed (by its owner, through a link, or by an administrator). Always sent, no
-#: opt-out, to the account's own address; they carry no password and no link, only when it happened
-#: and what to do if it was not them.
 PASSWORD_ADDED = "PASSWORD_ADDED"
 PASSWORD_CHANGED = "PASSWORD_CHANGED"
-#: REVIEW AND SHARING NOTICES (2026-10-20). A reviewer's decision on a record, to the person who
-#: recorded it; a request to share data or to join a workshop, to whoever decides it, and the
-#: decision back to the person who asked; a comment on a record, to the person who recorded it.
-#: Every one of them honours the same opt-out as the task notices.
 RECORD_SENT_BACK = "RECORD_SENT_BACK"
 RECORD_REJECTED = "RECORD_REJECTED"
 RECORD_APPROVED = "RECORD_APPROVED"
@@ -59,8 +27,6 @@ ACCESS_REQUESTED = "ACCESS_REQUESTED"
 ACCESS_DECIDED = "ACCESS_DECIDED"
 WORKSHOP_ACCESS_REQUESTED = "WORKSHOP_ACCESS_REQUESTED"
 WORKSHOP_ACCESS_DECIDED = "WORKSHOP_ACCESS_DECIDED"
-#: THE MONDAY SUMMARY for reviewers and administrators (app/services/weekly_digest.py): counts only,
-#: never a record label. Opt-out through ``UserPreference.weeklyDigest``.
 WEEKLY_DIGEST = "WEEKLY_DIGEST"
 
 KINDS = frozenset(
@@ -89,16 +55,12 @@ REVIEW_KINDS = frozenset({RECORD_SENT_BACK, RECORD_REJECTED, RECORD_APPROVED, RE
 SHARING_KINDS = frozenset(
     {ACCESS_REQUESTED, ACCESS_DECIDED, WORKSHOP_ACCESS_REQUESTED, WORKSHOP_ACCESS_DECIDED}
 )
-#: The kinds a person can switch off in Settings (``UserPreference.emailTaskUpdates``, shown as
-#: "Tasks, reviews and sharing"). One switch on purpose: a second one would ask the same question.
 TASK_KINDS = TASK_ONLY_KINDS | REVIEW_KINDS | SHARING_KINDS
 
 PRODUCT_NAME = "Field Repository"
 
-#: India Standard Time, the clock every schedule in this product is written in. No DST, so a fixed offset.
 IST = timezone(timedelta(hours=5, minutes=30), "IST")
 
-#: SESv2 error codes after which sending the same message again cannot succeed.
 PERMANENT_ERROR_CODES = frozenset(
     {
         "MessageRejected",
@@ -111,31 +73,19 @@ PERMANENT_ERROR_CODES = frozenset(
 
 
 class SendFailed(Exception):
-    """SES did not accept the message. ``permanent`` says whether trying again could help."""
-
     def __init__(self, code: str, *, permanent: bool) -> None:
         super().__init__(code)
         self.code = code
         self.permanent = permanent
 
 
-#: The reason an outbox row records when it was not sent to a reserved address.
 RESERVED_ADDRESS_REASON = "reserved test address"
 
-#: RFC 2606 / RFC 6761 names that never take mail. A seeded account (``admin@example.com``) or a
-#: test fixture must not reach SES: the message bounces and repeated bounces hurt the sender's
-#: reputation. The second-level names cover their subdomains; the top-level names cover any domain
-#: under them.
 RESERVED_EMAIL_DOMAINS = frozenset({"example.com", "example.org", "example.net"})
 RESERVED_EMAIL_TLDS = frozenset({"test", "example", "invalid", "localhost"})
 
 
 def reserved_email_domain(address: str | None) -> str | None:
-    """The reserved, non-deliverable domain ``address`` is on, lower-cased, or ``None``.
-
-    Case-insensitive, and a trailing dot is ignored. A string with no ``@`` is not judged here: it
-    is not an address, and SES refuses it on its own.
-    """
     text = (address or "").strip()
     if "@" not in text:
         return None
@@ -150,7 +100,6 @@ def reserved_email_domain(address: str | None) -> str | None:
 
 
 def is_reserved_email(address: str | None) -> bool:
-    """True when ``address`` is on a reserved domain that never takes mail (see above)."""
     return reserved_email_domain(address) is not None
 
 
@@ -180,7 +129,6 @@ def _ses_client(region: str, access_key: str | None, secret_key: str | None) -> 
 
 
 def send(*, to: str, subject: str, text: str, html_body: str, settings: Settings | None = None) -> str:
-    """Hand one message to SES and return its message id. Blocking: call it from a thread."""
     from botocore.exceptions import BotoCoreError, ClientError
 
     settings = settings or get_settings()
@@ -211,14 +159,10 @@ def send(*, to: str, subject: str, text: str, html_body: str, settings: Settings
     except ClientError as exc:
         code = str(exc.response.get("Error", {}).get("Code") or "ClientError")
         raise SendFailed(code, permanent=code in PERMANENT_ERROR_CODES) from None
-    except BotoCoreError as exc:  # network, endpoint, credentials resolution
+    except BotoCoreError as exc:
         raise SendFailed(type(exc).__name__, permanent=False) from None
     return str(answer.get("MessageId") or "")
 
-
-# --------------------------------------------------------------------------------------
-# Templates
-# --------------------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -243,8 +187,6 @@ def _greeting(name: Any) -> str:
 
 
 def _html(paragraphs: list[str], *, button: tuple[str, str] | None = None) -> str:
-    """A deliberately plain HTML part: one column, one button, no images, no tracking. Every value
-    arrives here already escaped."""
     parts = [
         '<!doctype html><html><body style="margin:0;padding:24px;background:#f6f5fb;'
         'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1f2328;">',
@@ -268,17 +210,12 @@ def _html(paragraphs: list[str], *, button: tuple[str, str] | None = None) -> st
 
 
 def locked_until_words(value: Any) -> str:
-    """``2026-10-16T11:06:00+00:00`` as "11:06 UTC on 16 October 2026"; the raw value if unreadable."""
     try:
         moment = datetime.fromisoformat(str(value)).astimezone(UTC)
     except ValueError:
         return str(value or "later today")
     return f"{moment:%H:%M} UTC on {moment.day} {moment:%B %Y}"
 
-
-# --------------------------------------------------------------------------------------
-# The Monday summary (WEEKLY_DIGEST)
-# --------------------------------------------------------------------------------------
 
 _MUTED = "#5d5874"
 _ACCENT = "#5b3fa8"
@@ -297,20 +234,17 @@ def _digest_sections(params: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def digest_figures(params: dict[str, Any]) -> tuple[int, int, int]:
-    """(waiting, overdue, new this week) from a summary's ``sections``."""
     by_key = _digest_sections(params)
     return tuple(_count((by_key.get(key) or {}).get("total")) for key, _label in _DIGEST_BLOCKS)  # type: ignore[return-value]
 
 
 def digest_title(waiting: int, overdue: int) -> str:
-    """The subject, and the in-app title: the same words in both places."""
     if overdue:
         return f"Your week: {waiting} waiting, {overdue} overdue"
     return f"Your week: {waiting} waiting"
 
 
 def coverage_figure(coverage: Any) -> str:
-    """"71%" when there is a whole to measure against, else the bare count ("41")."""
     if not isinstance(coverage, dict):
         return "0"
     if coverage.get("percent") is not None:
@@ -319,7 +253,6 @@ def coverage_figure(coverage: Any) -> str:
 
 
 def digest_line_words(lines: Any) -> str:
-    """"3 records to review · 1 task to check": each non-zero line, lower-cased after its count."""
     words = []
     for line in lines or []:
         if isinstance(line, dict) and _count(line.get("count")):
@@ -340,10 +273,6 @@ def _digest_html(
     greeting: str = "Hello,",
     settings_link: str = "",
 ) -> str:
-    """The summary on the house shell (``_html``'s page, card and button): a greeting, four compact
-    blocks — a small uppercase label over a large figure — and one button. Values are escaped HERE,
-    unlike ``_html``, because every one of them arrives raw. The Field Repository's summary is counts
-    only; ``items`` (titles) is drawn when present so the template matches the designer portal's."""
     small = "font-size:13px;line-height:1.45;margin-top:4px;"
 
     def cell(label: str, figure: str, detail: str = "", items: list[dict[str, Any]] | None = None) -> str:
@@ -414,7 +343,6 @@ def _digest_html(
 
 
 def _digest_text(params: dict[str, Any], greeting: str, link: str, settings_link: str, sign_off: str) -> str:
-    """The plain-text part: the same four figures, the same line words, the same link."""
     by_key = _digest_sections(params)
     rows = [greeting]
     for key, label in _DIGEST_BLOCKS:
@@ -504,7 +432,6 @@ def _workshop_words(params: dict[str, Any]) -> str:
 
 
 def _safe_path(value: Any, default: str) -> str:
-    """Only an in-app path travels in ``params``, never a host: a stored row cannot send a reader away."""
     path = str(value or "")
     return path if path.startswith("/") and not path.startswith("//") else default
 
@@ -512,7 +439,6 @@ def _safe_path(value: Any, default: str) -> str:
 def render(
     kind: str, params: dict[str, Any], *, secret: str | None = None, settings: Settings | None = None
 ) -> Rendered:
-    """Subject, plain text and HTML for one message. ``secret`` is the set-password link, if any."""
     settings = settings or get_settings()
     subject = subject_for(kind, params)
     greeting = _greeting(params.get("recipientName"))
@@ -567,7 +493,6 @@ def render(
             "because whoever did this knows it. If you sign in with Google, Microsoft or Yahoo, change "
             "the password of that account."
         )
-        # Only the six-digit pause leaves a way in; a recovery-code pause says nothing it cannot keep.
         later = ["Your recovery codes still work while the pause lasts."] if params.get("codeKind") != "recovery" else []
         link = app_url("/login", settings)
         text = "\n\n".join([greeting, lead, act, *later, sign_off]) + "\n"
@@ -639,13 +564,10 @@ def _quoted(note: Any, limit: int = 600) -> str | None:
 
 
 def _notice_lines(kind: str, params: dict[str, Any]) -> tuple[str, list[str], str, str]:
-    """(lead sentence, further lines, button label, in-app path) for the review and sharing notices."""
     record = str(params.get("recordLabel") or "your record")
     noun = str(params.get("recordNoun") or "record")
     actor = str(params.get("actorName") or "A reviewer")
     reason = str(params.get("reasonLabel") or "").strip()
-    # A fixable reason with no note of its own carries the reason's label as its note; saying it
-    # twice ("Reason: Missing details." then "Their note: “Missing details”") is noise.
     raw_note = " ".join(str(params.get("note") or "").split())
     note = None if reason and raw_note.casefold() == reason.casefold() else _quoted(params.get("note"))
     extra: list[str] = []

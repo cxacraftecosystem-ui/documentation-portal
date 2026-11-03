@@ -1,19 +1,3 @@
-"""Report which transcriptions a retry would pick up. DRY RUN ONLY (owner hold, 18 Oct 2026).
-
-Lists, without changing anything:
-
-* FAILED transcription jobs, grouped by their stored error, and how many have no open job beside them
-  (the ones a retry would requeue);
-* QUEUED jobs held back by a throttle or a budget, and when they are next due;
-* recordings whose consent does not permit a send (they are never retried).
-
-There is deliberately no ``--apply``. The owner has said nothing is to be transcribed or retried
-until the API keys are sorted out. When the owner lifts the pause, retry from Settings, Transcription,
-"Retry failed", which refuses while transcription is paused. Works the same in both portals.
-
-    python scripts/retry_transcriptions.py   # from the repository root (designer-portal) or backend/ (documentation-portal)
-"""
-
 from __future__ import annotations
 
 import asyncio

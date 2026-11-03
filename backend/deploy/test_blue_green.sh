@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016  # the stub bodies are single-quoted on purpose: they expand when they run
-# Runs blue_green.sh against stubbed sudo, systemctl, nginx, curl and journalctl and a fake venv, so
-# the release logic is proved without a box, root or the network. Checks runs it ("Deploy scripts").
-#
-# The stubs keep the services' state as files. After every stop and every nginx reload the systemctl
-# stub asks "is the port nginx proxies to still served?" and records a gap when it is not, so the
-# zero-downtime claim is asserted, not assumed.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 script="$here/blue_green.sh"
@@ -52,7 +46,6 @@ NGINX
   stub sleep 'exec "$REAL_SLEEP" 0.02'
   stub journalctl 'echo "journal for $*"'
   stub nginx 'exit "${NGINX_T_RC:-0}"'
-  # The port nginx proxies to, and whether a running unit listens there.
   cat > "$T/bin/served" <<'SH'
 #!/usr/bin/env bash
 port="${1:-$(sed -nE 's#^[[:space:]]*proxy_pass http://127\.0\.0\.1:([0-9]+);.*#\1#p' "$NGINX_SITE")}"
@@ -90,7 +83,6 @@ legacy_box() {
   touch "$STATE/active/fieldrepo" "$STATE/active/fieldrepo-queue"
 }
 
-# What the workflow does between prepare and release: rsync the code into the tree and edit its .env.
 fill_next() { mkdir -p "$APP/next/app"; echo "release $1" > "$APP/next/app/VERSION"; echo "BUILD=$1" >> "$APP/next/.env"; }
 
 prepare() { bash "$script" prepare 2> >(tee -a "$STATE/err" >&2); }
@@ -99,11 +91,8 @@ port_now() { sed -nE 's#^[[:space:]]*proxy_pass http://127\.0\.0\.1:([0-9]+);.*#
 is_up() { [ -e "$STATE/active/$1" ]; }
 no_gaps() { [ ! -s "$STATE/gaps" ] || { cat "$STATE/gaps" >&2; return 1; }; }
 
-# The command must fail. Not `!`: errexit ignores a negated command, so `! x` asserts nothing.
 fails() { if "$@"; then echo "expected to fail: $*" >&2; return 1; fi; }
 
-# Each test in its own subshell with errexit on, OUTSIDE any `if` (an `if` would switch errexit off
-# for everything it runs, and every assertion below would pass).
 check() {
   local rc
   set +e
@@ -119,7 +108,7 @@ t_legacy_conversion() {
   setup; legacy_box
   cand="$(prepare)"; [ "$cand" = 8001 ]
   [ "$(readlink -f "$APP/next")" = "$APP/slots/8001/backend" ]
-  grep -q '^TWO_FACTOR_ENCRYPTION_KEY=k1:abc$' "$APP/next/.env"   # the live .env was carried over
+  grep -q '^TWO_FACTOR_ENCRYPTION_KEY=k1:abc$' "$APP/next/.env"
   [ -f "$UNIT_DIR/fieldrepo-api@.service" ]
   grep -q -- '--port %i' "$UNIT_DIR/fieldrepo-api@.service"
   fill_next 2
@@ -130,14 +119,12 @@ t_legacy_conversion() {
   [ -L "$APP/backend" ] && [ "$(readlink -f "$APP/backend")" = "$APP/slots/8001/backend" ]
   [ -d "$APP/legacy-backend" ] && [ ! -L "$APP/legacy-backend" ]
   [ "$(cat "$APP/venv-previous")" = "$APP/venvs/old" ]
-  [ -d "$APP/venvs/old" ]                                     # the rollback venv is kept
+  [ -d "$APP/venvs/old" ]
   [ ! -e "$APP/next" ]
   grep -q 'python -m scripts.reencrypt_two_factor_secrets' "$STATE/log"
   no_gaps
 }
 
-# prisma generate rewrites site-packages in place, so each port gets its own copy of the build
-# step's venv: a release never touches the client the live port or the rollback tree runs.
 t_each_port_has_its_own_venv() {
   setup; legacy_box
   printf '#!%s
@@ -151,10 +138,8 @@ echo generator
     [ -f "$APP/slots/$p/venv/.complete" ]
     [ "$(head -n1 "$APP/slots/$p/venv/bin/prisma-client-py")" = "#!$APP/slots/$p/venv/bin/python" ]
   done
-  # Nothing generates on the box any more (2026-10-19: the runner did), so no copy and not the base
-  # is ever rewritten by a release.
   fails grep -q 'prisma generate' "$STATE/log"
-  [ ! -e "$APP/venvs/v1/generated" ] && [ -f "$APP/venvs/v1/.complete" ]   # the base is never written
+  [ ! -e "$APP/venvs/v1/generated" ] && [ -f "$APP/venvs/v1/.complete" ]
   [ "$(head -n1 "$APP/venvs/v1/bin/prisma-client-py")" = "#!$APP/venvs/v1/bin/python" ]
   no_gaps
 }
@@ -163,11 +148,11 @@ t_second_release_alternates_and_never_gaps() {
   setup; legacy_box
   cand="$(prepare)"; fill_next 2; release "$cand"
   cand="$(prepare)"; [ "$cand" = 8000 ]
-  grep -q '^BUILD=2$' "$APP/next/.env"                         # the live tree's .env, not a stale one
+  grep -q '^BUILD=2$' "$APP/next/.env"
   fill_next 3; release 8000
   [ "$(port_now)" = 8000 ]; is_up fieldrepo-api@8000; fails is_up fieldrepo-api@8001
   [ "$(readlink -f "$APP/backend")" = "$APP/slots/8000/backend" ]
-  grep -q 'release 2' "$APP/slots/8001/backend/app/VERSION"    # the previous tree stays for a rollback
+  grep -q 'release 2' "$APP/slots/8001/backend/app/VERSION"
   no_gaps
 }
 
@@ -176,7 +161,7 @@ t_unhealthy_release_leaves_the_old_one_serving() {
   cand="$(prepare)"; fill_next 2; touch "$STATE/sick-8001"
   fails release 8001
   [ "$(port_now)" = 8000 ]; is_up fieldrepo; fails is_up fieldrepo-api@8001; is_up fieldrepo-queue
-  [ ! -L "$APP/backend" ]                                       # nothing was converted
+  [ ! -L "$APP/backend" ]
   grep -q 'did not answer /health' "$STATE/err"
   no_gaps
 }
@@ -187,7 +172,7 @@ t_migration_falls_back_to_stopping_the_old_one() {
   release 8001
   [ "$(port_now)" = 8001 ]; is_up fieldrepo-api@8001; fails is_up fieldrepo
   grep -q 'stopping it to free its sessions' "$STATE/err"
-  [ -s "$STATE/gaps" ]                                          # the gap detector sees this path's downtime
+  [ -s "$STATE/gaps" ]
 }
 
 t_failed_migration_restarts_the_old_one() {
@@ -259,8 +244,6 @@ t_prepare_refuses_when_backend_is_the_idle_tree() {
   fails prepare
 }
 
-# The box installs nothing: the venv and its Prisma client come built from the runner (2026-10-19),
-# and the migration runs through app.prisma_cli, which leaves the generated types unloaded.
 t_release_installs_no_packages() {
   setup; legacy_box
   cand="$(prepare)"; fill_next 2; release "$cand"
@@ -269,7 +252,6 @@ t_release_installs_no_packages() {
   fails grep -q 'python -m prisma migrate' "$STATE/log"
 }
 
-# A venv whose client was generated from another schema is refused before anything stops.
 t_release_refuses_a_venv_built_for_another_schema() {
   setup; legacy_box
   cand="$(prepare)"; fill_next 2
@@ -285,7 +267,6 @@ t_release_refuses_a_venv_built_for_another_schema() {
   no_gaps
 }
 
-# Both services run with two malloc arenas: the API from its template, the queue from a drop-in.
 t_units_cap_malloc_arenas() {
   setup; legacy_box
   prepare >/dev/null
@@ -294,7 +275,6 @@ t_units_cap_malloc_arenas() {
   grep -c 'Environment=MALLOC_ARENA_MAX=2' "$here/../../infra/terraform/user_data.sh" | grep -qx 2
 }
 
-# The template the script installs is the one a new box's user_data writes, byte for byte.
 t_user_data_writes_the_same_unit() {
   local from_script from_user_data
   from_script="$(sed -n '/<<UNITFILE$/,/^UNITFILE$/p' "$script" | sed '1d;$d' | sed 's#\$APP#/home/ubuntu/app#g')"

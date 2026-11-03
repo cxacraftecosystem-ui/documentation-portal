@@ -125,8 +125,6 @@ async def run(args: argparse.Namespace) -> int:
     url = qv2_guard.database_url(args)
     qv2_guard.check_host(url, args.allow_host)
     client = await qv2_guard.connect(url)
-    # The report is computed AS OF a fixed day, not "now", so the owner's approval does not go stale
-    # overnight (audit Low); --apply repeats the dry run's --as-of.
     now = qv2_guard.as_of(args)
     try:
         async with client.tx() as tx:

@@ -1,11 +1,3 @@
-"""Search embeddings send text to OpenAI or Gemini, so a transcript or an interview is embedded only
-with consent.
-
-No database and no provider: ``search_indexer.db`` is a small in-memory stand-in for the two tables
-the embedder reads (``SearchDocument`` and the ``Consent`` ledger's newest row), ``embed`` counts what
-it was given, and the consent verdict is replaced per recording.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -125,8 +117,6 @@ def test_consent_given_later_is_picked_up_by_itself(world):
 
 
 def test_an_interview_is_embedded_only_with_its_participants_consent(world):
-    """An interview document is its notes and every answer: the artisans' words, asked about the
-    way an answer draft from pasted text is (``consent_gate.interview_verdict``)."""
     db, sent, consent = world
     held = db.add("interviews", "i1", "what the weaver said")
     db.add("crafts", "c1", "Dabu printing")

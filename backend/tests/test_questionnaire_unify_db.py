@@ -1,16 +1,3 @@
-"""The unification's server rules on Field Repository's database (UNIFY U0, owner decisions of 21 Oct
-and amendment 2 of 22 Oct 2026). Real Postgres, migrated through 20261107090000; skips without
-``QV2_TEST_DATABASE_URL``.
-
-* guest respondents: a session with only a guest saves; their answers are unique per lineage;
-  registering the guest moves answers and their place in one transaction, or nothing;
-* the one answer-lock rule, guests' answers included;
-* restorable soft delete of sessions, content admins only, hidden from every reader;
-* typed or recorded coverage, recording preferred, and the "Already recorded" prompt ignoring typed;
-* bindings, type defaults and the four-step form resolution, with the Workshop mirror;
-* required questions counted on Finish; answer history; recording history.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -38,7 +25,6 @@ def _code(raised) -> str:
     return raised.value.detail["code"]
 
 
-# ── guest respondents ─────────────────────────────────────────────────────────────────────────
 def test_a_session_with_only_a_guest_saves_and_the_guest_answers(monkeypatch) -> None:
     from app.questionnaire import answers, respondents, sessions
 
@@ -64,7 +50,6 @@ def test_a_session_with_only_a_guest_saves_and_the_guest_answers(monkeypatch) ->
                 guest["id"],
             )
             assert note[0]["note"] == "asked twice"
-            # A17: retract the name; a guest with an answer is never deleted.
             retracted = await respondents.patch(s["id"], guest["id"], {"name": "", "notes": None}, ids.lead)
             assert retracted["name"] == "Respondent"
             with pytest.raises(HTTPException) as held:
@@ -92,7 +77,6 @@ def test_registering_a_guest_moves_their_rows_in_one_transaction(monkeypatch) ->
                 {"respondentId": guest, "questionLineageId": d1, "text": "Indigo", "sessionId": s["id"]},
                 {"artisanId": ids.artisans[1], "questionLineageId": d1, "text": "Madder", "sessionId": s["id"]},
             ), ids.lead)
-            # The artisan already answered D1 elsewhere: nothing moves.
             other, _ = await sessions.create_session(session_create(ids, ids.artisans[1:2]), ids.lead)
             await answers.put_answers(_put({"artisanId": ids.artisans[1], "questionLineageId": d1, "text": "Madder", "sessionId": other["id"]}), ids.lead)
             with pytest.raises(HTTPException) as clash:
@@ -100,7 +84,6 @@ def test_registering_a_guest_moves_their_rows_in_one_transaction(monkeypatch) ->
             assert _code(clash) == "RESPONDENT_HAS_ROWS"
             still = await client.query_raw('SELECT count(*) AS n FROM "QuestionnaireAnswer" WHERE "respondentId" = $1', guest)
             assert int(still[0]["n"]) == 1
-            # A fresh artisan takes them all.
             await answers.put_answers(_put({"respondentId": guest, "questionLineageId": d2, "text": "Teak", "sessionId": s["id"]}), ids.lead)
             done = await respondents.register(guest, ids.artisans[2], ids.lead)
             assert done["artisanId"] == ids.artisans[2]
@@ -119,7 +102,6 @@ def test_registering_a_guest_moves_their_rows_in_one_transaction(monkeypatch) ->
     run(go())
 
 
-# ── the one answer-lock rule ──────────────────────────────────────────────────────────────────
 def test_the_lock_refuses_others_per_item_and_the_guests_answers_too(monkeypatch) -> None:
     from app.questionnaire import answers, sessions
 
@@ -157,7 +139,6 @@ def test_the_lock_refuses_others_per_item_and_the_guests_answers_too(monkeypatch
     run(go())
 
 
-# ── restorable soft delete of sessions ────────────────────────────────────────────────────────
 def test_a_session_with_recordings_is_soft_deleted_and_restored_by_a_content_admin(monkeypatch) -> None:
     from app.questionnaire import answers, coverage, sessions
 
@@ -195,7 +176,6 @@ def test_a_session_with_recordings_is_soft_deleted_and_restored_by_a_content_adm
     run(go())
 
 
-# ── typed or recorded, either counts; recording preferred (amendment 2, point 4) ──────────────
 def test_typed_answers_cover_a_question_and_recordings_are_preferred(monkeypatch) -> None:
     from app.questionnaire import answers, coverage, record, sessions
     from app.questionnaire.schemas import CoverageCheckRequest
@@ -261,7 +241,6 @@ def test_finish_counts_required_questions_and_never_blocks(monkeypatch) -> None:
     run(go())
 
 
-# ── bindings, type defaults and the form resolution (amendment 2, point 2) ────────────────────
 def test_the_form_resolution_and_the_workshop_mirror(monkeypatch) -> None:
     from app.questionnaire import bindings
 
@@ -273,7 +252,6 @@ def test_the_form_resolution_and_the_workshop_mirror(monkeypatch) -> None:
                                      second, f"Market {ids.tag}")
             first = await bindings.resolve_for_workshop(workshop_id=ids.workshop, client=client)
             assert first["reason"] in ("GLOBAL_DEFAULT", "PICKER")
-            # The old admin route's column binds as primary (the mirror trigger).
             await client.execute_raw('UPDATE "Workshop" SET "questionnaireId" = $1 WHERE "id" = $2', ids.q, ids.workshop)
             out = await bindings.resolve_for_workshop(workshop_id=ids.workshop, client=client)
             assert (out["questionnaireId"], out["reason"]) == (ids.q, "PRIMARY_BINDING")
@@ -288,8 +266,6 @@ def test_the_form_resolution_and_the_workshop_mirror(monkeypatch) -> None:
             prim = await client.query_raw('SELECT count(*) AS n FROM "QuestionnaireBinding" WHERE "workshopId" = $1 AND "isPrimary"', ids.workshop)
             assert int(prim[0]["n"]) == 1, "one primary per workshop"
             assert (await bindings.resolve_for_workshop(workshop_id=ids.workshop, explicit=ids.q, client=client))["reason"] == "EXPLICIT"
-            # Unbound: the workshop type's default comes before the global default.
-            # The first form stayed bound, no longer primary: it would be the workshop's only binding.
             assert (await bindings.resolve_for_workshop(workshop_id=ids.workshop, client=client))["reason"] == "PRIMARY_BINDING"
             await bindings.set_bindings(second, [], ids.admin)
             assert (await bindings.resolve_for_workshop(workshop_id=ids.workshop, client=client))["reason"] == "ONLY_BINDING"

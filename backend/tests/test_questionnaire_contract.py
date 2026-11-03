@@ -1,7 +1,3 @@
-"""The frozen contract (BUILD_PLAN section 1): every example in ``shared/questionnaire-contract.json``
-validates against the Pydantic model of the same name, every route exists with its method, and the
-error codes are the closed UPPER_SNAKE list."""
-
 from __future__ import annotations
 
 import json
@@ -28,7 +24,6 @@ def test_every_route_exists_with_its_method() -> None:
     from app.api.router import api_router
 
     have: set[tuple[str, str]] = set()
-    # iter_route_contexts, not .routes: since FastAPI 0.137 .routes holds one wrapper per include.
     for route in iter_route_contexts(api_router.routes):
         for method in getattr(route, "methods", set()) or set():
             have.add((method, re.sub(r"\{[^}]+\}", "{}", route.path)))

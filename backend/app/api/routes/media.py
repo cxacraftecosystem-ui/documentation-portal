@@ -91,60 +91,13 @@ from app.services.workshop_access import (
     stamp_workshop_submission,
 )
 
-# S3 multipart part size. >= 5 MiB (S3 minimum for all but the last part); 16 MiB keeps the part
-# count low for large videos while staying small enough to retry a single part cheaply.
 MULTIPART_PART_SIZE = 16 * 1024 * 1024
 
-# ---------------------------------------------------------------------------------------------
-# THE TWO INLINE-UPLOAD CEILINGS, AND WHY THEY ARE AN ORDER OF MAGNITUDE APART — A30-10
-# ---------------------------------------------------------------------------------------------
-#
-# These are the ONLY two routes in this file that take a file body inline; everything else on
-# /media is presigned straight to S3 precisely so the t3.micro never holds the bytes. Both used to
-# hand their ``UploadFile`` to a shim in ``app/services/ai.py`` whose first line was
-# ``content = await file.read()`` — read-to-EOF — so the ceiling each route believed in was applied
-# one line AFTER the entire body had been materialised as one contiguous ``bytes`` in the heap.
-# Both shims are now deleted (see the block comments left in their place at ai.py) and both routes
-# read through ``services/uploads.read_upload_bounded``, which counts the bytes as it copies them
-# and refuses the moment the running total passes the number below. The peak this process can ever
-# be holding for one of these requests is the ceiling plus one 1 MiB chunk, whatever the caller
-# actually sent.
-#
-# A SINGLE SHARED NUMBER WOULD BE WRONG IN BOTH DIRECTIONS, which is the whole reason there are two
-# constants here rather than one middleware:
-#
-#   * A GRID-SHEET PHOTOGRAPH is one still from a phone camera, pointed at a sheet of squared paper
-#     with an object on it. 8 MB is a generous full-resolution JPEG and matches the questionnaire
-#     workbook's ceiling (``WORKBOOK_MAX_UPLOAD_BYTES``, routes/questionnaire.py) so the two admin
-#     doors refuse at the same size. Anything much larger is a video, a burst, or the whole
-#     workbench — none of which measures better than the sheet alone, which is what the remedy
-#     sentence at the call site says.
-#
-#   * A DICTATION CLIP is a whole field answer spoken into a handset, and 25 MB is about twenty
-#     minutes of the compressed audio the capture screens record. It is deliberately the largest
-#     thing this API accepts inline and it is still not the route for a long recording: a full
-#     interview belongs in workshop audio, which is presigned to S3 and transcribed by the queue in
-#     the background, and the remedy sentence at that call site names it. Raising this number is
-#     not the fix for "my recording was refused"; that route is.
-#
-# NEITHER NUMBER BOUNDS THE NETWORK OR THE DISK. The framework has already parsed the multipart
-# form and spooled it before either route function is entered — see the correction in
-# ``services/uploads``'s module docstring. What refuses an oversized body before this process sees
-# it at all is ``client_max_body_size 200M`` on the nginx site (infra/terraform/user_data.sh:46).
-# These two constants bound the HEAP, and changing them changes nothing about what the box accepts.
 MEASUREMENT_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 DICTATION_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 router = APIRouter(prefix="/media", tags=["media"])
 
-# ── QUESTIONNAIRE CHIPS AND FILTERS ON THE MEDIA LIST (owner, 31 Oct 2026) ────────────────────
-# A questionnaire take listed here carries ``questionnaireChips``: the same chips the session
-# screens draw (section or question, form, artisans, dates, workshop, language, duration), from
-# ``app/questionnaire/chips.for_media`` in a fixed number of reads for the whole page. The list also
-# takes the shared filters (``app/questionnaire/filters.py``) for questionnaire takes: form,
-# section or question, artisans, researcher, workshop, kind, source, transcript and language. The
-# media list's own ``dateFrom``/``dateTo`` (upload day), ``designWorkshopId`` and ``search`` keep
-# their meaning; ``search`` also finds a take by what its chips say.
 _MEDIA_OWN_FILTERS = ("q", "dateFrom", "dateTo", "designWorkshopId")
 
 
@@ -166,9 +119,6 @@ async def _with_questionnaire_chips(payload: Any) -> Any:
 
 
 async def _with_transcript_previews(rows: list[Any]) -> None:
-    """``transcriptPreview`` (0.0.6, transcript contract ``TranscriptPreview``) on every row whose
-    transcript the reader may see: plain text under speaker labels, so no list renders markdown.
-    Two reads for the whole page. A row whose ``transcriptText`` was withheld gets None."""
     from app.services import transcript_pipeline
 
     texts = {
@@ -186,8 +136,6 @@ async def _with_transcript_previews(rows: list[Any]) -> None:
             r["transcriptPreview"] = found.get(str(r.get("id")))
 
 
-# "the caller did not say which uploaders' URLs may travel". Distinct from None, which MEANS "all of
-# them" — see ``records.public_encode``.
 _UNSET_URLS = object()
 
 INCLUDE = {
@@ -203,14 +151,6 @@ INCLUDE = {
 
 
 async def _interview_labels(rows: list[Any]) -> dict[str, tuple[str, str]]:
-    """(RecordType, RecordName) per interview id, for the questionnaire clips in one response.
-
-    A questionnaire recording is named after the artisan it is WITH, and that name is two hops from
-    the media row — through the interview, through its artisan links. Resolved in one batched query
-    for the whole page instead of widening ``INCLUDE``: nesting the interview and its artisans into
-    every media row would triple the size of a hundred-row list response, on a screen that only ever
-    wanted the name.
-    """
     ids = sorted({r.questionnaireInterviewId for r in rows if r.questionnaireInterviewId})
     if not ids:
         return {}
@@ -221,24 +161,6 @@ async def _interview_labels(rows: list[Any]) -> dict[str, tuple[str, str]]:
 
 
 async def _public(rows: Any, viewer: Any = None, *, media_urls: Any = _UNSET_URLS) -> Any:
-    """``public_encode`` plus the derived display name for every media row it carries.
-
-    ``originalFilename`` stays exactly as uploaded — it is the only handle a researcher has for
-    matching a file against their own copy — and ``displayFilename`` is added beside it: the same
-    ``{RecordType}-{RecordName}-{Descriptor}-{stamp}`` name the data browser and the export use, so
-    a clip reads the same in the app list as it does in a downloaded zip. Nothing in storage moves.
-
-    THE ``url`` IS NOT ALWAYS PRESENT, and this is the one file where that matters most. Reading the
-    repository is open to every signed-in account, but a ``MediaFile.url`` is a fetchable object URL —
-    it IS the file — so it travels only to callers who may take that uploader's data. Every row still
-    travels: name, type, caption, transcript, parent record, uploader. ``media_url_owners`` resolves
-    the grant set (one query, and only below professor) so a grantee who may download a researcher's
-    data can also play their recordings. Callers that pass no ``viewer`` get the cheap safe default and
-    no URLs at all, which is correct for every internal use of this helper.
-
-    ``media_urls`` is for the one caller that has an uploader ID but no user object —
-    ``_finish_pending_media``, which is handing somebody back the file they have just uploaded.
-    """
     many = isinstance(rows, list)
     items = list(rows) if many else [rows]
     labels = await _interview_labels([r for r in items if r is not None])
@@ -261,7 +183,7 @@ V2_TYPE = "questionnaire_session"
 async def _body(request: Request) -> dict[str, Any]:
     try:
         body = await request.json()
-    except Exception:  # noqa: BLE001 - not JSON: the old route's 422
+    except Exception:  # noqa: BLE001
         raise RequestValidationError([{"type": "json_invalid", "loc": ("body",), "msg": "JSON body expected", "input": None}]) from None
     if not isinstance(body, dict):
         raise RequestValidationError([{"type": "dict_type", "loc": ("body",), "msg": "An object is expected", "input": body}])
@@ -269,7 +191,6 @@ async def _body(request: Request) -> dict[str, Any]:
 
 
 def _old(model: Any, body: dict[str, Any]) -> Any:
-    """Validate an old-shape body with the old route's error shape (FastAPI's 422 list)."""
     try:
         return model.model_validate(body)
     except ValidationError as exc:
@@ -294,9 +215,6 @@ async def presign_media_upload(
     request: Request,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Presign one upload. ``linkedRecordType: "questionnaire_session"`` is the v2 shape (DESIGN
-    5.5): the server writes an upload intent, mints the S3 leaf and signs the sha256; every other
-    body is the unchanged old route."""
     body = await _body(request)
     if str(body.get("linkedRecordType") or "").lower() == V2_TYPE:
         return await v2_recordings.presign(await _v2(V2PresignRequest, body), current_user)
@@ -314,7 +232,6 @@ async def presign_media_upload(
 
 
 def _assert_owns_object(object_key: str, current_user: Any) -> None:
-    """Multipart object keys live under media/<user_id>/ — refuse to touch another user's upload."""
     if not object_key.startswith(f"media/{current_user.id}/"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only manage your own uploads")
 
@@ -324,12 +241,6 @@ async def create_multipart(
     request: Request,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Start a multipart (chunked) upload for a large file. The client uploads each part straight to
-    S3 via the presigned URLs from /multipart/presign-parts, then calls /multipart/complete; S3
-    stitches the parts into a single object.
-
-    A v2 questionnaire clip (``linkedRecordType: "questionnaire_session"``) reuses the open upload
-    of its intent and lists the parts already done, so a client resumes after a drop."""
     body = await _body(request)
     if str(body.get("linkedRecordType") or "").lower() == V2_TYPE:
         return await v2_recordings.multipart_create(await _v2(V2MultipartCreateRequest, body), current_user)
@@ -385,8 +296,6 @@ async def complete_multipart(
 
 @router.get("/uploads/{client_clip_key}")
 async def upload_state(client_clip_key: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Questionnaire v2: the parts already uploaded for a clip, so a client can resume after a
-    restart. 404 when no intent exists."""
     from app.api.routes.questionnaire_v2 import require_v2
 
     await require_v2()
@@ -405,37 +314,10 @@ async def abort_multipart(
 
 @router.post("/transcribe")
 async def transcribe_media_audio(
-    # THE REQUEST IS BOUND ONLY SO THE CEILING CAN BE CHECKED ON ``Content-Length`` BEFORE THE
-    # SPOOLED BODY IS COPIED INTO THE HEAP. Nothing else in this handler reads it. Declaring it
-    # costs the route nothing — FastAPI injects it — and skips a pointless 25 MB copy on the
-    # ordinary honest mistake of attaching a video to a dictation field.
     request: Request,
     file: UploadFile = File(...),
-    # NAMED, not discarded. This was `_: Any = Depends(get_current_user)` — the dependency ran, so
-    # the route was authenticated, but the caller's identity went nowhere. It is needed now: the
-    # person at the microphone is who a personal provider key belongs to, and a transcription that
-    # cannot say whose it is has to be billed to the organisation by default.
-    #
-    # ADMINS ONLY (the one consent store, 19 Oct 2026). The clip names no recording, interview or
-    # artisan, so there is no consent to ask about it, and an open door here would let anyone the
-    # gate refuses on a stored recording download it and post it here to get the words back. No web
-    # or Android screen calls this route (both dictation controls are on-device); its one caller is
-    # ``scripts/live-smoke.ps1``, signed in as the master admin. designer-portal's twin is admin-only
-    # for the same reason. Pinned by ``tests/test_inline_transcribe_consent.py``.
     current_user: Any = Depends(require_admin),
 ) -> dict[str, Any]:
-    """Transcribe one dictated clip inline, bounded at ``DICTATION_MAX_UPLOAD_BYTES``. Admins only:
-    the clip carries no subject the one consent store could be asked about.
-
-    THE REMEDY IS A LITERAL HERE RATHER THAN AN IMPORT, and that is the instruction
-    ``tests/test_upload_bounds.py`` leaves with ``DICTATION_REMEDY``: the sentence belongs to THIS
-    route, and a shared constant would invite a third route to reach for a remedy that names a
-    fallback it does not have. It is also the one piece of advice a researcher standing in a
-    courtyard can act on — "send a smaller file" is not an instruction when what they are holding
-    is a forty-minute interview, and workshop audio is the route that accepts it.
-    """
-    # THE PAUSE (owner correction (d)): while it is set no audio leaves the server, dictation included.
-    # Checked before the body is read, so a paused request costs nothing.
     if await transcription.is_paused():
         v2_common.fail("TRANSCRIPTION_PAUSED", "Transcription is paused. Type the answer for now.")
     content = await read_upload_bounded(
@@ -448,8 +330,6 @@ async def transcribe_media_audio(
             "background."
         ),
     )
-    # The owner's hold (18 Oct 2026): while paused, nothing leaves for a provider. UNAVAILABLE is
-    # what both clients already show calmly, and the web falls back to the browser's own speech.
     if await load_transcription_paused():
         return transcription_jobs.paused_result()
     return await transcribe_audio_bytes(
@@ -463,44 +343,11 @@ async def transcribe_media_audio(
 
 @router.post("/analyze-measurement")
 async def analyze_media_measurement(
-    request: Request,  # bound for the Content-Length pre-check only — see /transcribe above
+    request: Request,
     file: UploadFile = File(...),
     dimension: str | None = Query(default=None),
     _: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Analyse a grid-sheet photo and estimate a measurement. When ``dimension`` is one of
-    length/breadth/height the result carries a single ``valueInches``; otherwise it returns the
-    legacy length+breadth pair.
-
-    Bounded at ``MEASUREMENT_MAX_UPLOAD_BYTES``. The remedy names the action that actually clears
-    the refusal from a phone camera — photograph the sheet alone — because a smaller picture of the
-    whole workbench measures no better than the large one did.
-
-    ── THE ANSWER SAYS WHAT PRODUCED IT, AND THE NUMBER IS A PROPOSAL ───────────────────────────────
-
-    The result is handed back verbatim from ``analyze_measurement_image_bytes``, which now composes
-    ``method`` / ``provider`` / ``modelId`` / ``selfReportedConfidence`` /
-    ``confidenceIsCalibrated`` / ``requiresAcceptance`` / ``methodMarker`` beside the unchanged
-    ``analysis`` block. Three things a client author needs to know about those keys:
-
-    * ``requiresAcceptance`` is ``true`` on EVERY response this endpoint can produce, the failures
-      included. A client that honours it shows the number as a proposal with a button and writes
-      nothing into form state until somebody presses it. Until that landed, both clients auto-filled
-      a form field from a model's estimate and ``records.merge_field_provenance`` stamped the result
-      with the name of whoever pressed Save — the record asserted that a named human had measured a
-      machine's guess.
-    * ``confidenceIsCalibrated`` is hard ``false`` and no code path sets it true. The confidence
-      beside it is the model's claim about itself; nothing in this repository has measured it against
-      a tape. The flag exists so it can never be mistaken for ``photoMeasure``'s ``uncertainty``,
-      which IS a propagated error bar and travels on this same wire.
-    * ``methodMarker`` is what the client echoes back VERBATIM on the product/tool save, under
-      ``measurementMethods``, and only while the box still holds the exact string this route wrote.
-      ``services/measurement_provenance`` holds the acceptance rule and the whole argument.
-
-    PURELY ADDITIVE FOR EVERY BUILD ALREADY IN THE FIELD: ``analysis`` is untouched, and
-    ``ApiClient.kt`` decodes with ``ignoreUnknownKeys = true``, so a handset that has never heard of
-    ``methodMarker`` ignores it rather than failing to read the response at all.
-    """
     content = await read_upload_bounded(
         file,
         MEASUREMENT_MAX_UPLOAD_BYTES,
@@ -518,14 +365,10 @@ async def analyze_media_measurement(
 
 
 async def _finish_pending_media(existing: Any, processing_requests: list[str] | None, user_id: str, settings: Any) -> dict[str, Any]:
-    """Return an already-created media row for a retried /complete, enqueuing its processing jobs once
-    if the original request died before it could (so a retry never drops transcription)."""
     processing_requests = await transcribe_choice.resolve_retry(existing, processing_requests)
     if processing_requests and not (existing.processingJobs or []):
         await enqueue_media_processing_jobs(existing, processing_requests, user_id, settings)
         existing = await db.mediafile.find_unique(where={"id": existing.id}, include=INCLUDE)
-    # The uploader's own file, handed straight back to them: this function has their id rather than
-    # their user row, so the entitlement is stated directly instead of resolved from a viewer.
     return await _public(existing, media_urls={user_id})
 
 
@@ -534,16 +377,6 @@ async def complete_media_upload(
     request: Request,
     current_user: Any = Depends(get_current_user),
 ) -> Any:
-    """Register an uploaded object.
-
-    ``linkedRecordType: "questionnaire_session"``: the v2 /complete (DESIGN 5.5): atomic, idempotent
-    on ``clientClipKey`` then ``objectKey``, never refused on coverage, 201 the first time and 200 on
-    a replay, and the stored answer carries no signed URL.
-
-    Every other body is the old route, unchanged. With QUESTIONNAIRE_V2 on, an old build's clip
-    (``linkedRecordType: "questionnaire"``) also gets a v2 recording through the legacy resolver (the
-    shim, DESIGN 5.6); its response keeps the old shape and never a new error code.
-    """
     body = await _body(request)
     if str(body.get("linkedRecordType") or "").lower() == V2_TYPE:
         recording, created = await v2_recordings.complete(await _v2(V2CompleteRequest, body), current_user)
@@ -558,11 +391,6 @@ async def _complete_old(payload: MediaCompleteRequest, current_user: Any) -> dic
     settings = get_settings()
     processing_requests = payload.processingRequests
 
-    # Idempotency. The client retries /complete when the first call is slow or times out (504
-    # resilience), but that first call may already have created the row. ``objectKey`` is unique and
-    # embeds the uploader id + a per-upload uuid, so a row already present for this key IS this same
-    # upload — return it instead of failing with a 500 UniqueViolationError (the bug users hit).
-    # The replay is only honoured for the row's own uploader; anyone else gets a 403.
     existing = await db.mediafile.find_unique(where={"objectKey": payload.objectKey}, include=INCLUDE)
     if existing is not None:
         if getattr(existing, "uploadedById", None) != current_user.id:
@@ -572,11 +400,8 @@ async def _complete_old(payload: MediaCompleteRequest, current_user: Any) -> dic
             )
         return await _finish_pending_media(existing, processing_requests, current_user.id, settings)
 
-    # New row: the staged object must live under the caller's own media/<user_id>/ prefix, so a user
-    # cannot register a media row over another user's staged object.
     _assert_owns_object(payload.objectKey, current_user)
 
-    # A queued write naming an artisan merged away since lands on the survivor (services/artisan_merge).
     await redirect_merged_artisans(payload)
     data = clean_data(payload.model_dump(exclude={"processingRequests"}))
     data = await attach_location(data)
@@ -586,39 +411,16 @@ async def _complete_old(payload: MediaCompleteRequest, current_user: Any) -> dic
     relation_data = media_relation_data(data.get("linkedRecordType"), data.get("linkedRecordId"))
     parent: Any = None
     if relation_data:
-        # The link maps to a typed FK — verify the target exists (mirrors /relink) so a bad id is a
-        # clean 404 instead of a ForeignKeyViolation 500 at create time. The row is KEPT rather than
-        # discarded: its ``workshopId`` is what this file inherits (see below).
         delegate = _relink_delegate(str(data["linkedRecordType"]).lower())
         parent = await delegate.find_unique(where={"id": data["linkedRecordId"]}) if delegate else None
         if parent is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Linked record not found")
     data.update(relation_data)
-    # THE PARENTS WITH NO TYPED FOREIGN KEY still have a workshop to inherit, and this is where they get
-    # it. ``media_relation_data`` only knows the six link types that have a column on MediaFile, but the
-    # app sends more than six: ProcessForm uploads with ``process`` and ``processstep``, and the misc-media
-    # picker offers ``process`` and ``media`` as well. Those land carrying only the string tags — so
-    # without this lookup a whole record type's attachments keep arriving with a NULL workshop, which is
-    # the exact condition this change exists to end.
-    #
-    # It is a SEPARATE, non-fatal read on purpose. The 404 above stays where it is: for a link type with
-    # no column, a bad id has never been an error, and turning it into one now would break a client the
-    # moment it referenced something deleted.
     if parent is None:
         parent = await _tagged_parent(data.get("linkedRecordType"), data.get("linkedRecordId"))
 
-    # A media upload attached to a workshop IS a workshop submission: MediaFile carries both
-    # workshopId and status, and the review routes approve media exactly like any other record — so
-    # it has to pass the gate products.py applies, or an unassigned user can push files into a
-    # restricted workshop and a recording made long after the workshop ended is never flagged for
-    # admin approval. The effective workshop is whatever `relation_data` resolved (the /complete
-    # payload has no workshopId of its own; a "workshop"-tagged upload sets it from
-    # linkedRecordId), which is why this runs after the update above and before the metadata is
-    # Json-wrapped — stamp_workshop_submission writes a plain dict into extraMetadata.
     check = await enforce_workshop_submission(current_user, data.get("workshopId"))
     stamp_workshop_submission(data, check=check)
-    # The column already defaults to PENDING and the payload carries no status, so seed the key the
-    # pin acts on: a late upload must be pinned to PENDING even if a client ever starts sending one.
     data.setdefault("status", "PENDING")
     pin_pending_if_late(data, current_user, check=check)
 
@@ -628,7 +430,6 @@ async def _complete_old(payload: MediaCompleteRequest, current_user: Any) -> dic
     try:
         created = await db.mediafile.create(data=data, include=INCLUDE)
     except UniqueViolationError:
-        # Lost a race with a concurrent retry that inserted the row first — return that one.
         racer = await db.mediafile.find_unique(where={"objectKey": payload.objectKey}, include=INCLUDE)
         if racer is not None:
             return await _finish_pending_media(racer, processing_requests, current_user.id, settings)
@@ -642,7 +443,7 @@ async def _complete_old(payload: MediaCompleteRequest, current_user: Any) -> dic
 @router.get("")
 async def list_media(
     current_user: Any = Depends(get_current_user),
-    request: Request = None,  # type: ignore[assignment]  # FastAPI injects it; a direct call passes none
+    request: Request = None,  # type: ignore[assignment]
     search: str | None = None,
     mediaType: str | None = None,
     linkedRecordType: str | None = None,
@@ -650,15 +451,12 @@ async def list_media(
     statusFilter: str | None = None,
     dateFrom: datetime | None = None,
     dateTo: datetime | None = None,
-    # WHOSE UPLOADS — the media equivalent of ``createdBy`` on the record lists. Same reason: with
-    # reading open, "my uploads" is a question, not a by-product of the row filter.
     uploadedBy: str | None = None,
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
     page, page_size, skip = normalize_pagination(page, pageSize)
     where: dict[str, Any] = {}
-    # Visibility is AND-composed so the search OR (assigned below) can never overwrite it.
     vis = await viewable_where(current_user, owner_field="uploadedById")
     if vis:
         where["AND"] = [vis]
@@ -683,7 +481,6 @@ async def list_media(
     if uploadedBy:
         where["uploadedById"] = uploadedBy
     add_date_range(where, "createdAt", dateFrom, dateTo)
-    # The live-media filter: a soft-removed questionnaire take is invisible here (and restorable).
     where = live_media_where(where)
     total = await db.mediafile.count(where=where)
     items = await db.mediafile.find_many(
@@ -696,10 +493,6 @@ async def list_media(
     return await _with_questionnaire_chips(page_payload(await _public(items, current_user), total, page, page_size))
 
 
-# linkedRecordType -> the typed foreign-key column that should point at the parent record. When a
-# parent record is deleted its media FK is SET NULL (so the file and its S3 object are NOT lost), but
-# these string tag columns survive, leaving the row an "orphan": still tagged with a type/id, no live
-# parent. We surface and re-link those instead of letting the recordings disappear from every screen.
 ORPHAN_FK_FIELDS = {
     "artisan": "artisanId",
     "craft": "craftId",
@@ -713,19 +506,6 @@ ORPHAN_FK_FIELDS = {
 
 
 async def _tagged_parent(record_type: str | None, record_id: str | None) -> Any:
-    """The record a STRING-TAGGED upload hangs off, for workshop inheritance only. Never raises.
-
-    ``media_relation_data`` covers the six link types that have a typed column on MediaFile. The clients
-    send more: ``process`` and ``processstep`` from the process form, ``media`` from the misc-media
-    picker. Those rows carry only ``linkedRecordType``/``linkedRecordId``, so the only way to read their
-    parent's workshop is to look it up by the tag.
-
-    A ProcessStep has no workshop of its own — it is a step inside a Process — so its PARENT for this
-    purpose is that Process, which is the same one hop the process form itself makes.
-
-    Every failure answers None. This runs only to fill in a blank, so a missing row, a tag this server
-    has never heard of, or a database hiccup must all leave the upload alone rather than fail it.
-    """
     normalized = (record_type or "").strip().lower()
     if not normalized or not record_id:
         return None
@@ -736,57 +516,23 @@ async def _tagged_parent(record_type: str | None, record_id: str | None) -> Any:
             return await db.process.find_unique(where={"id": process_id}) if process_id else None
         delegate = {
             "process": db.process,
-            # The five types that DO have a typed column are handled by the caller's own lookup; they
-            # are repeated here only so a future caller of this helper is not surprised by a gap.
             "artisan": db.artisan,
             "craft": db.craft,
             "product": db.productdocumentation,
             "tool": db.tooldocumentation,
             "questionnaire": db.questionnaireinterview,
             "questionnaireinterview": db.questionnaireinterview,
-            # A misc file linked to another misc file: the parent is itself a MediaFile, and its own
-            # workshop (inherited or chosen) is the honest answer for the child.
             "media": db.mediafile,
             "misc": db.mediafile,
         }.get(normalized)
         return await delegate.find_unique(where={"id": record_id}) if delegate else None
-    except Exception:  # noqa: BLE001 — see the docstring: this may only ever fill in a blank.
+    except Exception:  # noqa: BLE001
         return None
 
 
 def inherit_parent_workshop(
     data: dict[str, Any], parent: Any, *, replace: bool = False
 ) -> dict[str, Any]:
-    """Give a media row the workshop its parent record already names. Mutates and returns ``data``.
-
-    WHY MEDIA NEEDS THIS AND THE RECORD TYPES DO NOT. Every other type has a workshop PICKER on its
-    form, so a researcher answers the question once and the answer is on the row. Media has no such
-    form — a clip is captured inside an interview, a photo inside a product — and ``/media/complete``
-    carries no ``workshopId`` of its own. ``media_relation_data`` sets ``workshopId`` for exactly one
-    upload shape, the one tagged ``workshop``, where the workshop IS the parent. Every other upload
-    landed with a NULL workshop, which is how 924 of 925 files in the live corpus came to be invisible
-    under every workshop scope while their parent records were perfectly well scoped.
-
-    ON CREATE IT ONLY FILLS A BLANK. An explicit ``workshopId`` in the payload, or the one
-    ``media_relation_data`` derived from a ``workshop``-tagged upload, is the caller's answer and wins.
-    ``replace=True`` is for RE-LINKING, where the parent is not filling a gap but changing: the file has
-    been moved under a different record, the parent is the authority on which workshop a file belongs
-    to, so a workshop inherited from the record it used to hang off is stale and must not survive the
-    move. It still never writes a NULL over a real id — a new parent with no workshop of its own leaves
-    the existing value alone, because "I do not know" is not an answer that should erase one.
-
-    IT RUNS AFTER THE SUBMISSION GATE, and that is deliberate rather than an ordering accident.
-    ``enforce_workshop_submission`` asks "may THIS user submit to THAT workshop, and is the window
-    still open" — a question about a submission somebody is making. Inheriting a parent's workshop is
-    not a submission: the parent already passed that gate when it was created, and the clip is being
-    filed under it, not offered to the workshop afresh. Running the gate on the inherited id would
-    block a researcher from adding a photo to a colleague's product at a workshop they were not
-    assigned to, and would flag every clip of an interview that was itself a late submission as a
-    second late submission. Both are the parent's status to carry, not the file's.
-
-    A parent with no workshop of its own contributes nothing, so nothing is guessed here: closing that
-    gap is ``services/workshop_inference``'s job, which has evidence this function does not.
-    """
     if data.get("workshopId") and not replace:
         return data
     inherited = getattr(parent, "workshopId", None) if parent is not None else None
@@ -796,7 +542,6 @@ def inherit_parent_workshop(
 
 
 def _relink_delegate(record_type: str) -> Any:
-    """The Prisma delegate for a re-link target record type (or None if unsupported)."""
     return {
         "artisan": db.artisan,
         "craft": db.craft,
@@ -806,8 +551,6 @@ def _relink_delegate(record_type: str) -> Any:
         "questionnaire": db.questionnaireinterview,
         "questionnaireinterview": db.questionnaireinterview,
         "questionnaire_session": db.questionnaireinterview,
-        # Miscellaneous media can be linked to another miscellaneous media item (no typed FK; the
-        # generic linkedRecordType/linkedRecordId tags carry the association).
         "media": db.mediafile,
         "misc": db.mediafile,
     }.get(record_type)
@@ -815,14 +558,6 @@ def _relink_delegate(record_type: str) -> Any:
 
 @router.get("/orphans")
 async def list_orphan_media(current_user: Any = Depends(require_content_admin)) -> list[dict[str, Any]]:
-    """Admin-only recovery list: media still tagged to a record type/id whose parent no longer exists
-    (the typed FK was nulled when the parent was deleted). The file is intact in object storage; this
-    lets an admin see it again — and re-link it to a live record via ``/media/{id}/relink``.
-
-    The caller is bound rather than discarded so the URLs come back: this is a recovery screen, an
-    orphan's only remaining handle IS its file, and ``_public`` withholds the URL from a caller it was
-    not given. An admin outranks the entitlement, so nothing here is widened — it is simply not
-    accidentally narrowed."""
     conditions = [
         {"linkedRecordType": rec_type, "linkedRecordId": {"not": None}, fk: None}
         for rec_type, fk in ORPHAN_FK_FIELDS.items()
@@ -841,11 +576,7 @@ async def relink_media(
     payload: MediaRelinkRequest,
     current_user: Any = Depends(require_content_admin),
 ) -> dict[str, Any]:
-    """Re-attach an orphaned (or mis-linked) media file to an existing record. Validates the target
-    record exists, then sets both the string tag columns and the typed foreign key so it reappears
-    under that record everywhere."""
     media = await require_record(db.mediafile, media_id)
-    # A merged artisan id (an offline queue, a stale picker) lands on the record it was merged into.
     await redirect_merged_artisans(payload)
     rec_type = payload.linkedRecordType.lower()
     delegate = _relink_delegate(rec_type)
@@ -856,9 +587,6 @@ async def relink_media(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target record not found")
     take = await db.questionnairerecording.find_unique(where={"mediaFileId": media.id})
     if take is not None:
-        # A QUESTIONNAIRE TAKE MOVES THROUGH THE RECORDING SERVICE (audit M10): the move is an event,
-        # its subjects become participants there and both titles are regenerated. It never leaves the
-        # questionnaire, where coverage would silently lose it.
         if rec_type not in ("questionnaire", "questionnaireinterview", "questionnaire_session"):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -872,12 +600,6 @@ async def relink_media(
         "linkedRecordId": payload.linkedRecordId,
     }
     data.update(media_relation_data(rec_type, payload.linkedRecordId))
-    # Re-linking moves the file under a different record, so the workshop moves with it — otherwise an
-    # orphan recovered onto an interview at a workshop stays invisible under that workshop's scope,
-    # which is the condition this recovery screen exists to end, and a file moved BETWEEN workshops
-    # keeps counting towards the one it left. ``replace=True`` because the old value was the old
-    # parent's answer to a question the new parent now answers; a new parent with no workshop still
-    # leaves the existing id alone.
     inherit_parent_workshop(data, target, replace=True)
     updated = await db.mediafile.update(where={"id": media.id}, data=data, include=INCLUDE)
     return await _public(updated, current_user)
@@ -889,25 +611,12 @@ async def refine_media_transcript(
     payload: TranscriptRefineRequest,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Refine this media file's existing transcript into a clean interviewer/interviewee conversation
-    (Markdown), optionally translating it to English. On-demand and billable — the client warns the
-    user about extra cost before calling, and it is restricted to the uploader or an admin (the same
-    rule as replacing the transcript). Returns the refined text; it is not persisted, so each call
-    reflects the current transcript and the user stays in control of when the cost is incurred.
-
-    Declared before the ``GET /{media_id}`` catch-all so the ``{media_id}/refine-transcript`` path is
-    matched as this route, not swallowed by the single-segment id route.
-    """
     media = await require_record(db.mediafile, media_id)
     if not is_content_admin(current_user) and getattr(media, "uploadedById", None) != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only refine the transcript of media you uploaded",
         )
-    # An AI refinement or translation is an outside send: the one consent gate decides (DESIGN 3.11,
-    # the one consent store of 19 Oct 2026), exactly as the queue does. Files made on or before
-    # 18 Oct 2026 pass by the owner's attestation once its backfill has written their RECORDING rows;
-    # a refusal recorded after the attestation still stops them.
     verdict = await consent_gate.verdict(media_id)
     if verdict != consent_gate.ALLOW:
         from app.questionnaire.common import fail
@@ -922,11 +631,6 @@ async def transcribe_media_now_route(
     media_id: str,
     current_user: Any = Depends(require_content_admin),
 ) -> dict[str, Any]:
-    """Admin/master-admin: transcribe this audio file right now, applying the transcription mode set on
-    the settings page, and store the result — bypassing the queue and the off-peak window. Returns the
-    updated media row (its ``transcriptStatus``/``transcriptText`` reflect the outcome, including a
-    FAILED/UNAVAILABLE status when the AI key is missing or the call failed). Declared before
-    ``GET /{media_id}`` so the two-segment path resolves here."""
     media = await require_record(db.mediafile, media_id)
     if not transcribe_choice.transcribable(media):
         raise HTTPException(
@@ -936,10 +640,8 @@ async def transcribe_media_now_route(
     try:
         await transcribe_media_now(media, get_settings())
     except transcription_jobs.TranscriptionPaused as exc:
-        # The owner's hold (18 Oct 2026): "Transcribe now" bypasses the queue, never the pause.
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except recording_consent.ConsentRefused as exc:
-        # 409: the admin may press the button; the recording's consent does not permit the send.
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     updated = await db.mediafile.find_unique(where={"id": media_id}, include=INCLUDE)
     return await _public(updated, current_user)
@@ -951,36 +653,6 @@ async def set_media_transcript(
     payload: TranscriptUpdateRequest,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Replace a media file's stored transcript with approved text (e.g. an AI-refined transcript the
-    user accepted). Allowed for the uploader or an admin, mirroring the media-delete permission. Marks
-    the transcript COMPLETED and clears any prior error. Declared before ``GET /{media_id}`` so the
-    two-segment path resolves here.
-
-    IT IS ALSO WHERE THE EDITED FLAG IS SET, and this is the ONLY place in the codebase that sets it.
-    ``transcriptEditedAt`` / ``transcriptEditedById`` answer a question this table could not answer
-    before: a transcript a researcher had rewritten line by line and one that came straight off the
-    provider were byte-indistinguishable to every reader. Both are stamped from the SERVER clock and
-    the server-resolved caller — an edit stamp a client could choose is not an audit stamp — and
-    neither is on ``TranscriptUpdateRequest`` or ``MediaCompleteRequest``. Both request models are
-    ``extra="forbid"``, so an upload that tried to arrive pre-stamped as human-edited is refused
-    outright rather than believed.
-
-    ACCEPTING AN AI REFINEMENT ALSO STAMPS IT, AND THAT IS THE CONSERVATIVE ANSWER. This route is
-    reached both by a researcher who retyped a paragraph and by one who read a refined version and
-    pressed Accept. The second is still a person deciding these are the right words, and the flag
-    says "a human stands behind this text" rather than "a human typed every character". The opposite
-    default — stamping only what somebody retyped — would mark accepted text as the machine's own,
-    which is the assertion these columns exist to stop being made silently.
-
-    THE QUEUE NEVER CLEARS THE FLAG. ``services/media_queue`` writes ``transcriptText`` on every
-    provider result and touches neither column; if it ever blanked ``transcriptEditedAt``, a
-    researcher's corrections would be recorded as the machine's own words at the moment a later
-    refinement pass overwrote them. ``test_media_transcript_edit_stamp`` pins that absence.
-
-    NULL IS "NOT STATED" AND NEVER "NEVER EDITED": this route has been able to replace a transcript
-    since long before the columns existed, so rows written before migration 20260913120200 genuinely
-    do not say. A reader must render three states, which is why the flag travels as
-    ``transcriptEditedAt ? true : undefined`` and never as ``!!media.transcriptEditedAt``."""
     media = await require_record(db.mediafile, media_id)
     if not is_content_admin(current_user) and getattr(media, "uploadedById", None) != current_user.id:
         raise HTTPException(
@@ -993,17 +665,11 @@ async def set_media_transcript(
             "transcriptText": payload.text,
             "transcriptStatus": "COMPLETED",
             "transcriptError": None,
-            # Server clock and server-resolved identity — an edit stamp a client could choose is not
-            # an audit stamp. ``datetime.now(UTC)`` rather than a Prisma default because this column
-            # has no default: it must stay NULL for every row the queue writes, and only ever gain a
-            # value here.
             "transcriptEditedAt": datetime.now(UTC),
             "transcriptEditedById": current_user.id,
         },
         include=INCLUDE,
     )
-    # A new transcript re-queues its summary unless a researcher has edited the summary; then
-    # nothing is queued and GET /media/{id}/insights shows it as stale.
     if transcript_insights.enabled():
         await transcript_insights.enqueue_after_transcript(media.id)
     return await _public(updated, current_user)
@@ -1062,11 +728,6 @@ async def retry_media_processing_job(
 
 @router.delete("/object", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_staged_object(objectKey: str, current_user: Any = Depends(get_current_user)) -> None:
-    """Delete a staged S3 object that was pre-uploaded but never attached to a saved record.
-
-    Scoped to the caller's own ``media/<user_id>/`` prefix, and refuses to touch any object that is
-    already referenced by a MediaFile (those are deleted through the normal media delete route).
-    """
     if not objectKey.startswith(f"media/{current_user.id}/"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own staged uploads")
     existing = await db.mediafile.find_first(where={"objectKey": objectKey})
@@ -1087,27 +748,18 @@ async def get_media(media_id: str, current_user: Any = Depends(get_current_user)
 
 @router.delete("/{media_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_media(media_id: str, current_user: Any = Depends(get_current_user)) -> None:
-    """Remove a saved media file and (best-effort) its S3 object.
-
-    Content admins (``roles.CONTENT_ADMIN_ROLES``) only, since 2026-10-20: every other role adds and
-    edits and never deletes, so an uploader no longer removes their own file.
-    """
     assert_can_delete(current_user)
     media = await require_record(db.mediafile, media_id)
-    # A QUESTIONNAIRE TAKE IS NEVER HARD-DELETED FROM HERE (DESIGN 3.8): it is soft-removed through the
-    # recording service, restorable, and only a verified duplicate is ever purged.
     take = await db.questionnairerecording.find_unique(where={"mediaFileId": media_id})
     if take is not None:
         await v2_recordings.remove(take.id, current_user)
         return
     object_key = getattr(media, "objectKey", None)
     await db.mediafile.delete(where={"id": media_id})
-    # Drop the underlying object too, but only once no other MediaFile still references it, and never
-    # let a storage hiccup fail the request — the database row (the user-visible record) is gone.
     if object_key:
         still_referenced = await db.mediafile.find_first(where={"objectKey": object_key})
         if still_referenced is None:
             try:
                 await asyncio.to_thread(delete_object, object_key)
-            except Exception:  # noqa: BLE001 - best-effort storage cleanup
+            except Exception:  # noqa: BLE001
                 pass

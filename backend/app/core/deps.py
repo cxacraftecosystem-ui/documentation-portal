@@ -10,7 +10,7 @@ from starlette.requests import HTTPConnection
 from app.core.config import get_settings
 from app.core.db import db
 from app.core.security import CREDENTIAL_CLAIM, decode_access_token
-from app.core.roles import (  # noqa: F401 - re-exported: the routes import them from deps
+from app.core.roles import (  # noqa: F401
     CONTENT_ADMIN_ROLES,
     CONTENT_DELETE_REFUSAL,
     ROLE_LABELS,
@@ -41,73 +41,24 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def may_edit_lower_ranked_record(user: Any, creator_id: str | None) -> bool:
-    """``can_edit_others_record`` with the creator's role looked up. Costs one query, and only for a
-    Professor+ who is neither the record's author nor an admin — everyone else is refused before it."""
     if not creator_id or not has_rank(user, "PROFESSOR"):
         return False
     creator = await db.user.find_unique(where={"id": creator_id})
     return can_edit_others_record(user, get_value(creator, "role") if creator else None)
 
 
-# --- The authenticated-identity cache -------------------------------------------------------------
-#
-# WHY IT EXISTS. ``get_current_user`` runs on every authenticated request, and its one
-# ``find_unique`` is one of only three sequential database waves left on a list endpoint like
-# ``GET /artisans``. The database is cross-region: that round trip costs 200-400ms before any of the
-# request's real work begins, and one dashboard page load pays it once per request it fires in
-# parallel. Removing it is roughly a third of the remaining latency of every authenticated endpoint.
-#
-# WHY THE ROW IS FETCHED AT ALL, WHICH IS THE SAME REASON THE CACHE IS DANGEROUS. The access token
-# already carries the user id in ``sub``, and ``create_access_token`` even puts ``email`` and
-# ``role`` in it — so a "cache" that simply trusted the token would be free. That is exactly the
-# shortcut this must not take. Tokens live for seven days (JWT_EXPIRES_MINUTES) and are never
-# revoked, so a role claim minted before a demotion stays valid for a week, and a deleted account
-# keeps a working token until it expires. The database read IS the revocation check. Caching it
-# shortens the revocation window; trusting the token would remove it.
-#
-# SO THE WINDOW IS KEPT SHORT AT BOTH ENDS:
-#   1. EXPLICIT INVALIDATION. Every write that changes a user's authority or identity calls
-#      ``invalidate_cached_user`` — users.py (create/update/delete), auth.py (the Google sign-in
-#      upsert, which can set MASTER_ADMIN), scripts/seed_admin.py. In-process, a demotion or a
-#      deletion takes effect on the very next request, with no window at all.
-#   2. A FIVE-SECOND TTL, which is only the backstop for writes this process cannot see: a psql
-#      session, the seed script running as its own process, a second uvicorn worker's memory. Five
-#      seconds is chosen to span the burst of parallel requests one page load makes (and the
-#      follow-on requests a user makes while reading it) and nothing more; the value is a few
-#      seconds rather than a few minutes because every second of it is a second a demoted account
-#      keeps a privilege after such a write. AUTH_USER_CACHE_TTL_SECONDS tunes it and
-#      AUTH_USER_CACHE_ENABLED=false removes it entirely without a deploy.
-#
-# A MISS IS NEVER CACHED. "No such user" stays a fresh query every time, so a deleted account 401s
-# on every request rather than for a TTL and then not.
-#
-# SINGLE-FLIGHT, LOCALLY. N requests arriving together on a cold entry run ONE query; the rest await
-# it. app/scale/singleflight.py does this well, but that whole package is flag-gated and off by
-# default, and importing it here would put an always-on authentication path behind a dormant
-# feature (and drag app.scale.flags onto the import graph of every request). Twenty lines that need
-# no flag are the cheaper dependency.
-
 _USER_CACHE_INFLIGHT_WAIT_SECONDS = 5.0
 
-# id -> (monotonic expiry, user row). Ordered so eviction is LRU: the oldest touched identity goes
-# first when the cap is reached.
 _user_cache: "OrderedDict[str, tuple[float, Any]]" = OrderedDict()
-# id -> (event loop, future). The loop is stored because a future can only be awaited on the loop
-# that created it, and the test suite runs each case in its own ``asyncio.run``.
 _user_cache_inflight: dict[str, tuple[Any, "asyncio.Future[Any]"]] = {}
-# Bumped by every invalidation. A query that was already in flight when someone revoked a role would
-# otherwise be free to write the pre-revocation row back into the cache and undo the invalidation;
-# comparing this before and after the query closes that race by declining to store the result.
 _user_cache_epoch = 0
 
 
 class _LeaderGone(Exception):
-    """The request that was loading this identity went away before it produced a row."""
+    pass
 
 
 def invalidate_cached_user(user_id: str | None) -> None:
-    """Forget *user_id*, so the next request re-reads the row. Call after ANY write that changes a
-    user's role, grants, email or existence — see the call-site list above."""
     global _user_cache_epoch
     _user_cache_epoch += 1
     if user_id:
@@ -115,7 +66,6 @@ def invalidate_cached_user(user_id: str | None) -> None:
 
 
 def clear_user_cache() -> None:
-    """Forget every identity. For tests, and for a caller that has changed users in bulk."""
     global _user_cache_epoch
     _user_cache_epoch += 1
     _user_cache.clear()
@@ -142,20 +92,15 @@ def _store_cached_user(user_id: str, user: Any, ttl: float) -> None:
 
 
 async def _load_user(user_id: str, ttl: float) -> Any:
-    """One ``find_unique`` per identity per cold window, however many requests are waiting on it."""
     loop = asyncio.get_running_loop()
     pending = _user_cache_inflight.get(user_id)
     if pending is not None and pending[0] is loop:
         try:
-            # shield: a follower that times out, or whose client hangs up, must not cancel the query
-            # the leader is running on everyone's behalf.
             return await asyncio.wait_for(asyncio.shield(pending[1]), _USER_CACHE_INFLIGHT_WAIT_SECONDS)
         except (_LeaderGone, TimeoutError):
-            pass  # load it ourselves — exactly what we would have done with no dedupe at all
+            pass
 
     future: "asyncio.Future[Any]" = loop.create_future()
-    # Retrieve the outcome on completion so a leader whose followers all went away leaves no
-    # "exception was never retrieved" behind. The leader still raises for itself.
     future.add_done_callback(lambda done: done.cancelled() or done.exception())
     _user_cache_inflight[user_id] = (loop, future)
     epoch_at_start = _user_cache_epoch
@@ -180,7 +125,6 @@ async def _load_user(user_id: str, ttl: float) -> Any:
 
 
 async def resolve_user(user_id: str) -> Any:
-    """The user row for *user_id*, from the identity cache when it is warm and enabled."""
     settings = get_settings()
     if not settings.auth_user_cache_enabled:
         return await db.user.find_unique(where={"id": user_id})
@@ -190,54 +134,19 @@ async def resolve_user(user_id: str) -> Any:
     return await _load_user(user_id, settings.auth_user_cache_ttl_seconds)
 
 
-# =================================================================================================
-# SCOPED TOKENS
-#
-# Every token this API has ever issued is a SESSION token: it carries no ``scope`` claim and stands
-# for its account in full, which is right for a browser and wrong for a script. ``POST
-# /api/datasets/token`` mints the other kind — a long-lived credential a nightly export job can hold
-# — and a credential that lives on a build server must be able to do strictly less than the admin
-# who created it, or handing it out is the same as handing out the admin's password.
-#
-# The narrowing is enforced HERE, at the one function every authenticated route in the app depends
-# on, rather than by the dataset routes being careful. That direction is the whole point: a scoped
-# token is refused by default and admitted only where a dependency names its scope, so a route added
-# next year is closed to it without its author having to know scoped tokens exist. Written the other
-# way round — trusting each route to check — the read-only promise would have lasted exactly until
-# the first route that forgot, and "read-only" would have meant "may DELETE /crafts/{id}".
-#
-# Tokens are not revocable within their lifetime (there is no token store). What IS revocable is the
-# account: ``resolve_user`` re-reads the User row on every request behind a 5-second cache, so
-# demoting or deleting the service admin kills every token it ever minted, within 5 seconds.
-# =================================================================================================
-
-#: Scope claim carried by a dataset token: the bulk read-only export API and nothing else.
 DATASET_READ_SCOPE = "dataset:read"
 
-#: The claim scoped tokens are marked with. Absent on every session token, which is what makes the
-#: default-deny below backwards compatible: existing tokens are unscoped and stay unrestricted.
 TOKEN_SCOPE_CLAIM = "scope"
 
 
-#: What a session refused by the watermark or by the password fingerprint is told. Cause-neutral on
-#: purpose: a reset link, an administrator's "Sign out of every device", a two-step reset and a
-#: password change all land here, and the next sign-in is what can say which.
 SESSION_ENDED_DETAIL = "This session is no longer valid. Sign in again."
 
 
 def password_credential(user: Any) -> str:
-    """What a token minted for *user* carries as ``security.CREDENTIAL_CLAIM``.
-
-    The fingerprint of the account's CURRENT ``passwordHash`` (``credential_links``' own digest, the
-    one a password link is bound by, so "the password changed" has one definition) or of a fixed
-    sentinel for an account with no password. Every door that mints a session passes it
-    (``auth.session_response``, ``auth.change_password``).
-    """
     return credential_links.credential_fingerprint(get_value(user, "passwordHash"))
 
 
 def token_issued_at(payload: dict[str, Any]) -> float | None:
-    """The ``iat`` of a decoded token, or None when it has none a number can be read from."""
     issued_at = payload.get("iat")
     return float(issued_at) if isinstance(issued_at, int | float) else None
 
@@ -247,11 +156,6 @@ async def _user_from_bearer(
     *,
     allowed_scopes: frozenset[str],
 ) -> Any:
-    """The account behind a bearer token, refusing any scope not in ``allowed_scopes``.
-
-    ``allowed_scopes`` is deliberately a required keyword with no default: adding a scope must be a
-    decision taken at each dependency, not something a caller can inherit by omission.
-    """
     if not credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
     try:
@@ -259,9 +163,6 @@ async def _user_from_bearer(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
-    # 403, not 401: the credential is genuine and unexpired: it is simply not admitted HERE. A 401
-    # would send an API client off to re-authenticate, which would mint another token of the same
-    # scope and fail identically — a retry loop instead of an error message.
     scope = payload.get(TOKEN_SCOPE_CLAIM)
     if scope is not None and str(scope) not in allowed_scopes:
         raise HTTPException(
@@ -279,29 +180,12 @@ async def _user_from_bearer(
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists")
 
-    # -- SIGN-OUT-EVERYWHERE: THE WATERMARK (ported 2026-10-16) -----------------------------------
-    #
-    # Bearer tokens are stateless JWTs with no row behind them, so "sign every device out" needs one
-    # place to be written: ``User.sessionsValidFrom``. A token minted STRICTLY BEFORE it is refused.
-    # Written by a set-password link redemption, an administrator setting a password, "Sign out of
-    # every device" and a two-step reset. NULL skips the check (every account nothing was ever
-    # revoked for), so the hot path pays one ``is None`` and no query. A token with no readable
-    # ``iat`` cannot be shown to post-date a revocation, so it is refused when one exists.
     revoked_before = get_value(user, "sessionsValidFrom")
     if revoked_before is not None:
         issued_at = token_issued_at(payload)
         if issued_at is None or issued_at < revoked_before.timestamp():
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=SESSION_ENDED_DETAIL)
 
-    # -- THE PASSWORD A SESSION WAS OPENED WITH ---------------------------------------------------
-    #
-    # Every session minted from 2026-10-16 carries ``security.CREDENTIAL_CLAIM``, the fingerprint of
-    # the hash the account held at the mint. A claim that no longer matches the row is refused, so ANY
-    # password change retires every older session of that account, whichever door wrote it, while
-    # ``POST /auth/change-password`` hands the session that made the change a fresh token
-    # (``X-Session-Token``). A token WITHOUT the claim (every earlier build's) is accepted exactly as
-    # before and expires on its own; a claim that is present but not a string this code could have
-    # written is refused.
     if CREDENTIAL_CLAIM in payload:
         presented = payload[CREDENTIAL_CLAIM]
         if not (
@@ -313,33 +197,10 @@ async def _user_from_bearer(
     return user
 
 
-# =================================================================================================
-# THE FORCED PASSWORD CHANGE, ENFORCED HERE (ported 2026-10-16)
-#
-# ``User.mustChangePassword`` means "the password this account holds was typed by somebody else", an
-# administrator's temporary password. Reporting it on ``/me`` alone would let anybody holding that
-# password use the whole API without ever replacing it, so every authenticated route outside
-# :data:`PASSWORD_CHANGE_ALLOWED_ROUTES` refuses a flagged account.
-#
-# THE SIGN-IN STILL SUCCEEDS: the only route that can change a password needs a bearer token, so
-# refusing the sign-in would leave the account permanently unable to comply.
-#
-# 401 AND NEVER 403, with :data:`PASSWORD_CHANGE_REQUIRED_HEADER` to tell it apart from an ended
-# session: the handset keeps queued offline work on a 401 and treats a 403 as a permanent refusal.
-# The header tells a client to keep the token, re-read ``/me`` and draw the change-password screen.
-# It is in ``expose_headers`` in app/main.py, or a browser could not read it.
-#
-# THE CONFIGURED MASTER ADMIN (``MASTER_ADMIN_EMAIL``) IS EXEMPT: the deployment's recovery path.
-# =================================================================================================
-
-#: The header a pending-password-change refusal carries. Its value is always "1".
 PASSWORD_CHANGE_REQUIRED_HEADER = "X-Password-Change-Required"
 
-#: The sentence that goes with it, the same for every route.
 PASSWORD_CHANGE_REQUIRED_DETAIL = "Choose a new password to continue."
 
-#: ``(METHOD, path)`` a flagged account may still reach: what the change-password screen needs to
-#: draw itself and to finish, and nothing else. Paths as the client sends them, with ``/api``.
 PASSWORD_CHANGE_ALLOWED_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("GET", "/api/auth/me"),
@@ -351,14 +212,12 @@ PASSWORD_CHANGE_ALLOWED_ROUTES: frozenset[tuple[str, str]] = frozenset(
 
 
 def is_configured_master_admin(user: Any) -> bool:
-    """Is this the account at the configured ``MASTER_ADMIN_EMAIL``? Both sides must be non-empty."""
     address = str(get_value(user, "email") or "").strip().lower()
     configured = (get_settings().master_admin_email or "").strip().lower()
     return bool(address) and bool(configured) and address == configured
 
 
 def password_change_pending(user: Any) -> bool:
-    """Is this account held by its ``mustChangePassword`` flag right now?"""
     if not get_value(user, "mustChangePassword"):
         return False
     if not get_value(user, "passwordHash"):
@@ -367,7 +226,6 @@ def password_change_pending(user: Any) -> bool:
 
 
 def _route_path(connection: HTTPConnection) -> str:
-    """The request path with any ASGI ``root_path`` taken off, as Starlette's router matches it."""
     path = str(connection.scope.get("path") or "")
     root = str(connection.scope.get("root_path") or "")
     if root and path.startswith(root) and path[len(root) : len(root) + 1] in ("/", ""):
@@ -376,7 +234,6 @@ def _route_path(connection: HTTPConnection) -> str:
 
 
 def refuse_while_password_change_pending(user: Any, connection: HTTPConnection) -> None:
-    """401 + :data:`PASSWORD_CHANGE_REQUIRED_HEADER` for a flagged account outside the allow-list."""
     if not password_change_pending(user):
         return
     method = str(connection.scope.get("method") or "").upper()
@@ -393,15 +250,8 @@ async def get_current_user(
     connection: HTTPConnection,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> Any:
-    """The signed-in account. Session tokens only; see the scoped-token banner above.
-
-    ``HTTPConnection`` rather than ``Request`` so the dependency also resolves on a WebSocket route.
-    A flagged ``mustChangePassword`` account is refused here everywhere but the change-password
-    screen's own routes (see the banner above).
-    """
     user = await _user_from_bearer(credentials, allowed_scopes=frozenset())
     refuse_while_password_change_pending(user, connection)
-    # Which build this account is on (audit H22): the middleware records it after the response.
     from app.services.app_versions import note_user
 
     note_user(connection, getattr(user, "id", None))
@@ -411,19 +261,8 @@ async def get_current_user(
 async def require_dataset_admin(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> Any:
-    """Admin credentials for the bulk dataset API, from a session OR a `dataset:read` token.
-
-    ADMIN RANK IS CHECKED AGAINST THE LIVE USER ROW, never against the token's ``role`` claim: a
-    dataset token may outlive the admin's tenure, and a role baked into a JWT is a promotion that
-    cannot be taken back. ``resolve_user`` has already re-read the row by the time this runs.
-
-    Deliberately stricter than ``require_dataset_downloader`` (Professor and above, or an explicit
-    grant), which gates the in-app export surfaces. This API hands over the repository in bulk to a
-    non-interactive caller, so it is admin-only exactly as asked.
-    """
     user = await _user_from_bearer(credentials, allowed_scopes=frozenset({DATASET_READ_SCOPE}))
     if password_change_pending(user):
-        # The bulk API has no screen to send the person to; the sentence and header say what to do.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=PASSWORD_CHANGE_REQUIRED_DETAIL,
@@ -477,9 +316,6 @@ async def require_dataset_downloader(current_user: Any = Depends(get_current_use
 
 
 def assert_can_create_records(user: Any) -> None:
-    """The body-callable half of ``require_record_creator``, for the one route that cannot decide
-    from its signature: POST /questionnaire/interviews opens a NEW interview or folds into an
-    EXISTING one depending on the artisan set, and only the first of those is a create."""
     if not can_create_records(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -505,7 +341,6 @@ async def require_questionnaire_manager(current_user: Any = Depends(get_current_
 
 
 async def require_craft_manager(current_user: Any = Depends(get_current_user)) -> Any:
-    """Gates POST and PATCH /crafts. DELETE is stricter still — ``assert_can_delete``, admin only."""
     if not can_manage_crafts(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -518,7 +353,6 @@ async def require_craft_manager(current_user: Any = Depends(get_current_user)) -
 
 
 async def require_workshop_manager(current_user: Any = Depends(get_current_user)) -> Any:
-    """Gates POST and PATCH /workshops. DELETE is admin-only (``assert_can_delete``)."""
     if not can_manage_workshops(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -534,8 +368,6 @@ def assert_can_contribute_fields(record: Any, user: Any, data: dict[str, Any], o
     if is_content_admin(user) or get_value(record, owner_field) == get_value(user, "id"):
         return
 
-    # A populated field is locked to non-privileged editors whether they try to CHANGE it or CLEAR it.
-    # (The earlier version skipped an incoming empty value, which let anyone blank out a populated field.)
     locked_fields = [
         field
         for field, next_value in data.items()
@@ -574,13 +406,11 @@ def assert_admin_or_owner(record: Any, user: Any, owner_field: str = "createdByI
 
 
 def assert_can_delete(user: Any) -> None:
-    """Every delete of a record, media file or other managed content: content admins only."""
     if not is_content_admin(user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=CONTENT_DELETE_REFUSAL)
 
 
 async def require_content_admin(current_user: Any = Depends(get_current_user)) -> Any:
-    """``Depends`` form of the content-admin gate, for routes that manage content outright."""
     if not is_content_admin(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return current_user

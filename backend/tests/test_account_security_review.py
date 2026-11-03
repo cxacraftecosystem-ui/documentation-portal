@@ -1,27 +1,7 @@
-"""The security review of the account-and-password port (2026-10-16), one section per finding.
-
-D1  the change-password screen's "current password" spends the per-account guessing budget;
-D2  a password change ends EVERY older session, including a token too old to carry a fingerprint,
-    while the new session token carries on;
-B1  "Forgot your password?" is limited per client on an address a client cannot type, and per door;
-    administrators' links and self-service links have separate budgets;
-B2  "a password was added" / "your password was changed" notices, and the two-step code before a
-    first password;
-B3  your own email address is not changed through the users screen;
-B4  a master admin cannot reset, sign out or turn off two-step for ANOTHER master admin, nor demote,
-    rename or delete one (whatever MASTER_ADMIN_EMAIL says);
-N1  an unknown address meets the same per-account budget as a real one: identical 401/429 sequences
-    at the sign-in and the dataset-token door;
-N4  an administrator who changes an address and a password in one request tells BOTH addresses.
-
-Driven over HTTP through the real routers against ``access_roster_fakes``, with the harness of
-``test_account_passwords`` (its autouse ``environment`` fixture is imported, so it applies here too).
-"""
-
 from typing import Any
 
 import pytest
-from test_account_passwords import (  # noqa: F401 - ``environment`` is an autouse fixture
+from test_account_passwords import (  # noqa: F401
     NEW_PASSWORD,
     PASSWORD,
     _account,
@@ -56,8 +36,6 @@ def _kinds(fake: Any) -> list[str]:
     return [row.kind for row in fake.emailmessage.rows]
 
 
-# --- D1: the per-account guessing budget on "current password" ----------------------------------
-
 
 def test_wrong_current_passwords_spend_the_account_budget_and_a_right_one_is_free(monkeypatch) -> None:
     fake = _fake(monkeypatch, [_account("r@example.org")], _admitted("r@example.org"))
@@ -66,7 +44,6 @@ def test_wrong_current_passwords_spend_the_account_budget_and_a_right_one_is_fre
     body = {"currentPassword": "not-the-password", "newPassword": NEW_PASSWORD}
     for _ in range(9):
         assert _call("POST", "/api/auth/change-password", body, token).status_code == 400
-    # The tenth guess is still a guess; a right password spends nothing, so it goes through.
     changed = _call("POST", "/api/auth/change-password", {"currentPassword": PASSWORD, "newPassword": NEW_PASSWORD}, token)
     assert changed.status_code == 200, changed.text
     fresh = changed.headers["x-session-token"]
@@ -87,13 +64,11 @@ def test_the_sign_in_and_the_change_screen_share_one_budget(monkeypatch) -> None
     assert _call("POST", "/api/auth/login", {"email": "r@example.org", "password": PASSWORD}).status_code == 429
 
 
-# --- D2: every older session ends, the new one carries on ---------------------------------------
-
 
 def test_a_password_change_ends_a_token_too_old_to_carry_a_fingerprint(monkeypatch) -> None:
     fake = _fake(monkeypatch, [_account("r@example.org")], _admitted("r@example.org"))
     user = _row(fake, "r@example.org")
-    legacy = _session(user.id, minutes_ago=1)  # minted before the `cred` claim existed: none on it
+    legacy = _session(user.id, minutes_ago=1)
     assert _call("GET", "/api/auth/me", token=legacy).status_code == 200
     changed = _call(
         "POST", "/api/auth/change-password", {"currentPassword": PASSWORD, "newPassword": NEW_PASSWORD}, _session(user.id, user=user)
@@ -118,8 +93,6 @@ def test_a_first_password_ends_every_older_session_too(monkeypatch) -> None:
     assert _call("GET", "/api/auth/me", token=set_first.headers["x-session-token"]).status_code == 200
 
 
-# --- B1: the per-client key, the door's cap, two link budgets -----------------------------------
-
 
 def _scope(forwarded: str | None, peer: str = "10.0.0.9") -> dict[str, Any]:
     headers = [(b"x-forwarded-for", forwarded.encode())] if forwarded is not None else []
@@ -132,15 +105,12 @@ def test_the_client_key_is_never_the_entry_a_client_types(monkeypatch) -> None:
     assert client_address(_scope("6.6.6.6, 203.0.113.7")) == "ip:203.0.113.7"
     assert client_address(_scope("203.0.113.7")) == "ip:203.0.113.7"
     monkeypatch.setattr(get_settings(), "trusted_proxy_hops", 2)
-    # CloudFront appends the viewer, nginx appends CloudFront: the viewer is second from the right.
     assert client_address(_scope("6.6.6.6, 198.51.100.4, 130.176.1.1")) == "ip:198.51.100.4"
     assert client_address(_scope("198.51.100.4")) == "ip:198.51.100.4"
 
 
 def test_a_typed_forwarded_address_does_not_buy_a_fresh_allowance(monkeypatch) -> None:
     _fake(monkeypatch, [], [])
-    # Production's shape (TRUSTED_PROXY_HOPS=2): the typed entry, then the viewer CloudFront saw, then
-    # the CloudFront edge nginx saw.
     for n in range(FORGOT_PASSWORD_REQUESTS):
         headers = {"X-Forwarded-For": f"10.1.1.{n}, 203.0.113.7, 130.176.1.1"}
         assert _call("POST", "/api/auth/forgot-password", {"email": "x@example.org"}, headers=headers).status_code == 200
@@ -179,8 +149,6 @@ def test_administrators_links_do_not_spend_the_self_service_budget(monkeypatch) 
     _call("POST", "/api/auth/forgot-password", {"email": "r@example.org"})
     assert sum(1 for row in fake.passwordresettoken.rows if row.issuedById is None) == 1
 
-
-# --- B2: the notices, and the second factor before a first password -----------------------------
 
 
 def test_every_password_write_tells_the_owner_and_carries_no_secret(monkeypatch) -> None:
@@ -258,8 +226,6 @@ def test_a_first_password_asks_for_the_second_factor_when_it_is_on(monkeypatch) 
     assert _row(fake, "g@example.org").passwordHash is not None
 
 
-# --- B3: your own address ------------------------------------------------------------------------
-
 
 def test_your_own_email_address_is_changed_by_another_administrator(monkeypatch) -> None:
     fake = _fake(monkeypatch, [_account("admin@example.org", "ADMIN"), _account("other@example.org", "ADMIN")], _admitted("admin@example.org", "other@example.org"))
@@ -270,8 +236,6 @@ def test_your_own_email_address_is_changed_by_another_administrator(monkeypatch)
     renamed = _call("PATCH", "/api/users/id-admin@example.org", {"name": "A New Name", "email": "ADMIN@example.org"}, own)
     assert renamed.status_code == 200 and renamed.json()["name"] == "A New Name"
 
-
-# --- B4: a master admin over another master admin -------------------------------------------------
 
 
 def test_a_master_admin_cannot_reset_another_master_admin(monkeypatch) -> None:
@@ -287,10 +251,8 @@ def test_a_master_admin_cannot_reset_another_master_admin(monkeypatch) -> None:
     assert _call("POST", "/api/users/id-deputy@example.org/sign-out-everywhere", token=master).status_code == 403
     assert _call("DELETE", "/api/users/id-deputy@example.org/two-factor", token=master).status_code == 403
     assert _row(fake, "deputy@example.org").sessionsValidFrom is None
-    # Over an administrator, every one of them still works.
     assert _call("POST", "/api/auth/password-links", {"userId": "id-admin@example.org"}, master).status_code == 201
     assert _call("POST", "/api/users/id-admin@example.org/sign-out-everywhere", token=master).status_code == 200
-    # Nor demoted, renamed or deleted: the protection follows the privilege, not MASTER_ADMIN_EMAIL.
     assert _call("PATCH", "/api/users/id-deputy@example.org", {"role": "ADMIN"}, master).status_code == 403
     assert _call("PATCH", "/api/users/id-deputy@example.org", {"name": "Renamed"}, master).status_code == 403
     assert _call("DELETE", "/api/users/id-deputy@example.org", token=master).status_code == 403
@@ -298,8 +260,6 @@ def test_a_master_admin_cannot_reset_another_master_admin(monkeypatch) -> None:
     assert str(getattr(deputy.role, "value", deputy.role)) == "MASTER_ADMIN" and deputy.name == "Somebody"
     assert _call("PATCH", "/api/users/id-admin@example.org", {"role": "RESEARCHER"}, master).status_code == 200
 
-
-# --- N1: no enumeration through the per-account 429 ------------------------------------------------
 
 
 def _sequence(path: str, email: str, attempts: int = 11) -> list[tuple[int, Any]]:
@@ -316,7 +276,6 @@ def test_an_unknown_address_answers_exactly_as_a_real_one_does(monkeypatch, path
     unknown = _sequence(path, "nobody@example.org")
     assert known == unknown
     assert [status for status, _ in known] == [401] * 10 + [429]
-    # The typed address is normalised before it is a key: a new spelling is not a fresh allowance.
     assert _call("POST", path, {"email": "  NoBody@Example.org ", "password": "another-guess"}).status_code == 429
 
 
@@ -330,8 +289,6 @@ def test_an_unknown_address_spends_a_bcrypt_check_like_a_real_one(monkeypatch) -
     assert _call("POST", "/api/auth/login", {"email": "nobody@example.org", "password": "a-wrong-guess"}).status_code == 401
     assert checks == [security._TIMING_DECOY_HASH.encode()]
 
-
-# --- N4: an address and a password changed together ---------------------------------------------
 
 
 def test_a_password_set_with_a_new_address_tells_the_old_address_too(monkeypatch) -> None:
@@ -347,7 +304,6 @@ def test_a_password_set_with_a_new_address_tells_the_old_address_too(monkeypatch
     assert changed.status_code == 200, changed.text
     notices = sorted(row.toAddress for row in fake.emailmessage.rows if row.kind == mailer.PASSWORD_CHANGED)
     assert notices == ["t.new@example.org", "t@example.org"]
-    # A password alone still sends one notice, to the one address.
     fake.emailmessage.rows.clear()
     assert _call("PATCH", "/api/users/id-t@example.org", {"password": "temporary-pass-4"}, _session("id-admin@example.org")).status_code == 200
     assert [row.toAddress for row in fake.emailmessage.rows] == ["t.new@example.org"]

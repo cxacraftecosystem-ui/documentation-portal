@@ -1,16 +1,3 @@
-"""Whether the words on screen are still the machine's, and who changed them if not.
-
-``POST /media/{id}/transcript`` is the one route by which a person replaces machine text. Until these
-columns existed it wrote the text, marked the transcript COMPLETED, cleared the error — and recorded
-neither that an edit had happened nor who made it. So a transcript a researcher had rewritten line by
-line and one straight off the provider were byte-indistinguishable to every reader.
-
-NULL MEANS "NOT STATED", NEVER "NEVER EDITED". The route has been able to replace a transcript all
-along, so rows written before migration 20260913120200 genuinely do not say — which is why there is
-no backfill and why both clients must render three states. The two tests at the bottom guard the two
-ways that distinction gets destroyed: a client stamping itself, and the queue clearing the flag.
-"""
-
 import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -39,14 +26,6 @@ class _MediaDelegate:
 
 
 def test_posting_a_transcript_stamps_the_server_clock_and_the_caller(monkeypatch):
-    """AN EDIT STAMP A CLIENT COULD CHOOSE IS NOT AN AUDIT STAMP, so both halves come from the server:
-    ``datetime.now(UTC)`` and the resolved caller, never anything off the payload.
-
-    ``include=INCLUDE`` IS ASSERTED WITH THEM, not as tidiness. The response goes through ``_public``,
-    which encodes relations the include loads; dropping it while editing the ``data`` dict beside it
-    would hand the encoder an un-hydrated row — a plausible-looking edit that breaks the response
-    shape for every caller of this route.
-    """
     from app.api.routes import media
 
     stored = _Row(id="med_1", uploadedById="usr_7")
@@ -86,10 +65,6 @@ def test_posting_a_transcript_stamps_the_server_clock_and_the_caller(monkeypatch
 
 
 def test_neither_stamp_can_arrive_from_the_client():
-    """AN UPLOAD THAT TRIED TO ARRIVE PRE-STAMPED AS HUMAN-EDITED IS REFUSED OUTRIGHT rather than
-    believed. Both request models are ``extra="forbid"``, and that is the whole mechanism — which is
-    why it is asserted rather than assumed: adding either column to a request model "so the client
-    can send what it knows" would make the flag unfalsifiable."""
     from app.schemas.media import MediaCompleteRequest, TranscriptUpdateRequest
 
     for schema in (MediaCompleteRequest, TranscriptUpdateRequest):
@@ -103,14 +78,6 @@ def test_neither_stamp_can_arrive_from_the_client():
 
 
 def test_the_queue_does_not_clear_the_flag():
-    """IF THE QUEUE BLANKED IT, A RESEARCHER'S CORRECTIONS WOULD BE RECORDED AS THE MACHINE'S OWN
-    WORDS at the moment a later refinement pass overwrote them — the exact reading these columns
-    exist to prevent, arriving through the one writer nobody would think to check.
-
-    ``services/media_queue`` writes ``transcriptText`` on every provider result. It must never write
-    either stamp: not ``None`` (which would erase a real edit) and not a value (which would attribute
-    the machine's text to a person).
-    """
     from pathlib import Path
 
     source = (
@@ -123,12 +90,6 @@ def test_the_queue_does_not_clear_the_flag():
 
 
 def test_the_route_is_the_only_writer_of_the_stamps():
-    """ONE WRITER, ASSERTED ACROSS THE WHOLE BACKEND. A second one would make the flag mean two
-    different things depending on which path set it, and the column carries no record of which.
-
-    A WRITE is the column as a data key (``"transcriptEditedAt":``). Reading it is allowed:
-    ``services/transcript_insights`` reads it to decide whether the raw text under a transcript still
-    describes it, and writes nothing."""
     import re
     from pathlib import Path
 

@@ -1,9 +1,3 @@
-"""C27 on the documentation portal: the peer answers, consent, and the switch that keeps it all off.
-
-No database: the route module's ``db`` and ``get_settings`` are replaced by fakes, and the routes are
-called as functions with the dependencies they would have been given.
-"""
-
 from __future__ import annotations
 
 import json
@@ -92,7 +86,6 @@ NONCE = "n" * 32
 
 
 def _req(method="POST", path="/api/cross-portal/peer/artisans/lookup", nonce=NONCE, asked_by="dp-u1"):
-    """A stand-in for the FastAPI request: what the signature and the access log read."""
     return SimpleNamespace(
         method=method,
         url=SimpleNamespace(path=path),
@@ -134,8 +127,6 @@ def world(monkeypatch):
                 "createdById": "u1",
             },
             {
-                # Saved since the fingerprint release: the register holds only the fingerprint and
-                # the last four, and aadhaarNumber is NULL.
                 "id": "a3",
                 "name": "Fingerprint Only",
                 "pehchanCardNumber": None,
@@ -158,7 +149,6 @@ def world(monkeypatch):
     )
     monkeypatch.setattr(routes, "db", fake)
     monkeypatch.setattr(routes, "get_settings", lambda: _settings())
-    # The peer admission is the shared services/cross_portal_peer, which reads its own settings.
     monkeypatch.setattr(cross_portal_peer, "get_settings", lambda: _settings())
     revisions: list[Any] = []
 
@@ -183,8 +173,6 @@ def _body(response, request=None) -> Any:
     return json.loads(response.body)
 
 
-# ── the shared module ──────────────────────────────────────────────────────────────────────────
-
 
 def test_active_needs_the_flag_and_both_long_secrets():
     assert cross_portal.active(_settings())
@@ -205,11 +193,6 @@ def test_the_aadhaar_code_is_keyed_stable_and_never_the_number():
 
 
 def test_the_code_is_the_stored_fingerprint_under_the_register_key():
-    """The cross-portal code and Artisan.aadhaarFingerprint are one value: same key, same formula.
-
-    Written against the formula aadhaar_fingerprint.fingerprint documents (HMAC-SHA256 of the 12 ASCII
-    digits under the stripped, UTF-8 key, lower-case hex), so it holds with or without that module.
-    """
     import hashlib
     import hmac
 
@@ -227,23 +210,19 @@ def test_the_code_is_the_stored_fingerprint_under_the_register_key():
 
 def test_a_rows_code_comes_from_its_fingerprint_then_its_legacy_number():
     fingerprint = cross_portal.aadhaar_code(AADHAAR, KEY)
-    # Since the fingerprint release: only the fingerprint is stored, and it is used as is.
     assert (
         cross_portal.stored_aadhaar_code(
             SimpleNamespace(aadhaarFingerprint=fingerprint, aadhaarNumber=None), KEY
         )
         == fingerprint
     )
-    # Before the backfill reaches a row (or without the fingerprint columns at all).
     assert cross_portal.stored_aadhaar_code(SimpleNamespace(aadhaarNumber=AADHAAR), KEY) == fingerprint
-    # The fingerprint wins over a stale legacy value.
     assert (
         cross_portal.stored_aadhaar_code(
             SimpleNamespace(aadhaarFingerprint=fingerprint, aadhaarNumber="987698769876"), KEY
         )
         == fingerprint
     )
-    # Nothing usable: no code, never a code of a mask or a partial number.
     for row in (
         SimpleNamespace(),
         SimpleNamespace(aadhaarFingerprint=None, aadhaarNumber=None),
@@ -261,13 +240,11 @@ def test_signatures_are_bound_to_the_request_and_bearer_is_checked():
     assert cross_portal.signature_matches(TOKEN, body, signature, **where)
     assert not cross_portal.signature_matches(TOKEN, body + b" ", signature, **where)
     assert not cross_portal.signature_matches(TOKEN, body, None, **where)
-    # A captured answer replayed against another request: another nonce, path or method fails.
     assert not cross_portal.signature_matches(TOKEN, body, signature, **{**where, "nonce": "m" * 32})
     assert not cross_portal.signature_matches(
         TOKEN, body, signature, **{**where, "path": "/cross-portal/peer/artisans/a1"}
     )
     assert not cross_portal.signature_matches(TOKEN, body, signature, **{**where, "method": "GET"})
-    # A proxy prefix in front of the peer path does not change what is signed.
     assert cross_portal.signature_matches(
         TOKEN, body, signature, **{**where, "path": "/api/cross-portal/peer/artisans/lookup"}
     )
@@ -283,7 +260,6 @@ def test_the_shared_fields_carry_no_aadhaar_and_no_review_state():
 
 
 def test_the_consent_names_everything_a_lookup_sends():
-    """One list: every key of the answer has words in the consent, and nothing else does."""
     assert set(cross_portal.SHARED_FIELD_LABELS) == set(cross_portal.SHARED_FIELDS) | set(
         cross_portal.ANSWER_EXTRAS
     )
@@ -301,7 +277,6 @@ async def test_every_answer_key_is_named_in_the_consent(world):
 
 
 def test_the_clients_fall_back_to_the_servers_words():
-    """The web and Android copy, used before the status answer arrives, is the server's phrase."""
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
@@ -313,8 +288,6 @@ def test_the_clients_fall_back_to_the_servers_words():
     assert f'"{phrase}"' in web
     assert f'"{phrase}"' in kotlin
 
-
-# ── the peer ───────────────────────────────────────────────────────────────────────────────────
 
 
 async def test_the_peer_is_refused_without_the_token_or_a_nonce_and_404_while_off(world, monkeypatch):
@@ -372,12 +345,10 @@ async def test_lookup_by_aadhaar_code_compares_only_consenting_artisans(world):
 
 
 async def test_lookup_by_aadhaar_code_matches_an_artisan_that_holds_only_the_fingerprint(world):
-    """After the fingerprint release a saved artisan has aadhaarNumber NULL; it must still match."""
     code = cross_portal.aadhaar_code(FP_ONLY_AADHAAR, KEY)
     found = _body(await routes.peer_lookup(routes.PeerLookup(aadhaarCode=code), _req(), _settings()))
     assert found["match"]["artisanId"] == "a3"
     assert found["match"]["matchedBy"] == "AADHAAR"
-    # Withdrawn consent: the same answer as no artisan at all.
     world.artisansharingconsent.rows[1]["granted"] = False
     assert _body(
         await routes.peer_lookup(routes.PeerLookup(aadhaarCode=code), _req(), _settings())
@@ -389,7 +360,6 @@ async def test_links_need_consent_and_withdrawal_removes_them(world, monkeypatch
     linked = await routes.peer_link(
         "a1", routes.PeerLink(remoteArtisanId="dp1", matchedBy="AADHAAR"), link_req, _settings()
     )
-    # ``cardCode`` is this portal's artisan card code; null here because cards are off in this world.
     assert _body(linked, link_req) == {"linked": True, "cardCode": None}
     assert len(world.crossportalartisanlink.rows) == 1
     refused = await routes.peer_link(
@@ -457,6 +427,5 @@ def test_the_config_defaults_to_off():
     fields = Settings.model_fields
     assert fields["cross_portal_identity_enabled"].default is False
     assert fields["cross_portal_token"].default is None
-    # Aadhaar codes are made under the register's fingerprint key; there is no second key to drift.
     assert fields["aadhaar_fingerprint_key"].alias == "AADHAAR_FINGERPRINT_KEY"
     assert "cross_portal_aadhaar_hmac_key" not in fields

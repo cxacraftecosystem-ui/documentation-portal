@@ -1,8 +1,3 @@
-"""The v2 session start sheet in ``shared/questionnaire-form-contract.json`` (version 2) agrees with
-the server: no title field, a note of at most 80 characters, a language from
-``shared/languages.json`` with "Other", and every field a ``SessionCreate`` key (or the display-only
-mode)."""
-
 from __future__ import annotations
 
 import json

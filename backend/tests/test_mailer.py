@@ -1,9 +1,3 @@
-"""The SES sender and the templates (``app/services/mailer.py``), with SES stubbed.
-
-No network and no database: ``_ses_client`` is replaced by a recorder, so what is asserted is the
-SESv2 request this module builds and how a refusal is classified for the outbox's retry rule.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -106,10 +100,6 @@ def test_task_notices_name_the_task_escape_it_and_offer_the_opt_out() -> None:
     assert "waiting for your approval" in mailer.render(mailer.TASK_SUBMITTED, params, settings=_settings()).text
     assert "approved your work" in mailer.render(mailer.TASK_APPROVED, params, settings=_settings()).text
 
-
-# --------------------------------------------------------------------------------------
-# Reserved, non-deliverable addresses (identical in both portals)
-# --------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

@@ -1,16 +1,3 @@
-"""The consolidated per-artisan questionnaire: attribution, conflicts, ordering and provenance.
-
-WHY THESE ARE UNIT TESTS AND NOT A LIVE CHECK. The live repository currently holds ZERO
-``QuestionnaireResponse`` rows — every answer in it is an audio clip attached to an interview — so
-the two behaviours that matter most here cannot be demonstrated against it at all:
-
-* a question answered DIFFERENTLY in two interviews must keep both, newest first, flagged;
-* an answer given in a group sitting must not be attributed to one artisan.
-
-Both are the reason the view exists, so they are pinned here with a fake database instead of left
-to be discovered the first time a researcher types answers into two sittings.
-"""
-
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -28,9 +15,6 @@ from app.services.questionnaire_consolidation import (
 ARTISAN_ID = "artisan-subject"
 OTHER_ID = "artisan-other"
 
-#: The two instruments, by the deterministic ids the migration and the seeders write down. Spelled
-#: out here rather than imported so this file keeps testing the DOCUMENT rather than agreeing with
-#: the constants module about what an id is.
 W2 = "qnr_2nd_craft_toolkit_workshop"
 W3 = "qnr_3rd_craft_toolkit_workshop"
 
@@ -40,8 +24,6 @@ def _dt(day: int) -> datetime:
 
 
 class _Delegate:
-    """One Prisma model delegate, returning a canned list however it is queried."""
-
     def __init__(self, rows):
         self._rows = rows
 
@@ -63,8 +45,6 @@ def _instrument(iid, title, order):
 
 
 def _section_row(sid, code, title, order, questionnaire_id=W2):
-    """A stored section row. NOT `_section`, which further down this file is the payload accessor —
-    two functions of that name in one module and the later one silently wins."""
     return SimpleNamespace(
         id=sid,
         code=code,
@@ -129,12 +109,6 @@ def _media(mid, iid, filename, day, extra=None, transcript="spoken answer"):
 
 
 def _build_db():
-    """Two interviews: a SOLO sitting on the 20th, a THREE-artisan sitting on the 24th.
-
-    Question q1 is answered in both, with different text — the conflict case. q2 is answered only in
-    the group sitting. One clip names its section by filename token, one names a question outright,
-    and one names nothing.
-    """
     sections = [
         _section_row("sec-a", "A", "Origin", 1),
         _section_row("sec-b", "B", "Family", 2),
@@ -191,8 +165,6 @@ def _question_row(payload, code, qid):
     return next(q for q in _section(payload, code)["questions"] if q["id"] == qid)
 
 
-# --- Requirement: consolidate by artisan, in the questionnaire's order ---------------------------
-
 
 def test_sections_and_questions_read_in_questionnaire_order_not_by_interview(payload):
     assert [s["code"] for s in payload["sections"]] == ["A", "B"]
@@ -203,8 +175,6 @@ def test_answers_from_every_interview_the_artisan_belongs_to_are_present(payload
     assert payload["summary"]["interviewCount"] == 2
     assert payload["summary"]["typedAnswerCount"] == 3
 
-
-# --- Requirement: conflicts are shown, never silently resolved -----------------------------------
 
 
 def test_same_question_answered_differently_keeps_both_and_flags_the_conflict(payload):
@@ -228,7 +198,6 @@ def test_one_answer_repeated_verbatim_is_not_a_conflict(monkeypatch):
     db.questionnaireresponse = _Delegate(
         [
             _response("r1", "iv-solo", "q1", "From my father."),
-            # Same answer, different whitespace and case — the same account given twice, not a change.
             _response("r2", "iv-group", "q1", "  from my  FATHER. "),
         ]
     )
@@ -241,8 +210,6 @@ def test_one_answer_repeated_verbatim_is_not_a_conflict(monkeypatch):
     assert _question_row(result, "A", "q1")["conflict"] is False
     assert len(_question_row(result, "A", "q1")["answers"]) == 2
 
-
-# --- Requirement: never misattribute a group answer ----------------------------------------------
 
 
 def test_solo_sitting_answer_is_attributed_to_the_artisan(payload):
@@ -260,15 +227,11 @@ def test_group_sitting_answer_is_not_attributed_to_the_artisan(payload):
 
 
 def test_attribution_is_a_function_of_the_sitting_size_only():
-    # The models carry no per-artisan response link, so sitting size is the ONLY thing that can
-    # decide this. Pinned so a later "improvement" that guesses a speaker fails loudly here.
     assert qc._attribution(0) == SOLE
     assert qc._attribution(1) == SOLE
     assert qc._attribution(2) == GROUP
     assert qc._attribution(5) == GROUP
 
-
-# --- Requirement: provenance on every answer -----------------------------------------------------
 
 
 def test_every_answer_row_names_its_source_and_date(payload):
@@ -288,9 +251,6 @@ def test_every_answer_row_names_its_source_and_date(payload):
 
 
 def test_date_basis_is_reported_when_interview_date_is_absent(payload):
-    # Every interview in the live repository has a null interviewDate, so the fallback is the normal
-    # path — and the row has to say it is a fallback rather than pass recordedAt off as the sitting's
-    # own date.
     assert {i["dateBasis"] for i in payload["interviews"]} == {"recordedAt"}
 
 
@@ -302,8 +262,6 @@ def test_interview_date_wins_when_present():
         "recordedAt",
     )
 
-
-# --- Recordings: placed where the data actually says, never further ------------------------------
 
 
 def test_clip_naming_a_question_lands_on_that_question(payload):
@@ -321,8 +279,6 @@ def test_clip_naming_nothing_is_listed_as_unfiled_rather_than_dropped(payload):
     assert [r["mediaId"] for r in payload["unfiled"]] == ["m3"]
     assert payload["summary"]["unfiledRecordingCount"] == 1
 
-
-# --- Export --------------------------------------------------------------------------------------
 
 
 def test_csv_has_one_row_per_answer_so_a_conflict_stays_legible(payload):
@@ -357,8 +313,6 @@ def test_csv_carries_recordings_and_their_transcripts(payload):
     assert all(r[answer] == "spoken answer" for r in recorded)
 
 
-# --- Identity numbers never reach this surface ----------------------------------------------------
-
 
 def test_payload_carries_no_identity_numbers(payload):
     import json
@@ -380,16 +334,8 @@ def test_unknown_artisan_yields_none(monkeypatch):
     )
 
 
-# --- Two instruments: the same codes, different questions ----------------------------------------
-#
-# From 2026-09-13 an artisan can have answers on TWO instruments whose section codes collide
-# entirely (the 2nd workshop runs RESP, A..W; the 3rd runs A..V). Every test below is about the
-# document NOT merging them.
-
 
 def _build_two_instrument_db():
-    """One artisan, two sittings, one on each instrument. Both instruments have a section "A" and
-    both mean something different by it."""
     sections = [
         _section_row("w2-a", "A", "Personal details of the artisan", 1, W2),
         _section_row("w3-a", "A", "Origin, history, place and personal journey", 1, W3),
@@ -408,8 +354,6 @@ def _build_two_instrument_db():
         _response("r-w3", "iv-w3", "w3-q1", "From my grandmother's village."),
     ]
     media = [
-        # Tagged with a BARE SECTION CODE, on the 2nd workshop's sitting. Both instruments have an
-        # "A"; only one of them may claim this clip.
         _media("m-w2", "iv-w2", "clip.mp3", 20, extra={"sectionCode": "A"}),
         _media("m-none", "iv-w3", "nothing.mp3", 24),
     ]
@@ -442,8 +386,6 @@ def two_instrument_payload(monkeypatch):
 def test_a_consolidated_document_groups_by_instrument_before_section(two_instrument_payload):
     sections = two_instrument_payload["sections"]
     assert len(sections) == 2, "two sections both coded A must never be merged into one"
-    # The 2nd workshop's instrument sorts first (Questionnaire.sortOrder 1 before 2), so its
-    # account reads before the 3rd's rather than being interleaved with it.
     assert [s["questionnaireId"] for s in sections] == [W2, W3]
     assert [s["code"] for s in sections] == ["A", "A"]
     assert [s["title"] for s in sections] == [
@@ -453,12 +395,8 @@ def test_a_consolidated_document_groups_by_instrument_before_section(two_instrum
 
 
 def test_the_csv_header_and_every_row_have_the_same_width(two_instrument_payload):
-    """CSV_COLUMNS and _csv_row are two independent positional lists. A header added without its
-    value shifts every field one column to the right, silently, in a file people join on."""
-    # 23 since C28 appended "Answer origin" as the last column.
     assert len(CSV_COLUMNS) == 23
     rows = consolidated_rows(two_instrument_payload)
-    # All three row shapes the flattener produces: an answer, a section recording, an unfiled clip.
     assert len(rows) >= 4
     for row in rows:
         assert len(row) == len(CSV_COLUMNS), row
@@ -470,15 +408,11 @@ def test_the_questionnaire_column_carries_the_instrument_title(two_instrument_pa
     interview_column = CSV_COLUMNS.index("Interview")
     titled = {row[column] for row in rows if row[interview_column]}
     assert titled == {"2nd Craft Toolkit Workshop", "3rd Craft Toolkit Workshop", ""}
-    # The unfiled clip resolved to no section, so it names no instrument — rather than leaking
-    # whichever one the loop happened to see last.
     unfiled = [row for row in rows if row[CSV_COLUMNS.index("Section")] == "(unfiled)"]
     assert unfiled and all(row[column] == "" for row in unfiled)
 
 
 def test_a_clip_tagged_with_a_section_code_resolves_within_its_own_instrument(two_instrument_payload):
-    """`extraMetadata.sectionCode = "A"` on a 2nd-workshop sitting must land on the 2nd workshop's
-    section A. Keyed by code alone it landed on whichever section row the database returned last."""
     by_instrument = {s["questionnaireId"]: s for s in two_instrument_payload["sections"]}
     assert [r["mediaId"] for r in by_instrument[W2]["recordings"]] == ["m-w2"]
     assert by_instrument[W3]["recordings"] == []

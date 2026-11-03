@@ -1,14 +1,3 @@
-"""The ``search_enqueue()`` triggers and the indexer that drains them (docs/SEARCH.md).
-
-Against a real database (opt-in, see ``search_support``), because the behaviour under test is
-Postgres's: insert and update list the record in ``SearchIndexQueue``, a delete removes its document
-in the same statement, a step lists its process, a consent row lists its artisan, and the drain
-expands an artisan to the records whose ``shareable`` depends on it.
-
-The queue is shared by every module that writes records, and nothing drains it while tests run, so
-each test empties it first; it holds nothing a test database needs.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -179,7 +168,7 @@ async def test_a_drain_keeps_what_it_read_until_it_has_built_it(world, monkeypat
     await search_indexer.enqueue("crafts", world.craft.id)
 
     async def dies(*_a, **_k):
-        raise asyncio.CancelledError  # the worker killed mid-batch
+        raise asyncio.CancelledError
 
     monkeypatch.setattr(search_indexer, "index_one", dies)
     with pytest.raises(asyncio.CancelledError):
@@ -242,7 +231,6 @@ async def test_a_file_on_a_product_follows_the_products_artisan(world):
     try:
         await _drain_all()
         assert (await document("media", media.id))["shareable"] is True
-        # The product moves to an artisan who has not agreed: the file is rebuilt with it.
         await db.productdocumentation.update(
             where={"id": world.product_title.id}, data={"artisanId": world.unconsented.id}
         )

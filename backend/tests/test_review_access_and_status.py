@@ -1,10 +1,3 @@
-"""Reviewers' comment and history access (C20), the sharing notices (A5), the dashboard's pending and
-sent-back counts (A2, A13), a task's pending records (B12), and the review-status filter on the
-data surfaces (C21).
-
-NOTHING HERE TOUCHES A DATABASE: every module's ``db`` is an in-memory stand-in.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -150,8 +143,6 @@ def test_asking_for_access_and_deciding_it_each_notify_the_other_side(monkeypatc
     assert calls[1][1]["grantee_id"] == "asker" and calls[1][1]["decision"] == "GRANTED"
 
 
-# --- The dashboard -----------------------------------------------------------------------------
-
 
 class _Grouped:
     def __init__(self, counts: dict[str, int]) -> None:
@@ -191,8 +182,6 @@ def test_the_dashboard_counts_pending_processes_and_what_was_sent_back(monkeypat
     assert body["mine"]["pendingSubmissions"] == 1 + 3 + 1
     assert body["mine"]["sentBack"] == 3 and body["mine"]["rejected"] == 1
 
-
-# --- A task's pending records ------------------------------------------------------------------
 
 
 class _Pending:
@@ -252,9 +241,6 @@ def test_a_task_of_every_kind_still_names_its_kinds_so_the_queue_leaves_workshop
 
 
 def test_one_request_answers_every_card_with_what_the_single_task_route_says(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``GET /tasks/pending-records?ids=`` (the task cards' one request): per visible task the same
-    total, byType and reviewQuery as ``GET /tasks/{id}/pending-records``; an unseen task is absent;
-    two tasks with one scope share one COUNT."""
     mine = SimpleNamespace(
         id="t1", assigneeId="u1", createdById="boss", workshopId="w1", recordTypes=["product", "media"], artisanIds=["a1"]
     )
@@ -286,8 +272,6 @@ def test_one_request_answers_every_card_with_what_the_single_task_route_says(mon
     assert _call("GET", f"/tasks/pending-records?ids={too_many}").status_code == 422
     _CURRENT["user"] = None
 
-
-# --- The review-status filter on the data surfaces -----------------------------------------------
 
 
 def test_the_dataset_filter_narrows_by_status_and_leaves_crafts_whole() -> None:

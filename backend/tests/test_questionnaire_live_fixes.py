@@ -1,13 +1,3 @@
-"""Phase 1 of the 21 Oct 2026 questionnaire audit: the bugs users of the LEGACY flow hit today.
-
-One test (or more) per audit item, named after it: H3, H6, H7, H12, M8, M19, M20, M21. M20 and H7's
-fake-backed halves live beside the code they pin (``test_web_capture.py``,
-``test_questionnaire_workbook_import.py``); this file holds the rest, and every database-backed test
-runs against the throwaway Postgres of ``qv2_fixtures`` (CI's "Backend database tests" job).
-Every one of them runs with ``QUESTIONNAIRE_V2`` OFF unless it says otherwise, because that is what
-production runs.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -40,8 +30,6 @@ def _code(exc: pytest.ExceptionInfo) -> str:
 
 
 class _Body:
-    """A request whose JSON body is ``payload`` (the v2 routes parse their own bodies)."""
-
     def __init__(self, payload: dict[str, Any]) -> None:
         self._payload = payload
         self.headers: dict[str, str] = {}
@@ -72,8 +60,6 @@ async def _legacy_create(ids: SimpleNamespace, artisans: list[str], user: Any, *
         QuestionnaireInterviewCreate.model_validate(body), SimpleNamespace(headers={}), user
     )
 
-
-# ── M19: the live-media filter applies whatever the flag says ──────────────────────────────────
 
 
 def test_m19_the_live_filter_applies_with_the_flag_off(monkeypatch) -> None:
@@ -116,8 +102,6 @@ def test_m19_approving_an_interview_never_approves_a_removed_copy(monkeypatch) -
     run(go())
 
 
-# ── M21: the legacy create is atomic ───────────────────────────────────────────────────────────
-
 
 @needs_db
 def test_m21_two_racing_creates_for_one_set_make_one_interview_with_its_links(monkeypatch) -> None:
@@ -145,8 +129,6 @@ def test_m21_two_racing_creates_for_one_set_make_one_interview_with_its_links(mo
     run(go())
 
 
-# ── H6: legacy delete and merge ────────────────────────────────────────────────────────────────
-
 
 @needs_db
 def test_h6_a_legacy_delete_of_an_interview_with_recordings_is_409_whatever_the_flag(monkeypatch) -> None:
@@ -172,7 +154,7 @@ def test_h6_a_legacy_delete_of_an_interview_with_recordings_is_409_whatever_the_
             assert int(still[0]["n"]) == 1
         settings_v2(monkeypatch, False)
         empty = await _legacy_create(ids, ids.artisans[2:3], ids.lead)
-        await _media(client, ids, empty["id"], removed=True)  # a removed copy is not a recording it holds
+        await _media(client, ids, empty["id"], removed=True)
         await questionnaire.delete_interview(empty["id"], ids.admin)
         gone = await client.query_raw('SELECT count(*) AS n FROM "QuestionnaireInterview" WHERE "id" = $1', empty["id"])
         assert int(gone[0]["n"]) == 0
@@ -215,7 +197,6 @@ def test_h6_a_legacy_merge_with_v2_data_goes_through_the_v2_merge(monkeypatch) -
         )
         assert int(events[0]["n"]) == 1
 
-        # The merged-away row is not listed by the legacy list.
         app = FastAPI()
         app.include_router(api_router_module.api_router)
         app.dependency_overrides[deps.get_current_user] = lambda: ids.admin
@@ -227,8 +208,6 @@ def test_h6_a_legacy_merge_with_v2_data_goes_through_the_v2_merge(monkeypatch) -
 
     run(go())
 
-
-# ── H7: a recording is evidence on a workbook re-upload ────────────────────────────────────────
 
 
 @needs_db
@@ -262,8 +241,6 @@ def test_h7_a_question_with_only_a_take_survives_a_re_upload_that_leaves_it_out(
     run(go())
 
 
-# ── H12: consent POST needs edit privilege ─────────────────────────────────────────────────────
-
 
 @needs_db
 def test_h12_only_someone_who_may_edit_the_artisan_records_their_consent(monkeypatch) -> None:
@@ -276,7 +253,7 @@ def test_h12_only_someone_who_may_edit_the_artisan_records_their_consent(monkeyp
         patch_db(monkeypatch, client)
         no_outside_calls(monkeypatch)
         ids = await seed(client)
-        artisan = ids.artisans[0]  # created by the admin
+        artisan = ids.artisans[0]
         body = {"state": "REFUSED", "purpose": "EXTERNAL_PROCESSING"}
         for stranger in (ids.vol, ids.other):
             with pytest.raises(HTTPException) as refused:
@@ -290,8 +267,6 @@ def test_h12_only_someone_who_may_edit_the_artisan_records_their_consent(monkeyp
 
     run(go())
 
-
-# ── H3: downloads, the corpus and the record CSV are gated ─────────────────────────────────────
 
 
 def test_h3_the_corpus_routes_need_dataset_download_access() -> None:
@@ -331,8 +306,6 @@ def test_h3_a_volunteer_cannot_download_a_take_or_an_artisan_record_csv(monkeypa
     run(go())
 
 
-# ── M8: the old RecordingConsent table is not read ─────────────────────────────────────────────
-
 
 def test_m8_the_consent_gate_reads_the_ledger_only(monkeypatch) -> None:
     from app.services import consent_gate
@@ -354,8 +327,6 @@ def test_m8_the_consent_gate_reads_the_ledger_only(monkeypatch) -> None:
     assert calls == [(ledger.ARTISAN, ["a1", "a2"])]
 
 
-# ── M20 with the database: the recording target places a clip ─────────────────────────────────
-
 
 @needs_db
 def test_m20_use_transcripts_follows_the_recording_target_not_the_caption_number(monkeypatch) -> None:
@@ -371,7 +342,6 @@ def test_m20_use_transcripts_follows_the_recording_target_not_the_caption_number
         ids = await seed(client, sections={"D": 3})
         s, _ = await sessions.create_session(session_create(ids, ids.artisans[:1]), ids.lead)
         take = await record_take(client, ids, s["id"], ids.lead, targets=[{"questionLineageId": ids.questions["D3"]}], at=t(0))
-        # The caption still says D1 (a reorder since), and carries no prompt; the target says D3.
         await client.execute_raw(
             'UPDATE "MediaFile" SET "caption" = \'Question audio: D1\', "transcriptText" = \'Chisels and a mallet.\' WHERE "id" = $1',
             take["mediaFileId"],

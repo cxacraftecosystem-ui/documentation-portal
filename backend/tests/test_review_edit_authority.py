@@ -1,23 +1,3 @@
-"""Who may REWRITE a record from the review queue, driven against the route itself.
-
-``POST /review/{record_type}/{record_id}/edit`` is the one review action that writes the record's
-own fields. It authorised with ``can_review_record`` — the peer-review ladder, which starts at
-FIELD_CONTRIBUTOR — so a tier-20 field contributor could rewrite any field on a tier-10 volunteer's
-record, and a researcher could rewrite a field contributor's. ``can_edit_others_record`` is the same
-comparison narrowed to Professor and above, and it exists precisely to say that a field contributor
-reviews a volunteer's work without getting to rewrite it.
-
-``tests/test_permission_matrix.py`` asserts that distinction against the two PREDICATES and has
-since the day they were written. It never asserted it against this route, which is how the route
-kept the wrong one. So the matrix here is driven over HTTP: for every (editor, author) pair on the
-six-tier ladder, the route must admit exactly the pairs the predicate admits — and must keep
-admitting approve / reject / revise for the reviewers it now turns away from editing.
-
-NOTHING HERE TOUCHES A DATABASE. ``db`` is replaced by delegates that answer with one canned record
-and record what they were asked to write, so "allowed" means the row was actually updated rather
-than merely "not a 403".
-"""
-
 import asyncio
 import sys
 from types import SimpleNamespace
@@ -74,8 +54,6 @@ def _record(creator_role: str) -> SimpleNamespace:
 
 
 class _Delegate:
-    """One Prisma model. Answers with ``row`` and remembers every write."""
-
     def __init__(self, row: Any = None) -> None:
         self.row = row
         self.updates: list[dict] = []
@@ -166,14 +144,11 @@ def queue(monkeypatch: pytest.MonkeyPatch):
 def test_the_edit_route_admits_exactly_who_may_edit_others_work(
     queue: _Queue, editor_role: str, creator_role: str
 ) -> None:
-    """The whole matrix, over HTTP. ``can_edit_others_record`` is the contract; the route has to BE
-    it, for all thirty-six pairs, rather than resemble it."""
     allowed = deps.can_edit_others_record(_user(editor_role), creator_role)
 
     response = queue.holding(creator_role).as_(editor_role).post("/artisan/a1/edit", EDIT_BODY)
 
     assert (response.status_code == 200) is allowed, (editor_role, creator_role, response.text)
-    # "Allowed" has to mean the row was written, not merely that no 403 came back.
     assert bool(queue.artisan.updates) is allowed, (editor_role, creator_role)
 
 
@@ -181,8 +156,6 @@ def test_the_edit_route_admits_exactly_who_may_edit_others_work(
 def test_a_reviewer_below_professor_is_refused_before_anything_is_written(
     queue: _Queue, editor_role: str
 ) -> None:
-    """THE BUG. Both of these reviewers outrank a volunteer on the review ladder and could rewrite
-    every field on their record. Nothing may be written, and nothing may be logged."""
     response = queue.holding("CROWDSOURCE_VOLUNTEER").as_(editor_role).post("/artisan/a1/edit", EDIT_BODY)
 
     assert response.status_code == 403, response.text
@@ -196,8 +169,6 @@ def test_a_reviewer_below_professor_is_refused_before_anything_is_written(
 def test_the_same_reviewer_keeps_every_action_that_is_not_a_rewrite(
     queue: _Queue, editor_role: str
 ) -> None:
-    """The narrowing must cost them nothing else: peer review is the reason those tiers can open the
-    queue at all. Approve, reject and send-back stay exactly as they were."""
     caller = queue.holding("CROWDSOURCE_VOLUNTEER").as_(editor_role)
 
     approved = caller.post("/artisan/a1/approve", {"notes": "Looks right."})
@@ -213,7 +184,6 @@ def test_the_same_reviewer_keeps_every_action_that_is_not_a_rewrite(
 
 
 def test_a_professor_may_not_rewrite_a_peers_record(queue: _Queue) -> None:
-    """Strictly below, on the edit ladder as on the review one."""
     response = queue.holding("PROFESSOR").as_("PROFESSOR").post("/artisan/a1/edit", EDIT_BODY)
 
     assert response.status_code == 403, response.text
@@ -221,8 +191,6 @@ def test_a_professor_may_not_rewrite_a_peers_record(queue: _Queue) -> None:
 
 
 def test_a_professor_fixes_a_researchers_record_and_leaves_the_audit_trail(queue: _Queue) -> None:
-    """The feature itself, unharmed: the edit lands, the revision holds the old and new values, and
-    the review log says an edit happened without touching the status."""
     response = queue.holding("RESEARCHER").as_("PROFESSOR").post("/artisan/a1/edit", EDIT_BODY)
 
     assert response.status_code == 200, response.text
@@ -233,14 +201,10 @@ def test_a_professor_fixes_a_researchers_record_and_leaves_the_audit_trail(queue
     assert changes["notes"]["new"] == "Corrected the village spelling."
     log = queue.reviewlog.creates[0]
     assert log["notes"].startswith("EDITED: notes")
-    assert log["status"] == "PENDING"  # unchanged — an edit is not an approval
+    assert log["status"] == "PENDING"
 
 
 def test_a_review_edit_will_not_write_a_masked_identity_number(queue: _Queue) -> None:
-    """A reviewer's form is fed by the same responses as the artisan's own, so it can post back a
-    mask. This route validates through ``ArtisanUpdate`` like every other write path, and drops the
-    mask like every other write path — an edit must never be able to overwrite a regulated
-    identifier with the X-string that stood in for it."""
     body = {"fields": {"aadhaarNumber": "XXXX XXXX 9012", "pehchanCardNumber": "XXXX XXXX 1234", "notes": "Seen."}}
 
     response = queue.holding("RESEARCHER").as_("PROFESSOR").post("/artisan/a1/edit", body)

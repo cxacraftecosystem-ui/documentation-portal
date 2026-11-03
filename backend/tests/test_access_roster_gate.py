@@ -1,20 +1,3 @@
-"""The sign-in gate's behaviour: the two distinct refusals, the Google allow-list, and the bounds.
-
-WHAT THIS FILE IS DEFENDING. The product owner ruled that "wrong password" and "awaiting approval"
-must be DIFFERENT answers, and that Google sign-in is subject to the allow-list like everything else.
-Both rulings are easy to lose to a well-meaning "let's not leak whether the account exists" edit, so
-the exact sentences and the exact status codes are asserted here, not paraphrased.
-
-The other half is the part that makes the first half survivable in production: a PENDING row is
-written by an UNAUTHENTICATED caller, so the tests below pin down what it costs an attacker (proof
-of ownership of the address), how big it can get (one row per address, up to a ceiling), and what it
-can be made to contain (the address, and nothing else).
-
-Nothing here touches a database — see ``tests/access_roster_fakes.py``. The real routers are mounted
-and driven over HTTP, so the assertions are about the bytes a client receives, which is what the
-frontend and Android lanes have to render.
-"""
-
 import asyncio
 from datetime import datetime
 from typing import Any
@@ -80,7 +63,6 @@ def _roster(email: str, status: str, **extra: Any) -> dict[str, Any]:
 
 @pytest.fixture(autouse=True)
 def settings_under_test(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Pin the two settings the gate reads, so a developer's ``.env`` cannot change the outcome."""
     settings = get_settings()
     monkeypatch.setattr(settings, "master_admin_email", MASTER_EMAIL)
     monkeypatch.setattr(settings, "access_roster_enforced", True)
@@ -91,9 +73,6 @@ def settings_under_test(monkeypatch: pytest.MonkeyPatch) -> Any:
 
 @pytest.fixture
 def google(monkeypatch: pytest.MonkeyPatch):
-    """Stand in for Google's verifier. The token is assumed valid; this file is about what happens
-    AFTER a verified identity, which is where the allow-list now sits."""
-
     def issue(email: str, name: str = "Google Display Name", picture: str = "https://pic") -> None:
         monkeypatch.setattr(
             auth_routes,
@@ -109,16 +88,8 @@ def google(monkeypatch: pytest.MonkeyPatch):
     return issue
 
 
-# --- THE TWO REFUSALS ------------------------------------------------------------------------------
-
 
 def test_pending_and_wrong_password_are_different_answers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """THE RULING, as an assertion. If these two ever collapse into one answer, this fails.
-
-    A person waiting on an administrator is TOLD they are waiting. Do not "fix" this by returning
-    401 for both: the enumeration it costs was weighed and accepted, and the alternative is somebody
-    resetting a password that was never wrong for a week.
-    """
     install(
         monkeypatch,
         FakeDb(
@@ -138,11 +109,6 @@ def test_pending_and_wrong_password_are_different_answers(monkeypatch: pytest.Mo
 
 
 def test_the_pending_refusal_leaks_nothing_beyond_the_wait(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The distinct answer is allowed to say "you are waiting" and nothing else.
-
-    No name, no role, no other account, no statement about whether a password was ever set. The
-    enumeration widened on purpose; it must not widen any further by accident.
-    """
     install(
         monkeypatch,
         FakeDb(
@@ -158,9 +124,6 @@ def test_the_pending_refusal_leaks_nothing_beyond_the_wait(monkeypatch: pytest.M
 
 
 def test_rejected_and_suspended_each_get_their_own_words(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Three refusals, three sentences. Telling a rejected person they are "awaiting approval" is a
-    lie that has them waiting forever; telling a suspended person they are "not approved" hides a
-    revocation they might get reversed today."""
     install(
         monkeypatch,
         FakeDb(
@@ -181,14 +144,9 @@ def test_rejected_and_suspended_each_get_their_own_words(monkeypatch: pytest.Mon
     assert ACCESS_REJECTED_DETAIL != ACCESS_SUSPENDED_DETAIL != ACCESS_PENDING_DETAIL
 
 
-# --- EXISTENCE IS NOT ADMISSION ---------------------------------------------------------------------
-
 
 @pytest.mark.parametrize("refused_status", ["PENDING", "REJECTED", "SUSPENDED"])
 def test_only_an_active_row_admits(monkeypatch: pytest.MonkeyPatch, refused_status: str) -> None:
-    """The bypass this whole design is arranged around: a row EXISTS for people who were refused,
-    because the refusal itself writes one. Any check that tests for a row rather than for ACTIVE is
-    an authentication bypass an attacker can arrange on their own address."""
     install(
         monkeypatch,
         FakeDb(
@@ -213,8 +171,6 @@ def test_an_active_row_admits(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_the_first_sign_in_is_stamped_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``firstSeenAt`` answers "which approvals were ever taken up", so it records the FIRST sign-in
-    and is never moved by a later one."""
     fake = install(
         monkeypatch,
         FakeDb(
@@ -229,12 +185,8 @@ def test_the_first_sign_in_is_stamped_once(monkeypatch: pytest.MonkeyPatch) -> N
     assert fake.accessroster.rows[0].firstSeenAt == first
 
 
-# --- MASTER_ADMIN IS NEVER GATED ---------------------------------------------------------------------
-
 
 def test_the_master_admin_signs_in_with_no_roster_row_at_all(monkeypatch: pytest.MonkeyPatch) -> None:
-    """THE BREAK-GLASS. The roster is a table only an administrator can edit, so an administrator
-    locked out by it is an outage with nobody left able to fix it."""
     install(
         monkeypatch,
         FakeDb(users=[_account(MASTER_EMAIL, role="MASTER_ADMIN")], roster=[]),
@@ -243,7 +195,6 @@ def test_the_master_admin_signs_in_with_no_roster_row_at_all(monkeypatch: pytest
 
 
 def test_the_master_admin_signs_in_through_a_suspended_row(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Even an actively hostile roster entry cannot shut the break-glass."""
     install(
         monkeypatch,
         FakeDb(
@@ -255,8 +206,6 @@ def test_the_master_admin_signs_in_through_a_suspended_row(monkeypatch: pytest.M
 
 
 def test_a_second_master_admin_is_exempt_by_role(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A master admin minted through ``POST /users`` does not hold the configured address, so the
-    role has to exempt them too — otherwise the institution can still lock itself out."""
     install(
         monkeypatch,
         FakeDb(
@@ -267,17 +216,10 @@ def test_a_second_master_admin_is_exempt_by_role(monkeypatch: pytest.MonkeyPatch
     assert _login("second.master@example.org").status_code == 200
 
 
-# --- GOOGLE IS GATED ----------------------------------------------------------------------------------
-
 
 def test_an_unknown_google_address_gets_no_account_and_no_token(
     monkeypatch: pytest.MonkeyPatch, google
 ) -> None:
-    """THE BIGGEST BEHAVIOURAL CHANGE IN THIS FEATURE.
-
-    Before the gate, this exact request created a ``User`` row and returned 200 with a bearer token
-    — for any verified Google address on earth. Now it creates a PENDING roster entry and refuses.
-    """
     fake = install(monkeypatch, FakeDb(users=[], roster=[]))
     google("stranger@example.org")
 
@@ -293,9 +235,6 @@ def test_an_unknown_google_address_gets_no_account_and_no_token(
 def test_the_pending_row_stores_the_address_and_nothing_else(
     monkeypatch: pytest.MonkeyPatch, google
 ) -> None:
-    """The pending queue is the ONE screen in this product where a stranger can cause content to
-    appear in front of an administrator. The display name and picture Google hands us are chosen by
-    the account holder, so neither is stored."""
     fake = install(monkeypatch, FakeDb(users=[], roster=[]))
     google("stranger@example.org", name="<script>alert(1)</script>", picture="https://evil/x.png")
 
@@ -313,8 +252,6 @@ def test_the_pending_row_stores_the_address_and_nothing_else(
 def test_an_admitted_google_address_is_provisioned_at_its_granted_tier(
     monkeypatch: pytest.MonkeyPatch, google
 ) -> None:
-    """The other half of "keyed by email": an admin admits somebody who has never opened the app,
-    and the account provisions itself, at the tier the admin chose, on first sign-in."""
     fake = install(
         monkeypatch,
         FakeDb(users=[], roster=[_roster("invited@example.org", "ACTIVE", grantedRole="RESEARCHER")]),
@@ -331,9 +268,6 @@ def test_an_admitted_google_address_is_provisioned_at_its_granted_tier(
 def test_a_stale_roster_tier_never_demotes_an_existing_account(
     monkeypatch: pytest.MonkeyPatch, google
 ) -> None:
-    """``grantedRole`` is a provisioning floor, not a live authority. An admin promoted through the
-    users screen must not be knocked back down by their own next Google sign-in — a demotion that
-    would be invisible in the login response and would change who may review whose work."""
     fake = install(
         monkeypatch,
         FakeDb(
@@ -352,9 +286,6 @@ def test_a_stale_roster_tier_never_demotes_an_existing_account(
 def test_a_refused_google_sign_in_does_not_touch_the_existing_account(
     monkeypatch: pytest.MonkeyPatch, google
 ) -> None:
-    """The gate runs BEFORE the write. The Google branch used to overwrite name, avatar and auth
-    provider on every sign-in; a suspended person must not be able to rewrite their own account row
-    with an unadmitted token."""
     fake = install(
         monkeypatch,
         FakeDb(
@@ -370,33 +301,22 @@ def test_a_refused_google_sign_in_does_not_touch_the_existing_account(
 
 
 def test_the_google_wrapper_endpoint_is_gated_too(monkeypatch: pytest.MonkeyPatch, google) -> None:
-    """``POST /auth/google`` delegates to ``login``; this proves the delegation has not been
-    bypassed, because it is the endpoint the Android client actually calls."""
     install(monkeypatch, FakeDb(users=[], roster=[]))
     google("stranger@example.org")
     response = _post("/api/auth/google", {"googleIdToken": "a-verified-token"})
     assert response.status_code == 403
 
 
-# --- THE UNAUTHENTICATED WRITE, AND ITS BOUNDS ---------------------------------------------------------
-
 
 def test_a_wrong_password_writes_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """PROOF OF OWNERSHIP COMES FIRST. An unknown address with a guessed password has proved
-    nothing, so it is told nothing and it writes nothing — otherwise the administrators' queue would
-    be writable at line rate by an anonymous script and the notification would drown in it."""
     fake = install(monkeypatch, FakeDb(users=[_account("real@example.org")], roster=[]))
 
-    # Long enough to pass ``LoginRequest``'s min_length; a shorter one would 422 before the handler
-    # and this test would be measuring pydantic rather than the gate.
     assert _login("real@example.org", "wrong-password-entirely").status_code == 401
     assert _login("nobody@example.org", "anything-at-all").status_code == 401
     assert fake.accessroster.rows == []
 
 
 def test_one_person_hammering_the_form_is_one_row(monkeypatch: pytest.MonkeyPatch, google) -> None:
-    """Dedupe by address is what makes the unauthenticated write bounded. Ten attempts, one row, a
-    counter an administrator can read."""
     fake = install(monkeypatch, FakeDb(users=[], roster=[]))
     google("stranger@example.org")
 
@@ -410,9 +330,6 @@ def test_one_person_hammering_the_form_is_one_row(monkeypatch: pytest.MonkeyPatc
 
 
 def test_a_rejected_person_does_not_re_queue(monkeypatch: pytest.MonkeyPatch, google) -> None:
-    """THE DECISION STAYS A DECISION. Re-opening on re-attempt would make a rejection a timer: the
-    same request lands back in the queue every day and the administrator has no way to stop it. The
-    counter is how their persistence stays visible."""
     fake = install(
         monkeypatch,
         FakeDb(users=[], roster=[_roster("no@example.org", "REJECTED", requestCount=3)]),
@@ -430,8 +347,6 @@ def test_a_rejected_person_does_not_re_queue(monkeypatch: pytest.MonkeyPatch, go
 def test_at_the_ceiling_a_new_address_is_refused_without_a_row(
     monkeypatch: pytest.MonkeyPatch, google, settings_under_test
 ) -> None:
-    """The cap is a backstop against a flood. At it, the person still reads the identical sentence —
-    nothing about the ceiling is observable to a caller — and no row is stored."""
     monkeypatch.setattr(settings_under_test, "access_roster_max_pending", 1)
     fake = install(monkeypatch, FakeDb(users=[], roster=[_roster("first@example.org", "PENDING")]))
     google("second@example.org")
@@ -446,9 +361,6 @@ def test_at_the_ceiling_a_new_address_is_refused_without_a_row(
 def test_the_ceiling_does_not_stop_an_existing_row_from_counting(
     monkeypatch: pytest.MonkeyPatch, google, settings_under_test
 ) -> None:
-    """Bumping a counter grows nothing, so an address already on the roster keeps working at the
-    cap. A cap that froze existing rows would lose the one signal an admin has about who is waiting
-    hardest."""
     monkeypatch.setattr(settings_under_test, "access_roster_max_pending", 1)
     fake = install(monkeypatch, FakeDb(users=[], roster=[_roster("first@example.org", "PENDING")]))
     google("first@example.org")
@@ -457,15 +369,10 @@ def test_the_ceiling_does_not_stop_an_existing_row_from_counting(
     assert fake.accessroster.rows[0].requestCount == 2
 
 
-# --- THE KILL SWITCH ------------------------------------------------------------------------------------
-
 
 def test_the_kill_switch_restores_the_previous_behaviour(
     monkeypatch: pytest.MonkeyPatch, google, settings_under_test
 ) -> None:
-    """If the back-fill ever turns out to have missed somebody in production, the remedy has to be
-    faster than a deploy. Off, the gate admits everybody exactly as this application did before it
-    existed — including Google self-provisioning, which is why it is not a feature flag."""
     monkeypatch.setattr(settings_under_test, "access_roster_enforced", False)
     fake = install(
         monkeypatch,

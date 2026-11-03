@@ -1,10 +1,3 @@
-"""Machine-drafted answers from a take's transcript go to an AI model, so the one consent store
-decides: a withdrawal stops the next draft (``questionnaire_v2/answers.proposals``).
-
-No database and no provider: the take, the consent verdict and the drafting call are stand-ins, and
-the database fake answers only the two statements ``proposals`` makes for a section target.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -59,7 +52,7 @@ def take(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         return {1: "Since I was small."}, "anthropic", "model"
 
     async def may_change(*_a: Any, **_k: Any) -> None:
-        return None  # who may ask for proposals is tests/test_questionnaire_v2_switch_on.py's (audit M15)
+        return None
 
     monkeypatch.setattr(recordings, "require_recording", require)
     monkeypatch.setattr(recordings, "assert_can_change", may_change)

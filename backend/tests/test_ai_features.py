@@ -1,16 +1,3 @@
-"""The contract these tests defend is "a fresh clone behaves exactly as it did before".
-
-They run in a venv with NONE of the optional dependencies installed — no rembg, no onnxruntime,
-no Pillow, no vtracer — and that is the point. Every assertion here is about the dormant state:
-the package imports on stdlib alone, the flags are off, the probe can say why, and a call fails
-with a typed error that names the variable to set instead of an ImportError from a library nobody
-installed. If someone later moves an import to module scope, the first test in this file fails on
-a machine that does not have the package, which is every machine we deploy to.
-
-The one thing they cannot check is a provider actually working: that needs the dependency and, for
-the hosted pair, an account and a credit. ``docs/AI_FEATURES.md`` says what to run by hand instead.
-"""
-
 import importlib
 import struct
 import subprocess
@@ -39,8 +26,6 @@ from app.ai_features.settings import AiFeatureSettings, ENV_VARS, build_settings
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
-#: Every module in the package, so the "imports without its dependencies" test cannot go stale by
-#: someone adding a file and forgetting it.
 PACKAGE_MODULES = (
     "app.ai_features",
     "app.ai_features.errors",
@@ -60,13 +45,10 @@ PACKAGE_MODULES = (
     "app.ai_features.providers.vtracer_local",
 )
 
-#: The heavy things. If any of these is in sys.modules after importing the package, something is
-#: being imported at module scope that must not be.
 OPTIONAL_DEPENDENCIES = ("rembg", "onnxruntime", "torch", "numpy", "PIL", "vtracer")
 
 
 def _png(width: int = 8, height: int = 6) -> bytes:
-    """A real PNG built with stdlib zlib — the tests cannot use Pillow to make fixtures."""
     raw = b"".join(b"\x00" + b"\x7f\x40\x20" * width for _ in range(height))
 
     def chunk(tag: bytes, payload: bytes) -> bytes:
@@ -87,7 +69,6 @@ def _png(width: int = 8, height: int = 6) -> bytes:
 
 
 def _jpeg(width: int = 20, height: int = 10) -> bytes:
-    """Enough of a JPEG for the header sniffer: SOI, a padded APP0, then an SOF0 frame."""
     return (
         b"\xff\xd8"
         + b"\xff\xe0" + struct.pack(">H", 16) + b"JFIF\x00" + b"\x00" * 9
@@ -100,19 +81,13 @@ ALL_OFF = build_settings({})
 
 
 def _settings(**overrides: str) -> AiFeatureSettings:
-    """Settings built from an explicit mapping, never from the machine's environment."""
     return build_settings(overrides)
 
 
 @pytest.fixture(autouse=True)
 def _isolate_process_state() -> None:
-    """warn_once is process-global; a leaked key would silence an assertion in another test."""
     reset_warn_once_cache()
 
-
-# --------------------------------------------------------------------------------------------
-# 1. The package is importable, and importing it costs nothing.
-# --------------------------------------------------------------------------------------------
 
 
 def test_every_module_imports_without_the_optional_dependencies() -> None:
@@ -121,8 +96,6 @@ def test_every_module_imports_without_the_optional_dependencies() -> None:
 
 
 def test_importing_the_package_does_not_pull_in_a_heavy_dependency() -> None:
-    # In-process, sys.modules may already be polluted by another test, so this is checked in a
-    # clean interpreter: a subprocess that imports the package and nothing else.
     script = (
         "import sys;"
         "import app.ai_features;"
@@ -147,10 +120,6 @@ def test_public_surface_is_what_init_advertises() -> None:
     for name in ai_features.__all__:
         assert hasattr(ai_features, name), f"__all__ names {name}, which does not exist"
 
-
-# --------------------------------------------------------------------------------------------
-# 2. Default off: no new environment variable, no behaviour change.
-# --------------------------------------------------------------------------------------------
 
 
 def test_empty_environment_disables_everything() -> None:
@@ -184,8 +153,6 @@ def test_a_nonsense_flag_value_is_a_note_not_a_crash() -> None:
 
 
 def test_every_variable_the_code_reads_is_documented() -> None:
-    # The only reference for these flags is docs/AI_FEATURES.md, since they are deliberately absent
-    # from .env.example. A variable that exists in code and not in the document is unfindable.
     document = (BACKEND_ROOT.parent / "docs" / "AI_FEATURES.md").read_text(encoding="utf-8")
     undocumented = [name for name in ENV_VARS if name not in document]
     assert undocumented == [], f"not in docs/AI_FEATURES.md: {undocumented}"
@@ -193,14 +160,9 @@ def test_every_variable_the_code_reads_is_documented() -> None:
 
 def test_settings_survive_every_variable_being_set_at_once() -> None:
     settings = build_settings({name: "1" for name in ENV_VARS})
-    # "1" is nonsense for most of them, so the point is that it produces notes rather than raising.
     assert settings.enabled is True
     assert settings.notes
 
-
-# --------------------------------------------------------------------------------------------
-# 3. Calling a disabled capability fails softly, with the variable named.
-# --------------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -220,8 +182,6 @@ def test_disabled_capability_raises_feature_disabled(call, variable: str) -> Non
 
 
 def test_disabled_beats_a_bad_image() -> None:
-    # The order matters: an operator with the feature off should be told it is off, not told
-    # their input is wrong by a code path that could not have run either way.
     with pytest.raises(FeatureDisabled):
         ai_features.remove_background(b"not an image at all", settings=ALL_OFF)
 
@@ -230,10 +190,6 @@ def test_a_disabled_call_is_catchable_as_the_base_error() -> None:
     with pytest.raises(AiFeatureError):
         ai_features.vectorise_image(_png(), settings=ALL_OFF)
 
-
-# --------------------------------------------------------------------------------------------
-# 4. Enabled but not installed: a typed error naming the missing package, never an ImportError.
-# --------------------------------------------------------------------------------------------
 
 _LOCAL_MISSING = not registry.module_available("vtracer")
 _REMBG_MISSING = not registry.module_available("rembg")
@@ -262,8 +218,6 @@ def test_vectorisation_without_vtracer_or_a_key_explains_both_options() -> None:
 
 
 def test_enabled_hosted_provider_without_a_key_raises_not_configured() -> None:
-    # requests IS installed (it is a core dependency), so this is the credential case rather
-    # than the missing-package one, which is exactly the distinction the errors exist for.
     settings = _settings(
         AI_FEATURES_ENABLED="true",
         AI_BACKGROUND_REMOVAL_ENABLED="true",
@@ -286,7 +240,6 @@ def test_an_unknown_provider_id_lists_the_real_ones() -> None:
 
 
 def test_an_explicit_provider_is_never_silently_swapped() -> None:
-    # A caller who asked for the local matte must not be charged for a hosted one instead.
     settings = _settings(
         AI_FEATURES_ENABLED="true",
         AI_BACKGROUND_REMOVAL_ENABLED="true",
@@ -309,10 +262,6 @@ def test_a_provider_that_does_not_implement_the_capability_is_rejected() -> None
     with pytest.raises(UnknownProvider):
         ai_features.vectorise_image(_png(), settings=settings)
 
-
-# --------------------------------------------------------------------------------------------
-# 5. Input validation, which works with no dependencies at all.
-# --------------------------------------------------------------------------------------------
 
 
 def test_sniff_reads_png_and_jpeg_headers() -> None:
@@ -351,7 +300,6 @@ def test_load_source_enforces_the_byte_and_pixel_ceilings(tmp_path: Path) -> Non
     with pytest.raises(ImageTooLarge):
         load_source(_png(64, 64), few_pixels)
 
-    # A path is rejected from its stat(), before the bytes are ever read into memory.
     big = tmp_path / "big.png"
     big.write_bytes(_png(400, 400))
     with pytest.raises(ImageTooLarge):
@@ -362,10 +310,6 @@ def test_a_missing_file_is_a_typed_error_not_an_oserror(tmp_path: Path) -> None:
     with pytest.raises(UnsupportedImageType):
         load_source(tmp_path / "nothing-here.png", ALL_OFF)
 
-
-# --------------------------------------------------------------------------------------------
-# 6. The probe: the thing an operator runs to find out why nothing is happening.
-# --------------------------------------------------------------------------------------------
 
 
 def test_probe_reports_dormant_on_a_default_installation() -> None:
@@ -408,7 +352,7 @@ def test_probe_never_leaks_a_secret() -> None:
 def test_probe_is_json_safe() -> None:
     import json
 
-    json.dumps(probe(ALL_OFF))  # raises if a dataclass or an enum leaked into the report
+    json.dumps(probe(ALL_OFF))
 
 
 def test_every_provider_declares_its_resource_cost_and_how_it_was_established() -> None:
@@ -417,8 +361,6 @@ def test_every_provider_declares_its_resource_cost_and_how_it_was_established() 
         assert resources.basis in ("MEASURED", "ESTIMATED", "VENDOR_STATED")
         assert resources.latency and resources.money
         if resources.basis == "MEASURED":
-            # A measured claim has to say where it came from, or it is just an estimate wearing
-            # a better label.
             assert "MEASURED" in resources.notes
 
 
@@ -433,10 +375,6 @@ def test_format_probe_is_readable_and_says_how_to_turn_it_on() -> None:
     assert "AI_FEATURES_ENABLED=true" in text
     assert all(str(capability) in text for capability in Capability)
 
-
-# --------------------------------------------------------------------------------------------
-# 7. Call-time plumbing that has to behave with nothing installed.
-# --------------------------------------------------------------------------------------------
 
 
 def test_a_spent_deadline_refuses_to_start_more_work() -> None:

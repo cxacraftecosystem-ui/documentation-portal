@@ -1,11 +1,3 @@
-"""The artisan-card routes: lazy issue, reissue, resolve, the miss budget, the PDFs and the backfill.
-
-The routes are called as functions against ``tests/artisan_card_fakes.FakeDB``, which keeps the
-two constraints the card code relies on (unique code, one live card per artisan). The migration's
-partial index is checked against the SQL itself; ``test_artisan_card_db.py`` runs the real thing
-against a throwaway Postgres when one is configured.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -120,8 +112,6 @@ async def _resolve(text, user=USER):
     return await routes.resolve_card(routes.ResolveIn(input=text, source="WEB"), current_user=user)
 
 
-# ── Issue ────────────────────────────────────────────────────────────────────────────────────────
-
 
 async def test_lazy_issue_happens_once_even_under_concurrent_reads(world):
     answers = await asyncio.gather(*(routes.get_card("a1", current_user=USER) for _ in range(8)))
@@ -181,8 +171,6 @@ async def test_routes_are_404_and_status_disabled_when_inactive(world):
     world.state["settings"] = _settings()
     assert await routes.card_status(USER) == {"enabled": True, "issuer": "F"}
 
-
-# ── Reissue and resolve ──────────────────────────────────────────────────────────────────────────
 
 
 async def test_reissue_revokes_and_the_old_code_answers_replaced(world):
@@ -252,7 +240,6 @@ async def test_miss_limit_is_429_and_hits_never_count(world):
     with pytest.raises(HTTPException) as caught:
         await _resolve(card["shortCode"])
     assert caught.value.status_code == 429
-    # Another account's budget is its own.
     assert (await _resolve(card["shortCode"], user=OTHER))["status"] == "FOUND"
 
 
@@ -276,17 +263,13 @@ async def test_designer_card_resolves_through_the_link_and_is_refused_unlinked(w
     found = await _resolve(artisan_card.short_code("D", designer_code))
     assert found["status"] == "FOUND" and found["via"] == "LINK"
     assert found["artisan"]["id"] == "a2"
-    # A QR from the designer portal carries a tag this server cannot check; the link is the proof.
     found = await _resolve(f"CXA1:D1:{designer_code}:{'0' * 16}")
     assert found["artisan"]["id"] == "a2"
-    # With the cross-portal channel off, the same card is the unlinked answer.
     world.state["settings"] = _settings(cross_portal_identity_enabled=False)
     with pytest.raises(HTTPException) as caught:
         await _resolve(artisan_card.short_code("D", designer_code))
     assert caught.value.status_code == 404
 
-
-# ── PDFs ─────────────────────────────────────────────────────────────────────────────────────────
 
 
 def _text(reader: PdfReader) -> str:
@@ -349,7 +332,6 @@ async def test_photo_is_printed_when_present(world, monkeypatch):
 
 
 def _image_count(pdf: bytes) -> int:
-    """Image XObjects placed on the first page: the photo is the only raster a card draws."""
     resources = PdfReader(io.BytesIO(pdf)).pages[0].get("/Resources") or {}
     xobjects = resources.get("/XObject") or {}
     return sum(1 for ref in xobjects.values() if ref.get_object().get("/Subtype") == "/Image")
@@ -363,7 +345,6 @@ async def test_sheet_for_a_workshop_is_a4_with_ceil_n_over_ten_pages(world):
     assert len(reader.pages) == math.ceil(12 / 10)
     assert _size_mm(reader.pages[0]) == (210.0, 297.0)
     assert not re.search(r"\d{12}", _text(reader))
-    # Every artisan got a card, issued together, and one PRINT row counts them.
     issued = {c["artisanId"] for c in world.db.artisancard.rows}
     assert {f"a{i}" for i in range(3, 15)} <= issued
     prints = _events(world.db, "PRINT")
@@ -403,8 +384,6 @@ def test_sheet_caps_at_two_hundred():
     with pytest.raises(ValueError):
         routes.SheetIn(artisanIds=[f"a{i}" for i in range(201)])
 
-
-# ── The register and the backfill ────────────────────────────────────────────────────────────────
 
 
 async def test_register_rows_carry_card_last4_and_linked_codes(world, monkeypatch):

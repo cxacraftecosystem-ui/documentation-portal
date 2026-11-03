@@ -1,9 +1,3 @@
-"""The coverage feed the designer portal reads: off by default, token-gated, signed, logged, aggregate.
-
-No database: the route module's ``db`` and ``get_settings`` are replaced by fakes, ``coverage.reader``
-is handed a fake client, and the routes are called as functions.
-"""
-
 from __future__ import annotations
 
 import json
@@ -200,6 +194,5 @@ async def test_filters_apply_and_scheme_is_ignored(world):
 
 
 async def test_this_portals_status_is_unchanged_by_the_coverage_flag(monkeypatch, world):
-    # The toggle that asks for these figures lives on the designer portal and reads ITS status.
     body = await routes.cross_portal_status(None)
     assert "coverageEnabled" not in body

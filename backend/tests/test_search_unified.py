@@ -1,12 +1,3 @@
-"""``GET /search/unified`` on this portal's own index: ranking, grouping, paging and filters
-(services/search_query, routes/search; docs/SEARCH.md).
-
-Against a real database (opt-in, see ``search_support``), because the ranking IS Postgres:
-full-text under ``english`` and ``simple``, trigram word similarity, reciprocal-rank fusion. The
-route function is called directly with a settings stub, so no HTTP client and no second event loop
-are involved. The last few tests need no database.
-"""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -148,7 +139,6 @@ async def test_groups_come_in_vocabulary_order_with_totals(world, settings):
 async def test_every_account_reads_every_record_here(world, settings):
     contributor = await _search(world.contributor, world.stamp, types=["products"])
     assert len(_ids(contributor, "products")) == 3
-    # Not shareable is a cross-portal rule only; locally the unconsented artisan is found.
     artisans = await _search(world.contributor, world.stamp, types=["artisans"])
     assert world.unconsented.id in _ids(artisans, "artisans")
 
@@ -220,7 +210,7 @@ def test_build_sql_applies_the_scope_in_every_list():
     sql, params = search_query.build_sql(
         "indigo", search_query.Scope(types=["artisans"]), limit=5, qvec="[0]"
     )
-    assert sql.count("FROM base b") >= 4  # fts, trgm, vec and the counts all read the scoped base
+    assert sql.count("FROM base b") >= 4
     assert "d.\"audience\" = 'ALL'" in sql and "<=> " in sql
     assert params[0] == "indigo"
 

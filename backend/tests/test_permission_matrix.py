@@ -1,27 +1,3 @@
-"""Who may CREATE, UPDATE and DELETE each record type — the confirmed permission matrix, as tests.
-
-    ADMIN (50) / MASTER_ADMIN (60)  everything, everywhere.
-    PROFESSOR (40)                  create + update crafts and workshops, but NOT delete them;
-                                    edit the data of anyone ranked below them.
-    RESEARCHER (30)                 create an artisan, product, tool, process or interview.
-    FIELD_CONTRIBUTOR (20) /        create NOTHING. They populate what already exists: attach media
-    CROWDSOURCE_VOLUNTEER (10)      to an artisan, answer an existing interview, comment on a record.
-
-The last line is the one worth testing hardest. Tightening creation is a two-line change and it is
-very easy to tighten it one endpoint too far — POST /questionnaire/interviews in particular is BOTH
-the "open a new interview" call and, for an artisan set that already has one, the "answer the
-existing interview" call. Refusing the whole endpoint would silently remove the contribution path
-the two bottom tiers exist for, and every test below the divider is there to catch that.
-
-NOTHING HERE TOUCHES A DATABASE. The real routers are mounted and driven over HTTP with ``db``
-swapped for a tripwire that raises on the first delegate anybody reads off it. That makes the two
-outcomes unambiguous and needs no schema: a refusal is an HTTP 403 with the tripwire never touched
-(so the gate fired before any work), and an authorisation is the tripwire raising (so every guard
-passed and the handler body began). Assertions phrased as "not 403" would also pass for a route
-that 404s or 422s for an unrelated reason; these two cannot. A test that needs the handler to get
-PAST a particular read hands that one delegate over with ``preload``.
-"""
-
 import asyncio
 import sys
 from types import SimpleNamespace
@@ -42,7 +18,6 @@ LOWER_TIERS = ("CROWDSOURCE_VOLUNTEER", "FIELD_CONTRIBUTOR")
 
 
 def _user(role: str, user_id: str = "u1", **grants: Any) -> SimpleNamespace:
-    """A user row. Every grantable capability defaults to False; pass one to turn it on."""
     flags = {
         "canManageCrafts": False,
         "canManageWorkshops": False,
@@ -56,8 +31,6 @@ def _user(role: str, user_id: str = "u1", **grants: Any) -> SimpleNamespace:
 
 
 def _valid_aadhaar() -> str:
-    """A 12-digit number the create schema accepts, checked with the app's own Verhoeff routine
-    rather than hard-coded — a literal here would rot the day the validator is tightened."""
     for last in "0123456789":
         candidate = f"22345678901{last}"
         if verhoeff_ok(candidate):
@@ -65,18 +38,12 @@ def _valid_aadhaar() -> str:
     raise AssertionError("no Verhoeff-valid Aadhaar in the candidate range")
 
 
-# A create carries both halves of a location: the coordinate the device reported, and the state and
-# district the researcher stated about the subject. The second pair is not decoration here — since
-# 20260727120000_location_stated_address it is required on create (see require_location in
-# app/schemas/common.py), because a nullable column nobody has to fill is how `district` stayed empty
-# on every record for as long as it has been a shipped export column.
 LOCATION = {
     "latitude": 22.57,
     "longitude": 88.36,
     "state": "West Bengal",
     "district": "Kolkata",
 }
-# A craft joins a sub-category of the master list (2026-10-20); `giStatus` is required with it.
 CRAFT_BODY = {"name": "Test craft", "subCategoryId": "sub_1", "giStatus": "NON_GI"}
 WORKSHOP_BODY = {"title": "Test workshop", "date": "2026-10-20", "place": "Kolkata", "location": LOCATION}
 ARTISAN_BODY = {
@@ -115,13 +82,10 @@ TAXONOMY = [("/crafts", CRAFT_BODY), ("/workshops", WORKSHOP_BODY)]
 
 
 class _DatabaseTouched(Exception):
-    """The route's guards all passed and its body started working — the whole "allowed" assertion."""
+    pass
 
 
 class _Tripwire:
-    """Stands in for ``db``. Reading any delegate off it means the handler got past every guard,
-    unless the test explicitly handed that delegate over with ``preload``."""
-
     def __init__(self) -> None:
         object.__setattr__(self, "touched", False)
         object.__setattr__(self, "_preloaded", {})
@@ -134,7 +98,6 @@ class _Tripwire:
         object.__setattr__(self, "_preloaded", {})
 
     def __getattr__(self, name: str) -> Any:
-        # __getattr__, not __getattribute__, so the real attributes above stay readable.
         preloaded = object.__getattribute__(self, "_preloaded")
         if name in preloaded:
             return preloaded[name]
@@ -143,9 +106,6 @@ class _Tripwire:
 
 
 class _Outcome:
-    """Either "the gate refused it" or "the handler ran" — never a bare status code, so a 404 or a
-    422 from an unrelated cause can never be mistaken for either one."""
-
     def __init__(self, *, reached: bool, status_code: int | None = None, detail: Any = "") -> None:
         self.reached = reached
         self.status_code = status_code
@@ -155,13 +115,10 @@ class _Outcome:
     def refused(self) -> bool:
         return self.status_code == 403
 
-    def __repr__(self) -> str:  # pragma: no cover - only ever read out of a failure message
+    def __repr__(self) -> str:  # pragma: no cover
         return "reached-handler" if self.reached else f"HTTP {self.status_code}: {self.detail}"
 
 
-# The whole API, assembled ONCE. Twenty-eight routers with their response models cost a couple of
-# seconds to build, and rebuilding them per test turned a fast suite into a two-minute one. Nothing
-# request-scoped lives on it: the caller comes from ``_CURRENT`` and the database from the fixture.
 _CURRENT: dict[str, Any] = {"user": None}
 
 
@@ -176,8 +133,6 @@ _APP = _build_app()
 
 
 class _Api:
-    """The real routers, driven as one caller at a time."""
-
     def __init__(self, tripwire: _Tripwire) -> None:
         self.tripwire = tripwire
 
@@ -186,8 +141,6 @@ class _Api:
         return self
 
     def preload(self, name: str, delegate: Any) -> "_Api":
-        """Let the handler get past one specific database read, for the tests whose decision point
-        is behind it."""
         self.tripwire.preload(name, delegate)
         return self
 
@@ -196,12 +149,6 @@ class _Api:
             transport = httpx.ASGITransport(app=_APP)
             async with httpx.AsyncClient(transport=transport, base_url="http://matrix.test") as client:
                 response = await client.request(method, f"/api{path}", json=body)
-            # PARSED ONLY WHEN IT IS JSON. Every route in this matrix used to answer JSON or nothing,
-            # so `response.json()` on any non-empty body was safe. `GET /questionnaires/pro-forma`
-            # answers 200 with an .xlsx, and httpx raises JSONDecodeError on it — which is not
-            # `_DatabaseTouched` and is not caught below, so the test ERRORS instead of asserting,
-            # and the failure reads as a broken test rather than as a broken guard.
-            # A non-JSON body carries no `detail` to report, so `{}` is the honest payload for it.
             content_type = response.headers.get("content-type", "")
             payload = (
                 response.json()
@@ -219,15 +166,7 @@ class _Api:
 
 @pytest.fixture
 def api(monkeypatch: pytest.MonkeyPatch) -> _Api:
-    """Mount the real API with every module's ``db`` replaced.
-
-    The modules do ``from app.core.db import db``, so each holds its OWN reference and patching the
-    source alone would miss all of them. Rebinding by identity finds every one already imported and
-    keeps finding them when a new module is added.
-    """
     tripwire = _Tripwire()
-    # The merge redirect (services/artisan_merge) reads ArtisanMerge on artisan-naming writes. It is
-    # not a guard, and an invented id was never merged, so it is handed over as "nothing merged".
     tripwire.preload("artisanmerge", SimpleNamespace(find_many=_returning([]), find_first=_returning(None)))
     real_db = core_db.db
     monkeypatch.setattr(core_db, "db", tripwire)
@@ -245,8 +184,6 @@ def _returning(value: Any):
     return call
 
 
-# --- Crafts and workshops: rank, and nothing but rank --------------------------------------------
-
 
 @pytest.mark.parametrize("path,body", TAXONOMY)
 def test_a_researcher_cannot_create_or_update_a_craft_or_workshop(api: _Api, path: str, body: dict) -> None:
@@ -256,16 +193,11 @@ def test_a_researcher_cannot_create_or_update_a_craft_or_workshop(api: _Api, pat
     updated = caller.call("PATCH", f"{path}/x1", body)
 
     assert (created.refused, updated.refused) == (True, True), (created, updated)
-    # The refusal happened in the dependency, before the route read a single row.
     assert api.tripwire.touched is False
 
 
 @pytest.mark.parametrize("path,body", TAXONOMY)
 def test_the_old_per_user_grant_no_longer_opens_that_door(api: _Api, path: str, body: dict) -> None:
-    """THE HOLE THIS CLOSES. ``canManageCrafts`` / ``canManageWorkshops`` used to sit in an OR beside
-    the rank floor, so a master admin could hand craft or workshop authorship to a researcher — or to
-    a volunteer — without their role column ever changing. Rank is now the only criterion; the
-    columns survive in the schema, unread, so restoring the old behaviour is one clause."""
     caller = api.as_(_user("RESEARCHER", canManageCrafts=True, canManageWorkshops=True))
 
     created = caller.call("POST", path, body)
@@ -303,16 +235,6 @@ def test_admins_create_update_and_delete(api: _Api, role: str, path: str, body: 
 
 
 def test_a_typed_craft_name_never_mints_a_craft(api: _Api, monkeypatch: pytest.MonkeyPatch) -> None:
-    """SINCE THE MASTER CRAFT LIST (2026-10-20) NOTHING CREATES A CRAFT FROM TYPED TEXT, for any role.
-
-    ``craftName`` on POST /artisans used to create the craft when nothing matched it, gated on
-    ``can_manage_crafts`` like POST /crafts. Now an old client's typed name that matches nothing is
-    kept in ``extraMetadata.legacyCraftText`` for the admin review queue, so the grant that no longer
-    opens the front door has nothing to open here either: the create goes on, and no craft is made.
-
-    What the route resolved is read off the real resolver, so the body that goes on to be written
-    is pinned too: no ``craftId``, and the typed text in ``legacyCraftText``.
-    """
     from app.services import craft_master
 
     real_resolve = craft_master.resolve_record_craft
@@ -330,7 +252,6 @@ def test_a_typed_craft_name_never_mints_a_craft(api: _Api, monkeypatch: pytest.M
     async def _mint(**kwargs: Any) -> None:
         minted.append(kwargs)
 
-    # The list has no such craft, and no spelling of one.
     caller.preload(
         "craft", SimpleNamespace(find_unique=_returning(None), find_many=_returning([]), create=_mint)
     )
@@ -345,12 +266,9 @@ def test_a_typed_craft_name_never_mints_a_craft(api: _Api, monkeypatch: pytest.M
     assert resolved, "the typed craft name was never resolved"
     assert not resolved[-1].get("craftId")
     assert "craftName" not in resolved[-1]
-    # Title-cased on the way in, like every typed name.
     kept = resolved[-1]["extraMetadata"][craft_master.LEGACY_TEXT_KEY]
     assert craft_master.normalise(kept) == craft_master.normalise("A craft nobody added yet")
 
-
-# --- Creating a record: Researcher and above ------------------------------------------------------
 
 
 @pytest.mark.parametrize("path,body", CREATE_BODIES)
@@ -368,18 +286,11 @@ def test_a_researcher_opens_all_four_record_types(api: _Api, path: str, body: di
     assert api.as_(_user("RESEARCHER")).call("POST", path, body).reached
 
 
-# --- The lower tiers keep every path they exist for ----------------------------------------------
-#
-# Everything below this line is a REGRESSION guard, not a new rule. If one of these starts failing
-# because creation was tightened, the tightening went too far and the crowdsourcing path is broken.
-
 
 @pytest.mark.parametrize("role", LOWER_TIERS)
 def test_a_volunteer_still_attaches_media_to_an_existing_record(
     api: _Api, monkeypatch: pytest.MonkeyPatch, role: str
 ) -> None:
-    """Both halves of an upload: asking for the signed URL, then registering the finished object
-    against an existing artisan. Neither is gated by record creation, and neither may become so."""
     monkeypatch.setattr(media, "presign_put_url", lambda key, mime: f"https://upload.test/{key}")
     monkeypatch.setattr(media, "public_url_for_key", lambda key: f"https://cdn.test/{key}")
     caller = api.as_(_user(role))
@@ -411,9 +322,6 @@ def test_a_volunteer_still_attaches_media_to_an_existing_record(
 def test_a_volunteer_still_answers_an_interview_that_already_exists(
     api: _Api, monkeypatch: pytest.MonkeyPatch, role: str
 ) -> None:
-    """POST /questionnaire/interviews for an artisan set that ALREADY has one folds into it — that is
-    how both apps submit answers to a shared entry. The create gate sits after the fold for exactly
-    this reason, and this is the test that says so."""
     folded: list[str] = []
 
     async def fold(existing, payload, current_user, check=None):
@@ -421,14 +329,6 @@ def test_a_volunteer_still_answers_an_interview_that_already_exists(
         return {"id": existing.id}
 
     monkeypatch.setattr(questionnaire, "merge_into_interview", fold)
-    # TWO preloads, and the second one is why this test still tests what it says it does. Since the
-    # questionnaire-container change `create_interview` resolves an INSTRUMENT before it looks for
-    # an existing sitting, which is a read of `db.questionnaire`; without handing that delegate over
-    # the tripwire fires on the instrument lookup instead of on the fold, `_Outcome(reached=True)`
-    # comes back, and the test passes while no longer exercising the lower-tier contribution path it
-    # exists for. And the lookup itself is now `find_first` over (questionnaireId, artisanSetKey),
-    # not `find_unique` over the set key alone — a `find_unique`-only stub would raise AttributeError
-    # rather than fold.
     api.preload("questionnaire", SimpleNamespace(find_first=_returning(SimpleNamespace(id="qnr-1"))))
     api.preload("questionnaireinterview", SimpleNamespace(find_first=_returning(SimpleNamespace(id="i1"))))
 
@@ -440,9 +340,6 @@ def test_a_volunteer_still_answers_an_interview_that_already_exists(
 
 @pytest.mark.parametrize("role", LOWER_TIERS)
 def test_a_volunteer_may_not_open_an_interview_for_an_artisan_set_that_has_none(api: _Api, role: str) -> None:
-    """The other half of the same endpoint: nothing to fold into means this really is a create."""
-    # Same two preloads, same reason — see the test above. The refusal has to come from the create
-    # gate AFTER both reads, not from the tripwire firing on either of them.
     api.preload("questionnaire", SimpleNamespace(find_first=_returning(SimpleNamespace(id="qnr-1"))))
     api.preload("questionnaireinterview", SimpleNamespace(find_first=_returning(None)))
 
@@ -456,8 +353,6 @@ def test_a_volunteer_may_not_open_an_interview_for_an_artisan_set_that_has_none(
 def test_a_volunteer_still_comments_on_an_existing_record(
     api: _Api, monkeypatch: pytest.MonkeyPatch, role: str
 ) -> None:
-    """Commenting is gated by the sharing tier (owner/admin/COMMENT grant) and by nothing about rank.
-    Given the tier, the bottom two tiers reach the write exactly as anyone else does."""
     monkeypatch.setattr(data_access, "_resolve_record_owner", _returning("someone-else"))
     monkeypatch.setattr(data_access, "effective_tier_for_record", _returning("COMMENT"))
 
@@ -467,17 +362,6 @@ def test_a_volunteer_still_comments_on_an_existing_record(
 
     assert outcome.reached, outcome
 
-
-# --- The questionnaire CONTAINER: three tiers, and the lines between them ---------------------------
-#
-# CREATING a new, empty form stays `require_questionnaire_manager` (Professor and above, or the
-# `canManageQuestionnaire` grant), and whoever creates it becomes its author. EDITING an existing form
-# is its author's or a content admin's (owner, 22 Oct 2026): see `AUTHOR_OR_ADMIN_EDITS` below. Two
-# acts are `require_admin`, and neither is an edit to a form:
-#
-#   * which instrument is the DEFAULT — where every client that names no instrument lands, including
-#     Android builds that predate the field and offline payloads queued before them;
-#   * which instrument a WORKSHOP uses — which questions every researcher at that event is shown.
 
 QUESTIONNAIRE_MANAGER_ROUTES = [
     ("POST", "/questionnaires", {"title": "A third instrument"}),
@@ -513,8 +397,6 @@ def test_a_professor_builds_a_questionnaire_and_so_does_a_granted_researcher(
 def test_choosing_the_default_and_binding_a_workshop_are_refused_below_admin(
     api: _Api, method: str, path: str, body: dict
 ) -> None:
-    """THE TEST THAT PINS THE NARROWING. A Professor holding `canManageQuestionnaire` may build any
-    form in the repository and still may not decide which one every unqualified client lands on."""
     professor = api.as_(_user("PROFESSOR", canManageQuestionnaire=True))
 
     outcome = professor.call(method, path, body)
@@ -532,23 +414,12 @@ def test_an_admin_chooses_the_default_and_binds_a_workshop(
 
 
 def test_the_admin_narrowing_did_not_leak_onto_the_authors_section_builder(api: _Api) -> None:
-    """Stated twice, on purpose. `critic-1-coverage.json` gap #9 names this exact accident: a
-    narrowing applied to a neighbouring route by copy-paste, taking the form away from the people
-    whose job is to build it. A Professor who wrote the form still adds a section to it."""
     outcome = _authored_by_u1(api).as_(_user("PROFESSOR", "u1")).call(
         "POST", "/questionnaire/sections", {"questionnaireId": "f1", "code": "Z", "title": "A new section"}
     )
 
     assert outcome.reached, outcome
 
-
-# --- The questionnaire WORKBOOK: a NEW form from a workbook is a questionnaire manager's -----------
-#
-# UNIFY 4.1 (owner, 22 Oct 2026): the pro-forma, a form's question set and creating a NEW form from a
-# workbook are open to the people who author forms (`require_questionnaire_manager`: Professor and
-# above, or the `canManageQuestionnaire` grant), not to admins alone; whoever uploads becomes the
-# author. Re-uploading over an EXISTING form, and downloading that form's own workbook to edit it,
-# stay the form's author's or a content admin's (`AUTHOR_OR_ADMIN_EDITS` below).
 
 WORKBOOK_ROUTES = [
     ("GET", "/questionnaires/pro-forma"),
@@ -574,35 +445,26 @@ def test_nobody_below_a_questionnaire_manager_reaches_a_workbook_route(
 def test_a_form_author_reaches_the_workbook_upload_handler(api: _Api, role: str) -> None:
     outcome = api.as_(_user(role)).call("POST", "/questionnaires/upload")
 
-    # A multipart route with no file is a 422 from FastAPI's own body validation, which runs AFTER
-    # the dependencies: the gate did not answer 403.
     assert outcome.status_code == 422, outcome
 
 
 def test_the_questionnaire_grant_opens_the_workbook_door(api: _Api) -> None:
-    """The grant makes a researcher a form author, so the pro-forma and a new upload are theirs."""
     granted = api.as_(_user("RESEARCHER", canManageQuestionnaire=True))
     assert granted.call("GET", "/questionnaires/pro-forma").status_code == 200
     assert granted.call("POST", "/questionnaires/upload").status_code == 422
 
 
 def test_the_pro_forma_path_is_not_swallowed_by_an_id_route(api: _Api) -> None:
-    """ROUTE ORDER, PINNED. `/questionnaires/pro-forma` is a literal segment sharing a prefix with
-    `/questionnaires/{questionnaire_id}`, and `[^/]+` matches "pro-forma" happily. Declared below the
-    id route, this answers 404 "Record not found". The pro-forma touches no database at all, so a 200
-    carrying an .xlsx is proof the literal route won."""
     outcome = api.as_(_user("ADMIN")).call("GET", "/questionnaires/pro-forma")
 
     assert outcome.status_code == 200, outcome
-    assert outcome.reached is False  # no delegate was read; the workbook is built in memory
+    assert outcome.reached is False
     assert api.tripwire.touched is False
 
 
 def test_a_ministry_admin_edits_and_reuploads_any_form_but_does_not_author_new_ones(
     api: _Api,
 ) -> None:
-    """`can_manage_questionnaire` does not cover a Ministry Admin, so a new form from a workbook is
-    not theirs; as a content admin they edit every form and re-upload its workbook, whoever wrote it."""
     assert api.as_(_user("MINISTRY_ADMIN")).call("POST", "/questionnaires/upload").refused
 
     api.tripwire.reset()
@@ -611,8 +473,6 @@ def test_a_ministry_admin_edits_and_reuploads_any_form_but_does_not_author_new_o
     assert ministry.call("POST", "/questionnaires/f1/upload").status_code == 422
 
 
-# --- "Below them", decided once ------------------------------------------------------------------
-
 
 def test_a_professor_edits_the_work_of_everyone_ranked_below_them() -> None:
     professor = _user("PROFESSOR")
@@ -620,16 +480,12 @@ def test_a_professor_edits_the_work_of_everyone_ranked_below_them() -> None:
     assert deps.can_edit_others_record(professor, "RESEARCHER") is True
     assert deps.can_edit_others_record(professor, "FIELD_CONTRIBUTOR") is True
     assert deps.can_edit_others_record(professor, "CROWDSOURCE_VOLUNTEER") is True
-    # Strictly below: a peer's record is not theirs to overwrite.
     assert deps.can_edit_others_record(professor, "PROFESSOR") is False
     assert deps.can_edit_others_record(professor, "ADMIN") is False
-    # A record with no creator role on file is treated as a researcher's, as the review ladder does.
     assert deps.can_edit_others_record(professor, None) is True
 
 
 def test_the_edit_ladder_is_the_review_ladder_and_not_a_second_reading_of_it() -> None:
-    """Two rank rules that disagree by one tier is how a privilege bug hides. Above the Professor
-    floor the edit rule must BE ``can_review_record``, tier for tier, with no exceptions."""
     for role in ("PROFESSOR", "ADMIN", "MASTER_ADMIN"):
         editor = _user(role)
         for creator_role in ALL_ROLES:
@@ -640,9 +496,6 @@ def test_the_edit_ladder_is_the_review_ladder_and_not_a_second_reading_of_it() -
 
 
 def test_editing_is_narrower_than_reviewing_below_professor() -> None:
-    """The review ladder deliberately reaches further down than editing: a field contributor reviews
-    a volunteer's submission and a researcher reviews a field contributor's. Neither of them gets to
-    rewrite it — only Professor and above edit other people's work."""
     for role in ("FIELD_CONTRIBUTOR", "RESEARCHER"):
         reviewer = _user(role)
         assert deps.can_review_record(reviewer, "CROWDSOURCE_VOLUNTEER") is True
@@ -650,8 +503,6 @@ def test_editing_is_narrower_than_reviewing_below_professor() -> None:
 
 
 def test_a_professor_is_privileged_over_a_lower_ranked_authors_record(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``may_edit_lower_ranked_record`` is the async half — the creator's role looked up once. It
-    must cost that lookup ONLY for the ranks the rule can apply to."""
     lookups: list[str] = []
 
     async def find_unique(where: dict, **_: Any) -> Any:
@@ -663,8 +514,6 @@ def test_a_professor_is_privileged_over_a_lower_ranked_authors_record(monkeypatc
     assert asyncio.run(deps.may_edit_lower_ranked_record(_user("PROFESSOR"), "author")) is True
     assert asyncio.run(deps.may_edit_lower_ranked_record(_user("RESEARCHER"), "author")) is False
     assert asyncio.run(deps.may_edit_lower_ranked_record(_user("PROFESSOR"), None)) is False
-    # One lookup, for the professor. The researcher and the ownerless record are refused on rank
-    # alone, so no ordinary contributor's edit pays a query for a clause that cannot help them.
     assert lookups == ["author"]
 
 
@@ -675,12 +524,6 @@ def test_the_craft_and_workshop_predicates_read_rank_alone() -> None:
         assert deps.can_manage_crafts(granted) is expected, role
         assert deps.can_manage_workshops(granted) is expected, role
 
-
-# --- Content admins delete; every other role never does (owner's ruling, 2026-10-20) --------------
-#
-# ``roles.CONTENT_ADMIN_ROLES`` — ADMIN, MASTER_ADMIN and (by name, for the day the ladders merge)
-# MINISTRY_ADMIN — add, edit and delete every record, media file and other managed content type.
-# Every other tier adds and edits and is refused every delete with a 403 BEFORE a row is read.
 
 CONTENT_ADMINS = ("ADMIN", "MASTER_ADMIN")
 NOT_CONTENT_ADMINS = tuple(role for role in ALL_ROLES if role not in CONTENT_ADMINS)
@@ -694,8 +537,6 @@ CONTENT_DELETES = [
     ("DELETE", "/workshops/x1"),
     ("DELETE", "/media/x1"),
     ("DELETE", "/data-access/comments/x1"),
-    # A form's own section, question and instrument deletes are its AUTHOR's as well (owner, 22 Oct
-    # 2026) and live in ``AUTHOR_OR_ADMIN_DELETES`` below. An interview stays a content admin's.
     ("DELETE", "/questionnaire/interviews/x1"),
     ("POST", "/questionnaire/interviews/x1/merge-into/x2"),
     ("DELETE", "/tasks/x1"),
@@ -706,7 +547,6 @@ CONTENT_DELETES = [
 
 def test_the_content_admin_set_names_the_three_admin_tiers() -> None:
     assert frozenset({"ADMIN", "MASTER_ADMIN", "MINISTRY_ADMIN"}) == deps.CONTENT_ADMIN_ROLES
-    # ``is_admin`` is NOT widened: accounts, rosters and settings keep their two-member set.
     assert not deps.is_admin(_user("MINISTRY_ADMIN"))
     assert deps.is_content_admin(_user("MINISTRY_ADMIN"))
     for role in ALL_ROLES:
@@ -733,7 +573,6 @@ def test_every_content_admin_deletes(api: _Api, method: str, path: str, role: st
 @pytest.mark.parametrize("call", ["delete_session", "merge_into", "remove"])
 @pytest.mark.parametrize("role", NOT_CONTENT_ADMINS)
 def test_no_role_below_the_content_admins_deletes_a_session_or_a_take(call: str, role: str) -> None:
-    """The session delete (its creator included), the session merge and the recording remove."""
     from fastapi import HTTPException
 
     from app.questionnaire import recordings, sessions
@@ -748,14 +587,6 @@ def test_no_role_below_the_content_admins_deletes_a_session_or_a_take(call: str,
     assert refusal.value.status_code == 403
 
 
-# --- A questionnaire form: its author OR a content admin deletes from it (owner, 22 Oct 2026) ------
-#
-# "The author should be able to edit/delete the questionnaire apart from the admins." Deleting the
-# instrument, one of its sections or one of its questions is reached by the form's author
-# (``Questionnaire.createdById``) and by every content admin; every other role, a questionnaire
-# manager included, is refused 403. The gate needs the row (it asks who made the form), so the form,
-# the section and the question are preloaded; any other read is the handler doing its work.
-
 
 AUTHOR_OR_ADMIN_DELETES = [
     ("DELETE", "/questionnaire/sections/x1"),
@@ -765,9 +596,6 @@ AUTHOR_OR_ADMIN_DELETES = [
 
 
 class _Row:
-    """One delegate whose ``find_unique`` (and ``find_many``) answer ``row``; reading anything else
-    off it is the handler at work."""
-
     def __init__(self, name: str, row: Any) -> None:
         object.__setattr__(self, "_name", name)
         object.__setattr__(self, "find_unique", _returning(row))
@@ -786,9 +614,6 @@ def _authored_by_u1(api: _Api) -> _Api:
 
 
 class _Form(SimpleNamespace):
-    """The form row. The gate reads only who wrote it; a handler reading its CONTENT (the workbook
-    export reads the title first) is the handler at work."""
-
     @property
     def title(self) -> str:
         raise _DatabaseTouched("questionnaire.title")
@@ -823,15 +648,6 @@ def test_nobody_else_deletes_from_a_form(api: _Api, method: str, path: str, role
     assert outcome.refused, outcome
 
 
-# --- A questionnaire form: its author OR a content admin EDITS it (owner, 22 Oct 2026) --------------
-#
-# "The author should be able to edit/delete the questionnaire apart from the admins", applied
-# strictly: renaming the form, adding, editing and reordering its sections and questions, and
-# downloading and re-uploading its workbook are the author's or a content admin's. Every other role,
-# a Professor or a holder of the ``canManageQuestionnaire`` grant included, is refused 403. ONE BODY
-# PER ROUTE: every questionnaire schema is extra="forbid", and a 422 from the body must never read as
-# a permission answer.
-
 AUTHOR_OR_ADMIN_EDITS = [
     ("PATCH", "/questionnaires/f1", {"title": "Renamed"}),
     ("POST", "/questionnaire/sections", {"questionnaireId": "f1", "code": "Z", "title": "A new section"}),
@@ -862,8 +678,6 @@ def test_a_content_admin_edits_somebody_elses_form(api: _Api, method: str, path:
 @pytest.mark.parametrize("role", NOT_CONTENT_ADMINS)
 @pytest.mark.parametrize("method,path,body", AUTHOR_OR_ADMIN_EDITS)
 def test_another_questionnaire_manager_is_refused_the_edit(api: _Api, method: str, path: str, body: Any, role: str) -> None:
-    """THE NARROWING ITSELF: a Professor, and a holder of the questionnaire grant, used to edit every
-    form. They now edit only their own."""
     outcome = _authored_by_u1(api).as_(_user(role, "u2", canManageQuestionnaire=True)).call(method, path, body)
 
     assert outcome.refused, outcome
@@ -882,7 +696,6 @@ def test_a_form_with_no_recorded_author_is_edited_by_a_content_admin_alone(
 
 
 def test_the_author_and_a_content_admin_reupload_the_workbook_and_nobody_else(api: _Api) -> None:
-    """A multipart route with no file: past the gate, FastAPI's body validation answers 422."""
     _authored_by_u1(api)
     assert api.as_(_user("PROFESSOR", "u1")).call("POST", "/questionnaires/f1/upload").status_code == 422
     for role in CONTENT_ADMINS + ("MINISTRY_ADMIN",):
@@ -894,8 +707,6 @@ def test_the_author_and_a_content_admin_reupload_the_workbook_and_nobody_else(ap
 
 
 class _Comments:
-    """``db.entrycomment`` with one comment by ``u1``; the update is the handler doing its work."""
-
     def __init__(self) -> None:
         self.find_unique = _returning(SimpleNamespace(id="c1", authorId="u1"))
 

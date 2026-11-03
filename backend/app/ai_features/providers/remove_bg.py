@@ -1,18 +1,3 @@
-"""Hosted matting through remove.bg. The provider that actually fits on the production box.
-
-It needs nothing that is not already installed for background removal — ``requests`` is a core
-dependency — so switching this on is an API key and two flags, with no new packages and no model
-download. Separation is the exception: splitting the returned cutout into two layers is Pillow
-work, so that one capability needs the ``ai`` extra.
-
-WHAT LEAVES THE BUILDING. The photograph is uploaded to a third party. For craft documentation
-that is a consent question as much as a technical one — the images are of named artisans' work,
-gathered under a research agreement — so the decision belongs to whoever holds that agreement,
-not to whoever sets the flag. ``docs/AI_FEATURES.md`` says the same thing where an operator will
-read it.
-"""
-
-
 from app.ai_features.errors import ProviderNotConfigured
 from app.ai_features.providers.base import (
     BackgroundRemovalProvider,
@@ -26,8 +11,6 @@ from app.ai_features.types import Capability, CutoutResult, ImagePayload, Separa
 
 
 class RemoveBgProvider(BackgroundRemovalProvider, ForegroundSeparationProvider):
-    """One endpoint, used twice: directly for the cutout, and as the matte source for layers."""
-
     provider_id = "remove_bg"
 
     def remove_background(self, image: ImagePayload, deadline: Deadline) -> CutoutResult:
@@ -49,8 +32,6 @@ class RemoveBgProvider(BackgroundRemovalProvider, ForegroundSeparationProvider):
         capability = Capability.FOREGROUND_SEPARATION
         cutout, notes = self._cutout(image, capability, deadline)
         deadline.check("compositing", capability=capability, provider=self.provider_id)
-        # The matte is recovered from the alpha of the cutout we already paid for; asking the API
-        # for a mask separately would be a second credit for information we are holding.
         matte = extract_alpha(cutout, capability=capability, provider=self.provider_id)
         foreground, background, normalised, layer_notes = compose_layers(
             image, matte, capability=capability, provider=self.provider_id
@@ -87,8 +68,6 @@ class RemoveBgProvider(BackgroundRemovalProvider, ForegroundSeparationProvider):
         body, headers = post_image(
             self.settings.remove_bg_endpoint,
             files={"image_file": (image.filename, image.data, image.mime_type)},
-            # format=png because the whole point is the alpha channel; the default would hand back
-            # an opaque JPEG on some plans and quietly lose the transparency.
             data={"size": self.settings.remove_bg_size, "format": "png"},
             headers={"X-Api-Key": api_key, "Accept": "image/*"},
             deadline=deadline,
@@ -113,7 +92,5 @@ class RemoveBgProvider(BackgroundRemovalProvider, ForegroundSeparationProvider):
         notes: list[str] = []
         charged = headers.get("X-Credits-Charged") or headers.get("x-credits-charged")
         if charged:
-            # Persisted with the result so the spend is auditable from the job record rather than
-            # only from the vendor's dashboard.
             notes.append(f"remove.bg charged {charged} {'credit' if charged.strip() == '1' else 'credits'}")
         return body, tuple(notes)

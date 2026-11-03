@@ -1,8 +1,3 @@
-"""The review and sharing e-mails (A1, A5): what each says, who gets it, and the shared opt-out.
-
-No database: the outbox's ``db`` is an in-memory stand-in, as in ``test_email_outbox.py``.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -216,7 +211,6 @@ def test_a_stored_path_can_only_point_inside_the_app() -> None:
 
 
 def test_a_reason_with_no_note_of_its_own_is_said_once(world: Any) -> None:
-    # A fixable reason with no note stores the reason's label as the note (review._resolve_refusal).
     assert _decision(world, "NEEDS_REVISION", note="Missing details", reason_label="Missing details") == 1
     (row,) = world.db.emailmessage.rows
     text = mailer.render(row.kind, row.params).text

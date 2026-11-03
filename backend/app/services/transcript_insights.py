@@ -1,34 +1,3 @@
-"""Interview summaries, key quotes and English translations of transcripts.
-
-For each transcript the queue worker writes one ``TranscriptInsight`` row: up to five English
-summary lines, up to five key quotes (the original words and their English), and an English
-translation of the whole transcript when it is in another language. Each run is a new row with the
-provider, the model and the prompt version on it; a researcher's edit changes only the current row
-and the machine's own output stays frozen in ``generated``.
-
-SWITCHED OFF UNLESS BOTH FLAGS ARE ON. ``enabled()`` needs ``AI_FEATURES_ENABLED`` and
-``AI_TRANSCRIPT_INSIGHTS_ENABLED`` (app/ai_features). With either off nothing is enqueued, queued
-jobs are not drained, every route answers 404 and the clients draw nothing.
-
-CONSENT IS ASKED TWICE, over the one consent store (``services/recording_consent``): when a job is
-queued (:func:`enqueue`, which the Regenerate route, the run after a transcript lands and the run
-after a transcript edit all go through) and again by the worker at the moment of sending, so a
-consent withdrawn after the job was queued still holds.
-
-ALL GENERATION GOES THROUGH THE QUEUE. Nothing here is called from a request handler except
-``enqueue``; the backfill script only enqueues too.
-
-WHICH TEXT IS THE SOURCE. In the default REFINED_TRANSLATED transcription mode ``transcriptText``
-is already an English rewrite and the raw original-language text sits in ``transcriptSummary`` (a
-misnamed column: it is not a summary). :func:`select_sources` reads both, so quotes can be given in
-the speaker's own words. Nothing here writes to either column.
-
-THE TRANSCRIPT LEAVES THE SERVER. It is sent to OpenAI, Anthropic or Gemini, whichever key
-``user_ai_keys.resolve`` picks. Only exception classes and ids are logged, never transcript text or
-a key. A quote the model returns that is not in the transcript is dropped: it would be attributed
-to an artisan who never said it.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -63,12 +32,10 @@ PROMPT_VERSION = "transcript-insights/1"
 CHUNK_CHARS = 12_000
 SUMMARY_MAX_LINES = 5
 QUOTES_MAX = 5
-#: What a researcher may save: more quotes than the machine is asked for.
 QUOTES_MAX_EDIT = 8
 SUMMARY_LINE_MAX_CHARS = 400
 QUOTE_FIELD_MAX_CHARS = 1_000
 TRANSLATION_MAX_CHARS = 200_000
-#: The same input ceiling the other text verbs use.
 SOURCE_CLIP_CHARS = 48_000
 TIMEOUT_SECONDS = 90
 
@@ -81,7 +48,6 @@ PARTIAL = "PARTIAL"
 FAILED = "FAILED"
 
 ALREADY_ENGLISH_NOTE = "The transcript is already in English."
-#: Shown to every reader, including read-only viewers and the Android app, so it names no action.
 TRANSLATION_FAILED_NOTE = "The translation couldn't be finished."
 
 UNRECORDED = "UNRECORDED"
@@ -125,26 +91,16 @@ TRANSLATE_SYSTEM = (
 
 
 class InsightsUnavailable(RuntimeError):
-    """No provider can be asked (no key, SDK missing). The message is a sentence for a person."""
+    pass
 
 
 class InsightsFailed(RuntimeError):
-    """A provider call failed or returned nothing usable. The message is a sentence.
-
-    ``retry`` is False when asking again cannot help: the provider refused the key, turned the
-    request down, or the model declined. The queue then closes the job at once instead of spending
-    every attempt (and, on designer-portal, the requester's allowance) on the same answer.
-    """
-
     def __init__(self, message: str, *, retry: bool = True, hold_seconds: int | None = None) -> None:
         super().__init__(message)
         self.retry = retry
-        #: Set when the failure clears by itself (busy, unreachable, credit run out): the queue parks
-        #: the job for this long and asks again without spending an attempt.
         self.hold_seconds = hold_seconds
 
 
-#: The sentences for a failure that will not clear by itself.
 KEY_REFUSED = "The AI provider didn't accept the key. An administrator can check it in Settings."
 REQUEST_REFUSED = "The AI provider turned this transcript down."
 MODEL_DECLINED = "The AI model declined to summarise this transcript."
@@ -152,11 +108,8 @@ BILLING = "The AI provider's credit has run out. This resumes by itself once it 
 BILLING_HOLD_SECONDS = 900
 
 
-# --- Switch and sources -----------------------------------------------------------------------
-
 
 def enabled() -> bool:
-    """True only when AI_FEATURES_ENABLED and AI_TRANSCRIPT_INSIGHTS_ENABLED are both on."""
     return get_ai_settings().capability_enabled(Capability.TRANSCRIPT_INSIGHTS)
 
 
@@ -171,13 +124,6 @@ def _value(record: Any, key: str) -> Any:
 
 
 def select_sources(media: Any) -> tuple[str, str | None]:
-    """``(primary, original)``: the transcript to summarise, and the raw original-language text
-    under it when there is one.
-
-    ``original`` is ``transcriptSummary`` only when it is non-empty, differs from the primary text,
-    and the transcript has not been replaced by a researcher (``transcriptEditedAt`` NULL). After an
-    edit the raw provider text no longer describes what is on screen, so it is not used.
-    """
     primary = str(_value(media, "transcriptText") or "").strip()
     raw = str(_value(media, "transcriptSummary") or "").strip()
     original = (
@@ -193,8 +139,6 @@ def source_hash(primary: str, original: str | None) -> str:
 def media_source_hash(media: Any) -> str:
     return source_hash(*select_sources(media))
 
-
-# --- Parsing ----------------------------------------------------------------------------------
 
 
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
@@ -219,12 +163,6 @@ def is_english(language: str | None) -> bool:
 
 
 def parse_insight(text: str | None, sources: list[str]) -> dict[str, Any]:
-    """``{primaryLanguage, summary, quotes}`` from a model reply. Never raises.
-
-    Fenced JSON is accepted. At most five summary lines of 400 characters each are kept. A quote
-    whose ``original`` is not found in one of ``sources`` (after casefolding and collapsing
-    whitespace) is dropped: an invented quote would be attributed to an artisan.
-    """
     empty: dict[str, Any] = {"primaryLanguage": None, "summary": [], "quotes": []}
     if not text:
         return empty
@@ -285,12 +223,6 @@ def parse_insight(text: str | None, sources: list[str]) -> dict[str, Any]:
 
 
 def chunk_paragraphs(text: str, size: int = CHUNK_CHARS) -> list[str]:
-    """Split ``text`` into chunks of at most ``size`` characters, on paragraph bounds where possible.
-
-    Paragraphs (blank-line separated) are packed greedily. A paragraph longer than ``size`` is split
-    on line breaks, and a single line longer than that is cut hard. Joining the chunks with a blank
-    line gives back the text, give or take whitespace between paragraphs.
-    """
     pieces: list[str] = []
     for paragraph in re.split(r"\n\s*\n", text.strip()):
         paragraph = paragraph.strip()
@@ -330,17 +262,10 @@ def chunk_paragraphs(text: str, size: int = CHUNK_CHARS) -> list[str]:
     return chunks
 
 
-# --- Provider calls ---------------------------------------------------------------------------
-
 
 def _chat_sync(
     system: str, user: str, credential: Any, settings: Any, *, json_mode: bool
 ) -> dict[str, Any]:
-    """One completion on the resolved credential: ``{text, provider, model, modelVersion}``.
-
-    The ``answer_drafts._chat_sync`` pattern (feature C28), copied rather than imported so this
-    feature does not depend on that unmerged branch.
-    """
     model = credential.model
     if credential.provider is AiProvider.ANTHROPIC:
         result = anthropic_verbs.chat_verb(
@@ -377,7 +302,6 @@ def _chat_sync(
             "model": model,
             "modelVersion": body.get("modelVersion"),
         }
-    # The deployment's OpenAI key runs the deployment's configured chat model, as everywhere else.
     if not credential.is_user_supplied:
         model = settings.openai_chat_model
     payload: dict[str, Any] = {
@@ -417,11 +341,6 @@ def _is_rate_limit(exc: Exception) -> bool:
 async def _chat(
     system: str, user: str, task: AiTask, user_id: str | None, *, json_mode: bool = False
 ) -> dict[str, Any]:
-    """One call on the key ``user_ai_keys.resolve`` picks for ``user_id`` (None: the deployment's).
-
-    Raises :class:`InsightsUnavailable` when there is no key, :class:`InsightsFailed` otherwise.
-    Both carry a sentence; only the exception class is logged.
-    """
     credential = await user_ai_keys.resolve(user_id, task)
     if credential is None:
         raise InsightsUnavailable("Summaries aren't set up. An administrator can add an AI key in Settings.")
@@ -435,14 +354,10 @@ async def _chat(
         raise InsightsFailed(MODEL_DECLINED, retry=False) from None
     except anthropic_verbs.AnthropicUnavailable:
         raise InsightsUnavailable("Summaries aren't available on this server right now.") from None
-    except Exception as exc:  # noqa: BLE001 - a provider error must become a sentence
-        # The CLASS only: an exception from a prepared request can carry the key.
+    except Exception as exc:  # noqa: BLE001
         logger.error("transcript insight call failed: %s", type(exc).__name__)
         if _is_rate_limit(exc):
             raise InsightsFailed("The AI provider is busy. This will retry shortly.") from None
-        # The provider's answer, by status, as designer-portal's ``ai._fault`` names it: a refused
-        # key (401, 403) or a request turned down (any other 4xx, 413 included) does not clear by
-        # itself. A 5xx or an unreachable provider does, so it retries.
         code = _status_code(exc)
         if code == 402:
             raise InsightsFailed(BILLING, hold_seconds=BILLING_HOLD_SECONDS) from None
@@ -469,12 +384,6 @@ def _summary_prompt(primary: str, original: str | None) -> str:
 
 
 async def translate(primary: str, user_id: str | None) -> dict[str, Any]:
-    """``{status, text, note}`` for an English translation of ``primary``, chunk by chunk.
-
-    Chunks run one at a time (a 1 GiB box). Past ``max_translate_chars`` the result is PARTIAL with
-    a note; any failed chunk makes the whole translation FAILED.
-    """
-    # The greedy first chunk at the cap's size is the longest paragraph-bounded head that fits.
     heads = chunk_paragraphs(primary, max_translate_chars())
     if not heads:
         return {"status": NOT_NEEDED, "text": None, "note": None}
@@ -503,12 +412,8 @@ async def translate(primary: str, user_id: str | None) -> dict[str, Any]:
     return {"status": COMPLETED, "text": joined, "note": None}
 
 
-# --- Reading ----------------------------------------------------------------------------------
-
 
 async def current_insight(media_id: str) -> Any | None:
-    """The current row: not superseded, highest version (two can be current for a moment while a
-    regeneration lands; the newer one wins)."""
     return await db.transcriptinsight.find_first(
         where={"mediaFileId": media_id, "supersededAt": None},
         order={"version": "desc"},
@@ -548,13 +453,6 @@ async def active_job(media_id: str) -> Any | None:
 
 
 async def claim_for_requester(job_id: str, user_id: str) -> bool:
-    """Make a queued or running automatic job a researcher's Regenerate. True when it was claimed.
-
-    Without this, Regenerate on an edited summary while an automatic job was active queued nothing
-    (one active job per media), and the worker then skipped that automatic job because the summary
-    was edited: the researcher's explicit ask was dropped. Conditional on the job still being
-    active and unclaimed, so a job that finished in between is not touched.
-    """
     claimed = await db.mediaprocessingjob.update_many(
         where={"id": job_id, "status": {"in": list(ACTIVE_JOB_STATUSES)}, "requestedById": None},
         data={"requestedById": user_id},
@@ -563,22 +461,16 @@ async def claim_for_requester(job_id: str, user_id: str) -> bool:
 
 
 async def job_requester(job: Any) -> str | None:
-    """Who asked for ``job``, read fresh: :func:`claim_for_requester` can set it after the claim."""
     fresh = await db.mediaprocessingjob.find_unique(where={"id": job.id})
     return getattr(fresh if fresh is not None else job, "requestedById", None)
 
 
-# --- Enqueueing -------------------------------------------------------------------------------
 
-
-#: What a person is told when consent does not let a transcript be summarised.
 CONSENT_NOT_RECORDED = "Consent not recorded. Record it to summarise this transcript."
 CONSENT_REFUSED = "Consent was refused, so this transcript is not sent for a summary."
 
 
 async def consent_refusal(media: Any) -> str | None:
-    """None when the one consent store lets this recording's transcript leave the server, else the
-    sentence to show. A failed read refuses (``recording_consent.gate``). ``media`` is a row or its id."""
     verdict = await recording_consent.gate.verdict({"id": media} if isinstance(media, str) else media)
     if verdict.may_send:
         return None
@@ -588,9 +480,6 @@ async def consent_refusal(media: Any) -> str | None:
 async def enqueue(
     media_id: str, *, requested_by_id: str | None = None, priority: int = 80
 ) -> Any | None:
-    """Queue one insights job. Does nothing (returns None) when the feature is off, the media has
-    no transcript, an insights job for it is already queued or processing, or consent does not let
-    the transcript leave the server."""
     if not enabled():
         return None
     media = await db.mediafile.find_unique(where={"id": media_id})
@@ -613,12 +502,6 @@ async def enqueue(
 
 
 async def enqueue_after_transcript(media_id: str) -> Any | None:
-    """The automatic trigger after a transcript lands or is edited. Never raises.
-
-    A researcher-edited insight is never replaced automatically: nothing is queued and the reading
-    side shows ``stale: true`` instead. Automatic runs carry no requester, so they use the
-    deployment's key.
-    """
     if not enabled():
         return None
     try:
@@ -626,20 +509,13 @@ async def enqueue_after_transcript(media_id: str) -> Any | None:
         if current is not None and current.editedAt is not None:
             return None
         return await enqueue(media_id, requested_by_id=None)
-    except Exception as exc:  # noqa: BLE001 - a summary must never fail a transcript write
+    except Exception as exc:  # noqa: BLE001
         logger.error("could not queue transcript insights for %s: %s", media_id, type(exc).__name__)
         return None
 
 
-# --- Generation -------------------------------------------------------------------------------
-
 
 async def generate(media: Any, *, user_id: str | None) -> dict[str, Any]:
-    """Run both calls and store a new version. Called only by the queue worker.
-
-    Returns ``{"status": "EMPTY"}`` when there is no transcript, else ``{"status": "COMPLETED",
-    "insightId", "version"}``. Raises :class:`InsightsUnavailable` or :class:`InsightsFailed`.
-    """
     primary, original = select_sources(media)
     if not primary:
         return {"status": "EMPTY"}
@@ -673,9 +549,6 @@ async def generate(media: Any, *, user_id: str | None) -> dict[str, Any]:
         where={"mediaFileId": media_id}, order={"version": "desc"}
     )
     version = (previous.version if previous else 0) + 1
-    # Create first, then supersede: a crash between the two leaves two current rows (readers take
-    # the higher version) rather than none. The unique (mediaFileId, version) index stops two
-    # workers writing the same version.
     row = await db.transcriptinsight.create(
         data={
             "mediaFileId": media_id,
@@ -702,8 +575,6 @@ async def generate(media: Any, *, user_id: str | None) -> dict[str, Any]:
     )
     return {"status": "COMPLETED", "insightId": row.id, "version": version}
 
-
-# --- The view the routes return ---------------------------------------------------------------
 
 
 def _iso(value: Any) -> str | None:
@@ -749,7 +620,6 @@ def insight_payload(row: Any, *, include_translation: bool = True) -> dict[str, 
             "promptVersion": row.promptVersion,
             "generatedAt": _iso(row.generatedAt),
         },
-        # Never names the editor, for the reason EditedFlag does not.
         "edited": {"at": _iso(row.editedAt)} if row.editedAt is not None else None,
     }
 
@@ -762,7 +632,6 @@ def build_view(
     may_edit: bool,
     include_translation: bool = True,
 ) -> dict[str, Any]:
-    """The GET shape. ``job`` is the latest insights job for this media, or None."""
     primary, original = select_sources(media)
     job_status = getattr(job, "status", None)
     error = None

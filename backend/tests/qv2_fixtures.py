@@ -1,14 +1,3 @@
-"""Shared fixtures for the questionnaire v2 suites that run against a real, migrated Postgres.
-
-THE DATABASE IS A THROWAWAY ONE, NEVER ``backend/.env`` (that is production). Point
-``QV2_TEST_DATABASE_URL`` at a database migrated through ``20261025090000_questionnaire_v2``;
-without it every DB-backed test skips and says why. Rows are seeded under unique suffixes and left
-behind (the database is thrown away), so the suites can share one database.
-
-No test here calls a speech-to-text provider or S3: ``no_outside_calls`` replaces every provider
-entry point with one that fails the test, and the S3 helpers with local stand-ins.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -39,9 +28,6 @@ async def connect() -> Any:
 
 
 def patch_db(monkeypatch: pytest.MonkeyPatch, client: Any) -> None:
-    """Point every loaded ``app`` module's ``db`` at ``client``."""
-    # Every module holding a Prisma client as ``db``, not only the ones holding the original: a module
-    # first imported while an earlier test had patched ``app.core.db`` keeps THAT test's client.
     import app.core.db as core_db
     from prisma import Prisma
 
@@ -62,7 +48,6 @@ class ProviderCalled(AssertionError):
 
 
 def no_outside_calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Fail the test on any provider call; replace S3 with local stand-ins."""
     from app.services import ai, media_queue, s3
 
     def refuse(*args: Any, **kwargs: Any) -> Any:
@@ -95,7 +80,6 @@ def no_outside_calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(s3, "stream_sha256", lambda key: (hashlib.sha256(stored.get(key, key.encode())).hexdigest(), len(stored.get(key, b""))))
     monkeypatch.setattr(s3, "get_object_bytes", lambda key: refuse())
     monkeypatch.setattr(s3, "delete_object", lambda key: calls["deleted"].append(key))
-    # /complete checks the object is there (audit Low); a test lists the keys that are NOT.
     monkeypatch.setattr(s3, "object_exists", lambda key: key not in missing)
     monkeypatch.setattr(s3, "abort_multipart_upload", lambda key, upload_id: calls["aborted"].append((key, upload_id)))
     return {"stored": stored, "calls": calls, "missing": missing}
@@ -110,8 +94,6 @@ def user(role: str, uid: str, name: str | None = None) -> SimpleNamespace:
 
 async def seed(client: Any, *, sections: dict[str, int] | None = None, artisans: int = 3, workshop: bool = True,
                paused: bool = True) -> SimpleNamespace:
-    """Users, an instrument with sections and questions, a workshop at Bagru, Jaipur with one craft,
-    and ``artisans`` artisans. Returns their ids."""
     t = uuid.uuid4().hex[:10]
     ids = SimpleNamespace(tag=t)
     people = {"lead": "RESEARCHER", "other": "RESEARCHER", "prof": "PROFESSOR", "admin": "ADMIN", "vol": "CROWDSOURCE_VOLUNTEER"}

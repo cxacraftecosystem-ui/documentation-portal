@@ -1,14 +1,3 @@
-"""Field Repository's half of the unification backfill (UNIFY_2026-10-21.md 3.1 and 3.3 item 7).
-
-On an EMPTY database of its own (``QUESTIONNAIRE_UNIFY_DATABASE_URL``; CI's "Questionnaire unify
-backfill" job creates it): migrate to today's production schema (everything before the U0 release),
-seed instruments and workshops bound and unbound, check that ``scripts/questionnaire_unify_check.py``
-reports what U0 will create and writes nothing, apply the U0 migration, check every bound workshop
-has exactly one primary binding to its form and every instrument is shared with its creator as
-author, keep the mirror in step both ways, then apply the deferred migrations (``prisma/deferred``)
-and check the title key: unique among shared live forms only.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -34,7 +23,6 @@ SPEC.loader.exec_module(check)
 
 pytestmark = pytest.mark.skipif(
     not URL or urlsplit(URL).hostname not in ("127.0.0.1", "localhost"),
-    # Worded without the opt-in variable's name: the database job fails on any skip that names one.
     reason="needs an empty local database of its own (CI: the 'Questionnaire unify backfill' job sets it)",
 )
 
@@ -50,9 +38,6 @@ def _deploy(tmp: Path, names: list[str]) -> None:
             src = BACKEND / "prisma" / "deferred" / name
         if not (root / "migrations" / name).exists():
             shutil.copytree(src, root / "migrations" / name)
-    # Through app.prisma_cli, never `-m prisma`: the plain CLI imports the whole generated client
-    # (prisma/types.py) before it runs, about five minutes per call on a runner, and this test makes
-    # three. app.prisma_cli leaves those types unloaded and runs the same command.
     out = subprocess.run([sys.executable, "-m", "app.prisma_cli", "migrate", "deploy", "--schema", str(root / "schema.prisma")],
                          cwd=BACKEND, env={**os.environ, "DATABASE_URL": URL}, capture_output=True, text=True, timeout=900, check=False)
     assert out.returncode == 0, out.stdout[-3000:] + out.stderr[-3000:]
@@ -106,7 +91,7 @@ def test_the_backfill_binds_every_workshop_and_shares_every_instrument(tmp_path:
         for sql in SEED:
             await client.execute_raw(sql)
 
-    async def instruments(client):  # the migrations seed the standard instrument(s) themselves
+    async def instruments(client):
         return int((await client.query_raw('SELECT count(*) AS n FROM "Questionnaire"'))[0]["n"])
 
     base = _db(instruments)
@@ -130,7 +115,7 @@ def test_the_backfill_binds_every_workshop_and_shares_every_instrument(tmp_path:
     assert rows == [("q1", "w1", True), ("q1", "w2", True), ("q2", "w3", True)]
     assert owners == [("q1", "u1"), ("q2", "u2")]
 
-    async def rebind(client):  # the mirror both ways: the old admin route, then a binding route
+    async def rebind(client):
         await client.execute_raw("UPDATE \"Workshop\" SET \"questionnaireId\" = 'q2' WHERE \"id\" = 'w1'")
         await client.execute_raw("INSERT INTO \"QuestionnaireBinding\" (\"id\", \"questionnaireId\", \"workshopId\", \"isPrimary\") VALUES ('b4', 'q1', 'w4', true)")
         return [(r["id"], r["questionnaireId"]) for r in await client.query_raw('SELECT "id", "questionnaireId" FROM "Workshop" ORDER BY "id"')]
@@ -139,7 +124,7 @@ def test_the_backfill_binds_every_workshop_and_shares_every_instrument(tmp_path:
     code, moved = _check(capfd)
     assert code == 0 and moved["primaryBindings"] == 4 and moved["failures"] == 0
 
-    async def create_bound(client):  # a workshop CREATED with a questionnaire is bound too
+    async def create_bound(client):
         await client.execute_raw("INSERT INTO \"Workshop\" (\"id\", \"title\", \"date\", \"place\", \"createdById\", \"questionnaireId\", \"updatedAt\") "
                                  "VALUES ('w5', 'Five', '2026-06-23', 'Bagru', 'u2', 'q2', now())")
         rows = await client.query_raw("SELECT \"questionnaireId\", \"isPrimary\" FROM \"QuestionnaireBinding\" WHERE \"workshopId\" = 'w5'")
@@ -149,7 +134,7 @@ def test_the_backfill_binds_every_workshop_and_shares_every_instrument(tmp_path:
     code, created = _check(capfd)
     assert code == 0 and created["primaryBindings"] == 5 and created["failures"] == 0
 
-    folder = BACKEND / "prisma" / "deferred"  # empty once the switch-on commit moved them in
+    folder = BACKEND / "prisma" / "deferred"
     deferred = sorted(p.name for p in folder.iterdir() if p.is_dir()) if folder.is_dir() else []
     _deploy(tmp_path, _migrations() + deferred)
 
@@ -161,7 +146,7 @@ def test_the_backfill_binds_every_workshop_and_shares_every_instrument(tmp_path:
         try:
             await client.execute_raw("INSERT INTO \"Questionnaire\" (\"id\", \"title\", \"sortOrder\", \"isShared\", \"updatedAt\") VALUES "
                                      "('s3', '2nd Craft Toolkit', 5, true, now())")
-        except Exception:  # noqa: BLE001 - the unique violation is the assertion
+        except Exception:  # noqa: BLE001
             refused = True
         origins = {str(r["v"]) for r in await client.query_raw(
             "SELECT e.enumlabel AS v FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'AnswerOrigin'")}

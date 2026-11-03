@@ -1,10 +1,3 @@
-"""Interview summaries, key quotes and translations (services/transcript_insights).
-
-Runs everywhere: the database is ``transcript_insights_fakes.FakeDb`` and every provider call is a
-stub, so nothing here leaves the machine. ``test_transcript_insights_db.py`` covers what only a real
-Postgres can show (the unique index, the cascade, the enum value).
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -57,7 +50,6 @@ def fake(monkeypatch):
     monkeypatch.setattr(ti, "enabled", lambda: True)
     monkeypatch.setattr(ti, "get_settings", lambda: SimpleNamespace(
         media_queue_job_max_attempts=3, openai_chat_model="gpt-6-luna"))
-    # Consent granted unless a test withdraws it (``consent`` below).
     db.consent = {}
 
     async def verdict(media):
@@ -70,7 +62,6 @@ def fake(monkeypatch):
 
 @pytest.fixture
 def provider(monkeypatch):
-    """Stub the key resolver and the HTTP adapter. ``calls`` records (system, user, json_mode)."""
     state = SimpleNamespace(calls=[], replies=[], fail_on=None, credential=object())
 
     async def resolve(_user_id, _task):
@@ -89,10 +80,6 @@ def provider(monkeypatch):
     monkeypatch.setattr(ti, "_chat_sync", chat_sync)
     return state
 
-
-# --------------------------------------------------------------------------------------------
-# Settings
-# --------------------------------------------------------------------------------------------
 
 
 def test_the_capability_is_off_by_default():
@@ -129,22 +116,14 @@ def test_a_bad_max_characters_value_falls_back_to_the_default_with_a_note(raw):
     ).transcript_insights_max_translate_chars == 5000
 
 
-# --------------------------------------------------------------------------------------------
-# Sources
-# --------------------------------------------------------------------------------------------
-
 
 def test_select_sources_across_the_three_transcription_modes_and_an_edit():
-    # RAW: the queue writes the same text to both columns.
     raw = Row(transcriptText=HINDI, transcriptSummary=HINDI, transcriptEditedAt=None)
     assert ti.select_sources(raw) == (HINDI.strip(), None)
-    # REFINED: a cleaned dialogue in the same language over the raw text.
     refined = Row(transcriptText="**Artisan:** " + HINDI, transcriptSummary=HINDI, transcriptEditedAt=None)
     assert ti.select_sources(refined) == (("**Artisan:** " + HINDI).strip(), HINDI.strip())
-    # REFINED_TRANSLATED: English over the raw original.
     translated = Row(transcriptText=ENGLISH, transcriptSummary=HINDI, transcriptEditedAt=None)
     assert ti.select_sources(translated) == (ENGLISH, HINDI.strip())
-    # After a researcher's edit the raw text no longer describes the transcript.
     edited = Row(transcriptText=ENGLISH, transcriptSummary=HINDI, transcriptEditedAt=datetime.now(UTC))
     assert ti.select_sources(edited) == (ENGLISH, None)
     assert ti.select_sources(Row(transcriptText="  ", transcriptSummary=None)) == ("", None)
@@ -156,10 +135,6 @@ def test_source_hash_is_stable_and_sensitive():
     assert ti.source_hash("a", "b") != ti.source_hash("ab", None)
     assert len(ti.source_hash("a", None)) == 64
 
-
-# --------------------------------------------------------------------------------------------
-# Parsing
-# --------------------------------------------------------------------------------------------
 
 
 def test_more_than_five_lines_is_trimmed_and_fenced_json_is_accepted():
@@ -189,13 +164,9 @@ def test_malformed_output_gives_an_empty_result_and_does_not_raise(reply):
     assert parsed["summary"] == [] and parsed["quotes"] == []
 
 
-# --------------------------------------------------------------------------------------------
-# Translation
-# --------------------------------------------------------------------------------------------
-
 
 def test_chunking_respects_paragraph_bounds():
-    paragraphs = [f"p{i} " * 300 for i in range(10)]  # ~1,200 chars each
+    paragraphs = [f"p{i} " * 300 for i in range(10)]
     text = "\n\n".join(paragraphs)
     chunks = ti.chunk_paragraphs(text, 3_000)
     assert all(len(c) <= 3_000 for c in chunks)
@@ -203,7 +174,6 @@ def test_chunking_respects_paragraph_bounds():
         for part in chunk.split("\n\n"):
             assert part.strip() in [p.strip() for p in paragraphs]
     assert sum(len(c.split("\n\n")) for c in chunks) == 10
-    # a single line longer than the chunk is cut hard rather than dropped
     long = ti.chunk_paragraphs("x" * 7_000, 3_000)
     assert [len(c) for c in long] == [3_000, 3_000, 1_000]
 
@@ -252,10 +222,6 @@ def test_a_non_english_transcript_is_translated(fake, provider):
     assert provider.calls[0][2] is True and provider.calls[1][2] is False
 
 
-# --------------------------------------------------------------------------------------------
-# Queue
-# --------------------------------------------------------------------------------------------
-
 
 def _completed_transcription(fake, media, text=ENGLISH):
     from app.services import media_queue
@@ -290,7 +256,6 @@ def test_with_the_feature_off_nothing_is_queued_and_queued_jobs_are_not_drained(
         return []
 
     async def no_settings():
-        # Unpaused, so this test sees the insights hold on its own (the pause has its own tests).
         return {"transcriptionPaused": False}
 
     monkeypatch.setattr(fake.mediaprocessingjob, "find_many", find_many)
@@ -402,10 +367,6 @@ def test_an_automatic_job_does_not_replace_an_edited_insight(fake, provider):
     assert len(fake.transcriptinsight.rows) == 1
     assert len(provider.calls) == 1
 
-
-# --------------------------------------------------------------------------------------------
-# Routes
-# --------------------------------------------------------------------------------------------
 
 
 OWNER = SimpleNamespace(id="usr_owner", role="RESEARCHER")
@@ -601,10 +562,6 @@ def test_editing_the_transcript_requeues_an_unedited_insight_and_only_marks_an_e
     assert _client(OWNER).get(f"/api/media/{other.id}/insights").json()["stale"] is True
 
 
-# --------------------------------------------------------------------------------------------
-# Backfill
-# --------------------------------------------------------------------------------------------
-
 
 def _backfill(fake, monkeypatch):
     from scripts import backfill_transcript_insights as backfill
@@ -644,17 +601,12 @@ def test_execute_queues_only_eligible_media_at_priority_90_and_is_idempotent(fak
     assert [(j.mediaFileId, j.priority, j.requestedById) for j in jobs] == [(wanted.id, 90, None)]
     assert asyncio.run(backfill.run(["--execute"])) == 0
     assert len([j for j in fake.mediaprocessingjob.rows if j.jobType == "TRANSCRIPT_INSIGHTS"]) == 1
-    # --include-stale picks up an unedited insight whose transcript changed
     done.transcriptText = "Something else entirely."
     assert asyncio.run(backfill.run(["--execute", "--include-stale"])) == 0
     assert {j.mediaFileId for j in fake.mediaprocessingjob.rows
             if j.jobType == "TRANSCRIPT_INSIGHTS"} == {wanted.id, done.id}
 
 
-
-# --------------------------------------------------------------------------------------------
-# Summaries follow-ups (designer-portal PR #39)
-# --------------------------------------------------------------------------------------------
 
 
 def _automatic_job(fake, media, status="QUEUED"):
@@ -684,8 +636,6 @@ def test_regenerate_on_an_edited_summary_claims_the_active_automatic_job(
     jobs = [j for j in fake.mediaprocessingjob.rows if j.jobType == "TRANSCRIPT_INSIGHTS"]
     assert jobs == [auto] and auto.requestedById == "usr_owner"
 
-    # The worker reads the requester fresh, so the claimed job runs instead of being skipped, on
-    # the requester's key.
     keys = []
 
     async def resolve(user_id, _task):
@@ -734,7 +684,7 @@ def test_a_refused_key_or_request_closes_the_job_without_retrying(fake, provider
     provider.fail_on = {1: requests.HTTPError(response=SimpleNamespace(status_code=code))}
     media = fake.add_media(transcriptText=ENGLISH, transcriptStatus="COMPLETED")
     job = _insights_job(fake, media, requested_by="usr_owner")
-    asyncio.run(media_queue._process_job(job, SimpleNamespace()))  # does not raise: no retry
+    asyncio.run(media_queue._process_job(job, SimpleNamespace()))
     stored = fake.mediaprocessingjob.get(job.id)
     assert stored.status == "FAILED" and stored.error == sentence
     assert stored.result == {"status": "FAILED"}
@@ -815,10 +765,6 @@ def test_signed_out_callers_are_refused_before_the_flag_is_read(fake, monkeypatc
     assert [r.status_code for r in responses] == [401] * 4
 
 
-# --------------------------------------------------------------------------------------------
-# Consent: the transcript leaves the server only when the one consent store allows it
-# --------------------------------------------------------------------------------------------
-
 
 @pytest.mark.parametrize("withdrawn", ["REFUSED"])
 def test_a_withdrawn_consent_queues_no_insights_job_from_any_trigger(fake, provider, monkeypatch, withdrawn):
@@ -836,7 +782,6 @@ def test_a_withdrawn_consent_queues_no_insights_job_from_any_trigger(fake, provi
     media = fake.add_media(transcriptText=ENGLISH, transcriptStatus="COMPLETED")
     fake.consent[media.id] = withdrawn
 
-    # 1. a transcription landing, 2. a transcript edit, 3. Regenerate.
     _completed_transcription(fake, media)
     asyncio.run(media_routes.set_media_transcript(media.id, SimpleNamespace(text="New words."), OWNER))
     refused = _client(OWNER).post(f"/api/media/{media.id}/insights/regenerate", json={"discardEdits": True})

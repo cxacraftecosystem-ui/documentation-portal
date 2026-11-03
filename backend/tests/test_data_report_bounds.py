@@ -1,11 +1,3 @@
-"""``/data/report`` stays bounded (D39): the JSON preview, the named media columns, one build at a time.
-
-The field API's resident memory ratcheted 179 -> 288 MB, and its query engine 22 -> 104 MB, in steps
-on root ``/data/report`` calls: the Data page built the whole-repository report on open, twice at
-once, and every media row carried its ``transcriptText`` and ``transcriptSegments``. These tests need
-no database; ``test_data_report_db.py`` repeats the root report against Postgres and counts.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -29,8 +21,6 @@ def _report(**kwargs: Any) -> Any:
     )
 
 
-# --- the JSON preview ---------------------------------------------------------------------------
-
 
 def test_the_json_preview_cuts_each_sheet_and_says_how_many_rows_the_download_has(monkeypatch):
     monkeypatch.setattr(data_browser, "REPORT_TAKE", 300)
@@ -48,18 +38,14 @@ def test_the_json_preview_cuts_each_sheet_and_says_how_many_rows_the_download_ha
     assert short_p["rows"] == [[i] for i in range(12)]
     assert short_p["truncated"] is False and short_p["preview"] is False and short_p["totalRows"] == 12
 
-    # The download itself stops at REPORT_TAKE: 200 shown, then the note row, and the total is the cap.
     assert len(capped_p["rows"]) == data_browser.PREVIEW_ROWS + 1
     assert str(capped_p["rows"][-1][0]).startswith("Note:") and "300" in str(capped_p["rows"][-1][0])
     assert capped_p["capped"] is True and capped_p["preview"] is True and capped_p["totalRows"] == 300
 
-    # A transcript-pipeline sheet built only as far as the preview: cut, and not counted.
     assert uncounted_p["truncated"] is True and uncounted_p["preview"] is True
     assert uncounted_p["totalRows"] is None and uncounted_p["capped"] is False
     assert all("noteRow" not in sheet for sheet in (long_p, short_p, capped_p, uncounted_p))
 
-
-# --- the media rows: named columns, never the transcript ----------------------------------------
 
 
 class _Delegate:
@@ -109,7 +95,6 @@ def _fake_db(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
 
 def _projection(query: str) -> str:
-    """The select list of the media read, less the one cheap ``hasTranscript`` expression."""
     head = query.split(' FROM "MediaFile"', 1)[0]
     return head.replace(data_browser._HAS_TRANSCRIPT, "")
 
@@ -141,8 +126,6 @@ def test_the_transcripts_sheet_prints_the_words_it_was_handed_not_a_column(monke
     assert sheet["rows"][0][0] == "talk.m4a"
 
 
-# --- one build at a time ------------------------------------------------------------------------
-
 
 def test_a_second_report_while_one_is_building_is_answered_at_once(monkeypatch):
     async def story() -> tuple[HTTPException, Any, Any]:
@@ -161,7 +144,6 @@ def test_a_second_report_while_one_is_building_is_answered_at_once(monkeypatch):
             await _report(format="xlsx")
         release.set()
         done = await first
-        # Free again once the first has finished.
         again = await _report()
         return refused.value, done, again
 
@@ -182,8 +164,6 @@ def test_a_failed_build_releases_the_lock(monkeypatch):
         asyncio.run(_report())
     assert not data_browser._REPORT_BUILD.locked()
 
-
-# --- malloc_trim --------------------------------------------------------------------------------
 
 
 def test_trimming_the_heap_never_fails_a_request(monkeypatch):

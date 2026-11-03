@@ -1,37 +1,3 @@
-"""The streamed download manifest: `GET /export/dataset?stream=1` and `GET /data/manifest?stream=1`.
-
-WHAT THIS IS FOR. Both manifest endpoints answered with ONE JSON object holding every entry of a
-download, and the entries carry inline text — a details.txt body per record and, unfiltered, the
-full transcript of every audio row in the subtree. The caps are on the entry COUNT
-(``EXPORT_TAKE``/``MEDIA_TAKE``/``MAX_MANIFEST_FILES``) and nothing caps the byte size, so
-``docs/SCALABILITY.md:373-377`` measures 476 kB today and models ~48 MB at 100x the media.
-
-On the handset that single body is the whole failure. Retrofit's kotlinx-serialization converter is
-``Serializer.FromString`` — ``decodeFromString(body.string())`` — and ``ResponseBody.string()``
-allocates one contiguous ``ByteArray`` the size of the entire body and copies it into one contiguous
-``String``, so the app dies with ``OutOfMemoryError: Failed to allocate a N byte allocation``.
-NDJSON lets the client decode one entry at a time and never hold more than the longest line.
-
-THREE PROPERTIES ARE WORTH MORE THAN THE REST AND MOST OF THIS FILE IS ABOUT THEM.
-
-**One entry per line, whatever the entry contains.** Every details.txt body is multi-line and every
-transcript is many lines, so if an entry's text ever reached the wire with a real newline in it the
-line protocol would break silently: the client would read one entry as several, most of them
-unparseable, and the archive would come out short with no error anywhere. This is asserted with
-content that contains newlines, tabs and non-ASCII.
-
-**The default shape is unchanged.** ``?stream=1`` is opt-in because the two browser clients and
-every installed Android build read the JSON object. A change that makes NDJSON the default is a
-fleet-wide download outage, so the JSON response is asserted here beside the streamed one.
-
-**The entries are released as they are encoded.** That is the server half of the same memory
-argument — without it the ~48 MB of encoded bytes sit beside the list that produced them on a
-single-worker t3.micro.
-
-NOTHING HERE TOUCHES A DATABASE. ``db`` is replaced with stubs and the routes are driven over HTTP,
-the same way ``test_dataset_api.py`` does it.
-"""
-
 import asyncio
 import json
 from types import SimpleNamespace
@@ -43,28 +9,16 @@ from fastapi import FastAPI
 
 from app.api.routes import data_browser, export
 
-# =================================================================================================
-# Harness
-# =================================================================================================
-
 
 class _Rec:
-    """A record row that answers None for anything it was not given.
-
-    The field registry reads far more attributes off a row than any one test cares to name, and a
-    ``SimpleNamespace`` raises for the rest. Answering None is what a nullable column does anyway.
-    """
-
     def __init__(self, **kw: Any) -> None:
         self.__dict__.update(kw)
 
-    def __getattr__(self, name: str) -> Any:  # only reached when the attribute was not set
+    def __getattr__(self, name: str) -> Any:
         return None
 
 
 class _Rows:
-    """Stands in for a Prisma delegate over a fixed list of rows."""
-
     def __init__(self, rows: list[Any]) -> None:
         self.rows = rows
 
@@ -83,7 +37,6 @@ def _collect(app: FastAPI, path: str) -> httpx.Response:
 
 @pytest.fixture
 def api(monkeypatch: pytest.MonkeyPatch):
-    """The real /export/dataset route over stubbed tables and a stubbed admin."""
     admin = SimpleNamespace(id="admin", email="admin@example.test", name="Admin", role="ADMIN")
 
     application = FastAPI()
@@ -125,28 +78,18 @@ def _workshop(**kw: Any) -> _Rec:
     return _Rec(**fields)
 
 
-# =================================================================================================
-# The line protocol — the property that breaks silently
-# =================================================================================================
-
 
 def _ndjson_app(files: list[dict[str, Any]], truncated: bool = False) -> FastAPI:
     application = FastAPI()
 
     @application.get("/manifest")
-    async def manifest() -> Any:  # pragma: no cover - exercised over HTTP
+    async def manifest() -> Any:  # pragma: no cover
         return data_browser.manifest_ndjson_response(files, 0, truncated, "test.ndjson")
 
     return application
 
 
 def test_an_entry_whose_text_contains_newlines_still_occupies_one_line() -> None:
-    """The whole line protocol rests on this, and it fails silently if it is ever broken.
-
-    Every ``details.txt`` body is multi-line. If one reached the wire with a real newline in it the
-    client would read one entry as several — most of them unparseable — and hand back a short
-    archive with no error raised anywhere in the system.
-    """
     body = "Title: Bagru\nPlace: Rajasthan\n\tCraft: Block printing\nNotes: हिन्दी"
     files = [
         {"path": "Workshops/Bagru/details.txt", "content": body},
@@ -163,7 +106,6 @@ def test_an_entry_whose_text_contains_newlines_still_occupies_one_line() -> None
 
 
 def test_non_ascii_is_sent_as_itself_not_as_escapes() -> None:
-    """``ensure_ascii=False`` — a Devanagari transcript must not triple in size on the wire."""
     files = [{"path": "a.txt", "content": "हिन्दी"}]
 
     response = _collect(_ndjson_app(files), "/manifest")
@@ -173,7 +115,6 @@ def test_non_ascii_is_sent_as_itself_not_as_escapes() -> None:
 
 
 def test_the_counts_and_the_flag_arrive_before_the_body() -> None:
-    """Headers, because NDJSON has no wrapper object and progress must start at the first entry."""
     files = [{"path": f"f{i}.jpg", "url": f"https://bucket/{i}"} for i in range(7)]
 
     response = _collect(_ndjson_app(files, truncated=True), "/manifest")
@@ -184,7 +125,6 @@ def test_the_counts_and_the_flag_arrive_before_the_body() -> None:
 
 
 def test_a_manifest_larger_than_one_chunk_is_whole() -> None:
-    """The chunked writer yields 200 lines at a time; the seam must not eat or duplicate an entry."""
     files = [{"path": f"f{i}.jpg", "url": f"https://bucket/{i}"} for i in range(503)]
 
     response = _collect(_ndjson_app(files), "/manifest")
@@ -194,12 +134,6 @@ def test_a_manifest_larger_than_one_chunk_is_whole() -> None:
 
 
 def test_the_entries_are_released_as_they_are_encoded() -> None:
-    """The server half of the memory argument.
-
-    Without the ``files[index] = None``, the encoded ~48 MB sits beside the list that produced it on
-    a box with 1 GiB. This asserts the release actually happens rather than trusting the comment;
-    if someone removes it as a tidy-up, this test says so.
-    """
     files: list[Any] = [{"path": "a.txt", "content": "x" * 64}, {"path": "b.txt", "content": "y" * 64}]
 
     response = _collect(_ndjson_app(files), "/manifest")
@@ -207,10 +141,6 @@ def test_the_entries_are_released_as_they_are_encoded() -> None:
     assert len(response.text.splitlines()) == 2
     assert files == [None, None]
 
-
-# =================================================================================================
-# The route: same entries either way, and the default is untouched
-# =================================================================================================
 
 
 def test_the_dataset_manifest_streams_the_same_entries_the_json_shape_carries(api) -> None:
@@ -231,7 +161,6 @@ def test_the_dataset_manifest_streams_the_same_entries_the_json_shape_carries(ap
 
 
 def test_the_default_response_is_still_the_json_object(api) -> None:
-    """Every deployed client reads this shape. Making NDJSON the default is a fleet-wide outage."""
     api.table("workshop", [_workshop()])
 
     payload = api.get("/api/export/dataset").json()
@@ -241,7 +170,6 @@ def test_the_default_response_is_still_the_json_object(api) -> None:
 
 
 def test_an_unauthorised_caller_is_refused_before_anything_is_streamed(api, monkeypatch) -> None:
-    """``?stream=1`` must not be a way around the dataset-download permission."""
     monkeypatch.setattr(export, "can_download_dataset", lambda _user: False)
 
     response = api.get("/api/export/dataset?stream=1")
@@ -250,7 +178,6 @@ def test_an_unauthorised_caller_is_refused_before_anything_is_streamed(api, monk
 
 
 def test_the_streamed_manifest_reports_truncation_in_its_header(api) -> None:
-    """A capped export must say so on the streamed path too, or the client cannot warn."""
     api.table("workshop", [_workshop(id=f"w{i}", title=f"Workshop {i}") for i in range(export.EXPORT_TAKE)])
 
     response = api.get("/api/export/dataset?stream=1")
@@ -258,18 +185,9 @@ def test_the_streamed_manifest_reports_truncation_in_its_header(api) -> None:
     assert response.headers[data_browser.MANIFEST_TRUNCATED_HEADER] == "true"
 
 
-# =================================================================================================
-# The audio-conversion ceiling: the column is a claim, the length is a fact
-# =================================================================================================
-
 
 @pytest.fixture
 def media_api(monkeypatch: pytest.MonkeyPatch):
-    """``GET /data/media/{id}/download`` over a stubbed media table and a stubbed object store.
-
-    Records what the route asked the object store for and whether the transcode ran, because those
-    two facts — not the status code alone — are what the ceiling is actually about.
-    """
     admin = SimpleNamespace(id="admin", email="admin@example.test", name="Admin", role="ADMIN")
     application = FastAPI()
     application.include_router(data_browser.router, prefix="/api")
@@ -286,7 +204,7 @@ def media_api(monkeypatch: pytest.MonkeyPatch):
         seen["fetched"] = True
         return seen["stored"]
 
-    def _convert(_raw: bytes) -> Any:  # pragma: no cover - reached only when the ceiling lets it
+    def _convert(_raw: bytes) -> Any:  # pragma: no cover
         seen["converted"] = True
         raise AssertionError("the transcode ran on an object over the ceiling")
 
@@ -335,7 +253,6 @@ def media_api(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_the_declared_size_refuses_before_a_byte_moves(media_api) -> None:
-    """The cheap first check: an honest large recording costs nothing to reject."""
     media_api.row(declared=data_browser.MAX_CONVERT_BYTES + 1, stored=b"")
 
     response = media_api.get("/api/data/media/m1/download?format=mp4")
@@ -345,20 +262,6 @@ def test_the_declared_size_refuses_before_a_byte_moves(media_api) -> None:
 
 
 def test_the_real_length_refuses_what_the_column_lied_about(media_api) -> None:
-    """THE COLUMN IS A CLAIM AND THE LENGTH IS A FACT.
-
-    ``MediaFile.sizeBytes`` is whatever the client declared at ``POST /media/complete``: bounded
-    only from below, stored verbatim, never reconciled against the stored object — there is no
-    ``head_object`` anywhere in ``backend/app``. Nor does the signature bound the body:
-    ``presign_put_url`` signs Bucket/Key/ContentType and no ``content-length-range``, and its
-    docstring records why that must stay so (a signed condition breaks every installed Android
-    build). So a caller can declare 1 kB, PUT 1.5 GB, and click download on their own row.
-
-    Without the post-fetch check the transcode then ran, and ffmpeg decoding compressed audio is
-    where one copy becomes several — the box OOMs, taking every in-flight request with it. The
-    fetch itself has already happened by then and cannot be undone from here; what this closes is
-    the multiplier. Hence the assertion on ``converted``, not merely on the status code.
-    """
     oversized = b"\0" * (data_browser.MAX_CONVERT_BYTES + 1)
     media_api.row(declared=1024, stored=oversized)
 

@@ -1,10 +1,3 @@
-"""A single PUT presigned with ChecksumSHA256 refuses other bytes (DESIGN test 31).
-
-Runs against moto's in-process S3 when moto is installed (it is not in the deployed lock; install
-it into a throwaway venv to run this). The signing half, which needs no S3, always runs: the
-checksum is signed into the URL, so a client cannot drop or change it.
-"""
-
 from __future__ import annotations
 
 import base64

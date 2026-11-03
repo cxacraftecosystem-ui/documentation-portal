@@ -1,10 +1,3 @@
-"""The designer portal's duplicate scan, answered here: ``POST /cross-portal/peer/artisans/match``.
-
-Ids only, consenting artisans only, every match logged, 100 items a call and 50 calls a day. Also
-the peer routes' handling of an artisan merged here: the refresh follows the merge and its undo.
-No database: the route module's ``db`` is replaced by a fake, as in ``test_cross_portal_identity``.
-"""
-
 from __future__ import annotations
 
 import json
@@ -184,7 +177,6 @@ async def test_fifty_calls_a_day_then_429(world):
     limited = await _match([{"ref": "dp1", "pehchanCardNumber": "PEH1"}])
     assert limited.status_code == 429
     assert _body(limited)["matches"] == []
-    # Yesterday's calls do not count.
     for row in world.crossportalaccesslog.rows:
         row["createdAt"] = datetime.now(UTC) - timedelta(days=1)
     assert (await _match([{"ref": "dp1", "pehchanCardNumber": "PEH1"}])).status_code == 200
@@ -193,12 +185,10 @@ async def test_fifty_calls_a_day_then_429(world):
 async def test_refresh_follows_a_merge_and_its_undo(world):
     world.crossportalartisanlink.rows.append({"id": "l1", "artisanId": "fr1", "remoteArtisanId": "dp9", "matchedBy": "PEHCHAN"})
     path = "/api/cross-portal/peer/artisans/frOld"
-    # frOld was merged into fr1 here; the designer portal still knows frOld.
     world.artisanmerge.rows.append({"id": "m1", "survivorId": "fr1", "mergedId": "frOld", "status": "DONE", "undoneAt": None})
     response = await routes.peer_refresh("frOld", "dp9", _req(path, "GET"), _settings())
     assert response.status_code == 200
     assert _body(response)["match"]["artisanId"] == "fr1"
-    # Undone: the link moved back to frOld, and the designer portal now knows fr1.
     world.artisanmerge.rows[0]["undoneAt"] = datetime.now(UTC)
     world.artisanmerge.rows[0]["status"] = "UNDONE"
     artisan_merge.forget_redirects()
@@ -208,7 +198,6 @@ async def test_refresh_follows_a_merge_and_its_undo(world):
     response = await routes.peer_refresh("fr1", "dp9", _req("/api/cross-portal/peer/artisans/fr1", "GET"), _settings())
     assert response.status_code == 200
     assert _body(response)["match"]["artisanId"] == "frOld"
-    # A link nobody joins to the path id is still refused.
     response = await routes.peer_refresh("fr2", "dp9", _req("/api/cross-portal/peer/artisans/fr2", "GET"), _settings())
     assert response.status_code == 404
 

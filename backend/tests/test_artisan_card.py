@@ -1,10 +1,3 @@
-"""The artisan card's code (services/artisan_card.py) against the shared vectors.
-
-``shared/artisan-card-vectors.json`` is identical in both repositories and is read by the web
-(``e2e/artisan-card-unit.spec.ts``) and Android (``ArtisanCardCodeTest``) tests too, so the three
-parsers cannot drift. No database.
-"""
-
 from __future__ import annotations
 
 import json
@@ -80,7 +73,6 @@ def test_verify_accepts_own_tag_and_refuses_a_forged_one():
     assert card.verify(settings, card.parse(token))
     forged = token[:-1] + ("0" if token[-1] != "0" else "1")
     assert not card.verify(settings, card.parse(forged))
-    # A typed short code carries no tag; the lookup by code is what answers it.
     assert card.verify(settings, card.parse(card.short_code("F", "7K3QM9XA2F")))
 
 
@@ -93,7 +85,6 @@ def test_wrong_key_version_needs_the_previous_key():
         artisan_card_key="n" * 44, artisan_card_key_version=2, artisan_card_key_previous=KEY
     )
     assert card.verify(with_previous, printed)
-    # Two rotations back is never verified.
     twice = _settings(
         artisan_card_key="m" * 44, artisan_card_key_version=3, artisan_card_key_previous="n" * 44
     )

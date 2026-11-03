@@ -1,25 +1,3 @@
-"""The designer portal's searches of this portal: ``POST /cross-portal/peer/search`` and ``.../record``.
-
-The caller is the designer portal's server, admitted by the shared token and a fresh nonce
-(``services/cross_portal_peer``), and every answer is signed over the request it answers. Both are
-POST so the query text stays out of URLs and proxy logs. Every route answers 404 until
-``cross_portal.search_active``.
-
-How a request is treated (docs/SEARCH.md §3.5):
-
-1. The requester's e-mail is matched to an account here. A match brings that account's own read
-   rules; no match gets the floor, ``audience = 'ALL'``. On this portal every document is ``ALL``,
-   so the two read the same today; the lookup stays so a narrower rule lands in one place. Either
-   way only ``shareable`` documents are considered.
-2. Consent is re-checked live in the same SQL: every artisan a record names must still have granted
-   sharing consent here, so a withdrawal takes effect before the indexer catches up.
-3. Each search is logged (``action=SEARCH``, the asking account, how many results) — never the query.
-4. 120 searches per 10 minutes per asking account; then a signed 429.
-5. What goes back is :data:`cross_portal.PEER_ITEM_KEYS` and nothing else: never a media URL, a
-   storage key, a phone number, e-mail, Aadhaar, Pehchan, date of birth or address. This portal
-   sends no ``linkedArtisanIds``; only the designer portal fills them.
-"""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -41,11 +19,9 @@ router = APIRouter(prefix="/cross-portal/peer", tags=["cross-portal"])
 ACTION_SEARCH = "SEARCH"
 ACTION_RECORD_VIEW = "RECORD_VIEW"
 
-#: Searches one asking account may make in :data:`RATE_WINDOW`.
 RATE_LIMIT = 120
 RATE_WINDOW = timedelta(minutes=10)
 
-#: Characters of a record's body shown on the other portal's read-only card.
 RECORD_SNIPPET_CHARS = 400
 
 
@@ -97,7 +73,6 @@ async def _local_account(requester: Requester) -> Any | None:
     user = await db.user.find_first(where={"email": {"equals": email, "mode": "insensitive"}})
     if user is None:
         return None
-    # While the allow-list is enforced, an account it does not admit is not active: the floor.
     if gate_enforced() and not await roster_admits(email):
         return None
     return user
@@ -141,7 +116,6 @@ async def peer_search(
         t for t in ([body.type] if body.type else body.types) if t in cross_portal.SEARCH_TYPES
     ]
     if asked and not any(t in us.LOCAL_TYPES for t in asked):
-        # Only designer-portal types were asked for: nothing here can answer.
         await _log(asker, ACTION_SEARCH, "ok", resultCount=0)
         return signed(settings, request, {"mode": "text", "groups": []})
     scope = await _peer_scope(body.requester, asked or None)

@@ -1,14 +1,3 @@
-"""``db.tx()`` for the in-memory databases the review tests build.
-
-``review.set_review_status`` runs a decision in one interactive transaction (``async with
-db.tx() as tx``) and writes through ``tx``. A fake database that has no ``tx`` would fail every
-decision, so a fixture hands its fake to :func:`with_tx`, which adds one that yields the same fake.
-
-:class:`RollbackTx` goes further for the tests that are ABOUT the transaction: it snapshots every
-table's rows on entry and puts them back when the block raises, so "nothing was written" is a fact
-about the rows rather than a mock's say-so.
-"""
-
 from __future__ import annotations
 
 import copy

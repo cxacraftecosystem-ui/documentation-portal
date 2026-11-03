@@ -1,6 +1,3 @@
-"""Server-known uploads and the atomic /complete (DESIGN 3.3, 3.9, 5.5; tests 4-8, 22, 23, 33, 35b).
-Real Postgres; S3 and every provider are stand-ins."""
-
 from __future__ import annotations
 
 import asyncio

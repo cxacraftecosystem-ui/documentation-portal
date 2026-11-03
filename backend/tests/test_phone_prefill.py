@@ -1,6 +1,3 @@
-"""Phone prefill (owner correction (b); DESIGN test 35f): country code and national digits are
-stored apart and shown as ``+91 98765 43210``; an empty phone prefills nothing."""
-
 from types import SimpleNamespace
 
 from app.questionnaire.answers import format_phone, prefill_value, split_phone

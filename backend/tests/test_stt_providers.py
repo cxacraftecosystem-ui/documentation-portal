@@ -1,15 +1,3 @@
-"""What each speech-to-text provider is actually asked for, and what it is understood to answer.
-
-Nothing here touches the network or spends a provider credit: ``requests.post`` is replaced with a
-recorder that hands back canned payloads, so every assertion is about the request this repository
-builds and the transcript it derives — the two halves nobody can see from a passing job.
-
-They are worth pinning because the audio is specific. Field interviews with artisans, code-switched
-Hindi and English, recorded next to the work, and often several artisans at once. Diarization,
-multilingual decoding and craft-term boosting are the options that make a transcript of THAT
-useful, and each of them is one query parameter away from silently not happening.
-"""
-
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,8 +9,6 @@ from app.services import ai, transcript_format
 
 
 class _Response:
-    """The three things the provider code asks of a response: status, body, raise_for_status."""
-
     def __init__(self, status_code: int = 200, payload: dict | None = None, headers: dict | None = None,
                  text: str = "") -> None:
         self.status_code = status_code
@@ -39,8 +25,6 @@ class _Response:
 
 
 class _Recorder:
-    """Stands in for ``requests.post``; returns each queued response in turn, keeping every call."""
-
     def __init__(self, responses: list) -> None:
         self._responses = list(responses)
         self.calls: list[dict] = []
@@ -55,8 +39,6 @@ class _Recorder:
 
 @pytest.fixture
 def post(monkeypatch: pytest.MonkeyPatch):
-    """Install a response queue in place of the real transport, and a key for every provider."""
-
     def install(*responses) -> _Recorder:
         recorder = _Recorder(list(responses))
         monkeypatch.setattr(ai.requests, "post", recorder)
@@ -68,7 +50,7 @@ def post(monkeypatch: pytest.MonkeyPatch):
 
 def _settings(**overrides) -> SimpleNamespace:
     base = {
-        "elevenlabs_stt_model": "scribe_v1",  # the old config.py default, still read as unset
+        "elevenlabs_stt_model": "scribe_v1",
         "deepgram_stt_model": "nova-3",
         "openai_transcription_model": "whisper-1",
     }
@@ -79,10 +61,6 @@ def _settings(**overrides) -> SimpleNamespace:
 def _deepgram_payload(alternative: dict) -> dict:
     return {"results": {"channels": [{"alternatives": [alternative]}]}}
 
-
-# --------------------------------------------------------------------------------------------
-# The craft vocabulary: the list itself, and the ceilings each provider puts on it.
-# --------------------------------------------------------------------------------------------
 
 
 def test_the_craft_vocabulary_loads_from_its_data_file() -> None:
@@ -102,7 +80,7 @@ def test_deepgram_gets_no_more_terms_than_its_ceilings_allow() -> None:
     chosen = ai._deepgram_keyterms()
     assert 0 < len(chosen) <= ai._DEEPGRAM_KEYTERM_LIMIT
     assert sum(max(1, -(-len(t) // 3)) for t in chosen) <= ai._DEEPGRAM_KEYTERM_TOKEN_BUDGET
-    assert chosen == list(ai.craft_keyterms()[: len(chosen)])  # file order, truncated from the tail
+    assert chosen == list(ai.craft_keyterms()[: len(chosen)])
 
 
 def test_a_missing_vocabulary_file_costs_the_boost_and_nothing_else(monkeypatch, post) -> None:
@@ -118,10 +96,6 @@ def test_a_missing_vocabulary_file_costs_the_boost_and_nothing_else(monkeypatch,
         ai.craft_keyterms.cache_clear()
 
 
-# --------------------------------------------------------------------------------------------
-# Deepgram: the request.
-# --------------------------------------------------------------------------------------------
-
 
 def test_deepgram_asks_nova_3_for_multilingual_diarized_boosted_audio(post) -> None:
     recorder = post(_Response(payload=_deepgram_payload({"transcript": "hello"})))
@@ -132,7 +106,7 @@ def test_deepgram_asks_nova_3_for_multilingual_diarized_boosted_audio(post) -> N
     assert sent["url"] == "https://api.deepgram.com/v1/listen"
     params = sent["params"]
     assert params["model"] == "nova-3"
-    assert params["language"] == "multi"  # Hindi/English code-switching, not one or the other
+    assert params["language"] == "multi"
     assert params["smart_format"] == "true"
     assert params["paragraphs"] == "true"
     assert params["diarize_model"] == "latest"
@@ -143,7 +117,6 @@ def test_deepgram_asks_nova_3_for_multilingual_diarized_boosted_audio(post) -> N
 
 
 def test_deepgram_never_sends_both_diarize_forms(post) -> None:
-    """Deepgram rejects a request carrying the boolean and the model selector together."""
     for conservative in (False, True):
         params = ai._deepgram_params(_settings(), conservative=conservative)
         assert not ("diarize" in params and "diarize_model" in params)
@@ -155,10 +128,6 @@ def test_a_deepgram_model_override_is_honoured(post) -> None:
     ai._post_deepgram_transcription(b"a", "a.wav", "audio/wav", _settings(deepgram_stt_model="nova-2"))
     assert recorder.calls[0]["params"]["model"] == "nova-2"
 
-
-# --------------------------------------------------------------------------------------------
-# Deepgram: the response.
-# --------------------------------------------------------------------------------------------
 
 
 def test_deepgram_paragraphs_become_labelled_speaker_turns(post) -> None:
@@ -184,7 +153,7 @@ def test_deepgram_paragraphs_become_labelled_speaker_turns(post) -> None:
     assert result["speakers"] == 2
     assert result["text"].splitlines()[0] == "**Speaker 1:** Aap kitne saal se dabu kar rahe hain?"
     assert "**Speaker 2:** Bees saal se. Pita ji se seekha." in result["text"]
-    assert result["text"].count("**Speaker 1:**") == 2  # the interviewer comes back
+    assert result["text"].count("**Speaker 1:**") == 2
 
 
 def test_deepgram_words_carry_the_speakers_when_paragraphs_do_not(post) -> None:
@@ -247,10 +216,6 @@ def test_an_empty_deepgram_response_is_empty_not_broken(post) -> None:
     assert result["text"] == ""
 
 
-# --------------------------------------------------------------------------------------------
-# ElevenLabs.
-# --------------------------------------------------------------------------------------------
-
 
 def test_elevenlabs_asks_scribe_v2_to_diarize_and_bias_towards_the_craft(post) -> None:
     recorder = post(_Response(payload={"text": "hello", "language_code": "hin"}))
@@ -261,11 +226,11 @@ def test_elevenlabs_asks_scribe_v2_to_diarize_and_bias_towards_the_craft(post) -
     assert sent["url"] == "https://api.elevenlabs.io/v1/speech-to-text"
     assert sent["headers"]["xi-api-key"] == "test-key"
     fields = dict(field for field in sent["data"] if field[0] != "keyterms")
-    assert fields["model_id"] == "scribe_v2"  # scribe_v1 in the environment still means v2
+    assert fields["model_id"] == "scribe_v2"
     assert fields["diarize"] == "true"
-    assert fields["tag_audio_events"] == "false"  # workshop noise is not dialogue
+    assert fields["tag_audio_events"] == "false"
     assert fields["timestamps_granularity"] == "word"
-    assert "language_code" not in fields  # auto-detect: these interviews code-switch
+    assert "language_code" not in fields
     keyterms = [value for name, value in sent["data"] if name == "keyterms"]
     assert "dabu" in keyterms and "ajrakh" in keyterms
     assert sent["files"]["file"] == ("clip.webm", b"audio", "audio/webm")
@@ -308,9 +273,9 @@ def test_elevenlabs_speaker_ids_become_the_same_labels_deepgram_produces(post) -
         "**Speaker 2:** Kalli mitti se.\n\n"
         "**Speaker 3:** Haan."
     )
-    assert result["speakers"] == 3  # renumbered in order of first appearance, not by provider id
+    assert result["speakers"] == 3
     assert "(hammering)" not in result["text"]
-    assert result["raw"] is None  # a word-level payload is far too big to persist per clip
+    assert result["raw"] is None
 
 
 def test_a_solo_elevenlabs_recording_keeps_its_plain_transcript(post) -> None:
@@ -327,10 +292,6 @@ def test_a_solo_elevenlabs_recording_keeps_its_plain_transcript(post) -> None:
     assert result["speakers"] == 1
 
 
-# --------------------------------------------------------------------------------------------
-# A refused OPTION must not cost the provider its turn in the chain.
-# --------------------------------------------------------------------------------------------
-
 
 def test_deepgram_retries_once_without_the_options_it_was_refused(post) -> None:
     recorder = post(
@@ -345,9 +306,9 @@ def test_deepgram_retries_once_without_the_options_it_was_refused(post) -> None:
     first, second = recorder.calls[0]["params"], recorder.calls[1]["params"]
     assert "keyterm" in first and "diarize_model" in first
     assert "keyterm" not in second and "diarize_model" not in second
-    assert second["diarize"] == "true"  # diarization survives the retreat, boosting does not
+    assert second["diarize"] == "true"
     assert second["language"] == "multi"
-    assert len(recorder.calls) == 2  # exactly once, never a loop
+    assert len(recorder.calls) == 2
 
 
 def test_elevenlabs_falls_back_to_the_model_that_has_always_existed(post) -> None:
@@ -373,10 +334,6 @@ def test_a_second_refusal_is_a_real_failure(post) -> None:
         ai._post_deepgram_transcription(b"a", "a.wav", "audio/wav", _settings())
 
 
-# --------------------------------------------------------------------------------------------
-# The label contract with the Excel exporter, which is the only reason to emit labels at all.
-# --------------------------------------------------------------------------------------------
-
 
 def test_the_speaker_label_is_the_shape_the_exporter_recognises() -> None:
     turns = [(0, "Aap kaunsa craft karte hain?"), (1, "Dabu block printing.")]
@@ -388,10 +345,6 @@ def test_the_speaker_label_is_the_shape_the_exporter_recognises() -> None:
     assert "Speaker 1:" in bold and "Speaker 2:" in bold
     assert "**" not in "".join(str(getattr(run, "text", run)) for run in cell)
 
-
-# --------------------------------------------------------------------------------------------
-# The chain: one provider's failure is the next provider's job.
-# --------------------------------------------------------------------------------------------
 
 
 def _transcribe(monkeypatch, order: list[str]) -> dict:
@@ -408,8 +361,8 @@ def _transcribe(monkeypatch, order: list[str]) -> dict:
 
 def test_a_rejected_key_hands_the_job_to_the_next_provider(monkeypatch, post) -> None:
     post(
-        _Response(401, text="invalid api key"),  # ElevenLabs
-        _Response(payload=_deepgram_payload({"transcript": "sanganeri chhapai"})),  # Deepgram
+        _Response(401, text="invalid api key"),
+        _Response(payload=_deepgram_payload({"transcript": "sanganeri chhapai"})),
     )
 
     result = _transcribe(monkeypatch, ["elevenlabs", "deepgram", "whisper"])
@@ -447,7 +400,6 @@ def test_throttling_everywhere_defers_instead_of_failing(monkeypatch, post) -> N
 
     result = _transcribe(monkeypatch, ["elevenlabs", "deepgram", "whisper"])
 
-    # RATE_LIMITED is what media_queue requeues without consuming one of the job's attempts.
     assert result["status"] == "RATE_LIMITED"
     assert result["retryAfter"] == 45.0
     assert result["message"] == "Transcription is busy; it will retry automatically."
@@ -459,15 +411,14 @@ def test_an_unavailable_provider_defers_but_a_broken_one_fails(monkeypatch, post
 
     post(_Response(500, text="internal error"))
     failed = _transcribe(monkeypatch, ["elevenlabs", "deepgram", "whisper"])
-    # A 500 will break the same way on the same bytes, so the job must be allowed to terminate.
     assert failed["status"] == "FAILED"
 
 
 def test_throttling_mixed_with_a_hard_failure_still_terminates(monkeypatch, post) -> None:
     post(
-        _Response(429, text="slow down"),  # ElevenLabs
-        _Response(401, text="invalid key"),  # Deepgram
-        _Response(429, text="slow down"),  # Whisper
+        _Response(429, text="slow down"),
+        _Response(401, text="invalid key"),
+        _Response(429, text="slow down"),
     )
 
     result = _transcribe(monkeypatch, ["elevenlabs", "deepgram", "whisper"])

@@ -1,9 +1,3 @@
-"""The coverage map: the fold, the filters, the gaps, the unit records and the administrator's aliases.
-
-No database: ``coverage.reader`` is handed a fake client holding a small corpus, and the routes are
-called as functions with the dependencies they would have been given.
-"""
-
 from __future__ import annotations
 
 import json
@@ -94,7 +88,7 @@ def corpus() -> SimpleNamespace:
                 id="w1",
                 title="Ajrakh at Barmer",
                 workshopType="DESIGN_PROTOTYPE",
-                startDate=datetime(2026, 3, 31, 18, 29, tzinfo=UTC),  # 31 Mar 23:59 IST -> FY 2025
+                startDate=datetime(2026, 3, 31, 18, 29, tzinfo=UTC),
                 date=datetime(2026, 3, 31, tzinfo=UTC),
                 place="Barmer",
                 location=loc("Rajasthan", "Barmer", 25.75, 71.39),
@@ -104,7 +98,7 @@ def corpus() -> SimpleNamespace:
                 id="w2",
                 title="Kutch visit",
                 workshopType="OTHER",
-                startDate=datetime(2026, 3, 31, 18, 30, tzinfo=UTC),  # 1 Apr 00:00 IST -> FY 2026
+                startDate=datetime(2026, 3, 31, 18, 30, tzinfo=UTC),
                 date=datetime(2026, 4, 1, tzinfo=UTC),
                 place="Bhuj",
                 location=loc("Gujarat", "Kutch"),
@@ -146,7 +140,7 @@ def corpus() -> SimpleNamespace:
                 createdAt=datetime(2025, 5, 1, tzinfo=UTC),
                 craft=None,
                 workshop=None,
-                location=loc("Rajasthan", "Kachchh"),  # a district of another state
+                location=loc("Rajasthan", "Kachchh"),
             ),
         ]
     )
@@ -233,7 +227,6 @@ async def test_counts_per_unit_for_each_bucket(world):
     assert barmer["polygon"] == "OWN" and barmer["state"] == "Rajasthan" and barmer["district"] == "Barmer"
     kachchh = _unit(body, KACHCHH)
     assert kachchh["counts"]["workshops"] == 1 and kachchh["stateLgd"] == GUJARAT
-    # The Rajasthan artisan with a Gujarat district lands at state level only.
     state_only = _unit(body, None)
     assert state_only["stateLgd"] == RAJASTHAN and state_only["counts"]["artisans"] == 1
 
@@ -331,7 +324,6 @@ async def test_truncation_flags(world, monkeypatch):
 
 async def test_unmatched_count_and_the_admin_sample(world):
     body = await _coverage()
-    # Atlantis/Nowhere, the Rajasthan+Kachchh pair, and the legacy workshop's prose place.
     assert body["unmatched"] == {"count": 3}
     admin = await _coverage(user=ADMIN)
     sample = admin["unmatched"]["sample"]
@@ -412,8 +404,6 @@ async def test_the_fold_is_cached_per_scope(world):
     fresh = await _coverage()
     assert _unit(fresh, BARMER)["counts"]["artisans"] == 0
 
-
-# ── The administrator's side ───────────────────────────────────────────────────────────────────
 
 
 async def test_unmatched_and_aliases_are_admin_only():

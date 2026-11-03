@@ -1,25 +1,3 @@
-"""The five workbook routes, driven over HTTP, with the database faked.
-
-WHY THIS EXISTS BESIDE `test_questionnaire_workbook_import.py`. That file drives the import
-FUNCTIONS directly, which is the right shape for asserting the edit rule and the wrong shape for
-everything between the socket and them. None of the following is reachable from a direct call:
-
-* whether `title` and `description` are FORM fields or query parameters — left as bare defaults
-  FastAPI reads them off the query string and a client that posts them in the body gets an untitled
-  questionnaire with a 201 saying it went fine;
-* the suffix refusal, the size ceiling and the empty-upload refusal in `_read_workbook_upload`;
-* whether `parse_questionnaire_workbook`'s sentence reaches the caller as a 422 `detail` or as a
-  500 out of openpyxl;
-* whether the 409 for a workbook downloaded from a DIFFERENT questionnaire fires before anything is
-  written — which is the refusal standing between an admin picking the wrong file out of their
-  downloads folder and every question in this instrument being switched off in one press.
-
-THE DATABASE IS A STUB AND THE AUTH DEPENDENCY IS OVERRIDDEN, exactly as `test_permission_matrix.py`
-does: the modules do `from app.core.db import db`, so each holds its own reference and rebinding the
-module attribute by identity is what reaches them. Nothing here asserts a permission — that file
-owns the gate — so every request below is made as an admin.
-"""
-
 import asyncio
 import sys
 from io import BytesIO
@@ -54,7 +32,6 @@ _APP.dependency_overrides[deps.get_current_user] = lambda: ADMIN
 
 
 def _filled_pro_forma() -> bytes:
-    """A pro-forma with three questions typed into it, the way an admin sends one."""
     book = load_workbook(BytesIO(build_pro_forma()))
     sheet = book[SHEET_QUESTIONS]
     rows = [
@@ -73,8 +50,6 @@ def _filled_pro_forma() -> bytes:
 
 
 class _Delegate:
-    """Enough of a Prisma delegate for the happy path, recording nothing it is not asked for."""
-
     def __init__(self, rows: list[Any] | None = None) -> None:
         self.rows = rows or []
         self._next = 0
@@ -144,7 +119,7 @@ class _Db:
     def __getattr__(self, name: str) -> Any:
         try:
             return self._delegates[name]
-        except KeyError as exc:  # pragma: no cover - only read out of a failure
+        except KeyError as exc:  # pragma: no cover
             raise AssertionError(f"the route reached for db.{name}, which this test did not model") from exc
 
 
@@ -204,14 +179,8 @@ def _get(path: str) -> httpx.Response:
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
-# --------------------------------------------------------------------------------------------
-# Downloads
-# --------------------------------------------------------------------------------------------
-
 
 def test_the_pro_forma_downloads_as_a_workbook_with_a_filename_on_it(stub_db: _Db) -> None:
-    """A download the browser cannot SAVE is a download that did not happen: without
-    Content-Disposition the .xlsx is rendered as a page of mojibake in a new tab."""
     response = _get("/questionnaires/pro-forma")
 
     assert response.status_code == 200, response.text
@@ -226,15 +195,8 @@ def test_a_download_for_a_questionnaire_that_is_gone_is_a_404_not_a_500(stub_db:
         assert response.status_code == 404, (path, response.text)
 
 
-# --------------------------------------------------------------------------------------------
-# Uploads: the three refusals, cheapest first
-# --------------------------------------------------------------------------------------------
-
 
 def test_a_docx_is_refused_on_its_name_before_the_body_is_touched(stub_db: _Db) -> None:
-    """THE CHEAPEST REFUSAL. The filename is a string on the multipart part, so a Word document is
-    turned away without openpyxl being asked to open it — and the message names the remedy rather
-    than saying "invalid file"."""
     response = _post(
         "/questionnaires/upload",
         files={"file": ("instrument.docx", b"PK\x03\x04not-a-workbook", "application/msword")},
@@ -254,9 +216,6 @@ def test_an_empty_upload_is_a_422_that_says_what_to_attach(stub_db: _Db) -> None
 
 
 def test_an_old_xls_renamed_to_xlsx_gets_the_save_as_message(stub_db: _Db) -> None:
-    """THE SUFFIX CHECK CANNOT CATCH THIS ONE, which is the whole reason the parser looks at the
-    file's own magic bytes. Somebody who renamed report.xls to report.xlsx to get past an upload
-    filter has an .xls with an .xlsx name, and "invalid file" would send them nowhere."""
     response = _post(
         "/questionnaires/upload",
         files={"file": ("instrument.xlsx", _OLE2_MAGIC + b"\x00" * 4096, XLSX)},
@@ -284,17 +243,10 @@ def test_a_workbook_with_no_question_column_is_a_422_naming_the_column(stub_db: 
     assert "Question" in response.json()["detail"]
 
 
-# --------------------------------------------------------------------------------------------
-# Uploads: the happy path, and the two things about it that are easy to get wrong
-# --------------------------------------------------------------------------------------------
-
 
 def test_an_uploaded_pro_forma_creates_a_questionnaire_and_reports_every_row_it_assumed_about(
     stub_db: _Db,
 ) -> None:
-    """THE REPORT IS THE FEATURE. "maybe" in the Required column is the likeliest thing to be wrong
-    with a real workbook and the one an admin cannot see from a question count, so the row comes back
-    with its Excel row number and the question is imported as optional."""
     response = _post(
         "/questionnaires/upload",
         files={"file": ("craft-toolkit.xlsx", _filled_pro_forma(), XLSX)},
@@ -313,10 +265,6 @@ def test_an_uploaded_pro_forma_creates_a_questionnaire_and_reports_every_row_it_
 def test_the_title_and_description_are_read_off_the_multipart_body_not_the_query_string(
     stub_db: _Db,
 ) -> None:
-    """`Form(default=None)` IS WHAT MAKES THEM BODY FIELDS. Left as bare `str | None = None` defaults
-    FastAPI reads them as QUERY parameters, and a client that posts them in the body has them
-    silently ignored — an untitled questionnaire with a 201 saying it went fine. There is no pydantic
-    model on a multipart route to carry the declaration instead, so this is the only guard."""
     response = _post(
         "/questionnaires/upload",
         files={"file": ("craft-toolkit.xlsx", _filled_pro_forma(), XLSX)},
@@ -327,19 +275,12 @@ def test_the_title_and_description_are_read_off_the_multipart_body_not_the_query
     created = stub_db.questionnaire.rows[-1]
     assert created.title == "3rd Craft Toolkit Workshop"
     assert created.description == "81 questions, 22 sections"
-    # And the filename is kept, so two workbooks a fortnight apart are tellable apart on screen.
     assert created.sourceFilename == "craft-toolkit.xlsx"
 
 
 def test_a_workbook_downloaded_from_another_questionnaire_is_a_409_before_anything_is_written(
     stub_db: _Db,
 ) -> None:
-    """THE REFUSAL BETWEEN AN ADMIN AND THE WRONG FILE IN THEIR DOWNLOADS FOLDER.
-
-    A Questionnaire ID on the Details sheet naming a DIFFERENT questionnaire means they picked the
-    wrong one. Applying it would switch off this questionnaire's ENTIRE question set as "absent from
-    the upload" in one press — every question, because none of the ids in the file belongs here. So
-    the check runs before the first write, and the assertion is that NOTHING was created."""
     from app.services.questionnaire_xlsx import build_questionnaire_workbook
 
     other = build_questionnaire_workbook(
@@ -376,17 +317,6 @@ def test_a_reupload_over_a_questionnaire_that_is_gone_is_a_404(stub_db: _Db) -> 
 
 
 def test_an_oversized_workbook_is_a_413_that_names_the_limit(stub_db: _Db) -> None:
-    """THE CEILING, EXERCISED THROUGH THE REAL MULTIPART STACK RATHER THAN AGAINST THE HELPER.
-
-    `tests/test_upload_bounds.py` proves `read_upload_bounded` refuses; what it cannot prove is that
-    this route WIRES it up — passes `request` so the declared Content-Length is consulted, and passes
-    `WORKBOOK_MAX_UPLOAD_BYTES` rather than some other number. A body just over the ceiling is sent
-    for real, so starlette spools it and the framework's own parser runs, exactly as it would in
-    production.
-
-    Nine megabytes is deliberate: comfortably over 8 MiB plus `CONTENT_LENGTH_SLACK_BYTES`, and small
-    enough that this test costs a second rather than a minute.
-    """
     oversized = b"PK\x03\x04" + b"\x00" * (9 * 1024 * 1024)
 
     response = _post("/questionnaires/upload", files={"file": ("huge.xlsx", oversized, XLSX)})
@@ -395,5 +325,4 @@ def test_an_oversized_workbook_is_a_413_that_names_the_limit(stub_db: _Db) -> No
     detail = response.json()["detail"]
     assert "8 MB" in detail
     assert "questionnaire workbook" in detail
-    # Nothing was written: the refusal happens before the parser is ever handed the bytes.
     assert stub_db.questionnaire.rows[-1].id == "qnr-1"

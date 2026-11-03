@@ -1,81 +1,3 @@
-"""The questionnaire capture form is declared once in `shared/questionnaire-form-contract.json`.
-
-This file is what makes that declaration true of the product.
-
-══════════════════════════════════════════════════════════════════════════════════════════════
-WHY THIS EXISTS, IN THE OWNER'S WORDS
-══════════════════════════════════════════════════════════════════════════════════════════════
-
-    "all the fields on the questionnaire page that are there on the web application, should be
-     exactly there on the android app as well, the checkbox list should be replaced with multi-select
-     dropdown for artisans over there as well, web implementation is correct, I want the same thing
-     for android as well, create contracts so that the two do not drift"
-
-Third report of the same desync. The first two were closed by editing the handset to match the
-browser, which is a fix that lasts exactly until the next person edits one of them, because nothing
-in either build can see the other tree.
-
-══════════════════════════════════════════════════════════════════════════════════════════════
-WHY A CONTRACT AND NOT THE TWO-WAY PARITY TEST THIS REPOSITORY ALREADY KNOWS HOW TO WRITE
-══════════════════════════════════════════════════════════════════════════════════════════════
-
-The sibling designer portal has `backend/tests/test_walkthrough_fields_parity.py`, eight hundred
-lines that parse TypeScript on one side and Kotlin on the other and hold the two walkthrough decks
-equal. Its scanners are good and its failure message — the first differing index, both strings, named
-— is the difference between reporting a drift and reporting the existence of one. Both are ported
-here. What is NOT ported is its shape, and the two reasons are worth writing down because they are
-the reasons this file is not that file:
-
-1. IT CANNOT SAY WHICH SIDE IS RIGHT. Its own failure text has to end "The web is the register: fix
-   steps.ts and WALKTHROUGH_FIELDS together, in one commit. Never edit the Kotlin alone to turn this
-   green" — because the assertion cannot tell you that, only the prose can, and prose in an assertion
-   is advice. Here the contract is the register, both clients are measured against it, and a failure
-   names the file and line that disagrees with a declaration rather than naming two files that
-   disagree with each other.
-
-2. IT PASSES WHEN BOTH SIDES DRIFT THE SAME WAY, AND IN THIS REPOSITORY THEY HAVE.
-   `android/app/src/test/java/com/fieldrepository/app/ui/WalkthroughStepsTest.kt` already holds
-   `walkthroughJourney` equal to `steps.ts`, field for field, and it is green. Both of those
-   registers name a "Date" field this form has not had since the comment at page.tsx:997 was written,
-   and both omit Workshop, Questionnaire, Status and Interview notes. Two copies agreeing is not
-   evidence.
-
-So the register-to-register edge is deliberately NOT repeated below. That edge is guarded, in the
-Android job, by the test named above. What was missing is the edge from each register to the FORM,
-and that is every assertion in the second half of this file.
-
-══════════════════════════════════════════════════════════════════════════════════════════════
-WHY IT READS SOURCE TEXT
-══════════════════════════════════════════════════════════════════════════════════════════════
-
-Neither client can be executed here. There is no browser and no emulator in this suite, and the
-backend job is the only one that runs with `frontend/`, `android/` and `docs/` all on disk —
-`WalkthroughStepsTest.kt` reaches sideways into `steps.ts` for the same reason, but it runs under the
-Android job's `pull_request` path filter, so it is the wrong place to guard the half of this that a
-frontend-only change is most likely to move.
-
-Parsing source cannot be defeated by either build, and it is brittle to a REFACTOR of either
-declaration, which is the intended trade: a rewrite of how a form declares its labels should make
-somebody read this file. Every assertion therefore names the file and, where a regex is the
-extractor, the LINE — because a parity test that says only "the lists differ" is a test people mute.
-
-It also imports nothing but the standard library, which is worth more than it sounds: the rest of
-this directory needs fastapi, prisma, openpyxl and cryptography to so much as collect, so on a
-machine where those are not installed — a frontend developer's, an Android developer's — this file
-is one of the few here that still runs. The two people most likely to break this contract are the
-two least likely to have a backend environment.
-
-══════════════════════════════════════════════════════════════════════════════════════════════
-WHAT THIS DOES NOT CHECK, DELIBERATELY
-══════════════════════════════════════════════════════════════════════════════════════════════
-
-Whether a label is a GOOD name for a box, whether the two clients lay their fields out identically,
-and anything about the location group, the media capture or the instrument's own questions — all
-three of which are shared components with their own registers and their own tests, and a second copy
-of any of them here would be the exact failure this file exists to prevent. The contract's
-`maintenance` section names them and says so.
-"""
-
 from __future__ import annotations
 
 import json
@@ -100,29 +22,11 @@ ANDROID_MAIN = (
     / "MainActivity.kt"
 )
 
-# The declaration each side is read from, named once and quoted in every failure message, so a rename
-# reports itself instead of quietly parsing to nothing.
-#
-# THE WEB ANCHOR IS A PATTERN AND NOT A LITERAL, and the reason is the thing this file exists to
-# catch rather than an inconvenience. The capture form's opening tag is no longer one line: it
-# carries `key={editing?.id ?? "new"}` and `ref={formRef}` so that arriving at `?edit=<id>` REMOUNTS
-# the form and re-seeds its uncontrolled boxes, and an opening tag past the print width is broken
-# over several lines. A literal `"<form onSubmit={submit}"` then finds nothing, and `_web_form_region`
-# asserts rather than parsing the rest of the page — which is the right failure, but it fires on a
-# formatting change as loudly as on a real one. `onSubmit={submit}` is what actually identifies THIS
-# form (the builder further down the page has its own handlers), so the pattern keys on that and
-# tolerates any attributes, in any order, on either side of it.
 WEB_FORM_ANCHOR = re.compile(r"<form\b[^>]*onSubmit=\{submit\}")
 ANDROID_FORM_ANCHOR = "private fun QuestionnaireForm("
 
 
 def contract() -> dict:
-    """The one declaration. Read fresh rather than cached at import.
-
-    Nothing here memoises, anywhere in this file. These are small files and a test suite that reads
-    them once at import is a test suite that reports a stale answer when somebody edits a form
-    between two runs of `pytest --looponfail` — which is exactly when this file is being read.
-    """
     assert CONTRACT_PATH.exists(), (
         f"{CONTRACT_PATH} is missing. It is the contract every assertion in this file is about; "
         "without it there is nothing to measure either client against, and deleting it is not a way "
@@ -132,69 +36,16 @@ def contract() -> dict:
 
 
 def contract_labels() -> list[str]:
-    """The field labels, in the contract's order."""
     return [field["label"] for field in contract()["fields"]]
 
 
 def controls(client: str) -> dict[str, dict]:
-    """``{component or composable: its registry row}`` for one client.
-
-    THE PARSING RULES LIVE IN THE CONTRACT, NOT IN THIS FILE, and that is not tidiness. A registry
-    here would be a second declaration of which components draw form fields, sitting in a test, held
-    to nothing — which is the shape of the defect this whole file exists to close, one level down.
-    Somebody adding a control kind edits the declaration and both readings of it follow.
-    """
     key = "component" if client == "web" else "composable"
     return {row[key]: row for row in contract()["controls"][client]}
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# Two comment strippers and a bracket scanner, because a regex cannot do this safely
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-#
-# Both source files put PROSE around the code being read, and a lot of it: the web form's field grid
-# is two hundred lines of which well over half are comments, and the argument for the artisan
-# picker's four empty-state sentences is written out at length on BOTH clients, quoting the very
-# labels compared below. A regex over raw text matches inside a paragraph and reports a label the
-# screen has never drawn.
-#
-# The sibling portal records what getting this wrong costs: it "does not fail loudly: it silently
-# hands the parser a slab of prose or a slab of code". Both directions are bad here — prose read as
-# code invents fields, code read as prose loses them — and neither says anything at the moment it
-# happens.
-
 
 def _strip_ts_comments(source: str) -> str:
-    """`//` and `/* … */` removed, string literals left alone.
-
-    Character by character rather than by regex, because both comment forms appear INSIDE the strings
-    this file reads: the questionnaire page's own comments quote paths like
-    `app/(protected)/questionnaire/page.tsx` and `backend/app/services/records.py`, and a regex that
-    does not know where a string starts will cut one in half.
-
-    ── NEWLINES ARE PRESERVED, AND THIS IS THE HALF THIS FUNCTION USED TO GET WRONG ──────────────
-
-    It was ported from the sibling portal's `test_walkthrough_fields_parity.py` UNCHANGED, and this
-    docstring said so approvingly. It was indeed correct there — that file reports the differing
-    INDEX in a list, never a line number, so a stripper that swallowed a fifty-line comment cost it
-    nothing. Here every failure message about the web carries `page.tsx:<line>`, and a block comment
-    dropped whole took its newlines with it: this page is 2,690 lines of which 517 are inside `/* …
-    */`, so the form's own boxes were reported 230 lines early at the top and 378 early at the foot.
-    `label="Place"` lives at 1004 and the assertion said 770 — which in this file is not a blank or a
-    near miss but a real line in the middle of the offline submit payload. `_strip_kotlin_comments`
-    had carried the fix since it was written and says why in as many words; the two strippers simply
-    disagreed, in the one respect neither docstring compared them on.
-
-    The rejected alternative was to stop printing web line numbers and print only the field index,
-    which is what the ported original does and would have been true rather than wrong. It is refused
-    for the reason `_line_of` states: a line number is the difference between sending a reader to a
-    2,690-line file and sending them to the edit. A number a reader trusts has to be right; the
-    answer is to make it right, not to withdraw it.
-
-    Block comments do NOT nest in TypeScript — `/* /* */` ends at the first terminator — so unlike
-    the Kotlin twin this arm stays a flat scan. That is a real difference between the two languages
-    and not a second oversight.
-    """
     out: list[str] = []
     i, n = 0, len(source)
     while i < n:
@@ -215,9 +66,6 @@ def _strip_ts_comments(source: str) -> str:
                 i += 1
             continue
         if char == "/" and source[i + 1 : i + 2] == "/":
-            # The newline itself is deliberately NOT consumed here — the loop stops on it and the
-            # ordinary path below emits it. A line comment therefore already preserved its own line,
-            # which is why only the block arm below was ever off.
             while i < n and source[i] != "\n":
                 i += 1
             continue
@@ -235,30 +83,6 @@ def _strip_ts_comments(source: str) -> str:
 
 
 def _strip_kotlin_comments(source: str) -> str:
-    """The same, for Kotlin, and it is NOT the same function.
-
-    Three differences, each of which would be a silent wrong answer if the TypeScript stripper were
-    pointed at this file instead:
-
-    * KDoc `/** … */` nests in Kotlin. A `/*` inside a doc comment does not end at the first `*/`,
-      and the artisan picker's KDoc is exactly the kind of comment somebody puts a snippet in.
-    * Raw strings `\"\"\" … \"\"\"` have no escapes at all, so the backslash rule the TS stripper uses
-      would walk straight past a terminator.
-    * A single quote is a CHARACTER literal here, not a string delimiter. Treating `'` as a quote
-      would swallow everything from the first apostrophe in a comment to the next one — and the
-      comments in `MainActivity.kt` are English prose full of apostrophes.
-
-    NEWLINES ARE PRESERVED for everything removed, because every failure message below reports a LINE
-    NUMBER, and a stripper that collapsed a fifty-line KDoc to nothing would report line numbers that
-    are off by fifty in a file of fifteen thousand — which is worse than reporting none, since a
-    reader trusts a number.
-
-    THIS IS NO LONGER A FOURTH DIFFERENCE. `_strip_ts_comments` preserved its line comments' newlines
-    and dropped its block comments', so it reported the web's fields hundreds of lines early; it was
-    fixed on 2026-09-16 and the paragraph in its docstring is the account of it. Newline preservation
-    is now an invariant BOTH strippers hold and `_line_of` depends on — whichever of them is edited
-    next, it is the property to keep.
-    """
     out: list[str] = []
     i, n = 0, len(source)
     while i < n:
@@ -310,13 +134,6 @@ def _strip_kotlin_comments(source: str) -> str:
 
 
 def _balanced(source: str, start: int, opener: str, closer: str) -> str:
-    """The text from ``source[start]`` (an opener) to its matching closer, inclusive.
-
-    Skips string literals, so a bracket inside a label cannot close the block early — the browse
-    screen's filter read "Involved artisan(s)" until its plural was spelled out, and any label this
-    file reads may carry one again. Ported from the sibling portal, where a parenthesised label is
-    why it is a scanner and not a `.index(")")`.
-    """
     assert source[start] == opener, (
         f"internal: _balanced was handed {source[start]!r} where {opener!r} was expected"
     )
@@ -343,29 +160,11 @@ def _balanced(source: str, start: int, opener: str, closer: str) -> str:
 
 
 def _line_of(source: str, offset: int) -> int:
-    """1-indexed line number of ``offset``, for a failure message somebody has to act on.
-
-    THE REASON EVERY MESSAGE BELOW CARRIES ONE. `MainActivity.kt` is fifteen thousand lines and the
-    questionnaire form is nine hundred of them; "the handset draws the wrong control" sends a reader
-    to a file, and "MainActivity.kt:12512 draws ArtisanMultiSelectField" sends them to the edit.
-    """
     return source.count("\n", 0, offset) + 1
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The web form
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def _web_form_region() -> tuple[str, int]:
-    """The capture `<form>`'s own source, comment-stripped, and its offset in the stripped file.
-
-    SLICED TO THE FORM AND NOT READ WHOLE, because `page.tsx` is two and a half thousand lines and
-    most of what is not this form is the questionnaire BUILDER further down it — which draws
-    `<Field label="Section code">`, `<Field label="Code">`, `label="Section title"` and half a dozen
-    more. Read whole, this parser would report those as fields of the capture form: not a crash, not
-    an empty list, just a confident wrong answer about a screen nobody looked at.
-    """
     source = _strip_ts_comments(WEB_FORM.read_text(encoding="utf-8"))
     found = WEB_FORM_ANCHOR.search(source)
     assert found is not None, (
@@ -384,14 +183,6 @@ def _web_form_region() -> tuple[str, int]:
 
 
 def _component_default_label(path: pathlib.Path, component: str) -> str:
-    """A label a web component supplies for itself, read out of that component's file.
-
-    WHY THIS EXISTS: `<WorkshopSelect state={workshop} saving={saving} />` carries no `label` prop —
-    the string lives in `WorkshopSelect`'s own signature as `label = "Workshop"`. A scan of the form
-    for quoted labels alone therefore reports the workshop field as MISSING FROM THE WEB, which is
-    the parser lying about the reference implementation. That failure would be read as "the contract
-    is wrong" and the field would be deleted from the contract to make it green.
-    """
     source = _strip_ts_comments(path.read_text(encoding="utf-8"))
     at = source.find(f"export function {component}")
     assert at >= 0, (
@@ -408,23 +199,6 @@ def _component_default_label(path: pathlib.Path, component: str) -> str:
 
 
 def web_form_labels() -> list[tuple[str, int]]:
-    """``[(label, line)]`` for every labelled control the capture form draws, in screen order.
-
-    A list of pairs and not a set, because ORDER IS HALF OF THE CONTRACT — see the contract's
-    `howOrderIsPartOfIt`. This list read top to bottom is the form read top to bottom.
-
-    TWO KINDS OF LABEL, INTERLEAVED BY OFFSET. Most are written at the call site, either directly
-    (`<DictatedTextInput label="Interview title" …>`) or on the `<Field>` wrapper that holds a
-    `<Select>`; the workshop's comes from its component's default. Matching both patterns in one
-    ordered pass is what keeps the workshop in its true POSITION rather than appended at the end,
-    and the position is the thing being asserted.
-
-    Labels written as EXPRESSIONS are invisible here and that is correct rather than a gap:
-    `<UploadProgress label={INTERVIEW_SECTION_LABEL}>` and the per-section `<ClipRecorder
-    label={`Section ${code} audio`}>` are not form fields, they name progress cards and recorders.
-    The day one of them becomes a field it will have to be written as a literal or declared in the
-    contract's `alsoDrawn`, and either way somebody will have read this paragraph.
-    """
     region, base = _web_form_region()
     raw = WEB_FORM.read_text(encoding="utf-8")
     stripped = _strip_ts_comments(raw)
@@ -441,9 +215,6 @@ def web_form_labels() -> list[tuple[str, int]]:
     for component, source_path in defaults.items():
         for match in re.finditer(rf"<{component}\b", region):
             tag = region[match.start() : region.find(">", match.start()) + 1]
-            # An explicit prop WINS over the default, and is reported at the element's own position.
-            # Without this arm a call site that overrode the label would be read as using the
-            # default AND as carrying a literal, and the field would appear twice.
             override = re.search(r'\blabel="([^"]*)"', tag)
             if override:
                 marks = [mark for mark in marks if mark[0] != match.start() + override.start()]
@@ -452,37 +223,14 @@ def web_form_labels() -> list[tuple[str, int]]:
                 marks.append((match.start(), _component_default_label(_ROOT / source_path, component)))
 
     marks.sort()
-    # `stripped` and `region` share an origin, so an offset inside the region maps to the stripped
-    # file by adding `base` — and the stripped file preserves newlines, so the line number is the
-    # line number in the file on disk.
     return [(label, _line_of(stripped, base + offset)) for offset, label in marks]
 
 
 def web_control_for(field: dict) -> tuple[str, int] | None:
-    """The component that draws *field* on the web form, and the line it is drawn on.
-
-    STRUCTURAL, WHICH IS THE ONLY KIND OF CHECK THAT CATCHES A WIDGET SWAP. A label assertion goes
-    green over a checkbox wall that has been renamed; this reads what is actually being rendered.
-
-    THREE SHAPES, because the form uses three, and the third is why this takes the whole contract
-    entry rather than just a label:
-
-    * A control that takes its own `label` prop IS the control (`<DictatedTextInput label="Place">`).
-    * A `<Field label="…">` wrapper is followed by the control it wraps (`<Select>`,
-      `<MultiSelectDropdown>`), so the answer is the first capitalised element after the label.
-    * A `componentDefault` field has NO label at its call site at all — `<WorkshopSelect state={…} />`
-      keeps its string in its own signature — so there is no label to search back from and the
-      element itself is what has to be found. Searching for the label first, which is what the other
-      two do, returns nothing here and reports the reference client as missing a field it draws.
-    """
     region, base = _web_form_region()
     stripped = _strip_ts_comments(WEB_FORM.read_text(encoding="utf-8"))
     registry = controls("web")
 
-    # The componentDefault arm searches by COMPONENT and then checks the label, which is the reverse
-    # of the other two — and it searches every registered self-labelling component rather than only
-    # the one this field declares, so that a field drawn by the WRONG one is reported as the swap it
-    # is instead of as a field nobody could find.
     for component, row in registry.items():
         if row["labelFrom"] != "componentDefault":
             continue
@@ -513,20 +261,8 @@ def web_control_for(field: dict) -> tuple[str, int] | None:
     return name, _line_of(stripped, base + opener)
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The Android form
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def _android_form_region() -> tuple[str, int]:
-    """`QuestionnaireForm`'s body, comment-stripped, and its offset in the stripped file.
-
-    BRACE-BALANCED FROM THE FUNCTION'S OWN `{` AND NOT "UP TO THE NEXT @Composable". The obvious
-    slice is wrong here and wrong quietly: the next `@Composable` at column zero after
-    `QuestionnaireForm` is two hundred and seventy lines past the end of it, so that slice swallows
-    the next composable whole and reports its controls as fields of this form. It was tried while
-    writing this file and it silently produced two extra fields.
-    """
     source = _strip_kotlin_comments(ANDROID_MAIN.read_text(encoding="utf-8"))
     at = source.find(ANDROID_FORM_ANCHOR)
     assert at >= 0, (
@@ -539,18 +275,6 @@ def _android_form_region() -> tuple[str, int]:
 
 
 def _composable_default_label(symbol: str) -> str:
-    """A label a Kotlin composable supplies for itself, read out of its own declaration.
-
-    The handset's counterpart to `_component_default_label`, and it matters for three of the eight
-    fields rather than one: `WorkshopField` reaches `WorkshopDropdown`'s `label: String = "Workshop"`,
-    `StatusControl` reaches `StatusDropdown`'s `label = "Status"`, and `MultiNoteInput` defaults
-    `label: String = "Notes"` — which is the whole of why the handset's notes box is called something
-    the web's is not, with no call site anywhere saying so.
-
-    Reads the PARAMETER DEFAULT first and a named argument in the body second, in that order. A
-    composable that declares `label: String = "X"` and then passes something else through is a
-    control lying about itself, and the parameter is the declaration.
-    """
     source = _strip_kotlin_comments(ANDROID_MAIN.read_text(encoding="utf-8"))
     at = source.find(f"fun {symbol}(")
     assert at >= 0, (
@@ -570,19 +294,6 @@ def _composable_default_label(symbol: str) -> str:
 
 
 def android_form_controls() -> list[tuple[str, str, int]]:
-    """``[(label, composable, line)]`` for every labelled control the handset's form draws, in order.
-
-    THE REGISTRY IS THE CONTRACT'S, NOT THIS FILE'S. Which composables count as labelled controls is
-    derived from the contract's own `fields`, `controlPins.forbidden` and `alsoDrawn.android` — so
-    adding a control kind is a change to the declaration rather than to the parser, and a composable
-    nobody declared is simply not a field.
-
-    WHY NOT SCAN FOR EVERY QUOTED STRING, which is the shorter parser: the form's body holds nineteen
-    `Text("…")` calls of running prose and two `AttachedUploadsCard(label = "recording")`, where
-    "recording" is a noun in a progress sentence and not a field label at all. A scan for literals
-    reads all of them as fields, and the failure it then reports is about the parser rather than
-    about the form — which is the report people mute.
-    """
     region, base = _android_form_region()
     stripped = _strip_kotlin_comments(ANDROID_MAIN.read_text(encoding="utf-8"))
     registry = controls("android")
@@ -593,9 +304,6 @@ def android_form_controls() -> list[tuple[str, str, int]]:
         for match in re.finditer(rf"\b{name}\s*\(", region):
             args = _balanced(region, match.end() - 1, "(", ")")
             label = None
-            # An explicit `label =` wins wherever it appears, including over a composable's own
-            # default — `MultiNoteInput(label = "…")` is a real call shape elsewhere in this file's
-            # subject tree, and reading the default over it would report a label no screen draws.
             explicit = re.search(r'\blabel\s*=\s*"([^"]*)"', args)
             if explicit:
                 label = explicit.group(1)
@@ -614,20 +322,8 @@ def android_form_controls() -> list[tuple[str, str, int]]:
     ]
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The failure message
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def _report(client: str, path: pathlib.Path, expected: list[str], actual: list[tuple[str, int]]) -> str:
-    """The first line that actually differs, named, with a file and a line number.
-
-    Printing both lists whole is what comparing two eight-element lists already does badly: the
-    reader diffs them by eye and stops at the first thing that looks similar. Naming the index, both
-    strings and the source line is the difference between a test that reports a drift and one that
-    reports the existence of a drift. Ported from the sibling portal, which made the same argument
-    about thirty-element lists and was right about eight.
-    """
     got = [label for label, _ in actual]
     lines = [
         f"  {client} ({path.name}) draws {len(got)} of the contract's {len(expected)} fields.",
@@ -646,25 +342,8 @@ def _report(client: str, path: pathlib.Path, expected: list[str], actual: list[t
     return "\n".join(lines)
 
 
-# ══════════════════════════════════════════════════════════════════════════════════════════════
-# 0. The guard that stops every assertion below from being vacuously green
-# ══════════════════════════════════════════════════════════════════════════════════════════════
-
 
 def test_the_contract_and_both_forms_still_parse_to_something():
-    """Green below means the comparison was MADE, not that three parsers came back empty.
-
-    THE FAILURE A CONTRACT TEST IS MOST PRONE TO, and the one it would report as success: a form is
-    reformatted or an anchor renamed, the scanner returns `[]`, `[] == []` passes, and the suite
-    reports agreement about a comparison it never performed. The sibling portal opens with the same
-    guard and names the cost — the failure reads as "the wiring is fine" when the parser is the
-    broken thing.
-
-    THE FLOORS ARE FLOORS AND NOT THE CURRENT COUNTS, deliberately. Pinning the exact number would
-    put a second copy of the register in this file, and it would fail on the day the form
-    legitimately grows a field — the one event this suite exists to welcome, because that is the day
-    somebody opens the contract.
-    """
     spec = contract()
     assert len(spec["fields"]) >= 5, (
         f"{CONTRACT_PATH.name} declares only {len(spec['fields'])} fields. This form has never had "
@@ -694,29 +373,8 @@ def test_the_contract_and_both_forms_still_parse_to_something():
     )
 
 
-# ══════════════════════════════════════════════════════════════════════════════════════════════
-# 1. The WEB form renders exactly the contract fields, in order, with those labels
-# ══════════════════════════════════════════════════════════════════════════════════════════════
-
 
 def test_the_web_form_draws_exactly_the_contract_fields_in_order():
-    """The reference implementation, held to the declaration derived from it.
-
-    IT IS NOT CIRCULAR AND IT IS NOT DECORATION. The contract was read off this form, so this
-    assertion is green the day it is written — and that is the point: from that day on, a change to
-    the web form has to be a change to the contract, in the same commit, or the build says so. Every
-    other assertion in this file measures something against the contract, and all of them are worth
-    nothing if the contract has quietly stopped describing the screen the owner ruled correct.
-
-    EQUALITY AND NOT CONTAINMENT, and the two directions fail for genuinely different reasons:
-
-    * A contract field MISSING here means the declaration has outlived the form — somebody removed a
-      box and this file is the only thing that noticed.
-    * A label here the contract does not declare is a NEW field on the reference client, which is the
-      original defect running forwards instead of backwards: the handset is now behind by one and
-      nothing else in either build can see it. Add it to the contract, then to the handset, then to
-      the three registers.
-    """
     expected = contract_labels()
     actual = web_form_labels()
     assert [label for label, _ in actual] == expected, (
@@ -732,13 +390,6 @@ def test_the_web_form_draws_exactly_the_contract_fields_in_order():
 
 
 def test_the_web_form_draws_each_field_with_the_control_the_contract_names():
-    """The labels being right is not the same claim as the controls being right.
-
-    The whole reason `controlPins` exists is that a label assertion passes over a widget swap. This
-    holds the reference client to its own declared controls so that the handset's control check
-    below is measured against something that is itself checked — otherwise the contract could drift
-    from the web on the control kind and the handset would be brought into line with a fiction.
-    """
     for field in contract()["fields"]:
         found = web_control_for(field)
         assert found is not None, (
@@ -757,30 +408,8 @@ def test_the_web_form_draws_each_field_with_the_control_the_contract_names():
         )
 
 
-# ══════════════════════════════════════════════════════════════════════════════════════════════
-# 2. The ANDROID form renders exactly the contract fields, in order, with those labels
-# ══════════════════════════════════════════════════════════════════════════════════════════════
-
 
 def test_the_android_form_draws_exactly_the_contract_fields_in_order():
-    """The owner's report, turned into something that cannot be closed by hand twice more.
-
-    Three kinds of difference, and each is a different conversation:
-
-    * A field MISSING on the handset is the report verbatim — "all the fields ... should be exactly
-      there on the android app as well". A researcher on a phone cannot say which instrument this
-      sitting answers, or set the status, or leave a note.
-    * A field whose LABEL differs is the quietest of the three and the one that survives longest.
-      One box, two names, across two devices a researcher may use on the same day.
-    * A field in a different ORDER is a form that has to be re-learned per device. See the
-      contract's `howOrderIsPartOfIt`; the sequence is the contract's, and it is the WEB's.
-
-    THE `alsoDrawn` REGISTER IS WHAT LETS THIS BE AN EQUALITY. The handset legitimately draws two
-    labelled controls that are not fields of this contract — the recording-mode preference and the
-    per-question answer box — and they are declared, with reasons, in the contract rather than
-    filtered out here. A parser that skipped unknown controls would be silent about a NEW box
-    appearing on one client and not the other, which is this same drift running the other way.
-    """
     expected = contract_labels()
     extras = {extra["label"] for extra in contract()["alsoDrawn"]["android"]}
     drawn = android_form_controls()
@@ -801,13 +430,6 @@ def test_the_android_form_draws_exactly_the_contract_fields_in_order():
 
 
 def test_the_android_form_draws_each_field_with_the_control_the_contract_names():
-    """The handset's controls, pinned by composable — see assertion 6 for why this is structural.
-
-    Split from the label assertion above rather than folded into it, because the two failures need
-    different edits: a label drift is a one-word change at a call site, and a control drift is a
-    control being replaced. A single assertion covering both reports whichever it hits first and
-    sends the reader to the wrong kind of work.
-    """
     spec = contract()
     extras = {extra["label"] for extra in spec["alsoDrawn"]["android"]}
     drawn = {label: (name, line) for label, name, line in android_form_controls() if label not in extras}
@@ -830,17 +452,6 @@ def test_the_android_form_draws_each_field_with_the_control_the_contract_names()
 
 
 def test_the_handset_labels_its_status_control_the_same_in_both_of_its_arms():
-    """A control that is two controls by role has to say one thing in both of them.
-
-    `StatusControl` draws a dropdown for PROFESSOR+ and a locked "Pending" chip for everybody else,
-    and the two arms write their label in two different places — the dropdown passes it through to
-    `StatusDropdown`, the chip draws its own `Text`. The contract reads the label from the first,
-    which means the second could be renamed with nothing noticing. It is the arm MOST researchers
-    see, and the one nobody reviewing a status change would think to open.
-
-    Driven by `alsoNamesLabelIn` in the contract rather than by a hard-coded symbol here, so a field
-    that grows a second arm declares it where the field is declared.
-    """
     source = _strip_kotlin_comments(ANDROID_MAIN.read_text(encoding="utf-8"))
     for field in contract()["fields"]:
         for symbol in field["android"].get("alsoNamesLabelIn", ()):
@@ -858,32 +469,8 @@ def test_the_handset_labels_its_status_control_the_same_in_both_of_its_arms():
             )
 
 
-# ══════════════════════════════════════════════════════════════════════════════════════════════
-# 6. The artisan control is a SEARCHABLE MULTI-SELECT on both clients, and not a checkbox wall
-# ══════════════════════════════════════════════════════════════════════════════════════════════
-#
-# Numbered out of order on purpose: it belongs beside the two form assertions it sharpens, not after
-# three sections about guides. The owner asked for this one by name.
-
 
 def test_the_artisan_control_is_a_searchable_multiselect_and_never_a_checkbox_wall():
-    """The one the owner named: "the checkbox list should be replaced with multi-select dropdown".
-
-    PINNED BY THE CONTROL AND NOT BY THE LABEL, which is the entire point of this assertion existing
-    separately from the two above. Rename `ArtisanMultiSelectField`'s label to the contract's word
-    and every label assertion in this file goes green over a Column of checkboxes — one row per
-    artisan, painted straight into a form that is already long, with no summary line, so the only way
-    to see what is ticked is to scroll back over it. That is the defect, and a label cannot see it.
-
-    BOTH DIRECTIONS, ON BOTH CLIENTS. The pinned control must be the one drawing the field, AND the
-    forbidden ones must not appear anywhere in the form at all — because the interesting regression
-    is not "somebody renamed the field", it is "somebody put the wall back beside the dropdown while
-    half-landing something else", and a check that only reads the control at the label would miss it.
-
-    `SearchableMultiSelectField` already exists (android/.../ui/SearchableSelect.kt) and is what
-    `CheckboxMultiSelectField` was itself rewritten onto. There is no third control to write, and
-    writing one would be this whole problem again.
-    """
     spec = contract()
     fields = {field["key"]: field for field in spec["fields"]}
     region, base = _android_form_region()
@@ -934,21 +521,6 @@ def test_the_artisan_control_is_a_searchable_multiselect_and_never_a_checkbox_wa
 
 
 def test_every_deliberately_different_label_still_exists_and_still_says_it():
-    """`distinctLabels` — the sites that use another word on purpose, held so they cannot go stale.
-
-    ONE ENTRY TODAY: the browse screen's artisan filter says "Involved artisans" while the capture
-    form says "Artisans interviewed". That is a decision with a reason written out in the contract —
-    the filter narrows a list of interviews that already exist and ticking somebody there asserts
-    nothing about any record, whereas the capture form's label is a claim about the interview being
-    written — and the web agrees by precedent, naming its own browse filter "Filter by artisan".
-
-    WHY IT IS ASSERTED AT ALL, rather than merely written down: a licence nobody checks is the third
-    register again. It would keep reading as a considered decision long after the screen it describes
-    had been renamed or deleted, and the next person to widen this file would treat the table as an
-    accurate description of where the product deliberately differs. Both halves are checked — the
-    site must still exist, and it must still use this word — so a rename in either direction reports
-    itself instead of leaving a sentence behind that is no longer about anything.
-    """
     for entry in contract()["distinctLabels"]:
         path = _ROOT / entry["site"]
         assert path.exists(), (
@@ -973,26 +545,6 @@ def test_every_deliberately_different_label_still_exists_and_still_says_it():
         )
 
 
-# ══════════════════════════════════════════════════════════════════════════════════════════════
-# 3, 4 and 5. The three registers that DESCRIBE this form to a researcher
-# ══════════════════════════════════════════════════════════════════════════════════════════════
-#
-# A FLOOR AND A CEILING RATHER THAN AN EQUALITY, and the asymmetry is the considered part.
-#
-# THE FLOOR: every contract field must be NAMED in each register. A field that is on the form, on
-# both clients, and that a guide does not name, is a box the researcher has not been told to fill in.
-#
-# THE CEILING: no register may name a field the contract declares ABSENT. That is not hypothetical —
-# all three currently list a "Date" this form deliberately does not have, and a floor-only check is
-# blind to it by construction.
-#
-# WHY NOT AN EQUALITY, which is the obvious stronger thing: a register describes a whole SCREEN and
-# this contract describes the interview's own boxes. "Per question: a 'Record this question' audio
-# clip, or a typed answer" is a true and necessary thing to tell a researcher and has no single form
-# label to be equal to. The sibling portal made this check symmetric once and recorded what it cost:
-# the printed guide was reported as wrong FOR BEING RIGHT, and the quickest way to green was deleting
-# true sentences about the one field that stops the archive filling with duplicate artisans.
-
 WEB_REGISTER = _ROOT / "frontend" / "components" / "guide" / "steps.ts"
 ANDROID_REGISTER = (
     _ROOT
@@ -1011,33 +563,14 @@ PRINTED_GUIDE = _ROOT / "docs" / "WALKTHROUGH.md"
 
 
 def _loose(text: str) -> str:
-    """Lowercased, with every run of non-alphanumerics collapsed to one space.
-
-    The registers are decorated and the prose is markdown: `steps.ts` writes "Interview title
-    (required)" and `docs/WALKTHROUGH.md` writes "**Interview title** *(required)*", and that
-    emphasis is typography rather than a different claim about the form.
-
-    DELIBERATELY LOOSER THAN THE CLIENT COMPARISON ABOVE, which is character-for-character including
-    punctuation. Between two CLIENTS, "Do's" against "Do's" really is one screen calling one box two
-    names and there is nothing to be tolerant about. Between a form label and an English sentence
-    describing it there is no such defect to catch, and enforcing it would only teach people to paste
-    chips into paragraphs.
-    """
     return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 
 
 def _names(haystack: str, label: str) -> bool:
-    """Does *haystack* name *label*, allowing decoration but not a coincidental substring.
-
-    Padded on both sides rather than a bare `in`: without the padding "Place" is named by the word
-    "Placement" and "Status" by "Statuses", and a floor check that can be satisfied by an unrelated
-    word is a floor check that reports a guide as complete because of a typo in it.
-    """
     return f" {_loose(label)} " in f" {_loose(haystack)} "
 
 
 def _web_register_fields() -> list[str]:
-    """The questionnaire card's `fields[]` out of `steps.ts`, in order."""
     source = _strip_ts_comments(WEB_REGISTER.read_text(encoding="utf-8"))
     at = source.find('id: "questionnaire"')
     assert at >= 0, (
@@ -1056,12 +589,6 @@ def _web_register_fields() -> list[str]:
 
 
 def _android_register_fields() -> list[str]:
-    """The same list out of `WalkthroughJourney.kt`'s `WALKTHROUGH_FIELDS`, in order.
-
-    Kotlin-stripped first, and that is not belt-and-braces: the register's own KDoc quotes
-    `GuideStep.fields`, names this file, and discusses the very strings below. Read raw, this would pick up quoted runs out of a paragraph about the
-    register and report them as entries in it.
-    """
     source = _strip_kotlin_comments(ANDROID_REGISTER.read_text(encoding="utf-8"))
     found = re.search(r'"questionnaire"\s+to\s+listOf\(', source)
     assert found, (
@@ -1074,17 +601,6 @@ def _android_register_fields() -> list[str]:
 
 
 def _printed_guide_sentence() -> str:
-    """The "What the screen asks for" line under the printed guide's Questionnaire heading.
-
-    Attached to the numbered HEADING above it rather than to a position in the file, so that
-    inserting a section does not shift the list quietly onto the next step. That failure would not be
-    loud in a useful way: the reader would be sent to the wrong step and told a true thing about a
-    screen they were not looking at.
-
-    WHITESPACE COLLAPSED, because the document is hard-wrapped at about column 100 and "Artisans
-    interviewed" is split across two lines today. The wrap column is an editor setting, not a claim
-    about the product.
-    """
     spec = contract()["registers"]["printed"]
     marker = spec["marker"]
     raw = PRINTED_GUIDE.read_text(encoding="utf-8")
@@ -1108,12 +624,6 @@ def _printed_guide_sentence() -> str:
 
 
 def _registers() -> dict[str, tuple[pathlib.Path, str]]:
-    """``{name: (file, the text that register uses to describe this form)}``.
-
-    One dict so that the three assertions below are one loop each instead of three near-copies. They
-    fail per register with the register named, which is what a reader needs — the fix for the printed
-    guide is a sentence and the fix for `steps.ts` is a chip.
-    """
     return {
         "web walkthrough": (WEB_REGISTER, " · ".join(_web_register_fields())),
         "android walkthrough": (ANDROID_REGISTER, " · ".join(_android_register_fields())),
@@ -1122,14 +632,6 @@ def _registers() -> dict[str, tuple[pathlib.Path, str]]:
 
 
 def test_all_three_registers_still_parse_to_something():
-    """Again the vacuous-green guard, and again because the floor check below is a containment.
-
-    A containment over an empty haystack fails loudly, which sounds safe — but the CEILING check is a
-    containment too, and over an empty haystack it PASSES: "no register names a field the form does
-    not have" is trivially true of a register that parsed to nothing. That is the assertion most
-    likely to be silently switched off by a reformat, and it is the one currently catching a real
-    defect in all three registers.
-    """
     for name, (path, text) in _registers().items():
         assert len(text) > 30, (
             f"the {name} register ({path.name}) parsed to {text!r}, which is too short to be a "
@@ -1139,22 +641,6 @@ def test_all_three_registers_still_parse_to_something():
 
 
 def test_every_contract_field_is_named_in_all_three_registers():
-    """THE FLOOR. A field nobody was told about is a field nobody fills in.
-
-    Assertions 3, 4 and 5 of the brief, in one loop: the web walkthrough register, the Android
-    walkthrough register, and the printed guide a researcher carries with no signal.
-
-    WHY ALL THREE AND NOT JUST THE TWO CLIENTS. The printed copy is the only rendering whose reader
-    cannot check it against the screen: a researcher in a courtyard with no bars reads the paper,
-    fills in what it lists, and leaves. It was held by nothing at all before this file — the printed
-    guide says so itself, under "How this document is kept true": "the Android screens are asserted
-    to carry the same names and the same fields as the web ones. That parity is real as a design rule
-    and is not mechanically checked; if a field exists on one client and not the other, nothing in
-    this repository will notice."
-
-    A register may name MORE than this — see the block comment above this section for why making it
-    symmetric would report the guides as wrong for being right.
-    """
     spec = contract()
     licensed = {
         (row["register"], row["field"]): row["wording"] for row in spec["paraphrases"]["rows"]
@@ -1186,24 +672,6 @@ def test_every_contract_field_is_named_in_all_three_registers():
 
 
 def test_no_register_names_a_field_this_form_deliberately_does_not_have():
-    """THE CEILING, and the assertion that a two-way parity test structurally cannot make.
-
-    All three registers currently name a "Date" between the title and the place. The form has not had
-    one for as long as the comment at `page.tsx:997` has been there: the server derives
-    `interviewDate` from `recordedAt`, which is when the interview was actually captured, and asking
-    a researcher to confirm today's date was a field to tab past that could only ever be wrong.
-    `RecordedAtField.tsx` is a deprecated stub that renders null across every record form for the
-    same reason, and the handset says it again at `MainActivity.kt:12490`.
-
-    THE TWO REGISTERS AGREE WITH EACH OTHER ABOUT THIS AND `WalkthroughStepsTest.kt` IS GREEN. That
-    is the whole argument for a contract in one sentence: a parity test compares the copies, and both
-    copies say the same wrong thing. Only a declaration of what the form actually is can tell them
-    apart, and only a NEGATIVE declaration can catch a field that was removed on purpose — a floor
-    check looks for what should be there and is blind by construction to what should not.
-
-    A guide naming a field that was deliberately removed sends the reader looking for it, and the
-    printed guide does that to somebody with no signal to check against.
-    """
     offenders: list[str] = []
     for entry in contract()["absent"]:
         for label in entry["labelsThatMustNotAppear"]:
@@ -1223,22 +691,8 @@ def test_no_register_names_a_field_this_form_deliberately_does_not_have():
 
 
 def test_the_registers_name_the_contract_fields_in_the_contract_order():
-    """Order again, one level out: a guide that lists a form's boxes out of sequence.
-
-    The registers are documented as SCREEN ORDER on both clients — `GuideStep.fields` is "the real
-    form labels, in screen order, with (required) marked", and `WalkStep.fields` says it copies that
-    verbatim. A list in the wrong sequence is read with the form open beside it, so the reader
-    reaches for the box two fields further down and, finding a different one, fills it in.
-
-    RESTRICTED TO THE CONTRACT'S FIELDS, because the registers legitimately carry more (the
-    per-question line, and the printed guide's prose around it). What is compared is the order of the
-    fields both the form and the register have, which is the only sequence the two can disagree about.
-    """
     expected = contract_labels()
     for name, (path, text) in _registers().items():
-        # PADDED, exactly as `_names` is, and for the same reason: an unpadded find would place
-        # "Place" at whatever offset the word "Placement" happens to sit at and then report an
-        # ordering defect that is really a coincidence between two words.
         loose = f" {_loose(text)} "
         positions = sorted(
             (loose.find(f" {_loose(label)} "), label)
@@ -1258,19 +712,6 @@ def test_the_registers_name_the_contract_fields_in_the_contract_order():
 
 
 def test_no_licensed_paraphrase_is_dead():
-    """A licence for a field that no longer exists, or no longer needs one, is the drift again.
-
-    The table is empty today and this assertion is therefore trivially green — which is the right
-    time to write it, not the wrong one. Both halves fail for a reason worth naming:
-
-    * A row naming a field the contract does not declare means the table is quoting a register that
-      has moved. It would keep passing on its own — an unused key is never consulted — while reading
-      as a considered decision about a field nobody has been offered since.
-    * A row whose field the register now names PLAINLY is a special case still switched on. The next
-      person to widen the floor check reads this table as the list of places a guide is allowed to be
-      loose, and every stale row makes that list a worse description of the guides than it is. Delete
-      it: the plain naming is better than the licence.
-    """
     spec = contract()
     fields = {field["key"]: field for field in spec["fields"]}
     registers = _registers()
@@ -1298,20 +739,8 @@ def test_no_licensed_paraphrase_is_dead():
         )
 
 
-# ══════════════════════════════════════════════════════════════════════════════════════════════
-# The contract's own hygiene
-# ══════════════════════════════════════════════════════════════════════════════════════════════
-
 
 def test_the_contract_is_internally_consistent():
-    """The declaration held to itself, because everything above trusts it completely.
-
-    A contract with two fields of the same key, or a control kind nobody has ever drawn, or a
-    duplicate label, is a contract that will make one of the assertions above report something
-    confusing rather than something wrong. The vocabulary is closed on purpose: a typo like
-    "multiselect" for "searchable-multiselect" would otherwise pass into the file and read, forever
-    after, as a control kind somebody chose.
-    """
     spec = contract()
     kinds = {"text", "textarea", "select", "searchable-multiselect", "date", "status", "richtext"}
     keys = [field["key"] for field in spec["fields"]]
@@ -1337,11 +766,6 @@ def test_the_contract_is_internally_consistent():
             f"{CONTRACT_PATH.name} declares the label {field['label']!r}, which is blank or padded. "
             "Labels are compared character for character between the two clients."
         )
-        # THE JOIN THE CONTROL REGISTRY EXISTS FOR. A field names a control KIND and, separately,
-        # the component each client draws it with; nothing but this assertion says those two agree.
-        # The first draft of this contract declared `language` as `"control": "text"` and named the
-        # handset's `DropdownField` for it in the same entry — a contract that said free text and
-        # held the handset to a closed vocabulary, with every assertion in this file green over it.
         for client, key in (("web", "component"), ("android", "composable")):
             named = field[client][key]
             row = controls(client).get(named)

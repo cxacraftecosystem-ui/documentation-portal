@@ -1,10 +1,3 @@
-"""``canRecord`` on ``GET /workshops`` rows: which workshops the caller may record in.
-
-Both clients pre-fill the questionnaire's workshop with the most recent row carrying it, and the
-Android read cache keeps the list, so the flag must agree with the write gate
-(``enforce_workshop_submission``) exactly. No database: the assignment delegate is a stub.
-"""
-
 import asyncio
 from typing import Any
 
@@ -40,14 +33,10 @@ RESEARCHER = _Row(id="usr_7", role="RESEARCHER")
 ADMIN = _Row(id="usr_1", role="ADMIN")
 
 ROWS = [
-    # ws_curated: an admin put somebody else on it, so it is closed to the researcher.
     _Row(workshopId="ws_curated", userId="usr_9", status="GRANTED", accessLevel="CONTRIBUTE", assignedById="usr_1"),
-    # ws_mine: curated, and the researcher holds a CONTRIBUTE grant.
     _Row(workshopId="ws_mine", userId="usr_9", status="GRANTED", accessLevel="CONTRIBUTE", assignedById="usr_1"),
     _Row(workshopId="ws_mine", userId="usr_7", status="GRANTED", accessLevel="CONTRIBUTE", assignedById="usr_1"),
-    # ws_view: curated, the researcher may only read.
     _Row(workshopId="ws_view", userId="usr_7", status="GRANTED", accessLevel="VIEW", assignedById="usr_1"),
-    # ws_pending: open (no admin-assigned row), the researcher's own request is pending.
     _Row(workshopId="ws_pending", userId="usr_7", status="PENDING", accessLevel="CONTRIBUTE", assignedById=None),
 ]
 IDS = ["ws_open", "ws_curated", "ws_mine", "ws_view", "ws_pending"]

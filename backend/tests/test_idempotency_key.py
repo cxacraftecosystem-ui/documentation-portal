@@ -1,10 +1,3 @@
-"""``Idempotency-Key``: a create sent twice is written once, and everything without the header is
-untouched. See ``app/core/idempotency.py``.
-
-NO DATABASE. The middleware runs in front of a small route that counts the records it writes, with
-an in-memory store; the Prisma store is driven against a recording stub of its table.
-"""
-
 import asyncio
 import itertools
 from datetime import UTC, datetime, timedelta
@@ -139,7 +132,6 @@ def test_a_repeat_while_the_first_is_running_is_told_to_retry():
     app, records = _app(store)
     client = TestClient(app)
     asyncio.run(store.claim("user_1", "running-key-0001", "anything"))
-    # The fingerprint must match for the in-progress answer; take it from what the request will send.
     store.rows[("user_1", "running-key-0001")] = StoredAnswer(
         idempotency._fingerprint("POST", "/api/crafts", b"", b'{"name":"Ajrakh"}'), None, None, None, datetime.now(UTC)
     )
@@ -211,7 +203,6 @@ def test_malformed_keys_and_anonymous_callers():
     client = TestClient(app)
     bad = client.post("/api/crafts", json={"name": "x"}, headers={**_auth(), "Idempotency-Key": "short"})
     assert bad.status_code == 422
-    # No session: passed through untouched (a real route would answer 401 itself).
     anon = client.post("/api/crafts", json={"name": "x"}, headers={"Idempotency-Key": "anon-key-00001"})
     assert anon.status_code == 201
     assert len(records) == 1
@@ -225,8 +216,6 @@ def test_the_real_app_installs_it():
 
 
 class _Table:
-    """A recording stand-in for ``db.idempotencykey``."""
-
     def __init__(self) -> None:
         self.rows: dict[tuple[str, str], SimpleNamespace] = {}
 
@@ -297,7 +286,6 @@ def test_two_repeats_racing_for_one_stale_marker_cannot_both_take_it():
         first = await store.take_over("u", "race-key-01", "fp", stale)
         second = await store.take_over("u", "race-key-01", "fp", stale)
         assert (first, second) == (True, False)
-        # An answered key is never taken over, however old its marker looks.
         await store.complete("u", "race-key-01", 201, b"{}", "application/json")
         answered_at = table.rows[("u", "race-key-01")].createdAt
         assert await store.take_over("u", "race-key-01", "fp", answered_at) is False
@@ -306,9 +294,6 @@ def test_two_repeats_racing_for_one_stale_marker_cannot_both_take_it():
 
 
 def test_end_to_end_a_lost_answer_replayed_from_the_outbox_files_one_record_with_its_media():
-    """The outbox path end to end: the online create lands but its answer is lost, the handset
-    replays the SAME bytes under the SAME key, gets the first record back, and attaches its photos
-    to it. One record, with its media, and no duplicate."""
     store = MemoryStore()
     records: dict[str, dict] = {}
     media: list[dict] = []
@@ -334,7 +319,7 @@ def test_end_to_end_a_lost_answer_replayed_from_the_outbox_files_one_record_with
     headers = {**_auth(), "Idempotency-Key": "outbox-key-000001", "Content-Type": "application/json"}
     wire = b'{"name":"Ajrakh","recordedAt":"2026-10-17T08:59:12.345Z"}'
 
-    client.post("/api/crafts", content=wire, headers=headers)  # lands; the answer never reaches the phone
+    client.post("/api/crafts", content=wire, headers=headers)
     replay = client.post("/api/crafts", content=wire, headers=headers)
     assert replay.status_code == 201
     assert replay.headers.get("idempotent-replayed") == "true"
@@ -350,9 +335,6 @@ def test_end_to_end_a_lost_answer_replayed_from_the_outbox_files_one_record_with
 
 
 def test_a_replay_whose_bytes_drifted_is_flagged_as_a_key_reuse_and_writes_nothing():
-    """What the handset must never do (a fresh recordedAt on the replay), and the signal it gets if it
-    does: a 422 the outbox can tell apart from a refusal of the record, so it parks the entry for
-    review instead of dropping its photos."""
     store = MemoryStore()
     app, records = _app(store)
     client = TestClient(app)

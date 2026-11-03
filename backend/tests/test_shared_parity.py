@@ -1,12 +1,3 @@
-"""The ``shared/`` files are one copy across the three streams, and the generated outputs follow them.
-
-``shared/manifest.json`` holds a sha256 per shared file (BUILD_PLAN 0.1). The WEB and ANDROID
-streams copy ``shared/`` verbatim from feature/q-backend and run the same check, so a copy that was
-edited in place fails here and there. ``scripts/generate_shared.py --check`` also holds the backend's
-generated vocabulary, any client output that exists, and every Prisma enum that shares a name with
-``shared/enums.json``.
-"""
-
 from __future__ import annotations
 
 import hashlib

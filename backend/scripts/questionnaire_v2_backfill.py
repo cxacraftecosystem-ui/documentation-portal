@@ -85,7 +85,6 @@ PART2_WINDOW = timedelta(minutes=10)
 _STAMP = re.compile(r"_(\d{2})(\d{2})(\d{4})(\d{2})(\d{2})(\d{2})?(?=\.[^.]*$|$)")
 
 
-# ── loading ────────────────────────────────────────────────────────────────────────────────────
 async def load(client: Any) -> dict[str, Any]:
     interviews = await client.query_raw(
         'SELECT i."id", i."title", i."questionnaireId", i."workshopId", i."createdById", i."createdAt", i."interviewDate", '
@@ -113,13 +112,12 @@ async def load(client: Any) -> dict[str, Any]:
     return {"interviews": interviews, "participants": participants, "media": media, "instruments": instruments}
 
 
-# ── planning (pure) ────────────────────────────────────────────────────────────────────────────
 @dataclass
 class ClipPlan:
     media_id: str
     interview_id: str
     session_id: str
-    kind: str  # RECORDING | DUPLICATE_SAME | DUPLICATE_CROSS
+    kind: str
     captured_at: datetime | None = None
     source: str = "UPLOAD_TIME"
     targets: list[dict[str, str]] = field(default_factory=list)
@@ -256,7 +254,6 @@ def build_plan(data: dict[str, Any]) -> Plan:
     def target_keys(targets: list[dict[str, str]]) -> list[str]:
         return [f"S:{t['sectionId']}" if t.get("sectionId") else f"Q:{t['questionLineageId']}" for t in targets]
 
-    # legacy rows, one session each
     for iid, row in interviews.items():
         win = window(row)
         clips = clips_by_interview.get(iid, [])
@@ -275,7 +272,6 @@ def build_plan(data: dict[str, Any]) -> Plan:
             language_other=other, unmapped_language=unmapped, legacy_title=row.get("title"),
             artisanless=not parts.get(iid), empty_approved=row.get("status") == "APPROVED" and not clips,
         ))
-        # same-interview copies
         seen: dict[str, dict[str, Any]] = {}
         groups: dict[str, list] = defaultdict(list)
         for m in own:
@@ -302,7 +298,6 @@ def build_plan(data: dict[str, Any]) -> Plan:
                         source=csource, sha=key, kept_media_id=str(keep["id"]), uploader_id=str(m["uploadedById"]),
                         verified=bool(m.get("shaVerifiedAt")),
                     ))
-    # cross-interview copies: one LEGACY group session per file
     for sha, rows in sorted(cross.items()):
         keep = _keep_first(rows)
         legacy_ids = sorted({str(r["interviewId"]) for r in rows})
@@ -341,7 +336,6 @@ def build_plan(data: dict[str, Any]) -> Plan:
                     captured_at=captured, source=csource, sha=sha, kept_media_id=str(keep["id"]),
                     uploader_id=str(r["uploadedById"]), verified=bool(r.get("shaVerifiedAt")),
                 ))
-    # repeats: same target twice in one session (decide), or across sessions (flag only)
     participants_of = {s.session_id: s.participants for s in plan.sessions}
     recs = [c for c in plan.clips if c.kind == "RECORDING" and c.target_keys]
     by_session_target: dict[tuple[str, str], list[ClipPlan]] = defaultdict(list)
@@ -368,7 +362,6 @@ def build_plan(data: dict[str, Any]) -> Plan:
     return plan
 
 
-# ── reports ────────────────────────────────────────────────────────────────────────────────────
 def report_csv(plan: Plan) -> str:
     buffer = io.StringIO()
     w = csv.writer(buffer, lineterminator="\n")
@@ -420,7 +413,6 @@ def report_md(plan: Plan, csv_text: str) -> str:
     return "\n".join(lines)
 
 
-# ── apply and undo ─────────────────────────────────────────────────────────────────────────────
 async def _apply_session(tx: Any, s: SessionPlan, clips: list[ClipPlan], run_id: str) -> int:
     from app.questionnaire import sessions as v2_sessions
     from app.questionnaire import titles
@@ -453,7 +445,6 @@ async def _apply_session(tx: Any, s: SessionPlan, clips: list[ClipPlan], run_id:
         )
         had = {str(r["userId"]) for r in await tx.query_raw(
             'SELECT "userId" FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = $1', s.session_id)}
-        # The FULL prior row, so an undo restores exactly what was there (audit M25).
         before = {
             key: (str(value)[:10] if key == "sessionDate" and value else (str(value) if key == "closedAt" and value else value))
             for key, value in prior[0].items()
@@ -491,8 +482,6 @@ async def _apply_session(tx: Any, s: SessionPlan, clips: list[ClipPlan], run_id:
                 c.source, len(s.participants), c.uploader_id, c.filing, c.decision, c.provenance,
             )
             if c.filing == "NEEDS_DECISION":
-                # A take waiting for a decision is PENDING, never approved with its session (DESIGN
-                # 7.3; audit M1). Its status before is kept for the undo.
                 await tx.execute_raw(
                     'UPDATE "MediaFile" SET "extraMetadata" = COALESCE("extraMetadata", \'{}\'::jsonb) || '
                     'jsonb_build_object(\'questionnaireV2\', COALESCE("extraMetadata"->\'questionnaireV2\', \'{}\'::jsonb) || '
@@ -518,8 +507,6 @@ async def _apply_session(tx: Any, s: SessionPlan, clips: list[ClipPlan], run_id:
                 uuid4().hex, rid, json.dumps({"runId": run_id, "step": c.step, "candidates": c.candidates}), c.uploader_id,
             )
             if c.candidates:
-                # Merged INTO questionnaireV2, never over it: movedFrom and statusBefore live there too,
-                # and the undo needs them.
                 await tx.execute_raw(
                     'UPDATE "MediaFile" SET "extraMetadata" = jsonb_set(COALESCE("extraMetadata", \'{}\'::jsonb), \'{questionnaireV2}\', '
                     'COALESCE("extraMetadata"->\'questionnaireV2\', \'{}\'::jsonb) || $2::jsonb) WHERE "id" = $1',
@@ -605,7 +592,7 @@ async def undo(client: Any, run_id: str) -> int:
             before = r.get("before") or {}
             if isinstance(before, str):
                 before = json.loads(before)
-            full = "state" in before  # a run from before audit M25 stored only the title and the date
+            full = "state" in before
             await tx.execute_raw(
                 'UPDATE "QuestionnaireInterview" SET "origin" = \'NATIVE\', "title" = $2, "legacyTitle" = $3, "sessionDate" = $4::date, '
                 '"sessionDateEstimated" = $5, "languageCode" = $6, "languageOther" = $7, "state" = $8::"SessionState", '
@@ -615,7 +602,6 @@ async def undo(client: Any, run_id: str) -> int:
                 before.get("languageCode") if full else None, before.get("languageOther") if full else None,
                 before.get("state") or "OPEN", before.get("closedAt") if full else None,
             )
-            # Only the researchers this run added: anyone who joined since stays (audit M25).
             added = before.get("addedResearchers")
             if added:
                 await tx.execute_raw(
@@ -625,7 +611,6 @@ async def undo(client: Any, run_id: str) -> int:
     return undone
 
 
-# ── catch-up (audit C6) ────────────────────────────────────────────────────────────────────────
 CATCH_UP_SQL = (
     'SELECT m."id", m."questionnaireInterviewId" AS "sessionId", m."originalFilename", m."caption", m."extraMetadata", m."recordedAt", '
     'm."createdAt", m."uploadedById", m."transcriptText", m."transcriptStatus", m."status"::text AS status, '
@@ -813,7 +798,6 @@ async def run(args: argparse.Namespace) -> int:
             print(f"CATCH-UP APPLIED run {args.run_id} (approved by {approver} on {day}): {done} recordings.")
             return 0
         if args.sha_only:
-            # Dry run by default like every other mode: count, read nothing from S3, write nothing.
             if not args.apply:
                 print(f"SHA DRY RUN: {await unhashed_count(client)} objects would be hashed. Nothing was read or written.")
                 return 0
