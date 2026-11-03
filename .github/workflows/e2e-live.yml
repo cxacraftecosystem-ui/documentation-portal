@@ -1,23 +1,6 @@
 name: Live end-to-end specs
 
-# The signed-in Playwright specs (every `frontend/e2e/*.spec.ts` that is not `-unit`) need a real API
-# and a real web build. checks.yml runs only the `-unit` specs, so these never ran in CI. This
-# workflow stands up a throwaway stack on one runner, seeds one admin into it, and runs the specs
-# named in `specs` (default: the top-bar scanner's session join, REQUIREMENTS_2026-10-20 §6.3).
-#
-# Not a gate: a stack is minutes of setup before the first assertion. It runs by hand, and on a
-# push that changes this file or the session-join spec.
-#
-#     gh workflow run e2e-live.yml --ref <branch>
-#     gh workflow run e2e-live.yml --ref <branch> -f specs="e2e/scan-session-join.spec.ts e2e/other.spec.ts"
-#
-# Nothing here reaches production: the database is a service container deleted with the job, the
-# password is a throwaway written below in the open, and no repository secret is read.
-
 on:
-  # Also on a push that changes this file or the session-join spec, so the spec runs where it
-  # changed. (A workflow that only has `workflow_dispatch` cannot be dispatched before it reaches
-  # the default branch.)
   push:
     paths:
       - ".github/workflows/e2e-live.yml"
@@ -44,8 +27,6 @@ jobs:
 
     services:
       postgres:
-        # checks.yml's backend-db image, for its reason: migration 20261025090000_search_document
-        # installs `vector` where the extension exists.
         image: pgvector/pgvector:pg17
         env:
           POSTGRES_USER: postgres
@@ -62,7 +43,6 @@ jobs:
     env:
       PYTHONUTF8: "1"
       DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
-      # Long enough for verify_jwt_configuration; it signs tokens for a database deleted with the job.
       JWT_SECRET: "e2e-live-not-a-secret-0123456789abcdefgh"
       AWS_ACCESS_KEY_ID: "ci-placeholder"
       AWS_SECRET_ACCESS_KEY: "ci-placeholder"
@@ -70,8 +50,6 @@ jobs:
       MASTER_ADMIN_EMAIL: "ci-master@example.org"
       BACKEND_CORS_ORIGINS: "http://localhost:3000"
       MEDIA_QUEUE_WORKER_ENABLED: "false"
-      # The seeded admin the specs sign in as. A throwaway password for a throwaway database, in the
-      # open on purpose: a secret would imply it protects something.
       ADMIN_EMAIL: "e2e-admin@example.org"
       ADMIN_NAME: "E2E Admin"
       ADMIN_PASSWORD: "E2eLive-Throwaway-2026!"
@@ -137,8 +115,6 @@ jobs:
         run: |
           set -euo pipefail
           npm ci
-          # A production build, then `next start`: a dev server compiles each route on first visit
-          # and races the specs. NEXT_PUBLIC_API_URL is inlined at build time.
           npx next build
           nohup npx next start -p 3000 > "$RUNNER_TEMP/web.log" 2>&1 &
           for i in $(seq 1 60); do
@@ -155,7 +131,6 @@ jobs:
         working-directory: frontend
         env:
           SPECS: ${{ inputs.specs }}
-        # Unquoted on purpose: a space-separated list is several arguments.
         run: npx playwright test ${SPECS:-e2e/scan-session-join.spec.ts} --reporter=list,html
 
       - name: Upload the Playwright report and traces

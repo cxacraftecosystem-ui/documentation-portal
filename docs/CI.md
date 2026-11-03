@@ -144,7 +144,7 @@ next section and, at length, in the header of the workflow itself.
 
 **On a pull request, only rows 3 and 4 are reachable at all** — the deploys fire on `push`/
 `workflow_run`, so nothing in columns 1 and 2 runs before a merge. And row 3 is path-filtered
-(`android-build.yml:31-33`), so a pull request that touches only `backend/` or `frontend/` gets
+(`android-build.yml:8-10`), so a pull request that touches only `backend/` or `frontend/` gets
 exactly one workflow: this one.
 
 ### The three assertions stage 2 makes about the environment
@@ -282,7 +282,7 @@ one is the thing to argue about in review.
 - **No Android job.** `android-build.yml` already compiles Kotlin and runs `:app:testDebugUnitTest`
   on a pull request, and a second Gradle job would spend five more minutes to learn the same thing.
   **What is missing is two lines in that file, not a job here:** its `pull_request` trigger is
-  filtered to `android/**` (`android-build.yml:31-33`), and the Android suite reads the *web* tree —
+  filtered to `android/**` (`android-build.yml:8-10`), and the Android suite reads the *web* tree —
   `android/app/src/test/java/com/fieldrepository/app/ui/WalkthroughStepsTest.kt:293` names
   `frontend/components/guide/steps.ts` and asserts the Kotlin and web walkthroughs declare the same
   steps in the same order; `RecordPickersTest.kt` and `AccessRosterTest.kt` name their own web twins
@@ -635,7 +635,7 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
   moved CI and the box to Python 3.14 and rebuilt the box's venv from the lock, which retired the
   June-vintage versions production had been running.
 - **The Android tests cannot see the change that breaks them.** `android-build.yml`'s `pull_request`
-  trigger is filtered to `android/**` (`android-build.yml:31-33`), and the Kotlin suite reads the web
+  trigger is filtered to `android/**` (`android-build.yml:8-10`), and the Kotlin suite reads the web
   tree: `WalkthroughStepsTest.kt:293` names `frontend/components/guide/steps.ts` and asserts both
   walkthroughs declare the same steps in the same order, and `RecordPickersTest.kt` and
   `AccessRosterTest.kt` name their own web twins. Add `frontend/**` to that filter — a two-line

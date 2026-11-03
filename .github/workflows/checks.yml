@@ -1,112 +1,5 @@
 name: Checks
 
-# ─── WHAT THIS EXISTS TO STOP ────────────────────────────────────────────────────────────
-# Until this file landed, NOTHING IN THIS REPOSITORY RAN A TEST. Not on a pull request, not on a
-# push, not anywhere. The other workflows are NAMED here rather than counted, because a count is the
-# one fact in a header that a new file falsifies silently and nobody re-reads:
-#   • deploy-backend.yml   — `push: main`. Deploys. Runs no test.
-#   • deploy-frontend.yml  — `workflow_run` after the backend. Deploys. Runs no test.
-#   • android-build.yml    — the only one with a `pull_request` trigger, and it is path-filtered to
-#                            `android/**` (android-build.yml:31-33). It compiles Kotlin, runs the
-#                            Android unit tests and builds a DEBUG apk. Nothing it produces can
-#                            reach a handset.
-#   • keep-supabase-active.yml — a nightly cron that pings Postgres so the free tier does not idle
-#                            out. It asserts nothing about the code.
-#   • backup-db.yml        — a scheduled `pg_dump` to S3. Also asserts nothing about the code.
-# So on 2026-09-14 this repository held 1023 backend test cases, 104 web unit specs and 8 Kotlin test
-# files, all of them green, and a pull request could break any of them and still show a clean list of
-# checks. Every guard anybody has written here ran only when a human remembered to type the command.
-#
-# ─── THE DRIFT THIS CATCHES IS NOT HYPOTHETICAL ──────────────────────────────────────────
-# This repository states the same rule on three surfaces, and three copies of a rule is a rule that
-# drifts. The tests that pin them together are the ones nothing was running:
-#   • android/app/src/test/java/com/fieldrepository/app/ui/WalkthroughStepsTest.kt:385 declares
-#     `WEB_GUIDE_PATH = "frontend/components/guide/steps.ts"` and READS THAT FILE OUT OF THE WEB
-#     TREE (the `..`-prefixed walk at :520-528), asserting that the Kotlin walkthrough and the web
-#     walkthrough declare the same steps, in the same order, with the same cautions.
-#   • RecordPickersTest.kt and AccessRosterTest.kt name `frontend/components/forms/recordPickers.ts`
-#     and `frontend/lib/accessRoster.ts` as their twins in their own headers: "Change one, change
-#     both."
-# READ THAT WITH android-build.yml:31-33 AND THE HOLE IS OBVIOUS: a frontend-only pull request does
-# not match `android/**`, so the one test that would notice the web half moving away from the Kotlin
-# half is the one test that does not run. THIS FILE DOES NOT CLOSE THAT HOLE — see "WHAT IS
-# DELIBERATELY NOT HERE" below — it writes it down with a file and a line so the next person can.
-#
-# ─── THIS WORKFLOW RUNS. IT DOES NOT, BY ITSELF, GATE ANYTHING ───────────────────────────
-# Nothing in `.github/` can prove a job BLOCKS a merge: required status checks live in the
-# repository's branch-protection settings, not in a workflow file. (A deploy is different: the two
-# deploy workflows wait for this one — item 2.) Read a green Checks tick as "the guards were asked",
-# not as "main is protected".
-#
-# Two specific things it does NOT do, stated because a green tick read as more than it is costs more
-# than no tick at all:
-#   1. It does not block a merge unless `Backend tests`, `Web typecheck, lint and unit specs` and
-#      `Docs check` are named as required checks on `main` (Settings → Branches → branch protection).
-#      Those names are stable on purpose; renaming a job silently un-requires it.
-#   2. It does not block a DEPLOY by itself; each deploy stage waits for it. deploy-backend.yml fires
-#      on its own `push: main` trigger and one workflow cannot `needs:` a job in another, so on main
-#      this workflow and the deploy chain still START together, and when this header was written
-#      the deploy usually won — an rsync starts faster than a minute of pytest. The sibling
-#      repository's fix, now ported to both stages, closes that race from the other end: a
-#      `wait-for-checks` job inside each deploy stage polls for the Checks run at the exact SHA
-#      being shipped and refuses to hand over until these three jobs are green. deploy-backend.yml's
-#      copy (2026-09-20) runs on a push that touches backend/; deploy-frontend.yml's (2026-10-09)
-#      covers the frontend-only push the backend's copy never sees. Both find these jobs by the
-#      names in their `GATING_JOBS` lists, so renaming one here also stalls every gated deploy until
-#      its twenty-minute wait fails, naming the job it was waiting for. The manual-dispatch override
-#      skips both waits on purpose (docs/CI.md §4).
-#
-# ─── WHY NO `paths:` FILTER ──────────────────────────────────────────────────────────────
-# Deliberate, and it is the specific mistake this file exists to not repeat. The sibling repository's
-# checks.yml puts it in one sentence — "A path filter is how android-build.yml ended up unreachable
-# from a backend PR … a filter would buy a few minutes and cost the property that makes this
-# workflow worth having — that EVERY pull request runs it. Do not add one." — and this repository is
-# the one where that cost is already being paid: android-build.yml:31-33 IS that filter, and the
-# paragraph above names the test it makes unreachable. The three jobs below are cheap (measured on a
-# laptop 2026-09-14: 65 s of pytest, 8 s of Playwright, under a second of docs check) and
-# independent of each other. DO NOT ADD ONE.
-#
-# ─── WHY THE `uses:` LINES ARE COMMIT SHAS — THEY WERE TAGS UNTIL 2026-10-09 ─────────────
-# `actions/checkout@v4` is a MUTABLE tag: whoever controls that repository can move it, and the next
-# run then executes different code with no diff to review. A commit SHA cannot move, so every `uses:`
-# below names one, with the release it was taken from in a trailing comment for the reader.
-#
-# Until 2026-10-09 this paragraph argued for tags, and the argument was about what was missing, not
-# about pins: a hand-pinned SHA with nothing to refresh it is a pin that silently rots — you lose the
-# fixes in v4.x and gain no signal that you have — and on 2026-09-14 this repository had no
-# `.github/dependabot.yml` (`.github/` held `workflows/` and nothing else). It asked for that file
-# and the pins together, across every workflow rather than here for one, and both landed on
-# 2026-10-09: the file (github-actions, weekly) and a pin on every `uses:` in all six workflows that
-# had one then (backup-db.yml uses no action; android-emulator.yml, added the same day by the Android
-# upgrade, was pinned from its first commit). Five were pinned that morning to the commit their old tag
-# (`@v4`, `@v5`) resolved to, which changed nothing that ran; deploy-backend.yml's waited for a real
-# backend change, because any edit to that file redeploys the backend, and went in with the move to
-# Python 3.14 the same day. In that change every pin, in every workflow, moved to the LATEST release
-# of its action (actions/checkout v7.0.1, setup-python v7.0.0, setup-node v7.1.0, setup-java v6.1.0,
-# upload-artifact v7.0.2, download-artifact v8.0.2, webfactory/ssh-agent v0.10.0), each SHA read back
-# through `gh api` from the release tag. A bump is now a Dependabot pull request that a reviewer can
-# read. A bump by hand re-resolves the tag and changes the SHA and its comment together: a SHA whose
-# comment names a different release misleads every later reviewer. The check and the recipe are in
-# docs/CI.md, "How this document is kept true".
-#
-# ─── WHAT IS DELIBERATELY NOT HERE ───────────────────────────────────────────────────────
-# • NO ANDROID JOB. android-build.yml already compiles Kotlin and runs `:app:testDebugUnitTest` on a
-#   pull request, and a second Gradle job would spend five more minutes to learn the same thing. What
-#   is missing is not a job, it is two lines in somebody else's file: `frontend/**` added to
-#   android-build.yml:32-34, without which the cross-surface parity tests named above cannot see the
-#   change that breaks them. That is an android-workstream edit; docs/CI.md §5 asks for it by name.
-# • NO RUFF. `ruff` is in the dev extra (and in backend/requirements.lock) and `[tool.ruff]` in
-#   backend/pyproject.toml sets only `line-length` and `target-version` — there is no rule selection,
-#   so `ruff check` runs whatever default set the installed release ships and nothing anybody chose.
-#   That set is not small any more: ruff 0.16.10 (the locked version) reports 424 findings on this
-#   tree at target py314 (398 at the old py311; measured 2026-10-09), none of them a gate today.
-#   Wiring a linter into CI before the rule set exists gates on an accident. Choose the rules in
-#   pyproject first (the sibling repository's `[tool.ruff.lint]` is the worked example, dated per-file
-#   baseline included), then add the step.
-# • NO PLAYWRIGHT E2E. It needs a running app and credentials, a genuinely larger piece of work
-#   than these jobs; docs/CI.md §5 keeps it listed. The database-backed backend tests DO run, in
-#   job 4 (`Backend database tests`, since 2026-10-19), against a throwaway Postgres service.
-
 on:
   pull_request:
   push:
@@ -117,22 +10,10 @@ permissions:
   contents: read
 
 concurrency:
-  # Safe to cancel, unlike the deploy workflows: nothing outside the runner is mutated here. Keyed per
-  # pull request (or per branch on a push) so two open pull requests never cancel each other. On main a
-  # push cancels the previous commit's run while it is still going, and the deploy workflows'
-  # wait-for-checks treat a run cancelled this way as SUPERSEDED once main has moved past its commit
-  # (2026-10-09): that commit's pipeline ends green and ships nothing, and the newer commit's run ships
-  # both. A run cancelled while its commit is still main's tip is not superseded — the wait holds for a
-  # re-run or a dispatch of Checks, then fails as cancelled, not failed. A dispatch on main cancels the
-  # push run for the same commit too; the wait grades the run that was not cancelled. See docs/CI.md §1
-  # and §6.
   group: checks-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ═══════════════════════════════════════════════════════════════════════════════════════
-  # 1 · The backend suite
-  # ═══════════════════════════════════════════════════════════════════════════════════════
   backend:
     name: Backend tests
     runs-on: ubuntu-26.04
@@ -140,44 +21,6 @@ jobs:
       run:
         working-directory: backend
 
-    # ─── THE ENVIRONMENT, AND WHY THESE VALUES LOOK LIKE THAT ────────────────────────────
-    # THERE IS NO DATABASE IN THIS JOB AND THERE MUST NOT BE ONE. These six values exist only
-    # because `app.core.config.Settings` declares them as REQUIRED fields with no default —
-    # DATABASE_URL (backend/app/core/config.py:78), JWT_SECRET (:101), AWS_ACCESS_KEY_ID and
-    # AWS_SECRET_ACCESS_KEY (:167-168), AWS_S3_BUCKET (:170), MASTER_ADMIN_EMAIL (:187) — and their
-    # only other source is `backend/.env` (config.py:314-319), which is gitignored and therefore
-    # ABSENT on a runner. With them unset `Settings()` refuses to build, and a plain `pytest` here
-    # would not fail some tests: it would fail to COLLECT, because nearly every module reaches
-    # `app.core.config` through an import. The suite would be red for a reason that has nothing to do
-    # with the code under test, on every run, forever.
-    #
-    # EVERY VALUE IS CHOSEN TO BE UNUSABLE. The DSN names `ci.invalid` — RFC 2606 reserves `.invalid`
-    # precisely so it can never resolve — so even a test that tried to connect could not reach
-    # anything, let alone a real database. The secret is obviously not a secret, the AWS credentials
-    # are obviously not credentials, the admin address is `.invalid` too. A placeholder that could be
-    # mistaken for a real value is how a real value ends up here later.
-    #
-    # THAT NOTHING CONNECTS IS MEASURED, NOT ASSUMED. The whole suite was run on 2026-09-14 with
-    # exactly this environment and that unresolvable DSN: 1021 passed, 2 failed, ZERO skipped, 65 s.
-    # A suite that opened a connection could not do that — it would hang on DNS or error out, not
-    # pass. Zero skipped matters in its own right: unlike the sibling repository, this suite has NO
-    # database-gated modules that take themselves out (backend/tests/conftest.py is ten lines and
-    # does nothing but extend `sys.path`), so "what runs here" is the whole suite, and a green tick
-    # cannot be hiding a population of tests that quietly opted out. The ONE exception is
-    # tests/test_review_pending_sql_db.py, which runs the review queue's raw SQL only when
-    # REVIEW_SQL_TEST_DATABASE_URL names a migrated throwaway database, and skips here by name.
-    # The questionnaire v2 modules that need Postgres (tests/qv2_fixtures.py `needs_db`, and the
-    # backfill, consent-backfill and purge script tests) are the same kind of exception: they skip
-    # here unless QV2_TEST_DATABASE_URL / QV2_BACKFILL_DATABASE_URL name a migrated throwaway
-    # database, and are run that way before every merge of feature/q-backend (see docs/questionnaire/API.md).
-    #
-    # DO NOT "improve" any of these into something real, and DO NOT add a Postgres service container.
-    # A database here would promote the suite from "cannot touch data" to "runs against whatever CI
-    # happens to have", which is a different suite with different failure modes, unreviewed.
-    #
-    # THE DATABASE-BACKED TESTS RUN IN JOB 4 (`backend-db`, since 2026-10-19), NOT HERE. The split is
-    # the point: this job keeps proving the suite collects and passes with nothing to connect to, and
-    # job 4 sets the opt-in variables above against a throwaway, migrated Postgres service container.
     env:
       PYTHONUTF8: "1"
       DATABASE_URL: "postgresql://ci:ci@ci.invalid:5432/no_such_database"
@@ -194,64 +37,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          # 3.14.8 EXACTLY, because that is what production runs: deploy-backend.yml builds the EC2
-          # box's venv on upstream CPython 3.14.8 from a pinned python-build-standalone build (since
-          # 2026-10-09; the box ran 3.12 until that morning, and so did this line). A suite that
-          # passes on a version production does not have is a weaker statement than it looks, and
-          # that is as true of a patch release as of a minor. backend/pyproject.toml requires >= 3.14.
-          #
-          # A FULL VERSION, NOT "3.14" WITH `check-latest`. The runner image caches whichever 3.14.x
-          # it was built with (3.14.4 on ubuntu-26.04 image 20260927), so "3.14" alone tested 3.14.4;
-          # `check-latest` fixed that by fetching the newest 3.14 from actions/python-versions
-          # (3.14.8 on 2026-10-09), but the newest is not what the box runs the day a 3.14.9 lands
-          # before the box's pin moves. An exact version is fetched from that manifest when the
-          # image lacks it, and needs no `check-latest`. It moves with the box's pin, which
-          # deploy-backend.yml's build step and infra/terraform/user_data.sh carry (the build step
-          # says why it is not 3.15 yet); backend/tests/test_interpreter_pin.py fails while the
-          # three disagree.
-          #
-          # THE VERSION IS NOT COSMETIC HERE, AND IT USED TO BE MEASURED BY TWO RED TESTS. pydub
-          # imports `audioop`, which PEP 594 removed from the standard library in 3.13, so on 3.14
-          # `import pydub` failed outright and backend/app/api/routes/data_browser.py:3059 answered
-          # 503 before the size checks the two test_manifest_stream.py tests exist for. audioop-lts
-          # (pyproject.toml, with a python_version >= '3.13' marker) puts the module back, and both
-          # tests pass on 3.14 since 2026-10-09.
           python-version: "3.15.2"
           cache: pip
-          # Both files: the lock decides the installed set, and pyproject is what a refresh of the
-          # lock is compiled FROM, so a change to either must not reuse the other's cache.
           cache-dependency-path: |
             backend/requirements.lock
             backend/pyproject.toml
 
       - name: Install the backend from the lock
-        # ─── FROM backend/requirements.lock, SINCE 2026-10-09 ────────────────────────────────────
-        # The pip lines below are the ones the EC2 deploy runs (the Docker image runs only the lock
-        # line), so CI, the box and a developer's venv install ONE set of versions. Before the
-        # lock every dependency was a `>=` floor and this step took whatever the index offered that
-        # day, which is how two tests in test_public_census.py went red with no commit behind them:
-        # FastAPI 0.137 changed what `APIRouter.routes` holds, and the floor moved under the tests.
-        # (They are fixed; see that file's `_mounted_routes`.)
-        #
-        # The lock is compiled from pyproject.toml WITH the `dev` extra, so pytest, ruff and httpx
-        # come from it too; `--no-deps` on the editable install is what keeps it authoritative —
-        # without it pip re-resolves pyproject's floors and can quietly lift a pin. Refresh it
-        # deliberately, in a python:3.14 container, never as a side effect of something else; the
-        # command and its two traps are in docs/CI.md, "The backend dependency lock".
-        #
-        # `pip check` LAST, AND IT IS THE ONLY THING THAT NOTICES A STALE LOCK. `--no-deps` means
-        # nothing above compares pyproject's floors with the lock's pins, so a pull request that
-        # raises a floor without recompiling the lock — exactly what a Dependabot pip pull request
-        # does, since it cannot touch a `.lock` — would install the old pin and go green. pip check
-        # reads both and fails on the disagreement ("has requirement fastapi>=X, but you have Y").
-        #
-        # ─── pytest-asyncio IS NOT INSTALLED, AND THAT IS CORRECT ────────────────────────
-        # It is in no extra and so not in the lock, and pyproject.toml sets no `asyncio_mode` (its
-        # note says why that line was removed on 2026-09-14). Every async module in the suite declares
-        # `pytestmark = pytest.mark.anyio`, so ANYIO's pytest plugin runs them, and anyio is installed
-        # through starlette and httpx. Do not read a missing async runner as "they pass anyway":
-        # probed on this pytest, an async test with no plugin to run it FAILS loudly with "async def
-        # functions are not natively supported" — it does not quietly go green.
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
@@ -260,22 +52,9 @@ jobs:
           pip check
 
       - name: Generate the Prisma client
-        # `from prisma import Prisma` in app/core/db.py resolves against code that `prisma generate`
-        # writes into the installed package; without this step every module that reaches app.core.db
-        # fails to import and the suite cannot collect. It talks to the schema and to the engine
-        # download, NOT to a database — no migration runs and nothing connects.
         run: python -m prisma generate --schema prisma/schema.prisma
 
       - name: The other portal, for the shared-file parity tests
-        # THE SHARED FILES ARE HELD IDENTICAL BY CI, NOT BY MEMORY (owner's ruling, 2026-10-20). Every
-        # sibling-parity test in this repository (the craft master, the map files, the nav and scanner
-        # files, the transcription manifest, the cross-portal modules, the artisan form contract) compares
-        # against a checkout of the other portal and skips without one; until this step cloned it on every
-        # run, CI had one repository and every one of them skipped. The comparison is made against the
-        # other repository's `main`, or against the branch of the same name when a cross-repo stream has
-        # pushed one there. Both repositories are public, so no token is needed. The clone lands BESIDE
-        # this checkout, under the other repository's name, because some tests find the sibling by that
-        # relative path rather than by the environment.
         working-directory: .
         env:
           PEER: cxacraftecosystem-ui/designer-portal
@@ -293,54 +72,6 @@ jobs:
           echo "Shared files are compared with $PEER@$ref ($(git -C "$dest" rev-parse --short HEAD))."
 
       - name: Run the suite
-        # THE WHOLE SUITE, not a hand-written selection. A `-k` expression is a list that goes stale
-        # the day somebody adds a file, and the guards this workflow exists for are exactly the kind
-        # nobody remembers to add to a list.
-        #
-        # ─── THE EXPECTED-FAILURE LIST, WHICH IS EMPTY, AND WHY IT IS STILL A LIST ──────────
-        # THIS TREE DID NOT START GREEN. Four tests were failing when this job landed (2026-09-14), and
-        # a job that is red on day one is a job somebody disables — so they were named here, one line
-        # each, with what was wrong with each. Not `|| true`, not `--deselect`, not a count. All four
-        # were fixed on 2026-10-09 and their lines deleted:
-        #   • test_public_census.py's two route tests read `api_router.routes`, which FastAPI 0.137
-        #     turned into a tree of `_IncludedRouter` wrappers with no `.path`; they now ask FastAPI's
-        #     public `iter_route_contexts` (added in 0.137.2 for exactly that), router-level
-        #     dependencies included.
-        #   • test_manifest_stream.py's two size-refusal tests got a 503 instead of a 413 wherever
-        #     Python was 3.13+, because pydub imports the `audioop` module PEP 594 removed; the
-        #     audioop-lts backport is now a dependency, and this job runs 3.14 like production.
-        #
-        # SO THE LIST IS EMPTY AND THE GATE IS A REAL ONE: any FAILED or ERROR line fails the job. The
-        # mechanism stays, because the next day-one red will need it, and the docs job below is the
-        # precedent for an empty licence: an empty pattern file matches nothing, so `grep -v` reports
-        # every failure as unexpected, which is the correct reading.
-        #
-        # WHY A LIST OF NODE IDS RATHER THAN "expect N failures", if one is ever added back: a count
-        # cannot tell one failure from another. Fix one, break another, and the count still matches —
-        # green, over a regression. A list goes red the moment a different test fails, and on a
-        # collection ERROR too, because an ERROR line is a failure it has not licensed.
-        #
-        # WHY A LIST RATHER THAN `--deselect`: a deselected test never runs, so the day somebody fixes
-        # it nothing notices, and the day it starts failing for a SECOND, unrelated reason nothing
-        # notices either. A listed test runs, its traceback is in the log, and it is simply not fatal.
-        #
-        # THE LIST MAY ONLY SHRINK. An expected failure that stops failing prints a ::warning naming
-        # the line to delete, and says so in the run summary — deliberately not a hard failure,
-        # because "your tree got better" must never be the thing that turns a pull request red.
-        # Deleting a line is a one-line, reviewable diff. ADDING one is the thing to argue about in
-        # review.
-        #
-        # `-rf` and no `-q`: the failure summary at the foot is the one thing a reader scrolling to
-        # the bottom of a red log came for, and it is what this gate parses. `--durations=15` because
-        # a suite getting slow is the other thing nobody notices until it is minutes.
-        #
-        # MEASURED on this tree, not estimated, 2026-09-14 (laptop, Python 3.14.7): 1019 passed, 4
-        # failed, 0 skipped, 54 s; with the 3.12 behaviour simulated, 1021 passed, 2 failed, 65 s.
-        # And 2026-10-09 on this job itself (ubuntu-26.04, Python 3.14.8, installed from the lock):
-        # 1349 passed, 0 failed, 77 s — run 37928429051.
-        # Those are a snapshot of a healthy run, NOT a target — totals move the day anybody adds a
-        # test, and reconciling a CI log against a number typed into a comment is how people learn to
-        # argue with the log. The FLOOR below is the only number this step enforces.
         run: |
           set -uo pipefail
 
@@ -352,27 +83,10 @@ jobs:
             status=1
           fi
 
-          # ⚠ THE `|| :` BELOW IS LOAD-BEARING, AND IT IS THE GREEN CASE IT PROTECTS. GitHub runs
-          # this block as `bash -e {0}`; the script sets `-uo pipefail` and never clears `-e`. A suite
-          # with NO failures gives grep nothing to match, grep exits 1, `pipefail` promotes that to the
-          # pipeline's status, and `-e` kills the step — so this job would go red on the very day the
-          # backend suite finally went green, printing none of the messages below. `actual-failures.txt`
-          # is simply empty in that case, which every comparison below already reads correctly.
-          # Node ids only: `FAILED tests/x.py::y - AssertionError: ...` becomes `tests/x.py::y`.
-          # ERROR lines are collected too — a module that cannot import is a failure nothing licensed.
           grep -E '^(FAILED|ERROR) ' pytest-output.log \
             | sed -E 's/^(FAILED|ERROR)[[:space:]]+//; s/[[:space:]]+-[[:space:]].*$//' \
             | sort -u > actual-failures.txt || :
 
-          # ── A FLOOR, NOT A TARGET ────────────────────────────────────────────────────
-          # pytest reports success just as cheerfully over four tests as over a thousand, so a broken
-          # `testpaths`, a bad working directory, or a collection that quietly lost most of the suite
-          # would leave this step green while asserting almost nothing. 1019 passed on the day this
-          # landed; 900 is far enough below that ordinary deletion never reaches it and far enough
-          # above zero that losing a directory does. A MISSING summary line reads as 0 and goes red,
-          # which is the right answer when pytest died before it could count anything.
-          # `|| :` for the same reason, and here it preserves a DIAGNOSTIC: with no summary line at all
-          # the floor below reports 0 passing tests and says why. Without it the step dies silently.
           summary=$(grep -E '^=+ .*(passed|failed|error).*=+$' pytest-output.log | tail -n 1 || :)
           passed=$(printf '%s\n' "$summary" | sed -nE 's/.*[^0-9]([0-9]+) passed.*/\1/p')
           echo "pytest summary line: ${summary:-<none>}"
@@ -381,17 +95,6 @@ jobs:
             exit 1
           fi
 
-          # ── ANY FAILURE THIS LIST DOES NOT NAME IS A RED RUN ─────────────────────────
-          # `-x` so a node id must match a WHOLE line: without it a shorter name could license a
-          # longer, different one. grep's status is read rather than swallowed — 1 means "nothing
-          # unexpected", which is the good case, and 2 or more means grep itself failed, which must
-          # never be read as success.
-          # ⚠ `|| rc=$?`, NOT A BARE CALL. The comment above is right that 1 means "nothing
-          # unexpected, which is the good case" — but `rc=$?` on the next line never runs under
-          # `bash -e`, because the assignment has already killed the step. THIS IS THE TRAP THAT FIRES
-          # ON SUCCESS, and it is why it stayed invisible: every run of this job to date failed on a
-          # real test failure, so the good case was never reached. A `||` list exempts the grep from
-          # `-e` and keeps exactly the rc semantics the comment describes.
           rc=0
           unexpected=""
           unexpected=$(grep -vxFf expected-failures.txt actual-failures.txt) || rc=$?
@@ -400,12 +103,6 @@ jobs:
             exit 1
           fi
 
-          # ── AN EXPECTED FAILURE THAT PASSED IS NEWS, NOT AN ERROR ────────────────────
-          # `${GITHUB_STEP_SUMMARY:-/dev/null}` here and below, rather than the bare variable: this
-          # whole block is written to be runnable outside Actions — it is how it was verified, and it
-          # is how the next person will debug it — and under `set -u` an unset GITHUB_STEP_SUMMARY
-          # aborts the script three lines before it would have said what was wrong. Found by running
-          # it locally with a synthetic log.
           while IFS= read -r nodeid; do
             [ -n "$nodeid" ] || continue
             if ! grep -qxF "$nodeid" actual-failures.txt; then
@@ -428,18 +125,11 @@ jobs:
             exit 1
           fi
 
-          # Every failure was licensed by name. pytest's own non-zero status is deliberately NOT
-          # propagated here — translating it is the entire job of the list above, and the two
-          # branches before this one (the floor, and the unexpected-failure check) are what make
-          # doing so safe rather than a dressed-up `|| true`.
           if [ "$status" -ne 0 ]; then
             echo "Only failures on the expected-failure list fired; the comment on this step says what each one is and how to fix it."
           fi
           exit 0
 
-  # ═══════════════════════════════════════════════════════════════════════════════════════
-  # 2 · The web checks
-  # ═══════════════════════════════════════════════════════════════════════════════════════
   web:
     name: Web typecheck, lint and unit specs
     runs-on: ubuntu-26.04
@@ -454,117 +144,32 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          # `engines.node` in frontend/package.json ("24.x"), the same field deploy-frontend.yml's
-          # "Set up Node" step reads to build production and Vercel reads to choose the Node the
-          # on-demand pages run on. A typecheck that passes on a different major from the one that
-          # builds and runs production is not the check anybody thinks it is, and one field is the
-          # only arrangement in which they cannot drift apart. `check-latest` takes the newest 24.x
-          # release rather than whichever one the runner image happened to cache.
           node-version-file: frontend/package.json
           check-latest: true
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install npm 12
-        # The newest npm 12 on every run, as `check-latest` takes the newest 24.x. No Node release
-        # bundles npm 12 yet (Node 24 ships npm 11), so this step goes when the Node in
-        # `engines.node` ships it. npm 12 runs a dependency's install script only when
-        # `allowScripts` in frontend/package.json approves it: see docs/CI.md, "npm 12 and the
-        # install-script policy". deploy-frontend.yml's deploy job has the same step.
         run: |
           npm install --global npm@12
           npm --version
 
       - name: Install
-        # `npm ci` only. NO `npx playwright install`: MEASURED 2026-09-14 with
-        # PLAYWRIGHT_BROWSERS_PATH pointed at an empty directory, `npm run test:unit` is 104 passed
-        # in 1.7 s. Not one of the eight `*-unit.spec.ts` files asks for the `page` fixture (checked:
-        # zero matches for `page.goto`, `page.route` or a `{ page }` parameter across all eight), and
-        # Playwright launches a browser lazily, so it is never asked to. Downloading Chromium would
-        # add about a minute to every run of this job to serve nothing. If a spec ever does need one,
-        # the failure says exactly that ("Executable doesn't exist… run npx playwright install"),
-        # which is a better signpost than a browser sitting there letting a screen-driving spec time
-        # out against a server that is not running.
-        #
-        # `npm ci` and not `npm install`, so the lockfile decides what is installed rather than the
-        # index. Verified in sync on the way in: `npm ci --dry-run` from frontend/ exits 0.
-        #
-        # THREE `npm warn ERESOLVE overriding peer dependency` BLOCKS ARE EXPECTED (since 2026-10-09):
-        # eslint-plugin-react 7.37.5, eslint-plugin-import 2.32.0 and eslint-plugin-jsx-a11y 6.10.2,
-        # the newest of each and all inside eslint-config-next, still declare eslint <= 9 while this
-        # project runs ESLint 10. They are warnings, the install succeeds, and the rules run: see the
-        # Lint step and docs/CI.md, "ESLint 10 and the three plugins that predate it".
         run: npm ci
 
       - name: Audit the lockfile
-        # Fails on any advisory npm knows for an installed package, dev tools included (Dependabot
-        # alerts on the whole lockfile, so this does too). Added in 0.0.7 after minimatch and next
-        # sat open as Dependabot alerts with nothing in CI to say so.
         run: npm audit --audit-level=low
 
       - name: Typecheck (TypeScript 7)
-        # `next build` also fails on a type error, but only during the deploy — i.e. AFTER the backend
-        # has already shipped and the live site is pointed at it (docs/CI.md §1 explains why the
-        # backend goes first). Running it here moves the answer to before the merge. Measured
-        # 2026-09-14 from frontend/: exit 0.
-        #
-        # `npx tsc --noEmit` rather than `npm run typecheck`, which is literally the same command
-        # (frontend/package.json:10): this way the log of the step says what the step ran.
-        #
-        # TWO COMPILERS SINCE 2026-10-09, AND THIS ONE IS 7. frontend/package.json installs
-        # TypeScript 7 under the name `@typescript/native`, which provides the `tsc` binary, and
-        # TypeScript 6 under the name `typescript`, which provides `tsc6` and the JavaScript compiler
-        # API that 7 no longer ships. That is the TypeScript team's documented side-by-side setup;
-        # docs/CI.md, "The web app's two TypeScripts", says who uses which and when it collapses back
-        # to one.
         run: npx tsc --noEmit
 
       - name: Typecheck (TypeScript 6, the compiler next build runs)
-        # Not a duplicate of the step above. `next build` finds its compiler through the `typescript`
-        # package and runs that package's `tsc6` binary (next 16.4's getTypeScriptPackageInfo, in
-        # dist/lib/typescript/runTypeScriptCli.js, takes the package's `bin.tsc` and falls back to a
-        # `tsc<N>` entry; measured by recording what a build spawned), so the type check that gates
-        # the deploy is TypeScript 6, not 7. The two are meant to agree, and on
-        # 2026-10-09 both exited 0 on this tree with and without a .next directory. A file on which
-        # they ever disagree fails here, before the merge, instead of in the deploy after the backend
-        # has shipped — the reason the step above exists at all. Measured on a laptop: 7 takes 5 s,
-        # 6 takes 19 s.
         run: npx tsc6 --noEmit
 
       - name: Lint
-        # `npm run lint` — the repository's own script (frontend/package.json:9), deliberately,
-        # rather than a longer invocation typed into this file. If CI runs a stricter command than
-        # the one a contributor runs locally, the contributor's green is a lie and they find out here,
-        # which is the wrong place to find out.
-        #
-        # ON `--max-warnings=0`, WHICH IS NOT HERE AND ARGUABLY SHOULD BE: measured 2026-09-14, this
-        # tree is already clean under it — `npx eslint . --max-warnings=0` from frontend/ exits 0 —
-        # so adopting it would cost nothing today and would stop the slow accumulation of warnings
-        # nobody fails on, which are exactly the accessibility and hook findings worth reading. IT
-        # BELONGS IN package.json's `lint` SCRIPT, not on this line, for the reason in the paragraph
-        # above: one command, one answer, everywhere.
-        #
-        # (This step prints one line from jsx-ast-utils about a JSXEmptyExpression prop it could not
-        # resolve. That is the plugin talking about itself, not a finding; eslint exits 0.)
-        #
-        # ESLINT 10 SINCE 2026-10-09, AND A GREEN HERE IS NOT BY ITSELF PROOF THAT RULES RAN. ESLint
-        # 10 removed rule-context methods that eslint-plugin-react and eslint-plugin-import still call;
-        # eslint-config-next 16.4.0 restores them through its own shim, and a shim that stopped
-        # wrapping would crash this step, or worse, a degraded rule would report nothing. The Unit specs
-        # step below holds the proof: e2e/eslint-rules-run-unit.spec.ts lints a file of deliberate
-        # violations through this config and fails unless every plugin reports its own.
         run: npm run lint
 
       - name: The other portal, for the shared-file parity tests
-        # THE SHARED FILES ARE HELD IDENTICAL BY CI, NOT BY MEMORY (owner's ruling, 2026-10-20). Every
-        # sibling-parity test in this repository (the craft master, the map files, the nav and scanner
-        # files, the transcription manifest, the cross-portal modules, the artisan form contract) compares
-        # against a checkout of the other portal and skips without one; until this step cloned it on every
-        # run, CI had one repository and every one of them skipped. The comparison is made against the
-        # other repository's `main`, or against the branch of the same name when a cross-repo stream has
-        # pushed one there. Both repositories are public, so no token is needed. The clone lands BESIDE
-        # this checkout, under the other repository's name, because some tests find the sibling by that
-        # relative path rather than by the environment.
         working-directory: .
         env:
           PEER: cxacraftecosystem-ui/designer-portal
@@ -582,37 +187,10 @@ jobs:
           echo "Shared files are compared with $PEER@$ref ($(git -C "$dest" rev-parse --short HEAD))."
 
       - name: Unit specs
-        # ONLY the specs that need no dev server and no database. The rest of frontend/e2e/ signs in
-        # against a real API and drives real records — frontend/playwright.config.ts says so in its
-        # header and deliberately starts no server of its own — and standing that up on a runner is a
-        # much larger job and a separate decision. docs/CI.md §5 keeps it on the list rather than
-        # pretending it is done.
-        #
-        # The selection lives in frontend/package.json:12 (`playwright test ".*-unit\.spec\.ts"`), and
-        # package.json cannot hold a comment, so the rule is written here: the `-unit` suffix is this
-        # repository's convention for a spec that exercises a pure function rather than a screen.
-        # ALL EIGHT FILES CARRYING THE SUFFIX HONOUR IT TODAY — unlike the sibling repository, which
-        # has to exclude two of its own by name — so there is no exclusion list here, and the
-        # measurement above (104 passed with no browser binaries anywhere on disk) is the proof that
-        # there is nothing to exclude.
-        #
-        # WHAT DECIDES WHETHER A NEW FAILURE MEANS "this spec is misnamed": a failure inside
-        # `page.goto` — connection refused, or a navigation timeout where something answers :3000 but
-        # does not serve — means the spec wants a dev server and does not belong in this pattern. A
-        # failing `expect(source).toContain(…)` does NOT: those are source-inspection assertions about
-        # a symbol a component is supposed to have, no dev server would change the answer, and
-        # excluding one would be silencing the check rather than scoping it.
         run: npm run test:unit
 
-  # ═══════════════════════════════════════════════════════════════════════════════════════
-  # The map's coverage view in a real browser
-  # ═══════════════════════════════════════════════════════════════════════════════════════
   map-coverage:
     name: Map coverage view in a browser
-    # `e2e/map-coverage.spec.ts` answers every API call from fixtures, so it needs the web app and a
-    # browser and nothing else: no API, no database, no account. It is not a `-unit` spec because it
-    # drives the real page, which is why it runs here, against a production build, rather than in
-    # the unit step above.
     runs-on: ubuntu-26.04
     defaults:
       run:
@@ -669,9 +247,6 @@ jobs:
 
   questionnaire-web:
     name: Questionnaire screens in a browser
-    # `e2e/questionnaire-fr-web.spec.ts` drives the shared questionnaire screens and the forms library
-    # over a production build, every API call answered by the in-memory fake in
-    # `e2e/support/qv2Fake.ts` (UNIFY 5.4, Web; stream U3). Its tests carry the registry's @qf tags.
     runs-on: ubuntu-26.04
     defaults:
       run:
@@ -728,10 +303,6 @@ jobs:
 
   transcript-web:
     name: Transcript viewer in a browser
-    # `e2e/transcript-web.spec.ts` (shared with the other portal, `shared/transcript-web.sha256`)
-    # drives the real record page for one recording over a production build, on a desktop, a tablet
-    # and a phone viewport, and answers every API call from `e2e/support/transcriptFake.ts`, which
-    # serves the transcript contract's own example. Like the jobs above: no API, no database.
     runs-on: ubuntu-26.04
     defaults:
       run:
@@ -788,10 +359,6 @@ jobs:
 
   list-back-nav:
     name: Back to the list in a browser
-    # `e2e/list-back-nav.spec.ts` (identical in both portals) opens every list -> record path over a
-    # production build, on a desktop, a tablet and a phone viewport: search, page 2 or "Show more",
-    # scroll, open a row, Back — and the page, the filters and the scroll come back. Every API call
-    # is answered by `e2e/support/listBackNavFake.ts`. Like the jobs above: no API, no database.
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     defaults:
@@ -847,123 +414,32 @@ jobs:
           path: frontend/test-results
           if-no-files-found: ignore
 
-  # ═══════════════════════════════════════════════════════════════════════════════════════
-  # 3 · The documentation check
-  # ═══════════════════════════════════════════════════════════════════════════════════════
-  #
-  # ─── THE DECISION THIS JOB IS, AND THE ARGUMENT FOR IT ───────────────────────────────────
-  # `node docs/tools/check-docs.mjs` REPORTS FOUR PROBLEMS ON THE TREE THIS JOB LANDED WITH, and
-  # exits 1. There were two honest options: fix the four first and gate hard, or run it and be
-  # precise about which failures are licensed. This job does the second, and here is the argument.
-  #
-  # NOT ONE OF THE FOUR IS THIS WORKSTREAM'S TO FIX, and that is not an excuse, it is the whole point
-  # — a gate whose green depends on edits to four documents owned by other people arrives red, stays
-  # red through no fault of the pull requests it blocks, and is switched off within the week. This
-  # repository already has that failure mode written down in its own history: android-build.yml
-  # carried `continue-on-error: true` on Android Lint, with the honest reason beside it that one
-  # pre-existing manifest error meant a hard gate "would fail 100% of runs from day one and train
-  # everyone to ignore red" — and it stayed advisory until 2026-10-09, when that error was fixed and
-  # the gate went on.
-  #
-  # WHAT THIS DOES BETTER THAN THAT PRECEDENT, because `continue-on-error` is not good enough: a
-  # `continue-on-error` cannot shrink, it licenses EVERY failure including the ones nobody has seen
-  # yet, and nothing ever tells you it could be removed. The gate below names the four, one line
-  # each, and fails on anything else. It is a ratchet that can only turn down: fix a document, delete
-  # a line, and that problem can never come back silently. Nobody can add a fifth without editing
-  # this file in a diff somebody reviews.
-  #
-  # SO THIS IS NOT `|| true`, AND THE DIFFERENCE IS THE POINT. `|| true` licenses the failures you
-  # have not seen yet. A named list licenses the four you have, and only while they are exactly those
-  # four.
-  #
-  # THE RATCHET IS AT ZERO, AND THE EMPTY LIST BELOW IS THE POINT RATHER THAN AN OVERSIGHT. All four
-  # problems this job was born licensing were fixed on 2026-09-14 and their lines deleted, in the
-  # order the recommendation asked for: REPO_FACTS.md regenerated (`node docs/tools/check-docs.mjs
-  # --write` — it had been claiming 14 backend test files and 260 cases against a real 56 files and
-  # 832 `def test_`; no Android tests against eight files; and that neither suite gated CI, which
-  # this workflow had already made false); "How this document is kept true" sections for
-  # DATASET_API.md and DESIGN-claude.md; and docs/README.md's link to `../DESIGN-claude.md`
-  # repointed after that file moved into docs/ — which also turned up the fact that DATASET_API.md
-  # had never been in the documentation index at all.
-  #
-  # SO THE GATE IS NOW A REAL ONE: with nothing licensed, the first FAIL line of any kind fails this
-  # job. KEEP IT THAT WAY. Adding a line back is not forbidden, but it is the thing to argue about in
-  # review — it licenses a problem for everybody, and the nine warnings this run still prints are
-  # already the cheaper mechanism for a document somebody else owns (check-docs.mjs's own
-  # OWNED_ELSEWHERE set, docs/tools/check-docs.mjs:43-52).
   docs:
     name: Docs check
     runs-on: ubuntu-26.04
 
     steps:
       - name: Checkout
-        # Full history is NOT needed, but a real git checkout is: check-docs shells out to
-        # `git ls-files` to decide which paths a document is allowed to name.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          # The web app's major (frontend/package.json `engines.node`), so the repository runs one
-          # Node and not two; the script itself needs nothing newer than node: builtins.
           node-version-file: frontend/package.json
           check-latest: true
 
       - name: Verify the documentation set
-        # No `npm ci` anywhere: the script imports nothing outside node: builtins (child_process, fs,
-        # path, url), deliberately, so it runs from a bare checkout. Nothing in package.json is needed
-        # and installing it would only make this job slower.
-        #
-        # MEASURED 2026-09-14 from the repository root, AFTER the four licensed problems were fixed:
-        # 463 repository paths resolved, 59 line citations checked, 175 relative links resolved, 46
-        # mermaid blocks linted, then `docs check passed (9 warning(s) in documents owned
-        # elsewhere).` and exit 0. THE EXIT 0 IS THE FACT; none of those counts are — the same
-        # command an hour earlier gave 413 paths, 48 citations, 163 links and 45 mermaid blocks,
-        # because other workstreams keep adding documents. That is why the floor below is 200 and not
-        # "the number measured today". The nine warnings are findings in documents the script itself
-        # knows belong to another workstream (its own OWNED_ELSEWHERE list,
-        # docs/tools/check-docs.mjs:43-52); they are reported and do not affect its exit code, so
-        # they are not this gate's business either.
-        #
-        # WHEN THIS GOES RED, the usual cause is not prose at all — it is
-        # `docs/REPO_FACTS.md is out of date`, because that file is GENERATED from the repository
-        # (model counts, endpoint counts, per-surface test counts) and any change to a route, a Prisma
-        # model or the number of test files moves it. The fix is one command, and it produces a
-        # reviewable diff rather than a number somebody retyped:
-        #     node docs/tools/check-docs.mjs --write
         run: |
           set -uo pipefail
 
-          # Substrings, not whole lines: each names one problem tightly enough that no other line can
-          # match it, and loosely enough that the em dash and the exact wording after it can change
-          # without this list quietly licensing something else. ASCII only, deliberately — a fixed
-          # string with a typographic dash in it is a gate that depends on the runner's locale.
           cat > known-doc-problems.txt <<'LIST'
           LIST
 
-          # `2>&1` IS LOAD-BEARING AND WAS FOUND THE HARD WAY. check-docs.mjs:548 prints its FAIL
-          # lines with `console.error`, i.e. to STDERR, while every `ok`/`warn` line and the closing
-          # tally go to stdout. Without the redirect this log holds the tally and none of the
-          # failures, `doc-problems.txt` comes out EMPTY, and the gate below would have licensed
-          # everything by finding nothing to object to. Measured on the first local run of this exact
-          # block: four problems on screen, zero in the file.
           status=0
           if ! node docs/tools/check-docs.mjs 2>&1 | tee docs-check.log; then
             status=1
           fi
 
-          # ⚠ `|| rc=$?` RATHER THAN A BARE CALL, AND THE `rc=$?` ON THE NEXT LINE IS NOT ENOUGH.
-          # GitHub runs a `run:` block as `bash -e {0}`, and this script sets `-uo pipefail` without
-          # ever clearing `-e`. A grep that matches NOTHING exits 1, so under `-e` the step dies
-          # right here — before `rc` is read, before the comparison below, and with none of this
-          # script's own `::error::` lines printed. Putting the grep in a `||` list is what exempts
-          # it from `-e` while keeping the author's rc idiom intact.
-          #
-          # THIS WAS INVISIBLE FOR AS LONG AS THE DOCS WERE BROKEN. While the four licensed problems
-          # existed there were always FAIL lines to match, so this grep always exited 0. The first
-          # run in which the documentation was actually clean is the run that failed — a gate that
-          # could report a problem but could not report success. Found on 2026-09-14, the run after
-          # the known-problem list reached zero.
           rc=0
           grep -E '^FAIL' docs-check.log > doc-problems.txt || rc=$?
           if [ "$rc" -ge 2 ]; then
@@ -971,11 +447,6 @@ jobs:
             exit 1
           fi
 
-          # ── THE CHECK MUST HAVE CHECKED SOMETHING ────────────────────────────────────
-          # check-docs exits 0 just as cheerfully over a docs/ directory it failed to read as over a
-          # clean one. Between 413 and 441 paths were resolved on the day this landed — the number
-          # moves whenever anybody adds a document — so this is a FLOOR, not a target: 200 survives
-          # ordinary deletion and still catches a run that inspected nothing.
           paths=$(sed -nE 's/.*[^0-9]([0-9]+) repository paths resolved.*/\1/p' docs-check.log | tail -n 1)
           echo "check-docs resolved ${paths:-0} repository paths"
           if [ "${paths:-0}" -lt 200 ]; then
@@ -983,17 +454,11 @@ jobs:
             exit 1
           fi
 
-          # A non-zero exit with no FAIL line at all means the script itself broke — a syntax error,
-          # a missing git, an unhandled exception. That must never be read as "no problems found".
           if [ "$status" -ne 0 ] && [ ! -s doc-problems.txt ]; then
             echo "::error::check-docs exited non-zero without printing a single FAIL line, so it crashed rather than found problems. Read the log above."
             exit 1
           fi
 
-          # Same `-e` trap, and this one bites on the HAPPY path specifically: "no unexpected
-          # problems" is grep finding nothing, which is exit 1. An empty known-problem list is also
-          # an empty PATTERN file — `grep -f` with no patterns matches nothing, so `-v` matches every
-          # line, which is the correct reading of an empty licence: every problem is unexpected.
           rc=0
           unexpected=""
           unexpected=$(grep -vFf known-doc-problems.txt doc-problems.txt) || rc=$?
@@ -1002,7 +467,6 @@ jobs:
             exit 1
           fi
 
-          # A known problem that stopped being reported is the ratchet turning. Loud, and not fatal.
           while IFS= read -r known; do
             [ -n "$known" ] || continue
             if ! grep -qF "$known" doc-problems.txt; then
@@ -1030,57 +494,22 @@ jobs:
           fi
           exit 0
 
-  # ═══════════════════════════════════════════════════════════════════════════════════════
-  # 4 · The database-backed suite  (added 2026-10-19)
-  # ═══════════════════════════════════════════════════════════════════════════════════════
-  #
-  # THE OTHER HALF OF JOB 1, NOT A REPLACEMENT FOR IT. Job 1 has no database and must keep having
-  # none: it is what proves the suite collects and passes with nothing to connect to. The modules
-  # that need Postgres opt in by name — each reads its own variable and skips without it — and until
-  # this job they ran only on a developer's laptop, by hand, before a merge. Here they run on every
-  # pull request and push to main, against a Postgres that is created empty, migrated, and thrown
-  # away with the runner.
-  #
-  # THE GATES, AND THE VARIABLE EACH ONE READS (grep `skipif` under backend/tests/ to re-derive):
-  #   SEARCH_DB_TESTS=1              tests/search_support.py `needs_search_db` (and a non-hosted DSN)
-  #   ARTISAN_CARD_DB_TESTS=1        tests/test_artisan_card_db.py
-  #   ARTISAN_DUPLICATE_DB_TESTS=1   tests/_duplicates_db.py `skip_without_db`
-  #   TRANSCRIPT_INSIGHTS_DB_TESTS=1 tests/test_transcript_insights_db.py
-  #   QV2_TEST_DATABASE_URL          tests/qv2_fixtures.py `needs_db`
-  #   REVIEW_SQL_TEST_DATABASE_URL   tests/test_review_pending_sql_db.py, test_review_media_cascade_sql_db.py
-  #   RECORD_COMPLETENESS_DATABASE_URL tests/test_record_completeness.py
-  #   DATABASE_URL on loopback       tests/test_weekly_digest_db.py (a listening local Postgres)
-  #   QV2_BACKFILL_DATABASE_URL      tests/test_questionnaire_v2_backfill.py — its OWN database,
-  #                                  because it deletes every legacy row before seeding
-  # A new opt-in gate needs its variable added below, or it skips here exactly as it does in job 1.
-  # The step after the run fails the job if any skip reason still names one of these gates.
-  #
-  # Every value is a CI placeholder. The DSNs are loopback to the service container; nothing here
-  # is, or may become, a repository secret.
-  #
-  # Advisory, like the sibling repository's `Backend integration tests`: the deploy workflows'
-  # GATING_JOBS name the three jobs above, not this one.
   backend-db:
     name: Backend database tests
     runs-on: ubuntu-26.04
-    # A hung query against a service container would otherwise burn the six-hour default.
-    timeout-minutes: 45  # 30 until 22 Oct 2026; the unify backfill test migrates its own database three times
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: backend
 
     services:
       postgres:
-        # PostgreSQL 17, production's major and docker-compose.yml's `postgres:17-alpine`, in
-        # pgvector's build: migration 20261025090000_search_document installs `vector` where the
-        # extension exists, and the search tests rank by it.
         image: pgvector/pgvector:pg17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: field_repository
         ports:
-          # The steps run on the host, so the DSN says 127.0.0.1, not the service name.
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
@@ -1112,7 +541,6 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          # Job 1's version, for job 1's reason; test_interpreter_pin.py holds every copy to the box.
           python-version: "3.15.2"
           cache: pip
           cache-dependency-path: |
@@ -1127,30 +555,20 @@ jobs:
           pip install --no-deps -e .
 
       - name: Fetch the Prisma engines and generate the client
-        # The fetch is explicit so a missing engine is reported here, not by the first test that
-        # opens a connection.
         run: |
           set -euo pipefail
           python -m prisma py fetch
           python -m prisma generate --schema prisma/schema.prisma
 
       - name: Create the backfill database and apply the migrations to both
-        # `migrate deploy`, never `migrate dev`. This is also the one place in CI where the whole
-        # migration history is applied to an EMPTY database, so a migration that only works on top of
-        # production's shape fails here.
         run: |
           set -euo pipefail
-          # Through the service container's own psql, so the runner image needs no client.
           docker exec "${{ job.services.postgres.id }}" \
             psql -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE field_repository_backfill'
-          # app.prisma_cli, not `python -m prisma`: the plain CLI imports the whole generated client
-          # (28 MB of prisma/types.py) before its first line, which was 7.8 of this step's 15.9
-          # minutes per call (run 41274319823). The same command with the types left unloaded.
           python -m app.prisma_cli migrate deploy --schema prisma/schema.prisma
           DATABASE_URL="$QV2_BACKFILL_DATABASE_URL" python -m app.prisma_cli migrate deploy --schema prisma/schema.prisma
 
       - name: The other portal, for the shared-file parity tests
-        # The same clone as the "Backend tests" job: without it every sibling-parity test skips.
         working-directory: .
         env:
           PEER: cxacraftecosystem-ui/designer-portal
@@ -1168,16 +586,12 @@ jobs:
           echo "Shared files are compared with $PEER@$ref ($(git -C "$dest" rev-parse --short HEAD))."
 
       - name: Run the suite against the database
-        # The whole suite, as in job 1: a selection is a list that goes stale. `-rs` here, unlike job
-        # 1, because the skip reasons are what the next step reads.
         run: |
           set -uo pipefail
           status=0
           if ! python -m pytest -rfs --durations=15 | tee pytest-db.log; then
             status=1
           fi
-          # A gate that stayed shut reports green and proves nothing, so a skip naming one of the
-          # opt-in variables is a failure of this job's setup.
           gated=$(grep -E '^SKIPPED .*(_DB_TESTS|_DATABASE_URL|DATABASE_URL naming a running Postgres)' pytest-db.log || :)
           if [ -n "$gated" ]; then
             printf '%s\n' "$gated"
@@ -1186,16 +600,6 @@ jobs:
           fi
           exit "$status"
 
-  # ═══════════════════════════════════════════════════════════════════════════════════════
-  # The web outbox against a real backend, database and bucket (questionnaire v2)
-  # ═══════════════════════════════════════════════════════════════════════════════════════
-  # The audit of 2026-10-21 found that the web unit specs mocked the questionnaire API with a fake
-  # that answered presign-parts as `{parts}` while the server sends `{urls}` (C3), and an in-memory
-  # store that took a unit with no key where IndexedDB throws (C4). This job runs the browser's own
-  # client and byte transport, unmocked, against the FastAPI app with QUESTIONNAIRE_V2 on, this
-  # job's throwaway Postgres (migrated from empty) and a throwaway MinIO bucket:
-  # frontend/e2e/questionnaire-v2-stack.spec.ts, seeded by scripts/ci/seed_qv2_stack.py. Nothing
-  # outside the runner is touched; the spec and the seed both refuse a non-loopback host.
   web-v2-stack:
     name: Web outbox against a real stack
     runs-on: ubuntu-26.04
@@ -1224,14 +628,12 @@ jobs:
       DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
       JWT_SECRET: "ci-web-stack-not-a-secret-0123456789abcdef"
       MASTER_ADMIN_EMAIL: "ci@example.invalid"
-      # MinIO's documented local defaults, for a bucket that lives and dies with this runner.
       AWS_ACCESS_KEY_ID: "minioadmin"
       AWS_SECRET_ACCESS_KEY: "minioadmin"
       AWS_S3_BUCKET: "field-repository"
       AWS_S3_ENDPOINT: "http://127.0.0.1:9000"
       AWS_S3_PUBLIC_BASE_URL: "http://127.0.0.1:9000/field-repository"
       AWS_REGION: "us-east-1"
-      # MinIO speaks S3 but not KMS and refuses the SSE header; empty is the documented local value.
       AWS_S3_SSE_ALGORITHM: ""
       QUESTIONNAIRE_V2: "true"
 
@@ -1242,7 +644,6 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          # The box's interpreter, as in jobs 1 and 4 (test_interpreter_pin.py holds every copy).
           python-version: "3.15.2"
           cache: pip
           cache-dependency-path: |
@@ -1264,8 +665,6 @@ jobs:
           python -m app.prisma_cli migrate deploy --schema prisma/schema.prisma
 
       - name: Start a throwaway bucket
-        # docker-compose.yml's image and bucket, started by hand: a service container cannot be given
-        # the `server /data` command this image needs.
         run: |
           set -euo pipefail
           docker run -d --name qv2-minio -p 9000:9000 \
@@ -1301,7 +700,6 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install npm 12 and the web dependencies
-        # As in job 2; no browser download, because this spec drives no page.
         working-directory: frontend
         run: |
           set -euo pipefail
@@ -1316,25 +714,14 @@ jobs:
           set -uo pipefail
           export QV2_STACK_SEED="$RUNNER_TEMP/qv2-seed.json"
           status=0
-          # The outbox, then the forms library (UNIFY U3), against the same seeded stack.
           npx playwright test e2e/questionnaire-v2-stack.spec.ts e2e/questionnaire-library-stack.spec.ts || status=$?
           if [ "$status" -ne 0 ]; then
             echo "--- API log (last 200 lines) ---"
             tail -n 200 "$RUNNER_TEMP/api.log"
           fi
-          # Both variables are set above, so the spec cannot skip itself here.
           exit "$status"
 
-  # The box side of the backend deploy, proved without a box (2026-10-19). backend/deploy/blue_green.sh
-  # is what deploy-backend.yml pipes over ssh to release the API with no downtime; the test runs it
-  # against stubbed systemctl, nginx and curl and fails if nginx is ever left pointing at a port
-  # nothing serves. shellcheck is on the runner image. Not a branch-protection gate; seconds to run.
   questionnaire-unify-backfill:
-    # Field Repository's half of the questionnaire unification (UNIFY section 3.1, U-M1):
-    # tests/test_questionnaire_unify_backfill.py migrates an EMPTY database in stages (today's
-    # production schema, the U0 release, prisma/deferred) and checks the SQL backfill with
-    # scripts/questionnaire_unify_check.py. Its own job and database, so the database job's suite
-    # neither waits for three migration runs nor shares its rows.
     name: Questionnaire unify backfill
     runs-on: ubuntu-26.04
     timeout-minutes: 30
@@ -1405,10 +792,6 @@ jobs:
           exit "$status"
 
   questionnaire-parity:
-    # UNIFY_2026-10-21.md section 5.3: the questionnaire is one package, one schema fragment and one
-    # feature registry in both portals. This job runs only those guards, against a checkout of the
-    # other portal (the branch of the same name when a cross-repo stream pushed one, else main), and
-    # FAILS when one of them skips. The same job runs in designer-portal.
     name: Questionnaire parity (both portals)
     runs-on: ubuntu-26.04
     timeout-minutes: 20
@@ -1447,7 +830,6 @@ jobs:
         run: python -m prisma generate --schema prisma/schema.prisma
 
       - name: The other portal, for the shared-file parity tests
-        # The same clone as the "Backend tests" job: without it every sibling-parity test skips.
         working-directory: .
         env:
           PEER: cxacraftecosystem-ui/designer-portal
@@ -1490,8 +872,6 @@ jobs:
         run: bash backend/deploy/test_blue_green.sh
 
       - name: Backup freshness verdict against fixed clocks
-        # backup-db.yml's `freshness` job sources this function. The cases include the two checks
-        # GitHub started past India midnight on 2026-11-02, which the old rule failed.
         run: shellcheck -x scripts/ci/backup_freshness.sh scripts/ci/test_backup_freshness.sh && bash scripts/ci/test_backup_freshness.sh
 
   comment-stripper:
