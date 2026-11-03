@@ -112,6 +112,28 @@ object TranscriptStrings {
     const val budgetSet = "Monthly budget (USD)"
     const val spendPerRecording = "Cost"
     const val offlineCached = "Saved for offline reading"
+    const val uploadTranscribe = "Transcribe and translate"
+    const val uploadTranscribeAll = "Transcribe and translate all"
+    const val uploadAutoVideo = "Every new video is transcribed and translated. An admin set this."
+    const val uploadAutoAudio = "Every new recording is transcribed and translated. An admin set this."
+    const val uploadAutoBoth = "Every new recording and video is transcribed and translated. An admin set this."
+    const val settingsAutoVideo = "Transcribe and translate all new videos"
+    const val settingsAutoVideoOn = "On. Every new video is queued, whatever the box at upload says."
+    const val settingsAutoVideoOff = "Off. Only videos ticked at upload are queued."
+    const val settingsAutoAudio = "Transcribe and translate all new audio"
+    const val settingsAutoAudioOn = "On. Every new recording is queued, whatever the box at upload says."
+    const val settingsAutoAudioOff = "Off. Only recordings ticked at upload are queued."
+    const val settingsBackfill = "Transcribe and translate all previously uploaded media"
+    const val settingsBackfillOff = "Off. Nothing uploaded before now is sent."
+    const val settingsBackfillOn = "On. Oldest first, in batches, within this month's budget."
+    const val settingsBackfillCounting = "Counting…"
+    fun settingsBackfillEstimate(count: Any, hours: Any, cost: Any): String = "{count} files, about {hours} h, about \${cost}".replace("{count}", count.toString()).replace("{hours}", hours.toString()).replace("{cost}", cost.toString())
+    fun settingsBackfillProgress(done: Any, queued: Any, waiting: Any): String = "{done} of {queued} done, {waiting} waiting".replace("{done}", done.toString()).replace("{queued}", queued.toString()).replace("{waiting}", waiting.toString())
+    fun settingsBackfillLastRun(when: Any): String = "Last batch {when}".replace("{when}", when.toString())
+    const val settingsBackfillConfirmTitle = "Start the backfill?"
+    const val settingsBackfillConfirmBody = "Every earlier recording and video with consent is sent, oldest first, within this month's budget. You can turn it off at any time."
+    const val settingsBackfillConfirm = "Start backfill"
+    const val settingsBackfillCancel = "Cancel"
 
     /** Every entry as the table spells it, placeholders and all, for the parity test. */
     val table: Map<String, String> = linkedMapOf(
@@ -223,6 +245,28 @@ object TranscriptStrings {
         "budgetPaused" to "This month's transcription budget is used up. Transcription is paused.",
         "budgetSet" to "Monthly budget (USD)",
         "spendPerRecording" to "Cost",
-        "offlineCached" to "Saved for offline reading"
+        "offlineCached" to "Saved for offline reading",
+        "uploadTranscribe" to "Transcribe and translate",
+        "uploadTranscribeAll" to "Transcribe and translate all",
+        "uploadAutoVideo" to "Every new video is transcribed and translated. An admin set this.",
+        "uploadAutoAudio" to "Every new recording is transcribed and translated. An admin set this.",
+        "uploadAutoBoth" to "Every new recording and video is transcribed and translated. An admin set this.",
+        "settingsAutoVideo" to "Transcribe and translate all new videos",
+        "settingsAutoVideoOn" to "On. Every new video is queued, whatever the box at upload says.",
+        "settingsAutoVideoOff" to "Off. Only videos ticked at upload are queued.",
+        "settingsAutoAudio" to "Transcribe and translate all new audio",
+        "settingsAutoAudioOn" to "On. Every new recording is queued, whatever the box at upload says.",
+        "settingsAutoAudioOff" to "Off. Only recordings ticked at upload are queued.",
+        "settingsBackfill" to "Transcribe and translate all previously uploaded media",
+        "settingsBackfillOff" to "Off. Nothing uploaded before now is sent.",
+        "settingsBackfillOn" to "On. Oldest first, in batches, within this month's budget.",
+        "settingsBackfillCounting" to "Counting…",
+        "settingsBackfillEstimate" to "{count} files, about {hours} h, about \${cost}",
+        "settingsBackfillProgress" to "{done} of {queued} done, {waiting} waiting",
+        "settingsBackfillLastRun" to "Last batch {when}",
+        "settingsBackfillConfirmTitle" to "Start the backfill?",
+        "settingsBackfillConfirmBody" to "Every earlier recording and video with consent is sent, oldest first, within this month's budget. You can turn it off at any time.",
+        "settingsBackfillConfirm" to "Start backfill",
+        "settingsBackfillCancel" to "Cancel"
     )
 }
