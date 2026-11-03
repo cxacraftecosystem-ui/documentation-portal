@@ -7,7 +7,6 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.ZoneId
 
-/** The users screen's "Signed in" line. */
 class UserSignInStatusTest {
     private val india = ZoneId.of("Asia/Kolkata")
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
@@ -55,7 +54,6 @@ class UserSignInStatusTest {
         assertEquals("Not yet", signInStatusLabel(current.lastLoginAt, current.firstLoginAt, current.createdAt, india))
     }
 
-    /** en-IN's short September differs between JDKs ("Sep" or "Sept"); read it from the formatter. */
     private fun signInMonth(): String =
         java.time.format.DateTimeFormatter.ofPattern("MMM", java.util.Locale("en", "IN")).format(java.time.LocalDate.of(2026, 9, 1))
 }

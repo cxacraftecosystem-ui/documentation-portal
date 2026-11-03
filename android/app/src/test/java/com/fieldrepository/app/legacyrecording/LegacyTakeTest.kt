@@ -10,10 +10,6 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 
-/**
- * H21 (audit 2026-10-21): the legacy capture form's take is finalised and attached on every exit,
- * never dropped, and runs under a microphone foreground service.
- */
 class LegacyTakeTest {
     @get:Rule val tmp = TemporaryFolder()
 

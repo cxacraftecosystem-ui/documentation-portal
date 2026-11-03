@@ -4,11 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * Downscaling is the most consequential step in preprocessing (ALGORITHMS §2), so it is tested
- * against the analytic mean of each source rectangle rather than against whatever the code happens
- * to produce. Point-sampling passes a "does it run" test and fails this one.
- */
 class ResampleTest {
 
     private fun gradient(w: Int, h: Int): GrayF {
@@ -34,8 +29,6 @@ class ResampleTest {
 
     @Test
     fun downscaleWeightsPartialPixels() {
-        // 3 -> 2 has scale 1.5, so the first destination pixel covers all of source 0 and half of
-        // source 1: (0 + 0.5*1) / 1.5. Nearest-neighbour and point-sampled bilinear both miss this.
         val src = GrayF(3, 1, floatArrayOf(0f, 1f, 2f))
         val out = Resample.resize(src, 2, 1)
         assertEquals((0f + 0.5f * 1f) / 1.5f, out[0, 0], 1e-4f)
@@ -94,8 +87,6 @@ class ResampleTest {
         val up = Resample.resize(m, 8, 8)
         assertEquals(8, up.width)
         assertTrue(up.countTrue() > 0, "a non-empty mask must not resize to nothing")
-        // The top half is solid and the bottom half is empty, so whichever source row a 2x2
-        // destination samples, the answer is the same: two true pixels, still binary.
         val down = Resample.resize(m, 2, 2)
         assertEquals(2, down.width)
         assertEquals(2, down.countTrue())
@@ -122,8 +113,6 @@ class ResampleTest {
 
     @Test
     fun fitWithinNeverReturnsZero() {
-        // A 4000x3 panorama scaled to 64 rounds its short edge to zero unless it is clamped, and a
-        // zero-sized buffer throws from the GrayF constructor several stages later.
         val r = Resample.fitWithin(4000, 3, 64)
         assertTrue(r[0] >= 1 && r[1] >= 1, "got ${r[0]}x${r[1]}")
     }

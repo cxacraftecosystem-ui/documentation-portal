@@ -76,15 +76,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 
-/**
- * The field app's camera and picture controls for the top-bar scanner (`ui/TopBarScanSheet.kt`).
- *
- * NO SECOND CAMERA READER. The live preview is `ui/questionnaire/LiveQrScanner.kt`, the one the
- * session join already uses (REQUIREMENTS_2026-10-20 §6.2), asked to hand on any QR rather than only
- * a join QR; a picked photo is read by the same `JoinQr.read` the join screen's picker uses. What a
- * code MEANS is `data/ScanDispatch.kt`'s to decide, so every QR read here is handed on as text.
- */
-
 private const val SCAN_CAMERA_DENIED = "Camera denied. Allow it to scan, or type the code."
 private const val SCAN_CAMERA_BLOCKED = "Camera blocked. Turn it on in this app's settings, or type the code."
 private const val SCAN_PICTURE_EMPTY = "No QR code in that picture."
@@ -107,7 +98,6 @@ private fun Context.openScanAppSettings() {
     }
 }
 
-/** A picked photo, decoded in software and at most 1600 px on its long side (as `JoinScanner` reads one). */
 private fun Context.scanBitmap(uri: Uri): Bitmap? = runCatching {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
         ImageDecoder.decodeBitmap(ImageDecoder.createSource(contentResolver, uri)) { decoder, info, _ ->
@@ -127,10 +117,6 @@ private fun readScanBitmap(bitmap: Bitmap): String? {
     return JoinQr.read(pixels, soft.width, soft.height)?.takeIf { it.isNotBlank() }
 }
 
-/**
- * The slot [TopBarScanContent] leaves for this app's reader. A code is handed on once; the camera
- * stays open, and the same code is not handed on again until a different one is in view.
- */
 @Composable
 fun FieldScanControls(enabled: Boolean, onText: (String) -> Unit, onRefusal: (String) -> Unit) {
     val context = LocalContext.current
@@ -143,7 +129,6 @@ fun FieldScanControls(enabled: Boolean, onText: (String) -> Unit, onRefusal: (St
     }
     var blocked by remember { mutableStateOf(false) }
     var reading by remember { mutableStateOf(false) }
-    // Back from the app's settings with the camera allowed: open it here, without closing the sheet.
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
         if (!granted && ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             granted = true
@@ -178,7 +163,6 @@ fun FieldScanControls(enabled: Boolean, onText: (String) -> Unit, onRefusal: (St
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        // Asked only when the person presses "Allow camera": the typed box must work with no prompt.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -220,18 +204,12 @@ fun FieldScanControls(enabled: Boolean, onText: (String) -> Unit, onRefusal: (St
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// The top-bar dispatcher's field half (REQUIREMENTS_2026-10-20 §6)
-// ---------------------------------------------------------------------------------------------
-
-/** How an artisan card reads, by this app's [ArtisanCardCode]. */
 fun fieldScanCardKind(raw: String): ScanCardKind = when (val parsed = ArtisanCardCode.parse(raw)) {
     is ArtisanCardCode.Result.Ok -> ScanCardKind.VALID
     is ArtisanCardCode.Result.Failed ->
         if (ArtisanCardCode.failureMessage(raw, parsed.reason) == ArtisanCardCode.CHECK_MESSAGE) ScanCardKind.MISTYPED else ScanCardKind.NONE
 }
 
-/** Every queued outbox body (and step body) on this phone; empty when the queue cannot be read. */
 private suspend fun queuedPayloads(context: Context): List<String> =
     try {
         OfflineOutbox.all(context).flatMap { entry -> listOf(entry.payloadJson) + entry.steps.map { it.payloadJson } }
@@ -241,7 +219,6 @@ private suspend fun queuedPayloads(context: Context): List<String> =
         emptyList()
     }
 
-/** The field app's answers to the dispatcher: the cached register first, then the server. */
 fun fieldScanServices(repository: FieldRepository, context: Context? = null): ScanServices = object : ScanServices {
     override val portal = ScanPortal.FIELD
     override val codecs: ScanCodecs? = null
@@ -251,30 +228,18 @@ fun fieldScanServices(repository: FieldRepository, context: Context? = null): Sc
     override suspend fun resolveCard(raw: String): ScanCardAnswer = when (val answer = repository.resolveArtisanCard(raw)) {
         is ArtisanCardResolution.Found -> ScanCardAnswer.Found(answer.artisanId, answer.name, answer.place)
         is ArtisanCardResolution.Replaced -> ScanCardAnswer.Replaced(answer.artisanId)
-        // No signal and no cached row. A card already queued on this phone (`card:<shortCode>` in an
-        // outbox entry) is named as waiting to sync; any other is offline.
         is ArtisanCardResolution.Pending ->
             if (context != null && cardWaitingToSync(answer.card, queuedPayloads(context))) {
                 ScanCardAnswer.Refused(ArtisanCardCode.pendingChip(answer.value))
             } else {
                 ScanCardAnswer.Offline
             }
-        // An unlinked Designer Repository card is refused by the server in its own words.
         is ArtisanCardResolution.Refused -> ScanCardAnswer.Refused(answer.message)
     }
 
-    /** The Field Repository reads no DPW record codes; the dispatcher refuses them before this. */
     override suspend fun lookUpRecord(recordType: String, id: String, code: String): ScanRecordAnswer = ScanRecordAnswer.Missing()
 }
 
-/**
- * Run the action the person pressed. Returns the next outcome to show, or null once it has handed
- * [onTarget] a place to go.
- *
- * A scanned session QR joins OFFLINE: the session is created on this phone under the same
- * `clientKey`, so when the outbox syncs the server answers with the existing session (`JoinQr`). A
- * typed code needs a connection (`POST /questionnaire/sessions/join`). Both open the session.
- */
 suspend fun runFieldScanAction(context: Context, action: ScanAction, meId: String?, onTarget: (ScanTarget) -> Unit): ScanOutcome? =
     when (action) {
         is ScanAction.Open -> {
@@ -316,7 +281,6 @@ suspend fun runFieldScanAction(context: Context, action: ScanAction, meId: Strin
                 else -> ScanOutcome(ScanOutcomeKind.REFUSED, ScanCopy.UNKNOWN)
             }
         }
-        // Designer Repository acts; the dispatcher refuses their codes here before an action exists.
         is ScanAction.Redeem -> ScanOutcome(ScanOutcomeKind.REFUSED, ScanCopy.JOIN_CARD_ELSEWHERE)
         is ScanAction.RequestAccess -> ScanOutcome(ScanOutcomeKind.REFUSED, ScanCopy.DESIGNER_CODE)
     }

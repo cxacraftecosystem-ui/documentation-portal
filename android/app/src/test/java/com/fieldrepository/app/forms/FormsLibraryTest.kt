@@ -13,12 +13,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
-/**
- * The forms library on Field Repository Android (UNIFY 4.2, stream U4): who may do what with a form
- * (owner, 21 and 22 Oct 2026), the tabs, kinds, bindings, the four-step form resolution and the
- * owner-stamped offline copy. Each request is sent through the real Retrofit interface to a server in
- * memory, so the paths and bodies are the ones the app sends.
- */
 class FormsLibraryTest {
     @get:Rule val tmp = TemporaryFolder()
 

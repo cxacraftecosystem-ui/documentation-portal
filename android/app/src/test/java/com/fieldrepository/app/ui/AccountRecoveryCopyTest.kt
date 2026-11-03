@@ -13,13 +13,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * GETTING BACK IN: the forgotten-password screen, Settings → Password, the administrator's "help them
- * back in" actions and the access list's "How will they sign in?". Every rule here renders fine when
- * broken, so each is pinned.
- */
 class AccountRecoveryCopyTest {
-    /** The app decoder's two encoding-relevant flags (`ApiClient.json`), without starting the client. */
     private val wire = Json { ignoreUnknownKeys = true; explicitNulls = false }
 
     private fun user(
@@ -47,7 +41,6 @@ class AccountRecoveryCopyTest {
         assertFalse(accountHasPassword(user(provider = "GOOGLE")))
         assertFalse(accountHasPassword(user(provider = "microsoft")))
         assertTrue(accountHasPassword(user(provider = "GOOGLE", passwordSetAt = "2026-01-01")))
-        // A password account from before `passwordSetAt` existed must still be asked for its current one.
         assertTrue(accountHasPassword(user(provider = "LOCAL")))
         assertTrue(accountHasPassword(null))
     }
@@ -145,7 +138,6 @@ class AccountRecoveryCopyTest {
         val twoStep = user(provider = "GOOGLE", hasPassword = false).copy(twoFactorEnabled = true)
         assertTrue(firstPasswordNeedsCode(hasPassword = false, user = twoStep))
         assertFalse(firstPasswordNeedsCode(hasPassword = false, user = user(provider = "GOOGLE", hasPassword = false)))
-        // Changing an existing password proves the current one instead.
         assertFalse(firstPasswordNeedsCode(hasPassword = true, user = twoStep))
         assertFalse(firstPasswordNeedsCode(hasPassword = false, user = null))
     }

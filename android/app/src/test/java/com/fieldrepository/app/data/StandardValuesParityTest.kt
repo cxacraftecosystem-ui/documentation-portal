@@ -12,12 +12,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * THE HANDSET'S STANDARD VALUES, PROVED EQUAL TO THE SERVER'S AND THE BROWSER'S.
- *
- * [StandardValues] writes the lists out; this holds them to `backend/app/data/standard_values.json`
- * and runs `shared/standard-values-vectors.json`, the table the server and the web run too.
- */
 class StandardValuesParityTest {
     private fun file(rel: String): java.io.File {
         var dir: java.io.File? = java.io.File("").absoluteFile

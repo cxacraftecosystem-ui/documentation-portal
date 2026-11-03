@@ -16,9 +16,7 @@ import org.junit.Test
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 
-/** The Coverage list under the coverage map: the wire shape, the rows it draws, the empty state and the query. */
 class CoverageSummaryTest {
-    /** A trimmed `GET /map/coverage?level=STATE` answer, with blocks the card does not read. */
     private val body = """
         {"asOf":"2026-10-18T00:00:00Z",
          "register":{"lgdAsOf":"2026-10-18","listVersion":1,"districtCount":795,"stateCount":36},
@@ -53,7 +51,6 @@ class CoverageSummaryTest {
         assertFalse(summary.isEmpty)
         assertEquals(listOf("Goa", "Odisha", "Rajasthan"), summary.states.map { it.name }.sorted())
 
-        // A state with no gap listed has every district covered, and is shown first.
         val goa = summary.states.first()
         assertEquals("Goa", goa.name)
         assertNull(goa.total)
@@ -62,7 +59,6 @@ class CoverageSummaryTest {
         val rajasthan = summary.states.single { it.name == "Rajasthan" }
         assertEquals(32, rajasthan.withWorkshop)
         assertEquals("32 of 33 districts with a workshop", CoverageCopy.districts(rajasthan))
-        // Crafts are distinct crafts across the records, so they are never added into the records.
         assertEquals(64, rajasthan.records)
         assertEquals("64 records", CoverageCopy.records(rajasthan.records))
 
@@ -81,7 +77,6 @@ class CoverageSummaryTest {
         assertTrue(summary.isEmpty)
         assertEquals("0 of 2 districts with a workshop", CoverageCopy.districts(summary.states.single()))
 
-        // An answer missing every block still decodes, to nothing.
         val bare = coverageSummary(ApiClient.json.decodeFromString(CoverageDto.serializer(), "{}"))
         assertTrue(bare.states.isEmpty())
         assertTrue(bare.isEmpty)
@@ -142,7 +137,6 @@ class CoverageSummaryTest {
         val sent = mutableListOf<HttpUrl>()
         val repository = FieldRepository(recordingApi(sent, body), unopenedTokenStore())
 
-        // The default view is the district map with no filters: no parameters at all, as on the web.
         val all = repository.coverage()
         assertEquals("/api/map/coverage", sent.last().encodedPath)
         assertNull(sent.last().query)
@@ -173,13 +167,11 @@ class CoverageSummaryTest {
         val url = sent.last()
         assertEquals("/api/map/coverage/units/8/99/records", url.encodedPath)
         assertEquals("ajrakh", url.queryParameter("craftCode"))
-        // The route takes no state scope; the unit names the state.
         assertNull(url.queryParameter("stateLgd"))
         assertEquals("artisans", url.queryParameter("bucket"))
         assertEquals("c1", url.queryParameter("cursor"))
         assertEquals("Asha", page.buckets.getValue("artisans").items.single().title)
 
-        // A state-level view reads the whole state: district 0.
         repository.coverageUnitRecords(8, 99, CoverageQuery(level = CoverageLevel.STATE))
         assertEquals("/api/map/coverage/units/8/0/records", sent.last().encodedPath)
     }

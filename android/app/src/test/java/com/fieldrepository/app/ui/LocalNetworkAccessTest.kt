@@ -4,16 +4,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * WHICH DEVELOPMENT BACKENDS ANDROID 17 HIDES BEHIND A PERMISSION, AND WHICH BUILD ASKS FOR IT.
- *
- * targetSdk 37 makes a connection to a local-network address TIME OUT unless the app holds
- * ACCESS_LOCAL_NETWORK. Only a debug build pointed at a development backend ever makes one, and the
- * rule that decides when the app asks is a pure function, so it is pinned here rather than left to a
- * developer who meets a backend that "is down" on the first Android 17 emulator. Two failures matter
- * and the cases below are chosen for them: asking for a permission the production build never needs
- * (a public host, or a release build), and NOT asking for the one address every emulator uses.
- */
 class LocalNetworkAccessTest {
 
     @Test
@@ -59,7 +49,6 @@ class LocalNetworkAccessTest {
     fun `production and other public hosts are never local, and names are never resolved`() {
         assertFalse(isLocalNetworkHost("d2b34i3e92al6i.cloudfront.net"))
         assertFalse(isLocalNetworkHost("8.8.8.8"))
-        // Not an address at all: classified without a DNS lookup, and therefore not local.
         assertFalse(isLocalNetworkHost("devbox.lan"))
         assertFalse(isLocalNetworkHost("999.1.1.1"))
         assertFalse(isLocalNetworkHost("10.0.2"))

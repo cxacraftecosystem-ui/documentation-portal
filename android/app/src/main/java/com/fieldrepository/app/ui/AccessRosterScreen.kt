@@ -53,68 +53,15 @@ import com.fieldrepository.app.data.UserDto
 import com.fieldrepository.app.data.apiErrorMessage
 import kotlinx.coroutines.launch
 
-/*
- * THE ACCESS ROSTER, ON THE PHONE — who may sign in to this repository at all.
- *
- * WHY THIS SCREEN EXISTS. Until the sign-in gate shipped, this application refused nobody: any
- * address Google would vouch for got an account and a bearer token, automatically, at the lowest
- * tier, and the institution had no say in who was inside its own repository. This is that say. The
- * queue at the top of it is ALSO the notification — there is no email and no push anywhere in this
- * codebase and there never has been, so "the admins and master admins should get a notification to
- * approve or reject the user" is served by a count on the surfaces admins already open plus this
- * queue.
- *
- * THE WEB TWIN IS `frontend/app/(protected)/admin/access-roster/page.tsx` AND THE TWO MUST AGREE.
- * Same sections in the same order (queue, add-an-address, the roster), the same wording for every
- * status and every notice, the same actions on a row. An admin who approves somebody on a laptop
- * and refuses somebody else on a phone is using one feature, and it must not read as two. Every
- * string an admin sees here has a counterpart in `frontend/lib/accessRoster.ts`; the pure functions
- * at the bottom of this file are the Kotlin half of that contract and are unit-tested in
- * `app/src/test/java/com/fieldrepository/app/ui/AccessRosterTest.kt`.
- *
- * THREE RULES THIS SCREEN MUST NOT BREAK, all of them enforced on the server as well
- * (`backend/app/services/access_roster.py` — read it before changing behaviour here):
- *
- * 1. A ROW IS NOT AN ADMISSION. Only `status == "ACTIVE"` admits. A PENDING row is created BY THE
- *    REFUSED CALLER, so "there is a row for this address" and "this person may sign in" are one
- *    clause apart, and a screen that conflates them is showing an admin an authentication bypass
- *    and calling it a roster. Every control below names the status it acts on.
- * 2. THERE IS NO DELETE. `DELETE /access-roster/{id}` is a SUSPENSION that answers with the
- *    suspended row, so the entry stays on screen — dated, and one tap from restored. The roster is
- *    the record that an address was recognised, and that record outlives the access.
- * 3. REFUSED AND SUSPENDED ROWS ARE LISTED BY DEFAULT. An admin opens this because somebody says
- *    they cannot sign in; the row refusing them is the one they need to see.
- *
- * HOSTING. Like every other admin-hub tool this lays out as a plain [Column] and renders into
- * whatever scrolling parent hosts it. It must NOT scroll itself: the hub renders inside the app's
- * shared `verticalScroll` Column, and a nested `verticalScroll` is measured with an infinite height
- * budget, which throws "Vertical viewport was given infinite maximum height" and takes the screen
- * down before it can draw.
- */
-
-/** One page of the roster table. Small, because this is a phone and the rows are tall. */
 private const val ROSTER_PAGE_SIZE = 20
 
-/**
- * The sign-in list rule's copy (2026-10-18), byte for byte the server's `signin_role.NEW_ACCOUNTS_ONLY`
- * and `shared/signin-role-contract.json`: the list sets the role of NEW accounts only.
- */
 private const val NEW_ACCOUNTS_ONLY = "New accounts only. To change an existing account, use Manage users."
 
-/** The server's `accountPromotionHeld` sentence on a decision's answer, or null. */
 internal fun heldSentence(answer: Any?): String? =
     (answer as? AccessRosterDto)?.accountPromotionHeld?.trim()?.ifBlank { null }
 
-/**
- * How much of the pending queue the top section shows at once.
- *
- * Bounded, and the remainder is STATED rather than silently dropped — see [accessQueueNotice]. A
- * list that quietly stops is indistinguishable from a place with no records, which is the most
- * repeated bug class in this repository.
- */
 private const val QUEUE_PAGE_SIZE = 25
 
-/** The status filter's options. "" means EVERY status, by absence — see rule 3 above. */
 private val STATUS_FILTERS = listOf(
     SelectOption("", "Every status"),
     SelectOption("PENDING", "Awaiting approval"),
@@ -123,13 +70,6 @@ private val STATUS_FILTERS = listOf(
     SelectOption("SUSPENDED", "Suspended")
 )
 
-/**
- * The access roster screen. ADMIN and MASTER ADMIN — the caller gates it, and every request it
- * makes is `require_admin` on the server, which is the real authority.
- *
- * [user] is here for one reason: the tiers an admin may hand out are bounded by their own
- * (`users.assert_role`), and offering a tier the API will refuse is a button that only ever fails.
- */
 @Composable
 fun AccessRosterScreen(
     repository: FieldRepository,
@@ -138,18 +78,10 @@ fun AccessRosterScreen(
     modifier: Modifier = Modifier,
     onMessage: (String) -> Unit = {},
     onError: (String) -> Unit = {},
-    /**
-     * Told after every decision, so the badge that brought the admin here stops being stale the
-     * moment they act. Without it the nav would keep showing "3" for up to a minute after the
-     * queue was cleared, which reads as "the approval did not work".
-     */
     onPendingCountChanged: (Int) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
 
-    // null = still loading, emptyList() = genuinely none. On the QUEUE in particular that
-    // distinction is the difference between "we do not know yet" and "nobody is waiting", and the
-    // second of those is the one wrong answer this section can give.
     var queue by remember { mutableStateOf<List<AccessRosterDto>?>(null) }
     var queueTotal by remember { mutableStateOf(0) }
     var rows by remember { mutableStateOf<List<AccessRosterDto>?>(null) }
@@ -164,14 +96,10 @@ fun AccessRosterScreen(
     var notice by remember { mutableStateOf<String?>(null) }
     var confirming by remember { mutableStateOf<PendingDecision?>(null) }
 
-    // The add-an-address form. Uncontrolled state rather than a dialog: pre-admitting somebody is
-    // the second reason an admin opens this screen and burying it behind a "+" would hide it.
     var newEmail by remember { mutableStateOf("") }
     var newName by remember { mutableStateOf("") }
     var newNote by remember { mutableStateOf("") }
     var newRole by remember { mutableStateOf("") }
-    // How the person will sign in: with a provider (the address alone), or with a password the
-    // administrator sets now. See `AccessSignIn` in AccountRecoveryCopy.kt.
     var signIn by remember { mutableStateOf(AccessSignIn.PROVIDER) }
     var newPassword by remember { mutableStateOf("") }
     var newMustChange by remember { mutableStateOf(true) }
@@ -188,9 +116,6 @@ fun AccessRosterScreen(
                 onPendingCountChanged(it.total)
             }
             .onFailure {
-                // The queue's own failure must not blank the roster below, which may have loaded
-                // perfectly well — and must not blank a queue that was true a moment ago, because
-                // an empty queue is precisely the wrong thing to say when we do not know.
                 error = it.apiErrorMessage("Unable to load the pending requests")
             }
         runCatching {
@@ -209,9 +134,6 @@ fun AccessRosterScreen(
             }
             .onFailure {
                 error = it.apiErrorMessage("Unable to load the access roster")
-                // `rows` is deliberately left standing: replacing a roster the admin can still read
-                // with "nobody is on the list" reads, on THIS screen, as "the gate locked everybody
-                // out" — which would be a considerably worse thing to believe than a stale list.
             }
     }
 
@@ -219,9 +141,6 @@ fun AccessRosterScreen(
     LaunchedEffect(error) { error?.let(onError) }
     LaunchedEffect(notice) { notice?.let(onMessage) }
 
-    // Back closes the confirmation first, so a decision is never one stray press from happening or
-    // from taking the admin off the screen. With nothing open and no [onBack], stay disabled so the
-    // host's own handler gets the press.
     BackHandler(enabled = confirming != null || onBack != null) {
         when {
             confirming != null -> confirming = null
@@ -238,8 +157,6 @@ fun AccessRosterScreen(
                 else repository.rejectAccessRosterEntry(entry.id)
             }
                 .onSuccess { updated ->
-                    // The sign-in list rule: an approval that left an existing account's role alone
-                    // answers the server's sentence, which replaces this screen's own receipt.
                     notice = if (approve) {
                         heldSentence(updated) ?: "${updated.email} can sign in, as ${roleLabelFor(updated.grantedRole)}."
                     } else {
@@ -284,7 +201,6 @@ fun AccessRosterScreen(
         error?.let { NoticeLine(it, tone = NoticeTone.ERROR) { error = null } }
         notice?.let { NoticeLine(it, tone = NoticeTone.INFO) { notice = null } }
 
-        // ── The queue. The notification, and the reason an admin opens this screen. ───────────
         ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard)) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -330,14 +246,12 @@ fun AccessRosterScreen(
                     }
                 }
 
-                // Truncation is stated, never silent — and the sentence says how to reach the rest.
                 accessQueueNotice(shown = pending?.size ?: 0, total = queueTotal)?.let {
                     Text(it, color = MaterialTheme.field.warning, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
 
-        // ── Pre-admit an address. No account has to exist. ──────────────────────────────────
         ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard)) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
@@ -374,9 +288,6 @@ fun AccessRosterScreen(
                     onSelect = { newRole = it }
                 )
                 Text(
-                    // "All the users by default join as the lowest rung unless promoted there
-                    // itself" — this control is the "there itself", and the server bounds it by the
-                    // admin's own tier so it can never hand out more than the admin holds.
                     "Defaults to the lowest role. $NEW_ACCOUNTS_ONLY",
                     color = Muted,
                     style = MaterialTheme.typography.bodySmall
@@ -387,8 +298,6 @@ fun AccessRosterScreen(
                     label = { Text("Note") },
                     modifier = Modifier.fillMaxWidth()
                 )
-                // How they will sign in: an address alone is made into an account at their first
-                // sign-in; a password makes it now. See `accessSignInNote`.
                 Text(ACCESS_SIGN_IN_QUESTION, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
                 listOf(
                     AccessSignIn.PROVIDER to ACCESS_SIGN_IN_PROVIDER,
@@ -444,8 +353,6 @@ fun AccessRosterScreen(
                                 )
                             }
                                 .onSuccess { created ->
-                                    // Adding admits the address like an approval: an account already
-                                    // there at another role keeps it, and the server says so.
                                     notice = heldSentence(created) ?: (accessAddedLine(created.email, signIn) + " " +
                                         "Joins as ${roleLabelFor(created.grantedRole)}.")
                                     newEmail = ""
@@ -456,10 +363,6 @@ fun AccessRosterScreen(
                                     reload()
                                 }
                                 .onFailure {
-                                    // A 409 names the existing row, gives its status and says that
-                                    // changing it is an update rather than a second add. Shown
-                                    // verbatim, and the search is pointed at the address so the
-                                    // admin looks at the row instead of reading about it.
                                     error = it.apiErrorMessage("Unable to add this address to the roster")
                                     search = newEmail.trim()
                                     appliedSearch = newEmail.trim()
@@ -478,7 +381,6 @@ fun AccessRosterScreen(
             }
         }
 
-        // ── The roster itself. ──────────────────────────────────────────────────────────────
         OutlinedTextField(
             value = search,
             onValueChange = { search = it },
@@ -494,8 +396,6 @@ fun AccessRosterScreen(
             options = STATUS_FILTERS,
             selectedValue = statusFilter,
             placeholder = "Every status",
-            // "" is a real option here (it means EVERY status), so the picker must not add its own
-            // "None" alongside it — two rows meaning the same thing is a picker lying about itself.
             includeNone = false,
             onSelect = { statusFilter = it; rosterPage = 1 }
         )
@@ -525,8 +425,6 @@ fun AccessRosterScreen(
                                     notice = "${it.email} suspended."
                                     reload()
                                 }
-                                // The master admin's row is protected server-side and the 403 explains
-                                // why — that it is the break-glass and the gate never applies to it.
                                 .onFailure { error = it.apiErrorMessage("Unable to suspend this entry") }
                             busyId = null
                         }
@@ -566,7 +464,6 @@ fun AccessRosterScreen(
             title = { Text("Refuse access for ${decision.entry.email}?") },
             text = {
                 Text(
-                    // Says the part an admin needs: signing in again does not re-queue a refusal.
                     "They'll be told to contact an administrator. Signing in again won't re-queue them."
                 )
             },
@@ -582,7 +479,6 @@ fun AccessRosterScreen(
     }
 }
 
-/** The one decision that asks before it fires. Approving is reversible; refusing sets a verdict. */
 private data class PendingDecision(val entry: AccessRosterDto)
 
 @Composable
@@ -596,10 +492,6 @@ private fun PendingRequestRow(
     var role by remember(entry.id) { mutableStateOf(entry.grantedRole) }
 
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // THE ADDRESS IS THE HEADING, and it is the only thing about this person the roster stores.
-        // No display name, no picture, no "reason for joining": the pending queue is the one screen
-        // in this product where a stranger can cause content to appear, and nothing they control is
-        // rendered here beyond the address they proved they own.
         Text(entry.email, color = Body, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(accessRequestLabel(entry.requestCount), color = Muted, style = MaterialTheme.typography.bodySmall)
         SearchableSelectField(
@@ -640,8 +532,6 @@ private fun RosterRow(
     ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard)) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                // A name may be the admin's own note, the account's, or absent — and its absence is
-                // STATED rather than left as a blank line an admin cannot tell from a bug.
                 entry.fullName ?: entry.accountName ?: "Name not recorded",
                 color = Body,
                 fontWeight = FontWeight.SemiBold,
@@ -657,9 +547,6 @@ private fun RosterRow(
                 color = Muted,
                 style = MaterialTheme.typography.bodySmall
             )
-            // The two disagree the moment somebody is promoted through the users screen, and an
-            // admin reading only the roster would be looking at a stale tier and believing it
-            // current. So the live one is printed whenever it differs.
             entry.accountRole?.takeIf { it != entry.grantedRole }?.let {
                 Text("Account is now ${roleLabelFor(it)}", color = Muted, style = MaterialTheme.typography.bodySmall)
             }
@@ -668,8 +555,6 @@ private fun RosterRow(
                 Text(it, color = Muted, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
             if (entry.status == "ACTIVE") {
-                // Never labelled "Delete". The verb has to say what happens, and what happens is
-                // that the row stays.
                 ActionRow {
                     OutlinedButton(
                         enabled = !busy,
@@ -704,14 +589,6 @@ private fun CountPill(count: Int) {
     }
 }
 
-/**
- * The status, as a pill.
- *
- * COLOUR NEVER CARRIES THE MEANING ALONE — the word is always there — so the judgement survives
- * colour-blindness, a greyscale screenshot pasted into a report, and forced-colours mode. PENDING
- * is the warning colour and not the error one: it is not a refusal anybody made, it is work waiting
- * for somebody.
- */
 @Composable
 private fun StatusPill(status: String) {
     val container = when (status) {
@@ -755,27 +632,6 @@ private fun NoticeLine(text: String, tone: NoticeTone, onDismiss: () -> Unit) {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// The pure half — the wording contract with the web, asserted in AccessRosterTest
-// ---------------------------------------------------------------------------------------------
-//
-// These are top-level functions rather than `if`s inside the composables above for the same reason
-// `ui/RecordPickers.kt` exists: a rule buried in a composable can only be checked by running the
-// app against a repository in the right state, and "the right state" here means somebody actually
-// being turned away at sign-in. Lifted out, each one is one assertion.
-//
-// EVERY STRING BELOW HAS A TWIN IN `frontend/lib/accessRoster.ts`. Change one, change both — an
-// admin who sees "Awaiting approval" on a laptop and "Pending" on a phone is looking at two
-// features, not one.
-
-/**
- * The tier ladder in DISPLAY order, highest first.
- *
- * Only the ORDER lives here. The labels come from [FieldPermissions.label], which is already the
- * one spelling of "Crowdsource Volunteer" in this app and is itself byte-for-byte the server's
- * `ROLE_LABELS`; a second map here would be a second opinion about a name that appears on four
- * screens.
- */
 private val ROLE_LADDER = listOf(
     "MASTER_ADMIN",
     "ADMIN",
@@ -787,13 +643,6 @@ private val ROLE_LADDER = listOf(
 
 fun roleLabelFor(role: String?): String = FieldPermissions.label(role)
 
-/**
- * The tiers this admin may hand out: at or below their own, highest first.
- *
- * Mirrors `users.assert_role`, which is the authority — offering a tier the API refuses is a button
- * that can only ever fail, and it fails at the worst possible moment, halfway through approving
- * somebody who is standing there waiting.
- */
 fun assignableRoleOptions(role: String?): List<SelectOption> {
     val rank = FieldPermissions.rank(role)
     return ROLE_LADDER
@@ -801,7 +650,6 @@ fun assignableRoleOptions(role: String?): List<SelectOption> {
         .map { SelectOption(it, FieldPermissions.label(it)) }
 }
 
-/** What each status is called, everywhere, on both clients. */
 fun accessStatusLabel(status: String): String = when (status) {
     "PENDING" -> "Awaiting approval"
     "ACTIVE" -> "May sign in"
@@ -810,53 +658,25 @@ fun accessStatusLabel(status: String): String = when (status) {
     else -> status
 }
 
-/**
- * "Has this admitted address ever actually been used?" — the one question this screen answers that
- * no other screen can.
- *
- * NEVER THE WORD "NEVER". A null `firstSeenAt` is a statement about an INVITATION, not about a
- * person: an admin chasing five addresses added in March needs to tell "they have not opened it
- * yet" from "we never let them in", and an entry that is not admitted has no invitation outstanding
- * at all, so it says so instead.
- */
 fun accessInvitationLabel(status: String, firstSeenAt: String?): String = when {
     !firstSeenAt.isNullOrBlank() -> "Signed in"
     status != "ACTIVE" -> "No access to take up"
     else -> "Not signed in yet"
 }
 
-/**
- * How the person got here: an admin put them on the list, or they asked and were turned away.
- *
- * `requestCount` is 0 for a row an administrator created and rises by one per refused attempt. A
- * rising count on a refused row is how an admin notices somebody who keeps trying and goes to talk
- * to them — which is the whole reason a rejection stays a rejection rather than re-opening.
- */
 fun accessRequestLabel(requestCount: Int): String = when {
     requestCount <= 0 -> "Added by an admin"
     requestCount == 1 -> "Asked once"
     else -> "Asked $requestCount times"
 }
 
-/** The date of joining the platform, or the fact that there is not one yet. */
 fun accessJoinedLabel(joinedAt: String?): String =
     if (joinedAt.isNullOrBlank()) "Not admitted yet" else "Joined ${joinedAt.take(10)}"
 
-/**
- * What the queue is NOT showing, or null when it is showing everything.
- *
- * A list that quietly stops is indistinguishable from a place with no records. This sentence is the
- * difference, and it names the way to the rest rather than merely admitting there is a rest.
- */
 fun accessQueueNotice(shown: Int, total: Int): String? {
     if (total <= shown) return null
     return "Showing $shown of $total. Filter by “Awaiting approval” to see all."
 }
 
-/**
- * The roster's own position line. Prints "Page 0 of 0" on an empty list deliberately, exactly as
- * the web's `Pagination` does: an admin comparing the two screens should not have to wonder whether
- * one of them is broken.
- */
 fun accessRosterPageNotice(page: Int, pages: Int, total: Int): String =
     "Page ${if (pages > 0) page else 0} of $pages · $total ${if (total == 1) "entry" else "entries"}"

@@ -10,13 +10,6 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import java.util.concurrent.TimeUnit
 
-/**
- * The activity list's background pass (C25): every 15 minutes, with a network, read the list, keep
- * the device copy and post a LOCAL alert for anything new — so a notice is announced while the app is
- * closed, with no push service. Signed out, or held at the password gate, it does nothing.
- *
- * Periodic and unique with KEEP: scheduling it again on every sign-in leaves the running clock alone.
- */
 class NotificationSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {

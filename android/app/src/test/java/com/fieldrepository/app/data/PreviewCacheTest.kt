@@ -11,7 +11,6 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 
-/** Photo previews kept for offline viewing: per account, bounded, least recently shown out first. */
 class PreviewCacheTest {
     private val root: File = Files.createTempDirectory("previews-test").toFile()
 

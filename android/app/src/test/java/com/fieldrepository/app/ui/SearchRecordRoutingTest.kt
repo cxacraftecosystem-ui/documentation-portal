@@ -4,16 +4,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * WHERE A SEARCH HIT, A MAP PIN AND AN APP-SEARCH RESULT GO — ported from the designer portal's
- * `SearchRecordRoutingTest` on 2026-10-16, cut to what this app has.
- *
- * `MainActivity.searchRecordEntryMode` ended `else -> EntryMode.ARTISAN`, so any record type it did
- * not know opened the ARTISAN editor on that record's id — a form whose Save writes an artisan. The
- * app-wide search panel finds crafts, processes and interviews, which that mapper did not name, so
- * all three would have opened as artisans. The mapper and its call sites are file-private to
- * `MainActivity.kt`, so, like the designer portal's suite, this reads the source.
- */
 class SearchRecordRoutingTest {
 
     private val source = repoSource(
@@ -44,7 +34,6 @@ class SearchRecordRoutingTest {
 
     @Test
     fun `the wire strings match the designer portal's record types`() {
-        // DwWorkshopRecordType's wires on the designer portal; one vocabulary across both apps.
         assertTrue(SearchRecordTypes.CRAFT == "craft")
         assertTrue(SearchRecordTypes.PROCESS == "process")
         assertTrue(SearchRecordTypes.QUESTIONNAIRE == "questionnaire")

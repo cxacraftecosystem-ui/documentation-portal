@@ -11,48 +11,16 @@ import okhttp3.Response
 import java.io.File
 import java.io.IOException
 
-/**
- * The last answer to every read, kept on the device so a screen opened with no signal shows what it
- * showed last time instead of an error.
- *
- * HOW. OkHttp's own disk cache, plus two interceptors:
- *  - a NETWORK interceptor marks each cacheable JSON answer `max-age=0` (store it, but revalidate it
- *    whenever the server can be asked), and everything else `no-store`, so a 48 MB dataset zip or a
- *    presigned download is never written here. NOT `no-cache`: OkHttp refuses to serve a `no-cache`
- *    entry to an `only-if-cached` request, which would make the fallback below always miss. A 304
- *    keeps `max-age=0` too, because its headers are merged into the stored entry;
- *  - an APPLICATION interceptor, outermost, catches the `IOException` a read throws when there is no
- *    connection and asks the cache alone (`only-if-cached`). A hit is returned as if it came from the
- *    server; a miss rethrows the original error, so a screen that has never been opened fails exactly
- *    as it did before.
- * Only a transport failure falls back. A 401, a 403 or a 500 is the server's answer and is passed on.
- *
- * WHAT IS NEVER CACHED ([isCacheablePath]): sign-in and two-step state, stored secrets and AI keys,
- * Aadhaar lookups, the app-update check, downloads and exports, the late-submission check (a stale
- * "this workshop is still open" would be wrong), and `preferences/me` (its caller treats "no answer"
- * as "keep this device's choice", and a stale row would undo a change made offline).
- *
- * WHERE. `noBackupFilesDir`: survives reboots and app updates, is not reclaimed under storage
- * pressure the way `cacheDir` is, and is excluded from cloud backup, because it holds the account's
- * records. [clear] runs on sign-out so the next account never sees them.
- */
 object OfflineReadCache {
     private const val MAX_BYTES = 40L * 1024 * 1024
     private const val HEADER_CACHE_CONTROL = "Cache-Control"
 
-    /**
-     * ONE `Cache` per directory for the whole process, created on first use. OkHttp's disk cache
-     * owns its journal: two `Cache` objects on one directory (an activity recreated, a second client
-     * built) would each believe they own it and corrupt it. In the app there is only ever the one
-     * directory; tests use one per case.
-     */
     private val caches = HashMap<String, Cache>()
 
     @Synchronized
     private fun cacheFor(directory: File, maxBytes: Long): Cache =
         caches.getOrPut(directory.absoluteFile.normalize().path) { Cache(directory, maxBytes) }
 
-    /** Paths (relative to the API base) whose answers must never be kept on the device. */
     private val NEVER_CACHED = listOf(
         "auth/", "secrets", "me/ai-keys", "preferences/", "app/release", "export/", "data/manifest",
         "data/report", "data/media/", "artisans/lookup", "submission-check"
@@ -63,7 +31,6 @@ object OfflineReadCache {
         return NEVER_CACHED.none { blocked -> path.contains(blocked) }
     }
 
-    /** Attach the cache and both interceptors. Call before any other `addInterceptor`. */
     fun install(builder: OkHttpClient.Builder, directory: File, maxBytes: Long = MAX_BYTES): OkHttpClient.Builder {
         return builder
             .cache(cacheFor(directory, maxBytes))
@@ -71,10 +38,6 @@ object OfflineReadCache {
             .addNetworkInterceptor(::markCacheability)
     }
 
-    /**
-     * Forget every stored answer, on the IO dispatcher (it deletes files, and sign-out calls it from
-     * the main thread). Safe to call when nothing was installed. The returned job is for tests.
-     */
     fun clear(): Job {
         val all = synchronized(this) { caches.values.toList() }
         return AppScope.io.launch(Dispatchers.IO) { all.forEach { runCatching { it.evictAll() } } }
@@ -91,7 +54,6 @@ object OfflineReadCache {
             } catch (_: IOException) {
                 throw e
             }
-            // OkHttp answers an only-if-cached miss with a synthetic 504.
             if (cached.code == 504 && cached.cacheResponse == null) {
                 cached.close()
                 throw e

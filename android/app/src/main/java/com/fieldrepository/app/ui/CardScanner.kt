@@ -90,18 +90,9 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-/*
- * Scanning an artisan card: ML Kit's on-device barcode reader on a CameraX preview, a picked picture
- * read by the same reader, and the code under the QR typed in. Ported from the designer app's
- * `DwQrLiveScanner` / `MlKitQrFrameReader` without its ZXing fallback, and with the whole frame read
- * (an artisan card holds one QR). Nothing leaves the phone to read the code; resolving it is
- * `FieldRepository.resolveArtisanCard`, which tries the register this phone already holds first.
- */
-
 const val CARD_SCAN_BUTTON = "Scan card"
 const val CARD_CODE_PLACEHOLDER = "F-XXXXX-XXXXX-XX"
 
-/** The camera refusal, in the designer app's words (`DwCameraRefusal`), for a card. */
 fun cardCameraRefusal(blocked: Boolean): String = if (blocked) {
     "Camera blocked. Turn it on in this app's permission settings, or type the code under the QR."
 } else {
@@ -135,13 +126,11 @@ private fun Context.openAppSettings() {
     }
 }
 
-/** ML Kit, narrowed to QR codes so a barcode on the next table is never read as a card. */
 private class CardQrReader : AutoCloseable {
     val scanner: BarcodeScanner? = runCatching {
         BarcodeScanning.getClient(BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build())
     }.getOrNull()
 
-    /** One analysed frame. Always closes [image]. */
     @androidx.annotation.OptIn(ExperimentalGetImage::class)
     fun analyse(image: ImageProxy, onText: (String) -> Unit) {
         val client = scanner
@@ -176,10 +165,6 @@ private class CardQrReader : AutoCloseable {
     }
 }
 
-/**
- * "Scan card": opens [ArtisanCardScanDialog] and hands back what the card came to. Drawn only while
- * cards are on here ([enabled] comes from `FieldRepository.artisanCardsEnabled`).
- */
 @Composable
 fun ArtisanCardScanButton(
     resolve: suspend (String) -> ArtisanCardResolution,
@@ -205,11 +190,6 @@ fun ArtisanCardScanButton(
     }
 }
 
-/**
- * The scanner: a live preview that reads on its own, "Use a picture", and the typed code. A code
- * the server refuses stays on screen with its sentence, and the same QR is not sent again until a
- * different one is in view.
- */
 @Composable
 fun ArtisanCardScanDialog(
     resolve: suspend (String) -> ArtisanCardResolution,
@@ -360,11 +340,6 @@ fun ArtisanCardScanDialog(
     }
 }
 
-/**
- * One camera call, where any failure is "no camera" EXCEPT a cancellation, which is rethrown.
- * `runCatching` around a suspend call swallows `CancellationException`, so a preview dismissed while
- * a cold CameraX was still starting reported the camera as unavailable after it had gone.
- */
 suspend fun <T> cameraStep(block: suspend () -> T): T? = try {
     block()
 } catch (cancelled: CancellationException) {
@@ -418,7 +393,6 @@ private fun CardCameraPreview(reader: CardQrReader, onText: (String) -> Unit, on
     surfaceRequest?.let { request -> CameraXViewfinder(surfaceRequest = request, modifier = Modifier.fillMaxSize()) }
 }
 
-/** Whether cards are on here, asked once per screen (offline, the last answer this phone kept). */
 @Composable
 fun rememberArtisanCardsEnabled(repository: FieldRepository): Boolean {
     var enabled by remember { mutableStateOf(false) }
@@ -426,11 +400,6 @@ fun rememberArtisanCardsEnabled(repository: FieldRepository): Boolean {
     return enabled
 }
 
-/**
- * The picker's scan affordance: "Scan card" plus, while a card scanned with no signal is waiting,
- * its chip. [onPicked] gets the artisan id (or the pending `card:` value) and, when known, the name
- * and place the form fills.
- */
 @Composable
 fun ArtisanCardPickerScan(
     repository: FieldRepository,

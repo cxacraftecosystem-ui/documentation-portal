@@ -10,10 +10,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/**
- * The first-open "camera in use" bug: a scanner whose camera effect was restarted mid-await read the
- * cancellation as a failure and refused. A cancelled step must stay cancelled.
- */
 class CameraStepTest {
 
     @Test

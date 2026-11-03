@@ -10,11 +10,6 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 
-/**
- * The outbox's file on disk: what survives an app update, a damaged file and a kill mid-write, and
- * whose entries a sync pass may replay. The file is the only copy of a day's fieldwork until it
- * syncs, so every rule here is a rule about losing data.
- */
 class OfflineQueueFileTest {
     private val dir: File = Files.createTempDirectory("outbox-test").toFile()
     private val queue = File(dir, "queue.json")
@@ -36,8 +31,6 @@ class OfflineQueueFileTest {
 
     @Test
     fun `a queue written by a build before 2026-10-16 still decodes after the update`() {
-        // Exactly the shape the previous release wrote: no kind, no target, no owner, and media
-        // without location or capture time.
         queue.writeText(
             """[{"id":"e1","type":"artisan","payloadJson":"{}","label":"Old","createdAt":"2026-10-01T00:00:00Z",""" +
                 """"media":[{"localPath":"/x/a.jpg","originalFilename":"a.jpg","mimeType":"image/jpeg","mediaType":"IMAGE"}],""" +
@@ -135,7 +128,6 @@ class OfflineQueueFileTest {
         val queue = listOf(entry("mine", owner = "u1"), entry("legacy", owner = null), entry("theirs", owner = "u2"))
         assertEquals(listOf("mine", "legacy"), queue.replayableBy("u1").map { it.id })
         assertEquals(listOf("legacy", "theirs"), queue.replayableBy("u2").map { it.id })
-        // Signed out: nothing that belongs to anyone.
         assertEquals(listOf("legacy"), queue.replayableBy(null).map { it.id })
     }
 }

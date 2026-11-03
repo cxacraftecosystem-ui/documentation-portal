@@ -6,11 +6,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * SvgExport owns the [ExportOptions] mapping, not the serialisation, so these tests cover the
- * mapping: UTF-8 bytes, a real geometric scale rather than a wrapping transform, and the
- * background override. The `<svg>` grammar itself belongs to `:core-vector`'s own tests.
- */
 class SvgExportTest {
 
     private fun text(o: ExportOptions, doc: VecDocument = Fixtures.document()) =
@@ -25,8 +20,6 @@ class SvgExportTest {
 
     @Test
     fun scalingIsBakedIntoTheGeometry() {
-        // Scaling by a wrapping transform would leave the coordinates meaning the wrong thing to
-        // any consumer that reads them directly, which is most cutters and plotters.
         val scaled = ExportGeom.scaleDocument(Fixtures.document(), 2f, 2f)
         assertEquals(Fixtures.DOC_W * 2f, scaled.width, 0.001f)
         assertEquals(Fixtures.DOC_H * 2f, scaled.height, 0.001f)
@@ -71,8 +64,6 @@ class SvgExportTest {
     fun backgroundOverridesTheDocument() {
         val doc = Fixtures.document()
         assertNull(doc.background, "the fixture starts transparent")
-        // The writer decides how a background is expressed; what SvgExport owes is that the
-        // override reaches it instead of the document's own value.
         assertTrue(text(ExportOptions(ExportFormat.SVG, background = 0xFFFF0000.toInt())).isNotEmpty())
     }
 

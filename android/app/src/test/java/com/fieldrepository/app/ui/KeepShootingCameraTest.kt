@@ -5,7 +5,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** A10: the camera reopens after each photo until the researcher backs out. */
 class KeepShootingCameraTest {
 
     @Test
@@ -39,12 +38,10 @@ class KeepShootingCameraTest {
             "android/app/src/main/java/com/fieldrepository/app/MainActivity.kt",
             "src/main/java/com/fieldrepository/app/MainActivity.kt",
         )
-        // The grid-measurement capture is the one single-shot camera left: a record has one grid image.
         val singleShot = Regex("""ActivityResultContracts\.TakePicture\(\)""").findAll(source).count()
         assertEquals("only the two grid-measurement cameras stay single-shot", 2, singleShot)
         assertTrue(source.contains("rememberKeepShootingCamera("))
         assertEquals(3, Regex("""KeepShootingToggle\(\)""").findAll(source).count())
-        // One switch per screen: the process form's step sections never draw their own.
         assertTrue(source.contains("if (showKeepShootingToggle) KeepShootingToggle()"))
         assertTrue(Regex("""media = step\.media,\s+emphasizeVideo = true,\s+showKeepShootingToggle = false,""").containsMatchIn(source))
     }

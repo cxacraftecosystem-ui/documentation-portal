@@ -19,23 +19,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * The runtime's arithmetic and its two ends: pixels in, document out.
- *
- * The runtime CLASS holds a `Context` and cannot be built here — but everything that can be quietly
- * wrong about it is a top-level function that cannot, which is why they are top-level functions.
- * `traceRunEngine` is exercised for real against the vendored pipeline, on a tiny frame, because a
- * trace that never ran in a test is a trace nobody has checked the marshalling of.
- */
 class TraceRuntimeTest {
 
-    /* ── The memory arithmetic ──────────────────────────────────────────────────────────────── */
-
-    /**
-     * **THE TWO FIGURES `TraceRuntime.kt`'s HEADER STATES, PINNED SO THE PARAGRAPH CANNOT ROT.** A full
-     * trace of a 1600x1200 frame costs 112 MB with the shipped flow default and 317 MB with Canny, in
-     * this app's own Java heap.
-     */
     @Test
     fun theHeadersOwnMemoryFiguresAreTheArithmeticsOwn() {
         val pixels = 1600L * 1200L
@@ -44,11 +29,6 @@ class TraceRuntimeTest {
         assertEquals(317L, mb(tracePeakBytes(pixels, pixels, EdgeEngine.CANNY)))
     }
 
-    /**
-     * **AN UNMEASURED ENGINE TAKES THE LARGEST MEASURED VALUE.** Being wrong here costs a refusal with a
-     * named remedy at the top of the resolution range; being wrong the other way costs an
-     * `OutOfMemoryError` in a village.
-     */
     @Test
     fun theUnmeasuredEnginesArePessimistic() {
         val worst = TRACE_ENGINE_BPP.values.max()
@@ -58,7 +38,6 @@ class TraceRuntimeTest {
         assertTrue("Flow is the cheapest per pixel and the slowest per second", TRACE_ENGINE_BPP[EdgeEngine.FDOG]!! < worst)
     }
 
-    /** Every engine has a figure, so nothing silently falls through to the maximum by accident. */
     @Test
     fun everyEdgeEngineHasACostFigure() {
         EdgeEngine.entries.forEach {
@@ -66,10 +45,6 @@ class TraceRuntimeTest {
         }
     }
 
-    /**
-     * **THE STAGES RUN AT THE WORKING SIZE, SO THE WORKING SIZE IS WHAT IS COUNTED.** Using the source
-     * size would refuse traces the downscale makes comfortable.
-     */
     @Test
     fun theWorkingSizeIsWhatDominatesTheEstimate() {
         val source = 4096L * 3072L
@@ -92,7 +67,6 @@ class TraceRuntimeTest {
         )
     }
 
-    /** A trace that fits is not refused, and one that does not names both numbers and two remedies. */
     @Test
     fun aRefusalNamesBothNumbersAndTheTwoControlsThatChangeThem() {
         val pixels = 1600L * 1200L
@@ -108,7 +82,6 @@ class TraceRuntimeTest {
         assertTrue("The engine multiplies the bytes each of them costs", refusal.contains("edge engine"))
     }
 
-    /** The reserve is real: a trace that fits only by taking every byte kills the screen it is shown on. */
     @Test
     fun theReserveIsHeldBackForTheRestOfTheApp() {
         val pixels = 100L * 100L
@@ -125,21 +98,12 @@ class TraceRuntimeTest {
         )
     }
 
-    /** The megabytes in the sentence are rounded, so they match the header's figures exactly. */
     @Test
     fun aNegativeHeadroomReadsAsZeroRatherThanAsANegativeNumber() {
         val refusal = traceMemoryRefusal(1L, 1L, EdgeEngine.CANNY, heapBytes = 0L)
         assertTrue(refusal!!.contains("about 0 MB"))
     }
 
-    /* ── The preview divergence ─────────────────────────────────────────────────────────────── */
-
-    /**
-     * **THE ONE PLACE THIS FILE DECLINES THE VENDORED KOTLIN AND FOLLOWS THE VENDORED TYPESCRIPT.** The
-     * engine's own preview helper rescales thirteen geometric knobs; the panel adopts a run's applied
-     * parameters afterwards, so that would silently rewrite thirteen of somebody's settings to
-     * preview-sized values and the full-resolution trace they press next would run with them.
-     */
     @Test
     fun aPreviewLowersTheWorkingEdgeAndNothingElse() {
         val base = TraceParams(
@@ -157,8 +121,6 @@ class TraceRuntimeTest {
         assertEquals(24, preview.cleanup.minBlobArea)
         assertEquals(1.5f, preview.output.strokeWidth, 1e-6f)
     }
-
-    /* ── The SVG writer ─────────────────────────────────────────────────────────────────────── */
 
     private fun document(shapes: Int): VecDocument = VecDocument(
         width = 100f,
@@ -180,7 +142,6 @@ class TraceRuntimeTest {
         ),
     )
 
-    /** The branding is off, which is the one option here that is not a formatting preference. */
     @Test
     fun theWriterIsGivenNoMetadataAndFlattensItsOneLayer() {
         val svg = traceSvgOf(document(3))
@@ -190,16 +151,11 @@ class TraceRuntimeTest {
         assertTrue(svg.svg.startsWith("<?xml"))
     }
 
-    /** The SVG the panel attaches is the exporter's own answer, which is why the SVG route is a shortcut. */
     @Test
     fun theWriterIdentifiesItself() {
         assertEquals("core-export/SvgExport#export", TRACE_SVG_WRITER)
     }
 
-    /**
-     * **THE CAP IS REPORTED, NEVER SILENT**, and the geometry is NOT trimmed with it: the comparison
-     * plate still shows the whole drawing and only the file is cut.
-     */
     @Test
     fun theShapeCeilingCutsTheFileAndSaysSo() {
         assertNull(traceTruncationNote(100, 100))
@@ -209,11 +165,6 @@ class TraceRuntimeTest {
         assertTrue(note.contains("Simplify"))
     }
 
-    /**
-     * **THE INDIAN DIGIT GROUPING IS WRITTEN OUT RATHER THAN DELEGATED.** A platform formatter answers
-     * "250,000" on a desktop JVM and "2,50,000" on Android — the worst shape a formatting bug can take,
-     * because the sentence somebody reads would differ from the sentence the test that guards it reads.
-     */
     @Test
     fun theCountIsGroupedTheIndianWayOnEveryRuntime() {
         assertTrue(traceTruncationNote(250_000, 200_000)!!.contains("2,50,000"))
@@ -221,8 +172,6 @@ class TraceRuntimeTest {
         assertTrue(traceTruncationNote(1_500, 999)!!.contains("1,500"))
         assertTrue(traceTruncationNote(999, 500)!!.contains("999"))
     }
-
-    /* ── The stage list ─────────────────────────────────────────────────────────────────────── */
 
     @Test
     fun theStageListIsReadFromTheEngineRatherThanTranscribed() {
@@ -232,28 +181,11 @@ class TraceRuntimeTest {
         )
     }
 
-    /** The suggestion is empty on this route, and the reason is written down rather than re-derived. */
     @Test
     fun theSuggestionNoteExplainsWhyTheFieldIsAlwaysEmpty() {
         assertTrue(TRACE_NO_SUGGESTION_NOTE.contains("sentence rather than a style id"))
     }
 
-    /* ══════════════════════════════════════════════════════════════════════════════════════════
-     * One real trace, end to end
-     * ══════════════════════════════════════════════════════════════════════════════════════════ */
-
-    /**
-     * **A REAL RUN THROUGH THE VENDORED PIPELINE, ON A FRAME SMALL ENOUGH TO BE FREE.**
-     *
-     * The marshalling, the geometry serialisation, the SVG writer and the decode into the port's own
-     * shapes are four conversions in a row, and each of them is the kind that produces a plausible wrong
-     * answer rather than a failure. So one trace is run for real: a black bar on white, which produces
-     * shapes, so the arrays below are not all empty.
-     *
-     * `runBlocking` is safe here because the engine is plain arithmetic with no looper and no main
-     * dispatcher — the runtime's own `withContext(Dispatchers.Main)` hop is at the panel boundary, not
-     * inside `traceRunEngine`, which is exactly why the progress pump takes the CALLER's context.
-     */
     @Test
     fun aRealTraceProducesGeometryAnSvgAndTheStagesThatRan() = runBlocking {
         val width = 64
@@ -274,7 +206,6 @@ class TraceRuntimeTest {
         assertTrue("A black bar on white must produce at least one path", decoded.shapeCount > 0)
         assertTrue(decoded.svg.startsWith("<?xml"))
         assertEquals(decoded.shapeCount, decoded.geometry.shapeCount)
-        // The one check that would catch a serialiser that wrote a plausible wrong layout.
         decoded.geometry.validate()
         assertEquals(
             "Every stage the engine ran must be reported, or the weights cannot be measured",
@@ -284,11 +215,6 @@ class TraceRuntimeTest {
         assertEquals("This engine's classifier cannot fill this field", "", decoded.suggestedStyleId)
     }
 
-    /**
-     * **ONE EVENT PER STAGE, AT ITS START.** This engine calls its listener TWICE per stage where the
-     * TypeScript posts once, and the end event carries the same id — so forwarding both would show every
-     * stage twice and make the fraction mean two different things.
-     */
     @Test
     fun progressIsReportedOncePerStageAndNeverReachesOne() = runBlocking {
         val seen = mutableListOf<TraceProgress>()
@@ -307,7 +233,6 @@ class TraceRuntimeTest {
         assertTrue("The engine's own fraction never reaches 1.0", seen.all { it.fraction < 1f })
     }
 
-    /** A PREVIEW EMITS NO PROGRESS AT ALL, because the vendored worker passes no listener to one. */
     @Test
     fun aPreviewReportsNoProgressBecauseThereIsNoneToReport() = runBlocking {
         val seen = mutableListOf<TraceProgress>()
@@ -324,10 +249,6 @@ class TraceRuntimeTest {
         )
     }
 
-    /**
-     * The port's `TraceDecoded` carries what the engine reported and recomputes nothing — in particular
-     * the parameters the stages ACTUALLY RAN WITH, because auto-detection runs before the first stage.
-     */
     @Test
     fun theDecodedResultCarriesTheParametersThatRan() {
         val result = Pipeline.run(
@@ -346,13 +267,6 @@ class TraceRuntimeTest {
         assertEquals(result.totalMillis, decoded.totalMillis)
     }
 
-    /* ── The document, back out again ───────────────────────────────────────────────────────── */
-
-    /**
-     * **`traceDocumentOf` IS THE EXACT INVERSE OF `traceGeometryOf`.** They are walked minutes apart —
-     * one at the end of a trace and one on an export button — so a layout disagreement between them
-     * would be a PDF that does not match the SVG beside it.
-     */
     @Test
     fun theGeometryRoundTripsBackIntoADocument() {
         val original = VecDocument(
@@ -393,7 +307,6 @@ class TraceRuntimeTest {
         assertTrue(back.layers[0].shapes[0].path.closed)
     }
 
-    /** A degenerate page size is clamped once here rather than by four writers each rescuing itself. */
     @Test
     fun aZeroPageSizeIsClampedAtTheSource() {
         val geometry = traceGeometryOf(document(1))
@@ -402,7 +315,6 @@ class TraceRuntimeTest {
         assertEquals(1f, doc.height, 0f)
     }
 
-    /** The style table is de-duplicated, so a run of identically-styled paths is one entry. */
     @Test
     fun identicallyStyledShapesShareOneStyleEntry() {
         val geometry = traceGeometryOf(document(50))

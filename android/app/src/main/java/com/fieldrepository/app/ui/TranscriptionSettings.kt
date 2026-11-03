@@ -7,16 +7,6 @@ import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.PUT
 
-/*
- * The Transcription panel's transport and rules on a phone: GET/PUT /settings/transcription and the
- * dry-run POST /settings/transcription/retry-failed. Mirrors `frontend/components/settings/
- * TranscriptionPanel.tsx` (the shared panel, identical in both portals) field for field and sentence
- * for sentence. UI-free so the rules can be unit-tested; the screen is [TranscriptionPanel].
- *
- * The pause ships ON (owner hold, 18 Oct 2026). Reads are for admins; every change is a master
- * admin's, and the server enforces that whatever this screen shows.
- */
-
 @Serializable
 data class TranscriptionProviderRowDto(
     val id: String,
@@ -65,7 +55,6 @@ data class TranscriptionWindowDto(
 
 @Serializable
 data class TranscriptionStateDto(
-    /** Fail closed: a body without the field reads as paused, as the server's own rule does. */
     val paused: Boolean = true,
     val providers: List<TranscriptionProviderRowDto> = emptyList(),
     val window: TranscriptionWindowDto = TranscriptionWindowDto(),
@@ -92,16 +81,13 @@ interface TranscriptionSettingsApi {
     @GET("settings/transcription")
     suspend fun transcriptionSettings(): TranscriptionStateDto
 
-    /** A partial update: only the keys present change (`paused`, `disabledProviders`, `budgets`). */
     @PUT("settings/transcription")
     suspend fun updateTranscriptionSettings(@Body body: JsonObject): TranscriptionStateDto
 
-    /** Always sent as a dry run from this app: it reports and requeues nothing. */
     @POST("settings/transcription/retry-failed")
     suspend fun checkFailedTranscriptions(@Body body: TranscriptionRetryBody): TranscriptionRetryDto
 }
 
-/** Verbatim from the web panel's `OUTCOME_WORDS`; matched without case, as the store writes either. */
 private val TRANSCRIPTION_OUTCOME_WORDS: Map<String, String> = mapOf(
     "throttled" to "Busy",
     "cooling" to "Cooling down",
@@ -115,14 +101,12 @@ private val TRANSCRIPTION_OUTCOME_WORDS: Map<String, String> = mapOf(
 fun transcriptionOutcomeWords(outcome: String): String =
     TRANSCRIPTION_OUTCOME_WORDS[outcome.lowercase()] ?: outcome
 
-/** The providers to send as `disabledProviders` after switching [id] to [enabled]. */
 fun transcriptionDisabledAfter(
     providers: List<TranscriptionProviderRowDto>,
     id: String,
     enabled: Boolean
 ): List<String> = providers.filter { if (it.id == id) !enabled else !it.enabled }.map { it.id }
 
-/** The header line: "3 queued · 1 failed". */
 fun transcriptionQueueLine(state: TranscriptionStateDto): String =
     "${state.queue["QUEUED"] ?: 0} queued · ${state.queue["FAILED"] ?: 0} failed"
 
@@ -132,7 +116,6 @@ fun transcriptionPauseDescription(paused: Boolean): String =
 fun transcriptionMonthBudget(state: TranscriptionStateDto, provider: String): Int? =
     state.budgets.firstOrNull { it.provider == provider && it.period == "MONTH" }?.minutesCap
 
-/** Minutes typed into the budget field: blank is "no limit", anything else a whole number >= 0. */
 sealed interface BudgetInput {
     data object NoLimit : BudgetInput
     data class Minutes(val value: Int) : BudgetInput
@@ -149,7 +132,6 @@ fun parseTranscriptionBudget(raw: String): BudgetInput {
 
 const val TRANSCRIPTION_BUDGET_INVALID = "Enter whole minutes, or leave it empty for no limit."
 
-/** One provider's status line, as the web joins it. */
 fun transcriptionProviderStatus(
     state: TranscriptionStateDto,
     provider: TranscriptionProviderRowDto,

@@ -20,11 +20,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/**
- * The forms library and the unified session screens of Field Repository Android, drawn on a device
- * (stream U4): the library tabs with Deleted for content admins, P16 and P17, and the workshop
- * annexure. The session screens' device tests are the shared tree's (`androidTest/questionnaire`).
- */
 @RunWith(AndroidJUnit4::class)
 class QuestionnaireFormsUiTest {
     @get:Rule

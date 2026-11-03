@@ -15,39 +15,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/**
- * Learned edge models (ALGORITHMS §7.6) — the registry, and every way the pipeline can fail to use one.
- *
- * **No weights ship with this app and none are downloaded**, and that is the intended shipping state,
- * not a gap: the Android manifest holds no `INTERNET` permission, so there is nowhere to download from
- * and a downloader would have to weaken the one guarantee the whole project rests on. So there is
- * nothing here that infers anything for real. What there *is* is the substitution machinery, and the
- * only thing that makes it worth having is that **every** path through it is reported: a model that is
- * missing, one that is present but not ready, one that throws, and one that answers with the wrong
- * shape all have to produce a drawing plus a sentence naming what ran instead.
- *
- * That is the whole point. A model that silently falls back to FDoG is indistinguishable, on screen,
- * from a model that ran and disagreed with the user, and those two need opposite responses — reinstall
- * the model, or change the parameters.
- *
- * The doubles below are test doubles, not stubs standing in for a shipped implementation. [FakeModel]
- * exists so the *available* branch is executed by something at least once; without it that branch is
- * dead code that has never run, which is how a fallback path ends up being the only one that works.
- */
 class EdgeModelTest {
 
-    /**
-     * A model whose availability and behaviour the test dictates.
-     *
-     * `calls` is the load-bearing part: several assertions below turn on whether inference was even
-     * attempted, and "the note is absent" is not evidence that the model ran.
-     */
     private class FakeModel(
         override val id: String,
         override val displayName: String = id,
         override val isAvailable: Boolean = true,
-        // The default is a plausible answer: dark is ink, so `1 − v` is an edge probability with
-        // 1 = edge, which is the polarity infer() promises and the opposite of every DoG engine's.
         private val behaviour: (GrayF) -> GrayF = { src ->
             val out = FloatArray(src.size)
             for (i in out.indices) out[i] = 1f - src.data[i]
@@ -63,19 +36,11 @@ class EdgeModelTest {
         }
     }
 
-    // The registry is a process-wide singleton, because the platform layer registers into it while a
-    // trace may already be running on a worker. That makes leaked registrations a cross-test hazard:
-    // PipelineTest asserts that "pidinet-tiny" is *not* installed, and a stray registration here would
-    // break it somewhere else entirely.
     @BeforeTest
     fun clearBefore() = EdgeModelRegistry.clear()
 
     @AfterTest
     fun clearAfter() = EdgeModelRegistry.clear()
-
-    // -------------------------------------------------------------------------------------------
-    // NoEdgeModel
-    // -------------------------------------------------------------------------------------------
 
     @Test
     fun theDefaultModelRefusesToInferRatherThanReturningZeros() {
@@ -83,19 +48,12 @@ class EdgeModelTest {
         assertEquals("", NoEdgeModel.id, "a blank id is what keeps the default out of the registry")
         assertTrue(NoEdgeModel.displayName.isNotBlank(), "the picker has to have something to show")
 
-        // Returning an all-zero map would read as "the model found no edges in your artwork", which is
-        // a statement about the image rather than about the install. Throwing puts the failure at the
-        // one place the mistake is legible.
         val failure = assertFailsWith<UnsupportedOperationException> { NoEdgeModel.infer(GrayF(4, 4)) }
         assertTrue(
             failure.message!!.contains("isAvailable"),
             "the refusal should say what the caller forgot to check: ${failure.message}",
         )
     }
-
-    // -------------------------------------------------------------------------------------------
-    // The registry
-    // -------------------------------------------------------------------------------------------
 
     @Test
     fun anEmptyRegistryIsTheNormalStateAndMissesCleanly() {
@@ -115,9 +73,6 @@ class EdgeModelTest {
 
     @Test
     fun reRegisteringAModelReplacesItInPlaceWithoutMovingIt() {
-        // The real sequence this exists for: a model registers as unavailable while its weights load,
-        // then registers again as available. If that moved it to the end, the picker would reorder
-        // itself under the user's finger.
         EdgeModelRegistry.register(FakeModel("pidinet", isAvailable = false))
         EdgeModelRegistry.register(FakeModel("hed"))
         val loaded = FakeModel("pidinet", displayName = "PiDiNet (loaded)", isAvailable = true)
@@ -130,9 +85,6 @@ class EdgeModelTest {
 
     @Test
     fun aModelWithABlankIdIsIgnoredRatherThanCrashingTheApp() {
-        // A blank id can only come from a malformed side-loaded bundle. It cannot be persisted in a
-        // project file or looked up, so listing it would give the user a row that does nothing —
-        // but taking the app down over one is worse than not listing it.
         EdgeModelRegistry.register(FakeModel(""))
         assertTrue(EdgeModelRegistry.all().isEmpty())
         assertNull(EdgeModelRegistry.byId(""))
@@ -144,9 +96,6 @@ class EdgeModelTest {
         EdgeModelRegistry.register(FakeModel("loading", isAvailable = false))
 
         assertEquals(listOf("ready"), EdgeModelRegistry.available().map { it.id })
-        // The distinction the picker needs. Built on available() it would drop the second model
-        // entirely, and "my model disappeared" becomes a question with no answer on screen; built on
-        // all() the row is there, greyed out, which is a fact somebody can act on.
         assertEquals(listOf("ready", "loading"), EdgeModelRegistry.all().map { it.id })
         assertFalse(EdgeModelRegistry.byId("loading")!!.isAvailable)
     }
@@ -169,10 +118,6 @@ class EdgeModelTest {
         assertTrue(EdgeModelRegistry.all().isEmpty())
         assertNull(EdgeModelRegistry.byId("one"))
     }
-
-    // -------------------------------------------------------------------------------------------
-    // What the pipeline does with one
-    // -------------------------------------------------------------------------------------------
 
     @Test
     fun anAvailableModelActuallyRunsAndNothingFallsBack() {
@@ -206,8 +151,6 @@ class EdgeModelTest {
 
     @Test
     fun aModelThatThrowsIsNamedWithItsErrorAndDoesNotTakeTheTraceDown() {
-        // A side-loaded model is third-party native code on an unknown ABI. The one outcome that is not
-        // acceptable is the trace dying with it, and the second-worst is dying silently.
         EdgeModelRegistry.register(
             FakeModel("crashy", displayName = "Crashy") {
                 throw IllegalStateException("tensor rank 3 expected")
@@ -228,8 +171,6 @@ class EdgeModelTest {
 
     @Test
     fun aModelThatAnswersWithTheWrongShapeIsDiscardedWithANote() {
-        // Not resampled. A model that returns the wrong dimensions has misunderstood its input, and
-        // scaling its output to fit would hide that behind a plausible-looking drawing.
         EdgeModelRegistry.register(
             FakeModel("mismatched", displayName = "Mismatched") { GrayF(it.width / 2, it.height) }
         )
@@ -245,9 +186,6 @@ class EdgeModelTest {
 
     @Test
     fun anIdThatWasNeverRegisteredIsNamedRatherThanSilentlyIgnored() {
-        // The common real case: a project file references a model the user has since removed, or opened
-        // on a second device. The id has to appear in the note, because it is the only thing that tells
-        // them *which* model to reinstall.
         val result = trace("pidinet-from-my-other-phone")
         val note = result.notes.firstOrNull { it.contains("pidinet-from-my-other-phone") }
         assertTrue(note != null, "the missing id was not named: ${result.notes}")
@@ -256,10 +194,6 @@ class EdgeModelTest {
 
     @Test
     fun aModelThatReturnsOutOfRangeValuesIsClampedRatherThanTrusted() {
-        // The contract says 0..1; a real ONNX graph with the wrong final activation returns logits. The
-        // values are clamped instead of rejected, because a shifted range is still a usable ranking of
-        // edge strength and Otsu adapts to whatever scale it is handed — but NaN is not, and one NaN
-        // propagates through the threshold into an empty drawing with nothing to attribute it to.
         var maxSeen = Float.NEGATIVE_INFINITY
         EdgeModelRegistry.register(
             FakeModel("logits", displayName = "Logits") { src ->
@@ -278,9 +212,6 @@ class EdgeModelTest {
             result.notes.none { it.contains("FDoG engine ran instead") },
             "an out-of-range map is usable and must not trigger a fallback: ${result.notes}",
         )
-        // The clamp is what makes this pass. Left alone, the NaNs make every comparison in the
-        // threshold false, the mask comes back empty, and the failure surfaces two stages later as
-        // "no ink survived the cleanup stages" — a sentence that blames the cleanup for the model.
         assertTrue(
             result.notes.none { it.contains("No ink survived") },
             "NaNs from the model emptied the mask: ${result.notes}",
@@ -288,17 +219,12 @@ class EdgeModelTest {
         assertTrue(result.document.shapeCount() > 0, "notes were ${result.notes}")
     }
 
-    // -------------------------------------------------------------------------------------------
-    // Fixture
-    // -------------------------------------------------------------------------------------------
-
     private fun trace(modelId: String) = Pipeline.run(
         cross(96, 10),
         TraceParams(edge = EdgeParams(engine = EdgeEngine.MODEL, modelId = modelId)),
         classify = false,
     )
 
-    /** White paper with a black cross — enough ink for every engine here to find something. */
     private fun cross(size: Int, thickness: Int): RgbaImage {
         val img = RgbaImage(size, size).fill(0xFFFFFFFF.toInt())
         val mid = size / 2

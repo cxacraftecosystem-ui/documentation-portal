@@ -7,10 +7,6 @@ import kotlin.test.assertTrue
 
 class SvgPathDataTest {
 
-    // -----------------------------------------------------------------------------------------
-    // Round trip
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun toDParseToDIsByteIdentical() {
         val path = VecPath(
@@ -32,12 +28,6 @@ class SvgPathDataTest {
         assertTrue(reparsed[0].closed)
     }
 
-    // The three expectations below are the compact canonical `d` form of ALGORITHMS.md §10: no space
-    // after a command letter, repeated letters elided, one space between numbers, nothing before Z.
-    // They used to assert the spaced form ("M 1 0 L 2.5 3.14"), which is equally valid SVG but is not
-    // what the TypeScript engine writes — and §14 compares this string exactly, so exactly one of the
-    // two spellings can be right.
-
     @Test
     fun formattingStripsTrailingZerosAndNegativeZero() {
         val path = VecPath(VecPoint(1f, -0.001f), listOf(VecSeg.Line(VecPoint(2.5f, 3.140f))))
@@ -58,10 +48,6 @@ class SvgPathDataTest {
         )
         assertEquals("M0 0L1 0 2 0 3 0", SvgPathData.toD(path, 2))
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Grammar
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun parsesRunTogetherNumbersAndExponents() {
@@ -99,13 +85,11 @@ class SvgPathDataTest {
     fun smoothCubicReflectsOnlyAfterACubic() {
         val afterCubic = SvgPathData.parse("M0 0 C 10 0 20 0 30 0 S 50 10 60 0")[0]
         val reflected = afterCubic.segments[1] as VecSeg.Cubic
-        // c2 of the previous cubic is (20,0); reflected about the current point (30,0) is (40,0).
         assertEquals(40f, reflected.c1.x, 1e-3f)
         assertEquals(0f, reflected.c1.y, 1e-3f)
 
         val afterLine = SvgPathData.parse("M0 0 L 10 0 S 20 10 30 0")[0]
         val notReflected = afterLine.segments[1] as VecSeg.Cubic
-        // The previous command was not a cubic, so the first control point is the current point.
         assertEquals(10f, notReflected.c1.x, 1e-3f)
         assertEquals(0f, notReflected.c1.y, 1e-3f)
     }
@@ -114,7 +98,6 @@ class SvgPathDataTest {
     fun smoothQuadReflectsOnlyAfterAQuad() {
         val afterQuad = SvgPathData.parse("M0 0 Q 10 10 20 0 T 40 0")[0]
         val reflected = afterQuad.segments[1] as VecSeg.Quad
-        // Control (10,10) reflected about the current point (20,0) is (30,-10).
         assertEquals(30f, reflected.c.x, 1e-3f)
         assertEquals(-10f, reflected.c.y, 1e-3f)
 
@@ -140,10 +123,6 @@ class SvgPathDataTest {
         assertTrue(paths[0].closed)
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Arcs
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun arcReachesItsEndpoint() {
         val p = SvgPathData.parse("M0 0 A 10 10 0 0 1 20 0")[0]
@@ -151,7 +130,6 @@ class SvgPathDataTest {
         val end = anchors[anchors.size - 1]
         assertEquals(20f, end.x, 1e-2f)
         assertEquals(0f, end.y, 1e-2f)
-        // A semicircle needs two cubics; one would be visibly wrong.
         assertEquals(2, p.segments.size)
     }
 
@@ -175,15 +153,10 @@ class SvgPathDataTest {
 
     @Test
     fun undersizedRadiiAreScaledUpRatherThanRejected() {
-        // The endpoints are 20 apart but the radii only span 10; F.6.6 says scale, not fail.
         val cubics = SvgPathData.arcToCubics(0f, 0f, 5f, 5f, 0f, false, true, 20f, 0f)
         assertTrue(cubics.isNotEmpty())
         assertEquals(20f, cubics[cubics.size - 1].to.x, 1e-2f)
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Robustness
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun malformedInputNeverThrows() {

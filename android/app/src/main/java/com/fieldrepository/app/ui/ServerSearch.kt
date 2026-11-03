@@ -20,42 +20,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.IOException
 
-/**
- * RECORD PICKERS THAT SEARCH THE SERVER (DC-A09).
- *
- * The craft, artisan and interview pickers used to walk up to twenty 100-row pages of their table at
- * start-up (2,000 rows) and filter that copy on the device. That cost twenty sequential requests
- * before the first form could be trusted, held every row in memory, and still stopped somewhere.
- *
- * Now a picker holds ONE page and asks the list route itself: typing goes to the route's own
- * `search` parameter after [SEARCH_DEBOUNCE_MS] of quiet, and "Load more" fetches the next page of
- * whatever is listed — the plain list or the matches. Nothing is out of reach, so nothing has to be
- * explained.
- *
- * OFFLINE the last answers still come back from the HTTP read cache (`data/OfflineReadCache.kt`), so a
- * page or a term asked before is served as it was. A term never asked fails, and the picker falls back
- * to filtering every row it has already seen, with [ServerSearchState.note] saying so in one line.
- *
- * Rows are only ever ADDED to [ServerSearchState.seen]: a row picked from a search result must still
- * have a label once the query is cleared, and a form that reads a picked row back (the product form
- * fills artisan + place from it) must still find it.
- */
-
-/** Rows one request asks for. The server's own ceiling (`MAX_PAGE_SIZE`). */
 const val SERVER_SEARCH_PAGE_SIZE = 100
 
-/** What the sheet says when the list it shows came from the device instead of the server. */
 const val SERVER_SEARCH_OFFLINE_NOTE = "Offline — showing saved records."
 const val SERVER_SEARCH_FAILED_NOTE = "Couldn't search — showing saved records."
 
-/**
- * What a searchable sheet needs from a caller whose rows live on the server. Handed to
- * [SearchableSelectField] / [SearchableMultiSelectField] as `server`; null keeps the local filter.
- *
- * @param rows what the sheet lists for the current query — already matched, so the sheet does not
- *   filter them again (the server matches fields the label does not show, such as notes).
- * @param total how many rows the current listing has in all, or null when unknown.
- */
 @Immutable
 data class ServerSearch(
     val rows: List<SelectOption>,
@@ -67,19 +36,16 @@ data class ServerSearch(
     val onLoadMore: () -> Unit
 )
 
-/** Space-split terms, every one required, case-insensitive — the sheet's own local rule. */
 fun serverSearchMatches(text: String, query: String): Boolean {
     val terms = query.trim().split(' ', '\t', '\n').filter { it.isNotBlank() }
     return terms.all { text.contains(it, ignoreCase = true) }
 }
 
-/** A fresh first page, then every kept row it does not repeat (the later pages), in their order. */
 fun <T> keepLaterPages(first: List<T>, kept: List<T>, idOf: (T) -> String): List<T> {
     val fresh = first.mapTo(HashSet()) { idOf(it) }
     return first + kept.filter { idOf(it) !in fresh }
 }
 
-/** Union by id, first writer wins, nothing removed. */
 fun <T> mergeRowsById(previous: List<T>, incoming: List<T>, idOf: (T) -> String): List<T> {
     if (incoming.isEmpty()) return previous
     val seen = previous.mapTo(HashSet()) { idOf(it) }
@@ -87,14 +53,6 @@ fun <T> mergeRowsById(previous: List<T>, incoming: List<T>, idOf: (T) -> String)
     return if (added.isEmpty()) previous else previous + added
 }
 
-/**
- * WHAT THE SHEET LISTS — a pure function so a unit test can reach every arm.
- *
- *  • Blank query: the scope's own pages once they have arrived, the cached rows before that.
- *  • A query the server has answered: exactly that answer.
- *  • A query still in flight, or one the server could not answer: every row already on the device,
- *    filtered locally — so typing never shows an empty sheet while a request is out.
- */
 fun <T> serverSearchRows(
     query: String,
     browse: List<T>,
@@ -113,7 +71,6 @@ fun <T> serverSearchRows(
     return pool.filter { serverSearchMatches(textOf(it), term) }
 }
 
-/** Is there another page of what the sheet is listing? Never offline: a page not cached will fail. */
 fun serverSearchHasMore(
     query: String,
     browseLoaded: Boolean,
@@ -131,11 +88,6 @@ fun serverSearchHasMore(
     }
 }
 
-/**
- * One picker's server-backed list. Create with [rememberServerSearch].
- *
- * @property query what is in the sheet's box right now (raw; the debounce trims it).
- */
 @Stable
 class ServerSearchState<T> internal constructor(
     private val idOf: (T) -> String,
@@ -145,12 +97,10 @@ class ServerSearchState<T> internal constructor(
         private set
     var browse by mutableStateOf<List<T>>(emptyList())
         private set
-    /** True once the scope's page 1 has arrived (or a seed stood in for it). */
     var browseLoaded by mutableStateOf(false)
         private set
     var browseTotal by mutableIntStateOf(0)
         private set
-    /** The scope [browse] was loaded for, so a caller never reads one scope's rows as another's. */
     var browseKey by mutableStateOf<Any?>(null)
         private set
     internal var currentKey: Any? = null
@@ -164,28 +114,21 @@ class ServerSearchState<T> internal constructor(
         private set
     var note by mutableStateOf<String?>(null)
         private set
-    /** Every row any answer has carried, for labels and read-backs. Only ever grows. */
     var seen by mutableStateOf<List<T>>(emptyList())
         private set
-    // What this SCOPE's answers carried — the offline fallback searches these and not [seen], so a
-    // workshop-scoped picker never offers the previous workshop's people while a request is out.
     private var scopeSeen by mutableStateOf<List<T>>(emptyList())
 
-    // A plain field, deliberately not snapshot state: it is written during composition, and a state
-    // write there that a reader of the same frame observes is a backwards write.
     internal var cached: List<T> = emptyList()
     internal var fetch: suspend (search: String?, page: Int) -> PageResponse<T> = { _, _ -> error("no source") }
     internal var scope: CoroutineScope? = null
     private var moreJob: Job? = null
 
-    /** What the sheet lists now. See [serverSearchRows]. */
     val rows: List<T>
         get() = serverSearchRows(query, browse, browseLoaded, cached, resultsFor, results, scopeSeen, idOf, textOf)
 
     val hasMore: Boolean
         get() = serverSearchHasMore(query, browseLoaded, browse.size, browseTotal, resultsFor, results.size, resultsTotal)
 
-    /** The total of what is listed, when the server has said. */
     val total: Int?
         get() {
             val term = query.trim()
@@ -196,7 +139,6 @@ class ServerSearchState<T> internal constructor(
             }
         }
 
-    /** Every row this picker knows, for a form that reads a chosen row back. */
     val known: List<T>
         get() = mergeRowsById(mergeRowsById(browse, cached, idOf), seen, idOf)
 
@@ -268,11 +210,6 @@ class ServerSearchState<T> internal constructor(
         }
     }
 
-    /**
-     * The first page again over a list that is already loaded (Back from a record): those rows are
-     * refreshed and every later page stays, so the row the reader opened is still there to return
-     * to (owner, 1 Nov 2026). A failed read leaves the list as it was.
-     */
     internal suspend fun refreshFirst() {
         try {
             val page = fetch(null, 1)
@@ -283,17 +220,14 @@ class ServerSearchState<T> internal constructor(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
-            // The kept rows stand; the next deliberate action will say what is wrong.
         }
     }
 
-    /** Ask for the scope's first page again — the Try again on a list that never arrived. */
     fun retry() {
         val launcher = scope ?: return
         launcher.launch { loadBrowse() }
     }
 
-    /** The next page of whatever is listed. Ignored while one is already on its way. */
     fun loadMore() {
         if (moreJob?.isActive == true || !hasMore) return
         val term = query.trim()
@@ -306,7 +240,6 @@ class ServerSearchState<T> internal constructor(
                     val page = fetch(null, next)
                     browse = mergeRowsById(browse, page.items, idOf)
                     browseTotal = page.total
-                    // A short page past the count means the table shrank under us: stop asking.
                     if (page.items.isEmpty()) browseTotal = browse.size
                     keep(page.items)
                 } else {
@@ -329,15 +262,9 @@ class ServerSearchState<T> internal constructor(
         }
     }
 
-    /** The sheet's half, with rows turned into options by [toOption]. */
     fun asServerSearch(toOption: (T) -> SelectOption): ServerSearch =
         asServerSearchRows(countsRows = true) { list -> list.map(toOption) }
 
-    /**
-     * The same, for a caller that reorders or folds the rows (the tool form sorts by craft; the
-     * interview picker folds sittings into one entry). [countsRows] false when folding changes the
-     * count, so the sheet prints what it shows rather than the server's row total.
-     */
     fun asServerSearchRows(countsRows: Boolean, rowsOf: (List<T>) -> List<SelectOption>): ServerSearch = ServerSearch(
         rows = rowsOf(rows),
         total = if (countsRows) total else null,
@@ -349,15 +276,6 @@ class ServerSearchState<T> internal constructor(
     )
 }
 
-/**
- * Remember a server-searched list for one scope.
- *
- * @param key the scope (a craft list, a workshop list, a record type). A change starts over.
- * @param cached rows already on the device, shown before the first answer and searched offline.
- * @param seed page 1 of this scope when the caller already holds it (the app-wide lookups), so the
- *   picker costs no request until somebody types or asks for more. Null fetches page 1 itself.
- * @param fetch one page of the scope, `search` null for the plain list.
- */
 @Composable
 fun <T> rememberServerSearch(
     key: Any?,
@@ -366,10 +284,6 @@ fun <T> rememberServerSearch(
     idOf: (T) -> String,
     textOf: (T) -> String,
     enabled: Boolean = true,
-    /**
-     * A name to keep this list under in the screen's memory ([LocalScreenMemory]): its pages, its
-     * search and its results come back with Back from a record. Null for a picker inside a form.
-     */
     keepAs: String? = null,
     fetch: suspend (search: String?, page: Int) -> PageResponse<T>
 ): ServerSearchState<T> {
@@ -380,7 +294,6 @@ fun <T> rememberServerSearch(
     state.cached = cached
 
     LaunchedEffect(key, seed, enabled) {
-        // Back to a kept list of the same scope: refresh its first page, keep the rest.
         if (keepAs != null && state.browseLoaded && state.browseKey == key) {
             state.currentKey = key
             if (enabled) state.refreshFirst()

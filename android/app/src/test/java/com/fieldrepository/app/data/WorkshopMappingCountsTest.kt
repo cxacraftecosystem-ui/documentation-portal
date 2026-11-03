@@ -5,12 +5,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/**
- * The "Records not filed under a workshop" card's counts (A6, 2026-10-20) — the web's
- * `components/settings/workshopMapping.ts`, rule for rule and word for word. The server files the
- * PARENT-rung rows itself each night, so the card leads with what is left for a person; against an
- * older server (no `clearCut`, no `autoMap`) every count falls back to the old fields.
- */
 class WorkshopMappingCountsTest {
     private val json = Json { ignoreUnknownKeys = true }
 

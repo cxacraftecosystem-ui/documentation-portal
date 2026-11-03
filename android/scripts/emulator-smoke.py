@@ -1,34 +1,4 @@
 #!/usr/bin/env python3
-"""
-Drive the debug APK through what targetSdk 37 changed, on an emulator, and say what happened.
-
-Run by .github/workflows/android-emulator.yml from inside reactivecircus/android-emulator-runner, with
-`android/` as the working directory and an emulator already booted. Nothing here signs in, so nothing
-here can reach production data; the one network exchange it causes is with a stub on the runner.
-
-WHAT IT CHECKS, AND WHY EACH IS A DEVICE QUESTION RATHER THAN A UNIT TEST
-  • install + cold launch, and the installed package really targets 37 (`dumpsys package`);
-  • every display change it makes (rotation, the large-screen size) is CHECKED to have happened
-    before anything is measured on it, and a change that did not happen is a FAIL — a measurement
-    of the wrong screen reported under the right name is the one result this script must not give;
-  • EDGE-TO-EDGE: no piece of the app's text or controls intersects a visible status bar,
-    navigation bar or keyboard — read from `uiautomator dump` against the system's own inset frames
-    (`dumpsys window`) — in portrait, in landscape, at a large-screen size (sw >= 600dp, where
-    Android 16+ ignores orientation and resizability limits), and with the keyboard up;
-  • rotation and resizing do not restart or crash the activity (it handles its own configChanges);
-  • BACK at the root and HOME, then resuming, do not crash (predictive back: Android 16+ no longer
-    calls onBackPressed() for targetSdk 36+);
-  • LOCAL-NETWORK PERMISSION (only with SMOKE_LAN_APK, a debug build pointed at http://10.0.2.2:8000):
-    on API 37+ the app asks for ACCESS_LOCAL_NETWORK at launch; "Don't allow" is answered on one
-    clean launch and "Allow" on another, and only after Allow must its sign-in request reach a stub
-    server on the runner. Whether the platform blocked the request after the refusal is recorded as
-    information, not as a failure: that is the platform's behaviour, not the app's. Below 37 the app
-    must NOT prompt, and the request must get through with no grant at all.
-
-Every hard check is PASS or FAIL; the exit status is 1 if any FAILed. Screenshots, UI dumps, the
-system's inset frames, `dumpsys package` and the full logcat land in SMOKE_OUT for the artifact.
-"""
-
 import http.server
 import json
 import os
@@ -40,7 +10,7 @@ import time
 import xml.etree.ElementTree as ET
 
 PKG = "com.fieldrepository.app"
-APP_LABEL = "Field Repository"  # res/values/strings.xml app_name: what a system dialog calls this app
+APP_LABEL = "Field Repository"
 ACTIVITY = f"{PKG}/.MainActivity"
 OUT = os.environ.get("SMOKE_OUT", "build/emulator-smoke")
 PROD_APK = os.environ.get("SMOKE_PROD_APK", "app/build/outputs/apk/debug/app-debug.apk")
@@ -57,7 +27,6 @@ def log(msg):
 
 
 def record(name, status, detail=""):
-    """status is PASS, FAIL or INFO. INFO never fails the run."""
     results.append((name, status, detail))
     log(f"{status:4s}  {name}" + (f" — {detail}" if detail else ""))
 
@@ -84,7 +53,7 @@ def screenshot(name):
         png = adb("exec-out", "screencap", "-p", binary=True, timeout=60)
         with open(os.path.join(OUT, f"{name}.png"), "wb") as fh:
             fh.write(png)
-    except Exception as exc:  # a missing picture is not a verdict
+    except Exception as exc:
         log(f"screenshot {name} failed: {exc}")
 
 
@@ -96,15 +65,6 @@ SYSTEM_DIALOG = re.compile(r"^(.+?) (?:isn.t responding|keeps stopping|has stopp
 
 
 def ui_dump(name):
-    """
-    The UI hierarchy, with any system "isn't responding" / "keeps stopping" dialog that belongs to
-    ANOTHER app cleared out of the way first.
-
-    On 2026-10-09 an API 34 run measured "Pixel Launcher isn't responding" — the emulator's own
-    launcher, starved on a software-rendered emulator — instead of this app, three times over. A
-    dialog like that says nothing about this app, so it is answered with Wait and recorded as INFO.
-    The same dialog naming THIS app is the opposite: a FAIL, left on screen for the screenshot.
-    """
     for _ in range(3):
         root = raw_ui_dump(name)
         if root is None:
@@ -134,7 +94,6 @@ def ui_dump(name):
 
 
 def raw_ui_dump(name):
-    """The UI hierarchy as XML, or None. Retried: uiautomator refuses while anything animates."""
     for attempt in range(4):
         out = sh("uiautomator dump /sdcard/smoke-ui.xml", check=False, timeout=60)
         if "dumped to" in out:
@@ -165,21 +124,11 @@ def nodes(root, package=None):
 
 
 def clip(a, b):
-    """The overlap of two rectangles, or None when they do not overlap."""
     r = (max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3]))
     return r if r[2] > r[0] and r[3] > r[1] else None
 
 
 def app_content(root):
-    """
-    Every node of the app that SHOWS something — text, a description, or a control to press — with
-    the part of it that is actually on screen.
-
-    A node inside a scroll container reports its whole bounds even where the container has scrolled
-    it out of view, so each one is clipped to every scrollable ancestor: a field scrolled half out of
-    sight is not a field under the navigation bar. A node as large as the window is a container (a
-    clickable backdrop, a scrim), not content, and is meant to run under the bars, so it is left out.
-    """
     window = None
     for node in nodes(root, PKG):
         window = rect(node.get("bounds"))
@@ -200,7 +149,7 @@ def app_content(root):
         if node.get("scrollable") == "true" and r:
             inner = clip(r, visible_area) if visible_area else r
         if inner is None and visible_area is not None:
-            return  # a scroll container entirely out of view shows nothing below it
+            return
         for child in node:
             walk(child, inner)
 
@@ -215,7 +164,6 @@ INSET = re.compile(
 
 
 def system_bars(name):
-    """Visible status/navigation/IME frames, as the window manager reports them right now."""
     dump = sh("dumpsys window", timeout=60)
     save(f"{name}.dumpsys-window.txt", dump)
     frames = set()
@@ -231,7 +179,6 @@ def intersects(a, b):
 
 
 def check_insets(name, kinds=("statusBars", "navigationBars")):
-    """Record whether any app content sits under a visible bar; return the hierarchy it measured."""
     root = ui_dump(name)
     screenshot(name)
     if root is None:
@@ -303,8 +250,6 @@ def install(apk):
     return "Success" in out, out.strip()
 
 
-# ── the stub backend for the local-network phase ───────────────────────────────────────────────────
-
 requests_seen = []
 
 
@@ -338,7 +283,6 @@ def text_fields(root):
 
 
 def enclosing_clickable(root, inner):
-    """The smallest clickable app node whose bounds contain [inner]: a button around its label."""
     best = None
     for node in nodes(root, PKG):
         r = rect(node.get("bounds"))
@@ -352,14 +296,6 @@ def enclosing_clickable(root, inner):
 
 
 def sign_in_attempt(tag):
-    """
-    Fill both boxes and press Login. True only once the press has landed on an ENABLED button.
-
-    Every position is read afresh after every focus change. The first version of this tapped the
-    password box where it had been BEFORE the keyboard opened; the keyboard had moved the form up
-    (adjustResize doing its job), the tap landed between two buttons, the password went into the
-    email box, Login stayed disabled, and no request was ever made.
-    """
     root = ui_dump(f"{tag}-form")
     fields = text_fields(root) if root is not None else []
     if len(fields) < 2:
@@ -368,7 +304,6 @@ def sign_in_attempt(tag):
     tap(fields[0])
     settle(1.5)
     sh("input text 'smoke@example.test'")
-    # The keyboard is up now: the IME is the third bar the app must keep its content clear of.
     root = check_insets(f"{tag}-keyboard-open", kinds=("statusBars", "navigationBars", "ime"))
     fields = text_fields(root) if root is not None else []
     if len(fields) < 2:
@@ -377,7 +312,7 @@ def sign_in_attempt(tag):
     tap(fields[1])
     settle(1.0)
     sh("input text 'not-a-real-password'")
-    sh("input keyevent KEYCODE_BACK")  # hide the keyboard so the whole form is on screen
+    sh("input keyevent KEYCODE_BACK")
     settle(1.5)
     root = ui_dump(f"{tag}-filled")
     label = find(root, r"^Login$", PKG) if root is not None else None
@@ -393,19 +328,6 @@ def sign_in_attempt(tag):
 
 
 def launch_clean(tag):
-    """
-    Launch from a clean slate and wait for something to come up. Returns ("prompt" | "app" |
-    "nothing", the last UI hierarchy).
-
-    `pm clear` empties the app, and clearing the permission flags forgets any earlier answer, so the
-    prompt is asked again exactly as on a first launch. The launch is then CONFIRMED rather than
-    assumed: on 2026-10-09 an API 37 run started the app straight after `pm clear` killed a
-    half-started process, the dead process's pending start swallowed `am start`, and the home screen
-    was measured as "no prompt". So this polls until either the permission window or this app is on
-    screen, launches once more if neither appears, and says "nothing" if that fails too — an answer
-    the callers turn into a FAIL, because the absence of a prompt from an app that never started
-    proves nothing.
-    """
     sh(f"am force-stop {PKG}", check=False)
     sh(f"pm clear {PKG}", check=False)
     sh(f"pm revoke {PKG} {LOCAL_NETWORK}", check=False)
@@ -425,7 +347,7 @@ def launch_clean(tag):
                 screenshot(f"{tag}-prompt")
                 return "prompt", root
             if any(True for _ in nodes(root, PKG)):
-                app_seen = True  # up, but the prompt may still be on its way: keep watching
+                app_seen = True
         if app_seen:
             screenshot(f"{tag}-prompt")
             return "app", root
@@ -435,7 +357,6 @@ def launch_clean(tag):
 
 
 def answer_prompt(tag, answer):
-    """Launch clean (see [launch_clean]) and, if the Nearby devices prompt shows, tap [answer]."""
     state, root = launch_clean(tag)
     if state == "prompt":
         hit = find(root, answer, None)
@@ -451,8 +372,6 @@ NEVER_STARTED = "the app never came to the front after two launches; see the -pr
 
 
 def local_network_phase(sdk):
-    # Out of the foreground BEFORE the reinstall: replacing the package under a visible activity
-    # makes the system relaunch it, and that relaunch is what raced the first clean launch below.
     sh("input keyevent KEYCODE_HOME", check=False)
     sh(f"am force-stop {PKG}", check=False)
     settle(2)
@@ -464,8 +383,6 @@ def local_network_phase(sdk):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         if sdk < 37:
-            # Below Android 17 every app holding INTERNET is granted local-network access
-            # implicitly, and the app must not ask: ui/LocalNetworkAccess.kt only prompts from 37.
             state = answer_prompt("lan-01", r"^allow$")
             record(f"local network: the app starts with no Nearby devices prompt on API {sdk}",
                    "PASS" if state == "app" else "FAIL",
@@ -485,8 +402,6 @@ def local_network_phase(sdk):
             check_alive("local network: the app survived the round trip")
             return
 
-        # 1. Refuse, then sign in. Whether the request still leaves is the PLATFORM's answer, so it
-        #    is recorded as information; it is what says the permission is needed at all.
         state = answer_prompt("lan-01", r"don.?t allow")
         record("local network: the debug build asks for Nearby devices at launch",
                "PASS" if state == "prompt" else "FAIL",
@@ -505,9 +420,6 @@ def local_network_phase(sdk):
         sh(f"am force-stop {PKG}", check=False)
         settle(2)
 
-        # 2. Allow, by tapping Allow as a person would, and sign in again. The app was stopped
-        #    first, so a request still pending from the refused attempt cannot arrive late and
-        #    count as this one.
         state = answer_prompt("lan-03", r"^allow$")
         if state != "prompt":
             sh(f"pm grant {PKG} {LOCAL_NETWORK}", check=False)
@@ -537,14 +449,6 @@ def local_network_phase(sdk):
 
 
 def set_rotation(quarter_turns):
-    """
-    Lock the display at 0..3 quarter turns from portrait.
-
-    `wm user-rotation lock` is WindowManager's own command (Android 11 and later). The system
-    setting is the older route and only a fallback: on 2026-10-09 it turned an API 37 image and left
-    an API 34 one in portrait, and the landscape check then measured a portrait screen and reported
-    it as landscape. So the result is checked by [wait_for_rotation], never assumed.
-    """
     out = sh(f"wm user-rotation lock {quarter_turns}", check=False)
     if re.search(r"(?i)unknown|error|usage", out):
         sh("settings put system accelerometer_rotation 0", check=False)
@@ -552,7 +456,6 @@ def set_rotation(quarter_turns):
 
 
 def wait_for_rotation(name, quarter_turns, seconds=20):
-    """Dump the UI until the hierarchy reports [quarter_turns]. Returns whether it ever did."""
     deadline = time.time() + seconds
     while True:
         root = ui_dump(name)
@@ -615,7 +518,7 @@ def main():
         record("the display turned back to portrait", "FAIL", "every later check would measure landscape")
 
     sh("wm size 1600x2560")
-    sh("wm density 320")  # 1600 px / 2.0 = 800 dp: a large screen
+    sh("wm density 320")
     settle(5)
     size = sh("wm size", check=False)
     resized = "Override size: 1600x2560" in size

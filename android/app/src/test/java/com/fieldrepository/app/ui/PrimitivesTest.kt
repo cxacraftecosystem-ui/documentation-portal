@@ -8,16 +8,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * THE SHARED PRIMITIVES (owner, 2026-10-17) on the handset: the OTP rules (the web's `lib/otp.ts`,
- * held to the same cases as `e2e/primitives-unit.spec.ts`), the two-step switch's Off / Setting up /
- * On logic, and source checks that every setting is an [AppToggle] and every 6-digit surface an
- * [OtpCodeField].
- */
 class PrimitivesTest {
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false; coerceInputValues = true }
-
-    // --- OTP --------------------------------------------------------------------------------------
 
     @Test
     fun `a code is exactly six ascii digits`() {
@@ -38,7 +30,6 @@ class PrimitivesTest {
         code = OtpCode.accept(code, code + "19")
         assertEquals("482619", code)
         assertEquals(5, OtpCode.activeBox(code))
-        // A seventh digit cannot land.
         assertEquals("482619", OtpCode.accept(code, code + "7"))
     }
 
@@ -63,8 +54,6 @@ class PrimitivesTest {
         assertEquals("Digit 6 of 6", OtpCode.digitLabel(5))
     }
 
-    // --- The two-step switch ----------------------------------------------------------------------
-
     private val off = TwoFactorStatusDto(enabled = false, pending = false)
     private val pendingOnly = TwoFactorStatusDto(enabled = false, pending = true)
     private val on = TwoFactorStatusDto(enabled = true, recoveryCodesRemaining = 8, enabledAt = "2026-10-17T09:00:00Z")
@@ -73,7 +62,6 @@ class PrimitivesTest {
     fun `only a verified code turns the switch on`() {
         assertEquals(TwoStepSwitch.View.OFF, TwoStepSwitch.view(off, settingUpHere = false))
         assertEquals(TwoStepSwitch.View.SETTING_UP, TwoStepSwitch.view(off, settingUpHere = true))
-        // A setup left over from an earlier visit is OFF - the bug the owner hit on the emulator.
         assertEquals(TwoStepSwitch.View.OFF, TwoStepSwitch.view(pendingOnly, settingUpHere = false))
         assertEquals(TwoStepSwitch.View.ON, TwoStepSwitch.view(on, settingUpHere = false))
         assertEquals(TwoStepSwitch.View.OFF, TwoStepSwitch.view(null, settingUpHere = false))
@@ -115,8 +103,6 @@ class PrimitivesTest {
         assertFalse(older.pending)
     }
 
-    // --- Source checks ----------------------------------------------------------------------------
-
     private fun source(path: String) = repoFile(path, "../$path").readText()
 
     @Test
@@ -157,7 +143,6 @@ class PrimitivesTest {
         assertFalse(main.contains("if (appUser.twoFactorEnabled) \"On\" else \"Off\""))
         assertFalse(source("android/app/src/main/java/com/fieldrepository/app/ui/AddPerson.kt").contains("Checkbox("))
         assertFalse(source("android/app/src/main/java/com/fieldrepository/app/ui/AccessRosterScreen.kt").contains("Checkbox("))
-        // The drawer's Admin view is the shared switch, as the web's island nav is (DynamicIslandNav.tsx).
         val drawer = source("android/app/src/main/java/com/fieldrepository/app/ui/AppNavigation.kt")
         assertTrue(drawer.contains("label = \"Admin view\""))
         assertFalse(drawer.contains("\"Admin view: ON\""))

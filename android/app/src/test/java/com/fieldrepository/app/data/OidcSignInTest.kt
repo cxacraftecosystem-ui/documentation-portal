@@ -10,11 +10,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/**
- * Microsoft and Yahoo sign-in on the handset: which providers a build offers, the nonce rule it
- * shares with the backend, the body it posts, and the scheme the manifest answers on. AppAuth itself
- * needs a device; everything it is fed is decided here.
- */
 class OidcSignInTest {
     private val https = "https://portal.example.org/login/callback"
 
@@ -28,7 +23,6 @@ class OidcSignInTest {
     fun `no redirect URI means no provider, because the code could never come back`() {
         assertTrue(configuredOidcProviders("ms", "common", "y", "").isEmpty())
         assertTrue(configuredOidcProviders("ms", "common", "y", "http://portal.example.org/cb").isEmpty())
-        // A loopback redirect is a debug convenience: refused unless the build allows it.
         assertTrue(configuredOidcProviders("ms", "common", "y", "http://localhost:3000/login/callback").isEmpty())
         assertEquals(2, configuredOidcProviders("ms", "common", "y", "http://localhost:3000/login/callback", allowLoopback = true).size)
         assertTrue(configuredOidcProviders("ms", "common", "y", "http://portal.example.org/cb", allowLoopback = true).isEmpty())
@@ -57,8 +51,6 @@ class OidcSignInTest {
 
     @Test
     fun `the nonce digest is the backend's base64url sha-256 without padding`() {
-        // RFC 7636 appendix B: the same function the backend's nonce_digest and the web's
-        // sha256Base64Url compute, on the RFC's own example.
         assertEquals(
             "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
             nonceDigest("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),

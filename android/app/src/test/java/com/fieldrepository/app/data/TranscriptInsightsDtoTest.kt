@@ -12,7 +12,6 @@ import org.junit.Test
 import retrofit2.HttpException
 import retrofit2.Response
 
-/** GET /media/{id}/insights: decoding, nulls, unknown states, and a 404 hiding the card. */
 class TranscriptInsightsDtoTest {
 
     private val full = """

@@ -12,7 +12,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** C17: a child record's stated address is filled from its artisan, marked, and never overwrites. */
 class InheritedPlaceTest {
 
     private val ramesh = InheritedPlace(
@@ -37,7 +36,6 @@ class InheritedPlaceTest {
     fun `a box somebody already answered is never replaced`() {
         val result = inheritStatedAddress("Gujarat", "", "Bhuj", ramesh)
         assertEquals("Gujarat", result.state)
-        // The artisan's district belongs to another state, so it is not put under this one.
         assertEquals("", result.district)
         assertEquals("Bhuj", result.village)
         assertTrue(result.filled.isEmpty())

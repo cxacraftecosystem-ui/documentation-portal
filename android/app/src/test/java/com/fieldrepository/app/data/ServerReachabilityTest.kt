@@ -8,7 +8,6 @@ import org.junit.Test
 import java.io.IOException
 import java.net.ConnectException
 
-/** The "can't reach the server" line: repeated connect failures turn it on, any answer turns it off. */
 class ServerReachabilityTest {
 
     @Before

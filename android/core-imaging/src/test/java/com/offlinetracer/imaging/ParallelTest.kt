@@ -10,29 +10,12 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/**
- * The contract of the engine's only parallelism primitive.
- *
- * Everything asserted here is depended on by a stage that must produce bit-identical output whether
- * it ran on one core or eight, so each of these is a load-bearing property rather than a nicety:
- *
- *  - **Shares tile the range exactly once.** A gap leaves a band of the destination buffer at its
- *    allocation value (black), an overlap has two threads writing one pixel. Both are silent.
- *  - **Small work runs inline.** The cross-engine parity fixtures are 24×18 and 1×1; if they
- *    dispatched, a failing parity test would have a stack trace through a thread pool for no gain.
- *  - **A worker's exception reaches the caller, unwrapped and by identity.** Cancellation is
- *    signalled by an exception, so an `ExecutionException` wrapper or a swallowed throw would turn a
- *    cancelled trace into either a crash or a hang.
- *  - **A nested call runs inline.** A worker blocking on the pool it is running in deadlocks the
- *    moment the pool saturates, and stages call other stages freely.
- */
 class ParallelTest {
 
     private val original = Parallel.maxThreads
 
     @AfterTest
     fun restore() {
-        // Leaving the cap where a test set it would silently change how every later test class runs.
         Parallel.maxThreads = original
     }
 
@@ -42,8 +25,6 @@ class ParallelTest {
         for (count in intArrayOf(1, 2, 7, 33, 64, 65, 256, 1000, 4096, 4097)) {
             for (per in intArrayOf(1, 2, 8, 32, 100)) {
                 val visits = IntArray(count)
-                // No synchronisation on `visits` on purpose: if the shares really are disjoint then
-                // no two threads touch the same element, and this test fails loudly if they are not.
                 Parallel.chunks(count, per) { from, to ->
                     for (i in from until to) visits[i]++
                 }
@@ -77,7 +58,6 @@ class ParallelTest {
     fun workBelowTheGrainRunsInlineOnTheCallingThread() {
         Parallel.maxThreads = 8
         val caller = Thread.currentThread()
-        // 31 items at a grain of 32 is one share; so is 63. The parity fixtures are exactly here.
         for (count in intArrayOf(1, 2, 31, 32, 63)) {
             val calls = AtomicInteger(0)
             val range = AtomicReference<IntArray?>(null)
@@ -94,10 +74,6 @@ class ParallelTest {
         }
     }
 
-    /**
-     * The engine's real thresholds, checked against the smallest images the engine actually sees.
-     * This is the guarantee that the cross-engine fixtures never touch the pool.
-     */
     @Test
     fun theParityFixtureSizesRunInlineAtEveryEngineGrain() {
         Parallel.maxThreads = 8
@@ -115,7 +91,6 @@ class ParallelTest {
                 assertTrue(!offThread.get(), "a ${height}-row image at grain $grain must stay inline")
             }
         }
-        // 24×18 = 432 pixels and 1×1 = 1 pixel are both far below the per-pixel grain.
         for (pixels in intArrayOf(1, 432)) {
             val calls = AtomicInteger(0)
             Parallel.chunks(pixels, Parallel.PIXELS_MAP) { _, _ -> calls.incrementAndGet() }
@@ -159,7 +134,6 @@ class ParallelTest {
         assertEquals(0, calls.get(), "a zero-height image must not invoke the body")
     }
 
-    /** A grain below 1 would divide by zero when working out the share count. */
     @Test
     fun aNonPositiveGrainIsTreatedAsOne() {
         Parallel.maxThreads = 4
@@ -172,12 +146,6 @@ class ParallelTest {
 
     private class ProbeFailure(val share: Int) : RuntimeException("share $share")
 
-    /**
-     * The exception must arrive as the *same object* that was thrown, from a share that ran on a pool
-     * thread. Share 0 is never the inline one — [Parallel.chunks] keeps the last share for the caller
-     * — so throwing there proves the value crossed a thread boundary rather than merely propagating up
-     * a stack.
-     */
     @Test
     fun anExceptionFromAPoolThreadReachesTheCallerUnwrapped() {
         Parallel.maxThreads = 8
@@ -201,10 +169,6 @@ class ParallelTest {
         )
     }
 
-    /**
-     * A failing share must not abandon the others: the caller owns the destination buffer, and
-     * returning while a worker is still writing into it hands the next stage a half-written image.
-     */
     @Test
     fun everyShareFinishesBeforeTheFailureIsRethrown() {
         Parallel.maxThreads = 8
@@ -214,7 +178,6 @@ class ParallelTest {
             Parallel.chunks(8 * 64, 64) { from, _ ->
                 started.incrementAndGet()
                 if (from == 0) throw ProbeFailure(0)
-                // Long enough that a caller returning early would be observable.
                 var acc = 0L
                 for (i in 0 until 2_000_000) acc += i
                 if (acc == -1L) throw ProbeFailure(-1)
@@ -228,7 +191,6 @@ class ParallelTest {
         )
     }
 
-    /** Several shares failing must still surface exactly one of them, and it must be a real one. */
     @Test
     fun oneOfSeveralFailuresIsReportedAndItIsOneThatHappened() {
         Parallel.maxThreads = 8
@@ -244,11 +206,6 @@ class ParallelTest {
         assertTrue(created.any { it === caught }, "the reported failure must be one of the ones thrown")
     }
 
-    /**
-     * The deadlock guard. A worker that queued nested work onto the pool it is running in would wait
-     * for a thread that is itself waiting, as soon as every worker does the same — so a nested call
-     * must be exactly one inline share on the thread that made it.
-     */
     @Test
     fun aNestedCallFromAWorkerRunsInlineOnThatWorker() {
         Parallel.maxThreads = 8
@@ -293,11 +250,6 @@ class ParallelTest {
         }
     }
 
-    /**
-     * Repeated calls must not accumulate state. This is the shape every stage uses — one `Parallel`
-     * call per pass, several passes per image — and a latch or a failure holder that survived a call
-     * would make the second pass hang or throw the first pass's exception.
-     */
     @Test
     fun aFailedCallDoesNotPoisonTheNextOne() {
         Parallel.maxThreads = 8

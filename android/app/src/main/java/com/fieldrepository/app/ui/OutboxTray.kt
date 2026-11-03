@@ -49,23 +49,6 @@ import com.fieldrepository.app.data.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-/**
- * THE REFUSED-SAVES TRAY (B1, 2026-10-17) — the designer portal's `OfflineOutboxTray`, ported.
- *
- * A save the server refused sat in the outbox banner with one button, "Try again", that sent the
- * same bytes to the same refusal. This tray gives each refused entry the doors it actually has:
- *
- *  1. FIX AND SEND — the queued body opens with the field the server named highlighted, and goes
- *     again with the correction. First, because it is the one that usually works.
- *  2. USE EXISTING ARTISAN — on a duplicate-Aadhaar refusal, drop this copy and send its photographs
- *     to the artisan already on the register.
- *  3. TRY AGAIN — always offered: the phone cannot know that an administrator has just fixed the
- *     cause on the server.
- *  4. DISCARD — a separate, named, confirmed act, last, and the only way an unsent entry leaves.
- *
- * The server's reason is shown verbatim: those sentences were written for the person holding the
- * phone. Only the signed-in account's entries are listed (`FieldRepository.pendingEntries`).
- */
 @Composable
 fun OfflineOutboxTray(
     entries: suspend () -> List<PendingEntry>,
@@ -77,7 +60,6 @@ fun OfflineOutboxTray(
     onClose: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    // Null until the first read lands: the spinner is for opening the tray, never for a re-read.
     var refused by remember { mutableStateOf<List<PendingEntry>?>(null) }
     var busy by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
@@ -85,10 +67,8 @@ fun OfflineOutboxTray(
     var fixing by remember { mutableStateOf<PendingEntry?>(null) }
     var confirmDiscard by remember { mutableStateOf<PendingEntry?>(null) }
 
-    // A refusal the sync worker records while the tray is open joins the list without a reopen.
     val revision by OfflineOutbox.revision.collectAsState()
 
-    // Later re-reads swap the list in place: no spinner, no reset scroll, no card moving under a tap.
     LaunchedEffect(reload, revision) {
         val read = runCatching { entries() }
         (read.exceptionOrNull() as? CancellationException)?.let { throw it }
@@ -187,10 +167,6 @@ fun OfflineOutboxTray(
     )
 }
 
-/**
- * The tray's list after one read of the queue. A read that fails keeps what is already on screen
- * (blank only before the first read): a hiccup mid-session must not empty an open tray.
- */
 internal fun refusedAfterRead(previous: List<PendingEntry>?, read: Result<List<PendingEntry>>): List<PendingEntry> =
     read.map { queue -> queue.filter { it.failure != null && !it.isPossibleDuplicate() } }
         .getOrElse { previous ?: emptyList() }
@@ -229,7 +205,6 @@ private fun RefusedEntryCard(
                 fontWeight = FontWeight.SemiBold
             )
         }
-        // Verbatim, never truncated: the server's sentence, written for this person.
         Text(entry.failure.orEmpty(), color = MaterialTheme.field.warning, style = MaterialTheme.typography.bodySmall, lineHeight = 17.sp)
         ActionRow(
             destructive = {
@@ -255,10 +230,6 @@ private fun RefusedEntryCard(
     }
 }
 
-/**
- * The queued body, editable. The fields the refusal named come first, marked, under the server's
- * sentence; the rest of the plain answers are one tap away. Nothing else in the body changes.
- */
 @Composable
 private fun FixAndSendDialog(
     entry: PendingEntry,

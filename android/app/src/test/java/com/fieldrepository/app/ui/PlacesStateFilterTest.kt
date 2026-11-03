@@ -5,7 +5,6 @@ import com.fieldrepository.app.data.MapPointDto
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** The Places map's State filter: which states it offers, and which places it keeps. */
 class PlacesStateFilterTest {
     private val nation = MapPointDto(
         key = "IN",
@@ -30,7 +29,6 @@ class PlacesStateFilterTest {
         val all = listOf(bagru, bhuj, udaipur)
         assertEquals(listOf(bagru, udaipur), placesInState(all, "Rajasthan"))
         assertEquals(all, placesInState(all, ""))
-        // The country point has no state and stays, so the country level still draws its dot.
         assertEquals(listOf(nation), placesInState(listOf(nation), "Gujarat"))
     }
 }

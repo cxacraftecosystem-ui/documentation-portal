@@ -6,31 +6,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * **The safety net for parallelising the engine.** Every stage that splits its work across the pool
- * is run twice on the same input — once with `Parallel.maxThreads = 1` and once with 8 — and the two
- * results are required to be **bit-identical**, element by element, not merely close.
- *
- * This is not belt-and-braces. Two independent engines are held to an absolute 1e-4 on float stages
- * (ALGORITHMS §14) and to *exact* equality on masks, integers and `d` strings, and XDoG and FDoG
- * multiply an input error by about a thousand on the way out. A reassociated sum — a per-share
- * accumulator merged in whatever order the threads finished, a scratch buffer shared between shares,
- * a share reading a value another share had already updated — is therefore a parity regression, and it
- * is one that a tolerance-based test would report as green. So the assertion here is raw bits.
- *
- * Read a failure here as one of exactly three things:
- *
- *  1. a loop was split whose iterations are not independent (a running sum, a flood, a shared
- *     accumulator, an in-place update read by a neighbour);
- *  2. scratch state was shared between shares instead of allocated per share — the classic one is
- *     `Distance`'s lower-envelope `v`/`z` arrays and `Resample`'s row ring;
- *  3. a barrier was removed, so a pass started before the pass it reads had finished.
- *
- * The image is 384×352. That size is deliberate: it is above every grain in [Parallel] (8 row shares
- * at [Parallel.ROWS_NEIGHBOURHOOD] and [Parallel.ROWS_KERNEL], 2 at [Parallel.PIXELS_MAP], 8 columns
- * for the distance transform), so a stage that failed to split would be a vacuous pass —
- * [theTestImageActuallySplits] exists to fail loudly if a threshold is ever raised past it.
- */
 class ParallelBitIdentityTest {
 
     private val original = Parallel.maxThreads
@@ -43,11 +18,6 @@ class ParallelBitIdentityTest {
     private val w = 384
     private val h = 352
 
-    /**
-     * Deterministic and deliberately awkward: a diagonal ramp so no two neighbours are equal, a hard
-     * vertical edge, a dark disc, and a sparse grid of saturated specks. Flat synthetic input is the
-     * one thing that would hide a reassociation, because every ordering of equal values agrees.
-     */
     private fun source(width: Int = w, height: Int = h): RgbaImage {
         val px = IntArray(width * height)
         for (y in 0 until height) {
@@ -83,7 +53,6 @@ class ParallelBitIdentityTest {
         return m
     }
 
-    /** Runs [body] single-threaded, then with eight shares, and hands back both results. */
     private fun <T> bothWays(body: () -> T): Pair<T, T> {
         Parallel.maxThreads = 1
         val one = body()
@@ -92,17 +61,10 @@ class ParallelBitIdentityTest {
         return one to many
     }
 
-    /**
-     * [stride] is the row length of the buffer being compared, used only to turn a flat index into a
-     * row and column in the failure message — which is the first thing you want to know, because a
-     * mismatch that starts exactly on a share boundary names the bug immediately.
-     */
     private fun same(name: String, r: Pair<FloatArray, FloatArray>, stride: Int = w) {
         val (one, many) = r
         assertEquals(one.size, many.size, "$name: size changed")
         for (i in one.indices) {
-            // Raw bits, not `==`: it is the only comparison that distinguishes 0.0 from -0.0 and
-            // treats NaN as equal to itself, and both of those are legitimate stage outputs here.
             if (one[i].toRawBits() != many[i].toRawBits()) {
                 assertEquals(
                     one[i].toRawBits(), many[i].toRawBits(),
@@ -149,10 +111,6 @@ class ParallelBitIdentityTest {
         }
     }
 
-    /**
-     * Anti-vacuity guard. Every assertion in this class is worthless if the test image is small enough
-     * to run inline, so prove that it is not — for each grain the engine actually uses.
-     */
     @Test
     fun theTestImageActuallySplits() {
         Parallel.maxThreads = 8
@@ -200,7 +158,6 @@ class ParallelBitIdentityTest {
         same("Gradients.magnitude", bothWays { Convolve.gradients(gray).magnitude().data })
         same("Gradients.direction", bothWays { Convolve.gradients(gray).direction().data })
         same("Convolve.laplacian", bothWays { Convolve.laplacian(gray).data })
-        // Left sequential on purpose; here to catch it if that ever changes carelessly.
         same("Convolve.boxBlur", bothWays { Convolve.boxBlur(gray, 3).data })
     }
 
@@ -218,7 +175,6 @@ class ParallelBitIdentityTest {
     fun contrastIsBitIdentical() {
         val gray = Color.toGray(source())
         same("Contrast.clahe(8x8)", bothWays { Contrast.clahe(gray, 8, 8, 2f).data })
-        // An uneven partition, so the tile-row split has to land on the same lattice either way.
         same("Contrast.clahe(7x5)", bothWays { Contrast.clahe(gray, 7, 5, 3f).data })
         same("Contrast.gamma", bothWays { Contrast.gamma(gray, 1.8f).data })
         same("Contrast.levels", bothWays { Contrast.levels(gray, 0.1f, 0.9f, 2.2f).data })
@@ -227,11 +183,6 @@ class ParallelBitIdentityTest {
         same("Contrast.unsharpMask", bothWays { Contrast.unsharpMask(gray, 1.5f, 0.8f, 0.01f).data })
     }
 
-    /**
-     * The distance transform is the one to watch. Felzenszwalb's two passes carry the parabola vertex
-     * list `v` and the breakpoints `z` from the first half of a line to the second, so a shared
-     * scratch buffer produces a field that is wrong without looking wrong.
-     */
     @Test
     fun theDistanceTransformIsBitIdentical() {
         val m = mask()
@@ -252,11 +203,6 @@ class ParallelBitIdentityTest {
         sameM("EdgeLog.detect", bothWays { EdgeLog.detect(gray, 1.3f, 1e-4f).data })
     }
 
-    /**
-     * FDoG is the stage the parallelisation was for and the stage with the most to lose: at τ = 0.99
-     * step 1 divides by 0.01 and the feedback multiplies what survives by another 100 per pass, so a
-     * single reassociated add would show up as a visibly different drawing, not as a last-bit wobble.
-     */
     @Test
     fun theFlowTierIsBitIdentical() {
         val gray = Color.toGray(source())
@@ -290,12 +236,6 @@ class ParallelBitIdentityTest {
         same("Morphology.erodeGray", bothWays { Morphology.erodeGray(gray, 3).data })
     }
 
-    /**
-     * Resampling caches horizontally-resampled source rows in a ring keyed by row index. Per share it
-     * is a memo and the answer is unchanged; shared between shares it is both a data race and a cache
-     * that thrashes, so this covers a downscale (box kernel, ring deeper than one row) and an upscale
-     * (linear kernel) in both pixel formats.
-     */
     @Test
     fun resamplingIsBitIdentical() {
         val rgba = source()
@@ -318,12 +258,6 @@ class ParallelBitIdentityTest {
         sameI("Matte.applyMatte", bothWays { Matte.applyMatte(rgba, alpha, 0xFF203040.toInt()).pixels })
     }
 
-    /**
-     * The stages that were left sequential — hysteresis, union-find labelling, thinning, the
-     * summed-area thresholds — still consume parallelised producers, so they get the same treatment.
-     * Their output is compared exactly because it is a mask or a label map, where "close" is not a
-     * thing.
-     */
     @Test
     fun theSequentialStagesDownstreamAreBitIdentical() {
         val gray = Color.toGray(source())
@@ -337,11 +271,6 @@ class ParallelBitIdentityTest {
         sameI("Components.label", bothWays { Components.label(m).labels })
     }
 
-    /**
-     * The cross-engine fixture shapes, end to end. These run entirely inline, and the point of
-     * asserting them anyway is that "inline" must mean *identical*, not merely "probably fine" — a
-     * parity failure has to be reproducible on one thread to be debuggable at all.
-     */
     @Test
     fun theParityFixtureShapesAreIdenticalAndUnaffected() {
         for (size in listOf(1 to 1, 24 to 18)) {

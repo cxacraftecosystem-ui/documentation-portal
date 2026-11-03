@@ -9,60 +9,16 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.tan
 
-/**
- * SVG path data — writing it ([toD]) and reading all of it ([parse]).
- *
- * The parser implements the whole grammar, not the subset this app happens to emit: `M m L l H h
- * V v C c S s Q q T t A a Z z`, implicit repeated coordinate sets, numbers run together without
- * separators (`10-5`), exponent notation, and elliptical arcs. Anything less and importing an SVG
- * that some other tool wrote fails in a way the user reads as "this app is broken", which is fair.
- *
- * Arcs are converted to cubics on the way in ([arcToCubics]) because [VecSeg] has no arc case, and
- * every consumer — rasteriser, boolean ops, exporters — would otherwise need one.
- */
 object SvgPathData {
 
-    /**
-     * Coordinates are clamped to this before formatting. `NaN`/`Infinity` in a `d` attribute make
-     * the whole path invisible in every renderer, so a finite value is always emitted instead: a
-     * wrong pixel is debuggable, a silently blank export is not.
-     */
     private const val MAX_COORD = 1.0e7
 
     private val POW10 = longArrayOf(1L, 10L, 100L, 1_000L, 10_000L, 100_000L, 1_000_000L)
 
-    // ---------------------------------------------------------------------------------------
-    // Writing
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * Serialises [path] to an SVG `d` string with [precision] decimal places (0..6), in the **compact
-     * canonical form** ALGORITHMS.md §10 fixes for both engines:
-     *
-     *  - no whitespace after a command letter — the letter is already a delimiter;
-     *  - the command letter is omitted for a run of segments of the same type;
-     *  - exactly one space between two numbers, and nothing before `Z`.
-     *
-     * The form is not cosmetic. A `d` attribute is the product's main export and a traced path carries
-     * thousands of segments, so the two elisions remove roughly one character in eight of the largest
-     * thing this app writes; it is also what every SVG optimiser emits, so a diff against one is a diff
-     * about geometry rather than about whitespace. Both engines must spell it identically because §14
-     * compares this string **exactly**.
-     *
-     * The one space between numbers is deliberately kept rather than dropped before a leading `-`
-     * (`11-0.62` is legal SVG and this file's parser reads it): a single unconditional separator is one
-     * rule instead of two, and it cannot become the one place where two independent implementations
-     * disagree about when a delimiter is required.
-     *
-     * The result round-trips: `toD(parse(toD(p)).single())` is byte-identical to `toD(p)` for any path
-     * built from lines, cubics and quads.
-     */
     fun toD(path: VecPath, precision: Int = 2): String {
         val p = if (precision < 0) 0 else if (precision > 6) 6 else precision
         val sb = StringBuilder(24 + path.segments.size * 20)
         sb.append('M').append(num(path.start.x, p)).append(' ').append(num(path.start.y, p))
-        // ' ' rather than 'M': a repeated coordinate pair after a moveto is an implicit *lineto*, so the
-        // first L has to be written even though the letter before it was also a "move".
         var last = ' '
         for (seg in path.segments) {
             when (seg) {
@@ -90,13 +46,6 @@ object SvgPathData {
         return sb.toString()
     }
 
-    /**
-     * Fixed-point number formatting, locale-independent by construction.
-     *
-     * `String.format` is not used: it consults the default `Locale`, and on a device set to a
-     * comma-decimal locale it would emit `1,5` — a `d` attribute that parses as two coordinates and
-     * silently corrupts every exported file on that device.
-     */
     internal fun num(v: Float, precision: Int): String {
         var d = v.toDouble()
         if (d.isNaN()) d = 0.0
@@ -116,30 +65,11 @@ object SvgPathData {
         return sb.toString()
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Reading
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * Parses a `d` attribute into one [VecPath] per subpath.
-     *
-     * Malformed input never throws: unparseable characters are skipped and a truncated coordinate
-     * set reads as zero, so a partially-corrupt file imports as much geometry as it actually
-     * contains. Returns an empty list for empty or entirely unparseable input.
-     */
     fun parse(d: String): List<VecPath> {
         if (d.isEmpty()) return emptyList()
         return SvgPathParser(d).run()
     }
 
-    /**
-     * Converts one SVG elliptical arc, given in endpoint parameterisation, into up to four cubics.
-     *
-     * Follows the implementation notes in SVG 1.1 F.6.5, including the out-of-range radius
-     * correction. Degenerate cases return what the specification requires: an empty list when the
-     * endpoints coincide (the arc is omitted entirely), and a straight line as a single cubic when
-     * either radius is zero.
-     */
     fun arcToCubics(
         x0: Float, y0: Float, rx: Float, ry: Float, xRotDeg: Float,
         largeArc: Boolean, sweep: Boolean, x: Float, y: Float,
@@ -162,7 +92,6 @@ object SvgPathData {
         val x1p = cosP * dx2 + sinP * dy2
         val y1p = -sinP * dx2 + cosP * dy2
 
-        // F.6.6: scale the radii up when they are too small to span the endpoints.
         val lambda = (x1p * x1p) / (rxa * rxa) + (y1p * y1p) / (rya * rya)
         if (lambda > 1.0) {
             val s = sqrt(lambda)
@@ -236,12 +165,6 @@ object SvgPathData {
         )
 }
 
-/**
- * Single-pass recursive-descent scanner over a `d` attribute.
- *
- * Every read advances the cursor even when it fails, so no input can make the loop spin: a parser
- * that hangs on a malformed file is worse than one that produces a wrong path.
- */
 private class SvgPathParser(private val s: String) {
 
     private var i = 0
@@ -273,7 +196,6 @@ private class SvgPathParser(private val s: String) {
                 i++
                 continue
             } else if (cmd == 'Z' || cmd == 'z') {
-                // Numbers after a closepath are not legal; drop them rather than mis-binding them.
                 i++
                 continue
             } else if (cmd == 'M') {
@@ -342,8 +264,6 @@ private class SvgPathParser(private val s: String) {
                 ensureStart()
                 val x2 = readNumber(); val y2 = readNumber()
                 val x = readNumber(); val y = readNumber()
-                // The reflection is only defined when the previous command was itself a cubic;
-                // after anything else the first control point coincides with the current point.
                 val smooth = prev == 'C' || prev == 'c' || prev == 'S' || prev == 's'
                 val c1x = if (smooth) 2f * cx - ctrlX else cx
                 val c1y = if (smooth) 2f * cy - ctrlY else cy
@@ -406,7 +326,6 @@ private class SvgPathParser(private val s: String) {
         }
     }
 
-    /** Path data that does not begin with a moveto is illegal; treat the origin as the start. */
     private fun ensureStart() {
         if (startPt == null) startPt = VecPoint(cx, cy)
     }
@@ -428,8 +347,6 @@ private class SvgPathParser(private val s: String) {
     private fun skipSeparators() {
         while (i < s.length) {
             val c = s[i]
-            // 12 is the form feed the SVG grammar counts as whitespace; it is written by code
-            // point so this source file never carries a raw control character of its own.
             val ws = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ',' || c.code == 12
             if (!ws) return
             i++
@@ -457,7 +374,6 @@ private class SvgPathParser(private val s: String) {
             }
         }
         if (i == start) {
-            // Not a number at all. Consume one character so the caller cannot loop forever.
             if (i < n) i++
             return 0f
         }
@@ -465,7 +381,6 @@ private class SvgPathParser(private val s: String) {
         return if (v.isFinite()) v else 0f
     }
 
-    /** Arc flags are a single character in the grammar; `a1 1 0 011 1` is legal and common. */
     private fun readFlag(): Boolean {
         skipSeparators()
         if (i < s.length && (s[i] == '0' || s[i] == '1')) {

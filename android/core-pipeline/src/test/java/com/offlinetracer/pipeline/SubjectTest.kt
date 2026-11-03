@@ -7,16 +7,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * Cropping to the subject, and — at least as hard — refusing to.
- *
- * The refusals get as much of this file as the successes do, on purpose. A wrong crop is not a
- * cosmetic defect: it permanently removes part of the drawing the user came here to make, and unlike
- * a wrong parameter it is not obvious in the result, because what is missing is missing.
- */
 class SubjectTest {
 
-    /** An alpha of [w]x[h] with a solid `1` rectangle at ([x0], [y0]) and `0` elsewhere. */
     private fun alphaWith(w: Int, h: Int, x0: Int, y0: Int, bw: Int, bh: Int): GrayF {
         val a = GrayF(w, h)
         for (y in y0 until y0 + bh) for (x in x0 until x0 + bw) a[x, y] = 1f
@@ -25,14 +17,8 @@ class SubjectTest {
 
     private fun opaque(r: Int, g: Int, b: Int): Int = RgbaImage.argb(255, r, g, b)
 
-    // ---------------------------------------------------------------------------------------------
-    // The straightforward case
-    // ---------------------------------------------------------------------------------------------
-
     @Test
     fun boundingBoxIsTheTightBoundsPlusAMargin() {
-        // 10x10 at (12,14). The margin is 4% of the longer side = 0.4 px, which rounds to 0 and is
-        // then floored at 1 — asking for a margin must never produce none.
         val box = Subject.boundingBox(alphaWith(40, 40, 12, 14, 10, 10))
         assertTrue(box.confident, box.reason)
         assertEquals(11, box.x)
@@ -61,9 +47,6 @@ class SubjectTest {
 
     @Test
     fun theMarginScalesWithTheSubjectAndIsTakenFromItsLongerSide() {
-        // 4x24 at (18,8): a thin vertical stroke. A per-axis margin would be 4% of 4 = 0 px
-        // horizontally, i.e. no margin on the axis where clipping a stroke shows most. 4% of the
-        // longer side is 0.96 -> 1 px, applied on all four sides.
         val box = Subject.boundingBox(alphaWith(64, 64, 18, 8, 4, 24))
         assertEquals(17, box.x)
         assertEquals(6, box.w)
@@ -73,8 +56,6 @@ class SubjectTest {
 
     @Test
     fun theAspectRatioIsNotForced() {
-        // A tall pot stays tall. Nothing here squares the box up, and nothing should: padding a
-        // rectangle to a square can only be done by adding background or by cutting subject off.
         val box = Subject.boundingBox(alphaWith(60, 60, 27, 10, 6, 40))
         assertTrue(box.confident, box.reason)
         assertTrue(box.h > box.w * 3, "expected a tall box, got ${box.w}x${box.h}")
@@ -99,7 +80,6 @@ class SubjectTest {
         for ((x0, y0) in corners) {
             val box = Subject.boundingBox(alphaWith(32, 32, x0, y0, 8, 8))
             assertTrue(box.confident, "corner ($x0,$y0): ${box.reason}")
-            // The margin is 1 px, clamped away on whichever sides touch the frame.
             assertEquals(if (x0 == 0) 0 else 23, box.x, "corner ($x0,$y0) x")
             assertEquals(if (y0 == 0) 0 else 23, box.y, "corner ($x0,$y0) y")
             assertEquals(9, box.w, "corner ($x0,$y0) w")
@@ -109,7 +89,6 @@ class SubjectTest {
 
     @Test
     fun aSubjectTouchingEachEdgeIsFoundWithoutRunningOffTheFrame() {
-        // top, bottom, left, right — a band spanning the frame on one axis and touching one edge.
         val cases = listOf(
             Triple("top", intArrayOf(0, 0, 40, 12), intArrayOf(0, 0, 40, 14)),
             Triple("bottom", intArrayOf(0, 28, 40, 12), intArrayOf(0, 26, 40, 14)),
@@ -128,9 +107,6 @@ class SubjectTest {
 
     @Test
     fun aSubjectReachingEveryEdgeGivesTheFullFrameAndStillCounts() {
-        // Not a refusal: the measurement succeeded and its answer is "the whole frame". The
-        // difference from a refusal is that this one is confident, so a UI can say "nothing to crop"
-        // rather than "the matte failed".
         val a = GrayF(32, 32)
         for (y in 0 until 32) {
             for (x in 0 until 32) {
@@ -162,14 +138,8 @@ class SubjectTest {
         assertEquals(Subject.boundingBox(a), Subject.boundingBox(a))
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // The refusals — the part that protects the artwork
-    // ---------------------------------------------------------------------------------------------
-
     @Test
     fun anAllForegroundAlphaRefusesToCropAndReturnsTheFullFrame() {
-        // Nothing was removed, so there is no background to crop away. Cropping here would be a
-        // no-op at best and, with a margin rule that could shrink, a silent trim at worst.
         val box = Subject.boundingBox(GrayF(40, 40).fill(1f))
         assertFalse(box.confident)
         assertEquals(0, box.x)
@@ -182,8 +152,6 @@ class SubjectTest {
 
     @Test
     fun anAllBackgroundAlphaRefusesToCropAndReturnsTheFullFrame() {
-        // The matte failed completely. Cropping to an empty set has no defined answer, and the only
-        // safe one is the whole picture.
         val box = Subject.boundingBox(GrayF(40, 40))
         assertFalse(box.confident)
         assertEquals(0, box.x)
@@ -195,10 +163,6 @@ class SubjectTest {
 
     @Test
     fun aSingleLitPixelRefusesHoweverBigTheFrameIs() {
-        // The absolute pixel floor is what catches both, and it is why a fraction alone is not
-        // enough: in a 4x4 thumbnail one lit pixel is 6% of the frame — comfortably over any
-        // sensible coverage floor — and cropping a picture to one pixel plus a margin would
-        // otherwise be a legal answer. `aSubjectTooSmallToBeOneRefuses` covers the fraction.
         val big = Subject.boundingBox(alphaWith(200, 200, 100, 100, 1, 1))
         assertFalse(big.confident, big.reason)
         assertEquals(200, big.w)
@@ -225,8 +189,6 @@ class SubjectTest {
 
     @Test
     fun aSubjectTooSmallToBeOneRefuses() {
-        // 25 pixels is over the absolute floor of 16 but is 0.25% of the frame, under the 0.4%
-        // coverage floor: this is the path where the pixel count alone would have let it through.
         val box = Subject.boundingBox(alphaWith(100, 100, 40, 40, 5, 5))
         assertFalse(box.confident, box.reason)
         assertEquals(100, box.w)
@@ -236,8 +198,6 @@ class SubjectTest {
 
     @Test
     fun anAlphaThatKeptNearlyEverythingRefuses() {
-        // 99x99 of 100x100 is 98% — over the ceiling, so "nothing was separated" rather than "the
-        // subject is nearly the whole frame".
         val box = Subject.boundingBox(alphaWith(100, 100, 0, 0, 99, 99))
         assertFalse(box.confident, box.reason)
         assertEquals(100, box.w)
@@ -246,8 +206,6 @@ class SubjectTest {
 
     @Test
     fun everyRefusalReturnsExactlyTheFullFrame() {
-        // The invariant a caller relies on: an unchecked `crop(img, box)` after a refusal is the
-        // identity, so forgetting the `if (box.confident)` costs nothing.
         val refusals = listOf(
             GrayF(40, 40).fill(1f),
             GrayF(40, 40),
@@ -265,10 +223,6 @@ class SubjectTest {
             assertTrue(box.reason.length > 20, "a refusal must explain itself: '${box.reason}'")
         }
     }
-
-    // ---------------------------------------------------------------------------------------------
-    // crop and locate
-    // ---------------------------------------------------------------------------------------------
 
     @Test
     fun cropReturnsExactlyTheBoxAndKeepsThePixelsInIt() {
@@ -300,7 +254,6 @@ class SubjectTest {
         val found = Subject.locate(img)
         assertTrue(found.confident, found.reason)
         assertTrue(found.box.w < 120 && found.box.h < 120, "nothing was cropped: ${found.box}")
-        // The box must contain the whole subject; the guided filter may push it a few pixels out.
         assertTrue(found.box.x <= 40, "left edge cuts into the subject: ${found.box}")
         assertTrue(found.box.y <= 40, "top edge cuts into the subject: ${found.box}")
         assertTrue(found.box.x + found.box.w >= 80, "right edge cuts into the subject: ${found.box}")
@@ -329,8 +282,6 @@ class SubjectTest {
 
     @Test
     fun locateIsConfidentOnlyWhenBothHalvesAre() {
-        // The AND is the point of `locate`: a box measured from a matte nobody believes must not
-        // come back as a crop worth doing.
         val flat = Subject.locate(RgbaImage(64, 64).fill(opaque(200, 200, 200)))
         assertFalse(flat.confident)
         assertTrue(flat.confidence < com.offlinetracer.imaging.Matte.MIN_CONFIDENCE)

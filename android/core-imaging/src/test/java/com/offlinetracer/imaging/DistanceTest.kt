@@ -5,11 +5,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * Exact Euclidean distance transform (ALGORITHMS §9). "Exact" is the whole point: the 3-4 chamfer
- * approximation is up to 8% off on diagonals, which turns into a visible width wobble once stroke
- * widths are sampled from it.
- */
 class DistanceTest {
 
     @Test
@@ -17,7 +12,6 @@ class DistanceTest {
         val n = 9
         val m = Mask(n, n)
         m[4, 4] = true
-        // insideForeground = false measures the distance from the background to the nearest ink.
         val dt = Distance.euclidean(m, insideForeground = false)
         for (y in 0 until n) for (x in 0 until n) {
             val dx = (x - 4).toFloat()
@@ -38,8 +32,6 @@ class DistanceTest {
 
     @Test
     fun distanceInsideTheForegroundIsTheDistanceToTheNearestBackground() {
-        // A bar 5 px wide, well away from the border. The centre column is 3 away from the nearest
-        // background column on either side.
         val m = Mask(11, 5)
         for (y in 0 until 5) for (x in 3..7) m[x, y] = true
         val dt = Distance.euclidean(m, insideForeground = true)
@@ -79,8 +71,6 @@ class DistanceTest {
         for (v in Distance.euclidean(full, insideForeground = false).data) {
             assertEquals(0f, v, 1e-5f)
         }
-        // There is no background to measure against, so the value is unspecified — but it must not
-        // be NaN, because NaN survives every clamp downstream and silently poisons stroke widths.
         for (v in Distance.euclidean(full, insideForeground = true).data) {
             assertTrue(!v.isNaN(), "got $v")
         }
@@ -106,7 +96,6 @@ class DistanceTest {
 
     @Test
     fun aTallColumnStillGetsTheRightVerticalDistances() {
-        // Exercises the second (column) pass of the separable lower-envelope algorithm on its own.
         val m = Mask(1, 12)
         m[0, 0] = true
         val dt = Distance.euclidean(m, insideForeground = false)

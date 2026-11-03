@@ -10,11 +10,6 @@ import retrofit2.HttpException
 import retrofit2.Response
 import java.io.IOException
 
-/**
- * A scanned card, resolved: the register this phone holds first, then the server, and "links when
- * you're online" when neither answers. Then the outbox's half: a queued body's pending cards are
- * resolved and swapped in, or the entry is held with the server's sentence, never dropped.
- */
 class ArtisanCardResolveTest {
 
     private val own = "F-01234-56789-S5"
@@ -51,7 +46,6 @@ class ArtisanCardResolveTest {
         val result = resolveArtisanCardWith(ArtisanCardCode.shortCode('F', "ZZZZZZZZZZ"), { register }, noSignal)
         assertTrue(result is ArtisanCardResolution.Pending)
         assertEquals("card:F-ZZZZZ-ZZZZZ-" + ArtisanCardCode.check('F', "ZZZZZZZZZZ"), (result as ArtisanCardResolution.Pending).value)
-        // A cache that cannot be read is the same as an empty one.
         assertTrue(resolveArtisanCardWith(own, { throw IOException("cache gone") }, noSignal) is ArtisanCardResolution.Pending)
     }
 
@@ -74,7 +68,6 @@ class ArtisanCardResolveTest {
             refused
         )
         assertTrue(resolveArtisanCardWith(own, { emptyList() }) { throw http(503, "down") } is ArtisanCardResolution.Pending)
-        // An expired session waits for sign-in rather than holding the outbox entry.
         assertTrue(resolveArtisanCardWith(own, { emptyList() }) { throw http(401, "Sign in again.") } is ArtisanCardResolution.Pending)
     }
 
@@ -91,7 +84,6 @@ class ArtisanCardResolveTest {
         val body = """{"artisanId":"card:$own","craftId":"c1"}"""
         val outcome = substitutePendingCards(body) { ArtisanCardResolution.Found("a1", "Artisan a1", "Bhuj", offline = false) }
         assertEquals(PendingCardOutcome.Resolved("""{"artisanId":"a1","craftId":"c1"}"""), outcome)
-        // Nothing pending: the body goes out untouched and nobody is asked.
         assertEquals(PendingCardOutcome.Resolved("{}"), substitutePendingCards("{}") { error("not called") })
     }
 

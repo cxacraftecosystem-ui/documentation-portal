@@ -21,10 +21,6 @@ class SvgWriterTest {
     private fun oneLayerDoc(style: VecStyle = VecStyle()): VecDocument =
         doc(listOf(VecLayer("l1", "Outlines", listOf(VecShape(line(), style)))))
 
-    // -----------------------------------------------------------------------------------------
-    // Structure
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun emitsRootAttributesAndDeclaration() {
         val svg = SvgWriter.write(oneLayerDoc())
@@ -93,10 +89,6 @@ class SvgWriterTest {
         assertTrue(!svg.contains("<rect"))
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Styling
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun strokeStyleMapsToSvgAttributes() {
         val style = VecStyle(
@@ -137,10 +129,6 @@ class SvgWriterTest {
         assertTrue(svg.contains("fill=\"#000000\""), "the outline must be filled with the stroke colour")
         assertTrue(!svg.contains("stroke-width="), "a variable-width path has no single stroke width")
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Safety
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun escapesTheFiveXmlEntities() {

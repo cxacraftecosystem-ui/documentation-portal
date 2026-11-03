@@ -14,12 +14,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/**
- * Field Repository's forms library on Android (UNIFY 4.2, stream U4): the forms API, the offline
- * authoring outbox (A15), the owner-stamped library copy (A16). FR-only: designer-portal Android keeps
- * its own library and serves no admin authoring (owner decision 5). The sessions are the shared
- * tree's (`questionnaire/`), which reaches this through `QuestionnairePortal`.
- */
 class FormsV2 private constructor(context: Context) {
     private val app = context.applicationContext
     private val tokens = TokenStore(app)
@@ -29,7 +23,6 @@ class FormsV2 private constructor(context: Context) {
     val transport: FormTransport = ApiFormTransport(liveApi)
     val cache = FormLibraryCache(File(app.noBackupFilesDir, "questionnaire-forms.json"))
 
-    /** One pass of the forms outbox; the background job runs it before the session queue. */
     suspend fun sync(): FormPassResult = outbox.sync(transport, tokens.getUser()?.id)
 
     companion object {
@@ -38,12 +31,10 @@ class FormsV2 private constructor(context: Context) {
     }
 }
 
-/** The home's "New form" button, held until the forms tab takes it. */
 object FormsNav {
     val newForm = MutableStateFlow(false)
 }
 
-/** Any server-named download (workbook, pro-forma, corpus, annexure), saved to Downloads. */
 object FormDownloads {
     suspend fun save(context: Context, response: retrofit2.Response<okhttp3.ResponseBody>, mimeType: String, fallbackName: String? = null): String {
         if (!response.isSuccessful) throw retrofit2.HttpException(response)

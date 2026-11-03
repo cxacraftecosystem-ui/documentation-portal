@@ -7,12 +7,10 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** Orientation, perspective and document detection. */
 class GeometryTest {
 
     private fun opaque(v: Int): Int = RgbaImage.argb(255, v, v, v)
 
-    /** Every pixel distinct, so any transposition or mirroring shows up immediately. */
     private fun numbered(w: Int, h: Int): RgbaImage {
         val img = RgbaImage(w, h)
         for (y in 0 until h) for (x in 0 until w) {
@@ -45,7 +43,6 @@ class GeometryTest {
         val out = Geometry.rotate90(src, 1)
         assertEquals(2, out.width)
         assertEquals(4, out.height)
-        // The source top-left ends up at the destination top-right.
         assertEquals(src[0, 0], out[out.width - 1, 0])
         assertEquals(src[3, 0], out[out.width - 1, 3])
         assertEquals(src[0, 1], out[0, 0])
@@ -95,7 +92,6 @@ class GeometryTest {
 
     @Test
     fun homographyMapsEveryCornerOntoItsTarget() {
-        // A genuinely projective quad: no affine matrix can do this, so it exercises h[6] and h[7].
         val src = floatArrayOf(0f, 0f, 100f, 0f, 100f, 100f, 0f, 100f)
         val dst = floatArrayOf(10f, 12f, 90f, 4f, 105f, 96f, 3f, 88f)
         val h = Geometry.solveHomography(src, dst)
@@ -129,8 +125,6 @@ class GeometryTest {
 
     @Test
     fun warpUsesInverseMappingSoAnUpscaleHasNoHoles() {
-        // Forward mapping scatters source pixels into the destination and leaves a lattice of
-        // untouched (transparent) pixels; this is what that bug looks like from the outside.
         val src = RgbaImage(4, 4).fill(opaque(200))
         val h = doubleArrayOf(3.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 1.0)
         val out = Geometry.warpPerspective(src, h, 12, 12)
@@ -167,7 +161,6 @@ class GeometryTest {
         val back = Geometry.solveHomography(skewed, quad)
         val once = Geometry.warpPerspective(src, forward, 24, 20)
         val twice = Geometry.warpPerspective(once, back, 24, 20)
-        // Resampling twice is lossy, so this checks structure rather than exact equality.
         var diff = 0
         for (y in 6 until 14) for (x in 6 until 18) {
             if (abs(RgbaImage.redOf(twice[x, y]) - RgbaImage.redOf(src[x, y])) > 40) diff++
@@ -177,7 +170,6 @@ class GeometryTest {
 
     @Test
     fun orderQuadProducesTopLeftFirstClockwise() {
-        // Supplied bottom-right, bottom-left, top-left, top-right.
         val quad = floatArrayOf(90f, 80f, 10f, 78f, 12f, 8f, 88f, 6f)
         val o = Geometry.orderQuad(quad)
         assertEquals(12f, o[0], 1e-4f)
@@ -200,8 +192,6 @@ class GeometryTest {
 
     @Test
     fun orderQuadHandlesARotatedQuadWithoutDuplicatingACorner() {
-        // A diamond: min(x+y) and max(x-y) pick the same vertex, which is exactly the case that
-        // breaks the usual corner rules and produces a singular homography downstream.
         val diamond = floatArrayOf(50f, 0f, 100f, 50f, 50f, 100f, 0f, 50f)
         val o = Geometry.orderQuad(diamond)
         val seen = HashSet<String>()

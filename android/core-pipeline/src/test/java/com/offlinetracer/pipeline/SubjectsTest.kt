@@ -10,10 +10,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/**
- * Subject presets, and the two invariants that make them compose with the twenty styles instead of
- * fighting them: a subject adjusts, and a subject never touches the style's identity.
- */
 class SubjectsTest {
 
     private val expectedIds = listOf(
@@ -75,7 +71,6 @@ class SubjectsTest {
 
     @Test
     fun everySubjectActuallyChangesSomething() {
-        // A subject that is a no-op is a menu entry that teaches the user the menu does nothing.
         val base = Styles.default().params
         for (s in Subjects.ALL) {
             assertNotEquals(base, s.adjust(base), "${s.id} left the parameters untouched")
@@ -91,8 +86,6 @@ class SubjectsTest {
                     style.params.styleId, composed.styleId,
                     "${subject.id} lost the style id of ${style.id}",
                 )
-                // The vector mode and the engine are what a style *is*; nothing about the material can
-                // turn "colouring book" into a centreline trace.
                 assertEquals(
                     style.params.output.vectorMode, composed.output.vectorMode,
                     "${subject.id} changed the vector mode of ${style.id}",
@@ -126,10 +119,6 @@ class SubjectsTest {
         for (subject in Subjects.ALL) subject.adjust(base)
         assertEquals(snapshot, base, "a subject mutated the parameters it was handed")
     }
-
-    // -------------------------------------------------------------------------------------------
-    // The individual adjustments have to do what their hints claim
-    // -------------------------------------------------------------------------------------------
 
     @Test
     fun textileFlattensTheWeaveWithDiffusionAndRaisesTheBlobFloor() {
@@ -183,16 +172,11 @@ class SubjectsTest {
 
     @Test
     fun aSubjectAppliedToAStyleThatAlreadyDidTheSameThingDoesNotUndoIt() {
-        // Composition has to be monotone in the direction the hint promises, whatever the style set.
         val technical = assertNotNull(Styles.byId("technical-drawing")).params
         val logo = assertNotNull(Subjects.byId("logo")).adjust(technical)
         assertEquals(DenoiseMode.NONE, logo.preprocess.denoise)
         assertTrue(logo.output.corner >= technical.output.corner)
     }
-
-    // -------------------------------------------------------------------------------------------
-    // suggestFor
-    // -------------------------------------------------------------------------------------------
 
     @Test
     fun lineArtSuggestsSketchBecauseGettingThatWrongIsTheExpensiveMistake() {
@@ -256,7 +240,6 @@ class SubjectsTest {
             val suggested = Subjects.suggestFor(p)
             assertNotNull(Subjects.byId(suggested.id), "suggestFor returned an unlisted subject")
         }
-        // And every measured kind, which is the path `Auto` actually takes.
         for (k in Classify.SourceKind.values()) {
             assertNotNull(
                 Subjects.byId(Subjects.suggestFor(measured(k, 0.9f)).id),
@@ -265,11 +248,6 @@ class SubjectsTest {
         }
     }
 
-    // -------------------------------------------------------------------------------------------
-    // Auto: applying the classification, and every rule that bounds it
-    // -------------------------------------------------------------------------------------------
-
-    /** A profile that was genuinely measured: a real kind and a real confidence. */
     private fun measured(
         kind: Classify.SourceKind,
         confidence: Float,
@@ -332,8 +310,6 @@ class SubjectsTest {
 
     @Test
     fun anUnclassifiedProfileIsRefusedEvenAtFullConfidence() {
-        // UNKNOWN is the absence of a classification, not a sixth class, so a confidence attached to
-        // it is meaningless and must not be enough to act on.
         val d = Auto.decide(measured(Classify.SourceKind.UNKNOWN, 1f), base(autoParams()))
         assertFalse(d.applied)
         val note = d.notes.single()
@@ -369,8 +345,6 @@ class SubjectsTest {
         assertTrue(note.contains("textured surface"), note)
         assertTrue(note.contains("90% sure"), note)
         assertTrue(note.contains("Textile"), note)
-        // Every setting it moved has to appear by the name the editor shows, or the change is
-        // invisible and indistinguishable from a bug.
         assertTrue(note.contains("anisotropic diffusion"), "the filter change must be named: $note")
         assertTrue(note.contains("minimum blob area"), "the blob floor moved and must be named: $note")
         assertTrue(note.trim().endsWith("."), "notes are sentences: $note")
@@ -391,12 +365,10 @@ class SubjectsTest {
         assertTrue(d.applied)
         assertEquals(4321, d.params.cleanup.minBlobArea, "auto overwrote a hand-set blob floor")
         assertEquals(0.77f, d.params.edge.sensitivity, "auto overwrote a hand-set sensitivity")
-        // And it says which ones it kept, so the user knows why the preset "did nothing" there.
         assertTrue(
             d.notes.any { it.contains("exactly as you set") && it.contains("minimum blob area") },
             "the kept knobs must be named: ${d.notes}",
         )
-        // The knobs it was *not* told about are still free to move.
         assertNotEquals(
             tuned.preprocess.denoise, d.params.preprocess.denoise,
             "protecting two knobs must not freeze the whole tree",
@@ -405,8 +377,6 @@ class SubjectsTest {
 
     @Test
     fun autoNeverChangesTheIdentityOfAnyOfTheTwentyStyles() {
-        // A subject is a modifier on a style. On the automatic path nobody asked for it, so the
-        // boundary is enforced here rather than trusted to the subject tables.
         for (style in Styles.ALL) {
             for (kind in Classify.SourceKind.values()) {
                 if (kind == Classify.SourceKind.UNKNOWN) continue
@@ -451,9 +421,6 @@ class SubjectsTest {
         val kind = Classify.SourceKind.SMOOTH_OBJECT
 
         val separable = Auto.decide(measured(kind, 0.9f, separable = true), base(autoParams()))
-        // SUBJECT and not BORDER_FLOOD: the fused matte contains the flood as one of its three cues
-        // and, unlike the bare flood, reports a confidence the matte stage can refuse on. On a path
-        // nobody asked for, being able to decline is the whole difference.
         assertEquals(MatteMode.SUBJECT, separable.params.matte.mode)
         assertTrue(separable.notes[0].contains("background separation"), separable.notes[0])
 
@@ -472,10 +439,6 @@ class SubjectsTest {
 
     @Test
     fun theMeasurementOutranksTheSubjectPresetsAssumptionAboutTheMaterial() {
-        // SMOOTH_OBJECT maps to `pottery`, which asks for a matte because a pot is photographed
-        // standing on something. That is a prior about the material; `separableSubject` is a
-        // measurement of this photograph, and a pot shot on a cluttered workbench has no background
-        // to remove. Inheriting the preset's assumption here would make the measurement decoration.
         val onABench = Auto.decide(
             measured(Classify.SourceKind.SMOOTH_OBJECT, 0.9f, separable = false),
             base(autoParams()),
@@ -494,9 +457,6 @@ class SubjectsTest {
 
     @Test
     fun onlyTheSubjectsWithABackgroundBehindThemAskForAMatte() {
-        // The division is not "how photographic is this material" but "is there a background in the
-        // frame at all". A logo's paper *is* the picture's ground and a textile fills the frame, so a
-        // matte there can only cut into the artwork.
         val wants = setOf("pottery", "jewellery", "sculpture", "metalwork")
         val defaults = Styles.default().params
         assertEquals(
@@ -514,9 +474,6 @@ class SubjectsTest {
 
     @Test
     fun aSubjectNeverReplacesAMatteTheStyleOrTheUserAlreadyChose() {
-        // `silhouette` names saliency deliberately. A preset's matte is a prior about the material
-        // and a prior does not overrule a decision — which also keeps `adjust` idempotent, and the
-        // UI re-adjusts on every edit.
         val silhouette = assertNotNull(Styles.byId("silhouette")).params
         assertEquals(MatteMode.SALIENCY, silhouette.matte.mode)
         for (s in Subjects.ALL) {
@@ -529,7 +486,6 @@ class SubjectsTest {
 
     @Test
     fun aMatteTheStyleAlreadyChoseIsNeverReplaced() {
-        // `silhouette` is the one preset that opts into a matte, and it picks saliency deliberately.
         val style = assertNotNull(Styles.byId("silhouette")).params
         val p = style.copy(auto = autoParams()).sanitized()
         val d = Auto.decide(measured(Classify.SourceKind.SMOOTH_OBJECT, 0.95f, separable = true), p)

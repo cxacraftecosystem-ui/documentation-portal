@@ -1,21 +1,5 @@
 package com.offlinetracer.vector
 
-/**
- * SVG 1.1 serialisation of a [VecDocument].
- *
- * The output is deliberately plain: `width`/`height`/`viewBox` on the root, one `<g>` per layer
- * carrying the layer's id, name, opacity and visibility, and one `<path>` per shape. No transforms,
- * no `<defs>`, no CSS classes — every consumer of a traced file (Illustrator, Inkscape, a laser
- * cutter's job setup, a plotter, a browser) reads that subset identically, and each thing added
- * beyond it is another thing one of them reads differently.
- *
- * Two invariants matter more than the formatting:
- *
- *  - **Every attribute value is escaped.** Layer names come from the user, and an unescaped `&` in
- *    a layer name produces a file no XML parser will open.
- *  - **`NaN` and `Infinity` are never emitted.** A single non-finite coordinate makes a renderer
- *    drop the whole path, so [SvgPathData.num] clamps instead; see its KDoc.
- */
 object SvgWriter {
 
     data class SvgOptions(
@@ -29,14 +13,6 @@ object SvgWriter {
 
     private const val MAX_DIMENSION = 1.0e7f
 
-    /**
-     * Serialises [doc] to a complete SVG 1.1 document, including the XML declaration.
-     *
-     * A non-positive or non-finite document size falls back to 1 unit so the file still opens; a
-     * shape with no segments is skipped rather than emitted as an empty `<path>`. Paths carrying
-     * `strokeWidths` are written as filled variable-width outlines, since SVG has no way to express
-     * a stroke whose width varies along its length.
-     */
     fun write(doc: VecDocument, options: SvgOptions = SvgOptions()): String {
         val p = if (options.precision < 0) 0 else if (options.precision > 6) 6 else options.precision
         val nl = if (options.prettyPrint) "\n" else ""
@@ -83,8 +59,6 @@ object SvgWriter {
                 for (shape in layer.shapes) appendShape(sb, shape, i2, nl, p, 1f)
                 sb.append(i1).append("</g>").append(nl)
             } else {
-                // Flattened output has nowhere to record visibility, so a hidden layer is simply
-                // absent and its opacity is folded into every shape it owned.
                 if (!layer.visible) continue
                 val opacity = clamp01(layer.opacity)
                 if (opacity <= 0f) continue
@@ -96,10 +70,6 @@ object SvgWriter {
         return sb.toString()
     }
 
-    /**
-     * Escapes the five XML entities and drops the control characters XML 1.0 cannot represent.
-     * Safe for both attribute values and element text. Returns [s] unchanged when nothing needs it.
-     */
     fun escapeXml(s: String): String {
         var needs = false
         for (c in s) {
@@ -122,10 +92,6 @@ object SvgWriter {
         }
         return sb.toString()
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Internals
-    // ---------------------------------------------------------------------------------------
 
     private fun appendShape(
         sb: StringBuilder,
@@ -223,7 +189,4 @@ object SvgWriter {
     private fun clamp01(v: Float): Float = if (!v.isFinite() || v < 0f) 0f else if (v > 1f) 1f else v
 }
 
-// Nested to match the API contract's grouping under `object SvgWriter`; aliased at file scope so
-// `com.offlinetracer.vector.SvgOptions` resolves too. :core-export refers to it unqualified, and a
-// type that only resolves one way is a compile error in somebody else's module.
 typealias SvgOptions = SvgWriter.SvgOptions

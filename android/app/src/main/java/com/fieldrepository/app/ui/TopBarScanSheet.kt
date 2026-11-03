@@ -52,32 +52,12 @@ import com.fieldrepository.app.data.ScanOutcome
 import com.fieldrepository.app.data.ScanOutcomeKind
 import kotlinx.coroutines.launch
 
-/**
- * The top-bar scanner (REQUIREMENTS_2026-10-20 §6.2): the live camera and a picked picture (the
- * [scanner] slot, each app's own reader), the typed code, then `data/ScanDispatch.kt`, then one
- * result card with its button. IDENTICAL in both apps apart from the `package` line.
- *
- * It never navigates on its own: the person presses Open, Redeem, Join, Add or Ask to join, and
- * [onAction] does that act. Nothing scanned is written into the typed box, kept or echoed: not a join
- * card's secret, not a payment or authenticator link, not an identity QR. The box holds only what
- * the person typed, and a scan clears it.
- */
-
-/** The outcomes drawn as an answer rather than as a refusal. */
 fun scanOutcomeIsPositive(kind: ScanOutcomeKind): Boolean = when (kind) {
     ScanOutcomeKind.OPEN, ScanOutcomeKind.REDEEM_JOIN_CARD, ScanOutcomeKind.JOIN_SESSION,
     ScanOutcomeKind.ADD_FROM_PEER, ScanOutcomeKind.JOIN_WORKSHOP, ScanOutcomeKind.POINTER -> true
     ScanOutcomeKind.REFUSED, ScanOutcomeKind.NOT_FOUND, ScanOutcomeKind.OFFLINE -> false
 }
 
-/**
- * The scanner's body, for the sheet, a full-screen host or a panel.
- *
- * @param dispatch `dispatchScan` over the app's services.
- * @param onAction runs a pressed action; returns the next outcome to show, or null when it left the
- *   sheet (navigated), after which [onDone] runs.
- * @param scanner the app's camera and picture controls: `(enabled, onText, onRefusal)`.
- */
 @Composable
 fun TopBarScanContent(
     dispatch: suspend (String) -> ScanOutcome,
@@ -201,7 +181,6 @@ fun TopBarScanContent(
     }
 }
 
-/** The full-screen sheet the header's scan button opens. */
 @Composable
 fun TopBarScanSheet(
     dispatch: suspend (String) -> ScanOutcome,

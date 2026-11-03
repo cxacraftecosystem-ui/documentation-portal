@@ -9,61 +9,12 @@ import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 import kotlin.math.sqrt
 
-/**
- * Every container this app can write, plus the two it deliberately refuses to write itself.
- *
- * [JPEG] and [WEBP] are listed because the *user* picks them, not because `:core-export` encodes
- * them: a hand-rolled baseline JPEG would be measurably worse than the one already sitting in
- * every platform, so [Exporter] throws for those two and the Android / web shells route them
- * through `Bitmap.compress` and `canvas.toBlob`. Silently substituting PNG bytes under a `.jpg`
- * name is the failure this split exists to make impossible.
- *
- * The enum also carries the two facts that decide **delivery** rather than encoding —
- * [belongsInPhotoGallery] and [consequence]. They live here because both are properties of the
- * container, and a host that has to re-derive either one gets it wrong: routing on the MIME prefix
- * puts SVG in the camera roll, and a format chosen with nothing said about it fails in another app
- * hours later.
- */
 enum class ExportFormat(
-    /** File extension with no leading dot. */
     val extension: String,
-    /** IANA media type, suitable for a `ClipData`, an `Intent` or a `Blob`. */
     val mimeType: String,
-    /** True when the format stores resolution-independent geometry rather than pixels. */
     val isVector: Boolean,
-    /**
-     * True only for the containers a photo gallery can decode and put on screen.
-     *
-     * **This property exists because the MIME prefix is the wrong test and was used as one.**
-     * `image/svg+xml` and `image/vnd.dxf` both begin with `image/`, so a host that decides "is this a
-     * picture?" by looking at the prefix files an SVG or a DXF into the platform's picture collection
-     * — the camera roll — where no gallery on any Android build can render it. That produces the worst
-     * shape an export bug can take: the bytes are correct, the file is written, it is indexed, and
-     * then the user taps it and is told it cannot be opened, with their photo roll polluted by
-     * thumbnails that will never load. Whether a gallery can show a file is a fact about the
-     * container, so it is declared here, per format, and never inferred from a string.
-     *
-     * [TIFF] is deliberately false even though it holds pixels. Android's own decoders
-     * (`BitmapFactory`, `ImageDecoder`) have never supported TIFF, so a TIFF in the picture
-     * collection fails in exactly the same way an SVG does — this module writes baseline TIFF for
-     * print and scanning work on a computer, and it belongs where a file manager can reach it.
-     * [BMP] is true because the platform decoder does read BMP, so a gallery genuinely displays it.
-     */
     val belongsInPhotoGallery: Boolean,
-    /**
-     * The format's name at the point of choice, where "SVG" alone means nothing to most people.
-     *
-     * Wording both clients show lives in shared code (`docs/DESIGN.md` §9) so the two apps cannot
-     * describe one format differently; format wording lives beside the format it describes.
-     */
     val choiceLabel: String,
-    /**
-     * One line stating what happens when the user tries to *open* the saved file.
-     *
-     * This is the other half of the same defect: a user who picks a format nothing warned them about
-     * has been set up to fail hours later, in another app, with nothing connecting the failure back
-     * to the export. Every format says its consequence before it is chosen, not after.
-     */
     val consequence: String,
 ) {
     PNG(
@@ -149,26 +100,12 @@ enum class ExportFormat(
         consequence = "Reopens in Offline Tracer with its trace settings. It is not a picture.",
     );
 
-    /** True for the pixel containers this module encodes or the platform encodes. */
     val isRaster: Boolean
         get() = this == PNG || this == JPEG || this == WEBP || this == TIFF || this == BMP
 
-    /**
-     * True when the bytes must be produced by the host platform rather than by `:core-export`.
-     * Callers are expected to branch on this *before* calling [Exporter.export]; the exception
-     * thrown there is a backstop, not the intended control flow.
-     */
     val isPlatformEncoded: Boolean get() = this == JPEG || this == WEBP
 }
 
-/**
- * One export request. Sizes are in pixels for raster formats and in document units for vector
- * formats; [dpi] is what converts document units to physical units in PDF, EPS and DXF.
- *
- * `width`/`height` of 0 mean "document size". Supplying only one of them keeps the aspect ratio,
- * which is what every share sheet in the app actually wants and what stops a "1024 wide" request
- * from silently squashing a portrait trace.
- */
 data class ExportOptions(
     val format: ExportFormat,
     val width: Int = 0,
@@ -181,59 +118,31 @@ data class ExportOptions(
     val includeMetadata: Boolean = true,
     val flattenLayers: Boolean = false,
 ) {
-    /** Mirrors [ExportFormat.isVector] so callers only need the options object. */
     val isVector: Boolean get() = format.isVector
 
-    /** File extension with no leading dot. */
     val extension: String get() = format.extension
 
-    /** IANA media type for the produced bytes. */
     val mimeType: String get() = format.mimeType
 
-    /**
-     * Mirrors [ExportFormat.belongsInPhotoGallery] so a host holding only the options object can
-     * route the write without reaching for the MIME string — see that property for why the string is
-     * the wrong test.
-     */
     val belongsInPhotoGallery: Boolean get() = format.belongsInPhotoGallery
 
-    /** Effective dots-per-inch, never zero or negative — 72 is the PostScript/PDF identity. */
     val effectiveDpi: Int get() = if (dpi > 0) dpi else 72
 }
 
-/**
- * Shared geometry and formatting used by all four vector writers.
- *
- * Kept in one place because the y-flip, the points-per-document-unit conversion and the number
- * formatting have to agree across PDF, EPS, DXF and SVG or the same trace exports at four
- * different sizes.
- */
 internal object ExportGeom {
 
-    /** PDF and PostScript both define the user-space unit as 1/72 inch. */
     const val POINTS_PER_INCH = 72f
 
-    /** DXF is emitted in millimetres because that is what CAM and laser software expects. */
     const val MM_PER_INCH = 25.4f
 
     private val POW10 = longArrayOf(
         1L, 10L, 100L, 1_000L, 10_000L, 100_000L, 1_000_000L, 10_000_000L, 100_000_000L,
     )
 
-    /**
-     * Fixed-precision decimal with trailing zeros trimmed, independent of the default locale.
-     *
-     * Written by hand rather than delegating to `String.format`: the locale-sensitive formatters
-     * emit a comma decimal separator in half of Europe, and a single `1,5` in a PDF content stream
-     * or an SVG `d` attribute makes the whole file unparseable. That failure only reproduces on
-     * the affected device, which makes it exactly the kind of bug that ships.
-     */
     fun num(value: Float, precision: Int): String {
         val p = if (precision < 0) 0 else if (precision > 8) 8 else precision
         val d = value.toDouble()
         val finite = if (d.isNaN() || d.isInfinite()) 0.0 else d
-        // Clamped before scaling so `roundToLong` can never saturate: a saturated Long negates to
-        // itself and would print a coordinate with the wrong sign.
         val safe = if (finite > 1e9) 1e9 else if (finite < -1e9) -1e9 else finite
         val scale = POW10[p]
         var r = (safe * scale).roundToLong()
@@ -269,11 +178,6 @@ internal object ExportGeom {
         return sb.toString()
     }
 
-    /**
-     * Horizontal and vertical scale factors from document units to output units, as `[sx, sy]`.
-     * Honours an explicit width and/or height first and [ExportOptions.scale] otherwise; giving
-     * only one dimension mirrors it onto the other so the aspect ratio survives.
-     */
     fun scaleXY(o: ExportOptions, docW: Float, docH: Float): FloatArray {
         val w = if (docW.isFinite() && docW > 0f) docW else 1f
         val h = if (docH.isFinite() && docH > 0f) docH else 1f
@@ -293,7 +197,6 @@ internal object ExportGeom {
         return floatArrayOf(sx, sy)
     }
 
-    /** Raster output size in whole pixels as `[w, h]`, never smaller than 1x1. */
     fun outputSize(o: ExportOptions, docW: Float, docH: Float): IntArray {
         val s = scaleXY(o, docW, docH)
         val w = if (o.width > 0) o.width else (docW * s[0]).roundToInt()
@@ -301,13 +204,6 @@ internal object ExportGeom {
         return intArrayOf(if (w < 1) 1 else w, if (h < 1) 1 else h)
     }
 
-    /**
-     * A copy of [doc] with every path scaled by `sx`/`sy` and stroke widths scaled by the
-     * geometric mean, so a 2x export has 2x-thick strokes rather than hairlines.
-     *
-     * Deliberately rebuilds the document instead of calling `VecDocument.transform`: only the
-     * shapes are supposed to move here, while the page box is rewritten explicitly.
-     */
     fun scaleDocument(doc: VecDocument, sx: Float, sy: Float): VecDocument {
         if (sx == 1f && sy == 1f) return doc
         val m = Mat2D.scale(sx, sy)
@@ -328,11 +224,6 @@ internal object ExportGeom {
         return VecDocument(doc.width * sx, doc.height * sy, layers, doc.background)
     }
 
-    /**
-     * Union of every visible path's bounds in document coordinates, widened by half the stroke
-     * width so a stroked outline is enclosed rather than bisected. Returns `null` when the
-     * document carries no drawable geometry at all.
-     */
     fun geometryBounds(doc: VecDocument): FloatArray? {
         var minX = Float.POSITIVE_INFINITY
         var minY = Float.POSITIVE_INFINITY
@@ -362,15 +253,11 @@ internal object ExportGeom {
         return floatArrayOf(minX, minY, maxX, maxY)
     }
 
-    /** Red channel of a packed ARGB int as 0..1. */
     fun red(argb: Int): Float = ((argb ushr 16) and 0xFF) / 255f
 
-    /** Green channel of a packed ARGB int as 0..1. */
     fun green(argb: Int): Float = ((argb ushr 8) and 0xFF) / 255f
 
-    /** Blue channel of a packed ARGB int as 0..1. */
     fun blue(argb: Int): Float = (argb and 0xFF) / 255f
 
-    /** Alpha channel of a packed ARGB int as 0..1. */
     fun alpha(argb: Int): Float = ((argb ushr 24) and 0xFF) / 255f
 }

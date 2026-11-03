@@ -15,10 +15,6 @@ import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 
-/**
- * The read cache against a real local HTTP server (the JDK's own), switched off half-way through
- * to stand in for losing the signal.
- */
 class OfflineReadCacheTest {
     private val dir = Files.createTempDirectory("read-cache-test").toFile()
     private val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -71,7 +67,6 @@ class OfflineReadCacheTest {
     @Test
     fun `a screen opened offline shows what it last loaded`() {
         assertEquals("""{"items":["Ajrakh"]}""", get("crafts"))
-        // Online, the server is always asked again, even though the answer is stored.
         assertEquals("""{"items":["Ajrakh"]}""", get("crafts"))
         assertEquals(2, hits)
         server.stop(0)

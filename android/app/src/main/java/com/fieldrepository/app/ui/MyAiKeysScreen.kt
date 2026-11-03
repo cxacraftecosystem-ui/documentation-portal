@@ -48,31 +48,6 @@ import com.fieldrepository.app.data.UserAiKeyDto
 import com.fieldrepository.app.data.FieldRepository
 import kotlinx.coroutines.launch
 
-/**
- * **A RESEARCHER'S OWN PROVIDER KEYS**, on the handset. The twin of the web's `MyAiKeysPanel`.
- *
- * ── WHAT THIS IS, AND HOW IT DIFFERS FROM [ApiKeysScreen] ─────────────────────────────────────
- *
- * [ApiKeysScreen] manages the DEPLOYMENT's keys and is reachable only from the admin hub, by a
- * master admin: those are the organisation's credentials, on the organisation's bill, and that
- * screen has a reveal control because a master admin sometimes has to compare a stored key with a
- * provider dashboard.
- *
- * This screen is the opposite of that in every respect. It is a PERSONAL setting, open to every
- * signed-in account, and it acts only on the caller's own rows — the server takes the owner from
- * the token, so there is no request this screen could make that touches somebody else's key. And
- * **there is no reveal control here and there must never be one**: nobody, administrator included,
- * has any business reading another person's personal credential. The last four characters are the
- * most this app will ever show, which is enough to tell two of your own keys apart and no more.
- *
- * ── THE CAPABILITY LINE IS LOAD-BEARING ───────────────────────────────────────────────────────
- *
- * Each model prints what it can actually be used for, and a provider that cannot do something says
- * so in words — Claude cannot transcribe audio, because no Claude model accepts a sound file. The
- * server enforces that rule regardless; this screen is where a person can see it BEFORE choosing.
- * Without it, somebody pastes a Claude key believing their recordings are now on their own account
- * and discovers otherwise from a bill that never arrives.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MyAiKeysScreen(
@@ -182,8 +157,6 @@ fun MyAiKeysScreen(
     }
 }
 
-/** The researcher-facing name of each job. The server sends the enum; this is the only place on the
- *  handset that turns it into words, so the six names read the same on every row. */
 private val TASK_LABELS = mapOf(
     "PROOFREAD" to "Proofread",
     "EXPAND" to "Expand",
@@ -275,16 +248,11 @@ private fun ProviderKeyCard(
                 label = { Text(if (state.configured) "Replace the key" else "Paste your key") },
                 placeholder = { Text(provider.keyPrefix?.let { "$it…" } ?: "Your API key") },
                 singleLine = true,
-                // The one control on this screen that must never echo: a key typed in a courtyard
-                // is typed in front of whoever is standing there.
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth()
             )
 
             Spacer(Modifier.height(12.dp))
-            // The shared one-of-many (SearchableSelect.SearchableSelectField), never a hand-rolled
-            // ExposedDropdownMenuBox (owner, 2026-10-17). A saved model this app no longer offers is
-            // still named in the trigger, through the placeholder, until another is picked.
             SearchableSelectField(
                 label = "Model",
                 options = provider.models.map { model ->
@@ -310,7 +278,6 @@ private fun ProviderKeyCard(
                 val input = chosen.inputPricePerMTok
                 val output = chosen.outputPricePerMTok
                 if (input != null && output != null) {
-                    // The date travels with the figure, every time. See AiCatalogueDto.
                     Text(
                         "About \$$input in / \$$output out per million words-ish, checked $pricesCheckedOn",
                         style = MaterialTheme.typography.labelSmall,
@@ -359,10 +326,6 @@ private fun ProviderKeyCard(
                         Text("${index + 1}. $step", style = MaterialTheme.typography.bodySmall)
                     }
                     Spacer(Modifier.height(4.dp))
-                    // The URLs are printed rather than opened, on purpose: getting a key means
-                    // signing in to a provider console and copying a secret, which is a laptop job.
-                    // A tap that dropped somebody into a mobile browser to do it would be inviting
-                    // them to paste a credential into whatever else that browser has open.
                     Text(
                         "Keys page: ${provider.consoleUrl}",
                         style = MaterialTheme.typography.labelSmall,

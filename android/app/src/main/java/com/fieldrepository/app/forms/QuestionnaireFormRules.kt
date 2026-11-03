@@ -3,17 +3,10 @@ package com.fieldrepository.app.forms
 import com.fieldrepository.app.data.UserDto
 import com.fieldrepository.app.ui.FieldPermissions
 
-/**
- * The pure rules of the forms library and the unified questionnaire on Field Repository Android
- * (UNIFY 2.3 and the owner's decisions of 21 and 22 Oct 2026), kept here so JVM tests pin them and
- * every screen asks the same question. Each mirrors `backend/app/questionnaire/authoring.py`.
- */
 object FormRights {
-    /** D3: Professor and above (or the questionnaire grant) create their own forms. */
     fun mayCreate(user: UserDto?): Boolean =
         user != null && (FieldPermissions.rank(user.role) >= FieldPermissions.RANK_PROFESSOR || user.canManageQuestionnaire)
 
-    /** A form and everything in it: its author or a content admin. No recorded author: content admins only. */
     fun mayChange(user: UserDto?, form: QForm?): Boolean {
         user ?: return false
         if (FieldPermissions.isContentAdmin(user)) return true
@@ -21,38 +14,25 @@ object FormRights {
         return author == user.id
     }
 
-    /** Deleting a form is the same rule as editing it (owner, 22 Oct 2026). */
     fun mayDelete(user: UserDto?, form: QForm?): Boolean = mayChange(user, form)
 
-    /** Restoring a deleted form, and the Deleted tab: content admins. */
     fun mayRestore(user: UserDto?): Boolean = FieldPermissions.isContentAdmin(user)
 
-    /**
-     * Owner decision 5: share with everyone, workshop bindings and a workshop type's default form are
-     * admin acts, and Field Repository serves them on Android (designer-portal Android does not).
-     */
     fun mayAdminAct(user: UserDto?): Boolean = FieldPermissions.isContentAdmin(user)
 
-    /** The global default form: `PUT /questionnaires/{id}/default` is `require_admin` on this server. */
     fun maySetDefault(user: UserDto?): Boolean = user != null && FieldPermissions.isAdmin(user)
 
-    /** Sessions and recordings: delete and restore are content admins only (owner decision 3). */
     fun mayDeleteSession(user: UserDto?): Boolean = FieldPermissions.isContentAdmin(user)
 
-    /** Section overrides (Marked complete, Needs review, Needs redo): `require_content_admin`. */
     fun mayOverride(user: UserDto?): Boolean = FieldPermissions.isContentAdmin(user)
 
-    /** The corpus is a whole-instrument dump behind the dataset gate (audit H3). */
     fun mayExportCorpus(user: UserDto?): Boolean = user != null && FieldPermissions.canDownloadDataset(user)
 
-    /** The workshop annexure is research data: questionnaire managers and dataset downloaders (A12). */
     fun mayReadAnnexure(user: UserDto?): Boolean = mayCreate(user) || mayExportCorpus(user)
 
-    /** Read view and review: the reviewers. */
     fun mayReview(user: UserDto?): Boolean = user != null && FieldPermissions.canReview(user)
 }
 
-/** The library's tabs: Mine · Shared · Workshop, and Deleted for content admins (UNIFY 4.2). */
 enum class FormTab(val wire: String, val label: String) {
     MINE("mine", "Mine"), SHARED("shared", "Shared"), WORKSHOP("workshop", "Workshop"), DELETED("deleted", "Deleted");
 
@@ -62,14 +42,6 @@ enum class FormTab(val wire: String, val label: String) {
 }
 
 object FormLibrary {
-    /**
-     * The forms one tab lists, from the whole list the server gave. The server filters by scope when it
-     * knows `scope`; this filter makes an older server's answer read the same.
-     *  * Mine: forms this person wrote.
-     *  * Shared: forms shared with everyone (and Field Repository's own instruments, which have no author).
-     *  * Workshop: forms bound to at least one workshop.
-     *  * Deleted: content admins only.
-     */
     fun tab(forms: List<QForm>, tab: FormTab, meId: String?, kind: String? = null): List<QForm> = forms
         .filter { form ->
             when (tab) {
@@ -82,19 +54,16 @@ object FormLibrary {
         .filter { kind == null || it.kind == kind }
         .sortedWith(compareBy<QForm> { !it.isDefault }.thenBy { it.sortOrder }.thenBy { it.title.lowercase() })
 
-    /** The badges a row carries, in this order. */
     fun badges(form: QForm): List<String> = listOfNotNull(
         FormsCopy.DEFAULT_BADGE.takeIf { form.isDefault },
         FormsCopy.SHARED_BADGE.takeIf { form.isShared },
         form.kind?.let(FormKinds::label)
     )
 
-    /** "24 sections · 285 questions" */
     fun counts(form: QForm): String =
         "${form.sectionCount} ${if (form.sectionCount == 1) "section" else "sections"} · ${form.questionCount} ${if (form.questionCount == 1) "question" else "questions"}"
 }
 
-/** `shared/questionnaire-kinds.json`: the vocabulary of form kinds (A8). */
 object FormKinds {
     const val WORKSHOP_INTERVIEW = "WORKSHOP_INTERVIEW"
     const val MARKET_SURVEY = "MARKET_SURVEY"
@@ -103,16 +72,13 @@ object FormKinds {
 
     fun label(kind: String?): String = kind?.let { LABELS[it] } ?: NOT_STATED
 
-    /** Forms grouped by kind, as the picker shows several bindings with no primary (rule 5). */
     fun grouped(forms: List<QForm>): List<Pair<String, List<QForm>>> =
         forms.groupBy { it.kind }.toList()
             .sortedBy { (k, _) -> LABELS.keys.indexOf(k).let { if (it < 0) Int.MAX_VALUE else it } }
             .map { (k, list) -> label(k) to list }
 }
 
-/** Bindings (A9): several forms per workshop, at most one primary for each workshop. */
 object FormBindings {
-    /** Adds or updates [workshopId]; making it primary leaves it the only primary of THIS form's list for that workshop. */
     fun set(current: List<QBinding>, workshopId: String, bound: Boolean, primary: Boolean): List<QBinding> {
         val others = current.filterNot { it.workshopId == workshopId }
         return if (!bound) others else others + QBinding(workshopId = workshopId, isPrimary = primary)
@@ -122,11 +88,6 @@ object FormBindings {
         QBindingsPut(bindings.filter { !it.workshopId.isNullOrBlank() }.distinctBy { it.workshopId }.map { QBinding(workshopId = it.workshopId, isPrimary = it.isPrimary) })
 }
 
-/**
- * The start sheet's form (B31, B32, D2): the explicit choice, else what the server resolved for the
- * workshop (primary binding, only binding, the workshop type's default, the global default), else the
- * offline answer from the cached list: the global default.
- */
 object FormResolution {
     fun pick(explicit: String?, resolved: QFormFor?, forms: List<QForm>): String? {
         val live = forms.filter { !it.deleted }.map { it.id }.toSet()
@@ -136,14 +97,12 @@ object FormResolution {
         return forms.firstOrNull { it.isDefault && !it.deleted }?.id
     }
 
-    /** "Bound to this workshop" first, then the rest; a person may always pick any form they can see. */
     fun ordered(forms: List<QForm>, resolved: QFormFor?): List<QForm> {
         val bound = resolved?.bound.orEmpty().map { it.questionnaireId }
         return forms.filter { !it.deleted }.sortedWith(compareBy<QForm> { f -> bound.indexOf(f.id).let { if (it < 0) Int.MAX_VALUE else it } }.thenBy { !it.isDefault }.thenBy { it.title })
     }
 }
 
-/** Every new sentence of the forms library and the unified session screens on Android. */
 object FormsCopy {
     const val FORMS = "Forms"
     const val SESSIONS = "Sessions"

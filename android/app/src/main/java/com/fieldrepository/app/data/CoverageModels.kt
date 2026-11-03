@@ -2,16 +2,6 @@ package com.fieldrepository.app.data
 
 import kotlinx.serialization.Serializable
 
-/*
- * THE COVERAGE MAP'S WIRE SHAPES — `GET map/coverage` and `GET map/coverage/units/{state}/{district}/records`,
- * field for field the web's `components/map/coverage/coverageTypes.ts`.
- *
- * Shared with the Field Repository byte for byte apart from the package line. The designer portal
- * sends a few fields the Field Repository never does (design and planned workshops, the peer row);
- * they default here, and every unknown key is ignored by the client's decoder, so one file serves both.
- */
-
-/** How a unit's outline is drawn: its own polygon, the parent district's, or its state's. */
 object CoveragePolygon {
     const val OWN = "OWN"
     const val PARENT = "PARENT"
@@ -23,13 +13,11 @@ object CoverageLevel {
     const val STATE = "STATE"
 }
 
-/** What the choropleth colours by. `records` is read as [ALL]: it was the designer portal's old name. */
 object CoverageMetric {
     const val WORKSHOPS = "workshops"
     const val ARTISANS = "artisans"
     const val ALL = "all"
 
-    /** The labels, in the web's order: the same words as the web's "Colour by" control. */
     val OPTIONS: List<Pair<String, String>> = listOf(
         WORKSHOPS to "Workshops",
         ARTISANS to "Artisans",
@@ -53,12 +41,10 @@ data class CoverageCounts(
     val products: Int = 0,
     val tools: Int = 0,
     val media: Int = 0,
-    /** Designer portal only. */
     val designWorkshops: Int = 0,
     val plannedWorkshops: Int = 0
 )
 
-/** Designer portal only: the Field Repository's figures for the same unit, never added to ours. */
 @Serializable
 data class CoveragePeerCounts(
     val workshops: Int = 0,
@@ -81,13 +67,11 @@ data class CoverageUnit(
     val craftCodes: List<String> = emptyList(),
     val clusters: List<String> = emptyList()
 ) {
-    /** "Barmer, Rajasthan", or the state alone for a state-level unit. */
     val title: String get() = if (district.isNullOrBlank()) state else "$district, $state"
 }
 
 @Serializable
 data class CoverageMarker(
-    /** DESIGN_WORKSHOP | PLANNED | CLUSTER | WORKSHOP. */
     val kind: String = "WORKSHOP",
     val id: String = "",
     val title: String = "",
@@ -141,7 +125,6 @@ data class CoverageCatalogue(
     val years: List<CoverageYear> = emptyList()
 )
 
-/** The filters the server applied, echoed back. */
 @Serializable
 data class CoverageFilters(
     val level: String = CoverageLevel.DISTRICT,
@@ -154,7 +137,6 @@ data class CoverageFilters(
 @Serializable
 data class CoverageUnmatched(val count: Int = 0, val unplaced: Int? = null)
 
-/** Designer portal only: whether the Field Repository's figures were asked for and reached. */
 @Serializable
 data class CoveragePeerStatus(val status: String = "OFF", val asOf: String? = null)
 
@@ -191,12 +173,10 @@ data class CoverageBucketPage(
 @Serializable
 data class CoverageUnitRecords(
     val unit: CoverageUnit = CoverageUnit(),
-    /** Keyed by bucket: designWorkshops, plannedWorkshops, workshops, artisans, products, tools, media. */
     val buckets: Map<String, CoverageBucketPage> = emptyMap(),
     val peerHref: String? = null
 )
 
-/** The buckets a unit's records come in, in the order and with the words the web prints. */
 val COVERAGE_BUCKETS: List<Pair<String, String>> = listOf(
     "designWorkshops" to "Design workshops",
     "plannedWorkshops" to "Planned workshops",
@@ -207,7 +187,6 @@ val COVERAGE_BUCKETS: List<Pair<String, String>> = listOf(
     "media" to "Media"
 )
 
-/** The filters a coverage view is drawn with — the web's `CoverageQuery`. */
 @Serializable
 data class CoverageQuery(
     val level: String = CoverageLevel.DISTRICT,
@@ -215,13 +194,8 @@ data class CoverageQuery(
     val scheme: List<String> = emptyList(),
     val fy: List<Int> = emptyList(),
     val stateLgd: Int? = null,
-    /** Designer portal only: the Field Repository's figures beside ours. */
     val peer: Boolean = false
 ) {
-    /**
-     * The query string, as the web's `coverageParams` builds it: arrays comma-joined, defaults left
-     * out. [forUnit] drops the state scope and the peer switch, as the unit-records route wants.
-     */
     fun params(forUnit: Boolean = false): Map<String, String> = buildMap {
         if (level != CoverageLevel.DISTRICT) put("level", level)
         if (craftCode.isNotEmpty()) put("craftCode", craftCode.joinToString(","))

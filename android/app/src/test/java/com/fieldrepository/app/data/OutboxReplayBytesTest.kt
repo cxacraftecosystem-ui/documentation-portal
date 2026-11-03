@@ -16,28 +16,15 @@ import org.junit.Test
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 
-/**
- * A create that went to the outbox because its online answer was lost must be REPLAYED BYTE FOR BYTE
- * under the same Idempotency-Key. The server fingerprints method, path and body; a replay that
- * differs by one character (a fresh `recordedAt`, a new client key, a re-encoded default) is a 422
- * "different request" instead of the record the first attempt already made, and the photos queued
- * with it would have nowhere to attach.
- *
- * Each case sends a body online through the repository, queues the same object the way the forms
- * do (`offlineFormJson`, MainActivity.kt), replays it through `createFromEntry`, and compares the two
- * requests as the server would see them.
- */
 class OutboxReplayBytesTest {
     private val sent = mutableListOf<Request>()
 
-    /** The forms' outbox encoder: `offlineFormJson` in MainActivity.kt. */
     private val offlineFormJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     private fun api(): FieldRepositoryApi {
         val client = OkHttpClient.Builder()
             .addInterceptor(Interceptor { chain ->
                 sent += chain.request()
-                // Answer 500: what matters here is what went out, and a 500 needs no DTO to decode.
                 Response.Builder()
                     .request(chain.request())
                     .protocol(Protocol.HTTP_1_1)

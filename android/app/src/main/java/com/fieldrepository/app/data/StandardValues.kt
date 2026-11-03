@@ -1,18 +1,5 @@
 package com.fieldrepository.app.data
 
-/**
- * The shared standard values (convergence point 10): phone, language, gender, tool tradition and
- * material family. The Android port of `backend/app/services/standard_values.py`.
- *
- * The lists below are `backend/app/data/standard_values.json` written out, and
- * `StandardValuesParityTest` holds them to that file and runs `shared/standard-values-vectors.json`
- * through every function here, the same table the server and the web run. This file is the same in
- * both portals apart from its package line. Change all of them together.
- *
- * Stored: phone digits in `phone` and the code in `phoneCountryCode` (+91 by default); a language
- * code ("bn"), shown by name ("Bengali"); the gender label; the TraditionType code; a material
- * family code.
- */
 object StandardValues {
     data class Entry(val code: String, val label: String, val aliases: List<String> = emptyList())
 
@@ -32,7 +19,6 @@ object StandardValues {
     val OTHER_NATIONAL_DIGITS: Pair<Int, Int> = 4 to 14
     const val E164_MAX_DIGITS = 15
 
-    /** `label` is the language's name. */
     val LANGUAGES: List<Entry> = listOf(
         Entry("hi", "Hindi", listOf("हिन्दी", "हिंदी", "hindi language")),
         Entry("en", "English", listOf("eng")),
@@ -67,9 +53,6 @@ object StandardValues {
         Entry("OTHER", "Other"),
     )
 
-    // Tradition (owner decision, 2026-10-19): a form offers "Traditional", "Contemporary" and
-    // "Transitional (Hybrid)". UNKNOWN is the unanswered default and is never offered; MODERN and
-    // HYBRID are retired codes an older row may still hold, read as their successors.
     val TRADITION_TYPES: List<Entry> = listOf(
         Entry("TRADITIONAL", "Traditional"),
         Entry("CONTEMPORARY", "Contemporary", listOf("MODERN")),
@@ -77,7 +60,6 @@ object StandardValues {
         Entry("UNKNOWN", "Unknown", listOf("Not known")),
     )
 
-    /** The stored state of a tradition question nobody answered. Never one of the offered answers. */
     const val TRADITION_UNANSWERED = "UNKNOWN"
 
     val RETIRED_TRADITION_CODES: Map<String, String> = mapOf("MODERN" to "CONTEMPORARY", "HYBRID" to "TRANSITIONAL")
@@ -105,7 +87,6 @@ object StandardValues {
         Entry("OTHER", "Other"),
     )
 
-    // Spelled out, never `\s`: the server and the web must match the same characters.
     private val FOLD_SEPARATORS = Regex("[ \t\r\n ‐-―_./,()\\[\\]-]+")
     private val PHONE_SEPARATORS = Regex("[ \t\r\n ‐-―().-]+")
     private val HEAD_SEPARATOR = Regex("[ \t ‐-―-]")
@@ -113,7 +94,6 @@ object StandardValues {
     private val LANGUAGE_TAG = Regex("([a-z]{2,3})[-_][a-z]{2}")
     private val ASCII_DIGITS = Regex("[0-9]+")
 
-    /** Lower case, separators collapsed to one space, trimmed. */
     fun fold(text: String?): String = text?.lowercase()?.replace(FOLD_SEPARATORS, " ")?.trim().orEmpty()
 
     private fun index(entries: List<Entry>, stored: (Entry) -> String): Map<String, String> {
@@ -141,13 +121,11 @@ object StandardValues {
     fun normalizeTradition(value: String?) = normalise(TRADITION_INDEX, TRADITION_MESSAGE, value)
     fun normalizeMaterialFamily(value: String?) = normalise(MATERIAL_INDEX, MATERIAL_MESSAGE, value)
 
-    /** The name a stored language code is shown by; a legacy free-text value is shown as stored. */
     fun languageName(code: String?): String? {
         if (code.isNullOrBlank()) return null
         return LANGUAGES.firstOrNull { it.code == code }?.label ?: code
     }
 
-    /** The Language dropdown as (code, name) pairs. A stored legacy value is kept, first. */
     fun languageOptions(current: String?): List<Pair<String, String>> {
         val base = LANGUAGES.map { it.code to it.label }
         val existing = current.orEmpty()
@@ -156,17 +134,14 @@ object StandardValues {
     }
 
     val GENDER_LABELS: List<String> = GENDERS.map { it.label }
-    /** The three answers a form offers, in order. */
     val TRADITION_OPTIONS: List<Pair<String, String>> =
         TRADITION_TYPES.filter { it.code != TRADITION_UNANSWERED }.map { it.code to it.label }
 
-    /** What a tradition dropdown shows for a stored code: its offered answer, or "" when unanswered. */
     fun traditionChoice(code: String?): String {
         val current = if (code.isNullOrBlank()) "" else RETIRED_TRADITION_CODES[code] ?: code
         return if (TRADITION_OPTIONS.any { it.first == current }) current else ""
     }
 
-    /** A stored code's label; a retired code reads as its successor's. */
     fun traditionLabel(code: String?): String? {
         val current = code?.let { RETIRED_TRADITION_CODES[it] ?: it }
         return TRADITION_TYPES.firstOrNull { it.code == current }?.label ?: code?.takeIf { it.isNotBlank() }
@@ -175,7 +150,6 @@ object StandardValues {
 
     fun materialFamilyLabel(code: String?): String? = MATERIAL_FAMILIES.firstOrNull { it.code == code }?.label
 
-    /** The one family a free description names, or null when it names none or several. */
     fun materialFamilyFromText(text: String?): String? {
         val folded = " ${fold(text)} "
         if (folded.isBlank()) return null
@@ -186,8 +160,6 @@ object StandardValues {
         }
         return found.singleOrNull()
     }
-
-    // ── Phone ──────────────────────────────────────────────────────────────────────────────────
 
     private fun digitWindow(code: String): Pair<Int, Int> {
         NATIONAL_DIGITS[code]?.let { return it }
@@ -201,7 +173,6 @@ object StandardValues {
         return "Enter a valid phone number ($low–$high digits)."
     }
 
-    /** "+91", "91" and "0091" -> "+91"; blank -> the default; null when malformed. */
     fun normalizeCountryCode(value: String?): String? {
         if (value.isNullOrBlank()) return DEFAULT_COUNTRY_CODE
         var text = value.replace(PHONE_SEPARATORS, "")
@@ -213,7 +184,6 @@ object StandardValues {
         return if (COUNTRY_CODE.matches(text)) text else null
     }
 
-    /** (code, digits) for a number typed in any common form; both null when blank. */
     fun normalizePhone(countryCode: String?, number: String?): PhoneResult {
         if (number.isNullOrBlank()) return PhoneResult(null, null)
         val raw = number.trim()
@@ -246,7 +216,6 @@ object StandardValues {
         return PhoneResult(code, digits)
     }
 
-    /** "+91 98765 43210". A legacy value that does not normalise is shown as stored. */
     fun formatPhone(countryCode: String?, number: String?): String? {
         if (number.isNullOrBlank()) return null
         val result = normalizePhone(countryCode, number)
@@ -256,10 +225,6 @@ object StandardValues {
         return "${result.code} $digits"
     }
 
-    /**
-     * The one "+91 9876543210" string the phone box edits, from the two stored columns. A value
-     * stored before the country-code column already carries its code, or none (a bare number).
-     */
     fun phoneForEditing(countryCode: String?, number: String?): String {
         val text = number?.trim().orEmpty()
         if (text.isEmpty()) return ""

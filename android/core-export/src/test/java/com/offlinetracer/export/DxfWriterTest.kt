@@ -5,12 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
-/**
- * DXF is parsed back into group-code/value pairs, which is the only way to check the one thing
- * that actually breaks: a value written on the same line as its code, or a section left unclosed.
- * The layer table is checked entry by entry because the per-layer mapping is the whole reason a
- * CNC or laser user asks for DXF instead of SVG.
- */
 class DxfWriterTest {
 
     private class Pair2(val code: Int, val value: String)
@@ -33,7 +27,6 @@ class DxfWriterTest {
     fun everyValueFollowsItsGroupCodeOnItsOwnLine() {
         val lines = String(DxfWriter.export(Fixtures.document(), ExportOptions(ExportFormat.DXF)),
             Charsets.US_ASCII).split("\r\n")
-        // Trailing "" from the final CRLF, so the real content is an even number of lines.
         assertEquals(1, lines.size % 2, "code and value lines must pair up exactly")
         var i = 0
         while (i + 1 < lines.size) {
@@ -95,8 +88,6 @@ class DxfWriterTest {
         val maxX = p[maxIdx + 1].value.toFloat()
         val maxY = p[maxIdx + 2].value.toFloat()
         assertTrue(maxX > minX && maxY > minY, "extents must be a real box")
-        // 100 x 50 document pixels at the default 300 dpi is 8.47 x 4.23 mm, and the geometry
-        // lies inside that. A DXF in pixels would put these in the thousands.
         assertTrue(maxX <= 8.5f, "geometry is in millimetres, got $maxX")
         assertTrue(maxY <= 4.3f, "geometry is in millimetres, got $maxY")
     }
@@ -124,7 +115,6 @@ class DxfWriterTest {
                 )
             }
         }
-        // The fixture's "Cut lines!" and "engrave 2" both need work to become legal.
         assertTrue(names.contains("CUT_LINES_"), "expected CUT_LINES_ in $names")
         assertTrue(names.contains("ENGRAVE_2"), "expected ENGRAVE_2 in $names")
     }
@@ -153,7 +143,6 @@ class DxfWriterTest {
                     if (p[j].code == 10) {
                         vertices++
                         assertEquals(20, p[j + 1].code, "every x needs a y")
-                        // A DXF real with no decimal point is rejected by strict readers.
                         assertTrue(p[j].value.contains('.'), "x '${p[j].value}' needs a decimal point")
                         assertTrue(p[j + 1].value.contains('.'), "y needs a decimal point")
                     }
@@ -169,8 +158,6 @@ class DxfWriterTest {
 
     @Test
     fun yIsFlippedRelativeToTheDocument() {
-        // The fixture's topmost geometry is the open curve's start at document y = 45, which is
-        // the *lowest* point in DXF space. If y were not flipped the extents would be inverted.
         val doc = Fixtures.document()
         val p = pairs(DxfWriter.export(doc, ExportOptions(ExportFormat.DXF, dpi = 72)))
         val entitiesAt = p.indexOfFirst { it.code == 2 && it.value == "ENTITIES" }
@@ -178,7 +165,6 @@ class DxfWriterTest {
         var i = entitiesAt
         while (i < p.size) {
             if (p[i].code == 0 && p[i].value == "LWPOLYLINE") {
-                // First vertex of the first entity: the rectangle's corner at document (10, 10).
                 var j = i
                 while (p[j].code != 10) j++
                 firstY = p[j + 1].value.toFloat()

@@ -14,12 +14,6 @@ import org.junit.Test
 import retrofit2.HttpException
 import retrofit2.Response
 
-/**
- * The words and rules behind the password screens, ported from the Design Prototype Workshop's
- * `PasswordSetupCopy` with this app's additions (forgot-password, the settings card, the
- * administrator's "Help them back in", the access list's sign-in choice). All pure, so a JVM test
- * can walk every branch.
- */
 class PasswordSetupCopyTest {
 
     private fun user(
@@ -49,8 +43,6 @@ class PasswordSetupCopyTest {
         )
     )
 
-    // ── The first-password gate ──────────────────────────────────────────────────────────────────
-
     @Test
     fun `only a true flag gates`() {
         assertTrue(mustChangePasswordBlocks(user(mustChange = true)))
@@ -75,8 +67,6 @@ class PasswordSetupCopyTest {
         assertFalse(passwordGateAsksForCurrentAfter(429))
         assertFalse(passwordGateAsksForCurrentAfter(null))
     }
-
-    // ── Links ────────────────────────────────────────────────────────────────────────────────────
 
     @Test
     fun `every link refusal is its own sentence, and an unknown word still says something`() {

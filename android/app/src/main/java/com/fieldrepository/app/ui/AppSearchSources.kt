@@ -31,31 +31,10 @@ import kotlinx.coroutines.coroutineScope
 import retrofit2.HttpException
 import java.io.IOException
 
-/*
- * WHAT THIS APP'S SEARCH PANEL SEARCHES — the documentation portal's half of `AppSearch.kt`.
- *
- * The shared file holds the rules and the UI; this one names this app's sources:
- *
- *  - RECORDS: `GET /search/unified` first (docs/SEARCH.md): one ranked answer across this portal
- *    and, for the roles allowed, the designer portal, whose rows carry a portal chip and open
- *    [RemoteRecordScreen]. Where it answers 404 (switched off on the server), the older fan-out:
- *    `GET /search` (artisans, workshops, products, tools and media), plus the `search` filter of
- *    `GET /crafts`, `GET /processes` and `GET /questionnaire/interviews`. Each source that fails is
- *    skipped; only when EVERY source fails for want of a network does the panel say it is offline.
- *  - OFFLINE: the artisans and crafts this screen already holds.
- *  - SCREENS and SETTINGS: below.
- *
- * The designer portal's copy has the same function names and adds design workshops and authored
- * questionnaires, which this app does not have.
- */
-
-/** The name the page header and the search field carry — the old island wordmark's words. */
 const val APP_SEARCH_NAME = "Field Repository"
 
-/** The settings rows a search can open, mapped to screens by the host. */
 enum class AppSearchSettingTarget { APPEARANCE, AI_KEYS, TWO_STEP }
 
-/** Settings by name and by the words people use for them. */
 fun appSearchSettingItems(open: (AppSearchSettingTarget) -> Unit): List<AppSearchItem> = listOf(
     setting("appearance", "Appearance & accessibility", Icons.Filled.Palette, AppSearchSettingTarget.APPEARANCE,
         listOf("theme", "dark mode", "light mode", "colour", "color", "accessibility"), open),
@@ -80,7 +59,6 @@ private fun setting(
     open: (AppSearchSettingTarget) -> Unit
 ) = AppSearchItem(AppSearchGroup.SETTINGS, key, title, icon, subtitle = "Settings", keywords = keywords) { open(target) }
 
-/** The screens this account's menu offers — exactly [entries], which the host takes from `visibleNavItems`. */
 fun appSearchScreenItems(entries: List<NavEntry>, open: (NavDestination) -> Unit): List<AppSearchItem> =
     entries.map { entry ->
         AppSearchItem(
@@ -93,7 +71,6 @@ fun appSearchScreenItems(entries: List<NavEntry>, open: (NavDestination) -> Unit
         ) { open(entry.destination) }
     }
 
-/** The records this screen already holds, which is what the panel searches without a network. */
 fun appSearchCachedItems(
     artisans: List<ArtisanDto>,
     crafts: List<CraftDto>,
@@ -111,11 +88,8 @@ fun appSearchCachedItems(
         ) { openRecord(SearchRecordTypes.CRAFT, c.id) }
     }
 
-/** How each unified type is drawn here: its group, its icon, and the record type this app opens. */
 private class UnifiedKind(val group: AppSearchGroup, val icon: ImageVector, val recordType: String?)
 
-// Clusters, design workshops and reports exist only on the designer portal: they arrive here only as
-// remote rows, which open the read-only card, so they name no screen of this app.
 private val UNIFIED_KINDS: Map<String, UnifiedKind> = mapOf(
     "artisans" to UnifiedKind(AppSearchGroup.ARTISANS, Icons.Filled.Person, SearchRecordTypes.ARTISAN),
     "crafts" to UnifiedKind(AppSearchGroup.CRAFTS, Icons.Filled.Brush, SearchRecordTypes.CRAFT),
@@ -131,10 +105,6 @@ private val UNIFIED_KINDS: Map<String, UnifiedKind> = mapOf(
     "media" to UnifiedKind(AppSearchGroup.MEDIA, Icons.Filled.PermMedia, SearchRecordTypes.MEDIA),
 )
 
-/**
- * The panel's items for a unified answer, in the server's group and rank order. A local item opens
- * this app's own screen; a remote one carries [AppSearchItem.portal] and opens the read-only card.
- */
 fun unifiedSearchItems(
     response: UnifiedSearchResponse,
     openRecord: (recordType: String, recordId: String) -> Unit,
@@ -156,11 +126,6 @@ fun unifiedSearchItems(
     }
 }
 
-/**
- * Every server source for [query]. `GET /search/unified` is asked first; only its 404 (switched off)
- * brings in the older sources. Throws [IOException] only when every source failed and at least one
- * of them for want of a network, which is the panel's cue to say it is offline.
- */
 suspend fun appSearchRemoteItems(
     repository: FieldRepository,
     query: String,
@@ -176,7 +141,6 @@ suspend fun appSearchRemoteItems(
     return appSearchLegacyItems(repository, query, openRecord)
 }
 
-/** The fan-out the panel used before `GET /search/unified`, kept for a server that answers it 404. */
 private suspend fun appSearchLegacyItems(
     repository: FieldRepository,
     query: String,
@@ -241,16 +205,9 @@ private suspend fun appSearchLegacyItems(
     items
 }
 
-/** A search failure that is not "no network", in the words this app uses for API errors. */
 fun appSearchErrorLine(error: Throwable): String =
     error.userMessage("Can't search online. Showing what's on this phone.")
 
-/**
- * The Recordings group: questionnaire takes matching [query] on what their chips say (section,
- * form, artisans, workshop, transcript), each drawn with its chips; a tap opens the recordings list
- * searched for the same words. With no signal it reads this account's kept takes; a failure is an
- * empty group, never the whole panel's.
- */
 suspend fun appSearchRecordingItems(
     context: android.content.Context,
     query: String,
@@ -266,7 +223,6 @@ suspend fun appSearchRecordingItems(
     return recordingSearchItems(hits, open)
 }
 
-/** The Recordings group's rows for [hits]: titled by what each take answers, with its chips. */
 fun recordingSearchItems(
     hits: List<com.fieldrepository.app.questionnaire.data.RecordingHit>,
     open: (com.fieldrepository.app.questionnaire.data.QuestionnaireFilters) -> Unit

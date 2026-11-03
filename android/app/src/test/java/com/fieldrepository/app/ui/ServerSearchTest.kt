@@ -11,13 +11,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
 
-/**
- * THE SERVER-SEARCHED PICKER (DC-A09) AND THE LAZY PAGE (DC-A34), as pure rules.
- *
- * `ui/ServerSearch.kt` decides what a picker sheet lists for a query, whether there is another page,
- * and what it says when the server cannot answer. `ui/LazyPage.kt` decides how a lazy page reports its
- * scroll to the quick-return header and when a Back restore can land. None of it needs a renderer.
- */
 class ServerSearchTest {
 
     private data class Row(val id: String, val name: String)
@@ -37,8 +30,6 @@ class ServerSearchTest {
         seen: List<Row> = emptyList()
     ) = serverSearchRows(query, browse, browseLoaded, cached, resultsFor, results, seen, { it.id }, { it.name })
 
-    // ── what the sheet lists ────────────────────────────────────────────────────────────────────
-
     @Test
     fun `a blank query lists the scope's own page once it has arrived, and the cache before that`() {
         assertEquals(rows("Asha", "Bhanu"), visible("", browse = rows("Asha", "Bhanu"), cached = rows("Old")))
@@ -47,8 +38,6 @@ class ServerSearchTest {
 
     @Test
     fun `a query the server answered lists exactly that answer, unfiltered`() {
-        // The server matched "kumar" in a field the label does not show (notes): the sheet must not
-        // filter it away again.
         val answer = rows("Ram Lal")
         assertEquals(answer, visible(" kumar ", browse = rows("Asha"), resultsFor = "kumar", results = answer))
     }
@@ -72,7 +61,6 @@ class ServerSearchTest {
         assertFalse(serverSearchHasMore("", true, 2000, 2000, null, 0, 0))
         assertTrue(serverSearchHasMore("ram", true, 100, 2000, "ram", 100, 140))
         assertFalse(serverSearchHasMore("ram", true, 100, 2000, "ram", 40, 40))
-        // Typed past the last answer: the list is the local filter, which has no next page.
         assertFalse(serverSearchHasMore("rame", true, 100, 2000, "ram", 100, 140))
     }
 
@@ -90,8 +78,6 @@ class ServerSearchTest {
         assertFalse(serverSearchMatches("Ram Kumar · Bagru", "ram jaipur"))
         assertTrue(serverSearchMatches("anything", "   "))
     }
-
-    // ── the state, against a fake list route ────────────────────────────────────────────────────
 
     private class FakeRoute(val all: List<Row>) {
         val calls = mutableListOf<Pair<String?, Int>>()
@@ -136,13 +122,11 @@ class ServerSearchTest {
         s.seed(page(table.take(100), 2000))
         s.updateQuery("Artisan 1")
         s.search("Artisan 1")
-        // Every term must match, so "Artisan 1" is every artisan whose number has a 1 in it.
         assertEquals(table.count { serverSearchMatches(it.name, "Artisan 1") }, s.total)
         assertEquals(100, s.rows.size)
         s.loadMore()
         assertEquals(listOf<Pair<String?, Int>>("Artisan 1" to 1, "Artisan 1" to 2), route.calls)
         assertEquals(200, s.rows.size)
-        // A row found only by searching stays known after the box is cleared.
         val deep = s.rows.last()
         s.updateQuery("")
         assertTrue(s.known.any { it.id == deep.id })
@@ -183,14 +167,11 @@ class ServerSearchTest {
 
     @Test
     fun `the copy never admits a partial list`() {
-        // DC-A09: nothing is out of reach, so no sentence may say a list is short.
         for (note in listOf(SERVER_SEARCH_OFFLINE_NOTE, SERVER_SEARCH_FAILED_NOTE)) {
             assertFalse(note, note.contains("of ") && note.contains("Showing"))
             assertTrue(note.length <= 48)
         }
     }
-
-    // ── carry scope ─────────────────────────────────────────────────────────────────────────────
 
     @Test
     fun `only a whole list may vouch that a carried record is gone`() {
@@ -198,8 +179,6 @@ class ServerSearchTest {
         assertEquals(CarryScopeState.UNAVAILABLE, carryScopeStateFor(page(table.take(100), 2000)))
         assertEquals(CarryScopeState.UNAVAILABLE, carryScopeStateFor(null))
     }
-
-    // ── the lazy page ───────────────────────────────────────────────────────────────────────────
 
     @Test
     fun `a lazy page reports zero only at the very top, and far once the first item is gone`() {

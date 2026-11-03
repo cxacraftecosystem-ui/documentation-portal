@@ -13,10 +13,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * A CREATE HELD AS A LIKELY DUPLICATE (409 `artisan_possible_duplicate`) is its own outbox arm, never
- * a clash or a refusal: the tray says who it looks like and offers "Same person" / "Different person".
- */
 class OutboxPossibleDuplicateTest {
     private val json = Json { ignoreUnknownKeys = true }
 

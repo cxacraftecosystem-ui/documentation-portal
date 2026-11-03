@@ -17,13 +17,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.zip.GZIPOutputStream
 
-/**
- * Offline form authoring with temporary ids (A15), reuse (A5) and the phone-to-phone handoff (A10):
- * forms, sections and questions written with no signal land in order, each child is sent with its
- * parent's server id, and a session started on a phone-only form waits for the form.
- */
 class FormAuthoringTest {
-    /** A forms server in memory: hands out ids, records every create with its parent. */
     private class FakeForms : FormTransport {
         val calls = mutableListOf<String>()
         val keys = mutableListOf<String>()
@@ -92,7 +86,6 @@ class FormAuthoringTest {
         val formId = forms.queueForm(QFormCreate("Field visit"), "p1")
         val server = FakeServer()
         server.on("POST /questionnaire/sessions", """{"id":"s1","clientKey":"k1"}""")
-        // The shared transport asks the portal for the form's server id (QuestionnairePortal.resolveFormId).
         val transport = QuestionnaireTransport(server.api, { _, _ -> "a" }, formIdOf = { forms.resolveFormId(it) })
         val body = QSessionCreate(clientKey = "k1", questionnaireId = formId, sessionDate = "2026-10-22", startedAt = "2026-10-22T05:00:00Z")
         assertTrue("no form id yet: the session waits", runCatching { transport.createSession("key", body) }.exceptionOrNull() is IOException)

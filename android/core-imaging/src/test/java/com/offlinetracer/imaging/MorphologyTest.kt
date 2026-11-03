@@ -5,12 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * Binary morphology (ALGORITHMS §9). The algebraic identities — closing is extensive, opening is
- * anti-extensive, and both are idempotent — are the tests, because they hold for every structuring
- * element and every shape, so they catch a decomposition bug that a single hand-checked example
- * would not.
- */
 class MorphologyTest {
 
     private fun rect(w: Int, h: Int, x0: Int, y0: Int, x1: Int, y1: Int): Mask {
@@ -100,8 +94,6 @@ class MorphologyTest {
 
     @Test
     fun closingAConvexShapeChangesNothing() {
-        // A convex set is already closed with respect to any structuring element, so this is exactly
-        // the idempotence check that catches a dilate/erode pair with mismatched offsets.
         val m = rect(25, 25, 8, 6, 16, 18)
         for (shape in listOf(SeShape.RECT, SeShape.ELLIPSE)) {
             assertSame(m, Morphology.close(m, 2, shape), "close($shape) must be a no-op on a rectangle")
@@ -164,8 +156,6 @@ class MorphologyTest {
 
     @Test
     fun outOfBoundsReadsAsBackgroundForBinaryMorphology() {
-        // Border policy (ALGORITHMS §0): replicating the edge here would make a shape touching the
-        // frame survive erosion forever and grow a skeleton along the border of every photograph.
         val m = Mask(9, 9).fill(true)
         val e = Morphology.erode(m, 1, SeShape.RECT)
         assertFalse(e[0, 0])

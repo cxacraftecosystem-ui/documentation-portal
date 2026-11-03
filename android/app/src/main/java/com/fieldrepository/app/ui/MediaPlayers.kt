@@ -65,13 +65,6 @@ import coil3.request.crossfade
 import coil3.video.VideoFrameDecoder
 import kotlinx.coroutines.delay
 
-/**
- * A Coil loader that can decode a frame from a video file/URL for use as a thumbnail.
- *
- * Coil 3: `crossfade` is an extension in `coil3.request` now, and the http(s) fetcher is not built in
- * — `coil-network-okhttp` registers it through ServiceLoader, which a loader built here picks up as
- * well as the default one does (see the Coil block in app/build.gradle.kts).
- */
 @Composable
 fun rememberMediaImageLoader(): ImageLoader {
     val context = LocalContext.current
@@ -83,13 +76,11 @@ fun rememberMediaImageLoader(): ImageLoader {
     }
 }
 
-/** Full-screen, type-aware media viewer: image, video (ExoPlayer) or audio (inline transport). */
 @Composable
 fun MediaViewerDialog(
     uri: Uri,
     mediaType: String,
     onSave: (() -> Unit)? = null,
-    /** A preview kept on the device (`data/PreviewCache`), shown when the full image cannot be fetched. */
     offlinePreview: Any? = null,
     onDismiss: () -> Unit
 ) {
@@ -121,9 +112,6 @@ fun MediaViewerDialog(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (onSave != null) {
-                    // The shared tonal "Download" (MediaDownloads.MediaActionButton): icon AND word on
-                    // its own container, so it reads over a white photo as well as a dark one — the
-                    // bare white icon it replaces vanished against a light image (owner, 2026-10-17).
                     MediaActionButton(action = MediaAction.DOWNLOAD, onClick = onSave)
                 }
                 IconButton(onClick = onDismiss) {
@@ -148,18 +136,6 @@ fun VideoPlayer(uri: Uri, modifier: Modifier = Modifier) {
     DisposableEffect(Unit) {
         onDispose { player.release() }
     }
-    /*
-     * PAUSE WHEN THE APP STOPS BEING VISIBLE. Android 17 silences any app's audio once it has no
-     * visible activity and no foreground service, and for targetSdk 37 even a foreground service must
-     * hold while-in-use rights — this viewer runs neither, and must not grow one for a preview. Left
-     * alone, a clip playing when the researcher pressed Home would go on "playing" in silence and be
-     * minutes further on when they came back. ON_STOP and not ON_PAUSE: in split screen or
-     * picture-in-picture the activity is paused but still visible, and the platform lets it keep
-     * playing there.
-     *
-     * Inside the viewer's `Dialog` this is still the ACTIVITY's lifecycle: Compose gives the dialog's
-     * content the view-tree lifecycle owner of the view that hosts it.
-     */
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { player.pause() }
     AndroidView(
         modifier = modifier
@@ -175,7 +151,6 @@ fun VideoPlayer(uri: Uri, modifier: Modifier = Modifier) {
     )
 }
 
-/** Inline audio transport: play/pause + scrubber, backed by MediaPlayer. */
 @Composable
 fun AudioPlayer(uri: Uri, modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -204,8 +179,6 @@ fun AudioPlayer(uri: Uri, modifier: Modifier = Modifier) {
     DisposableEffect(Unit) {
         onDispose { runCatching { player.release() } }
     }
-    // Same rule and same reason as [VideoPlayer]: silenced in the background on Android 17, so stop
-    // honestly and leave the button saying Play.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         if (playing) {
             runCatching { player.pause() }
@@ -251,8 +224,6 @@ fun AudioPlayer(uri: Uri, modifier: Modifier = Modifier) {
                     runCatching { player.seekTo(target) }
                 },
                 enabled = ready && durationMs > 0,
-                // The tinted track, not surface-100: this row's own ground IS surface-100, so the
-                // unplayed track used to be 1.00:1 against it — the voice note with no bar at all.
                 colors = FieldProgressDefaults.sliderColors()
             )
             Text("${formatMs(positionMs)} / ${formatMs(durationMs)}", color = Body, style = MaterialTheme.typography.bodySmall)
@@ -267,13 +238,8 @@ private fun formatMs(ms: Int): String {
     return "%d:%02d".format(m, s)
 }
 
-/**
- * Live recording cue: a blinking red dot, "Recording" + elapsed time, and a WhatsApp-style
- * amplitude waveform driven by MediaRecorder.getMaxAmplitude().
- */
 @Composable
 fun RecordingIndicator(getAmplitude: () -> Int, modifier: Modifier = Modifier, paused: Boolean = false) {
-    // Reduced motion: a steady dot. The word beside it ("Recording" / "Paused") is the signal either way.
     val reduceMotion = LocalAppPreferences.current.reducedMotion
     val transition = rememberInfiniteTransition(label = "rec")
     val blink by transition.animateFloat(
@@ -282,7 +248,6 @@ fun RecordingIndicator(getAmplitude: () -> Int, modifier: Modifier = Modifier, p
         animationSpec = infiniteRepeatable(tween(600, easing = LinearEasing), RepeatMode.Reverse),
         label = "blink"
     )
-    // Dedicated slow blink for the "Paused" cue (~1.1s per half-cycle).
     val pausedBlink by transition.animateFloat(
         initialValue = 1f,
         targetValue = 0.1f,
@@ -292,9 +257,6 @@ fun RecordingIndicator(getAmplitude: () -> Int, modifier: Modifier = Modifier, p
     val amplitudes = remember { mutableStateListOf<Float>() }
     var elapsedMs by remember { mutableStateOf(0L) }
 
-    // The elapsed counter keeps its accumulated value across pause/resume. While recording we anchor
-    // `start` to (now - elapsedMs) so, after a pause, counting continues from exactly where it stopped
-    // instead of restarting at 00:00. Pausing simply cancels this effect, freezing elapsedMs.
     LaunchedEffect(paused) {
         if (paused) return@LaunchedEffect
         val start = System.currentTimeMillis() - elapsedMs
@@ -328,13 +290,11 @@ fun RecordingIndicator(getAmplitude: () -> Int, modifier: Modifier = Modifier, p
                 .background(dotColor.copy(alpha = dotAlpha), CircleShape)
         )
         if (paused) {
-            // "Paused" is never faded: text that blinks to 10% is text nobody can read. The dot blinks.
             Text("Paused", color = Body, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
             Text(formatMs(elapsedMs.toInt()), color = Body, style = MaterialTheme.typography.bodySmall)
         } else {
             Text("Recording  ${formatMs(elapsedMs.toInt())}", color = Body, style = MaterialTheme.typography.bodySmall)
         }
-        // The action colour, themed — it was the logo's terracotta, which did not invert.
         val waveColor = MaterialTheme.colorScheme.primary
         Canvas(
             modifier = Modifier
@@ -359,7 +319,6 @@ fun RecordingIndicator(getAmplitude: () -> Int, modifier: Modifier = Modifier, p
     }
 }
 
-/** A tappable media row that opens the in-app viewer; reused for captured and saved media. */
 @Composable
 fun MediaThumb(
     uri: Uri,
@@ -368,24 +327,13 @@ fun MediaThumb(
     subtitle: String?,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
-    /**
-     * Drawn at the row's END, after Open — the discard control. It used to be overlaid on the tile's
-     * top-right corner, and once it became a 48dp target it sat on top of "Open" (smoke test
-     * 2026-10-16). In the row, the two never share pixels.
-     */
     trailing: (@Composable () -> Unit)? = null,
-    /**
-     * A preview kept on the device (`data/PreviewCache`): drawn when [uri] cannot be fetched, which is
-     * what a signed link does once it expires or the phone is offline.
-     */
     offlinePreview: Any? = null,
-    /** The tile's image as drawn, each time it loads from [uri], so the caller can keep a copy. */
     onPreviewLoaded: ((coil3.Image) -> Unit)? = null
 ) {
     val loader = rememberMediaImageLoader()
     val context = LocalContext.current
     val fallback = offlinePreview?.let { rememberAsyncImagePainter(it) }
-    // Software bitmaps when somebody wants a copy: a hardware bitmap cannot be re-encoded.
     val request = remember(uri, onPreviewLoaded != null) {
         ImageRequest.Builder(context).data(uri).apply { if (onPreviewLoaded != null) allowHardware(false) }.build()
     }

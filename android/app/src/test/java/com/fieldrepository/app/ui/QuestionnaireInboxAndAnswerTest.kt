@@ -13,7 +13,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/** The inbox rows and their in-place decisions, "Answer for", and the "Answered by" subject rule. */
 class QuestionnaireInboxAndAnswerTest {
     private fun obj(text: String) = Json.parseToJsonElement(text) as JsonObject
 

@@ -31,18 +31,8 @@ import com.fieldrepository.app.data.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-/**
- * C18 (owner decision 2026-10-17) — FIND THE ARTISAN BEFORE TYPING THEM IN.
- *
- * A duplicate used to surface only at the Aadhaar box, about ten fields in. A new artisan now opens
- * on this card: an Aadhaar number goes to the exact lookup (`GET /artisans/lookup/aadhaar`), a name
- * to the list's own search, and a match opens the record already there. "Record a new artisan" is
- * always one tap away and carries what was typed into the form. The web's `ArtisanLookup`, rule for
- * rule (`artisanLookupRules.ts`). The number is held in memory only, never stored.
- */
 enum class LookupKind { EMPTY, AADHAAR, NAME }
 
-/** Twelve digits (spaces allowed) are an Aadhaar number; anything else is a name to search for. */
 fun lookupKind(query: String): LookupKind {
     val trimmed = query.trim()
     if (trimmed.isEmpty()) return LookupKind.EMPTY
@@ -50,7 +40,6 @@ fun lookupKind(query: String): LookupKind {
     return if (Regex("""^[\d\s]{12,14}$""").matches(trimmed) && digits.length == 12) LookupKind.AADHAAR else LookupKind.NAME
 }
 
-/** What "Record a new artisan" carries into the form: the typed name, or the typed Aadhaar digits. */
 data class LookupStart(val name: String = "", val aadhaar: String = "")
 
 fun lookupStart(query: String): LookupStart = when (lookupKind(query)) {
@@ -59,14 +48,8 @@ fun lookupStart(query: String): LookupStart = when (lookupKind(query)) {
     LookupKind.EMPTY -> LookupStart()
 }
 
-/**
- * "Not shared by artisan" is offered only while no Aadhaar is on file. It records a refusal; it
- * never retracts a stored number, which would be data loss under a 200. The web's
- * `notSharedOffered` in ArtisanForm.tsx, rule for rule.
- */
 fun aadhaarNotSharedOffered(storedAadhaar: String?): Boolean = storedAadhaar.isNullOrBlank()
 
-/** The Aadhaar the body sends: blank only for an honoured "not shared" on a record without one. */
 fun aadhaarForBody(typed: String, notShared: Boolean, storedAadhaar: String?): String =
     if (notShared && aadhaarNotSharedOffered(storedAadhaar)) "" else typed.trim()
 
@@ -75,10 +58,8 @@ private data class LookupMatch(val id: String, val name: String, val detail: Str
 @Composable
 fun ArtisanLookupCard(
     repository: FieldRepository,
-    /** An existing artisan's record, opened read-only. */
     onOpen: (String) -> Unit,
     onStart: (LookupStart) -> Unit,
-    /** The Aadhaar shape check the form itself uses, so the two cannot disagree. */
     aadhaarProblem: (String) -> String?,
 ) {
     val scope = rememberCoroutineScope()

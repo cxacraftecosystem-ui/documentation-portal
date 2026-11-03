@@ -5,11 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-/**
- * Dispatch and, more importantly, the refusal to guess. The JPEG/WEBP behaviour is tested by its
- * message as well as its type: a bare exception with no explanation sends the next reader looking
- * for a missing dependency instead of at the platform bridge they were supposed to write.
- */
 class ExporterTest {
 
     private fun doc() = Fixtures.document()
@@ -77,8 +72,6 @@ class ExporterTest {
         assertTrue(!Exporter.supports(ExportFormat.PROJECT))
         for (f in ExportFormat.entries) {
             if (!Exporter.supports(f)) continue
-            // Every supported format must return bytes rather than throw, for both a populated
-            // and a completely empty document.
             assertTrue(Exporter.export(doc(), Fixtures.image(100, 50), ExportOptions(f)).isNotEmpty(), f.name)
         }
     }
@@ -116,8 +109,6 @@ class ExporterTest {
 
     @Test
     fun aMatchingRasterIsEncodedWithoutResampling() {
-        // Re-rendering or resampling a preview that is already the output size would soften a
-        // trace that is exactly one pixel per pixel, which is the whole point of passing one in.
         val raster = Fixtures.image(100, 50)
         assertTrue(
             Exporter.export(doc(), raster, ExportOptions(ExportFormat.PNG, dpi = 96))
@@ -129,7 +120,6 @@ class ExporterTest {
     @Test
     fun aMismatchedRasterIsResampledToTheRequestedSize() {
         val png = Exporter.export(doc(), Fixtures.image(100, 50), ExportOptions(ExportFormat.PNG, width = 50))
-        // IHDR is the first chunk: 8 signature + 4 length + 4 type, then width and height.
         assertEquals(50, be32(png, 16), "requested width")
         assertEquals(25, be32(png, 20), "height follows the aspect ratio")
     }

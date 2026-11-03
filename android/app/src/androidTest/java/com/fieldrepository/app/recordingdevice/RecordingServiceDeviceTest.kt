@@ -26,11 +26,6 @@ import java.io.File
 import java.time.Instant
 import java.util.UUID
 
-/**
- * DESIGN §9 tests 49 and 50 on a device: a take keeps recording through an app switch and a locked
- * screen, and every way out of it (Stop, Back leaving the session, a call taking audio focus) ends
- * the take and keeps its audio. Run by `android/scripts/recording-device-tests.sh`.
- */
 @RunWith(AndroidJUnit4::class)
 class RecordingServiceDeviceTest {
     @get:Rule
@@ -44,7 +39,6 @@ class RecordingServiceDeviceTest {
     private val made = mutableListOf<RecordingDraft>()
 
     @Before fun openApp() {
-        // A microphone foreground service may only start while the app is visible.
         scenario = ActivityScenario.launch(MainActivity::class.java)
         RecordingService.clearFinished()
     }
@@ -85,7 +79,6 @@ class RecordingServiceDeviceTest {
         assertTrue("$why: still recording", RecordingService.state.value is RecordingService.State.Recording)
     }
 
-    /** The take ended for [reason], and its draft says finished with audio kept as `.m4a`. */
     private fun assertEndedAndKept(draft: RecordingDraft, reason: String) {
         assertTrue("the take ended", waitFor(15_000) { RecordingService.state.value is RecordingService.State.Finished })
         assertEquals(reason, (RecordingService.state.value as RecordingService.State.Finished).reason)
@@ -111,7 +104,6 @@ class RecordingServiceDeviceTest {
     }
 
     @Test fun leavingTheSessionEndsTheTakeAndKeepsIt() {
-        // Back on the workspace (and leaving it any other way) stops the take with reason "leave".
         val draft = startTake()
         Thread.sleep(1_500)
         RecordingService.stop(context, "leave")
@@ -121,7 +113,6 @@ class RecordingServiceDeviceTest {
     @Test fun aCallTakingAudioFocusEndsTheTakeAndKeepsIt() {
         val draft = startTake()
         Thread.sleep(1_500)
-        // A phone call takes audio focus for voice communication; this asks for it the same way.
         val audio = context.getSystemService(AudioManager::class.java)
         val call = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())

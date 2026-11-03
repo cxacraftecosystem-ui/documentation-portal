@@ -26,12 +26,10 @@ import com.fieldrepository.app.questionnaire.ui.openAppDownloadPage
 import com.fieldrepository.app.ui.FieldPermissions
 import com.fieldrepository.app.ui.LocalMayDelete
 
-/** The height the questionnaire home is given inside the app's scrolling page. */
 @Composable
 fun questionnaireViewportHeight(): Dp =
     (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp - 190.dp).coerceAtLeast(420.dp)
 
-/** Whether the server has sessions switched on (QUESTIONNAIRE_V2). */
 @Composable
 fun questionnaireSessionsOn(): Boolean {
     val context = LocalContext.current
@@ -40,14 +38,8 @@ fun questionnaireSessionsOn(): Boolean {
     return config?.v2Enabled == true
 }
 
-/** This app's artisans, as the shared screens read them. */
 fun ArtisanDto.asQuestionnaireArtisan(): QArtisanOption = QArtisanOption(id = id, name = name, place = place, craft = craft?.name)
 
-/**
- * The questionnaire home as Field Repository hosts it (UNIFY 4.2 Android): Sessions | Forms. The
- * Forms tab is this app's own library (`forms/`), with admin authoring served on Android (owner
- * decision 5). With sessions switched off on the server the library is the whole questionnaire.
- */
 @Composable
 fun FieldQuestionnaireHome(
     artisans: List<ArtisanDto>,
@@ -89,7 +81,6 @@ fun FieldQuestionnaireHome(
     }
 }
 
-/** An artisan's questionnaire record (B26, C6) on their page; "Continue with…" opens the questionnaire home. */
 @Composable
 fun FieldArtisanQuestionnaireRecord(artisanId: String, artisanName: String, onMessage: (String) -> Unit) {
     val context = LocalContext.current

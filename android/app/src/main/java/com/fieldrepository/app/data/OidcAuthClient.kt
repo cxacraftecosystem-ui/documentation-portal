@@ -13,11 +13,6 @@ import net.openid.appauth.AuthorizationService
 import net.openid.appauth.AuthorizationServiceConfiguration
 import net.openid.appauth.ResponseTypeValues
 
-/**
- * Microsoft and Yahoo sign-in through AppAuth: the authorization request in a browser tab, and the
- * answer AppAuth hands back after checking its `state`. See [OidcSignIn.kt][configuredOidcProviders]
- * for the whole flow; nothing here redeems a code — the backend does, with a secret no phone holds.
- */
 class OidcAuthClient(activity: ComponentActivity) {
     private val service = AuthorizationService(activity)
 
@@ -29,7 +24,6 @@ class OidcAuthClient(activity: ComponentActivity) {
         })
     }
 
-    /** This build's providers; empty when none is configured, and then no button is drawn. */
     val providers: List<OidcProvider> = configuredOidcProviders(
         microsoftClientId = BuildConfig.MICROSOFT_CLIENT_ID,
         microsoftTenant = BuildConfig.MICROSOFT_TENANT,
@@ -38,7 +32,6 @@ class OidcAuthClient(activity: ComponentActivity) {
         allowLoopback = BuildConfig.DEBUG,
     )
 
-    /** A started sign-in: the intent to launch, and the raw nonce this app keeps for the backend. */
     class Started(val intent: Intent, val rawNonce: String)
 
     fun start(provider: OidcProvider): Started {
@@ -63,7 +56,6 @@ class OidcAuthClient(activity: ComponentActivity) {
         return Started(service.getAuthorizationRequestIntent(builder.build()), rawNonce)
     }
 
-    /** What came back: a code with its verifier and redirect URI, or the provider's error code. */
     sealed interface Outcome {
         data class Code(val code: String, val codeVerifier: String, val redirectUri: String) : Outcome
         data class Failed(val error: String?) : Outcome

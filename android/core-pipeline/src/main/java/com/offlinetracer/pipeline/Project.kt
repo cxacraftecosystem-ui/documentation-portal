@@ -14,16 +14,6 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-/**
- * What a saved project contains.
- *
- * **Every field has a default.** That is not laziness; it is the whole forward-compatibility strategy.
- * A project written by build 4 and opened by build 3 is missing fields build 3 has never heard of, and
- * a project written by build 3 and opened by build 4 is missing fields build 4 added. With defaults on
- * everything, both directions decode: the reader fills in what it cannot find and the user's drawing
- * opens. Without them, `kotlinx.serialization` throws `MissingFieldException` and the file is simply
- * lost — which for the only copy of somebody's traced artwork is not a recoverable error.
- */
 @Serializable
 data class ProjectMeta(
     val id: String = "",
@@ -31,7 +21,6 @@ data class ProjectMeta(
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
     val tags: List<String> = emptyList(),
-    /** A [Subjects] id, or blank. Blank means the user never chose one, not that they chose "photo". */
     val subjectId: String = "",
     val favourite: Boolean = false,
     val sourceWidth: Int = 0,
@@ -39,17 +28,6 @@ data class ProjectMeta(
     val thumbnailPath: String = "",
 )
 
-/**
- * One project file: its metadata, the parameters that produced it, and the drawing itself.
- *
- * @param layersJson the vector document, encoded by [ProjectCodec.encodeDocument]. Nested as a string
- *   rather than as a structure so that the geometry — by far the largest part of the file and the part
- *   most likely to gain fields — versions independently of the envelope around it. A reader that cannot
- *   understand a newer geometry schema still recovers the name, the tags and every parameter.
- * @param historyVersion the undo-history format the host layer wrote alongside this file.
- * @param schemaVersion the envelope's own version, stamped by [ProjectCodec.encode]. A file with no
- *   version field at all is from before versioning existed and reads as version 1.
- */
 @Serializable
 data class ProjectDocument(
     val meta: ProjectMeta = ProjectMeta(),
@@ -59,65 +37,22 @@ data class ProjectDocument(
     val schemaVersion: Int = ProjectCodec.SCHEMA_VERSION,
 )
 
-/**
- * Reads and writes the project format.
- *
- * Three properties are load-bearing and are asserted by `ProjectTest`:
- *
- *  1. **Round-trip exactness.** `decode(encode(d)) == d` for every document, including the geometry:
- *     the path data is stored as raw coordinate arrays rather than as an SVG `d` string precisely so
- *     that no rounding sits between a save and the next load. An editor that loses a thousandth of a
- *     pixel per save loses a visible amount after fifty saves.
- *  2. **Unknown fields are ignored, never fatal.** A file from a newer build opens.
- *  3. **Missing fields fall back to defaults.** A file from an older build opens.
- *
- * What it does *not* do is silently accept nonsense: input that is not JSON at all raises
- * [IllegalArgumentException] with a sentence the UI can show. Returning a blank project for a corrupt
- * file would be the worst of both worlds — the user would see an empty canvas, save over it, and lose
- * the thing that was actually still there on disk.
- */
 object ProjectCodec {
 
-    /**
-     * The envelope schema version.
-     *
-     * Bump this only when the *meaning* of an existing field changes, never for an addition — an added
-     * field with a default is already backwards and forwards compatible, and bumping for it would make
-     * the version number useless as a signal that something needs migrating.
-     */
     const val SCHEMA_VERSION = 1
 
     private val json = Json {
         prettyPrint = true
-        // `prettyPrintIndent` is deliberately left at its default: setting it is an opt-in experimental
-        // API, and a warning-free build is worth more than a two-space indent.
-        // Write every field even when it equals its default: a project file is a document a human may
-        // have to read or diff, and "the field is absent" and "the field is at its default" being the
-        // same thing on disk makes both of those jobs guesswork.
         encodeDefaults = true
-        // Property 2: a field this build has never heard of is skipped rather than fatal.
         ignoreUnknownKeys = true
-        // Property 3 for *values* as well as fields: an enum constant that no longer exists, or an
-        // explicit null where this build wants a value, falls back to the property's default instead
-        // of taking the file down. Both are exactly what an older build's file looks like.
         coerceInputValues = true
     }
 
-    /** Serialises [doc], stamping the current [SCHEMA_VERSION] and clamping the parameters. */
     fun encode(doc: ProjectDocument): String = json.encodeToString(
         ProjectDocument.serializer(),
         doc.copy(schemaVersion = SCHEMA_VERSION, params = doc.params.sanitized()),
     )
 
-    /**
-     * Parses a project.
-     *
-     * The parameters come back through [TraceParams.sanitized], because a saved file is one of the three
-     * untrusted sources that function exists for: it may carry a value that was legal in the build that
-     * wrote it and is not legal now, and no stage downstream re-checks.
-     *
-     * @throws IllegalArgumentException if [text] is not JSON. Missing and unknown fields never throw.
-     */
     fun decode(text: String): ProjectDocument {
         val parsed = try {
             json.decodeFromString(ProjectDocument.serializer(), text)
@@ -129,7 +64,6 @@ object ProjectCodec {
         return parsed.copy(params = parsed.params.sanitized())
     }
 
-    /** Serialises a vector document for [ProjectDocument.layersJson]. */
     fun encodeDocument(doc: VecDocument): String {
         val layers = ArrayList<ProjectLayerDto>(doc.layers.size)
         for (layer in doc.layers) {
@@ -158,15 +92,6 @@ object ProjectCodec {
         )
     }
 
-    /**
-     * Parses a vector document.
-     *
-     * Blank input returns an empty document rather than raising. That is not leniency for its own sake:
-     * a project created and saved before anything was traced legitimately has an empty `layersJson`, and
-     * treating the commonest possible state as a corrupt file would be absurd.
-     *
-     * @throws IllegalArgumentException if [text] is non-blank and not JSON.
-     */
     fun decodeDocument(text: String): VecDocument {
         if (text.isBlank()) return VecDocument(0f, 0f, emptyList(), null)
         val dto = try {
@@ -193,10 +118,6 @@ object ProjectCodec {
         }
         return VecDocument(dto.width, dto.height, layers, dto.background)
     }
-
-    // -------------------------------------------------------------------------------------------
-    // Geometry <-> DTO
-    // -------------------------------------------------------------------------------------------
 
     private const val KIND_LINE = 0
     private const val KIND_CUBIC = 1
@@ -269,9 +190,6 @@ object ProjectCodec {
         val segments = ArrayList<VecSeg>(dto.kinds.size)
         var i = 0
         var k = 0
-        // An index walk rather than a for-each so that a truncated `coords` array — or a segment kind
-        // written by a future build — stops the walk instead of throwing. A partially recovered path is
-        // worth more to the user than an exception.
         while (i < dto.kinds.size) {
             val kind = dto.kinds[i]
             val need = when (kind) {
@@ -320,14 +238,6 @@ object ProjectCodec {
         return VecShape(path, style)
     }
 
-    /**
-     * Enum names are matched by hand and fall back to the default rather than being decoded as enums.
-     *
-     * `FillRule`, `LineCap` and `LineJoin` live in `:core-vector`, which is not a serialisation module
-     * and carries no `@Serializable`. Storing the *name* and parsing it here means a rename over there
-     * cannot invalidate every saved project over here, and an unrecognised name degrades to a sane
-     * default instead of taking the file down.
-     */
     private fun fillRuleOf(name: String): FillRule =
         if (name.trim().uppercase() == "NONZERO") FillRule.NONZERO else FillRule.EVENODD
 
@@ -344,17 +254,6 @@ object ProjectCodec {
     }
 }
 
-/**
- * On-disk shape of a [VecDocument].
- *
- * Deliberately *not* `VecDocument` itself with `@Serializable` bolted on: the vector types belong to
- * `:core-vector`, which has no serialisation dependency and must stay free to change its field names.
- * A DTO layer means exactly one file has to be edited when either side moves.
- *
- * Kept as `class` rather than `data class` because two of the fields are arrays, and a generated
- * `equals` on an array compares identities. Nothing compares DTOs — they exist for the width of one
- * encode or decode call — so the generated members would be pure liability.
- */
 @Serializable
 private class ProjectDocDto(
     val schemaVersion: Int = ProjectCodec.SCHEMA_VERSION,
@@ -374,17 +273,6 @@ private class ProjectLayerDto(
     val shapes: List<ProjectShapeDto> = emptyList(),
 )
 
-/**
- * One path plus its style, flattened.
- *
- * The geometry is two parallel arrays — one segment kind per segment, and the coordinates packed
- * end-to-end (2 floats for a line, 6 for a cubic, 4 for a quad) — rather than a list of tagged objects.
- * A traced photograph runs to tens of thousands of segments, and a JSON object per segment turns a
- * 400 KB file into a 6 MB one for no benefit to any reader.
- *
- * It is also *not* an SVG `d` string, which would have been the obvious compact choice: `d` rounds to a
- * fixed precision, and a save/load cycle that quietly moves every point is unacceptable in an editor.
- */
 @Serializable
 private class ProjectShapeDto(
     val startX: Float = 0f,

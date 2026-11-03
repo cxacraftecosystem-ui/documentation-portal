@@ -9,22 +9,6 @@ import java.util.zip.Deflater
 import java.util.zip.DeflaterOutputStream
 import kotlin.math.roundToInt
 
-/**
- * A complete PNG encoder in pure Kotlin — no `android.graphics.Bitmap`, no ImageIO, no NDK.
- *
- * The engine is a plain Kotlin/JVM library so that the whole pipeline is unit-testable without an
- * emulator; an encoder that needed `Bitmap.compress` would drag the Android runtime into every
- * test. `java.util.zip` is JDK core and present on ART, so DEFLATE and CRC-32 come from there
- * rather than being reimplemented.
- *
- * Two details are the classic ways to get PNG wrong and both are handled here:
- *  - **every multi-byte integer in the format is big-endian**, including chunk lengths, the IHDR
- *    dimensions and the trailing CRC — a little-endian slip produces a file that some decoders
- *    open and others reject, which is far harder to diagnose than a file nothing opens;
- *  - the per-scanline filter is *chosen*, not fixed. Filter 0 alone is legal and simple, but on
- *    line art — long runs of identical pixels with occasional 1px transitions — Paeth and Up
- *    roughly halve the compressed size for a few adds per byte.
- */
 object PngEncoder {
 
     private const val COLOUR_TYPE_GRAY = 0
@@ -38,22 +22,11 @@ object PngEncoder {
 
     private val EMPTY = ByteArray(0)
 
-    /**
-     * The fixed 8-byte signature. The 0x89 high bit catches 7-bit-clean transfers and the
-     * CR-LF / LF pair catches a transfer that "helpfully" translated line endings.
-     */
     private val SIGNATURE = byteArrayOf(
         0x89.toByte(), 0x50.toByte(), 0x4E.toByte(), 0x47.toByte(),
         0x0D.toByte(), 0x0A.toByte(), 0x1A.toByte(), 0x0A.toByte(),
     )
 
-    /**
-     * Encodes [src] as an 8-bit RGBA PNG (colour type 6), preserving alpha exactly.
-     *
-     * @param dpi when positive, writes a `pHYs` chunk so print software picks up the physical
-     *   size; 0 omits the chunk entirely rather than asserting a resolution nobody supplied.
-     * @return the complete PNG file bytes.
-     */
     fun encode(src: RgbaImage, dpi: Int = 0): ByteArray {
         val idat = deflateRgba(src)
         val out = ByteArrayOutputStream(idat.size + 128)
@@ -65,14 +38,6 @@ object PngEncoder {
         return out.toByteArray()
     }
 
-    /**
-     * Encodes [src] as an 8-bit greyscale PNG (colour type 0). Values are clamped to 0..1 and
-     * rounded through [Px.toByte255], so an un-normalised intermediate buffer exports as a
-     * clipped image rather than as wrapped-around noise.
-     *
-     * @param dpi when positive, writes a `pHYs` chunk; 0 omits it.
-     * @return the complete PNG file bytes.
-     */
     fun encodeGray(src: GrayF, dpi: Int = 0): ByteArray {
         val idat = deflateGray(src)
         val out = ByteArrayOutputStream(idat.size + 128)
@@ -83,8 +48,6 @@ object PngEncoder {
         writeChunk(out, "IEND", EMPTY)
         return out.toByteArray()
     }
-
-    // ---------------------------------------------------------------- image data
 
     private fun deflateRgba(src: RgbaImage): ByteArray {
         val w = src.width
@@ -147,10 +110,6 @@ object PngEncoder {
         return sink.toByteArray()
     }
 
-    /**
-     * Per-scanline filter selection. Holds the previous raw row and one scratch buffer per
-     * candidate filter so the encoder allocates once per image, not once per row.
-     */
     private class RowFilter(private val stride: Int, private val bpp: Int) {
         private val prev = ByteArray(stride)
         private val sub = ByteArray(stride)
@@ -182,8 +141,6 @@ object PngEncoder {
             while (i < n) {
                 val left = if (i >= b) cur[i - b].toInt() and 0xFF else 0
                 val above = prev[i].toInt() and 0xFF
-                // (left + above) shr 1 is floor of the average; both operands are already
-                // non-negative so the shift and an integer divide agree.
                 avg[i] = ((cur[i].toInt() and 0xFF) - ((left + above) shr 1)).toByte()
                 i++
             }
@@ -205,9 +162,6 @@ object PngEncoder {
                 i++
             }
 
-            // Minimum sum of absolute *signed* byte values: the heuristic the PNG spec itself
-            // recommends. It is not optimal, but it is one pass and it picks Up on flat artwork
-            // and Paeth on gradients, which is where the whole saving comes from.
             var bestType = FILTER_NONE
             var bestScore = score(cur, n)
             var s = score(sub, n)
@@ -254,27 +208,24 @@ object PngEncoder {
         }
     }
 
-    // ---------------------------------------------------------------- chunks
-
     private fun writeIhdr(out: ByteArrayOutputStream, w: Int, h: Int, colourType: Int) {
         val d = ByteArray(13)
         putBe32(d, 0, w)
         putBe32(d, 4, h)
-        d[8] = 8               // bit depth
+        d[8] = 8
         d[9] = colourType.toByte()
-        d[10] = 0              // compression method: DEFLATE, the only legal value
-        d[11] = 0              // filter method: adaptive, the only legal value
-        d[12] = 0              // interlace: none
+        d[10] = 0
+        d[11] = 0
+        d[12] = 0
         writeChunk(out, "IHDR", d)
     }
 
     private fun writePhys(out: ByteArrayOutputStream, dpi: Int) {
-        // pHYs is in pixels per metre, so the conversion is dpi / 0.0254 and not dpi * anything.
         val ppm = (dpi / 0.0254).roundToInt()
         val d = ByteArray(9)
         putBe32(d, 0, ppm)
         putBe32(d, 4, ppm)
-        d[8] = 1               // unit specifier: metre
+        d[8] = 1
         writeChunk(out, "pHYs", d)
     }
 
@@ -288,8 +239,6 @@ object PngEncoder {
         }
         out.write(t)
         out.write(data)
-        // The CRC covers the type *and* the data but never the length field — a decoder that
-        // includes the length rejects every well-formed PNG, and vice versa.
         val crc = CRC32()
         crc.update(t)
         crc.update(data)

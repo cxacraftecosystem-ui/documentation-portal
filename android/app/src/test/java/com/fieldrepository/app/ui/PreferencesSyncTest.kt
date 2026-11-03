@@ -5,10 +5,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 
-/**
- * An appearance change made with no signal is queued on the device and, at the next sync, wins over
- * the server's row only when it is the later write.
- */
 class PreferencesSyncTest {
     private val serverRowAt = "2026-10-16T09:00:00Z"
     private val serverMillis = Instant.parse(serverRowAt).toEpochMilli()

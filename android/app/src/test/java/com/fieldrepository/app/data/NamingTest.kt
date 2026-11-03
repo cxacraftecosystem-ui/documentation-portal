@@ -19,12 +19,6 @@ import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
 
-/**
- * The handset's half of the naming convention, held to the same two tables `naming.py` and
- * `naming.ts` answer to, byte-identical in both portals: `shared/session-title.json` (the frozen
- * questionnaire contract, DESIGN §9 test 60) and `shared/naming-golden.json` (every other generated
- * name). Found by walking up from the module, like `DwTextFormatParityTest`'s table.
- */
 class NamingTest {
     private fun table(name: String): JsonObject {
         var dir: java.io.File? = java.io.File("").absoluteFile
@@ -41,7 +35,6 @@ class NamingTest {
     private fun contract(kind: String): List<JsonObject> =
         table("session-title.json")["golden"]!!.jsonArray.map { it.jsonObject }.filter { it.str("kind") == kind }
 
-    /** The contract's rows are written for documentation-portal; designer-portal's word replaces it. */
     private fun here(name: String): String = name.replaceFirst("FieldRepository_", "${Naming.PORTAL}_")
 
     private fun session(o: JsonObject): Naming.SessionFields {
@@ -215,7 +208,6 @@ class NamingTest {
 
     @Test
     fun recordingSequencesReadTheQuestionAfterItsOwnSectionCode() {
-        // "F21" in section F2 is question 1: the section comes from the target, never from the display code.
         val rows = golden()["recordingSequences"]!!.jsonArray
         assertTrue(rows.isNotEmpty())
         for (row in rows) {

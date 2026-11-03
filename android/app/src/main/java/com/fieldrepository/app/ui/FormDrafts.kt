@@ -52,19 +52,10 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
-/**
- * A record form's draft: which of its fields are saved, and the decision about an earlier draft.
- *
- * A form binds each piece of state it wants kept ([bind] for a plain `MutableState`, [bindCustom]
- * for anything else), shows [DraftOfferCard] and runs [FormDraftAutosave]. Everything else (the
- * file, the debounce, copying files picked from other apps) happens here. See `data/DraftStore.kt`.
- */
 class FormDraft internal constructor(
     val kind: String,
-    /** The record being edited, or null for a new one. */
     val recordId: String?,
     internal val account: String,
-    /** The prefilled record a new record's form was opened from, part of its key (see [newDraftPrefix]). */
     val parentId: String? = null,
     val parentLabel: String? = null
 ) {
@@ -72,27 +63,21 @@ class FormDraft internal constructor(
 
     private val bindings = LinkedHashMap<String, Binding>()
 
-    /** `rec-<id>` for an edit, `new-<uuid>` for a new record (replaced by the key of a draft taken up). */
     internal var recordKey: String = recordId?.let { "rec-$it" } ?: newKey()
 
     internal fun newKey(): String = newDraftPrefix(parentId) + UUID.randomUUID()
 
-    /** An earlier draft waiting for "Continue your draft" or "Discard". Autosave waits for the answer. */
     var offer by mutableStateOf<FormDraftFile?>(null)
         internal set
 
-    /** True once there is nothing to decide: no earlier draft, or the researcher has chosen. */
     var decided by mutableStateOf(false)
         internal set
 
-    /** Bumped by [clear], so a write already queued for the old state is dropped. */
     @Volatile
     internal var generation = 0
 
-    /** Files copied into app storage for this draft, keyed by the original uri. */
     internal val copies = LinkedHashMap<String, String>()
 
-    /** Keep [state] in the draft under [key]. Safe to call on every recomposition. */
     fun <T> bind(key: String, state: MutableState<T>): MutableState<T> {
         bindings[key] = Binding(
             save = { DraftValues.encode(state.value) },
@@ -107,7 +92,6 @@ class FormDraft internal constructor(
         return state
     }
 
-    /** Keep a value with its own encoding (a media batch, a list of steps). */
     fun bindCustom(key: String, save: () -> JsonElement?, restore: (JsonElement) -> Unit) {
         bindings[key] = Binding(save, restore)
     }
@@ -119,16 +103,13 @@ class FormDraft internal constructor(
         fields.forEach { (key, value) -> bindings[key]?.let { runCatching { it.restore(value) } } }
     }
 
-    /** Hook set by [rememberFormDraft]: deletes the file. */
     internal var onClear: (() -> Unit)? = null
 
-    /** The record is saved or queued: delete the draft. A form that stays open starts a fresh one. */
     fun clear() {
         onClear?.invoke()
     }
 
     companion object {
-        /** A list of uris as a draft value. */
         fun encodeUris(uris: List<Uri>): JsonElement =
             JsonObject(mapOf("t" to JsonPrimitive("uris"), "v" to JsonArray(uris.map { JsonPrimitive(it.toString()) })))
 
@@ -138,7 +119,6 @@ class FormDraft internal constructor(
             obj["v"]!!.jsonArray.map { Uri.parse(it.jsonPrimitive.content) }
         }.getOrNull()
 
-        /** A map of string keys to uri lists (the questionnaire's recordings) as a draft value. */
         fun encodeUriMap(map: Map<String, List<Uri>>): JsonElement =
             JsonObject(
                 mapOf(
@@ -155,13 +135,8 @@ class FormDraft internal constructor(
     }
 }
 
-/** The account a draft belongs to; drafts made while signed out (none should be) share one folder. */
 private fun draftAccount(repository: FieldRepository): String = repository.cachedUser()?.id ?: "signed-out"
 
-/**
- * The draft for one open form. [recordId] is the record being edited, or null for a new one.
- * Looks for an earlier draft once, and offers it through [DraftOfferCard].
- */
 @Composable
 fun rememberFormDraft(
     repository: FieldRepository,
@@ -181,7 +156,6 @@ fun rememberFormDraft(
         draft.decided = true
         draft.copies.clear()
         if (draft.recordId == null) draft.recordKey = draft.newKey()
-        // The app scope, not the form's: the form usually leaves the screen right after a save.
         com.fieldrepository.app.data.AppScope.io.launch {
             runCatching { DraftStore.delete(context, account, kind, key) }
         }
@@ -197,11 +171,6 @@ fun rememberFormDraft(
     return draft
 }
 
-/**
- * Autosave: while the form has unsaved changes ([dirty], the same flag the back-navigation guard
- * reads) and any earlier draft has been answered, write the bound fields to disk at most once per
- * [debounceMillis]. A clean form writes nothing, so merely opening a form never leaves a draft.
- */
 @Composable
 fun FormDraftAutosave(draft: FormDraft, dirty: Boolean, label: String, debounceMillis: Long = 700) {
     val context = LocalContext.current.applicationContext
@@ -234,11 +203,6 @@ fun FormDraftAutosave(draft: FormDraft, dirty: Boolean, label: String, debounceM
     }
 }
 
-/**
- * A uri from another app (a picked file) may be unreadable after the process restarts, so the first
- * time a draft sees one it copies the bytes into app storage and saves the copy's uri instead.
- * Captures the app made itself are already in app storage and are kept as they are.
- */
 private fun keepFilesLocal(context: Context, draft: FormDraft, fields: Map<String, JsonElement>): Map<String, JsonElement> {
     val authority = "${context.packageName}.fileprovider"
     fun local(uriString: String): String {
@@ -278,7 +242,6 @@ private fun keepFilesLocal(context: Context, draft: FormDraft, fields: Map<Strin
 
 private val OFFER_TIME = DateTimeFormatter.ofPattern("d MMM, HH:mm")
 
-/** "Continue your draft" or "Discard", shown at the top of a form that has an earlier draft. */
 @Composable
 fun DraftOfferCard(draft: FormDraft) {
     val offer = draft.offer ?: return

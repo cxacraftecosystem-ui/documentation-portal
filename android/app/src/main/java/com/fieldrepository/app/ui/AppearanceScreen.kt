@@ -63,92 +63,39 @@ import com.fieldrepository.app.data.WeeklyDigestRules
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-/*
- * Appearance + accessibility — this ACCOUNT's own two settings, mirroring the pair of cards the web
- * shows every signed-in user on /settings (frontend/components/settings/PersonalSettingsCards.tsx).
- *
- * The contract is four values (theme, reduceMotion, largerText, highContrast) and it lives in three
- * places that must agree, exactly as on the web (frontend/lib/preferences.ts):
- *
- *   - [AppPreferencesStore] (SharedPreferences), so the choice applies on the very first frame,
- *     before the network — the Android twin of localStorage + the pre-hydration boot script;
- *   - the running composition, via [LocalAppPreferences] / the `darkTheme` argument of
- *     [FieldRepositoryTheme];
- *   - GET/PUT /preferences/me, so the choice follows the account onto another device.
- *
- * Order of authority is the same as the web's: the stored value paints first, the server row lands
- * last and only corrects it. An empty `{}` from the GET (decoded as `null` by
- * FieldRepository.myPreferences) means "this account has no opinion yet" — seed the server from this
- * device rather than snapping the user back to the defaults.
- */
-
-// ---------------------------------------------------------------------------------------------
-// The contract
-// ---------------------------------------------------------------------------------------------
-
-/** `theme` — follow the device. */
 const val THEME_SYSTEM: String = "system"
 
-/** `theme` — always the paper-white canvas. */
 const val THEME_LIGHT: String = "light"
 
-/** `theme` — always the purple-tinted dark surfaces. */
 const val THEME_DARK: String = "dark"
 
-/** The only three values PUT /preferences/me accepts; anything else is a 422. */
 val THEME_CHOICES: List<String> = listOf(THEME_SYSTEM, THEME_LIGHT, THEME_DARK)
 
-/**
- * How much "Larger text" scales type by: 112.5%, the same `font-size` bump
- * `:root[data-larger-text="true"]` applies in frontend/app/globals.css. Both clients therefore grow
- * by the same amount rather than merely both "getting bigger".
- */
 const val LARGER_TEXT_SCALE: Float = 1.125f
 
-/**
- * One account's appearance + accessibility choices — the whole `/preferences/me` contract, plus the
- * two derived values the rest of the app needs.
- *
- * [theme] is the CHOICE (`system` included), never the resolved light/dark; call [resolveDarkTheme]
- * for that. The default is what a device with no stored row and no server row uses.
- */
 @Immutable
 data class AppPreferences(
     val theme: String = THEME_SYSTEM,
-    /** Force reduced motion. ORs with the OS setting; it can never switch the OS preference off. */
     val reducedMotion: Boolean = false,
     val largerText: Boolean = false,
     val highContrast: Boolean = false
 ) {
-    /**
-     * Multiplier for `Density.fontScale`. 1f normally, [LARGER_TEXT_SCALE] when "Larger text" is on.
-     * [ProvideAppPreferences] applies it; nothing else should have to.
-     */
     val fontScale: Float get() = if (largerText) LARGER_TEXT_SCALE else 1f
 
     companion object {
-        /** `system` + everything off — the state before the device or the account has an opinion. */
         val Default: AppPreferences = AppPreferences()
     }
 }
 
-/**
- * Resolve a theme CHOICE against the device to the boolean [FieldRepositoryTheme] wants.
- *
- * Deliberately not `@Composable` so it can be called from an Activity, a store read, or a test —
- * pass `isSystemInDarkTheme()` (or `Configuration.uiMode`) as [systemDark] at the call site.
- */
 fun resolveDarkTheme(theme: String, systemDark: Boolean): Boolean = when (theme) {
     THEME_DARK -> true
     THEME_LIGHT -> false
     else -> systemDark
 }
 
-/** Coerce anything (a stale store value, an older server row) into a theme the API will accept. */
 fun normalizeThemeChoice(value: String?): String =
     if (value != null && value in THEME_CHOICES) value else THEME_SYSTEM
 
-/** The server row as the app's own holder. */
 fun PreferencesDto.toAppPreferences(): AppPreferences = AppPreferences(
     theme = normalizeThemeChoice(theme),
     reducedMotion = reducedMotion,
@@ -156,18 +103,6 @@ fun PreferencesDto.toAppPreferences(): AppPreferences = AppPreferences(
     highContrast = highContrast
 )
 
-// ---------------------------------------------------------------------------------------------
-// Device-local copy — so the choice applies before the network (or even login) wakes up
-// ---------------------------------------------------------------------------------------------
-
-/**
- * The last-applied preferences, on this device.
- *
- * Read it SYNCHRONOUSLY in `MainActivity.onCreate` before `setContent` — that is what stops the app
- * flashing light before the account's dark choice arrives, and it is the only reason this exists
- * separately from the server row. Its own file, so signing out (which clears
- * `field_repository_auth`) does not throw the theme away.
- */
 class AppPreferencesStore(context: Context) {
     private val store = context.applicationContext
         .getSharedPreferences("field_repository_preferences", Context.MODE_PRIVATE)
@@ -188,23 +123,16 @@ class AppPreferencesStore(context: Context) {
             .apply()
     }
 
-    /** Forget this device's copy. Sign-out does NOT need this — the look is a device courtesy. */
     fun clear() {
         store.edit().clear().apply()
     }
 
-    /**
-     * When this device's copy was last changed without the server confirming it (epoch ms), or null
-     * when the server has it. This is the queued change: [reconcilePreferences] sends it at the next
-     * sync, and it wins over the server's row when it is newer than that row's `updatedAt`.
-     */
     fun pendingSince(): Long? = store.getLong(KEY_PENDING_SINCE, 0L).takeIf { it > 0L }
 
     fun markPending(at: Long = System.currentTimeMillis()) {
         store.edit().putLong(KEY_PENDING_SINCE, at).apply()
     }
 
-    /** Clear the queued change, but only if it is still the one [at] names (a newer one stays). */
     fun clearPending(at: Long?) {
         if (at == null || pendingSince() == at) store.edit().remove(KEY_PENDING_SINCE).apply()
     }
@@ -218,14 +146,6 @@ class AppPreferencesStore(context: Context) {
     }
 }
 
-/**
- * Reconcile this device's [local] copy with the account, once, after sign-in.
- *
- * Returns what the app should now apply: the server row when there is one, otherwise [local] —
- * having first seeded the account with it, so the look this device already had is what follows the
- * user to their next device. Writes the result to [store] when one is given. Never throws: a
- * failure leaves [local] applied and is silent, exactly like the web provider's `.catch`.
- */
 suspend fun syncAppPreferences(
     repository: FieldRepository,
     local: AppPreferences,
@@ -234,9 +154,6 @@ suspend fun syncAppPreferences(
     val remote = runCatching { repository.myPreferences() }.getOrNull()
     val pending = store?.pendingSince()
     if (remote == null || localPreferencesWin(pending, remote.updatedAt)) {
-        // No saved row, an unreachable server, or a change made on this device (offline, usually)
-        // that is newer than the server's row. Send the device copy: the same whole-object PUT every
-        // toggle makes. A failure changes nothing and the change stays queued for the next sync.
         runCatching { repository.savePreferences(local.toBody()) }
             .onSuccess { store?.clearPending(pending) }
         return local
@@ -247,11 +164,6 @@ suspend fun syncAppPreferences(
     return resolved
 }
 
-/**
- * Last write wins, by timestamp: does a change queued on this device at [pendingSince] (epoch ms)
- * beat the server's row, last written at [remoteUpdatedAt] (ISO-8601)? Nothing queued never wins;
- * a row with no readable timestamp always loses to a queued change.
- */
 internal fun localPreferencesWin(pendingSince: Long?, remoteUpdatedAt: String?): Boolean {
     if (pendingSince == null) return false
     val remoteAt = remoteUpdatedAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
@@ -259,7 +171,6 @@ internal fun localPreferencesWin(pendingSince: Long?, remoteUpdatedAt: String?):
     return pendingSince > remoteAt
 }
 
-/** The whole-object shape PUT /preferences/me wants. Kept private: screens go through the helpers. */
 private fun AppPreferences.toBody(): PreferencesDto = PreferencesDto(
     theme = normalizeThemeChoice(theme),
     reducedMotion = reducedMotion,
@@ -267,27 +178,8 @@ private fun AppPreferences.toBody(): PreferencesDto = PreferencesDto(
     highContrast = highContrast
 )
 
-// ---------------------------------------------------------------------------------------------
-// Reading the choices from anywhere in the tree
-// ---------------------------------------------------------------------------------------------
-
-/**
- * The preferences in force. Provided by [ProvideAppPreferences]; read it wherever a screen needs to
- * skip an animation ([AppPreferences.reducedMotion]) or thicken a border
- * ([AppPreferences.highContrast]).
- */
 val LocalAppPreferences = staticCompositionLocalOf { AppPreferences.Default }
 
-/**
- * Publish [preferences] to the tree and apply "Larger text" to it.
- *
- * Scaling `Density.fontScale` is the Compose equivalent of the web bumping the root `font-size`:
- * every `sp` in the app grows by [LARGER_TEXT_SCALE] and every `dp` stays put, so type gets bigger
- * without the layout breaking. Multiplying the INHERITED scale (rather than assigning) keeps the
- * user's own Android font-size setting intact — this only ever adds to it.
- *
- * Wrap the app content with it, inside [FieldRepositoryTheme].
- */
 @Composable
 fun ProvideAppPreferences(preferences: AppPreferences, content: @Composable () -> Unit) {
     val base = LocalDensity.current
@@ -301,13 +193,8 @@ fun ProvideAppPreferences(preferences: AppPreferences, content: @Composable () -
     )
 }
 
-// ---------------------------------------------------------------------------------------------
-// The screen
-// ---------------------------------------------------------------------------------------------
-
 private data class ThemeOption(val value: String, val label: String, val helper: String, val icon: ImageVector)
 
-/** Wording verbatim from THEME_OPTIONS in frontend/components/settings/PersonalSettingsCards.tsx. */
 private val THEME_OPTIONS = listOf(
     ThemeOption(
         value = THEME_SYSTEM,
@@ -336,11 +223,6 @@ private data class AccessibilityOption(
     val write: (AppPreferences, Boolean) -> AppPreferences
 )
 
-/**
- * Wording verbatim from ACCESSIBILITY_OPTIONS on the web, with ONE edit: the high-contrast helper
- * drops the web's "and a thicker keyboard focus ring" clause, since a phone has no keyboard focus
- * ring to thicken. Every label is unchanged.
- */
 private val ACCESSIBILITY_OPTIONS = listOf(
     AccessibilityOption(
         label = "Reduce motion",
@@ -362,17 +244,6 @@ private val ACCESSIBILITY_OPTIONS = listOf(
     )
 )
 
-/**
- * Appearance + accessibility, the two cards every account owns.
- *
- * [current] is the state in force (the caller's single source of truth); every change is reported
- * through [onChanged] FIRST so it applies instantly, and only then written to the account — the
- * web's "applies instantly, then catches the server up" order. The caller owns persisting to
- * [AppPreferencesStore]; this screen owns the network.
- *
- * On entry it reconciles with the account once: a saved row replaces [current] via [onChanged], and
- * `{}` (never saved) seeds the account from this device instead.
- */
 @Composable
 fun AppearanceScreen(
     repository: FieldRepository,
@@ -382,7 +253,6 @@ fun AppearanceScreen(
     onOpenMyAiKeys: () -> Unit,
     onOpenTwoStepVerification: () -> Unit,
     modifier: Modifier = Modifier,
-    /** Signs this device out — for "Sign out and sign in again" on the password card. */
     onSignOut: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
@@ -393,22 +263,16 @@ fun AppearanceScreen(
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val store = remember { AppPreferencesStore(appContext) }
 
-    // One-shot reconcile with the account. Keyed on Unit: `current` changes on every toggle and
-    // re-running this would fight the user. A change queued on this device that is newer than the
-    // server's row is sent rather than overwritten (see syncAppPreferences).
     LaunchedEffect(Unit) {
         val resolved = syncAppPreferences(repository, current, store)
         if (resolved != current) onChanged(resolved)
     }
 
-    /** Apply locally, then PUT the whole object. Last write wins: an in-flight save is cancelled. */
     fun apply(next: AppPreferences) {
         if (next == current) return
         onChanged(next)
         error = null
         saveJob?.cancel()
-        // Queued first: if the PUT never lands (no signal), the change is sent at the next sync and
-        // wins over the server's older row instead of being undone by it.
         val changedAt = System.currentTimeMillis()
         store.markPending(changedAt)
         saveJob = scope.launch {
@@ -435,9 +299,6 @@ fun AppearanceScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            // The same arrow the shared header draws on every other screen. This screen is hosted
-            // outside that header (it owns its viewport), so it repeats the control rather than
-            // inventing a second shape for it.
             IconButton(onClick = onBack) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
@@ -460,7 +321,6 @@ fun AppearanceScreen(
             )
         }
 
-        // ---- Appearance -----------------------------------------------------------------------
         PreferenceCard {
             PreferenceCardHeading(Icons.Filled.Palette, "Appearance")
             Text(
@@ -484,7 +344,6 @@ fun AppearanceScreen(
             }
         }
 
-        // ---- Accessibility --------------------------------------------------------------------
         PreferenceCard {
             PreferenceCardHeading(Icons.Filled.Accessibility, "Accessibility")
             Text(
@@ -503,17 +362,6 @@ fun AppearanceScreen(
             SaveStatusLine(saving = saving, error = error)
         }
 
-        /*
-         * ---- The account's own AI keys -------------------------------------------------
-         *
-         * ON THIS SCREEN BECAUSE A KEY FOLLOWS THE ACCOUNT. Everything above is a preference
-         * saved against this account and applied on every device it signs in on, and a
-         * personal provider key is the same kind of thing — stored on the server, applying
-         * on the phone and on the web alike. It is deliberately NOT in the admin hub beside
-         * the DEPLOYMENT's keys: those are the organisation's and are master-admin only,
-         * this one is the person's own and is billed to them, and confusing the two is how
-         * somebody ends up paying for work they did not do.
-         */
         PreferenceCard {
             PreferenceCardHeading(Icons.Filled.VpnKey, "My AI keys")
             Text(
@@ -524,13 +372,10 @@ fun AppearanceScreen(
             OutlinedButton(onClick = onOpenMyAiKeys) { Text("Open my AI keys") }
         }
 
-        // The Monday summary, for reviewers and administrators only (the server says who).
         WeeklyDigestCard(repository = repository)
 
-        // The password, beside the two-step lock: change it, or set a first one. See AccountRecovery.kt.
         AccountPasswordCard(repository = repository, onSignOut = onSignOut)
 
-        // This account's own lock, beside the account's own keys: personal, open to every role.
         PreferenceCard {
             PreferenceCardHeading(Icons.Filled.Lock, "Two-step verification")
             Text(
@@ -543,11 +388,6 @@ fun AppearanceScreen(
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Pieces. Local copies on purpose: the app's card/back-pill helpers are private to MainActivity.kt.
-// ---------------------------------------------------------------------------------------------
-
-/** The app's standard record card, restated here (MainActivity's `RecordCard` is file-private). */
 @Composable
 private fun PreferenceCard(content: @Composable ColumnScope.() -> Unit) {
     ElevatedCard(
@@ -563,7 +403,6 @@ private fun PreferenceCard(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
-/** The web's card heading: a brand-tile icon chip beside a display-face title. */
 @Composable
 private fun PreferenceCardHeading(icon: ImageVector, title: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -585,7 +424,6 @@ private fun PreferenceCardHeading(icon: ImageVector, title: String) {
     }
 }
 
-/** One theme choice: a bordered row that tints and outlines in the action colour when selected. */
 @Composable
 private fun ThemeChoiceRow(option: ThemeOption, selected: Boolean, onSelect: () -> Unit) {
     val shape = MaterialTheme.shapes.medium
@@ -624,10 +462,6 @@ private fun ThemeChoiceRow(option: ThemeOption, selected: Boolean, onSelect: () 
     }
 }
 
-/**
- * The Monday summary's switch: drawn only once the server says this account gets one, flipped at
- * once and put back if the save fails. A failed first read draws nothing (an older server).
- */
 @Composable
 private fun WeeklyDigestCard(repository: FieldRepository) {
     val scope = rememberCoroutineScope()
@@ -666,7 +500,6 @@ private fun WeeklyDigestCard(repository: FieldRepository) {
     }
 }
 
-/** One accessibility switch: the shared [AppToggle] — label + helper, the whole row tappable. */
 @Composable
 private fun AccessibilitySwitchRow(
     label: String,
@@ -677,7 +510,6 @@ private fun AccessibilitySwitchRow(
     AppToggle(label = label, description = helper, checked = checked, onCheckedChange = onCheckedChange)
 }
 
-/** The web's status line: an error if there is one, else saving/saved. */
 @Composable
 private fun SaveStatusLine(saving: Boolean, error: String?) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
