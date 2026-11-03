@@ -74,13 +74,13 @@ clause back in each function.
 PREDICATE.** This is the one asymmetry in this document most likely to be filed as a bug, so it is
 written down rather than left to be discovered:
 
-* `can_manage_questionnaire` (`deps.py:67-70`) is a **RANK FLOOR** — `has_rank(user, "PROFESSOR")
+* `can_manage_questionnaire` (`backend/app/core/roles.py:62`) is a **RANK FLOOR** — `has_rank(user, "PROFESSOR")
   or user.canManageQuestionnaire`. It creates a NEW, empty form. Since 22 Oct 2026 it no longer
   edits an existing one: editing a form, its sections and its questions, and downloading and
   re-uploading that form's own workbook, are its **author's** (`Questionnaire.createdById`) or a
   **content admin's** (`assert_may_edit_form`, `require_form_editor`); a form with no recorded
   author is a content admin's alone.
-* `is_admin` (`deps.py:59-60`) is **SET MEMBERSHIP** over `{"MASTER_ADMIN", "ADMIN"}`. It guards
+* `is_admin` (`backend/app/core/roles.py:44`) is **SET MEMBERSHIP** over `{"MASTER_ADMIN", "ADMIN"}`. It guards
   creating a NEW form from a **workbook** (the pro-forma, the question set, `POST
   /questionnaires/upload`), because one spreadsheet states a WHOLE instrument: a professor who downloaded the questionnaire, deleted the rows they were not
   interested in and uploaded the file would retire every question they deleted, across twenty-two

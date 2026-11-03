@@ -204,7 +204,7 @@ having is that *every* pull request runs it.
 
 **No secrets.** The backend job exports six obviously-fake placeholder values because
 `app.core.config.Settings` refuses to build without `DATABASE_URL`, `JWT_SECRET`, the three `AWS_*`
-values and `MASTER_ADMIN_EMAIL` (`backend/app/core/config.py:78`, `:101`, `:167-171`, `:187`) and
+values and `MASTER_ADMIN_EMAIL` (`backend/app/core/config.py:47`, `:54`, `:80-83`, `:112`) and
 `backend/.env` is gitignored, so on a runner there is nothing else for them to come from. Without
 them a plain `pytest` does not fail a few tests, it fails to **collect**. The DSN names `ci.invalid`
 — a hostname RFC 2606 guarantees can never resolve — and the whole suite passes against it, which is
@@ -242,7 +242,7 @@ defend.** It began at four, and both pairs were fixed and their lines deleted on
 |---|---|
 | `test_public_census.py::test_the_census_is_mounted_at_the_public_path_the_cdn_rule_would_be_scoped_to` | Read `api_router.routes` expecting flattened route objects. Since FastAPI 0.137 that list holds one `_IncludedRouter` per `include_router`, with no `.path`. The tests now ask FastAPI's public `iter_route_contexts`, added in 0.137.2 for exactly this. |
 | `test_public_census.py::test_the_census_asks_for_no_token` | Same cause, same fix; the effective route it finds carries router-level dependencies, which is what the test inspects. |
-| `test_manifest_stream.py::test_the_declared_size_refuses_before_a_byte_moves` | On Python 3.13+ `import pydub` failed (PEP 594 removed `audioop`), so `backend/app/api/routes/data_browser.py:3059` answered 503 before the 413 check. `audioop-lts` is now a dependency (marker `python_version >= '3.13'`), and the job runs 3.14 like production. |
+| `test_manifest_stream.py::test_the_declared_size_refuses_before_a_byte_moves` | On Python 3.13+ `import pydub` failed (PEP 594 removed `audioop`), so `backend/app/api/routes/data_browser.py:2735` answered 503 before the 413 check. `audioop-lts` is now a dependency (marker `python_version >= '3.13'`), and the job runs 3.14 like production. |
 | `test_manifest_stream.py::test_the_real_length_refuses_what_the_column_lied_about` | Same cause, same fix. |
 
 The census pair is worth reading twice, because it was not a code change: **it was a dependency

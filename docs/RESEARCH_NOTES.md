@@ -416,7 +416,7 @@ flowchart LR
 
 ### 5.5 What the fix is, and the honesty about what it changes
 
-The read fix is `hydrate_relations` (`backend/app/services/records.py:420`), which issues **exactly
+The read fix is `hydrate_relations` (`backend/app/services/records.py:182`), which issues **exactly
 one `find_many` per relation — the same statements the `include` produced — and awaits them
 together** through a semaphore-bounded `asyncio.gather` (`backend/app/services/concurrency.py`).
 
@@ -568,7 +568,7 @@ draining the queue in parallel, ordinary API requests were slowed past CloudFron
 origin-response timeout and clients saw HTTP 504.
 
 **Fix:** a host-wide `fcntl` advisory file lock elects exactly **one** queue worker per host
-(`backend/app/main.py:31-46`); every other process serves requests only. The lock degrades
+(`backend/app/main.py:31-39`); every other process serves requests only. The lock degrades
 gracefully — on platforms without `fcntl`, which run a single worker anyway, it simply grants.
 
 *The 30 s ceiling against the 699 ms constant means any handler issuing more than ~43 sequential
@@ -578,7 +578,7 @@ labelled as such.*
 ### 6.4 Memory ceiling
 
 **MEASURED (cited)**, `docs/SCALABILITY.md` §5.1, 2026-07-26: media objects are read whole into RAM
-at `backend/app/services/s3.py:243`. Against a 1 GiB box, the **668.4 MiB largest live object**
+at `backend/app/services/s3.py:156`. Against a 1 GiB box, the **668.4 MiB largest live object**
 (independently **MEASURED** by me in §2.3) is a live out-of-memory risk today, not a projection.
 
 ---
@@ -694,14 +694,14 @@ Design points that are not obvious:
 - **An empty result does not stop the walk.** A codec or language one engine cannot decode is often
   fine on another, so `EMPTY` is retained as a fallback while the next provider still gets a turn.
 
-**Provider size ceilings** (DERIVED, `ai.py:57-61`): Whisper 24 MiB, ElevenLabs 1,000 MiB, Deepgram
+**Provider size ceilings** (DERIVED, `ai.py:41-43`): Whisper 24 MiB, ElevenLabs 1,000 MiB, Deepgram
 2 GiB. Against the measured corpus (§2.3), the 668.4 MiB largest object and the 108.8 MiB largest
 audio file both exceed Whisper's ceiling by more than an order of magnitude — which is why the
 dedicated providers skip local chunking and Whisper alone chunks into ≤10-minute mono MP3 segments.
 
 ### 8.2 Rate-limit backoff and idle-time scheduling
 
-**DERIVED** from `backend/app/services/media_queue.py:31-80`.
+**DERIVED** from `backend/app/services/media_queue.py:31-69`.
 
 | Parameter | Value |
 |---|---|
