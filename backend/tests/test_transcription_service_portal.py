@@ -170,7 +170,7 @@ def test_enqueue_reuses_the_open_job_instead_of_paying_twice(monkeypatch) -> Non
     jobs = asyncio.run(
         media_queue.enqueue_media_processing_jobs(
             {"id": "m-1", "mediaType": "AUDIO"},
-            None,
+            ["TRANSCRIPTION"],
             "u-1",
             SimpleNamespace(media_queue_job_max_attempts=3),
         )
@@ -344,7 +344,7 @@ def test_enqueue_keeps_the_recording_and_notes_why_it_was_not_sent(monkeypatch) 
     monkeypatch.setattr(requests, "post", _never)
     jobs = asyncio.run(
         media_queue.enqueue_media_processing_jobs(
-            {"id": "m-1", "mediaType": "AUDIO"}, None, "u-1", SimpleNamespace(media_queue_job_max_attempts=3)
+            {"id": "m-1", "mediaType": "AUDIO"}, ["TRANSCRIPTION"], "u-1", SimpleNamespace(media_queue_job_max_attempts=3)
         )
     )
     assert jobs == [] and created == []
