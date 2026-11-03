@@ -97,6 +97,7 @@ data class TranscriptAudio(
     /** Voice Isolator (0.0.5): [url] is the cleaned copy, and [originalUrl] the recording as made. */
     val cleaned: Boolean = false,
     val originalUrl: String? = null,
+    val video: Boolean = false,
 )
 
 @Serializable
