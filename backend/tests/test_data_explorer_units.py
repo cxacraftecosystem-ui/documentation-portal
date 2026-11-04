@@ -503,7 +503,7 @@ def test_a_transcript_page_keeps_filling_until_it_is_full_for_a_narrow_viewer(mo
         return {mid: {"mediaId": mid} for mid in shown}
 
     async def filters(request):
-        return SimpleNamespace(echo=lambda: {})
+        return SimpleNamespace(echo=dict)
 
     monkeypatch.setattr(transcript_data.transcript_export, "select_page", select_page)
     monkeypatch.setattr(transcript_data.transcript_export, "load", load)
