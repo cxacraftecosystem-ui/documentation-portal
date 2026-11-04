@@ -4,6 +4,11 @@ import com.fieldrepository.app.transcript.data.DataTranscriptFile
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 val ExplorerJson: Json = Json {
     ignoreUnknownKeys = true
@@ -132,3 +137,27 @@ data class ExplorerManifest(
     val truncated: Boolean = false,
     val skippedMedia: Int = 0,
 )
+
+@Serializable
+data class ExplorerSheet(
+    val name: String = "",
+    val columns: List<JsonElement> = emptyList(),
+    val rows: List<List<JsonElement>> = emptyList(),
+    val totalRows: Int? = null,
+    val matchedRows: Int? = null,
+    val truncated: Boolean = false,
+) {
+    val headers: List<String> get() = columns.map { ExplorerCells.text(it) }
+}
+
+@Serializable
+data class ExplorerReport(val sheets: List<ExplorerSheet> = emptyList(), val query: String? = null)
+
+object ExplorerCells {
+    fun text(cell: JsonElement?): String = when (cell) {
+        null, JsonNull -> ""
+        is JsonPrimitive -> cell.content
+        is JsonArray -> cell.joinToString(", ") { text(it) }
+        is JsonObject -> cell.values.joinToString(" ") { text(it) }.trim()
+    }
+}

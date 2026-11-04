@@ -136,4 +136,16 @@ class ExplorerPartsTest {
         assertEquals("512 MB of 1.0 GB", ExplorerBytes.progress(job.doneBytes, job.totalBytes))
         assertEquals("1 min left", ExplorerText.eta(job, now = 60_000))
     }
+
+    @QFeature("X6")
+    @Test fun `table cells read as text and a csv names its sheet`() {
+        val sheet = com.fieldrepository.app.explorer.data.ExplorerJson.decodeFromString(
+            com.fieldrepository.app.explorer.data.ExplorerReport.serializer(),
+            """{"sheets":[{"name":"Artisans","columns":["Name","Age"],"rows":[["Giriraj",54,null,{"a":"x"},["p","q"]]],"totalRows":120,"matchedRows":1}]}""",
+        ).sheets.single()
+        assertEquals(listOf("Name", "Age"), sheet.headers)
+        assertEquals(listOf("Giriraj", "54", "", "x", "p, q"), sheet.rows.single().map { com.fieldrepository.app.explorer.data.ExplorerCells.text(it) })
+        assertEquals("1 of 120 rows match", ExplorerText.matches(sheet.matchedRows!!, sheet.totalRows!!))
+        assertEquals("/api/data/report?format=csv&sheet=Artisans&path=w", ExplorerPaths.reportCsv("w", "Artisans"))
+    }
 }

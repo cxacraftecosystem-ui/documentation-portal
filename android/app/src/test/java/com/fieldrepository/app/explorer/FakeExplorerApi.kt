@@ -2,6 +2,7 @@ package com.fieldrepository.app.explorer
 
 import com.fieldrepository.app.explorer.data.ExplorerApi
 import com.fieldrepository.app.explorer.data.ExplorerLanguages
+import com.fieldrepository.app.explorer.data.ExplorerReport
 import com.fieldrepository.app.explorer.data.ExplorerSelectionBody
 import com.fieldrepository.app.explorer.data.ExplorerStats
 import com.fieldrepository.app.explorer.data.ExplorerStatsBody
@@ -54,6 +55,13 @@ open class FakeExplorerApi : ExplorerApi {
     override suspend fun selectionStats(body: ExplorerStatsBody): ExplorerStats {
         calls += "stats-selection:${body.paths.size}:${body.mediaIds.size}"
         return stats
+    }
+
+    var report: suspend (path: String, q: String?) -> ExplorerReport = { _, _ -> ExplorerReport() }
+
+    override suspend fun reportJson(path: String, q: String?, format: String): ExplorerReport {
+        calls += "report:$path:${q.orEmpty()}:$format"
+        return report(path, q)
     }
 
     override suspend fun languages(): ExplorerLanguages = ExplorerLanguages()

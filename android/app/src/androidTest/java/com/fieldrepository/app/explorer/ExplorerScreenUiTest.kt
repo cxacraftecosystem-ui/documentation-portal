@@ -14,12 +14,16 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.longClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.fieldrepository.app.explorer.data.ExplorerApi
 import com.fieldrepository.app.explorer.data.ExplorerEntry
+import com.fieldrepository.app.explorer.data.ExplorerLanguage
 import com.fieldrepository.app.explorer.data.ExplorerLanguages
+import com.fieldrepository.app.explorer.data.ExplorerReport
+import com.fieldrepository.app.explorer.data.ExplorerSheet
 import com.fieldrepository.app.explorer.data.ExplorerSelectionBody
 import com.fieldrepository.app.explorer.data.ExplorerStats
 import com.fieldrepository.app.explorer.data.ExplorerStatsBody
@@ -79,7 +83,14 @@ class ExplorerScreenUiTest {
             calls += "stats-selection:${body.paths}:${body.mediaIds}"
             return ExplorerStats(files = 12, bytes = 40_000_000)
         }
-        override suspend fun languages() = ExplorerLanguages()
+        val reportQueries = mutableListOf<String?>()
+        override suspend fun reportJson(path: String, q: String?, format: String): ExplorerReport {
+            reportQueries += q
+            val rows = listOf(listOf(JsonPrimitive("Giriraj"), JsonPrimitive("Bagru")), listOf(JsonPrimitive("Meena"), JsonPrimitive("Sanganer")))
+            val matched = if (q == null) rows else rows.filter { r -> r.any { it.content.contains(q, ignoreCase = true) } }
+            return ExplorerReport(listOf(ExplorerSheet(name = "Artisans", columns = listOf(JsonPrimitive("Name"), JsonPrimitive("Place")), rows = matched, totalRows = 2, matchedRows = matched.size)))
+        }
+        override suspend fun languages() = ExplorerLanguages(listOf(ExplorerLanguage("hi", "Hindi", 3), ExplorerLanguage("raj", "Rajasthani", 1)))
         override suspend fun manifestStream(path: String, include: String?, stream: Int): Response<ResponseBody> = Response.success("".toResponseBody(null))
         override suspend fun selectionManifestStream(body: ExplorerSelectionBody): Response<ResponseBody> = Response.success("".toResponseBody(null))
         override suspend fun media(id: String, format: String?, fallback: String?, range: String?): Response<ResponseBody> = Response.success("".toResponseBody(null))
@@ -192,5 +203,33 @@ class ExplorerScreenUiTest {
         compose.waitForIdle()
         compose.onNodeWithTag("explorer.tree").performScrollToNode(hasTestTag("explorer.file.p2"))
         compose.onNodeWithTag("explorer.file.p2").assertExists()
+    }
+
+    @QFeature("X6")
+    @Test fun tableSearchAsksTheServerForEveryRowAndEachSheetDownloadsAsCsv() {
+        val fake = Fake()
+        show(fake)
+        compose.onNodeWithTag("explorer.tree").performScrollToNode(hasTestTag("explorer.tables.toggle"))
+        compose.onNodeWithTag("explorer.tables.toggle").performClick()
+        compose.waitUntil(5_000) { fake.reportQueries.isNotEmpty() }
+        compose.onNodeWithTag("explorer.tree").performScrollToNode(hasTestTag("explorer.tables.search"))
+        compose.onNodeWithTag("explorer.tables.search").performTextInput("meena")
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitUntil(5_000) { fake.reportQueries.contains("meena") }
+        compose.waitForIdle()
+        compose.onNodeWithText("1 of 2 rows match").assertExists()
+        compose.onNodeWithTag("explorer.csv.Artisans").assertExists()
+    }
+
+    @QFeature("X9")
+    @Test fun theTranscriptLanguageFilterIsFilledFromTheServer() {
+        val fake = Fake()
+        show(fake)
+        compose.onNodeWithTag("explorer.tree").performScrollToNode(hasTestTag("data.transcripts.toggle"))
+        compose.onNodeWithTag("data.transcripts.toggle").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("explorer.tree").performScrollToNode(hasTestTag("transcript.data.language.raj"))
+        compose.onNodeWithTag("transcript.data.language.raj").assertExists()
+        compose.onNodeWithText("Rajasthani").assertExists()
     }
 }

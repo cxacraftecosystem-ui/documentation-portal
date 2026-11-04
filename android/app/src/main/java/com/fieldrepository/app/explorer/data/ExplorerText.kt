@@ -73,12 +73,21 @@ object ExplorerText {
     const val failedFilesTitle = "Not downloaded"
     const val keepsGoing = "Keeps going if you leave the app."
     const val page = "Page"
+    const val tables = "Tables"
+    const val searchRows = "Search every row"
+    const val tablesFailed = "The tables could not be loaded."
+    const val noRows = "No tables here."
+    const val csv = "CSV"
 
     fun cachedCopy(stamp: String?) = "Offline copy" + (stamp?.let { " from $it" } ?: "") + ". It may be out of date."
 
     fun busy(seconds: Int) = "Busy, retrying in $seconds s"
 
     fun selected(n: Int) = "$n selected"
+
+    fun rows(n: Int) = ExplorerBytes.count(n, "row")
+
+    fun matches(matched: Int, total: Int) = "$matched of ${ExplorerBytes.count(total, "row")} match"
 
     fun downloadSelected(n: Int) = "Download $n selected"
 

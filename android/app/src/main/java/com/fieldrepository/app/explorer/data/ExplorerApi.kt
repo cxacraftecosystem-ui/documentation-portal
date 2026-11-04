@@ -35,6 +35,13 @@ interface ExplorerApi {
     @POST("data/stats")
     suspend fun selectionStats(@Body body: ExplorerStatsBody): ExplorerStats
 
+    @GET("data/report")
+    suspend fun reportJson(
+        @Query("path") path: String,
+        @Query("q") q: String? = null,
+        @Query("format") format: String = "json",
+    ): ExplorerReport
+
     @GET("data/transcripts/languages")
     suspend fun languages(): ExplorerLanguages
 
@@ -92,6 +99,9 @@ object ExplorerPaths {
 
     fun report(path: String, format: String = "xlsx"): String =
         withQuery(withQuery("/api/data/report", "format", format), "path", path)
+
+    fun reportCsv(path: String, sheet: String): String =
+        withQuery(withQuery(withQuery("/api/data/report", "format", "csv"), "sheet", sheet), "path", path)
 
     fun transcriptZip(mediaId: String): String = "/api/transcripts/$mediaId/download?format=zip&track=both"
 

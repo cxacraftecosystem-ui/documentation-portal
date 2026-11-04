@@ -144,6 +144,7 @@ fun ExplorerScreen(
     var showDownloads by rememberSaveable { mutableStateOf(false) }
     var viewing by remember { mutableStateOf<ExplorerEntry?>(null) }
     var transcriptsOpen by rememberSaveable { mutableStateOf(false) }
+    var tablesOpen by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -462,6 +463,28 @@ fun ExplorerScreen(
                         Text(info.title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                         RecordInfoTable(info)
                     }
+                }
+            }
+            item("tables") {
+                Section(title = ExplorerText.tables, open = tablesOpen, onToggle = { tablesOpen = !tablesOpen }, tag = "explorer.tables.toggle") {
+                    ExplorerTables(
+                        api = explorerApi,
+                        owner = owner,
+                        path = state.path,
+                        online = link.online,
+                        onCsv = { sheet ->
+                            begin(
+                                ExplorerRequest(
+                                    title = "${state.folderName} · $sheet",
+                                    fileName = Naming.exportFilename("Dataset", "Export", "csv", withTime = true, subject = "${state.folderName} $sheet"),
+                                    kind = ExplorerJobKind.REPORT,
+                                    single = true,
+                                    mimeType = "text/csv",
+                                    items = listOf(ExplorerItem(path = "", url = ExplorerPaths.reportCsv(state.path, sheet))),
+                                ),
+                            )
+                        },
+                    )
                 }
             }
             item("transcripts") {
