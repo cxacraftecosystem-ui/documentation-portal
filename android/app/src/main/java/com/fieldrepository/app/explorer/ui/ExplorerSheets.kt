@@ -1,0 +1,295 @@
+package com.fieldrepository.app.explorer.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FolderZip
+import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.fieldrepository.app.explorer.data.ExplorerBytes
+import com.fieldrepository.app.explorer.data.ExplorerJob
+import com.fieldrepository.app.explorer.data.ExplorerJobState
+import com.fieldrepository.app.explorer.data.ExplorerKind
+import com.fieldrepository.app.explorer.data.ExplorerSize
+import com.fieldrepository.app.explorer.data.ExplorerText
+import com.fieldrepository.app.ui.FieldCircularProgressIndicator
+import com.fieldrepository.app.ui.FieldLinearProgressIndicator
+import com.fieldrepository.app.ui.field
+
+enum class DownloadChoice { EVERYTHING, TRANSCRIPTS, REPORT }
+
+sealed interface SizeLoad {
+    data object Loading : SizeLoad
+    data class Known(val size: ExplorerSize) : SizeLoad
+    data object Unknown : SizeLoad
+}
+
+@Composable
+internal fun SheetButtons(primary: String, onPrimary: () -> Unit, enabled: Boolean = true, secondary: String? = null, onSecondary: (() -> Unit)? = null, primaryTag: String = "explorer.sheet.primary") {
+    if (secondary == null || onSecondary == null) {
+        Button(onClick = onPrimary, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag(primaryTag)) { Text(primary) }
+        return
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        OutlinedButton(onClick = onSecondary, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("explorer.sheet.secondary")) {
+            Text(secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Button(onClick = onPrimary, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag(primaryTag)) {
+            Text(primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun DownloadSheet(
+    title: String,
+    selection: Boolean,
+    size: SizeLoad,
+    metered: Boolean,
+    online: Boolean,
+    freeBytes: Long?,
+    onStart: (choice: DownloadChoice, wifiOnly: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var choice by remember { mutableStateOf(DownloadChoice.EVERYTHING) }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 20.dp).navigationBarsPadding().testTag("explorer.sheet.download"),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(ExplorerText.download, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+            Text(title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                ChoiceRow(Icons.Filled.FolderZip, ExplorerText.everything + " (.zip)", sizeLine(size), choice == DownloadChoice.EVERYTHING, "explorer.choice.everything") { choice = DownloadChoice.EVERYTHING }
+                if (!selection) {
+                    ChoiceRow(Icons.Filled.Description, ExplorerText.transcriptsZip + " (.zip)", ExplorerText.transcriptsZipNote, choice == DownloadChoice.TRANSCRIPTS, "explorer.choice.transcripts") { choice = DownloadChoice.TRANSCRIPTS }
+                    ChoiceRow(Icons.Filled.TableChart, ExplorerText.report, ExplorerText.reportNote, choice == DownloadChoice.REPORT, "explorer.choice.report") { choice = DownloadChoice.REPORT }
+                }
+            }
+            if (choice == DownloadChoice.EVERYTHING) SizeBreakdown(size)
+            val known = (size as? SizeLoad.Known)?.size
+            val needed = known?.let { ExplorerBytes.spaceNeeded(it.bytes, it.largest, com.fieldrepository.app.explorer.data.ExplorerEngine.PARALLEL) }
+            val noRoom = choice == DownloadChoice.EVERYTHING && known != null && needed != null && freeBytes != null && known.bytes > 0 && freeBytes < needed
+            when {
+                !online -> Notice(ExplorerText.offline, warn = true)
+                noRoom -> Notice(ExplorerText.noSpace(ExplorerBytes.format(needed), ExplorerBytes.format(freeBytes)), warn = true, tag = "explorer.sheet.space")
+                metered && choice == DownloadChoice.EVERYTHING -> Notice(
+                    known?.let { k -> ExplorerBytes.format(k.bytes)?.let { ExplorerText.meteredSize(it) } } ?: ExplorerText.metered,
+                    warn = true,
+                    tag = "explorer.sheet.metered",
+                )
+                else -> Text(ExplorerText.keepsGoing, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (metered && choice == DownloadChoice.EVERYTHING && online && !noRoom) {
+                SheetButtons(
+                    primary = ExplorerText.useMobileData,
+                    onPrimary = { onStart(choice, false) },
+                    secondary = ExplorerText.waitForWifi,
+                    onSecondary = { onStart(choice, true) },
+                )
+            } else {
+                SheetButtons(primary = ExplorerText.start, onPrimary = { onStart(choice, false) }, enabled = online && !noRoom)
+            }
+        }
+    }
+}
+
+private fun sizeLine(size: SizeLoad): String = when (size) {
+    SizeLoad.Loading -> ExplorerText.counting
+    SizeLoad.Unknown -> ExplorerText.sizeUnknown
+    is SizeLoad.Known -> ExplorerBytes.line(size.size)
+}
+
+@Composable
+private fun ChoiceRow(icon: ImageVector, label: String, detail: String, selected: Boolean, tag: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .background(if (selected) MaterialTheme.field.surface100 else MaterialTheme.colorScheme.surface, MaterialTheme.shapes.medium)
+            .selectable(selected = selected, onClick = onClick, role = Role.RadioButton)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        RadioButton(selected = selected, onClick = null)
+    }
+}
+
+@Composable
+private fun SizeBreakdown(size: SizeLoad) {
+    val known = (size as? SizeLoad.Known)?.size ?: return
+    val rows = ExplorerKind.entries.mapNotNull { kind -> known.byKind[kind]?.takeIf { it.files > 0 }?.let { kind to it } }
+    if (rows.isEmpty()) return
+    Column(
+        Modifier.fillMaxWidth().background(MaterialTheme.field.surface50, MaterialTheme.shapes.medium).padding(12.dp).testTag("explorer.sheet.sizes"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(ExplorerBytes.line(known), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.testTag("explorer.sheet.total"))
+        rows.forEach { (kind, stats) ->
+            Row(Modifier.fillMaxWidth()) {
+                Text(kind.label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body, modifier = Modifier.weight(1f))
+                Text(ExplorerBytes.line(stats.files, stats.bytes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (known.truncated) Text(ExplorerText.partOfArchive, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.onWarningContainer)
+    }
+}
+
+@Composable
+internal fun Notice(text: String, warn: Boolean = false, tag: String? = null) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = if (warn) MaterialTheme.field.onWarningContainer else MaterialTheme.field.onSuccessContainer,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (warn) MaterialTheme.field.warningContainer else MaterialTheme.field.successContainer, MaterialTheme.shapes.small)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite }
+            .let { if (tag != null) it.testTag(tag) else it },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun DownloadsSheet(
+    jobs: List<ExplorerJob>,
+    onCancel: (ExplorerJob) -> Unit,
+    onRetry: (ExplorerJob) -> Unit,
+    onOpen: (ExplorerJob) -> Unit,
+    onShare: (ExplorerJob) -> Unit,
+    onDismissJob: (ExplorerJob) -> Unit,
+    onClearFinished: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).navigationBarsPadding().testTag("explorer.sheet.downloads")) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(ExplorerText.downloads, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                if (jobs.any { !it.active }) TextButton(onClick = onClearFinished, modifier = Modifier.heightIn(min = 44.dp)) { Text(ExplorerText.clearFinished) }
+            }
+            Spacer(Modifier.height(8.dp))
+            if (jobs.isEmpty()) {
+                Text(ExplorerText.noDownloads, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp))
+            } else {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(jobs, key = { it.id }) { job ->
+                        JobCard(job, onCancel = { onCancel(job) }, onRetry = { onRetry(job) }, onOpen = { onOpen(job) }, onShare = { onShare(job) }, onDismiss = { onDismissJob(job) })
+                    }
+                    item { Spacer(Modifier.height(16.dp)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun JobCard(job: ExplorerJob, onCancel: () -> Unit, onRetry: () -> Unit, onOpen: () -> Unit, onShare: () -> Unit, onDismiss: () -> Unit) {
+    var showFailed by remember(job.id) { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxWidth().background(MaterialTheme.field.surface50, MaterialTheme.shapes.medium).padding(14.dp).testTag("explorer.job.${job.id}"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (job.state == ExplorerJobState.RUNNING) FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+            Text(job.request.title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        }
+        Text(job.request.fileName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        when (job.state) {
+            ExplorerJobState.QUEUED, ExplorerJobState.RUNNING -> {
+                val fraction = job.fraction
+                if (fraction != null && job.state == ExplorerJobState.RUNNING) {
+                    FieldLinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().height(6.dp).testTag("explorer.job.progress"))
+                } else {
+                    FieldLinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(6.dp))
+                }
+                Text(
+                    listOfNotNull(jobLine(job), job.current?.takeIf { it != ExplorerText.resuming && it != ExplorerText.waitingForNetwork }?.substringAfterLast('/')).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }.testTag("explorer.job.status"),
+                )
+                SheetButtons(primary = ExplorerText.cancel, onPrimary = onCancel, primaryTag = "explorer.job.cancel")
+            }
+            ExplorerJobState.DONE -> {
+                Text(ExplorerText.doneLine(job.result), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body, modifier = Modifier.testTag("explorer.job.done"))
+                val result = job.result
+                if (result != null && result.failedCount > 0) {
+                    TextButton(onClick = { showFailed = !showFailed }, modifier = Modifier.heightIn(min = 44.dp)) {
+                        Text("${ExplorerText.failedFiles(result.failedCount)} · ${if (showFailed) ExplorerText.hide else ExplorerText.show}")
+                    }
+                    if (showFailed) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.testTag("explorer.job.failed")) {
+                            result.failed.forEach { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            if (result.failedCount > result.failed.size) Text("…", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+                if (result?.truncated == true) Notice(ExplorerText.partOfArchive, warn = true)
+                if (result?.uri != null || result?.location != null) {
+                    SheetButtons(primary = ExplorerText.open, onPrimary = onOpen, secondary = ExplorerText.share, onSecondary = onShare, primaryTag = "explorer.job.open")
+                } else {
+                    SheetButtons(primary = ExplorerText.dismiss, onPrimary = onDismiss)
+                }
+            }
+            ExplorerJobState.FAILED -> {
+                Text(job.error ?: ExplorerText.fileFailed, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("explorer.job.error"))
+                SheetButtons(primary = ExplorerText.retry, onPrimary = onRetry, secondary = ExplorerText.dismiss, onSecondary = onDismiss, primaryTag = "explorer.job.retry")
+            }
+            ExplorerJobState.CANCELLED -> {
+                Text(ExplorerText.cancelled, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SheetButtons(primary = ExplorerText.retry, onPrimary = onRetry, secondary = ExplorerText.dismiss, onSecondary = onDismiss, primaryTag = "explorer.job.retry")
+            }
+        }
+    }
+}

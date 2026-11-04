@@ -1803,7 +1803,8 @@ private fun HomeScreen(
                     is Screen.DataBrowser -> DataBrowserScreen(
                         repository = repository,
                         onBack = { attemptExit { goBack() } },
-                        onMessage = { showMessage(it, AppMessageTone.SUCCESS) }
+                        onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
+                        onOpenMedia = { mediaId -> openRecordView(EntryMode.MEDIA, mediaId) }
                     )
 
                     is Screen.Appearance -> AppearanceScreen(

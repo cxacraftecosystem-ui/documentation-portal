@@ -276,6 +276,9 @@ erDiagram
   online or zipped in the browser by content type. Transcripts are included in View data and
   Download data. The report workbook is built on click, one at a time, with a 200-row JSON preview,
   and the box hands the memory back afterwards (launch list D39).
+- **Android data browser**: the *Data* screen puts the tree first with search as its toolbar and one
+  *Download* button. Zips run in the background with a notification and Cancel, and keep going when the
+  app is left ([Play declaration](docs/ANDROID_BACKGROUND_DOWNLOADS.md)).
 - **Dataset API** (`/api/datasets`): for machines, behind admin credentials. Streams NDJSON or CSV
   with no row cap, keyset-paged, and sends `X-Dataset-Total` so a client can prove a download is
   complete. Artisan identity numbers are masked by default.
