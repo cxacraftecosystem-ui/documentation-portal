@@ -68,7 +68,7 @@ sequenceDiagram
   participant S3 as S3
   participant DB as PostgreSQL
 
-  Note over C: file attached — <b>typing has not finished</b>
+  Note over C: file attached — typing has not finished
   C->>API: POST /media/presign
   API->>API: make_object_key → media/{user id}/{uuid}/{name}
   API-->>C: uploadUrl (15 min) + objectKey
@@ -78,7 +78,7 @@ sequenceDiagram
 
   Note over C: …minutes later, Save is pressed
   C->>API: POST /media/complete { objectKey, originalFilename, checksum }
-  API->>DB: upsert on objectKey — <b>idempotent</b>
+  API->>DB: upsert on objectKey — idempotent
   API->>DB: MediaProcessingJob, when requested
   API-->>C: MediaFile row
   C->>C: drop the journal entry
@@ -389,8 +389,8 @@ stateDiagram-v2
   uploading --> uploading: each batch marked done as it lands
   uploading --> created: transient — resume at the media,<br/><b>never re-create</b>
   uploading --> [*]: entry and local files dropped
-  permanent --> [*]: shown with the server's reason; user discards
-  conflict --> [*]: shown as a conflict; <b>nothing deleted</b>
+  permanent --> [*]: shown with the server's reason, user discards
+  conflict --> [*]: shown as a conflict, <b>nothing deleted</b>
 ```
 
 **Where it shows.** `components/OutboxBanner.tsx`, mounted once in the protected layout above the
