@@ -182,6 +182,26 @@ The same documented tool recurs across crafts. `ToolArtisan` exists so it is ent
 assigned, rather than re-entered per craft — which is also why `ToolDocumentation` keeps its own
 single `artisanId` (the artisan it was *documented with*) alongside the join.
 
+#### Where a linked tool shows up (added 2026-11-04)
+
+A tool belongs to a workshop when **any** of these holds: its own `workshopId` is that workshop, or
+one of its artisans (`artisanId` or a `ToolArtisan` row) is a member of it. Membership is
+`Artisan.workshopId` or a `WorkshopArtisan` row. The same rule runs on every read surface, web and
+Android alike, because both clients read the same server routes:
+
+| Surface | What a workshop or artisan scope returns |
+|---|---|
+| Data browser tree, `/data/manifest` zip, `/data/report` sheets and xlsx | Under workshop *W*, artisan *A*: every tool linked to *A* whose own workshop is *W* or empty, plus every tool linked to *A* when *A* is a member of *W*. A tool filed at *W* none of whose artisans *W* reaches adds those artisans to *W*'s list, so it is never missing from its own workshop. |
+| `/export/dataset` bundle | The same rule, applied in memory. One copy per artisan folder, so a tool shared by artisans in two workshops is filed under both. |
+| `GET /tools?workshopId=&artisanId=&craftId=`, `/search`, `/datasets/tools*` with `workshopIds` | The flat clause `tool_workshop_clause`: own workshop, the primary artisan's workshops, or any linked artisan's workshops. `artisanId` and `craftId` match the link tables as well as the scalar columns. `none` means no own workshop and no artisan in any workshop. |
+
+Every list is one row per tool. The **Linked workshops** column names the tool's own workshop and
+every workshop of its artisans; **Artisan** names every linked artisan. Both are pruned to what the
+reader may see (`hide_unseen` in `app/services/tool_scope.py`), so a workshop the reader cannot open
+never lends its name or its tools. The links load as nested includes and the prune is two
+`IN (...)` reads, so the statement count does not grow with the number of tools
+(`tests/test_tool_multi_scope_db.py`).
+
 ### 2.3 Decimals are strings on the wire
 
 Every `Decimal` column — measurements, costs, prices — is serialised by the API as a **JSON string**,

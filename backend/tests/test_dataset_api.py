@@ -354,9 +354,17 @@ def test_unassigned_only_against_the_workshops_table_matches_nothing(api) -> Non
 
 
 def test_unassigned_widens_the_other_tables_to_null_workshops(api) -> None:
-    where = _where("tools", workshop_ids=["w1", "none"])
+    where = _where("products", workshop_ids=["w1", "none"])
 
     assert where["AND"][0] == {"OR": [{"workshopId": {"in": ["w1"]}}, {"workshopId": None}]}
+
+
+def test_tools_reach_a_workshop_through_their_linked_artisans_too(api) -> None:
+    from app.services.record_filters import tool_workshop_clause
+
+    where = _where("tools", workshop_ids=["w1", "none"])
+
+    assert where["AND"][0] == tool_workshop_clause(["w1"], True)
 
 
 def test_media_is_owned_by_its_uploader_not_its_creator(api) -> None:
@@ -473,7 +481,7 @@ SPEC_RELATIONS: dict[str, tuple[str, ...]] = {
     "crafts": ("workshops",),
     "artisans": ("workshops", "craft", "location"),
     "products": ("workshop",),
-    "tools": ("workshop",),
+    "tools": ("workshop", "artisan", "artisanLinks"),
     "processes": ("product", "steps"),
     "interviews": ("artisans",),
 }

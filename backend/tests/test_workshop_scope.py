@@ -5,6 +5,8 @@ from app.services.record_filters import (
     UNASSIGNED_WORKSHOP,
     build_record_wheres,
     resolve_workshop_ids,
+    tool_craft_clause,
+    tool_workshop_clause,
     workshop_clause,
 )
 
@@ -72,8 +74,9 @@ def test_no_workshop_scope_leaves_every_bucket_untouched():
 
 def test_the_scope_reaches_every_bucket_with_the_right_column():
     wheres = asyncio.run(build_record_wheres(USER, workshop_ids=["w1"]))
-    for bucket in ("artisans", "products", "tools", "media"):
+    for bucket in ("artisans", "products", "media"):
         assert wheres[bucket]["AND"] == [{"workshopId": {"in": ["w1"]}}], bucket
+    assert wheres["tools"]["AND"] == [tool_workshop_clause(["w1"], False)]
     assert wheres["workshops"]["AND"] == [{"id": {"in": ["w1"]}}]
 
 
@@ -119,10 +122,10 @@ def test_the_scope_composes_with_every_other_filter_at_once():
         )
     )
     tools = wheres["tools"]
-    assert tools["craftId"] == "c1"
     assert tools["place"] == {"contains": "Bareilly", "mode": "insensitive"}
     assert tools["createdAt"] == {"gte": datetime(2026, 7, 1, tzinfo=timezone.utc)}
     assert "OR" in tools
     assert tools["AND"] == [
-        {"OR": [{"workshopId": {"in": ["w1"]}}, {"workshopId": None}]}
+        tool_craft_clause(["c1"]),
+        tool_workshop_clause(["w1"], True),
     ]

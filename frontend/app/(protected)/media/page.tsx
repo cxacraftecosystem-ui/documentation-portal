@@ -42,6 +42,7 @@ import { ComboBox, Dropdown } from "@/components/ui/Dropdown";
 import { apiFetch, listResource } from "@/lib/api";
 import { bytes, countNoun, formatDateTime } from "@/lib/format";
 import { rowClickOpensRecord } from "@/lib/recordView";
+import { toolArtisanNames } from "@/lib/toolArtisans";
 import { locationFromForm, textValue } from "@/lib/forms";
 import { inferMediaType, uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
@@ -93,7 +94,7 @@ function entryLabel(type: string, row: EntryRow): string {
     case "craft":
       return [text(row.name), text(row.place)].filter(Boolean).join(" · ") || "Craft";
     case "tool":
-      return [text(row.toolkitName), text(row.artisanName)].filter(Boolean).join(" · ") || "Tool";
+      return [text(row.toolkitName), toolArtisanNames(row as unknown as Parameters<typeof toolArtisanNames>[0]) ?? ""].filter(Boolean).join(" · ") || "Tool";
     case "product":
       return [text(row.productName), text(row.artisanName)].filter(Boolean).join(" · ") || "Product";
     case "process": {

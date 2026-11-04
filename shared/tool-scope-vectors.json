@@ -1,0 +1,147 @@
+{
+  "artisanNames": [
+    {
+      "case": "the primary artisan alone, no link rows",
+      "tool": { "artisanId": "a1", "artisanName": "Kamla Devi", "artisanLinks": [] },
+      "expected": "Kamla Devi"
+    },
+    {
+      "case": "the primary is also the first link and is named once",
+      "tool": {
+        "artisanId": "a1",
+        "artisanName": "Kamla Devi",
+        "artisanLinks": [
+          { "artisanId": "a1", "artisan": { "id": "a1", "name": "Kamla Devi" } },
+          { "artisanId": "a2", "artisan": { "id": "a2", "name": "Ramesh Chhipa" } }
+        ]
+      },
+      "expected": "Kamla Devi, Ramesh Chhipa"
+    },
+    {
+      "case": "a legacy primary missing from the links leads the list",
+      "tool": {
+        "artisanId": "a0",
+        "artisanName": "Gopal Lal",
+        "artisanLinks": [
+          { "artisanId": "a2", "artisan": { "id": "a2", "name": "Ramesh Chhipa" } }
+        ]
+      },
+      "expected": "Gopal Lal, Ramesh Chhipa"
+    },
+    {
+      "case": "links keep their order and a repeated name is written once",
+      "tool": {
+        "artisanId": "a3",
+        "artisanName": "Sita",
+        "artisanLinks": [
+          { "artisanId": "a3", "artisan": { "id": "a3", "name": "Sita" } },
+          { "artisanId": "a4", "artisan": { "id": "a4", "name": "Bhanwar" } },
+          { "artisanId": "a5", "artisan": { "id": "a5", "name": "Sita" } }
+        ]
+      },
+      "expected": "Sita, Bhanwar"
+    },
+    {
+      "case": "a link whose artisan was not loaded is skipped",
+      "tool": {
+        "artisanId": "a1",
+        "artisanName": "Kamla Devi",
+        "artisanLinks": [
+          { "artisanId": "a1", "artisan": null },
+          { "artisanId": "a2", "artisan": { "id": "a2", "name": "  Ramesh Chhipa  " } }
+        ]
+      },
+      "expected": "Kamla Devi, Ramesh Chhipa"
+    },
+    {
+      "case": "nothing to name",
+      "tool": { "artisanId": null, "artisanName": "", "artisanLinks": [] },
+      "expected": null
+    }
+  ],
+  "linkedWorkshops": [
+    {
+      "case": "the tool's own workshop, then each artisan's, once each",
+      "tool": {
+        "workshop": { "id": "w1", "title": "Sanganer" },
+        "artisan": {
+          "id": "a1",
+          "workshop": { "id": "w1", "title": "Sanganer" },
+          "workshops": [{ "workshopId": "w1", "workshop": { "id": "w1", "title": "Sanganer" } }]
+        },
+        "artisanLinks": [
+          {
+            "artisanId": "a2",
+            "artisan": {
+              "id": "a2",
+              "workshop": { "id": "w2", "title": "Bagru" },
+              "workshops": [{ "workshopId": "w3", "workshop": { "id": "w3", "title": "Akola" } }]
+            }
+          }
+        ]
+      },
+      "expected": "Sanganer, Bagru, Akola"
+    },
+    {
+      "case": "no own workshop: the artisans' workshops alone",
+      "tool": {
+        "workshop": null,
+        "artisan": null,
+        "artisanLinks": [
+          {
+            "artisanId": "a2",
+            "artisan": { "id": "a2", "workshop": { "id": "w2", "title": "Bagru" }, "workshops": [] }
+          }
+        ]
+      },
+      "expected": "Bagru"
+    },
+    {
+      "case": "nothing linked",
+      "tool": { "workshop": null, "artisan": null, "artisanLinks": [] },
+      "expected": null
+    }
+  ],
+  "fits": [
+    {
+      "case": "own workshop",
+      "tool": { "workshopId": "w1", "artisanId": "a1", "artisanLinks": [{ "artisanId": "a2" }] },
+      "workshopId": "w1",
+      "artisanId": "a2",
+      "members": [],
+      "expected": true
+    },
+    {
+      "case": "another workshop the artisan belongs to",
+      "tool": { "workshopId": "w1", "artisanId": "a1", "artisanLinks": [{ "artisanId": "a2" }] },
+      "workshopId": "w2",
+      "artisanId": "a2",
+      "members": ["a2"],
+      "expected": true
+    },
+    {
+      "case": "another workshop the artisan does not belong to",
+      "tool": { "workshopId": "w1", "artisanId": "a1", "artisanLinks": [{ "artisanId": "a2" }] },
+      "workshopId": "w2",
+      "artisanId": "a2",
+      "members": [],
+      "expected": false
+    },
+    {
+      "case": "a tool filed nowhere follows its artisan",
+      "tool": { "workshopId": null, "artisanId": "a1", "artisanLinks": [] },
+      "workshopId": "w9",
+      "artisanId": "a1",
+      "members": [],
+      "expected": true
+    },
+    {
+      "case": "an artisan the tool is not linked to",
+      "tool": { "workshopId": "w1", "artisanId": "a1", "artisanLinks": [] },
+      "workshopId": "w1",
+      "artisanId": "a7",
+      "members": ["a7"],
+      "expected": false
+    }
+  ]
+}

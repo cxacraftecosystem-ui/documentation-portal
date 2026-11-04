@@ -14,6 +14,7 @@ from app.services.standard_values import (
     phone_of,
     tradition_label,
 )
+from app.services.tool_scope import tool_artisan_names, tool_workshop_titles
 
 
 def ev(value: Any) -> Any:
@@ -325,8 +326,9 @@ TOOL = RecordSpec(
         _f("Local name", lambda t: t.localName),
         _f("English name", lambda t: t.englishName),
         _f("Workshop", lambda t: _rel(t, "workshop", "title")),
+        _f("Linked workshops", tool_workshop_titles),
         _f("Craft", lambda t: t.craftName),
-        _f("Artisan", lambda t: t.artisanName),
+        _f("Artisan", tool_artisan_names),
         _f("Place", lambda t: t.place),
         _f("Usage", lambda t: t.processUsedIn),
         _f("Material", lambda t: t.material),

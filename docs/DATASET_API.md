@@ -193,14 +193,17 @@ Shared by every route above, and by the catalogue.
 `workshopIds` is the repository's one shared scoping vocabulary, so this API narrows identically to
 the search page, the map, the completion matrix and the consolidated questionnaire.
 
-Two tables do **not** answer it with a plain column test, because on the live repository the readings
+Three tables do **not** answer it with a plain column test, because on the live repository the readings
 disagree and a column-only predicate returns nothing:
 
 - **artisans** reach a workshop three ways — `Artisan.workshopId`, the `WorkshopArtisan` roster, or
   having sat in an interview taken at that workshop;
-- **crafts** reach one two ways — `Craft.workshopId` or the `WorkshopCraft` join.
+- **crafts** reach one two ways — `Craft.workshopId` or the `WorkshopCraft` join;
+- **tools** reach one through their own `workshopId` or through any linked artisan (`artisanId` or
+  `ToolArtisan`) who belongs to it, so a tool shared by artisans in two workshops is in both. See
+  [DATA_MODEL.md §2.2](DATA_MODEL.md#where-a-linked-tool-shows-up-added-2026-11-04).
 
-Both defer to the shared clause builders in `app/services/record_filters.py`.
+All three defer to the shared clause builders in `app/services/record_filters.py`.
 
 ### Incremental mirror
 

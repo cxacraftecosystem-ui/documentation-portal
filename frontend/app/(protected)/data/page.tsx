@@ -51,6 +51,7 @@ import { API_BASE, apiFetch, buildQuery, listResource } from "@/lib/api";
 import { bytes, formatDateTime } from "@/lib/format";
 import { canDownloadDataset } from "@/lib/permissions";
 import { canUpdateRecord, recordViewHref } from "@/lib/recordView";
+import { toolRowLabel } from "@/lib/toolArtisans";
 import { saveBlobToDevice } from "@/lib/saveToDevice";
 import type {
   Artisan,
@@ -637,7 +638,7 @@ const BROWSE_TYPES: Record<string, BrowseTypeDef> = {
     load: async () => ({
       rows: sortRecent((await listResource<ToolDocumentation>("/tools", { pageSize: 100 })).items).map((x) => ({
         id: x.id,
-        name: `${x.toolkitName} · ${x.artisanName}`,
+        name: toolRowLabel(x),
         creator: x.createdBy?.name ?? "-",
         createdAt: x.createdAt
       })),

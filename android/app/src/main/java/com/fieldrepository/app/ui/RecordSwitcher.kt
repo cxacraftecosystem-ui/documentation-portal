@@ -23,6 +23,7 @@ import com.fieldrepository.app.data.PageResponse
 import com.fieldrepository.app.data.ProcessDetailDto
 import com.fieldrepository.app.data.ProductDetailDto
 import com.fieldrepository.app.data.ToolDetailDto
+import com.fieldrepository.app.data.toolArtisanNames
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
@@ -78,7 +79,7 @@ fun recordOptionLabel(record: ProductDetailDto): String =
     recordOptionLabel(RecordSwitchKind.PRODUCT, joined(record.productName, record.artisanName))
 
 fun recordOptionLabel(record: ToolDetailDto): String =
-    recordOptionLabel(RecordSwitchKind.TOOL, joined(record.toolkitName, record.artisanName))
+    recordOptionLabel(RecordSwitchKind.TOOL, joined(record.toolkitName, record.toolArtisanNames()))
 
 fun recordOptionLabel(kind: RecordSwitchKind, label: String): String =
     label.trim().ifBlank { "Untitled ${kind.singular}" }

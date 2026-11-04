@@ -5,6 +5,8 @@ import com.fieldrepository.app.transcript.data.UploadTranscribe
 import com.fieldrepository.app.transcript.ui.TranscribeChoiceItem
 import com.fieldrepository.app.transcript.ui.TranscribeChoiceRows
 import com.fieldrepository.app.data.workshopDisplayTitle
+import com.fieldrepository.app.data.toolArtisanNames
+import com.fieldrepository.app.data.toolRowLabel
 import com.fieldrepository.app.data.AnswerDrafts
 import com.fieldrepository.app.ui.AnswerDraftsCard
 import com.fieldrepository.app.ui.ArtisanCardPickerScan
@@ -7928,7 +7930,7 @@ private suspend fun recordRowsPage(
             RecordRow(it.id, recordOptionLabel(it), "${it.name} ${it.product?.productName.orEmpty()}")
         }
         EntryMode.TOOL -> repository.toolsSearchPage(search, page, completeness).rows {
-            RecordRow(it.id, recordOptionLabel(it), "${it.toolkitName} ${it.artisanName} ${it.craftName}", completeness = it.completeness)
+            RecordRow(it.id, recordOptionLabel(it), "${it.toolkitName} ${it.toolArtisanNames().orEmpty()} ${it.craftName}", completeness = it.completeness)
         }
         EntryMode.WORKSHOP -> repository.workshopsSearchPage(search, page, completeness).rows {
             val title = workshopDisplayTitle(it.title, date = it.occurrenceDate(), place = it.place)
@@ -8952,7 +8954,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
                 when (t.lowercase()) {
                     "questionnaire", "questionnaireinterview" -> repository.interviews(EVERY_WORKSHOP).map { it.id to it.title.ifBlank { "Untitled interview" } }
                     "product" -> repository.products().map { it.id to "${it.productName} · ${it.artisanName}" }
-                    "tool" -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
+                    "tool" -> repository.tools().map { it.id to it.toolRowLabel() }
                     "artisan" -> repository.artisans().map { it.id to it.name }
                     "craft" -> (CraftCatalogueCache.catalogue.value ?: repository.craftCatalogue(context))?.crafts.orEmpty().map { it.id to it.name }
                     "workshop" -> repository.workshops().map { it.id to workshopDisplayTitle(it.title, date = it.occurrenceDate(), place = it.place) }

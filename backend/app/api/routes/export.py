@@ -20,6 +20,14 @@ from app.services.access import owner_download_scope
 from app.services.csv_export import records_to_csv
 from app.services.record_fields import info_panel, info_text, interview_label
 from app.services.records import owned_or_granted_where
+from app.services.tool_scope import (
+    TOOL_SCOPE_INCLUDE,
+    artisan_workshop_ids,
+    hide_unseen,
+    tool_artisan_ids,
+    tool_fits,
+    with_tool_scope,
+)
 from app.services import naming
 
 router = APIRouter(prefix="/export", tags=["export"])
@@ -46,7 +54,7 @@ _ARTISAN_INCLUDE = {
     "location": True,
 }
 _PRODUCT_INCLUDE = {"workshop": True}
-_TOOL_INCLUDE = {"workshop": True}
+_TOOL_INCLUDE = TOOL_SCOPE_INCLUDE
 _PROCESS_INCLUDE = {"steps": True, "product": True}
 _INTERVIEW_INCLUDE = {
     "artisans": {"include": {"artisan": True}},
@@ -138,6 +146,8 @@ async def dataset_manifest(
         products = [p for p in products if _in_scope("product", p.id)]
         tools = [t for t in tools if _in_scope("tool", t.id)]
         interviews = [i for i in interviews if _in_scope("questionnaire", i.id)]
+    tool_viewer = rec_where if ownerId is None else await owned_or_granted_where(current_user)
+    await hide_unseen(tools, tool_viewer)
 
     media_or: list[dict[str, Any]] = []
     if ownerId:
@@ -248,10 +258,13 @@ async def dataset_manifest(
     for product in products:
         if product.workshopId and product.artisanId:
             products_by_slot.setdefault((product.workshopId, product.artisanId), []).append(product)
-    tools_by_slot: dict[tuple[str, str], list[Any]] = {}
+    tools_by_artisan: dict[str, list[Any]] = {}
+    tools_by_workshop: dict[str, list[Any]] = {}
     for tool in tools:
-        if tool.workshopId and tool.artisanId:
-            tools_by_slot.setdefault((tool.workshopId, tool.artisanId), []).append(tool)
+        for artisan_id in tool_artisan_ids(tool):
+            tools_by_artisan.setdefault(artisan_id, []).append(tool)
+        if tool.workshopId:
+            tools_by_workshop.setdefault(tool.workshopId, []).append(tool)
 
     workshops_with_sessions = {getattr(it, "workshopId", None) for it in interviews}
     v2_answers = await questionnaire_readers.session_answers([i.id for i in interviews], client=db) if get_settings().questionnaire_v2 else {}
@@ -263,7 +276,17 @@ async def dataset_manifest(
             annexure = await questionnaire_library.annexure(ws.id, client=db)
             if annexure["groups"]:
                 add_text(wbase, "Questionnaire annexure.txt", questionnaire_library.annexure_text(annexure))
-        ws_artisans = [a for a in artisans if workshop_reaches_artisan(ws, a)]
+        reached = {a.id for a in artisans if workshop_reaches_artisan(ws, a)}
+        orphans = {
+            artisan_id
+            for tool in tools_by_workshop.get(ws.id, [])
+            if reached.isdisjoint(tool_artisan_ids(tool))
+            for artisan_id in tool_artisan_ids(tool)
+        }
+        ws_artisans = [a for a in artisans if a.id in reached or a.id in orphans]
+        members = {link.artisanId for link in ws.artisans or []} | {
+            a.id for a in ws_artisans if ws.id in artisan_workshop_ids(a)
+        }
 
         craft_names: dict[str, str] = {}
         for link in (ws.crafts or []):
@@ -287,8 +310,9 @@ async def dataset_manifest(
                 add_media(abase, "artisan", artisan.id)
                 for product in products_by_slot.get((ws.id, artisan.id), []):
                     emit_product(abase, product)
-                for tool in tools_by_slot.get((ws.id, artisan.id), []):
-                    emit_tool(abase, tool)
+                for tool in tools_by_artisan.get(artisan.id, []):
+                    if tool_fits(tool, ws.id, artisan.id, members):
+                        emit_tool(abase, tool)
                 for it in interviews_for_artisan.get(artisan.id, []):
                     emit_interview(abase, it)
 
@@ -354,11 +378,13 @@ async def export_tools(
     status_value: str | None = Query(None, alias="status"),
 ) -> Response:
     _require_dataset_download(current_user)
+    visible = await owned_or_granted_where(current_user)
     records = await db.tooldocumentation.find_many(
-        where=_with_status(await owned_or_granted_where(current_user), status_value),
-        include=_CSV_INCLUDE,
+        where=_with_status(visible, status_value),
+        include=with_tool_scope(_CSV_INCLUDE),
         take=EXPORT_TAKE,
         order={"createdAt": "desc"},
     )
+    await hide_unseen(records, visible)
     body = records_to_csv("tool", records, truncated=len(records) >= EXPORT_TAKE)
     return csv_response(naming.export_filename("Tool", "Export", "csv"), body)
