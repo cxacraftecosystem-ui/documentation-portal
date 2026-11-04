@@ -94,7 +94,7 @@ function entryLabel(type: string, row: EntryRow): string {
     case "craft":
       return [text(row.name), text(row.place)].filter(Boolean).join(" · ") || "Craft";
     case "tool":
-      return [text(row.toolkitName), toolArtisanNames(row as Parameters<typeof toolArtisanNames>[0]) ?? ""].filter(Boolean).join(" · ") || "Tool";
+      return [text(row.toolkitName), toolArtisanNames(row as unknown as Parameters<typeof toolArtisanNames>[0]) ?? ""].filter(Boolean).join(" · ") || "Tool";
     case "product":
       return [text(row.productName), text(row.artisanName)].filter(Boolean).join(" · ") || "Product";
     case "process": {

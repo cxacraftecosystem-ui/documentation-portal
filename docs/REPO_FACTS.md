@@ -122,7 +122,7 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 189 | 2429 `def test_` | `python -m pytest -q` from `backend/` |
+| Backend unit (`backend/tests/`) | 189 | 2430 `def test_` | `python -m pytest -q` from `backend/` |
 | Web end-to-end (`frontend/e2e/`) | 137 | 1407 `test(` | Playwright, `frontend/playwright.config.ts` |
 | Android unit (`android/app/src/test/`) | 176 | 1421 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | 17 | 69 `@Test` | not run in CI |
