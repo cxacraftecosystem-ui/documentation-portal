@@ -28,6 +28,11 @@ from app.services.workshop_access import (
 )
 from app.services import completeness as completeness_module
 from app.services.pagination import normalize_pagination, page_payload
+from app.services.record_filters import (
+    tool_artisan_clause,
+    tool_craft_clause,
+    tool_workshop_clause,
+)
 from app.services.records import (
     Relation,
     public_encode,
@@ -338,11 +343,11 @@ async def list_tools(
             {"remarks": contains(search)},
         ]
     if craftId:
-        where["craftId"] = craftId
+        where.setdefault("AND", []).append(tool_craft_clause([craftId]))
     if artisanId:
-        where["artisanId"] = artisanId
+        where.setdefault("AND", []).append(tool_artisan_clause([artisanId]))
     if workshopId:
-        where["workshopId"] = workshopId
+        where.setdefault("AND", []).append(tool_workshop_clause([workshopId], False, vis))
     if place:
         where["place"] = contains(place)
     if maker:

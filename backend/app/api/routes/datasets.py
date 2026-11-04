@@ -37,10 +37,12 @@ from app.services.record_filters import (
     artisan_workshop_clause,
     craft_workshop_clause,
     resolve_workshop_ids,
+    tool_workshop_clause,
     workshop_clause,
 )
 from app.services.records import ALL_MEDIA_URLS, public_encode
 from app.services.s3 import presign_get_url
+from app.services.tool_scope import with_tool_scope
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -138,9 +140,13 @@ DATASETS: dict[str, Dataset] = {
         name="tools",
         delegate="tooldocumentation",
         label="Tools",
-        description="Tool and toolkit documentation.",
+        description=(
+            "Tool and toolkit documentation. A workshop filter matches the tool's own workshop "
+            "and every workshop its linked artisans belong to."
+        ),
         kind="tool",
-        include={"workshop": True, "createdBy": True, "media": True, "location": True},
+        include=with_tool_scope({"createdBy": True, "media": True, "location": True}),
+        workshop_filter="tool",
     ),
     "processes": Dataset(
         name="processes",
@@ -207,6 +213,8 @@ def _build_where(
             clauses.append(artisan_workshop_clause(ids, include_unassigned))
         elif dataset.workshop_filter == "craft":
             clauses.append(craft_workshop_clause(ids, include_unassigned))
+        elif dataset.workshop_filter == "tool":
+            clauses.append(tool_workshop_clause(ids, include_unassigned))
         else:
             clause = workshop_clause(
                 ids, include_unassigned, is_workshop_table=(dataset.workshop_filter == "self")

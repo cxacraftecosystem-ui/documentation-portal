@@ -10,6 +10,7 @@ from app.services.record_filters import (
     RECORD_TYPES,
     build_record_wheres,
     resolve_types,
+    tool_craft_clause,
 )
 
 
@@ -96,7 +97,7 @@ def test_filters_compose_rather_than_replace_one_another():
         ADMIN, q="cane", craft_id="c1", place="Bareilly", date_from=when
     ))
     tools = wheres["tools"]
-    assert "OR" in tools and tools["craftId"] == "c1"
+    assert "OR" in tools and tool_craft_clause(["c1"]) in tools["AND"]
     assert tools["place"] == {"contains": "Bareilly", "mode": "insensitive"}
     assert tools["createdAt"] == {"gte": when}
 

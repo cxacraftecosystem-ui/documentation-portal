@@ -83,6 +83,101 @@ def craft_workshop_clause(ids: list[str], include_unassigned: bool) -> dict[str,
     return {"OR": branches} if branches else {"id": {"in": []}}
 
 
+def artisan_membership_clause(
+    ids: list[str], visible: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    if not visible:
+        return {
+            "OR": [
+                {"workshopId": {"in": ids}},
+                {"workshops": {"some": {"workshopId": {"in": ids}}}},
+            ]
+        }
+    seen = {"workshop": {"is": visible}}
+    return {
+        "AND": [
+            visible,
+            {
+                "OR": [
+                    {"AND": [{"workshopId": {"in": ids}}, seen]},
+                    {"workshops": {"some": {"AND": [{"workshopId": {"in": ids}}, seen]}}},
+                ]
+            },
+        ]
+    }
+
+
+_ARTISAN_IN_ANY_WORKSHOP = {
+    "OR": [{"workshopId": {"not": None}}, {"workshops": {"some": {}}}]
+}
+
+_ARTISAN_IN_NO_WORKSHOP = {"AND": [{"workshopId": None}, {"workshops": {"none": {}}}]}
+
+
+def tool_artisan_clause(artisan_ids: list[str]) -> dict[str, Any]:
+    return {
+        "OR": [
+            {"artisanId": {"in": artisan_ids}},
+            {"artisanLinks": {"some": {"artisanId": {"in": artisan_ids}}}},
+        ]
+    }
+
+
+def tool_craft_clause(craft_ids: list[str]) -> dict[str, Any]:
+    return {
+        "OR": [
+            {"craftId": {"in": craft_ids}},
+            {"craftLinks": {"some": {"craftId": {"in": craft_ids}}}},
+        ]
+    }
+
+
+def tool_workshop_clause(
+    ids: list[str], include_unassigned: bool, visible: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    branches: list[dict[str, Any]] = []
+    if ids:
+        member = artisan_membership_clause(ids, visible)
+        branches.extend(
+            [
+                {"workshopId": {"in": ids}},
+                {"artisan": {"is": member}},
+                {"artisanLinks": {"some": {"artisan": {"is": member}}}},
+            ]
+        )
+    if include_unassigned:
+        branches.append(
+            {
+                "AND": [
+                    {"workshopId": None},
+                    {"OR": [{"artisanId": None}, {"artisan": {"is": _ARTISAN_IN_NO_WORKSHOP}}]},
+                    {"artisanLinks": {"none": {"artisan": {"is": _ARTISAN_IN_ANY_WORKSHOP}}}},
+                ]
+            }
+        )
+    return {"OR": branches} if branches else {"id": {"in": []}}
+
+
+def tools_in_workshop_clause(workshop_id: str, artisan_ids: list[str]) -> dict[str, Any]:
+    member = artisan_membership_clause([workshop_id])
+    return {
+        "OR": [
+            {
+                "AND": [
+                    tool_artisan_clause(artisan_ids),
+                    {"OR": [{"workshopId": workshop_id}, {"workshopId": None}]},
+                ]
+            },
+            {"AND": [{"artisanId": {"in": artisan_ids}}, {"artisan": {"is": member}}]},
+            {
+                "artisanLinks": {
+                    "some": {"AND": [{"artisanId": {"in": artisan_ids}}, {"artisan": {"is": member}}]}
+                }
+            },
+        ]
+    }
+
+
 def resolve_types(raw: list[str] | None) -> set[str]:
     if not raw:
         return set(RECORD_TYPES)
@@ -156,7 +251,7 @@ async def build_record_wheres(
     if craft_id:
         artisan_where["craftId"] = craft_id
         product_where["craftId"] = craft_id
-        tool_where["craftId"] = craft_id
+        tool_where.setdefault("AND", []).append(tool_craft_clause([craft_id]))
     if place:
         artisan_where["place"] = contains(place)
         workshop_where["place"] = contains(place)
@@ -164,7 +259,7 @@ async def build_record_wheres(
         tool_where["place"] = contains(place)
     if artisan_id:
         product_where["artisanId"] = artisan_id
-        tool_where["artisanId"] = artisan_id
+        tool_where.setdefault("AND", []).append(tool_artisan_clause([artisan_id]))
     if media_type:
         media_where["mediaType"] = media_type
 
@@ -194,6 +289,11 @@ async def build_record_wheres(
     if resolved is not None:
         ids, include_unassigned = resolved
         for bucket, where in wheres.items():
+            if bucket == "tools":
+                where.setdefault("AND", []).append(
+                    tool_workshop_clause(ids, include_unassigned, record_visibility)
+                )
+                continue
             clause = workshop_clause(
                 ids, include_unassigned, is_workshop_table=(bucket == "workshops")
             )
