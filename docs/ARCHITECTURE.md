@@ -479,7 +479,7 @@ the export and the permission checks all read.
 flowchart TD
   W["<b>Workshop</b><br/>title · place · start/end dates<br/><i>the container everything drops into</i>"]
 
-  W --> WA["WorkshopAssignment<br/><i>who may work here</i><br/>VIEW &lt; CONTRIBUTE &lt; EDIT"]
+  W --> WA["WorkshopAssignment<br/><i>who may work here</i><br/>VIEW #lt; CONTRIBUTE #lt; EDIT"]
   W --> WC["Crafts covered<br/><i>WorkshopCraft join + direct FK</i>"]
   W --> WR["Artisan roster<br/><i>WorkshopArtisan join + direct FK</i>"]
 

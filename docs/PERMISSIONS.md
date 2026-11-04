@@ -281,7 +281,7 @@ flowchart TD
   start([Write request arrives]) --> kind{What kind of write?}
 
   kind -->|Create a core record| c1{rank ≥ RESEARCHER?}
-  c1 -->|no| deny1[403 · &quot;Field contributors and volunteers<br/>add media, answers and comments<br/>to existing records&quot;]
+  c1 -->|no| deny1[403 · #quot;Field contributors and volunteers<br/>add media, answers and comments<br/>to existing records#quot;]
   c1 -->|yes| ws{Workshop named?}
   ws -->|no| ok1[create]
   ws -->|yes| ws2{GRANTED assignment<br/>at CONTRIBUTE or above?}
