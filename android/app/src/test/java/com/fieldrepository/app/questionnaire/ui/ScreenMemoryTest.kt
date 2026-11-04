@@ -7,10 +7,6 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * What a list leaves behind (owner, 1 Nov 2026): Back from a record finds the same memory, any other
- * way in a new one; the newest screens are kept and the oldest dropped.
- */
 class ScreenMemoryTest {
     @Test fun `back from a record finds what the list left, a fresh way in starts over`() {
         val memories = ScreenMemories<String>()
@@ -37,7 +33,6 @@ class ScreenMemoryTest {
         (1..4).forEach { memories.arrive(it, restoring = false) }
         assertFalse(memories.has(1))
         assertTrue(memories.has(4))
-        // Restoring a screen that was dropped starts it over rather than failing.
         assertEquals(0, memories.arrive(1, restoring = true).size)
     }
 }

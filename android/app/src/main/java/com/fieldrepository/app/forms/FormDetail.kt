@@ -58,7 +58,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import java.io.File
 
-/** What the form detail offers this viewer (UNIFY 4.2, owner decision 5 and amendment of 22 Oct). */
 data class FormActions(
     val edit: Boolean,
     val delete: Boolean,
@@ -91,11 +90,9 @@ data class FormActions(
     }
 }
 
-/** The builder's view of one form: the server's sections, then what this phone queued under them. */
 fun mergedSections(server: List<QFormSection>, pending: List<QFormSection>): List<QFormSection> =
     server.filter { it.isActive }.sortedBy { it.sortOrder } + pending
 
-/** A reword never edits in place once answered: the server supersedes. The client sends the new words only when they changed. */
 fun questionPatch(before: QFormQuestion, prompt: String, helpText: String, required: Boolean): QQuestionPatch? {
     val p = prompt.trim().takeIf { it != before.prompt }
     val h = helpText.trim().takeIf { it != before.helpText.orEmpty() }
@@ -114,7 +111,6 @@ fun FormDetailScreen(
     onOpenForm: (String) -> Unit,
     onOpenSession: (String) -> Unit,
     onError: (String) -> Unit,
-    /** D3, A9: start a session on this form (null while the server has sessions off). */
     onStartSession: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -139,7 +135,6 @@ fun FormDetailScreen(
         loading = true
         if (local) {
             form = v2.outbox.localForms().firstOrNull { it.id == formId }
-            // It may have landed since: open the server's copy.
             if (form == null) v2.outbox.resolveFormId(formId)?.let { onOpenForm(it); return@LaunchedEffect }
         } else {
             val fetched = runCatching { v2.api.form(formId) }.getOrNull()
@@ -174,7 +169,6 @@ fun FormDetailScreen(
         message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body) }
         if (!actions.edit && !f.deleted) Text(FormsCopy.READ_ONLY, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
 
-        // ── Actions: pills (more than two) ──
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (actions.edit && !local) Pill("Edit details") { editingDetails = true }
             if (!local) Pill(FormsCopy.WORKBOOK_EXPORT, enabled = online) {
@@ -224,13 +218,11 @@ fun FormDetailScreen(
         }
         if (!online) Text(FormsCopy.NEEDS_CONNECTION + " for workbooks, sharing and deletes.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
 
-        // ── Kind (author or content admin) ──
         if (actions.edit && !local) SearchableSelectField(
             label = FormsCopy.FORM_KIND, options = FormKinds.LABELS.map { (k, v) -> SelectOption(k, v) },
             selectedValue = f.kind.orEmpty(), placeholder = FormKinds.NOT_STATED, includeNone = true, enabled = online
         ) { kind -> act("Couldn't change the kind.") { v2.api.patchForm(formId, buildJsonObject { put("kind", if (kind.isBlank()) kotlinx.serialization.json.JsonNull else JsonPrimitive(kind)) }) } }
 
-        // ── Admin authoring (owner decision 5: served on Field Repository Android) ──
         if (actions.share) AppToggle(
             label = FormsCopy.SHARE_ALL, description = FormsCopy.SHARE_ALL_BODY, checked = f.isShared, enabled = online,
             onCheckedChange = { on -> act("Couldn't change sharing.") { v2.api.patchForm(formId, buildJsonObject { put("isShared", JsonPrimitive(on)) }) } }
@@ -254,7 +246,6 @@ fun FormDetailScreen(
             if (actions.bind) PromptButtons(listOf(PromptButton(FormsCopy.BINDINGS, primary = false) { editingBindings = true }))
         }
 
-        // ── Sections and questions (the builder) ──
         Text(FormsCopy.SECTIONS, style = MaterialTheme.typography.titleMedium)
         mergedSections(f.sections, pending).forEach { section ->
             SectionBlock(
@@ -267,7 +258,6 @@ fun FormDetailScreen(
         }
         if (actions.edit) PromptButtons(listOf(PromptButton(FormsCopy.ADD_SECTION, primary = true) { addingSection = true }))
 
-        // ── Sessions on this form: the shared search and filters, each with its chips (owner, 31 Oct 2026) ──
         if (!FormQueue.isLocal(formId)) com.fieldrepository.app.questionnaire.ui.FormSessionsList(
             QuestionnaireV2.get(context), formId, onOpenSession = { s -> onOpenSession(s.id) }
         )
@@ -369,7 +359,6 @@ fun SectionBlock(
     }
 }
 
-/** P16: "Delete this form?" Admins can restore it from Deleted. Cancel · Delete. */
 @Composable
 fun DeleteFormPrompt(onCancel: () -> Unit, onDelete: () -> Unit) {
     QuestionnairePrompt(
@@ -405,7 +394,6 @@ fun SectionDialog(onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
         title = { Text(FormsCopy.ADD_SECTION, style = MaterialTheme.typography.titleLarge) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // A section code is one to three letters (media names are built from it), never prose.
                 OutlinedTextField(code, { v -> code = v.filter { it.isLetter() }.take(3).uppercase() }, label = { Text(FormsCopy.SECTION_CODE) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(title, { title = it.take(220) }, label = { Text(FormsCopy.SECTION_TITLE) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             }
@@ -433,7 +421,6 @@ fun QuestionDialog(question: QFormQuestion?, onDismiss: () -> Unit, onSave: (Str
     )
 }
 
-/** Bindings (A9): the workshops this form is offered in, each with an optional Primary. */
 @Composable
 fun BindingsDialog(workshops: List<QWorkshopOption>, current: List<QBinding>, onDismiss: () -> Unit, onSave: (List<QBinding>) -> Unit) {
     var next by remember { mutableStateOf(current) }
@@ -462,7 +449,6 @@ fun BindingsDialog(workshops: List<QWorkshopOption>, current: List<QBinding>, on
     )
 }
 
-/** "Send to a phone": the `.frwq` through the share sheet (Quick Share, Bluetooth), no connection needed. */
 fun shareBundle(context: Context, form: QForm) {
     val bundle = FormBundles.of(form)
     val dir = File(context.cacheDir, "handoff").apply { mkdirs() }

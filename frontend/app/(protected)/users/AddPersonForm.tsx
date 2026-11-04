@@ -1,21 +1,5 @@
 "use client";
 
-/**
- * "ADD A PERSON" — ONE STEP: the account, its place on the access roster, and how they will sign in.
- *
- * `POST /api/users` creates the account at the chosen role and admits the address on the access
- * roster in the same transaction, so there is no second approval to remember. The role picker offers
- * only roles strictly below the viewer's own (only the master admin is offered Admin).
- *
- * "How will they sign in?":
- *  - Set a password now — typed here, and (by default) changed by them at their first sign-in;
- *  - Make a temporary password for me — the server makes one; it is shown ONCE, here, with Copy;
- *  - Google, Microsoft or Yahoo only — and, where e-mail is set up, a link to set a password too.
- *
- * An address that already has an account is a 409 naming it; this form shows that sentence and an
- * "Open their account" button rather than making a duplicate.
- */
-
 import { useState } from "react";
 import { Copy, UserPlus } from "lucide-react";
 
@@ -47,7 +31,6 @@ export function AddPersonForm({
   viewer: User | null;
   mailAvailable: boolean;
   onAdded: (created: CreatedAccount) => void;
-  /** Show the account that already uses this address, so its role or access can be changed. */
   onOpenExisting: (accountId: string, email: string) => void;
 }) {
   const roles = creatableRoles(viewer);
@@ -62,7 +45,6 @@ export function AddPersonForm({
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // Read before any await: React nulls `currentTarget` across one.
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     const email = requiredText(form, "email");
@@ -109,7 +91,6 @@ export function AddPersonForm({
       await navigator.clipboard.writeText(done.temporaryPassword);
       setCopied(true);
     } catch {
-      // Refused: say nothing rather than claim success — the password is on screen to select.
       setCopied(false);
     }
   }
@@ -182,8 +163,6 @@ export function AddPersonForm({
         <Field label="Email" required>
           <TextInput name="email" type="email" required autoComplete="off" />
         </Field>
-        {/* A <div>, not Field's <label>: the themed Select is a button, and a wrapping label would
-            forward stray clicks to it. Named through aria-label instead. */}
         <div className="grid min-w-0 gap-1">
           <span className="field-label">
             Role <RequiredMark when />
@@ -257,8 +236,6 @@ export function AddPersonForm({
         )}
       </fieldset>
 
-      {/* Settings, so switches (components/ui/Toggle). Uncontrolled with a `name`: each posts "on"
-          while on, exactly as the checkboxes they replace did, so `submit` reads them unchanged. */}
       <div className="grid gap-1 md:max-w-md">
         <Toggle name="canManageQuestionnaire" label="Manage questionnaire" />
         <Toggle name="canDownloadDataset" label="Download dataset" />

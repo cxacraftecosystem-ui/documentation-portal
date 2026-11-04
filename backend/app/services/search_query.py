@@ -1,23 +1,3 @@
-"""The ranking query behind ``GET /search/unified`` and the peer search (docs/SEARCH.md).
-
-ONE STATEMENT, ONE ROUND TRIP. It returns the page of items for every asked type and each type's
-total, so a search holds one of the production pool's five connections for one query.
-
-Three candidate lists, each capped per type:
-
-* ``fts``  — ``tsv @@ (english OR simple websearch query)``, by ``ts_rank_cd``. Stems ("dyes" finds
-  "dyeing") through ``english``; any script, Devanagari included, through ``simple``.
-* ``trgm`` — ``word_similarity(lower(q), lower(title)) >= 0.45``. Typos and names: "indgo" scores
-  0.5 against "indigo", under pg_trgm's default ``<%`` threshold of 0.6, which is why the threshold
-  is spelled out here (:data:`TRIGRAM_THRESHOLD`) rather than taken from the operator.
-* ``vec``  — only in hybrid mode: nearest embeddings by cosine distance.
-
-They are fused by reciprocal rank, ``score = Σ 1/(60 + rank)``, and every list applies the same
-permission and filter predicates (:class:`Scope`), so nothing outside the caller's view is ever
-ranked, counted or snippeted. ``base`` is ``NOT MATERIALIZED`` so each list reads the index through
-its own access path (the GIN index for ``fts``) instead of copying every permitted body first.
-"""
-
 from __future__ import annotations
 
 import json
@@ -28,25 +8,18 @@ from typing import Any
 
 from app.core.db import db
 
-#: Candidates per list and type before fusion.
 CANDIDATES = 200
-#: Lowest word similarity that counts as a name or typo match.
 TRIGRAM_THRESHOLD = 0.45
-#: Reciprocal-rank constant.
 RRF_K = 60
-#: Nearest-neighbour candidates further than this cosine distance are not meaning matches.
 MAX_VECTOR_DISTANCE = 0.65
 
 
 @dataclass
 class Scope:
-    """Who is asking and what they narrowed to. Every field becomes a predicate in every list."""
-
     types: list[str]
     may_read_dw: bool = False
     visible_dw_ids: list[str] = field(default_factory=list)
     shareable_only: bool = False
-    #: Peer answers only: every artisan the record names has granted sharing consent, re-checked live.
     require_artisan_consent: bool = False
     craft_ids: list[str] = field(default_factory=list)
     craft_codes: list[str] = field(default_factory=list)
@@ -59,9 +32,7 @@ class Scope:
 @dataclass
 class Result:
     mode: str
-    #: type -> list of item dicts, best first.
     items: dict[str, list[dict[str, Any]]]
-    #: type -> total matches.
     totals: dict[str, int]
 
 
@@ -123,7 +94,6 @@ def _where(scope: Scope, p: _Params) -> str:
 def build_sql(
     q: str, scope: Scope, *, limit: int, offset: int = 0, qvec: str | None = None
 ) -> tuple[str, list[Any]]:
-    """The statement and its parameters. Pure, so its shape can be tested without a database."""
     p = _Params()
     query = p.add(q)
     where = _where(scope, p)
@@ -212,7 +182,6 @@ _WORD = re.compile(r"\w+", re.UNICODE)
 
 
 def highlights(text: str, q: str) -> list[list[int]]:
-    """Character ranges in ``text`` where a query word (or its stem) starts a word."""
     if not text:
         return []
     terms = {t.lower() for t in _WORD.findall(q) if len(t) >= 2}
@@ -228,7 +197,6 @@ def highlights(text: str, q: str) -> list[list[int]]:
 async def run(
     q: str, scope: Scope, *, limit: int, offset: int = 0, qvec: list[float] | None = None
 ) -> Result:
-    """Ranked items and totals for every type in ``scope.types``."""
     from app.services.search_embeddings import vector_literal
 
     if not scope.types:

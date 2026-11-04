@@ -1,22 +1,3 @@
-"""One portal's calls to the other over the signed channel (C27, and search), and nothing else.
-
-Both portals carry this module under the same name, byte for byte; change both. The designer
-portal calls the Field Repository at FIELD_REPOSITORY_API_URL, and the Field Repository calls the
-designer portal at DESIGNER_PORTAL_API_URL (``cross_portal.peer_api_url``).
-
-ONE function, :func:`peer_call`, and it refuses to hand back a body the other server did not sign
-FOR THIS REQUEST (``services/cross_portal.signature_matches``: the method, the peer path and a fresh
-nonce sent with the call are in the signed material, so an answer captured from one call cannot be
-passed off as the answer to another). It also names the account that asked
-(``X-Cross-Portal-Requested-By``) for the other server's access log. Every failure — not configured,
-unreachable, a timeout, a bad signature, a body that is not JSON — becomes :class:`PeerUnavailable`
-with a sentence the person asking can read; the route turns it into a 503 and nothing on this side
-is written.
-
-``requests`` in a thread, with a short timeout: a designer is waiting with the artisan in front of
-them, and a slow answer is no answer.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -34,22 +15,18 @@ logger = logging.getLogger(__name__)
 
 TIMEOUT_SECONDS = 10.0
 
-#: Search waits less: a slow peer must never hold back this portal's own results.
 SEARCH_TIMEOUT_SECONDS = 2.5
-#: Opening one remote record.
 RECORD_TIMEOUT_SECONDS = 5.0
 
 UNAVAILABLE = "The Field Repository can't be reached right now. Try again, or fill the form yourself."
-#: The Field Repository's sentence when it is the caller.
 UNAVAILABLE_DESIGNER = "The designer portal can't be reached right now."
 
 
 class PeerUnavailable(RuntimeError):
-    """The documentation portal could not be asked, or its answer could not be trusted."""
+    pass
 
 
 def unavailable_sentence(settings: Any) -> str:
-    """The sentence for this portal's callers: it names the OTHER portal."""
     if (getattr(settings, "field_repository_api_url", None) or "").strip():
         return UNAVAILABLE
     return UNAVAILABLE_DESIGNER
@@ -88,7 +65,6 @@ def _call_sync(
             timeout=timeout,
         )
     except requests.RequestException as exc:
-        # The exception CLASS only: a requests message carries the prepared request, headers included.
         logger.warning("cross-portal %s %s failed: %s", method, path, type(exc).__name__)
         raise PeerUnavailable(unavailable) from None
     if response.status_code in (401, 403):
@@ -123,12 +99,6 @@ async def peer_call(
     search: bool = False,
     gate: Callable[[Any], bool] | None = None,
 ) -> tuple[int, Any]:
-    """``(status, signed JSON body)`` from the other portal, or :class:`PeerUnavailable`.
-
-    ``search=True`` gates on ``cross_portal.search_active`` instead of the identity switch. ``gate``
-    is any other switch a call is behind: the coverage counts pass their own, which needs neither the
-    identity flag nor the Aadhaar key, because no artisan data crosses on that call.
-    """
     if gate is not None:
         ready = gate(settings)
     elif search:

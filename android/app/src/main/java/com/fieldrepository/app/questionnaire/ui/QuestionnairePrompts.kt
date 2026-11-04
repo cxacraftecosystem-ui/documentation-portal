@@ -19,10 +19,6 @@ import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.ui.ActionRow
 import com.fieldrepository.app.ui.field
 
-/**
- * The prompts of DESIGN §4.5, worded from [QuestionnaireCopy]. Button rows follow the design bar:
- * one button centred, two on one line ([ActionRow] does both).
- */
 data class PromptButton(val label: String, val primary: Boolean = false, val destructive: Boolean = false, val onClick: () -> Unit)
 
 @Composable
@@ -51,7 +47,6 @@ fun PromptButtons(buttons: List<PromptButton>, modifier: Modifier = Modifier) {
     }
 }
 
-/** P13: a take saved before the app closed. */
 @Composable
 fun RecoveredRecordingPrompt(minutes: Long, label: String, onDiscard: () -> Unit, onKeep: () -> Unit) {
     QuestionnairePrompt(
@@ -65,7 +60,6 @@ fun RecoveredRecordingPrompt(minutes: Long, label: String, onDiscard: () -> Unit
     )
 }
 
-/** P3: a second Record while one take is running. */
 @Composable
 fun StopCurrentPrompt(currentLabel: String, elapsedMs: Long, nextCode: String, onKeep: () -> Unit, onStopAndRecord: () -> Unit) {
     QuestionnairePrompt(
@@ -79,7 +73,6 @@ fun StopCurrentPrompt(currentLabel: String, elapsedMs: Long, nextCode: String, o
     )
 }
 
-/** P1: a matching session is already open. */
 @Composable
 fun OpenMatchPrompt(body: String, onNew: () -> Unit, onJoin: () -> Unit, onDismiss: () -> Unit) {
     QuestionnairePrompt(
@@ -93,7 +86,6 @@ fun OpenMatchPrompt(body: String, onNew: () -> Unit, onJoin: () -> Unit, onDismi
     )
 }
 
-/** P5 when the identical file is elsewhere and nothing can be joined: OK, centred. */
 @Composable
 fun AlreadyUploadedPrompt(body: String, onOk: () -> Unit) {
     QuestionnairePrompt(
@@ -104,7 +96,6 @@ fun AlreadyUploadedPrompt(body: String, onOk: () -> Unit) {
     )
 }
 
-/** P7r: remove a take (soft; restorable). */
 @Composable
 fun RemoveTakePrompt(position: Int, label: String, onCancel: () -> Unit, onRemove: () -> Unit) {
     QuestionnairePrompt(
@@ -118,7 +109,6 @@ fun RemoveTakePrompt(position: Int, label: String, onCancel: () -> Unit, onRemov
     )
 }
 
-/** P10: remove a participant who has takes. */
 @Composable
 fun RemoveParticipantPrompt(name: String, takes: Int, onCancel: () -> Unit, onRemove: () -> Unit) {
     QuestionnairePrompt(
@@ -149,14 +139,12 @@ fun LeaveSessionPrompt(pending: Int, onStay: () -> Unit, onLeave: () -> Unit) {
 fun FinishSessionPrompt(sections: Int, artisans: Int, uploading: Int, required: Int = 0, onDismiss: () -> Unit, onFinish: () -> Unit) {
     QuestionnairePrompt(
         title = QuestionnaireCopy.s("finish.title"),
-        // A19: the required questions still unanswered are said; Finish is never blocked by them.
         body = listOfNotNull(QuestionnaireCopy.finishBody(sections, artisans, uploading), QuestionnaireCopy.requiredUnanswered(required)).joinToString(" "),
         buttons = listOf(PromptButton(QuestionnaireCopy.s("finish.button"), primary = true, onClick = onFinish)),
         onDismiss = onDismiss
     )
 }
 
-/** P14: an old build (the server says creates need a newer app). */
 @Composable
 fun UpdateBanner(onUpdate: () -> Unit) {
     Surface(color = MaterialTheme.field.surface100, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {

@@ -15,25 +15,10 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import java.util.concurrent.TimeUnit
 
-/**
- * The real [SessionTransport]: [QuestionnaireApi] for the API, a plain OkHttp client for the signed
- * S3 PUTs (no auth header may reach S3), and the portal's artisan create for offline-registered
- * artisans. Every HTTP refusal that a retry cannot change becomes [PermanentStepFailure]; everything
- * else (no signal, 5xx, 408, 429, the shims' 503) stays an [IOException] so the step waits.
- *
- * Takes and answers name their people by subject id ([QSubjects]); this is the one place they are
- * split into `artisanId` and `respondentId` for the server ([QCompleteRequest.wire], [QAnswersPut.wire]).
- */
 class QuestionnaireTransport(
     private val api: QuestionnaireApi,
     private val createArtisanCall: suspend (idempotencyKey: String, bodyJson: String) -> String,
-    /**
-     * Whether the server has v2 switched off right now. Every v2 route answers 404 then, and that is
-     * a switch, not a refusal: the step waits for v2 to come back instead of failing for good (audit
-     * H20). A real 404 on a v2 server still fails the step into the fix tray.
-     */
     private val v2SwitchedOff: suspend () -> Boolean = { false },
-    /** A form made on this phone has a temporary id until it lands; null means "still waiting". */
     private val formIdOf: suspend (String) -> String? = { it }
 ) : SessionTransport {
 
@@ -51,7 +36,6 @@ class QuestionnaireTransport(
         val detail = if (code in 400..499) runCatching {
             http.response()?.errorBody()?.string()?.let { QuestionnairePortal.json.decodeFromString(QErrorBody.serializer(), it).detail }
         }.getOrNull() else null
-        // `/complete` found no bytes in storage: upload again, never drop the take.
         if (detail != null && detail.reason == UploadMissing.REASON) throw UploadMissing(detail.message.ifBlank { "The upload is missing from storage." })
         if (code == 404 && v2SwitchedOff()) throw IOException("Questionnaire v2 is switched off on the server", http)
         if (code in 400..499 && code != 408 && code != 429) {
@@ -62,7 +46,6 @@ class QuestionnaireTransport(
 
     override suspend fun createArtisan(idempotencyKey: String, bodyJson: String): String = call { createArtisanCall(idempotencyKey, bodyJson) }
     override suspend fun createSession(idempotencyKey: String, body: QSessionCreate): QSession {
-        // A session on a form still waiting in the outbox waits with it (UNIFY §4.3: form steps first).
         val formId = formIdOf(body.questionnaireId) ?: throw IOException("The form has not reached the server yet")
         return call { api.createSession(idempotencyKey, body.copy(questionnaireId = formId)) }
     }
@@ -101,7 +84,6 @@ class QuestionnaireTransport(
             val body = FileRangeBody(file, offset, length, contentType)
             val request = Request.Builder().url(url).put(body).apply { headers.forEach { (k, v) -> header(k, v) } }.build()
             storage.newCall(request).execute().use { response ->
-                // An expired (or otherwise refused) signature: the outbox signs again once (audit M23).
                 if (response.code == 403) throw SignedUrlExpired("Storage refused the signed upload URL (403).")
                 if (response.code in 400..499 && response.code != 408 && response.code != 429) {
                     throw PermanentStepFailure("Storage refused the upload (${response.code}).")
@@ -111,7 +93,6 @@ class QuestionnaireTransport(
             }
         }
 
-    /** Streams [length] bytes from [offset]; never the whole file in memory. */
     private class FileRangeBody(val file: File, val offset: Long, val length: Long, val type: String) : RequestBody() {
         override fun contentType() = type.toMediaTypeOrNull()
         override fun contentLength() = length

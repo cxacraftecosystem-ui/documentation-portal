@@ -65,7 +65,6 @@ import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-/** A sheet's frame: title, scrolling body, and room for the navigation bar. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun TranscriptSheet(title: String, onDismiss: () -> Unit, content: @Composable () -> Unit) {
@@ -87,7 +86,6 @@ private fun Busy() {
     }
 }
 
-/** A timestamp chip that plays the audio from a cited moment. */
 @Composable
 internal fun CitationChip(startMs: Long, onSeek: (Long) -> Unit) {
     val time = TranscriptFormat.timestamp(startMs)
@@ -105,15 +103,12 @@ internal fun CitationChip(startMs: Long, onSeek: (Long) -> Unit) {
 
 private fun Throwable.rethrowCancel() { if (this is CancellationException) throw this }
 
-// ── Speaker names (§4.1) ───────────────────────────────────────────────────────────────────────
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun SpeakersSheet(
     view: Transcript,
     host: TranscriptHost,
     onDismiss: () -> Unit,
-    /** Plays a few seconds of a speaker (their `sample`); null when there is no audio. */
     onPlaySample: ((TranscriptSpeaker) -> Unit)? = null,
     playingKey: String? = null,
 ) {
@@ -174,8 +169,6 @@ internal fun SpeakersSheet(
     }
 }
 
-// ── Corrections (§4.2) ─────────────────────────────────────────────────────────────────────────
-
 @Composable
 internal fun EditTurnDialog(turn: TranscriptTurn, onSave: (String?, String?) -> Unit, onDismiss: () -> Unit) {
     var text by remember { mutableStateOf(turn.text) }
@@ -235,8 +228,6 @@ internal fun HistoryDialog(turn: TranscriptTurn, host: TranscriptHost, onDismiss
     )
 }
 
-// ── Ask this interview (§10.2) ─────────────────────────────────────────────────────────────────
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun AskSheet(view: Transcript, host: TranscriptHost, onSeek: (Long) -> Unit, onDismiss: () -> Unit) {
@@ -289,8 +280,6 @@ internal fun AskSheet(view: Transcript, host: TranscriptHost, onSeek: (Long) -> 
         }
     }
 }
-
-// ── Fill the questionnaire from the recording (§10.3) ──────────────────────────────────────────
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -366,8 +355,6 @@ internal fun FillSheet(view: Transcript, host: TranscriptHost, onSeek: (Long) ->
     }
 }
 
-// ── Craft glossary (§10.4) ─────────────────────────────────────────────────────────────────────
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun GlossarySheet(view: Transcript, host: TranscriptHost, onSeek: (Long) -> Unit, onDismiss: () -> Unit) {
@@ -396,8 +383,6 @@ internal fun GlossarySheet(view: Transcript, host: TranscriptHost, onSeek: (Long
         }
     }
 }
-
-// ── Quote card (§10.5) ─────────────────────────────────────────────────────────────────────────
 
 @Composable
 internal fun QuoteCardDialog(turnIds: List<String>, host: TranscriptHost, onDismiss: () -> Unit) {
@@ -428,7 +413,6 @@ internal fun QuoteCardDialog(turnIds: List<String>, host: TranscriptHost, onDism
     )
 }
 
-/** The card as it is drawn on screen; [QuoteCardImage] paints the same layout into the PNG. */
 @Composable
 internal fun QuoteCardFace(card: QuoteCard, modifier: Modifier = Modifier) {
     Column(
@@ -448,5 +432,4 @@ internal fun QuoteCardFace(card: QuoteCard, modifier: Modifier = Modifier) {
     }
 }
 
-/** A refusal the quote card route gives in words a person can act on (a withdrawn artisan). */
 class QuoteCardRefused(val sentence: String) : Exception(sentence)

@@ -1,17 +1,3 @@
-"""The inputs of a generated session title or recording name, read from the database.
-
-``naming.session_title`` and ``naming.recording_filename`` are pure; this module is the one place
-that knows where their fields live in this schema:
-
-* Place: the session ``place``; else the workshop's location ``village`` + ``district``, else
-  ``district``, else ``state``; else the workshop's free ``place`` text.
-* Craft: the workshop's craft when it has exactly one; else the craft every participant shares.
-* Subject: the participants' names (``name``, with ``localName`` for file names when it is ASCII).
-
-``regenerate_title`` rewrites ``title`` inside the caller's transaction, and every change to
-participants, date, place or workshop calls it (DESIGN 3.12, E33).
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -35,10 +21,6 @@ async def workshop_fields(client: Any, workshop_id: str | None) -> dict[str, Any
     return _workshop_shape(rows[0])
 
 
-#: A design workshop (designer-portal) as the title's workshop half: its cluster (else its venue) is
-#: the locality, with its district, state and craft (UNIFY B3: "the title port gives DR's Place and
-#: Craft from the design workshop"). A table documentation-portal does not have is never read there:
-#: its sessions carry no designWorkshopId.
 _DESIGN_WORKSHOP_SQL = (
     'SELECT d."id", COALESCE(NULLIF(btrim(d."clusterName"), \'\'), NULLIF(btrim(d."venue"), \'\')) AS "village", '
     'd."district", d."state", d."venue" AS "place", '
@@ -92,11 +74,6 @@ def _workshop_shape(row: dict[str, Any]) -> dict[str, Any]:
 
 
 async def title_inputs(client: Any, session_ids: list[str]) -> dict[str, naming.TitleInput]:
-    """:func:`title_input` for many sessions, keyed by session id, in at most three reads.
-
-    The same fields from the same rows as asking one session at a time; a list of recordings
-    spread over many sessions no longer pays three round trips per session to name its files.
-    """
     sids = list(dict.fromkeys(str(s) for s in session_ids if s))
     if not sids:
         return {}
@@ -139,7 +116,6 @@ async def title_inputs(client: Any, session_ids: list[str]) -> dict[str, naming.
 
 
 async def regenerate_title(client: Any, session_id: str) -> str:
-    """Compute and store the generated title (inside the caller's transaction)."""
     title = naming.session_title(await title_input(client, session_id))
     await client.execute_raw('UPDATE "QuestionnaireInterview" SET "title" = $1 WHERE "id" = $2', title, session_id)
     return title
@@ -148,7 +124,6 @@ async def regenerate_title(client: Any, session_id: str) -> str:
 async def preview_title(
     client: Any, *, session_date: Any, place: str | None, workshop_id: str | None, artisan_ids: list[str]
 ) -> str:
-    """The title a session WOULD get, before it exists (the start sheet's preview)."""
     people: list[naming.Person] = []
     if artisan_ids:
         rows = await client.query_raw(

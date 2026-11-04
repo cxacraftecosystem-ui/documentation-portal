@@ -3,31 +3,18 @@
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useEffect, useRef, useState } from "react";
 
-/**
- * WhatsApp-style live voice waveform.
- *
- * Amplitude comes from `getByteTimeDomainData` — the raw sample envelope, which is what makes this a
- * waveform (bars mirrored around a centre line) rather than the single-scalar level meter it replaces.
- * Pitch comes from the spectral centroid of `getByteFrequencyData`, and drives both the bar colour
- * (along the brand purple ramp) and a small height bias, so a bright voice reads differently from a
- * low rumble at the same loudness. Driven by requestAnimationFrame, which — unlike setInterval — is
- * frame-synced and pauses in background tabs instead of being throttled to jerky updates.
- */
-
-const BAR_WIDTH = 3; // CSS px
+const BAR_WIDTH = 3;
 const BAR_GAP = 2;
 const MIN_BAR = 3;
 const PITCH_FLOOR_HZ = 90;
 const PITCH_CEILING_HZ = 4000;
 
-// Purple ramp stops (tailwind.config.ts, OKLCH hue 305) resolved to sRGB: canvas fillStyle support
-// for oklch() is not universal, and a rejected fillStyle silently keeps the previous colour.
 const PITCH_RAMP = ["#5f1c93", "#762cb1", "#9148d2", "#aa69e9", "#c090f5"].map((hex) => [
   parseInt(hex.slice(1, 3), 16),
   parseInt(hex.slice(3, 5), 16),
   parseInt(hex.slice(5, 7), 16)
 ]);
-const CENTRE_LINE = "#e4e2ef"; // line-200
+const CENTRE_LINE = "#e4e2ef";
 
 type Bar = { amplitude: number; pitch: number };
 
@@ -35,7 +22,6 @@ function clamp01(value: number) {
   return Math.min(1, Math.max(0, value));
 }
 
-/** Blend along the purple ramp: deep purple for low voices, light purple for bright ones. */
 function colourForPitch(pitch: number) {
   const position = clamp01(pitch) * (PITCH_RAMP.length - 1);
   const low = PITCH_RAMP[Math.floor(position)];
@@ -45,7 +31,6 @@ function colourForPitch(pitch: number) {
   return `rgb(${channel(0)}, ${channel(1)}, ${channel(2)})`;
 }
 
-/** Rounded caps, with a manual fallback for engines without CanvasRenderingContext2D.roundRect. */
 function drawBar(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number) {
   const radius = Math.min(width / 2, height / 2);
   if (typeof context.roundRect === "function") {
@@ -83,16 +68,10 @@ export function Waveform({
   label = "Live recording waveform",
   releaseStreamOnUnmount = false
 }: {
-  /** The live microphone stream; null while not recording (the analyser is torn down). */
   stream: MediaStream | null;
   height?: number;
   className?: string;
   label?: string;
-  /**
-   * Stop the stream's tracks on unmount. Off by default: the recorder that opened the microphone
-   * owns the track lifetime and stops it in its own cleanup, and stopping it from here could cut a
-   * recording short.
-   */
   releaseStreamOnUnmount?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -121,7 +100,6 @@ export function Waveform({
     const history: Bar[] = [];
 
     function sample(): Bar {
-      // AMPLITUDE — sample values swing around 128; RMS carries the body, peak the transients.
       analyser.getByteTimeDomainData(timeData);
       let peak = 0;
       let sumSquares = 0;
@@ -133,7 +111,6 @@ export function Waveform({
       }
       const rms = Math.sqrt(sumSquares / timeData.length);
 
-      // PITCH — spectral centroid, mapped logarithmically across the speech range.
       analyser.getByteFrequencyData(frequencyData);
       let weighted = 0;
       let total = 0;
@@ -154,7 +131,6 @@ export function Waveform({
     }
 
     if (reduced) {
-      // prefers-reduced-motion: no scrolling animation at all — a slow numeric level instead.
       levelTimer = window.setInterval(() => setLevel(Math.round(sample().amplitude * 100)), 250);
     } else {
       const frame = () => {
@@ -165,7 +141,6 @@ export function Waveform({
         const cssHeight = canvas.clientHeight;
         if (!cssWidth || !cssHeight) return;
 
-        // devicePixelRatio-aware backing store, then draw in CSS pixels.
         const ratio = window.devicePixelRatio || 1;
         const pixelWidth = Math.round(cssWidth * ratio);
         const pixelHeight = Math.round(cssHeight * ratio);
@@ -187,7 +162,6 @@ export function Waveform({
         context.fillStyle = CENTRE_LINE;
         context.fillRect(0, centre - 0.5, cssWidth, 1);
 
-        // Newest bar hugs the right edge, so the history scrolls leftwards as it fills.
         history.forEach((bar, index) => {
           const x = cssWidth - (history.length - index) * (BAR_WIDTH + BAR_GAP);
           const biased = clamp01(bar.amplitude * (0.85 + bar.pitch * 0.35));
@@ -236,10 +210,6 @@ function formatElapsed(ms: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-/**
- * Android-parity live recording strip: blinking red dot, elapsed time, live waveform. Shared by the
- * attach-media recorder and the questionnaire per-question recorder so both read identically.
- */
 export function RecordingStrip({
   stream,
   elapsedMs,

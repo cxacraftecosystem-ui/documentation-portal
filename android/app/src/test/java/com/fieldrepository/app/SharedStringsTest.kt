@@ -12,12 +12,6 @@ import org.junit.Test
 import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
 
-/**
- * DESIGN §9 test 59 and the `shared/` parity check (BUILD_PLAN §0.1).
- *
- * Every sentence the app shows comes from `shared/strings/questionnaire.json`, word for word, or is on
- * the short pinned Android-only list. The generated `strings_questionnaire.xml` must hold the table.
- */
 class SharedStringsTest {
     private fun repoFile(path: String): File =
         generateSequence(File(".").absoluteFile) { it.parentFile }.map { File(it, path) }.firstOrNull { it.isFile }

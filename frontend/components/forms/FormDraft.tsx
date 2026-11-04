@@ -16,10 +16,8 @@ import {
   type FormDraftRecord
 } from "@/lib/formDrafts";
 
-/** Autosave waits this long after the last change — the handset's `debounceMillis`. */
 export const DRAFT_DEBOUNCE_MS = 700;
 
-/** A stable text for "has anything changed", with files reduced to what identifies them. */
 export function draftFingerprint(fields: Record<string, unknown>): string {
   return JSON.stringify(fields, (_key, value) =>
     typeof File !== "undefined" && value instanceof File ? `file:${value.name}:${value.size}:${value.lastModified}` : value
@@ -27,21 +25,12 @@ export function draftFingerprint(fields: Record<string, unknown>): string {
 }
 
 export type FormDraftHandle = {
-  /** An earlier draft waiting for Continue or Discard. Autosave waits for the answer. */
   offer: FormDraftRecord | null;
-  /** Continue: hand the earlier draft's fields to the form and keep saving under its key. */
   take: () => void;
-  /** Discard: delete the earlier draft and start a fresh one. */
   discard: () => void;
-  /** The record is saved or queued: delete the draft; a form that stays open starts a fresh one. */
   clear: () => void;
 };
 
-/**
- * B6 — one open form's draft (`lib/formDrafts.ts` has the rules). `fields` is what the form wants
- * kept, rebuilt each render; `dirty` is the same flag its leave guard reads, so a clean form writes
- * nothing. `onRestore` receives an earlier draft's fields when the researcher continues it.
- */
 export function useFormDraft({
   kind,
   recordId,
@@ -60,11 +49,6 @@ export function useFormDraft({
   dirty: boolean;
   fields: Record<string, unknown>;
   label: string;
-  /**
-   * Values the form does not hold in state (its uncontrolled boxes), read from the DOM at WRITE time
-   * — never during render. A form using it bumps something in `fields` on every input, so the
-   * debounce sees the change.
-   */
   collect?: () => Record<string, unknown>;
   onRestore: (fields: Record<string, unknown>) => void;
 }): FormDraftHandle {
@@ -83,7 +67,6 @@ export function useFormDraft({
 
   useEffect(() => {
     let live = true;
-    // A form that switches record (the interview page loading `?edit=`) keys its draft afresh.
     recordKey.current = recordId ? editRecordKey(recordId) : newRecordKey(parentId);
     setOffer(null);
     setDecided(false);
@@ -95,7 +78,6 @@ export function useFormDraft({
         setDecided(earlier === null);
       })
       .catch(() => {
-        // No IndexedDB (a private window): the form works, it simply keeps no draft.
         if (live) setDecided(true);
       });
     return () => {
@@ -105,7 +87,6 @@ export function useFormDraft({
 
   const fingerprint = draftFingerprint(fields);
   const fieldsRef = useRef(fields);
-  /** What the form held when its record was saved: nothing is written again until it changes. */
   const clearedAt = useRef<string | null>(null);
   useEffect(() => {
     fieldsRef.current = fields;
@@ -156,7 +137,6 @@ export function useFormDraft({
   return { offer, take, discard, clear };
 }
 
-/** "Continue" or "Discard", at the top of a form that has an earlier draft. */
 export function DraftOfferCard({ draft }: { draft: FormDraftHandle }) {
   if (!draft.offer) return null;
   return (

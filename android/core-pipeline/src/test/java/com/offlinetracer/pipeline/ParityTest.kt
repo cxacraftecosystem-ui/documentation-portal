@@ -45,43 +45,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 
-/**
- * ============================================================================================
- * CROSS-ENGINE PARITY FIXTURES — the Kotlin half of ALGORITHMS.md §14
- * ============================================================================================
- *
- * The TypeScript mirror is `web/tests/parity.test.ts`, which documents the
- * `offline-tracer/parity-fixture@1` format and owns fixture **generation**. Both engines read the
- * *same* files from `docs/fixtures/`, so neither side hardcodes an expected number and a
- * disagreement is always a disagreement about the maths rather than about a stale copy of it.
- *
- * Three rules keep that guarantee honest, and each of them exists because the obvious alternative
- * produces a harness that reports green forever:
- *
- *  - **Nothing here writes a fixture.** Generation belongs to one engine only; if both could
- *    generate, the first engine to run would silently define the answer for the second.
- *  - **A missing or empty fixture directory fails.** Skipping is worse than having no harness at
- *    all, because a skip is reported as success by every CI dashboard.
- *  - **Every stage id in a fixture must be recognised.** An id this file does not know how to
- *    compute is a stage that is no longer being compared, which is the same failure mode as a
- *    missing fixture wearing a different hat.
- *
- * Intermediates (`gray`, `blurred`, `mag`, `ink`, `closed`, `cleaned`, `skeleton`, `flow`, `dt`,
- * `biggest`, `simplified`, `fitted`) are computed once and reused exactly as the TypeScript side
- * reuses them. Recomputing one from different inputs would still produce numbers, and the test
- * would still pass or fail — it would just no longer be comparing the two engines.
- */
 class ParityTest {
 
-    // -----------------------------------------------------------------------------------------
-    // Tests
-    // -----------------------------------------------------------------------------------------
-
-    /**
-     * The harness cannot be trusted to report a disagreement unless it is first proven to have
-     * found its inputs, so the existence of all three fixtures is asserted independently of
-     * whether their numbers match.
-     */
     @Test
     fun everyDocumentedFixtureIsPresentAndWellFormed() {
         val dir = fixtureDir()
@@ -102,11 +67,6 @@ class ParityTest {
     @Test
     fun singlePixelReproducesEveryStage() = runFixture("single-pixel") { singlePixelStages(it) }
 
-    // -----------------------------------------------------------------------------------------
-    // Stage builders — one call per stage, mirroring web/tests/parity.test.ts one for one
-    // -----------------------------------------------------------------------------------------
-
-    /** Whole-chain stages for a tonal image: preprocess, edges, cleanup, trace. */
     private fun pipelineStages(src: RgbaImage): Built {
         val out = Built()
 
@@ -121,7 +81,6 @@ class ParityTest {
         out.gray("convolve.gaussianBlur:1.2", blurred)
         out.gray("convolve.boxBlur:2", Convolve.boxBlur(gray, 2))
 
-        // Gradients of the *blurred* image, and one magnitude reused by the median stage below.
         val grad = Convolve.gradients(blurred, GradientOp.SCHARR)
         val mag = grad.magnitude()
         out.gray("convolve.gradients.magnitude", mag)
@@ -177,19 +136,13 @@ class ParityTest {
         val dt = Distance.euclidean(cleaned, true)
         out.gray("distance.euclidean", dt)
 
-        // Kotlin overloads `resize` on the buffer type where TypeScript spells the two resamplers
-        // `resizeGray` and `resizeMask`; the Kotlin `resizeGray` is private and is not this.
         out.gray("resample.down:12x9", Resample.resize(gray, 12, 9))
         out.gray("resample.up:32x24", Resample.resize(gray, 32, 24))
         out.mask("resample.mask:12x9", Resample.resize(cleaned, 12, 9))
 
-        // Geometry: point counts first, then the actual coordinates of the largest contour, so a
-        // mismatch says whether the tracer found different *shapes* or merely different *points*.
         val contours = ContourTrace.trace(cleaned)
         out.ints("contourTrace.pointCounts", IntArray(contours.size) { contours[it].points.size })
         out.ints("contourTrace.isHole", IntArray(contours.size) { if (contours[it].isHole) 1 else 0 })
-        // Strictly greater, so the first contour of maximal length wins — the same tie-break the
-        // TypeScript `reduce` makes, and the choice decides which coordinates get compared.
         var biggest: List<VecPoint> = emptyList()
         for (c in contours) if (c.points.size > biggest.size) biggest = c.points
         out.ints("contourTrace.largest.xy", flattenPoints(biggest))
@@ -198,9 +151,6 @@ class ParityTest {
         out.ints("skeletonTrace.pointCounts", IntArray(lines.size) { lines[it].points.size })
         out.ints("skeletonTrace.closed", IntArray(lines.size) { if (lines[it].closed) 1 else 0 })
 
-        // `traceWithWidths` returns a Pair here and a named record in TypeScript; only the widths
-        // half is recorded, flattened into one row whose length is the total across all paths. The
-        // max(1, ...) guard is load-bearing: GrayF rejects a zero-width buffer.
         val widths = SkeletonTrace.traceWithWidths(skeleton, dt).second
         var total = 0
         for (a in widths) total += a.size
@@ -212,7 +162,6 @@ class ParityTest {
         }
         out.gray("skeletonTrace.widths", GrayF(max(1, total), 1, flat))
 
-        // The vector chain, ending in the string a real export would contain.
         val simplified = Simplify.douglasPeucker(Simplify.removeCollinear(biggest, 0.05f), 1f)
         out.ints("simplify.pointCount", intArrayOf(simplified.size))
         val fitted = BezierFit.fitPath(simplified, 1.6f, true, 100f)
@@ -223,7 +172,6 @@ class ParityTest {
         return out
     }
 
-    /** Stages for a pure step edge, where the edge engines have an analytic answer to agree on. */
     private fun edgeStages(src: RgbaImage): Built {
         val out = Built()
         val gray = Color.toGray(src)
@@ -237,8 +185,6 @@ class ParityTest {
         val flow = EdgeFlow.structureTensorFlow(gray, 1.5f)
         out.gray("edgeFlow.tangent.y", GrayF(src.width, src.height, flow.ty))
         out.gray("edgeFlow.magnitude", GrayF(src.width, src.height, flow.magnitude))
-        // The TypeScript mirror overrides exactly these three knobs and defaults the rest, so the
-        // remaining six must come from the FlowParams defaults rather than be restated here.
         out.gray(
             "edgeFlow.coherentLineDrawing",
             EdgeFlow.coherentLineDrawing(
@@ -249,7 +195,6 @@ class ParityTest {
         return out
     }
 
-    /** Every stage against a 1x1 image: the degenerate case both engines must survive identically. */
     private fun singlePixelStages(src: RgbaImage): Built {
         val out = Built()
         val gray = Color.toGray(src)
@@ -283,25 +228,15 @@ class ParityTest {
         return out
     }
 
-    /** `toD -> parse -> toD` must be byte-identical, which is what makes a saved project reloadable. */
     private fun roundTripD(path: VecPath): String {
         val back = SvgPathData.parse(SvgPathData.toD(path, 2))
         return if (back.isEmpty()) "" else SvgPathData.toD(back[0], 2)
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Comparison
-    // -----------------------------------------------------------------------------------------
-
     private fun runFixture(id: String, build: (RgbaImage) -> Built) {
         val fixture = load(fixtureDir(), id)
-        // Built from the *stored* image, never from a freshly synthesised one: the fixture is a
-        // self-contained input plus expectations, so the generator can change without changing what
-        // is under test.
         val computed = build(fixture.image).byId
 
-        // An id the harness cannot compute is named on its own rather than buried in a list diff,
-        // because that failure means a stage has silently stopped being compared.
         val unknown = fixture.stages.map { stageId(id, it) }.filter { !computed.containsKey(it) }
         if (unknown.isNotEmpty()) {
             fail("$id: fixture stage(s) ${unknown.joinToString(", ")} are not computed by ParityTest")
@@ -352,9 +287,6 @@ class ParityTest {
                 val m = got.m
                 assertEquals(want.need("width", where).jsonPrimitive.int, m.width, "$where: width")
                 assertEquals(want.need("height", where).jsonPrimitive.int, m.height, "$where: height")
-                // Decoded and compared pixel by pixel rather than re-encoded and diffed as two run
-                // lists: a one-pixel disagreement shifts every run after it, so a run diff reports
-                // the whole tail as wrong and says nothing about where the mask actually differs.
                 val expected = decodeRuns(where, want.need("runs", where).jsonArray, m.size)
                 for (k in expected.indices) {
                     if (expected[k] != m.data[k]) {
@@ -391,11 +323,6 @@ class ParityTest {
         }
     }
 
-    /**
-     * Expands a run-length encoded mask. The encoding **always opens with a background run**, so
-     * `[0, 5, 3]` is "no background, five foreground, three background"; dropping that leading zero
-     * inverts every mask in the file.
-     */
     private fun decodeRuns(where: String, runs: JsonArray, cells: Int): BooleanArray {
         val out = BooleanArray(cells)
         var at = 0
@@ -412,10 +339,6 @@ class ParityTest {
         return out
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Fixture loading — read-only, and loud about anything it cannot read
-    // -----------------------------------------------------------------------------------------
-
     private class Fixture(
         val notes: String,
         val tolerance: Float,
@@ -423,14 +346,6 @@ class ParityTest {
         val stages: List<JsonObject>,
     )
 
-    /**
-     * Locates `docs/fixtures` by walking up from the working directory.
-     *
-     * Gradle runs tests with the working directory set to the module directory, which makes
-     * `../../docs/fixtures` correct today. Hardcoding that depth would break the moment the module
-     * moves, and it would break as "no fixtures found" rather than as "wrong path" — so the search
-     * is bounded and reports the absolute directory it started from.
-     */
     private fun fixtureDir(): File {
         val from = File(System.getProperty("user.dir") ?: ".").absoluteFile
         var here: File? = from
@@ -479,9 +394,6 @@ class ParityTest {
             fail("$id: image has ${pixels.size} pixels, expected ${w * h} for ${w}x$h")
         }
         val packed = IntArray(pixels.size)
-        // JSON has no unsigned integers, so 0xFF6080A0 arrives as the decimal 4284514464 — larger
-        // than Int.MAX_VALUE. Reading it as a Long and narrowing preserves the bit pattern; asking
-        // for an Int directly overflows and every colour in the fixture changes.
         for (i in packed.indices) packed[i] = pixels[i].jsonPrimitive.long.toInt()
 
         val stages = obj.need("stages", id).jsonArray.map { it.jsonObject }
@@ -499,11 +411,6 @@ class ParityTest {
     private fun JsonObject.need(key: String, where: String): JsonElement =
         this[key] ?: fail("$where: fixture object has no \"$key\" field")
 
-    // -----------------------------------------------------------------------------------------
-    // Computed stage values
-    // -----------------------------------------------------------------------------------------
-
-    /** The five comparable shapes, matching the fixture format's `type` discriminator. */
     private sealed interface Actual {
         class Gray(val g: GrayF) : Actual
 
@@ -516,7 +423,6 @@ class ParityTest {
         class Text(val s: String) : Actual
     }
 
-    /** Ordered id → value accumulator; insertion order is the pipeline order the fixture records. */
     private class Built {
         val byId = LinkedHashMap<String, Actual>()
 
@@ -531,8 +437,6 @@ class ParityTest {
         fun text(id: String, s: String) = add(id, Actual.Text(s))
 
         private fun add(id: String, a: Actual) {
-            // A duplicate would overwrite the earlier value and shorten the id list, which then
-            // fails as a confusing list mismatch instead of as the typo it is.
             if (byId.put(id, a) != null) fail("duplicate stage id '$id' in ParityTest")
         }
     }
@@ -540,7 +444,6 @@ class ParityTest {
     private companion object {
         const val FORMAT = "offline-tracer/parity-fixture@1"
 
-        /** Used only when a fixture records a non-positive tolerance, which it should never do. */
         const val FALLBACK_TOLERANCE = 1e-4f
 
         const val MAX_WALK_UP = 6

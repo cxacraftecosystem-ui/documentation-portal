@@ -1,12 +1,5 @@
 import type { TranscriptTurn } from "./contract";
 
-/**
- * KARAOKE: which turn and which word the audio is on (design §10.1).
- *
- * The turn is the last one that has started by `ms` (the pause after a turn keeps it lit until the
- * next speaker begins); the word is the last word of that turn that has started, while it is still
- * being spoken. Both are binary searches, because this runs on every animation frame while playing.
- */
 export type KaraokePosition = { turnIndex: number; wordIndex: number | null };
 
 function lastStartedBy<T extends { startMs: number }>(items: readonly T[], ms: number): number {
@@ -31,12 +24,6 @@ export function locate(turns: readonly TranscriptTurn[], ms: number): KaraokePos
   return { turnIndex, wordIndex: at >= 0 && ms < words[at].endMs ? at : null };
 }
 
-/**
- * The turn's text cut into pieces for drawing: each word (with its index) and the text between
- * words, each piece marked when it overlaps a low-confidence span. The contract's offsets are CODE
- * POINTS, so the text is walked as code points, never as UTF-16 units. With no words (an edited turn
- * keeps none) the low-confidence spans alone cut it.
- */
 export type TextPiece = { text: string; word: number | null; lowConfidence: boolean };
 
 export function pieces(turn: TranscriptTurn): TextPiece[] {

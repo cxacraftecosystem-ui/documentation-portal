@@ -38,18 +38,9 @@ import com.fieldrepository.app.data.completenessAria
 import com.fieldrepository.app.data.completenessSentence
 import kotlinx.coroutines.delay
 
-/**
- * What a missing-field chip does: open the form at that field when the reader may update the record,
- * nothing otherwise (a ministry or read-only reader still sees what is missing). Pinned by
- * `RecordCompletenessTest`.
- */
 fun completenessChipAction(item: CompletenessMissingDto, canUpdate: Boolean, onUpdate: (String) -> Unit): (() -> Unit)? =
     if (canUpdate) ({ onUpdate(item.key) }) else null
 
-/**
- * The ring, the sentence, and one chip per missing field — required ones first, in the error tone.
- * At nothing missing, the ring and "Complete" only.
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CompletenessMeter(
@@ -85,7 +76,6 @@ fun CompletenessMeter(
     }
 }
 
-/** All · Incomplete · Missing required, above a record list. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CompletenessFilterChips(value: CompletenessFilter, onChange: (CompletenessFilter) -> Unit) {
@@ -101,7 +91,6 @@ fun CompletenessFilterChips(value: CompletenessFilter, onChange: (CompletenessFi
     }
 }
 
-/** The completeness filter a record list last used, per record kind, on this phone. */
 object CompletenessFilterMemory {
     private const val PREFS = "record_completeness_filter"
 
@@ -113,34 +102,20 @@ object CompletenessFilterMemory {
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────────────────────
-// Jumping to a field
-// ──────────────────────────────────────────────────────────────────────────────────────────────
-
-/** One request to show a field: the key, and a nonce so tapping the same chip twice moves again. */
 data class CompletenessFocusRequest(val key: String, val nonce: Int = 0)
 
-/** The field a form was opened at (`focus=` from the read-only page) or a live-line chip asked for. */
 val LocalCompletenessFocus = compositionLocalOf<MutableState<CompletenessFocusRequest?>?> { null }
 
-/** Provide the focus channel to a form's anchors, seeded with [initial] (the route's `focus`). */
 @Composable
 fun ProvideCompletenessFocus(initial: String?, key: Any? = null, content: @Composable () -> Unit) {
     val state = remember(initial, key) { mutableStateOf(initial?.takeIf { it.isNotBlank() }?.let { CompletenessFocusRequest(it) }) }
     CompositionLocalProvider(LocalCompletenessFocus provides state, content = content)
 }
 
-/** What a live-line chip calls: ask the anchor named [key] to come into view. */
 fun MutableState<CompletenessFocusRequest?>.request(key: String) {
     value = CompletenessFocusRequest(key, (value?.nonce ?: 0) + 1)
 }
 
-/**
- * Wraps one field (or group) a completeness rule names. When the channel asks for [key] the wrapper
- * scrolls into view and focuses [focus] when the field has one; a date or a picker has none and is
- * only brought into view. A column with the record card's own 12dp rhythm, so a group of two
- * controls (a craft picker and its "new craft" box) reads exactly as it did unwrapped.
- */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CompletenessAnchor(key: String, focus: FocusRequester? = null, content: @Composable ColumnScope.() -> Unit) {
@@ -149,7 +124,6 @@ fun CompletenessAnchor(key: String, focus: FocusRequester? = null, content: @Com
     val wanted = channel?.value
     LaunchedEffect(wanted) {
         if (wanted?.key != key) return@LaunchedEffect
-        // After the first layout pass, or there is nothing to scroll to yet.
         delay(150)
         runCatching { requester.bringIntoView() }
         runCatching { focus?.requestFocus() }
@@ -161,14 +135,12 @@ fun CompletenessAnchor(key: String, focus: FocusRequester? = null, content: @Com
     )
 }
 
-/** The live line at the top of a form: the meter over what is on the form now; chips jump to fields. */
 @Composable
 fun LiveCompletenessLine(block: CompletenessDto) {
     val channel = LocalCompletenessFocus.current
     CompletenessMeter(block = block, canUpdate = channel != null, onUpdate = { key -> channel?.request(key) })
 }
 
-/** The completeness table in force on this phone (cached or bundled); null for the first frame only. */
 @Composable
 fun rememberCompletenessRules(): CompletenessRules? {
     val context = LocalContext.current.applicationContext
@@ -177,7 +149,6 @@ fun rememberCompletenessRules(): CompletenessRules? {
     }.value
 }
 
-/** How many of [uris] are photographs — what a form's attached batch adds to the `photos` count. */
 @Composable
 fun rememberImageCount(uris: List<android.net.Uri>): Int {
     val resolver = LocalContext.current.contentResolver

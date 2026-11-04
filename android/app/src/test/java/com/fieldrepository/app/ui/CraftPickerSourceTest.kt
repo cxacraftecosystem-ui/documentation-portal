@@ -4,10 +4,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * No form on the handset types a craft (REQUIREMENTS_2026-10-20 §2.4): every place a person picks one
- * goes through `ui/CraftPicker.kt`, whose only options are the craft list.
- */
 class CraftPickerSourceTest {
     private val main = repoSource(
         "app/src/main/java/com/fieldrepository/app/MainActivity.kt",
@@ -29,7 +25,6 @@ class CraftPickerSourceTest {
 
     @Test
     fun `every craft picker is the craft-list picker`() {
-        // Artisan, product, tool, workshop "Crafts covered" and tool assignment; and the search filter.
         assertTrue(Regex("CraftPickerField\\(").findAll(main).count() >= 5)
         assertTrue(Regex("multiple = true").findAll(main).count() >= 3)
         assertTrue(search.contains("CraftPickerField("))

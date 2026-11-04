@@ -59,10 +59,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.LocalDate
 
-/** The language list of `shared/languages.json`, with "Other" last. */
 internal val SESSION_LANGUAGES: List<SelectOption> = SharedLanguages.labels.map { (code, label) -> SelectOption(code, label) }
 
-/** A guest typed on the start sheet (UNIFY U6): a named person, or the researcher themself. */
 data class StartGuest(val localId: String, val name: String, val kind: String = RespondentKind.GUEST.wire, val notes: String = "") {
     fun input(): QRespondentInput = QRespondentInput(
         name = SessionOutbox.tidyName(name).ifBlank { null },
@@ -71,14 +69,12 @@ data class StartGuest(val localId: String, val name: String, val kind: String = 
     )
 }
 
-/** The start sheet's fields, everything a title preview and a create need. */
 data class StartForm(
     val workshopId: String = "",
     val questionnaireId: String = "",
     val date: LocalDate? = LocalDate.now(Naming.IST),
     val group: Boolean = false,
     val artisanIds: List<String> = emptyList(),
-    /** "Someone else" and "Myself" (UNIFY U6): guests who are not registered artisans. */
     val guests: List<StartGuest> = emptyList(),
     val purpose: String = SessionPurpose.FIRST_SITTING.wire,
     val place: String = "",
@@ -86,13 +82,10 @@ data class StartForm(
     val languageOther: String = "",
     val note: String = ""
 ) {
-    /** A form, a date and somebody to ask: artisans, or a guest with a name (or the researcher). */
     val canStart: Boolean get() = questionnaireId.isNotBlank() && date != null && (artisanIds.isNotEmpty() || guests.any { it.input().name != null || it.kind == RespondentKind.SELF.wire })
 
-    /** Everyone the session is about, in subject ids. */
     val subjectIds: List<String> get() = artisanIds + guests.map { it.localId }
 
-    /** Pick [w]: its place when none is typed yet. The form comes from the server's resolution. */
     fun withWorkshop(w: QWorkshopOption): StartForm = copy(workshopId = w.id, place = place.ifBlank { w.place.orEmpty() })
 
     fun titlePreview(workshop: QWorkshopOption?, artisans: Map<String, QArtisanOption>, meName: String?): String = Naming.sessionTitle(
@@ -110,7 +103,6 @@ data class StartForm(
     fun toCreate(clientKey: String, me: String?, now: Instant): QSessionCreate = QSessionCreate(
         clientKey = clientKey,
         questionnaireId = questionnaireId,
-        // The designer portal files a session under a DESIGN workshop; Field Repository under a workshop.
         workshopId = workshopId.ifBlank { null }.takeUnless { QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP },
         designWorkshopId = workshopId.ifBlank { null }.takeIf { QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP },
         sessionDate = date!!.toString(),
@@ -126,18 +118,12 @@ data class StartForm(
     )
 }
 
-/**
- * The form a new session opens with (UNIFY §2.3 rule 5, owner amendment 2): what the server's
- * resolution names for this workshop, else the one picked before, else the default form, else the
- * first. The researcher can always pick any other form they can see.
- */
 internal fun startFormFor(resolved: String?, current: String, forms: List<QFormOption>): String = when {
     resolved != null && forms.any { it.id == resolved } -> resolved
     current.isNotBlank() && forms.any { it.id == current } -> current
     else -> forms.firstOrNull { it.isDefault }?.id ?: forms.firstOrNull()?.id.orEmpty()
 }
 
-/** The form picker's rows: grouped by kind (Workshop interview, Market survey), bound forms marked. */
 internal fun formOptions(forms: List<QFormOption>, bound: Set<String>): List<SelectOption> =
     forms.sortedWith(compareBy<QFormOption> { kindOrder(it.kind) }.thenBy { it.id !in bound }.thenBy { it.title.lowercase() }).map { f ->
         SelectOption(f.id, f.title, listOfNotNull(f.kindLabel.ifBlank { null }, QuestionnaireCopy.s("form.bound").takeIf { f.id in bound }).joinToString(" · ").ifBlank { null })
@@ -155,7 +141,6 @@ fun SessionStartSheet(
     meId: String?,
     meName: String? = null,
     prefillArtisanIds: List<String> = emptyList(),
-    /** A form chosen before the sheet opened (a form's "Start session"). */
     prefillFormId: String? = null,
     defaultWorkshopId: String? = null,
     onDismiss: () -> Unit,
@@ -164,7 +149,6 @@ fun SessionStartSheet(
     onError: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    // Artisans registered on this phone in this sheet (offline registration): local id → the form.
     var registered by remember { mutableStateOf<List<Pair<String, NewArtisan>>>(emptyList()) }
     var registering by remember { mutableStateOf(false) }
     var addingGuest by remember { mutableStateOf(false) }
@@ -185,13 +169,10 @@ fun SessionStartSheet(
     var workshopTouched by remember { mutableStateOf(false) }
     var formTouched by remember { mutableStateOf(prefillFormId != null) }
 
-    // The most recent workshop the researcher may record in is the default (B30); a pick is never replaced.
     LaunchedEffect(workshops, defaultWorkshopId) {
         if (workshopTouched || form.workshopId.isNotBlank()) return@LaunchedEffect
         mostRecentRecordableWorkshop(workshops, defaultWorkshopId)?.let { form = form.withWorkshop(it) }
     }
-    // The workshop's form (B31): its primary binding, its only binding, the default for its type, the
-    // default form. Online only; offline the sheet keeps the form it has.
     LaunchedEffect(form.workshopId) {
         val resolution = withTimeoutOrNull(4_000) {
             runCatching {
@@ -204,14 +185,12 @@ fun SessionStartSheet(
     }
 
     LaunchedEffect(form.artisanIds) {
-        // An artisan registered on this phone has no server record to hold consent yet.
         form.artisanIds.filter { id -> registered.none { it.first == id } }.forEach { id -> if (!consent.containsKey(id)) consent[id] = v2.consentState(id) }
     }
 
     fun create() {
         val key = SessionOutbox.newKey()
         scope.launch {
-            // Offline registrations go first in the session's unit; the server's ids replace the local ones.
             val locals = registered.filter { (id, _) -> id in form.artisanIds }.map { (id, a) ->
                 id to QuestionnairePortal.artisanCreateJson(a, form.workshopId)
             }
@@ -274,8 +253,6 @@ fun SessionStartSheet(
                     searchable = true
                 ) { form = form.copy(artisanIds = listOf(it), guests = emptyList()) }
             }
-            // Guests (UNIFY U6): someone who is not a registered artisan, or the researcher answering
-            // their own form. They answer like anyone else and are never an artisan record.
             if (form.guests.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 form.guests.forEach { g ->
                     InputChip(
@@ -294,7 +271,6 @@ fun SessionStartSheet(
                 }) { Text(QuestionnaireCopy.s("guest.myself")) }
             }
             coverageLine(v2, form, byId, forms.firstOrNull { it.id == form.questionnaireId }?.sectionCount)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted) }
-            // Consent is assumed by default: a notice with Switch off for no answer, Switch back on after a refusal.
             form.artisanIds.filter { consent.containsKey(it) && consent[it] in setOf(null, "NOT_RECORDED", "REFUSED") }.take(3).forEach { id ->
                 ConsentQuestion(byId[id]?.name.orEmpty(), refused = consent[id] == "REFUSED", onAnswer = { state ->
                     if (state == null) consent[id] = "SKIPPED" else {
@@ -336,14 +312,12 @@ fun SessionStartSheet(
                 supportingText = { Text("${form.note.length}/80") },
                 singleLine = true, modifier = Modifier.fillMaxWidth()
             )
-            // No title field: the generated title, as it will be saved.
             Text(QuestionnaireCopy.s("start.titlePreview"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted)
             Text(form.titlePreview(workshop, byId, meName), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.field.body)
             ActionRow(Modifier.fillMaxWidth()) {
                 Button(enabled = form.canStart && !starting, onClick = {
                     starting = true
                     scope.launch {
-                        // P1 asks about the artisans; a session only of guests never matches an open one.
                         val match = if (form.artisanIds.isEmpty()) null else withTimeoutOrNull(4_000) {
                             runCatching {
                                 v2.api.openMatch(form.questionnaireId, form.workshopId.ifBlank { null }.takeUnless { QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP }, form.artisanIds.joinToString(","), form.date.toString()).items.firstOrNull()
@@ -385,7 +359,6 @@ fun SessionStartSheet(
     }
 }
 
-/** A guest's name and notes: "Someone else" on the start sheet, "+ Add someone else" and A17's edit. */
 @Composable
 fun GuestDialog(title: String, initialName: String, initialNotes: String, onDismiss: () -> Unit, onSave: (name: String, notes: String) -> Unit) {
     var name by remember { mutableStateOf(initialName) }
@@ -416,7 +389,6 @@ fun GuestDialog(title: String, initialName: String, initialNotes: String, onDism
     )
 }
 
-/** §4.2's coverage line from the offline snapshot, with "· Checked 2 h ago" when it is not fresh. */
 private fun coverageLine(v2: QuestionnaireV2, form: StartForm, byId: Map<String, QArtisanOption>, sectionsTotal: Int?): String? {
     if (form.artisanIds.isEmpty() || form.questionnaireId.isBlank()) return null
     val workshopKey = form.workshopId.ifBlank { null }.takeUnless { QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP }

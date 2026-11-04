@@ -18,19 +18,12 @@ async def upsert_admin(email: str, name: str, password: str, role: str) -> None:
             data={
                 "name": name,
                 "passwordHash": hash_password(password),
-                # A password set here is the account's own (the operator chose it for the admin).
-                # The new hash also retires every session opened with the old one (the ``cred``
-                # fingerprint in deps._user_from_bearer).
                 "passwordSetAt": datetime.now(UTC),
                 "mustChangePassword": False,
                 "role": role,
                 "canManageQuestionnaire": True if is_master_admin else existing.canManageQuestionnaire,
             },
         )
-        # This script normally runs as its own process, where the invalidation is a no-op and the
-        # running API only picks the change up when its TTL expires (seconds). It is here anyway
-        # because `upsert_admin` is importable, and the day something calls it in-process a role
-        # rewrite that the identity cache never heard about is precisely the bug worth not having.
         invalidate_cached_user(existing.id)
         print(f"Updated {role.lower()} user: {email}")
     else:
@@ -48,12 +41,6 @@ async def upsert_admin(email: str, name: str, password: str, role: str) -> None:
         invalidate_cached_user(created.id)
         print(f"Created {role.lower()} user: {email}")
 
-    # SEEDING AN ADMIN HAS TO SEED THEIR ADMISSION TOO. Since the sign-in gate exists, an account
-    # without an ACTIVE roster row cannot sign in — and a freshly bootstrapped environment whose
-    # seeded ADMIN is refused at the login screen is an installation that looks broken on its first
-    # minute. (The MASTER_ADMIN is exempt from the gate regardless; the row is still written so the
-    # roster screen shows the whole picture rather than mysteriously omitting the one account every
-    # administrator looks for first.)
     await ensure_admitted(
         email,
         granted_role=role,

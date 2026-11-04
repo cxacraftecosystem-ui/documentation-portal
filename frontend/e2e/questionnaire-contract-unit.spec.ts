@@ -7,12 +7,6 @@ import { APP_VERSION, ApiError, clockOffset, recordClockOffset } from "@/lib/api
 import { contractError, CONTRACT_VERSION, toGridView, type CoverageGrid } from "@/lib/questionnaireApi";
 import { CONTRACT } from "./questionnaire-contract-fixture";
 
-/**
- * The typed client against the frozen contract (`shared/questionnaire-contract.json`): the same
- * version, a call for every route, errors read from `{detail:{code}}`, the contract grid read into
- * the screens' grid, and X-Client-Time / X-App-Version on every request (the proxy forwards both).
- */
-
 const API = readFileSync(join(__dirname, "..", "lib", "questionnaire", "api.ts"), "utf8");
 
 test("contract version and error codes", () => {
@@ -36,7 +30,6 @@ test("every contract route has a client call", () => {
       .pop()!;
     expect(API, `${method} ${path}`).toContain(literal);
   }
-  // Creates carry an Idempotency-Key; the body's clientKey/clientClipKey is the key.
   expect(API).toContain('json("POST", body, body.clientKey)');
   expect(API).toContain('json("POST", body, body.clientClipKey)');
 });

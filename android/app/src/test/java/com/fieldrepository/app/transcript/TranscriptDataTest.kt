@@ -13,7 +13,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 0.0.6: the View data / Download data wire shapes and filters (transcript contract `dataBrowser`). */
 class TranscriptDataTest {
     @Test fun `the filters are the contract's query names, blanks left out`() {
         assertTrue(DataTranscriptFilters().toQuery().isEmpty())

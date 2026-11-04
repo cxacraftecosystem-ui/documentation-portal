@@ -7,54 +7,13 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * THE WALKTHROUGH'S CONTENT, HELD TO THE WEB'S JOURNEY AND TO ITS OWN RULES.
- *
- * Ported from the designer portal's suite of the same name and adapted to this app's content.
- *
- * ── THE FAILURES BEING GUARDED, ALL OF THEM INVISIBLE BY INSPECTION ──────────────────────────────
- *
- * 1. THE HANDSET FALLING BEHIND THE WEB. `every subject the web walkthrough teaches has a step here`
- *    reads `frontend/components/guide/steps.ts` at runtime, so the register has one copy and it is
- *    the web's.
- * 2. A NUMBER TYPED INTO A TITLE. Pinned by `no step title carries its own number`.
- * 3. A COUNT TYPED INTO A SENTENCE — the deck this replaced said "Ten steps" over a counter reading
- *    1/12. Pinned per deck by `the opening card counts the journey rather than claiming a number`.
- * 4. A STEP POINTING AT A DOOR THAT IS NO LONGER THERE. Pinned by `every step that offers a door
- *    names a menu row that exists`.
- * 5. A STEP GROWING BACK INTO A PARAGRAPH. The owner's rule for this walkthrough is one short title
- *    and one short line. Pinned by `every step is one short title and one short line`.
- * 6. THE FORM LABELS DRIFTING FROM THE WEB'S. Pinned by `every step the web teaches asks for exactly
- *    the fields the web lists`.
- * 7. THE WHY AND THE CAUTIONS DRIFTING FROM THE WEB'S. Pinned by `every step the web teaches says why
- *    and what to watch out for in the web's words`.
- *
- * ── THE PARITY HALF IS THE RESEARCHER'S DECK, THE RULES HALF IS EVERY DECK ───────────────────────
- *
- * `steps.ts` is the register for exactly one of this app's three decks, so the parity assertions read
- * [walkthroughJourney] by name. Every rule the list sets itself is a rule about a deck and not about
- * that deck, so those walk [WALKTHROUGH_DECKS] and a fourth deck is covered the day it is registered.
- */
 class WalkthroughStepsTest {
 
-    /**
-     * The steps `frontend/components/guide/steps.ts` teaches, in its own order, read from the file.
-     *
-     * `GuideStep` objects are elements of one array literal, so their `id` sits at exactly four spaces
-     * of indent and nothing else in that file does. The scan starts at the `GUIDE_STEPS` declaration
-     * so a helper array above it can never contribute an id, and `the parser found the web's step
-     * list` fails loudly if either half of that stops holding.
-     */
     private val WEB_GUIDE_STEPS: List<WebGuideStep> by lazy { readWebGuideSteps() }
     private val WEB_GUIDE_IDS: List<String> by lazy { WEB_GUIDE_STEPS.map { it.id } }
 
-    // ── Parity with the web ──────────────────────────────────────────────────────────────────────
-
     @Test
     fun `the parser found the web's step list`() {
-        // Without this, every parity assertion below is vacuously green the day `steps.ts` is
-        // reformatted, renamed or moved. A floor and not the current count, so the web adding a
-        // step is welcomed rather than resisted.
         assertTrue(
             "$WEB_GUIDE_PATH parsed to ${WEB_GUIDE_IDS.size} step ids — the anchor this file scans " +
                 "for has stopped matching, so every parity assertion below is now checking nothing",
@@ -90,9 +49,6 @@ class WalkthroughStepsTest {
 
     @Test
     fun `the web's steps appear here in the web's own order`() {
-        // Filtered rather than compared whole, because this app teaches three subjects of its own —
-        // search, no signal, and the account. The shared subjects must read in the same sequence:
-        // two clients teaching the same subjects in different orders is worse than a missing step.
         val shared = walkthroughJourney.map { it.id }.filter { it in WEB_GUIDE_IDS }
         assertEquals(
             "the two clients teach the same subjects in different orders",
@@ -103,10 +59,6 @@ class WalkthroughStepsTest {
 
     @Test
     fun `every step the web teaches asks for exactly the fields the web lists`() {
-        // The chips under "What the screen asks for" are the web's `GuideStep.fields`, carried in
-        // `WALKTHROUGH_FIELDS`. They are form labels, not prose: a chip reading "Craft" where the form
-        // says "Craft (required)" teaches a researcher that a required field is optional. Asserted
-        // through `walkthroughFacets`, which is what the card actually draws from.
         for (web in WEB_GUIDE_STEPS) {
             val step = walkthroughJourney.first { it.id == web.id }
             assertEquals(
@@ -119,8 +71,6 @@ class WalkthroughStepsTest {
 
     @Test
     fun `every step the web teaches says why and what to watch out for in the web's words`() {
-        // "Why this step exists" and "Watch out for" are the web's `why` and `watch[]`, verbatim, so a
-        // researcher who read the guide on a laptop meets the same card on the phone.
         for (web in WEB_GUIDE_STEPS) {
             val step = walkthroughJourney.first { it.id == web.id }
             assertEquals("Step '${web.id}' says why in different words from the web's.", web.why, step.why)
@@ -130,7 +80,6 @@ class WalkthroughStepsTest {
 
     @Test
     fun `every web-ahead entry still names a field the web lists`() {
-        // A stale entry would quietly widen the parity check above; each one must still match.
         for ((id, swaps) in WEB_AHEAD_OF_HANDSET) {
             val web = WEB_GUIDE_STEPS.first { it.id == id }
             for (swap in swaps) {
@@ -141,15 +90,8 @@ class WalkthroughStepsTest {
         }
     }
 
-    /** One web label and the handset label it stands for; null on one side = only that side has it. */
     private data class FieldSwap(val web: String?, val handset: String?, val after: String? = null)
 
-    /**
-     * WEB CAPTURE (2026-10-17) shipped on the web first: the product starts from the artisan, a
-     * process step may be unnamed, and a sitting is named by the server when left untitled. The
-     * handset's forms still draw the earlier labels, so its register keeps them until those screens
-     * follow. Remove an entry in the commit that brings the handset form level.
-     */
     private val WEB_AHEAD_OF_HANDSET: Map<String, List<FieldSwap>> = mapOf(
         "product" to listOf(
             FieldSwap(web = "Artisan (required)", handset = null),
@@ -171,13 +113,8 @@ class WalkthroughStepsTest {
         return fields
     }
 
-    // ── The rules the list sets itself ───────────────────────────────────────────────────────────
-
     @Test
     fun `no two steps share an id`() {
-        // ACROSS EVERY DECK AND NOT WITHIN ONE. `walkthroughFacets` looks a step's field list up by
-        // id in one flat register, and the card has no idea which deck a step came from — so one id
-        // in two decks would draw one deck's labels on the other deck's card.
         val ids = WALKTHROUGH_DECKS.flatMap { deck -> deck.steps.map { it.id } }
         assertEquals(
             "a duplicated id makes every id-based check answer for the wrong step, silently",
@@ -200,8 +137,6 @@ class WalkthroughStepsTest {
 
     @Test
     fun `the opening card counts the journey rather than claiming a number`() {
-        // The original defect, pinned from both ends and per deck: the sentence must contain the REAL
-        // size, and it must not contain the size of the deck it is part of.
         WALKTHROUGH_DECKS.forEach { deck ->
             val intro = deck.steps.first()
             assertNull(
@@ -232,7 +167,6 @@ class WalkthroughStepsTest {
                 deck.journey,
                 deck.steps.subList(1, deck.steps.size - 1)
             )
-            // Three is the smallest shape `WalkthroughJourney` draws; below it the window is blank.
             assertTrue(
                 "“${deck.id}” has ${deck.steps.size} cards; the journey draws nothing under three",
                 deck.steps.size >= 3
@@ -252,7 +186,6 @@ class WalkthroughStepsTest {
                     walkthroughStepNumber(deck, step)
                 )
             }
-            // A deck numbers its own steps and nobody else's.
             WALKTHROUGH_DECKS.filter { it.id != deck.id }.forEach { other ->
                 other.journey.forEach { step ->
                     assertNull(
@@ -264,12 +197,8 @@ class WalkthroughStepsTest {
         }
     }
 
-    // ── The doors ────────────────────────────────────────────────────────────────────────────────
-
     @Test
     fun `every step that offers a door names a menu row that exists`() {
-        // The dialog borrows the row's own label for its "Open …" button. A destination dropped from
-        // the menu degrades that button to "Open the screen this step teaches".
         WALKTHROUGH_DECKS.flatMap { it.steps }.forEach { step ->
             val destination = step.destination ?: return@forEach
             assertNotNull(
@@ -291,16 +220,8 @@ class WalkthroughStepsTest {
         )
     }
 
-    // ── The shape of a step ──────────────────────────────────────────────────────────────────────
-
     @Test
     fun `every step is one short title and one short line`() {
-        // THE OWNER'S RULE: concise, premium, no AI slop. The collapsed card is what a reader
-        // scrolling the journey actually reads, so a step's body is ONE sentence, short enough to sit
-        // on two lines of a 360dp handset, and its title is a feature and an action, not a phrase.
-        //
-        // The opening cards are allowed a second, equally short sentence — the count, and how to get
-        // back here — and nothing more.
         val sentenceBreak = Regex("""[.;!?]\s+[A-Z]""")
         WALKTHROUGH_DECKS.forEach { deck ->
             deck.steps.forEachIndexed { index, step ->
@@ -327,9 +248,6 @@ class WalkthroughStepsTest {
 
     @Test
     fun `every numbered step names a feature and the thing you do there`() {
-        // The card splits a title at the middle dot into a heading and an action pill. A title that
-        // lost its separator renders as a heading with no pill, which reads as a different kind of
-        // card from its neighbours.
         WALKTHROUGH_DECKS.flatMap { it.journey }.forEach { step ->
             val parts = step.title.split(" · ")
             assertEquals("“${step.title}” must read “Feature · Action”", 2, parts.size)
@@ -347,12 +265,8 @@ class WalkthroughStepsTest {
     }
 }
 
-// ── Reading the web's own step list ─────────────────────────────────────────────────────────────
-
-/** The one place this path is written. Named in failure messages so a move reports itself. */
 private const val WEB_GUIDE_PATH = "frontend/components/guide/steps.ts"
 
-/** One `GuideStep` as the web declares it, with the fields this suite compares. */
 private data class WebGuideStep(
     val id: String,
     val fields: List<String>,
@@ -360,7 +274,6 @@ private data class WebGuideStep(
     val watch: List<String>,
 )
 
-/** The `GuideStep`s `steps.ts` declares, in its own order. See `WEB_GUIDE_STEPS` above. */
 private fun readWebGuideSteps(): List<WebGuideStep> {
     val source = repoFile("../$WEB_GUIDE_PATH", WEB_GUIDE_PATH)
         .readText(Charsets.UTF_8).replace("\r\n", "\n")
@@ -380,13 +293,6 @@ private fun readWebGuideSteps(): List<WebGuideStep> {
     }
 }
 
-/**
- * The string array `key` is assigned in `block`, unescaped.
- *
- * The extent of the array is found by scanning for the matching bracket WHILE TRACKING WHETHER THE
- * SCANNER IS INSIDE A STRING, because a bracket inside a label would otherwise end the array early and
- * silently truncate the list.
- */
 private fun tsArray(block: String, key: String): List<String> {
     val at = block.indexOf("$key: [")
     check(at >= 0) { "'$key' is missing from a step in $WEB_GUIDE_PATH" }
@@ -408,14 +314,12 @@ private fun tsArray(block: String, key: String): List<String> {
     return tsStrings(block.substring(start, index - 1))
 }
 
-/** The single string literal `key` is assigned in `block`, unescaped. */
 private fun tsString(block: String, key: String): String {
     val at = block.indexOf("$key:")
     check(at >= 0) { "'$key' is missing from a step in $WEB_GUIDE_PATH" }
     return tsStrings(block.substring(at + key.length + 1)).first()
 }
 
-/** Every double-quoted literal in `source`, with its backslash escapes resolved. */
 private fun tsStrings(source: String): List<String> {
     val out = mutableListOf<String>()
     var index = 0
@@ -440,5 +344,3 @@ private fun tsStrings(source: String): List<String> {
     }
     return out
 }
-
-// `repoFile` is `RepoSources.kt`, in this package.

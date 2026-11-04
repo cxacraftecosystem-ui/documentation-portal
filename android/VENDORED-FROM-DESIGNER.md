@@ -30,6 +30,18 @@ while read -r sha path; do
 done < <(grep -vE '^#|^$' android/UPSTREAM-MANIFEST-KOTLIN.txt)
 ```
 
+**Since release 0.0.10 the vendored files have their comments removed**, so that raw-byte check now
+reports nearly every file as `DIFFERS`. The manifests still record upstream as it was. To check
+drift, copy the upstream tree into a scratch folder laid out like this repository, strip it the same
+way, and compare:
+
+```sh
+python scripts/tools/strip_comments.py --root "$SCRATCH" --write -q
+for m in core-export core-imaging core-pipeline core-vector; do
+  diff -r --strip-trailing-cr "$SCRATCH/android/$m" "android/$m"
+done
+```
+
 ## Known drift from the ORIGINAL upstream manifest, and why it is not an error
 
 Three TypeScript files do **not** match `frontend/lib/trace/UPSTREAM-MANIFEST.txt`:
@@ -50,8 +62,9 @@ here; a fourth would be news.**
 
 ## The build scripts moved on 2026-10-09, and the designer's copy moves separately
 
-The Kotlin side of that check — `android/UPSTREAM-MANIFEST-KOTLIN.txt` — passes for every file
-except the five it names as wholly CRLF upstream, which the LF pin above rewrites on checkout.
+Before the 0.0.10 comment strip, the Kotlin side of that check — `android/UPSTREAM-MANIFEST-KOTLIN.txt` —
+passed for every file except the five it names as wholly CRLF upstream, which the LF pin above
+rewrites on checkout.
 What it cannot tell you is whether **this copy and the designer portal's** still agree, and on
 2026-10-09 they stopped agreeing in the four `build.gradle.kts` files only: this repository's
 Android build moved to Gradle 9.8.1, AGP 9.4.1 and Kotlin 2.4.21, the four scripts' header comments

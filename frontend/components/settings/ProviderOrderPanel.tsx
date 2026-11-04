@@ -1,53 +1,5 @@
 "use client";
 
-/**
- * The speech-to-text provider ladder, reorderable by dragging OR by keyboard.
- *
- * Three engines can transcribe field audio and they are not interchangeable: ElevenLabs is the most
- * accurate on Indian-language speech, Deepgram is the fastest and cheapest, Whisper is the fallback
- * that always works. Which one is tried FIRST depends on the material — a Hindi weavers' interview
- * and an English tool survey want different answers — and that is a judgement the people running
- * the workshops make, not one to bury in a constant.
- *
- * ADMIN and MASTER_ADMIN only, and the server agrees: `/settings/transcription-providers` sits
- * behind `require_admin`, so hiding this panel is a courtesy rather than the actual control.
- *
- * FREEZING — the rule this screen exists to make true
- * ---------------------------------------------------
- * An engine is rankable only once it has PASSED a live test against its provider. Having a key is
- * not the same as having a key that works, and the gap between the two is exactly where the ranking
- * starts lying: put ElevenLabs first with an expired key and every recording pays for a rejected
- * call before quietly falling through to Deepgram, while this panel goes on saying ElevenLabs is
- * doing the work. So an unproven engine sinks below the proven ones, its Move up is refused with the
- * reason spelled out on the row, and the same partition is applied by the server on save — a rule
- * only the browser enforces is a suggestion, and the API is reachable without the browser.
- *
- * The freeze is deliberately inert when nothing is proven: on a deployment where no key has ever
- * been tested every engine is equal, so the ranking is completely free and nothing is reshuffled.
- * The constraint only appears once there is a verified engine to be unfair to.
- *
- * DEGRADING HONESTLY
- * ------------------
- * This endpoint is newer than some of the servers it will meet, and the first thing a user saw when
- * that happened was the panel's heading followed by the word "Not Found" — which reads as a broken
- * page and tells nobody what to do. A failed load now says which of the three things went wrong
- * (the server has not been redeployed / your role is too low / the server itself errored), what it
- * means, and who can fix it. The list stays on screen, visibly inert and labelled as the built-in
- * default rather than the live ranking, because an admin who cannot change the order should still be
- * able to see what the order is.
- *
- * Three things this screen must never do, each learned the hard way:
- *
- *  - Be drag-only. Dragging is unreachable by keyboard, hostile to a screen reader and miserable on
- *    a phone, and this is an admin control that must not become a trap. Every row therefore carries
- *    real Move up / Move down buttons, focus follows the row that moved, and each move is announced.
- *  - Hide which engines actually have a key. A ranking whose top entry cannot run looks broken from
- *    the outside, so key state and the last test verdict come back from the server (resolved by the
- *    same code the transcription chain uses) and an unconfigured leader is called out by name.
- *  - Pretend the order is saved when it is not. Nothing persists until Save; the button stays
- *    disabled until something actually changed, and the confirmation says when it takes effect.
- */
-
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
@@ -66,14 +18,12 @@ import {
 import { ApiError, apiFetch } from "@/lib/api";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 
-/** Editorial copy stays here; names and key state come from the server so the two cannot drift. */
 const BLURBS: Record<string, string> = {
   elevenlabs: "Best for Indian languages and accents. Slower, costliest.",
   deepgram: "Fastest and cheapest. Weaker in noise.",
   whisper: "Reliable fallback. No speaker labels."
 };
 
-/** Mirrors `app_settings.STT_KEY_*`. */
 type KeyState = "NO_KEY" | "UNTESTED" | "PASSING" | "FAILING";
 
 type Provider = {
@@ -81,10 +31,8 @@ type Provider = {
   name: string;
   keyName: string;
   keyLabel: string;
-  /** A key resolves, so the pipeline WILL call this engine — whether or not the key is any good. */
   configured: boolean;
   keyState: KeyState;
-  /** Only a passing test earns this. */
   rankable: boolean;
   frozenReason: string | null;
   testedAt: string | null;
@@ -93,21 +41,12 @@ type Provider = {
 
 type ProviderOrderState = {
   providers: Provider[];
-  /** What the pipeline would really do right now — engines with no key at all already dropped. */
   effectiveChain: string[];
-  /** The subset of that which has actually answered a test. */
   verifiedChain: string[];
-  /** True when the server had to sink an unproven engine to keep the freeze true. */
   normalised: boolean;
   normalisedNote: string | null;
 };
 
-/**
- * What to draw when the server cannot be asked at all. These are the engines compiled into the
- * transcription chain, in the order that applies before anyone ranks anything — shown so a failed
- * load still explains what the screen is for, and marked as unverified throughout, because a panel
- * that could not reach the server knows nothing about anybody's keys and must not imply otherwise.
- */
 const BUILT_IN_DEFAULT: Provider[] = [
   { id: "elevenlabs", name: "ElevenLabs", keyLabel: "ElevenLabs Scribe", keyName: "ELEVENLABS_API_KEY" },
   { id: "deepgram", name: "Deepgram", keyLabel: "Deepgram", keyName: "DEEPGRAM_API_KEY" },
@@ -124,27 +63,15 @@ const BUILT_IN_DEFAULT: Provider[] = [
 }));
 
 type Trouble = {
-  /** One line naming what happened, in the user's terms. */
   headline: string;
-  /** What it means and who can fix it. */
   advice: string;
-  /** Whether pressing the same button again could plausibly work. */
   retryable: boolean;
 };
 
-/**
- * Turn a failed request into something a non-engineer can act on.
- *
- * The default — showing `ApiError.message` — is how "Not Found" ended up as the entire explanation
- * for an endpoint that had not been deployed yet. FastAPI's 404 body carries the literal string
- * "Not Found" and nothing else, so there is no sentence to surface: it has to be written here,
- * against the status, or it does not exist.
- */
 function describeTrouble(error: unknown, action: string): Trouble {
   const status = error instanceof ApiError ? error.status : 0;
   const serverSentence = error instanceof Error ? error.message : "";
 
-  // The build shipped without an API address; lib/api already writes the user-facing sentence for that.
   if (error instanceof Error && error.name === "ApiUnconfiguredError") {
     return {
       headline: "Couldn’t load the transcription order.",
@@ -207,14 +134,6 @@ function reorder(list: Provider[], from: number, to: number): Provider[] {
   return next;
 }
 
-/**
- * How many (frozen above proven) pairs this order contains. Mirrors `app_settings.order_violations`.
- *
- * Counted rather than asserted because a stored order can go illegal without anybody touching it —
- * a key expires overnight and yesterday's legal ranking is illegal by morning. Judging a move by
- * whether it makes this number WORSE is what lets an admin repair such an order by hand, instead of
- * every control on the row being dead because the list arrived already in breach.
- */
 function violations(list: Provider[]): number {
   let frozenSoFar = 0;
   let total = 0;
@@ -261,9 +180,7 @@ export function ProviderOrderPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
-  /** Set while the panel is showing the built-in default because the server could not be asked. */
   const [trouble, setTrouble] = useState<Trouble | null>(null);
-  /** A failure that did NOT cost us the live data — a save or a test that was refused. */
   const [actionTrouble, setActionTrouble] = useState<Trouble | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -271,8 +188,6 @@ export function ProviderOrderPanel() {
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
 
-  // Where to put focus after a reorder re-renders the list. Without this a keyboard user loses their
-  // place on every single move, which is exactly the trap the arrows exist to prevent.
   const buttons = useRef(new Map<string, HTMLButtonElement | null>());
   const focusAfterMove = useRef<string | null>(null);
 
@@ -282,13 +197,6 @@ export function ProviderOrderPanel() {
     setTrouble(null);
   }, []);
 
-  /**
-   * Fold a fresh verdict into the rows WITHOUT touching the order on screen.
-   *
-   * Testing a provider is not a reason to throw away a reorder the admin has not saved yet, and
-   * replacing the list wholesale with the server's stored order would do exactly that. Only the
-   * per-engine facts are taken; positions stay where the admin left them.
-   */
   const mergeVerdicts = useCallback((state: ProviderOrderState) => {
     const fresh = new Map(state.providers.map((provider) => [provider.id, provider]));
     const merge = (list: Provider[]) => list.map((provider) => fresh.get(provider.id) ?? provider);
@@ -324,7 +232,6 @@ export function ProviderOrderPanel() {
   function move(from: number, to: number) {
     if (to < 0 || to >= providers.length || from === to) return;
     if (!movePermitted(providers, from, to)) {
-      // Refusing silently would read as a broken button. Say which engine is stuck and why.
       const blocked = providers[from];
       setAnnouncement(
         `${blocked.name} cannot move there yet. ${blocked.frozenReason ?? "It has not passed a provider test."}`
@@ -342,8 +249,6 @@ export function ProviderOrderPanel() {
     setNotice(null);
     setWarning(null);
     setAnnouncement(`${moved.name} moved to position ${to + 1} of ${next.length}.`);
-    // Follow the row. When it lands on either end its own arrow goes disabled, so hand focus to the
-    // arrow that can still be pressed rather than letting it fall back to the document body.
     const direction = to > from ? "down" : "up";
     const usable = to === 0 ? "down" : to === next.length - 1 ? "up" : direction;
     focusAfterMove.current = `${moved.id}:${usable}`;
@@ -387,7 +292,6 @@ export function ProviderOrderPanel() {
       mergeVerdicts(updated);
       const after = updated.providers.find((candidate) => candidate.id === provider.id);
       if (after?.keyState === "PASSING") {
-        // The thaw is the point: it has already happened in the rows above by the time this reads.
         setNotice(`${provider.name} passed.`);
         setAnnouncement(`${provider.name} passed its test and is now rankable.`);
       } else {
@@ -489,7 +393,6 @@ export function ProviderOrderPanel() {
         </p>
       </div>
 
-      {/* A failed load does not empty the screen. It explains itself and leaves the list visible. */}
       {trouble ? (
         <div
           className="grid gap-2 rounded-md border border-amber-100 bg-amber-100/50 px-3 py-3 text-sm text-amber-800"
@@ -531,9 +434,6 @@ export function ProviderOrderPanel() {
               }
             </p>
           ) : null}
-          {/* Inert rather than absent: an admin who cannot change the order can still read it. Every
-              control inside is separately `disabled`, which is what carries the state to a screen
-              reader — `aria-disabled` on a list has no meaning and is ignored. */}
           <ol
             className={`grid gap-2 ${trouble ? "pointer-events-none opacity-60" : ""}`}
             data-testid="provider-order-list"
@@ -553,11 +453,9 @@ export function ProviderOrderPanel() {
                   onDragStart={(event) => {
                     setDragId(provider.id);
                     event.dataTransfer.effectAllowed = "move";
-                    // Firefox starts no drag at all unless some data is set on the transfer.
                     event.dataTransfer.setData("text/plain", provider.id);
                   }}
                   onDragOver={(event) => {
-                    // Without preventDefault the drop never fires — the browser's default is "reject".
                     event.preventDefault();
                     const from = providers.findIndex((candidate) => candidate.id === dragId);
                     const permitted = from < 0 || movePermitted(providers, from, index);
@@ -673,8 +571,6 @@ export function ProviderOrderPanel() {
         </>
       )}
 
-      {/* Every reorder — and every refusal — is spoken, because a screen-reader user pressing an
-          arrow otherwise gets no confirmation that anything happened at all. */}
       <p aria-live="polite" className="sr-only">
         {announcement}
       </p>
@@ -740,15 +636,6 @@ export function ProviderOrderPanel() {
   );
 }
 
-/**
- * One reorder arrow.
- *
- * A move refused by the freeze is `aria-disabled`, not `disabled`, so the button stays focusable and
- * a keyboard or screen-reader user can reach it and be told WHY — a truly disabled control is skipped
- * by the tab order and explains nothing to the person most likely to need the explanation. Pressing
- * it announces the reason instead of doing nothing. A row that is simply at the top or the bottom has
- * nothing to explain, so that case is a plain `disabled`.
- */
 function MoveButton({
   direction,
   provider,
@@ -771,8 +658,7 @@ function MoveButton({
   const Icon = direction === "up" ? ChevronUp : ChevronDown;
   const label = blocked
     ? `Move ${provider.name} ${direction} — needs a passing test`
-    : // Just the direction. Naming the destination position ("up to position 0" on a disabled first
-      // row) reads as nonsense; where it landed is announced instead.
+    :
       `Move ${provider.name} ${direction}`;
   return (
     <button

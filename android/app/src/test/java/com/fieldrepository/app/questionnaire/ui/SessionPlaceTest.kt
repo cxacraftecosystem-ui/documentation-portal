@@ -8,7 +8,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/** C9: the start sheet fills the place from the phone as "District, State", and only the start sheet does. */
 class SessionPlaceTest {
     @QFeature("C9")
     @Test fun `the place reads district and state, whichever the geocoder has`() {

@@ -14,11 +14,6 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.security.MessageDigest
 
-/**
- * A take is a typed recording (DESIGN D2): its targets, its subjects and their roles travel with it;
- * its bytes are hashed on the phone so an identical file is never sent twice; a replace removes the
- * earlier take only for a content admin; and a voice note on a question is a take with that target.
- */
 class RecordingRulesTest {
     @get:Rule val tmp = TemporaryFolder()
 

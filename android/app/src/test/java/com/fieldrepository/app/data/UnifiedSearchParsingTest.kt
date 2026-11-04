@@ -6,11 +6,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/**
- * `GET /search/unified` and `GET /search/remote/{type}/{id}` as the phone reads them
- * (docs/SEARCH.md): decoded with the app's own `Json`, unknown types ignored, local rows open this
- * app's screens and remote rows the read-only card.
- */
 class UnifiedSearchParsingTest {
 
     private val body = """

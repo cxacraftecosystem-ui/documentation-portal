@@ -23,46 +23,21 @@ import kotlinx.serialization.json.longOrNull
 import java.io.File
 import java.time.LocalDate
 
-/**
- * An unsaved form, on disk: what the researcher has typed and captured before tapping Save.
- *
- * The outbox protects a record from the moment it is saved. This protects it before that: a form
- * held only in Compose memory is lost when the process dies (the camera app pushing it out of
- * memory, a flat battery, the app swiped away). Each record form autosaves here, debounced, and on
- * the next open offers "Continue your draft" or "Discard".
- *
- * Keyed by (account, form, record): an edit is keyed by the record's id, a new record by a
- * `new-<uuid>` minted when the form opens. Drafts are per account and are kept across sign-out, like
- * the outbox, so a researcher who signs out and back in finds their own drafts and nobody else's.
- */
 @Serializable
 data class FormDraftFile(
     val formKind: String,
     val recordKey: String,
     val label: String = "",
-    /** ISO-8601. */
     val savedAt: String,
-    /** One tagged value per bound field (see [DraftValues]). */
     val fields: Map<String, JsonElement> = emptyMap(),
-    /** Files this draft copied into app storage, deleted with it. */
     val ownedFiles: List<String> = emptyList(),
-    /**
-     * The record a NEW record's form was opened from (the artisan a product is being recorded for,
-     * say), part of the draft's key so a draft for one artisan is never offered on another's form,
-     * and named on the offer.
-     */
     val parentId: String? = null,
     val parentLabel: String? = null
 )
 
-/**
- * The key prefix of a NEW record's draft: `new-<parent>-`, where the parent is the prefilled record
- * the form was opened from, or `none`. A uuid follows it.
- */
 internal fun newDraftPrefix(parentId: String?): String =
     "new-" + (parentId?.let { "p_" + it.replace(Regex("[^A-Za-z0-9_-]"), "_") } ?: "none") + "-"
 
-/** The draft files themselves, against a root directory, so a JVM test can drive them. */
 internal object DraftFiles {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -74,12 +49,10 @@ internal object DraftFiles {
         File(accountDir(root, account), "${safe(kind)}__${safe(recordKey)}.json")
 
     fun write(root: File, account: String, draft: FormDraftFile) {
-        // A typed Aadhaar is kept sealed under the Keystore (AadhaarAtRest), opened on read.
         val sealed = draft.copy(fields = AadhaarAtRest.sealDraft(draft.fields))
         writeFileAtomically(file(root, account, draft.formKind, draft.recordKey), json.encodeToString(FormDraftFile.serializer(), sealed).toByteArray())
     }
 
-    /** A draft that will not parse is set aside (never deleted) and reads as absent. */
     fun read(file: File): FormDraftFile? {
         if (!file.exists()) return null
         return runCatching { json.decodeFromString(FormDraftFile.serializer(), file.readText()) }
@@ -93,10 +66,6 @@ internal object DraftFiles {
     fun read(root: File, account: String, kind: String, recordKey: String): FormDraftFile? =
         read(file(root, account, kind, recordKey))
 
-    /**
-     * The most recently saved draft of a NEW record of [kind] for [account], opened from the same
-     * prefilled parent ([parentId], null for none), if any.
-     */
     fun latestNew(root: File, account: String, kind: String, parentId: String? = null): FormDraftFile? =
         accountDir(root, account).listFiles { f ->
             f.name.startsWith("${safe(kind)}__${safe(newDraftPrefix(parentId))}") && f.name.endsWith(".json")
@@ -104,7 +73,6 @@ internal object DraftFiles {
             ?.mapNotNull { read(it) }
             ?.maxByOrNull { it.savedAt }
 
-    /** Every draft of [account], newest first. */
     fun all(root: File, account: String): List<FormDraftFile> =
         accountDir(root, account).listFiles { f -> f.name.endsWith(".json") }
             ?.mapNotNull { read(it) }
@@ -118,7 +86,6 @@ internal object DraftFiles {
         return existing
     }
 
-    /** Every string any draft of any account holds, for the sweep of unreferenced capture files. */
     fun referencedStrings(root: File): Set<String> {
         val out = HashSet<String>()
         fun walk(element: JsonElement) {
@@ -141,11 +108,6 @@ internal object DraftFiles {
     }
 }
 
-/**
- * The tagged encoding of one form field. Tags keep the type, so a field whose value is null today
- * restores to the right kind of value tomorrow. A type with no tag is not saved ([encode] answers
- * null): server-loaded lists and UI flags have no business in a draft.
- */
 internal object DraftValues {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -177,7 +139,6 @@ internal object DraftValues {
         }
     }
 
-    /** The value [element] encodes; [Unparsed] when it is not a draft value this build understands. */
     fun decode(element: JsonElement): Any? {
         val obj = runCatching { element.jsonObject }.getOrNull() ?: return Unparsed
         val tag = obj["t"]?.jsonPrimitive?.contentOrNull ?: return Unparsed
@@ -201,20 +162,16 @@ internal object DraftValues {
         }.getOrDefault(Unparsed)
     }
 
-    /** The marker for "leave the field as it is". */
     object Unparsed
 }
 
-/** Context-bound access to [DraftFiles], serialised so a write never lands after its own delete. */
 object DraftStore {
     private val mutex = Mutex()
 
     fun root(context: Context): File = File(context.filesDir, "drafts")
 
-    /** Where a draft keeps copies of files it does not own (picked from another app). */
     fun mediaDir(context: Context): File = File(context.filesDir, "drafts-media").apply { mkdirs() }
 
-    /** Where the camera writes captures: app storage that survives process death, unlike cacheDir. */
     fun capturesDir(context: Context): File = File(context.filesDir, "field-captures").apply { mkdirs() }
 
     suspend fun <T> locked(block: suspend () -> T): T = withContext(Dispatchers.IO) { mutex.withLock { block() } }
@@ -231,18 +188,12 @@ object DraftStore {
     suspend fun all(context: Context, account: String): List<FormDraftFile> =
         locked { DraftFiles.all(root(context), account) }
 
-    /** Delete a draft and the file copies it owned. */
     suspend fun delete(context: Context, account: String, kind: String, recordKey: String) = locked {
         DraftFiles.delete(root(context), account, kind, recordKey)?.let { removed ->
             removed.ownedFiles.forEach { runCatching { File(it).delete() } }
         }
     }
 
-    /**
-     * Delete capture files and draft copies older than [olderThanMillis] that no draft refers to.
-     * Run at app start, before any form is open. Files the outbox needs are copies under
-     * `outbox/media` and are never touched here.
-     */
     suspend fun sweep(context: Context, olderThanMillis: Long = 3L * 24 * 60 * 60 * 1000) = locked {
         val referenced = DraftFiles.referencedStrings(root(context))
         val cutoff = System.currentTimeMillis() - olderThanMillis

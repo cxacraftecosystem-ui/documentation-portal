@@ -9,16 +9,6 @@ import {
 } from './path';
 import { outlineStroke } from './strokeStyle';
 
-/**
- * Scanline rasterisation. See ALGORITHMS.md §11.
- *
- * Coverage is sampled on an ordered `samples x samples` grid — 4x4 by default, so 16 samples per pixel.
- * Strokes are converted to outlines first and filled with the **non-zero** rule, which is what SVG
- * requires and what makes a self-overlapping stroke render solid instead of showing seams where it
- * crosses itself.
- */
-
-/** Cap on supersampling; 8x8 is already past the point of visible improvement and costs 4x more. */
 const MAX_SAMPLES = 8;
 
 interface Edges {
@@ -39,8 +29,6 @@ function buildEdges(paths: readonly VecPath[], flatten: number): Edges {
     const pts = path.flatten(flatten);
     const n = pts.length;
     if (n < 2) continue;
-    // Every path is filled as though closed: an unclosed fill is not a thing SVG has, and leaving the
-    // final edge out puts a diagonal gash across the shape.
     for (let i = 0; i < n; i++) {
       const a = pts[i];
       const b = pts[(i + 1) % n];
@@ -79,7 +67,6 @@ function buildEdges(paths: readonly VecPath[], flatten: number): Edges {
   return { ymin, ymax, x, slope, dir, count };
 }
 
-/** Accumulates one horizontal span's sub-sample coverage into a destination row. */
 function addSpan(
   cov: Float32Array,
   rowBase: number,
@@ -90,7 +77,6 @@ function addSpan(
   xb: number,
 ): void {
   if (!(xb > xa)) return;
-  // Sub-column j is covered when its centre (j + 0.5) / samples lies inside [xa, xb).
   let j0 = Math.ceil(xa * samples - 0.5);
   let j1 = Math.ceil(xb * samples - 0.5) - 1;
   if (j0 < 0) j0 = 0;
@@ -109,12 +95,6 @@ function addSpan(
   cov[rowBase + px1] += (j1 - px1 * samples + 1) * inv;
 }
 
-/**
- * Rasterise a fill to a coverage plane.
- *
- * @param samples supersampling grid side, clamped to `1..8`
- * @returns a new GrayF of coverage in 0..1; all zeros when the paths contribute no non-horizontal edges.
- */
 export function fill(
   paths: readonly VecPath[],
   w: number,
@@ -190,11 +170,6 @@ export function fill(
   return new GrayF(dw, dh, cov);
 }
 
-/**
- * Rasterise a fill to a binary mask at the 50% coverage level.
- * @returns a new Mask; the midpoint threshold is what makes a 1 px stroke survive as 1 px rather than
- *          vanishing or doubling.
- */
 export function toMask(
   paths: readonly VecPath[],
   w: number,
@@ -207,7 +182,6 @@ export function toMask(
   return new Mask(cov.width, cov.height, out);
 }
 
-/** Source-over composite of one flat colour through a coverage plane. */
 function composite(target: RgbaImage, cov: Float32Array, argb: number, opacity: number): void {
   const px = target.pixels;
   const sa = ((argb >>> 24) & 0xff) / 255;
@@ -228,8 +202,6 @@ function composite(target: RgbaImage, cov: Float32Array, argb: number, opacity: 
       px[i] = 0;
       continue;
     }
-    // Straight-alpha source-over. Compositing the colours weighted by *coverage* alone would darken every
-    // antialiased edge that lands on a transparent background.
     const inv = 1 / outA;
     px[i] = RgbaImage.argb(
       Math.round(outA * 255),
@@ -240,10 +212,6 @@ function composite(target: RgbaImage, cov: Float32Array, argb: number, opacity: 
   }
 }
 
-/**
- * Draw one shape into an existing image: fill first, then stroke, which is SVG's paint order.
- * @param samples supersampling grid side, clamped to `1..8`
- */
 export function renderShape(target: RgbaImage, shape: VecShape, samples = 4): void {
   const style = shape.style;
   if (style.fill !== null) {
@@ -265,17 +233,6 @@ export function renderShape(target: RgbaImage, shape: VecShape, samples = 4): vo
   }
 }
 
-/**
- * Render a whole document.
- *
- * The document is scaled to fit `w` x `h` **non-uniformly** if asked, because a caller that requests an
- * explicit pixel size has already decided the aspect ratio; stroke widths scale by the isotropic mean so
- * they stay visually consistent under a slightly non-square scale.
- *
- * @param background packed ARGB to clear with; pass 0 for transparent
- * @returns a new RgbaImage of `w` x `h`. Hidden layers are skipped and layer opacity multiplies into
- *          each shape's own.
- */
 export function render(
   doc: VecDocument,
   w: number,

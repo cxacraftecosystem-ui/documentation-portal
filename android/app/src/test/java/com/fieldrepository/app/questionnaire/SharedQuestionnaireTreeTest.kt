@@ -14,14 +14,6 @@ import org.junit.Test
 import java.io.File
 import java.security.MessageDigest
 
-/**
- * The questionnaire's shared Android trees (UNIFY U10): the same Kotlin in both portals once the
- * package prefix is normalised, every sentence from `shared/strings/questionnaire.json` word for word
- * (B37), every vocabulary from `shared/enums.json` and `shared/questionnaire-enums.json`, and the
- * files exactly as `shared/android-questionnaire.sha256` lists them. `scripts/sync_questionnaire.py`
- * rewrites the manifest and copies the trees to the other portal; this test fails on a hand edit that
- * skipped it.
- */
 class SharedQuestionnaireTreeTest {
     private fun repoRoot(): File =
         generateSequence(File(".").absoluteFile) { it.parentFile }.firstOrNull { File(it, "shared/android-questionnaire.sha256").isFile }

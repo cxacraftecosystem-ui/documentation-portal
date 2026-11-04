@@ -1,12 +1,3 @@
-"""D37: the transcription working directory, and a download that never leaks its temp file.
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal (``shared/transcription.sha256``).
-Both portals' ``services/s3.download_to_temp`` write into ``app/transcription/workdir`` and must
-leave nothing behind on any failure: a refused size, a failed transfer, a refusal mid-stream, a
-close that fails, an interrupt, a full directory, and a caller cancelled while the thread runs.
-No database, no network: the storage client is a fake.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -38,8 +29,6 @@ def _files(where: Path) -> list[str]:
 
 
 class _Client:
-    """``download_fileobj`` writing ``chunks`` then doing ``then`` (None, or an exception to raise)."""
-
     def __init__(self, chunks: list[bytes], then: BaseException | None = None, gate: threading.Event | None = None) -> None:
         self.chunks = chunks
         self.then = then
@@ -60,8 +49,6 @@ def _use(monkeypatch: pytest.MonkeyPatch, client: _Client, head_size: int | None
         s3, "head_object", lambda key: None if head_size is None else SimpleNamespace(size_bytes=head_size)
     )
 
-
-# --- the directory ----------------------------------------------------------------------------
 
 
 def test_the_directory_is_created_where_configured(work: Path) -> None:
@@ -128,8 +115,6 @@ def test_parts_are_cut_in_the_working_directory(work: Path, monkeypatch: pytest.
     cutter.close()
     assert _files(work) == []
 
-
-# --- download_to_temp: every exit -----------------------------------------------------------
 
 
 def test_a_download_lands_in_the_working_directory(work: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -214,7 +199,7 @@ def test_a_cancelled_caller_leaves_nothing_behind(work: Path, monkeypatch: pytes
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        gate.set()  # the thread finishes the download nobody is waiting for any more
+        gate.set()
         for _ in range(200):
             if not _files(work):
                 return

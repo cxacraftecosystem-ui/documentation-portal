@@ -1,23 +1,3 @@
-"""Old-build shims (DESIGN 5.6). Frozen behaviour: the request and response shapes of
-``POST /questionnaire/interviews`` and ``/media/complete`` with ``linkedRecordType: "questionnaire"``
-do not change, and NEITHER EVER RETURNS A NEW ERROR CODE. With QUESTIONNAIRE_V2 off, none of this
-runs and both routes behave exactly as before.
-
-* ``POST /interviews`` creates a session (never the old fold). ``sessionDate`` is today in IST,
-  estimated. A typed title goes to ``legacyTitle``; the response's ``title`` is the generated one.
-  ``responses`` become answer items, CREATE-ONLY (``baseVersion=None``), so an old build's stale
-  text never overwrites a newer answer. A contributor or volunteer, who could never create, is
-  attached to the matching open session instead (the old fold's v2 meaning), never refused anew.
-* ``PATCH /interviews/{id}`` (an old build editing): the typed title goes to ``legacyTitle``, artisan
-  changes become participant changes (a participant with takes is never dropped), and responses
-  become answers (an old build may revise only its own earlier answer from that session).
-* ``/media/complete`` for an old clip creates a recording through ``resolve_legacy_target``; an
-  unresolved target is NEEDS_DECISION with up to three candidates for the uploader's inbox.
-* After the cutoff, an old build's CREATE gets 503 with ``Retry-After: 86400`` (old builds treat it
-  as transient) and the P14 banner. Clips are always accepted. The cutoff compares the build NUMBER
-  (``X-App-Version-Code``), per platform (audit C7): see :func:`client_build`.
-"""
-
 from __future__ import annotations
 
 import json
@@ -41,12 +21,6 @@ def enabled() -> bool:
     return bool(get_settings().questionnaire_v2)
 
 
-#: THE HEADER CONTRACT (audit C7, H22), the same on every request from both clients:
-#:   ``X-App-Platform``     ``android`` | ``web``
-#:   ``X-App-Version-Code`` the build number, a positive integer (Android ``BuildConfig.VERSION_CODE``;
-#:                          the web's build number). The version NAME was reset to 0.0.1 on 21 Oct,
-#:                          so only the number rises.
-#:   ``X-App-Version``      the version name, for people to read; never compared.
 PLATFORM_HEADER = "x-app-platform"
 VERSION_CODE_HEADER = "x-app-version-code"
 VERSION_NAME_HEADER = "x-app-version"
@@ -55,10 +29,6 @@ UPDATE_MESSAGE = "Update when you have Wi-Fi. Your recordings are safe."
 
 
 def client_build(headers: Any) -> tuple[str, int | None, str | None]:
-    """``(platform, versionCode, versionName)`` of the calling build.
-
-    A build that sends no ``X-App-Platform`` predates the contract: ``web-...`` names are the web,
-    anything else is an Android build. A missing or unreadable code is None (an old build)."""
     name = (headers.get(VERSION_NAME_HEADER) or "").strip() or None
     platform = (headers.get(PLATFORM_HEADER) or "").strip().lower()
     if platform not in PLATFORMS:
@@ -76,11 +46,6 @@ def minimum_version_code(platform: str) -> int | None:
 
 
 def assert_old_build_may_create(headers: Any) -> None:
-    """503 + Retry-After for a create from a build below its platform's minimum (decision 5).
-
-    Android: a build that sends no ``X-App-Version-Code`` predates the cutoff and is below any
-    minimum. Web: the page ships with the server, so a web request with no code is never refused;
-    one that sends a code below the web minimum is (a tab left open across a release)."""
     platform, code, _name = client_build(headers)
     minimum = minimum_version_code(platform)
     if not minimum:
@@ -108,10 +73,6 @@ def _language_code(value: str | None) -> tuple[str | None, str | None]:
 
 async def matching_session(questionnaire_id: str, workshop_id: str | None, artisan_ids: list[str],
                            *, client: Any = None) -> str | None:
-    """The session an old build's create by a contributor or volunteer lands on (audit H5): first an
-    OPEN session today (IST) on this instrument and workshop sharing an artisan; else the newest
-    session on this instrument holding exactly these artisans (the old fold's row). None when there
-    is neither, which is exactly when the old route refused them too."""
     default_db = ports.db()
 
     db = client or default_db
@@ -138,8 +99,6 @@ async def matching_session(questionnaire_id: str, workshop_id: str | None, artis
 
 
 async def attach_to_session(session_id: str, payload: Any, user: Any, questionnaire_id: str) -> Any:
-    """A non-creator's old-build create, attached: they join as a researcher and their responses
-    become answers on that session. The old response shape, the session's row."""
     db = ports.db()
 
     role = "VOLUNTEER" if str(enum_text(getattr(user, "role", None))) == "CROWDSOURCE_VOLUNTEER" else "CONTRIBUTOR"
@@ -150,7 +109,6 @@ async def attach_to_session(session_id: str, payload: Any, user: Any, questionna
 
 
 async def create_interview_shim(payload: Any, user: Any, questionnaire_id: str, check: Any) -> Any:
-    """``POST /interviews`` with v2 on: a NEW session every time, in the old response shape."""
     db = ports.db()
     from app.questionnaire.ports import pin_pending_if_late, stamp_workshop_submission
 
@@ -199,18 +157,11 @@ async def create_interview_shim(payload: Any, user: Any, questionnaire_id: str, 
 
 
 async def responses_to_answers(session_id: str, questionnaire_id: str, responses: list[Any], user: Any) -> None:
-    """Old ``responses`` as answer items, written per participant; a refusal is logged, never raised.
-
-    CREATE-ONLY (audit H5): an old build does not know the answer's version, so sending the current
-    one would let its stale text overwrite a newer answer. The one exception is the build's OWN
-    earlier answer from this same session (an old build re-saving its form), which it may revise."""
     db = ports.db()
     from app.questionnaire import answers
     from app.questionnaire.schemas import AnswerItem, AnswersPut
 
     artisans = await sessions.participant_ids(db, session_id)
-    # The questions' lineages and every (participant, lineage) answer in two reads for the whole
-    # list, not one plus one per participant for every response.
     wanted = [r for r in responses if (getattr(r, "answerText", None) or "").strip()] if artisans else []
     lineage_of: dict[str, str] = {}
     if wanted:
@@ -253,9 +204,6 @@ async def responses_to_answers(session_id: str, questionnaire_id: str, responses
 
 
 async def patch_interview_shim(interview: Any, payload: Any, user: Any) -> dict[str, Any]:
-    """``PATCH /interviews/{id}`` from an old build with v2 on (audit H5). Returns the column changes
-    the route still applies through its own guards (title moved to ``legacyTitle``); participants and
-    answers are written here, through v2."""
     db = ports.db()
 
     session_id = str(interview.id)
@@ -271,7 +219,7 @@ async def patch_interview_shim(interview: Any, payload: Any, user: Any) -> dict[
                 await sessions.add_participants(tx, session_id, added, now())
             for artisan_id in [a for a in current if a not in wanted]:
                 if await sessions.takes_for(tx, session_id, artisan_id):
-                    kept.append(artisan_id)  # their takes would stop counting for them: never dropped here
+                    kept.append(artisan_id)
                     continue
                 await tx.execute_raw(
                     'DELETE FROM "QuestionnaireInterviewArtisan" WHERE "interviewId" = $1 AND "artisanId" = $2', session_id, artisan_id
@@ -287,8 +235,6 @@ async def patch_interview_shim(interview: Any, payload: Any, user: Any) -> dict[
 
 
 def legacy_title_change(data: dict[str, Any]) -> dict[str, Any]:
-    """An old build's typed title is kept as ``legacyTitle``; the generated ``title`` is never
-    overwritten (audit H5)."""
     if "title" in data:
         typed = (data.pop("title") or "").strip()
         data["legacyTitle"] = typed or None
@@ -309,11 +255,6 @@ def _filename_stamp(name: str) -> datetime | None:
 async def record_legacy_clip(media: Any, user: Any, *, client: Any = None, provenance: str = "SHIM",
                              client_clip_key: str | None = None, targets: list[dict[str, Any]] | None = None,
                              subjects: list[str] | None = None) -> str | None:
-    """Give an old clip its v2 recording. Returns the recording id (None when it has no session).
-
-    ``targets`` (already resolved) and ``subjects`` are given by "File it" (provenance MANUAL); the
-    shim and the backfill's catch-up resolve them from the clip. A NEEDS_DECISION take is PENDING,
-    never approved with its session (DESIGN 7.3; audit M1)."""
     default_db = ports.db()
 
     db = client or default_db
@@ -399,7 +340,6 @@ class _nullctx:
 
 
 async def after_legacy_complete(answer: dict[str, Any], payload: Any, user: Any) -> None:
-    """Called after an old-shape /media/complete. Never raises: the old response stands."""
     if not enabled() or str(getattr(payload, "linkedRecordType", "") or "").lower() not in LEGACY_TYPES:
         return
     try:

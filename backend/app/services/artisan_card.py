@@ -1,30 +1,3 @@
-"""The artisan card's code: an opaque, signed token both portals issue and both can read.
-
-── WHAT IS ON A CARD ────────────────────────────────────────────────────────────────────────────
-
-A printed artisan card carries a QR code and, under it, a short code a person can type. Neither holds
-anything about the artisan: not the record id, not a number, not a name. Both are made of
-
-* ``code`` — 10 Crockford base32 characters (50 bits) from :mod:`secrets`, unique per card and
-  never derived from the artisan;
-* ``issuer`` — ``D`` for the Design Prototype Workshop portal, ``F`` for the Field Repository
-  (``settings.artisan_card_issuer``), never reused;
-* ``keyVersion`` — one digit, the version of ``ARTISAN_CARD_KEY`` that signed the QR;
-* ``tag`` — the first 10 bytes of ``HMAC-SHA256(ARTISAN_CARD_KEY, "CXA1:" + issuer + keyVersion +
-  ":" + code)``, as 16 Crockford characters. Only the issuing server holds the key, so only it can
-  tell a printed QR from a made-up one. Clients never see the key.
-
-QR payload: ``CXA1:<issuer><keyVersion>:<code>:<tag>`` (35 characters, all in the QR alphanumeric
-set, drawn at error level Q). Short code: ``<issuer>-<code[0:5]>-<code[5:10]>-<check>``, where the
-check is FNV-1a 32-bit over ``"CXA1:" + issuer + ":" + code``, mod 1024, as 2 Crockford characters.
-The check catches a mistyped character before anything is looked up.
-
-The parse rules are the same in Python, TypeScript (``frontend/lib/artisanCard.ts``) and Kotlin
-(``data/ArtisanCardCode.kt``), held together by ``shared/artisan-card-vectors.json``.
-
-Both portals carry this module under the same name, byte for byte; change both.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -33,7 +6,6 @@ import secrets
 from dataclasses import dataclass
 from typing import Any
 
-#: Crockford base32: no I, L, O or U.
 ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _INDEX = {ch: i for i, ch in enumerate(ALPHABET)}
 
@@ -44,10 +16,8 @@ TAG_LENGTH = 16
 CHECK_LENGTH = 2
 SHORT_LENGTH = 1 + CODE_LENGTH + CHECK_LENGTH
 
-#: Shortest key accepted. 32 random bytes in base64 is 44 characters.
 MIN_KEY_LENGTH = 32
 
-#: Why a parse failed. Every one is the same 422 sentence on the resolve route.
 NOT_A_CARD = "NOT_A_CARD"
 BAD_CHECK = "BAD_CHECK"
 BAD_ISSUER = "BAD_ISSUER"
@@ -82,7 +52,6 @@ class ParsedCard:
 
 
 def encode_base32(data: bytes) -> str:
-    """Big-endian Crockford base32 of ``data``; a partial last group is padded with zero bits."""
     bits = 0
     value = 0
     out: list[str] = []
@@ -98,7 +67,6 @@ def encode_base32(data: bytes) -> str:
 
 
 def new_code() -> str:
-    """10 random Crockford characters (50 bits)."""
     return "".join(secrets.choice(ALPHABET) for _ in range(CODE_LENGTH))
 
 
@@ -138,13 +106,6 @@ def _crockford(text: str) -> bool:
 
 
 def parse(text: Any) -> ParsedCard:
-    """A full QR payload or a typed short code, or :class:`CardParseError` with the reason.
-
-    Upper-cased; spaces, ``-`` and ``.`` dropped; ``I``/``L`` read as ``1`` and ``O`` as ``0``
-    (every character of a card is Crockford, so the mapping cannot change a valid code). ``U`` is
-    refused. Anything with a ``:`` that is not ``CXA1:`` (an old ``DPW1:`` code) is NOT_A_CARD, so
-    the caller can hand it to the old decoder.
-    """
     if not isinstance(text, str):
         raise CardParseError(NOT_A_CARD)
     cleaned = text.upper().translate(_STRIPPED)
@@ -189,7 +150,6 @@ def _key_ok(value: Any) -> bool:
 
 
 def active(settings: Any) -> bool:
-    """The flag AND a key of 32 characters or more. Off: every card route answers 404."""
     if not getattr(settings, "artisan_cards_enabled", False):
         return False
     return _key_ok(getattr(settings, "artisan_card_key", None))
@@ -204,7 +164,6 @@ def key_version(settings: Any) -> int:
 
 
 def key_for_version(settings: Any, version: int | None) -> str | None:
-    """The key that signed ``version``: the current one, or the previous one after a rotation."""
     current = key_version(settings)
     if version == current:
         return (getattr(settings, "artisan_card_key", None) or "").strip() or None
@@ -215,12 +174,10 @@ def key_for_version(settings: Any, version: int | None) -> str | None:
 
 
 def token_for(settings: Any, code: str) -> str:
-    """The QR payload for ``code`` under the current key."""
     return payload(settings.artisan_card_key, issuer_of(settings), key_version(settings), code)
 
 
 def verify(settings: Any, parsed: ParsedCard) -> bool:
-    """True when the parsed card's tag (if it has one) was made by this server's key."""
     if parsed.tag is None:
         return True
     key = key_for_version(settings, parsed.keyVersion)

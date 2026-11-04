@@ -8,14 +8,6 @@ import { LANGUAGES } from "@/lib/languages";
 import { questionnaireStrings } from "@/lib/strings/questionnaire";
 import { qs, WEB_ONLY_STRINGS } from "@/lib/strings/qs";
 
-/**
- * DESIGN test 59 (web half) and the BUILD_PLAN §0.1 parity rule:
- * - `shared/` is a verbatim copy of `feature/q-backend` (every file matches `shared/manifest.json`);
- * - `lib/strings/questionnaire.ts` is exactly what `scripts/generate_shared.py` emits from
- *   `shared/strings/questionnaire.json` (same keys, same words);
- * - every `qs()` key the v2 screens use exists, and web-only labels never shadow a shared key.
- */
-
 const ROOT = join(__dirname, "..", "..");
 const sha = (path: string) => createHash("sha256").update(readFileSync(path).toString("utf8").replace(/\r\n/g, "\n")).digest("hex");
 

@@ -15,18 +15,6 @@ import {
   type WorkshopMappingPlan
 } from "@/components/settings/workshopMapping";
 
-/**
- * Two data-hygiene tools (2026-10-20), their pure halves.
- *
- * A6 — the "Records not filed under a workshop" card now leads with what is left for a PERSON: the
- * server files the clear-cut rows (a parent record already names the workshop) once a night. Every
- * count falls back to the older payload, so the card still reads right against a server without the
- * nightly job.
- *
- * C24 — the duplicate-artisan merge. The server decides the defaults and the moves; these helpers
- * only word them.
- */
-
 const read = (...parts: string[]) => readFileSync(join(__dirname, "..", ...parts), "utf8");
 
 function bucket(partial: Partial<MappingBucket>): MappingBucket {
@@ -51,7 +39,6 @@ test("the card counts only what needs a person, from the new fields or the old o
   const fresh = bucket({ unassigned: 10, resolved: 8, unresolved: 2, clearCut: 6, needsReview: 4 });
   expect(needsReviewCount(fresh)).toBe(4);
   expect(suggestedCount(fresh)).toBe(2);
-  // An older server: no clearCut field, so it is read off the PARENT rung count.
   const old = bucket({
     unassigned: 10,
     resolved: 8,

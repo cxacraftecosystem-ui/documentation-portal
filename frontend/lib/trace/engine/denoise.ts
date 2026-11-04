@@ -1,22 +1,5 @@
 import { GrayF, Px } from './buffers';
 
-/**
- * Denoising. See ALGORITHMS.md §4.
- *
- * Bilateral and median are both offered because they fail differently: bilateral is the right tool
- * for sensor noise, median for salt-and-pepper dust on a scan. Picking one for the user would make
- * the other class of source untraceable.
- */
-
-/**
- * Edge-preserving bilateral filter, edge-clamped.
- *
- * The range term is read from a 256-entry LUT indexed by `round(|dI| * 255)`; recomputing `exp` per
- * neighbour pair made this stage dominate the whole pipeline. Spatial radius is `ceil(2 * sigmaSpace)`
- * — 2σ not 3σ, because the range term already suppresses the tail and the kernel is 2-D.
- *
- * @returns a new GrayF; `src.copy()` when either sigma is <= 0.
- */
 export function bilateral(src: GrayF, sigmaSpace: number, sigmaRange: number): GrayF {
   if (sigmaSpace <= 0 || sigmaRange <= 0) return src.copy();
   const w = src.width;
@@ -66,16 +49,6 @@ export function bilateral(src: GrayF, sigmaSpace: number, sigmaRange: number): G
   return new GrayF(w, h, out);
 }
 
-/**
- * Median filter, edge-clamped.
- *
- * `radius == 1` sorts the 9 samples exactly. `radius >= 2` uses a sliding 256-bin histogram, which is
- * O(1) amortised in the window width; the price is that the output is quantised to 1/255 steps. That
- * is the trade the reference algorithm makes and both engines make it identically, because a median
- * that costs O(r^2) makes radius 6 unusable on a phone.
- *
- * @returns a new GrayF; `src.copy()` when `radius <= 0`.
- */
 export function median(src: GrayF, radius: number): GrayF {
   const r = radius | 0;
   if (r <= 0) return src.copy();
@@ -104,7 +77,6 @@ function median3(src: GrayF): GrayF {
       buf[6] = d[yp + xm];
       buf[7] = d[yp + x];
       buf[8] = d[yp + xp];
-      // Insertion sort: nine elements, no allocation, and it beats every clever network in practice.
       for (let i = 1; i < 9; i++) {
         const v = buf[i];
         let j = i - 1;
@@ -133,7 +105,6 @@ function medianHistogram(src: GrayF, r: number): GrayF {
 
   for (let y = 0; y < h; y++) {
     bins.fill(0);
-    // Prime the window at x = 0, columns [-r, r] with out-of-range columns clamped to column 0.
     for (let dy = -r; dy <= r; dy++) {
       const sy = y + dy;
       const srow = (sy < 0 ? 0 : sy >= h ? h - 1 : sy) * w;
@@ -169,14 +140,6 @@ function pickMedian(bins: Int32Array, half: number): number {
   return 255;
 }
 
-/**
- * Perona-Malik anisotropic diffusion with conduction function `c(g) = exp(-(g/kappa)^2)`.
- *
- * @param iterations fixed count; 0 or fewer returns `src.copy()`
- * @param kappa      conduction threshold; <= 0 returns `src.copy()`
- * @param lambda     step size, clamped to 0.25 which is the stability limit for a 4-neighbourhood
- * @returns a new GrayF the same size as `src`.
- */
 export function anisotropicDiffusion(
   src: GrayF,
   iterations: number,
@@ -218,14 +181,6 @@ export function anisotropicDiffusion(
   return new GrayF(w, h, cur);
 }
 
-/**
- * Median only where the pixel disagrees with its neighbourhood by more than `threshold`.
- *
- * This is the correct shape for dust removal: a plain median softens every stroke it passes over,
- * while despeckle leaves the 99% of pixels that agree with their surroundings bit-identical.
- *
- * @returns a new GrayF; `src.copy()` when `radius <= 0`.
- */
 export function despeckle(src: GrayF, radius: number, threshold: number): GrayF {
   if (radius <= 0) return src.copy();
   const med = median(src, radius);

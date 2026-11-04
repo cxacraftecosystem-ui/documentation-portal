@@ -8,16 +8,6 @@ import { workshopRunsToday } from "@/components/forms/WorkshopSelect";
 import { statusLabel } from "@/components/StatusBadge";
 import { RequiredMark } from "@/components/ui/RequiredMark";
 
-/**
- * THE 2026-10-16 UI/UX AUDIT (`docs/UX_AUDIT_2026-10-16.md`), the web half, held in place.
- *
- * Each block names its finding. Where a function can be called it is called; where the fix is a
- * class string or a piece of markup it is read out of source, because there is no React renderer in
- * this repository's devDependencies (see `record-parity-fields-unit.spec.ts`). What none of this
- * proves is the measured contrast in a browser — the forced-dark axe pass the audit proposed needs
- * a running app and is not part of the unit run.
- */
-
 const read = (...parts: string[]) =>
   readFileSync(join(__dirname, "..", ...parts), "utf8").replace(/\r\n/g, "\n");
 
@@ -77,7 +67,6 @@ test.describe("DC-04 / DC-05 · names for unnamed controls", () => {
   });
 
   test("each user's role picker is named for that user", () => {
-    // The picker moved off the list and behind Update on the person's own view (2026-10-16).
     expect(read("app", "(protected)", "users", "[id]", "page.tsx")).toContain("ariaLabel={`Role for ${person.name}`}");
   });
 });
@@ -86,8 +75,6 @@ test.describe("DC-06 · the review queue", () => {
   const source = read("app", "(protected)", "review", "page.tsx");
 
   test("is paged by the server, not cut at 200 per type and paged here", () => {
-    // Since 2026-10-20 the page and its filters go through `queueQuery` (lib/review.ts), which the
-    // feedback-loop spec pins: page and pageSize first, then the workshop, creator and order.
     expect(source).toContain("/review/pending${queueQuery(onPage, PAGE_SIZE, filters)}");
     expect(source).not.toContain("items.slice(");
   });

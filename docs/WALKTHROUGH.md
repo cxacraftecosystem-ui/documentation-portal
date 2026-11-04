@@ -235,8 +235,10 @@ Sit down with the artisan and work through the interview sections, recording eac
 question"** audio clip or a typed answer, and Interview notes at the foot of the form.
 
 **Why it exists.** The questionnaire is the artisan speaking in their own voice and their own
-language. Recorded audio is transcribed automatically, so you get both the original recording
-and searchable text without typing during the interview.
+language. Every take is transcribed and translated into English on the server, so you get the
+original recording, the artisan's own words as text and the English, without typing during the
+interview. Each recording carries chips (section, questionnaire, artisans, date, workshop) that
+filter the session lists.
 
 **Watch out for:**
 
@@ -268,7 +270,9 @@ records instead of on a phone that gets wiped.
 
 - **Upload stays disabled until you pick a Linked record type.** If the file belongs to nothing in
   particular, pick **Miscellaneous Media** and leave the entry blank.
-- Audio uploaded here is queued for transcription after upload, exactly like interview audio.
+- Each audio or video file has its own **Transcribe and translate** box. Tick it and the file is
+  transcribed (a video from its sound) and translated after upload; leave it and nothing is sent. When
+  an admin has switched on transcription for all new audio or video, the box is ticked and locked.
 - If the file does turn out to belong to a record, link it — misc media can be attached to a record
   afterwards.
 

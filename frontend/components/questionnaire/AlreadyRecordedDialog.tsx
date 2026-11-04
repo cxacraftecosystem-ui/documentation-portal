@@ -18,11 +18,6 @@ export type P2Choice =
   | { kind: "replace" }
   | { kind: "different"; targetValue: string };
 
-/**
- * P2 "Already recorded" (DESIGN §4.4): asked BEFORE recording, on Record press or file pick. The
- * reason is preselected by the rule in `preselectReason`; More options holds part 2 (only when its
- * rule holds), replace (only for your own take in this session) and "Use a different question".
- */
 export function AlreadyRecordedDialog({
   open,
   input,
@@ -33,7 +28,6 @@ export function AlreadyRecordedDialog({
   open: boolean;
   input: P2Input;
   preselected: RepeatReason;
-  /** Uncovered targets first. */
   otherTargets: SelectOption[];
   onChoose: (choice: P2Choice) => void;
 }) {

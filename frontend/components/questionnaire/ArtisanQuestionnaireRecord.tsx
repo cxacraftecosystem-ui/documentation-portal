@@ -51,12 +51,6 @@ function TakeLine({ recording, artisanId, paused }: { recording: Recording; arti
   );
 }
 
-/**
- * An artisan's questionnaire record (DESIGN §4.6), the Questionnaire tab of `/artisans/[id]`:
- * summary and section chips, Continue with / Export CSV, then Timeline (sessions newest first, takes
- * in capture order, PRESENT and whole-session takes included, estimated items in "Order uncertain")
- * or By question. Replaces `components/ArtisanQuestionnairePanel.tsx` under v2.
- */
 export function ArtisanQuestionnaireRecord({ artisanId, artisanName }: { artisanId: string; artisanName: string }) {
   const config = useQuestionnaireConfig();
   const [record, setRecord] = useState<ArtisanRecord | null>(null);
@@ -81,7 +75,6 @@ export function ArtisanQuestionnaireRecord({ artisanId, artisanName }: { artisan
       .catch(() => setRefusedConsent(false));
   }, [artisanId, load]);
 
-  // `/questionnaire/consolidated/[id]` lands on `/artisans/[id]?tab=questionnaire`: bring the record into view.
   useEffect(() => {
     if (!record || typeof window === "undefined") return;
     if (new URLSearchParams(window.location.search).get("tab") !== "questionnaire") return;
@@ -89,7 +82,6 @@ export function ArtisanQuestionnaireRecord({ artisanId, artisanName }: { artisan
   }, [record]);
 
   const paused = config?.transcriptionPaused ?? true;
-  // Consent is assumed by default; the record speaks only when the artisan refused, with Switch back on.
   const consent = refusedConsent ? (
     <ConsentQuestion artisanId={artisanId} name={artisanName} refused onRecorded={() => setRefusedConsent(false)} onDismiss={() => setRefusedConsent(false)} />
   ) : null;

@@ -58,34 +58,21 @@ const failure = (error: unknown, fallback: string) =>
   errorCode(error) === "STALE_REVISION" ? ts("changedElsewhere") : error instanceof Error && error.message ? error.message : fallback;
 
 export type TranscriptViewerProps = {
-  /** MediaFile.id: every recording of both portals. */
   mediaId: string;
-  /** The recording, when the caller already holds its url; else the view's own `audio.url`. */
   audioUrl?: string | null;
-  /** What to draw while this recording has no transcript in the pipeline (the stored text, the old states). */
   fallback?: ReactNode;
-  /** A questionnaire take: offers "Fill the questionnaire"; `onReview` opens the drafts in the form. */
   questionnaire?: { onReview?: () => void };
-  /** The recording's chips (what it answers, who, when, where), drawn under the header facts. */
   chips?: ReactNode;
-  /** False on a dense list (questionnaire takes): the header and player show, the turns wait for a tap. */
   initiallyOpen?: boolean;
+  video?: boolean;
 };
 
-/**
- * THE TRANSCRIPT VIEWER, on every recording of both portals (design §3, §4, §10).
- *
- * Header facts and model badges; Original · English · Side by side (stacked pairs below `md`);
- * per-turn copy; Copy all; Select turns → Copy selected / Make a quote card; downloads; speaker
- * names; turn edits; karaoke; Ask this interview; Fill the questionnaire on a take.
- */
-export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionnaire, initiallyOpen = true, chips = null }: TranscriptViewerProps) {
+export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionnaire, initiallyOpen = true, chips = null, video }: TranscriptViewerProps) {
   const [transcript, setTranscript] = useState<Transcript | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [tab, setTab] = useState<ViewTab>("original");
-  /** Turns (one card per turn, with its clock and tools) or Reading (one flowing transcript, no clocks). */
   const [mode, setMode] = useState<"turns" | "reading">("turns");
   const playerRef = useRef<HTMLDivElement | null>(null);
   const [selecting, setSelecting] = useState(false);
@@ -93,10 +80,8 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
   const [panel, setPanel] = useState<"speakers" | "ask" | "quote" | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [open, setOpen] = useState(initiallyOpen);
-  /** Voice Isolator (0.0.5): the cleaned copy plays unless the reader asks for the recording as made. */
   const [original, setOriginal] = useState(false);
   const cleanedAudio = Boolean(transcript?.audio.cleaned && transcript.audio.originalUrl);
-  // A cleaned copy wins over the mount's own URL for the file: that URL is the recording as made.
   const audio = useTranscriptAudio(
     (cleanedAudio ? (original ? transcript?.audio.originalUrl : transcript?.audio.url) : (audioUrl ?? transcript?.audio.url)) ?? null
   );
@@ -327,13 +312,22 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
         {chips}
       </header>
 
+      {audio.hasAudio && (video ?? transcript.audio.video) ? (
+        <video
+          {...audio.bind}
+          playsInline
+          className="max-h-[60vh] w-full rounded-md bg-black"
+          data-transcript-video
+          data-testid="transcript-video"
+        />
+      ) : null}
       {audio.hasAudio ? (
         <div
           ref={playerRef}
           className="relative flex items-center gap-3 rounded-md border border-line-200 bg-card px-3 py-2"
           data-transcript-player
         >
-          <audio {...audio.bind} className="hidden" data-transcript-audio />
+          {(video ?? transcript.audio.video) ? null : <audio {...audio.bind} className="hidden" data-transcript-audio />}
           <button
             type="button"
             onClick={audio.toggle}
@@ -343,7 +337,6 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
           >
             {audio.playing ? <Pause className="h-4 w-4" aria-hidden /> : <Play className="ml-0.5 h-4 w-4" aria-hidden />}
           </button>
-          {/* Exactly the range input's height, so a mark centred in it is centred on the bar. */}
           <div className="relative flex h-4 min-w-0 flex-1 items-center" data-audio-timeline>
           <input
             type="range"
@@ -422,7 +415,6 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
                 </button>
               ))}
             </div>
-            {/* Two named layouts, not a setting: a segmented pair. */}
             <div className="inline-flex rounded-md border border-line-200 bg-surface-50 p-0.5" role="group" aria-label={ts("viewModeLabel")}>
               {(["turns", "reading"] as const).map((entry) => (
                 <button
@@ -443,7 +435,6 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
             <CopyStatus message={message} />
           </div>
 
-          {/* A toolbar of controls on one transcript, not an action row. */}
           <div className="flex flex-wrap gap-2" data-transcript-toolbar>
             {mode === "reading" ? (
               <button type="button" className={SECONDARY} onClick={() => void copy(copyAll(transcript, tabTrack(tab), false))} data-testid="copy-view">
@@ -637,11 +628,6 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
   );
 }
 
-/**
- * The turns a reader marked as points on this recording's timeline: off for every turn until ticked,
- * kept on this device per recording (a reading aid, not part of the transcript), and readable when
- * storage is not.
- */
 function useTimelineMarks(mediaId: string) {
   const storageKey = `transcript-marks:${mediaId}`;
   const [ids, setIds] = useState<Set<string>>(() => new Set());
@@ -662,7 +648,6 @@ function useTimelineMarks(mediaId: string) {
         try {
           window.localStorage.setItem(storageKey, JSON.stringify([...next]));
         } catch {
-          // A private window keeps the marks for this visit only.
         }
         return next;
       });
@@ -676,7 +661,6 @@ function useTimelineMarks(mediaId: string) {
       try {
         window.localStorage.setItem(storageKey, JSON.stringify([...next]));
       } catch {
-        // As above.
       }
     },
     [storageKey]

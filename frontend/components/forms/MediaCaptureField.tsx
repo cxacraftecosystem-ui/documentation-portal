@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Camera, FolderOpen, Mic, Square, Video } from "lucide-react";
 
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
+import { TranscribeChoices } from "@/components/transcript/TranscribeChoices";
 import { RecordingStrip } from "@/components/media/Waveform";
 import {
   audioExtensionForMimeType,
@@ -42,7 +43,6 @@ function mergeFiles(existing: File[], incoming: File[]) {
   return merged;
 }
 
-/** Per-file transfer wording, mirroring the Android capture screen's attachment rows. */
 function stageStatusLabel(entry: StageEntry | null): string | null {
   if (!entry) return null;
   if (entry.status === "ready") return "Uploaded ✓";
@@ -51,23 +51,14 @@ function stageStatusLabel(entry: StageEntry | null): string | null {
   return `Uploading… ${percent}%`;
 }
 
-/**
- * Attach-media card, mirroring the Android `MediaCaptureSection`: the same option buttons in the
- * same order — Pick files, Take photo, Record video, Record audio — plus a live waveform while
- * audio records and a tap-to-preview tile grid with per-file remove.
- *
- * Attaching a file starts its upload IMMEDIATELY (Android's eager pre-upload), so the transfer
- * overlaps the time spent filling the form and saving only has to link the finished object. The
- * selected `File[]` still flows to the caller unchanged — `uploadMediaBatch` recognises the files
- * that are already in object storage, so no call site has to know this happened.
- */
 export function MediaCaptureField({
   files,
   onFilesChange,
   title = "Attach media",
-  description = "Photos, video, audio and files. Audio is transcribed.",
+  description = "Photos, video, audio and files.",
   allowDocuments = true,
-  allowedTypes
+  allowedTypes,
+  transcribeChoice = true
 }: {
   files: File[];
   onFilesChange: (files: File[]) => void;
@@ -75,9 +66,9 @@ export function MediaCaptureField({
   description?: string;
   allowDocuments?: boolean;
   allowedTypes?: MediaType[];
+  transcribeChoice?: boolean;
 }) {
   const [recording, setRecording] = useState(false);
-  // The live stream is state, not just a ref, because <Waveform> needs to re-render on it.
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -87,20 +78,17 @@ export function MediaCaptureField({
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const elapsedTimerRef = useRef<number | null>(null);
-  // Latest files, so async callbacks (recorder.onstop) never append to a stale snapshot.
   const filesRef = useRef(files);
   useEffect(() => {
     filesRef.current = files;
   }, [files]);
 
-  // Eager pre-upload: every attached file starts streaming to object storage right away.
   const staging = useEagerStaging(files, title);
 
   const imageAllowed = !allowedTypes || allowedTypes.includes("IMAGE");
   const videoAllowed = !allowedTypes || allowedTypes.includes("VIDEO");
   const audioAllowed = !allowedTypes || allowedTypes.includes("AUDIO");
 
-  // "Pick files" accepts everything the field allows; addFiles still filters against allowedTypes.
   const pickAccept = (
     allowedTypes
       ? allowedTypes.map((type) => ACCEPT_BY_TYPE[type])
@@ -111,7 +99,6 @@ export function MediaCaptureField({
 
   function addFiles(fileList: FileList | null) {
     if (!fileList) return;
-    // Only the NEW files are filtered against allowedTypes — files already added stay untouched.
     const incoming = Array.from(fileList).filter((file) => !allowedTypes || allowedTypes.includes(inferMediaType(file)));
     if (!incoming.length) return;
     onFilesChange(mergeFiles(files, incoming));
@@ -128,8 +115,6 @@ export function MediaCaptureField({
     const liveStream = await navigator.mediaDevices.getUserMedia({ audio: SPEECH_AUDIO_CONSTRAINTS });
     streamRef.current = liveStream;
     chunksRef.current = [];
-    // Ask the browser what it can actually record: Safari/iOS produces audio/mp4, so a hardcoded
-    // "audio/webm" name and type would lie about the bytes and break playback and transcription.
     const preferredType = pickAudioRecorderMimeType();
     const recorder = new MediaRecorder(liveStream, preferredType ? { mimeType: preferredType } : undefined);
     recorderRef.current = recorder;
@@ -139,8 +124,6 @@ export function MediaCaptureField({
     recorder.onstop = () => {
       const mimeType = recorder.mimeType || preferredType || "audio/webm";
       const blob = new Blob(chunksRef.current, { type: mimeType });
-      // NAMING 2.1. The field does not know its record; the form that owns it renames the file when it
-      // does (renameMediaFile), and otherwise this is still a dated, conventional name.
       const name = recordingFilename(null, audioExtensionForMimeType(mimeType), { capturedAt: new Date() });
       const file = new File([blob], name, { type: mimeType });
       onFilesChange([...filesRef.current, file]);
@@ -149,8 +132,6 @@ export function MediaCaptureField({
     };
     const startedAt = Date.now();
     setElapsedMs(0);
-    // Only the clock needs a timer now — the bars run on <Waveform>'s own requestAnimationFrame loop,
-    // which owns (and tears down) the AudioContext and analyser.
     elapsedTimerRef.current = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 250);
     recorder.start();
     setStream(liveStream);
@@ -210,7 +191,6 @@ export function MediaCaptureField({
           addFiles(event.dataTransfer.files);
         }}
       >
-        {/* Android order: Pick files · Take photo · Record video · Record audio. */}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <label className="file-trigger">
             <FolderOpen className="h-4 w-4" aria-hidden />
@@ -250,13 +230,13 @@ export function MediaCaptureField({
           Or drag files here. Uploads start right away.
         </p>
       </div>
+      {transcribeChoice ? <TranscribeChoices files={files} /> : null}
       {previewItems.length ? (
         <div className="grid gap-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold text-ink-700">
               {previewItems.length} file{previewItems.length === 1 ? "" : "s"} attached
             </p>
-            {/* Android parity wording: "All uploaded ✓ — ready to save". */}
             <p className={`text-xs ${staging.failed ? "font-medium text-red-800 dark:text-red-300" : "text-ink-500"}`}>
               {staging.allReady
                 ? "All uploaded ✓ — ready to save"
@@ -289,22 +269,6 @@ export function MediaCaptureField({
           </div>
         </div>
       ) : null}
-      {/*
-        THE TRACER, MOUNTED HERE RATHER THAN IN EACH FORM, AND THAT IS THE WHOLE POINT.
-
-        It was first wired form by form — artisan, process, product, tool — which covered four of the
-        NINE places this component is used and silently missed the rest: the crafts page, the media
-        page, the workshops page, the process form's per-step field and the tool form's stage field.
-        "Wherever an image can be uploaded" is a property of THIS component, so it belongs on this
-        component; a list maintained in five other files is a list that is already wrong.
-
-        `imageAllowed` is the gate that already exists here, so the audio-only questionnaire field
-        (`allowedTypes={["AUDIO"]}`) does not grow a tracer it could never use — without anybody
-        having to remember that it is the exception.
-
-        The handset reached the same arrangement for the same reason: one mount inside
-        `MediaCaptureSection`, not one per screen.
-      */}
       {imageAllowed ? <TraceFromCapture files={files} onFilesChange={onFilesChange} /> : null}
       {activePreview ? <MediaLightbox item={activePreview} onClose={() => setActivePreview(null)} /> : null}
     </section>

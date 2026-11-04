@@ -4,39 +4,21 @@ import kotlinx.coroutines.CancellationException
 import retrofit2.HttpException
 import java.io.IOException
 
-/** What a scanned or typed artisan card came to. */
 sealed interface ArtisanCardResolution {
-    /** The artisan. [offline] when it was matched against the register this phone already holds. */
     data class Found(val artisanId: String, val name: String, val place: String?, val offline: Boolean) : ArtisanCardResolution
 
-    /** The card was revoked; [artisanId] is the artisan it belonged to. */
     data class Replaced(val artisanId: String) : ArtisanCardResolution
 
-    /** No signal and no cached row: kept as [ArtisanCardCode.pendingValue] until the phone is online. */
     data class Pending(val card: ArtisanCardCode.Parsed) : ArtisanCardResolution {
         val value: String get() = ArtisanCardCode.pendingValue(card)
     }
 
-    /** A sentence to show: a mistyped code, or the server's answer to a miss. */
     data class Refused(val message: String) : ArtisanCardResolution
 }
 
-/**
- * Whether [card] is already held, waiting to sync, in one of [payloads] (queued entry bodies and
- * their steps). The top-bar scanner says so offline instead of a bare "You're offline": the card is
- * known on this phone and links on the next sync.
- */
 fun cardWaitingToSync(card: ArtisanCardCode.Parsed, payloads: List<String>): Boolean =
     payloads.any { card.shortCode in ArtisanCardCode.pendingIn(it) }
 
-/**
- * The card rule, pure apart from its two lookups so `ArtisanCardResolveTest` can drive it:
- *
- * 1. parse (a bad check never leaves the phone);
- * 2. the register this phone already holds ([cachedRows]), so a card opens with no signal;
- * 3. the server ([online]), which knows revoked cards and every artisan this phone has not seen;
- * 4. no answer at all → [ArtisanCardResolution.Pending], so a picker can link it on sync.
- */
 suspend fun resolveArtisanCardWith(
     input: String,
     cachedRows: suspend () -> List<ArtisanDto>,
@@ -68,7 +50,6 @@ suspend fun resolveArtisanCardWith(
     } catch (e: CancellationException) {
         throw e
     } catch (e: HttpException) {
-        // 401: the session expired. Kept pending so the outbox resumes after sign-in, not held.
         if (e.code() >= 500 || e.code() == 408 || e.code() == 401) ArtisanCardResolution.Pending(card)
         else ArtisanCardResolution.Refused(e.apiErrorMessage("No artisan matches this card."))
     } catch (_: IOException) {
@@ -76,10 +57,6 @@ suspend fun resolveArtisanCardWith(
     }
 }
 
-/**
- * The pending cards in one queued body, resolved for the outbox sync. `null` values in the result
- * mean "still no signal" (stop the pass); a [ArtisanCardResolution.Refused] holds the entry.
- */
 sealed interface PendingCardOutcome {
     data class Resolved(val payloadJson: String) : PendingCardOutcome
     data class Held(val reason: String) : PendingCardOutcome

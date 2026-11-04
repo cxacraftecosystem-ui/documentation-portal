@@ -1,11 +1,3 @@
-"""A fake Microsoft / Yahoo identity provider for the sign-in tests. Not a test module.
-
-It holds real key pairs (RSA for RS256, P-256 for ES256), publishes their public halves as a JWKS
-and mints ID tokens signed with the private halves, so ``app.services.oidc_sign_in`` verifies them
-with exactly the code that verifies a real provider's. Only the two HTTP calls are replaced — the
-token endpoint and the JWKS fetch — and nothing in the module under test knows it is being tested.
-"""
-
 from __future__ import annotations
 
 import base64
@@ -22,7 +14,6 @@ from app.services import oidc_sign_in
 
 MICROSOFT_CLIENT_ID = "00000000-aaaa-bbbb-cccc-000000000001"
 YAHOO_CLIENT_ID = "dj0yJmk9ZmFrZS15YWhvby1jbGllbnQ"
-#: A work-or-school tenant, as opposed to the consumer tenant every personal account uses.
 WORK_TENANT = "72f988bf-86f1-41af-91ab-2d7cd011db47"
 RAW_NONCE = "a-raw-nonce-only-the-client-holds-0123456789"
 VERIFIER = "v" * 64
@@ -53,7 +44,6 @@ class FakeIdP:
     def __init__(self) -> None:
         self.rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         self.ec_key = ec.generate_private_key(ec.SECP256R1())
-        #: A key nobody published: a token signed with it must be refused.
         self.stranger_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         rsa_public = self.rsa_key.public_key().public_numbers()
         ec_public = self.ec_key.public_key().public_numbers()
@@ -67,10 +57,7 @@ class FakeIdP:
         }
         self.jwks_fetches = 0
         self.redemptions: list[tuple[str, dict[str, str]]] = []
-        #: What the token endpoint answers next: (status, body). Set by ``issue``.
         self.next_answer: tuple[int, Any] = (400, {"error": "invalid_grant"})
-
-    # ── minting ──────────────────────────────────────────────────────────────────────────────
 
     def sign(self, claims: dict[str, Any], *, alg: str = "RS256", kid: str | None = None,
              key: Any = None) -> str:
@@ -127,8 +114,6 @@ class FakeIdP:
 
     def issue(self, token: str) -> None:
         self.next_answer = (200, {"id_token": token, "token_type": "Bearer", "access_token": "at"})
-
-    # ── the two HTTP calls oidc_sign_in makes ────────────────────────────────────────────────
 
     def post_form(self, url: str, data: dict[str, str]) -> tuple[int, Any]:
         self.redemptions.append((url, dict(data)))

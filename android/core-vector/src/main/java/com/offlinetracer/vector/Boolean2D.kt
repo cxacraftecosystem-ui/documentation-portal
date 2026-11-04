@@ -4,41 +4,10 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-/**
- * Boolean operations on filled paths, plus the two point-classification primitives everything else
- * in the module needs.
- *
- * The method is boundary classification over a planar arrangement, not a rasterise-and-retrace:
- *
- *  1. flatten both operands to closed rings;
- *  2. split every edge of each operand at its intersections with the other operand;
- *  3. classify each resulting sub-edge as inside or outside the other operand by the non-zero
- *     winding number at its midpoint — a midpoint is used, not an endpoint, because an endpoint sits
- *     exactly on the other boundary by construction and classifies at random;
- *  4. keep (and, where the operation requires it, reverse) the sub-edges that belong to the result;
- *  5. chain them end-to-end into closed rings.
- *
- * Known limitation, stated rather than hidden: exactly coincident edges are resolved by keeping the
- * first operand's copy and dropping the second's, which is right when the two boundaries run the
- * same way and can leave a seam when they run opposite. Fully general coincident-edge handling costs
- * a great deal more code than the editor feature that uses this is worth, and the failure is a
- * cosmetic seam rather than a crash or a lost shape.
- *
- * Cost is O(|A|·|B|) edge pairs with a bounding-box reject per pair. Vector paths in this app carry
- * hundreds to a few thousand edges, where that is comfortably fast; it is not a sweep-line and does
- * not pretend to be.
- */
 object Boolean2D {
 
     enum class BoolOp { UNION, INTERSECT, DIFFERENCE, XOR }
 
-    /**
-     * Signed area of the polygon through [points] (the shoelace formula, implicitly closed).
-     *
-     * Positive means counter-clockwise in a y-up frame, i.e. **clockwise** on screen where y grows
-     * downwards. Callers that only want orientation should compare signs; callers that want size
-     * should take the absolute value. Returns 0 for fewer than three points.
-     */
     fun polygonArea(points: List<VecPoint>): Float {
         val n = points.size
         if (n < 3) return 0f
@@ -53,13 +22,6 @@ object Boolean2D {
         return (acc * 0.5).toFloat()
     }
 
-    /**
-     * Tests whether `(x, y)` is inside the implicitly-closed polygon through [points] under [rule].
-     *
-     * Even-odd uses a half-open crossing test (`yi > y` versus `yj > y`) so a ray passing exactly
-     * through a vertex is counted once rather than twice; non-zero accumulates the winding number.
-     * Returns false for fewer than three points.
-     */
     fun pointInPolygon(points: List<VecPoint>, x: Float, y: Float, rule: FillRule): Boolean {
         val n = points.size
         if (n < 3) return false
@@ -92,14 +54,6 @@ object Boolean2D {
         return wind != 0
     }
 
-    /**
-     * Applies [op] to the two path sets and returns the result as closed, line-only paths.
-     *
-     * Curves are flattened to [flatten] pixels first — a boolean operation on Béziers has no exact
-     * answer in Béziers, so every implementation flattens somewhere and doing it once up front keeps
-     * the tolerance visible to the caller. Empty operands short-circuit to the algebraically correct
-     * answer with the *original* paths, curves intact, so `union(x, emptyList())` is lossless.
-     */
     fun apply(a: List<VecPath>, b: List<VecPath>, op: BoolOp, flatten: Float = 0.25f): List<VecPath> {
         val tol = if (flatten > 1e-4f && flatten.isFinite()) flatten else 0.25f
         val ringsA = toRings(a, tol)
@@ -149,11 +103,6 @@ object Boolean2D {
         return chain(kept, eps)
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Arrangement
-    // ---------------------------------------------------------------------------------------
-
-    /** Growable list of directed edges. Primitive arrays: a boolean op touches a lot of edges. */
     private class SegList(capacity: Int) {
         @JvmField var x0 = FloatArray(if (capacity > 8) capacity else 8)
         @JvmField var y0 = FloatArray(if (capacity > 8) capacity else 8)
@@ -232,10 +181,6 @@ object Boolean2D {
         return out
     }
 
-    /**
-     * Splits every edge of [src] at its crossings with [other], classifies each piece against
-     * [otherRings], and appends the pieces the operation keeps to [out] in their final direction.
-     */
     private fun classify(
         src: SegList,
         other: SegList,
@@ -291,7 +236,6 @@ object Boolean2D {
                 val my = (py0 + py1) * 0.5f
 
                 if (onBoundary(other, mx, my, eps)) {
-                    // Coincident with the other operand's boundary; see the class KDoc.
                     if (!isA) continue
                     when (op) {
                         BoolOp.UNION, BoolOp.INTERSECT -> out.add(px0, py0, px1, py1)
@@ -356,21 +300,7 @@ object Boolean2D {
     private fun isLeft(ax: Float, ay: Float, bx: Float, by: Float, px: Float, py: Float): Float =
         (bx - ax) * (py - ay) - (px - ax) * (by - ay)
 
-    // ---------------------------------------------------------------------------------------
-    // Chaining
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * Walks the kept edges end-to-start into rings. A chain that runs out of continuations before
-     * returning to its start is still emitted, closed implicitly: dropping it would silently delete
-     * area, and a slightly wrong shape is far easier to notice and report than a missing one.
-     */
     private fun chain(segs: SegList, eps: Float): List<VecPath> {
-        // Coarser than the boundary epsilon on purpose. Two edges that meet at a computed
-        // intersection point produce coordinates that agree only to within float rounding, so an
-        // exact bucket match would sometimes drop a join and split one ring into two open chains.
-        // The bucket is coarse *and* the lookup checks the eight neighbouring buckets, which makes
-        // a point landing either side of a bucket boundary harmless.
         val quant = if (eps > 0f) eps * 10f else 1e-4f
         val index = HashMap<Long, MutableList<Int>>(segs.n * 2)
         for (i in 0 until segs.n) {
@@ -430,5 +360,4 @@ object Boolean2D {
     private fun pack(qx: Long, qy: Long): Long = (qx shl 32) xor (qy and 0xFFFF_FFFFL)
 }
 
-/** Aliased at file scope for the same reason as [SvgOptions]: both spellings must resolve. */
 typealias BoolOp = Boolean2D.BoolOp

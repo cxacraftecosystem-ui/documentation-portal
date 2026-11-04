@@ -11,11 +11,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Workbooks on Field Repository Android (A1-A4): the pro-forma, the export and question set, a new
- * form from an uploaded workbook (with hand-filled answers imported by the server), and a re-upload
- * by the form's author or a content admin. Every file is named by the server or the naming helper.
- */
 class WorkbookTest {
     private fun user(id: String, role: String) = UserDto(id = id, email = "$id@x", name = id, role = role)
     private val xlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

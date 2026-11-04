@@ -1,16 +1,3 @@
-"""How many database round trips the list and batch paths make, pinned against a real Postgres.
-
-Each test builds the same scene twice, small and large, and counts the round trips of ONE call with
-``query_counter.counting`` (every Prisma call, raw SQL included). A read path that costs the same
-however long its list is says so with an equality between the two counts and a pinned number; a
-write path that must touch every item pins its fixed reads and its cost per item separately. A
-change that brings an N+1 back fails here with both numbers in the message.
-
-Runs where the other questionnaire v2 suites run (``QV2_TEST_DATABASE_URL``, a migrated throwaway
-database); CI's database job sets it. ``QUERY_COUNT_REPORT=<file>`` appends every measured number
-to that file, which is how the before/after table of the change that added this module was made.
-"""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -36,8 +23,6 @@ async def _world(monkeypatch: Any, **seed_args: Any) -> tuple[Any, SimpleNamespa
     return client, await seed(client, **seed_args)
 
 
-# ── a session's recordings (GET /questionnaire/v2/sessions/{id}) ──────────────────────────────
-
 
 async def _session_with_takes(monkeypatch: Any, takes: int) -> int:
     from app.api.routes import questionnaire_v2 as routes
@@ -53,8 +38,6 @@ async def _session_with_takes(monkeypatch: Any, takes: int) -> int:
                 client, ids, s["id"], ids.lead, targets=[{"questionLineageId": ids.questions[f"F{n % 7 + 1}"]}], at=t(n * 0.1),
                 subjects=[{"artisanId": ids.artisans[n % 3], "role": "ANSWERED"}],
             ))
-        # The last take continues the one before it (a part number to work out), and one artisan has
-        # said no (a consent verdict that is not the default).
         await client.execute_raw(
             'UPDATE "QuestionnaireRecording" SET "continuationOfId" = $1 WHERE "id" = $2', made[-2]["id"], made[-1]["id"]
         )
@@ -76,13 +59,8 @@ def test_a_sessions_recordings_cost_the_same_reads_however_many_there_are(monkey
     small = run(_session_with_takes(monkeypatch, 2))
     large = run(_session_with_takes(monkeypatch, 8))
     report("sessions_get", takes2=small, takes8=large)
-    # 27 since release 0.0.2 (the v2 audit fixes), + the typed-answer read of coverage (owner amendment 2,
-    # point 4) + the session's guest respondents, + the one read of the sessions behind the takes' chips
-    # (owner, 31 Oct 2026; app/questionnaire/chips.py).
     assert small == large == 30, (small, large)
 
-
-# ── one artisan's record (GET /artisans/{id}/record) ──────────────────────────────────────────
 
 
 async def _record_over_sessions(monkeypatch: Any, sittings: int) -> int:
@@ -112,12 +90,8 @@ def test_an_artisans_record_reads_every_session_at_once(monkeypatch) -> None:
     small = run(_record_over_sessions(monkeypatch, 1))
     large = run(_record_over_sessions(monkeypatch, 4))
     report("artisan_record", sessions1=small, sessions4=large)
-    # 33 since release 0.0.2 (the v2 audit fixes), + the typed-answer read of coverage (owner amendment 2),
-    # + the one read of the sessions behind the takes' chips (owner, 31 Oct 2026).
     assert small == large == 35, (small, large)
 
-
-# ── the corpus feed (GET /questionnaire/v2/corpus.jsonl) ──────────────────────────────────────
 
 
 async def _corpus_over_artisans(monkeypatch: Any, people: int) -> int:
@@ -152,8 +126,6 @@ def test_the_corpus_feed_reads_primaries_and_consent_once_for_everyone(monkeypat
     assert small == large == 10, (small, large)
 
 
-# ── saving answers (PUT /questionnaire/v2/answers) ────────────────────────────────────────────
-
 
 async def _save_answers(monkeypatch: Any, count: int) -> tuple[int, int]:
     from app.questionnaire import answers, sessions
@@ -181,18 +153,11 @@ def test_saving_answers_reads_once_for_the_batch_and_writes_per_item(monkeypatch
     report("put_answers", items2=small, items6=large, tx2=tx_small, tx6=tx_large)
     per_item = (large - small) // 4
     fixed = small - 2 * per_item
-    # Three writes per item (the answer row, its revision, the pointer to it) in one transaction
-    # each; every read is made once for the whole batch. The fifth fixed read is the session's people,
-    # once per session (audit M15: an answer is about somebody who was there).
     assert (fixed, per_item) == (5, 3), (small, large)
     assert (tx_small, tx_large) == (2, 6)
 
 
 def test_a_stale_batch_read_never_misreports_unchanged_or_conflict(monkeypatch) -> None:
-    """The batch reads every pair's answer up front; a save from another device can land before the
-    item is reached. A write the client based on the newest version must still save, and an item
-    that matches only the stale snapshot must come back CONFLICT with the real current answer, not
-    UNCHANGED."""
     from app.questionnaire import answers, sessions
 
     async def go() -> None:
@@ -208,7 +173,6 @@ def test_a_stale_batch_read_never_misreports_unchanged_or_conflict(monkeypatch) 
             assert [r["status"] for r in first["results"]] == ["SAVED", "SAVED"]
             later = _put(item("F1", "z", 2), item("F2", "x", 1))
             stale = await answers._prefetch(list(later.items), client)
-            # Another device saves both answers after this batch read them.
             other = await answers.put_answers(_put(item("F1", "y", 1), item("F2", "y", 1)), ids.lead)
             assert [r["answer"]["version"] for r in other["results"]] == [2, 2]
 
@@ -225,8 +189,6 @@ def test_a_stale_batch_read_never_misreports_unchanged_or_conflict(monkeypatch) 
 
     run(go())
 
-
-# ── answers typed into an old build (the v1 shim) ─────────────────────────────────────────────
 
 
 async def _old_build_responses(monkeypatch: Any, count: int) -> int:
@@ -250,13 +212,9 @@ def test_old_build_responses_read_their_questions_and_answers_once(monkeypatch) 
     small = run(_old_build_responses(monkeypatch, 2))
     large = run(_old_build_responses(monkeypatch, 6))
     report("shim_responses", responses2=small, responses6=large)
-    # Two participants, so every response is two answers of three writes each.
     per_response = (large - small) // 4
-    # The seventh fixed read is the session's people, once per session (audit M15).
     assert (small - 2 * per_response, per_response) == (7, 6), (small, large)
 
-
-# ── draft answers from a take's transcript (GET /recordings/{id}/proposals) ───────────────────
 
 
 async def _proposals(monkeypatch: Any, questions: int) -> int:
@@ -288,17 +246,13 @@ def test_proposals_write_every_draft_and_read_existing_answers_once(monkeypatch)
     small = run(_proposals(monkeypatch, 1))
     large = run(_proposals(monkeypatch, 5))
     report("proposals", questions1=small, questions5=large)
-    # + the one read of the session behind the take's chips (owner, 31 Oct 2026), + the two reads of
-    # the plain-text list preview (the opening turns and the speaker names, 0.0.6).
     assert small == large == 16, (small, large)
 
-
-# ── the designer portal's match call (POST /cross-portal/peer/artisans/match) ────────────────
 
 
 async def _peer_match(monkeypatch: Any, matches: int) -> int:
     from app.api.routes import cross_portal as routes
-    from app.services.cross_portal import MATCHED_BY_PEHCHAN  # noqa: F401 - the module the route speaks for
+    from app.services.cross_portal import MATCHED_BY_PEHCHAN  # noqa: F401
 
     client, ids = await _world(monkeypatch, artisans=6)
     try:
@@ -316,8 +270,6 @@ async def _peer_match(monkeypatch: Any, matches: int) -> int:
         with counting(client) as seen:
             out = await routes.peer_match(routes.PeerMatch(items=items), request, SimpleNamespace())
         assert len(out["matches"]) == matches
-        # The candidates are walked in id order, so the answer (and the MATCH rows one create_many
-        # writes with a shared createdAt) come out the same way every time.
         assert [m["artisanId"] for m in out["matches"]] == sorted(ids.artisans[:matches])
         logged = await client.query_raw('SELECT count(*)::int AS n FROM "CrossPortalAccessLog"')
         assert logged[0]["n"] == matches + 1
@@ -332,8 +284,6 @@ def test_a_peer_match_logs_every_match_in_one_write(monkeypatch) -> None:
     report("peer_match", matches1=small, matches4=large)
     assert small == large == 5, (small, large)
 
-
-# ── the queue worker's idle tick ──────────────────────────────────────────────────────────────
 
 
 async def _idle_tick(monkeypatch: Any, *, held: int) -> tuple[int, tuple[bool, bool]]:
@@ -350,7 +300,6 @@ async def _idle_tick(monkeypatch: Any, *, held: int) -> tuple[int, tuple[bool, b
                 "bucket": "b", "objectKey": f"k/{ids.tag}/{n}", "url": "u", "uploadedBy": {"connect": {"id": ids.lead.id}},
             })
             await client.mediaprocessingjob.create(data={"jobType": "TRANSCRIPTION", "mediaFileId": media.id})
-        # What a tick cost before the probe: both drains, every time.
         with counting(client) as drains:
             await media_queue.process_next_media_jobs(limit=3, worker_id="test")
             await email_outbox.process_next_email_jobs(worker_id="test")
@@ -363,7 +312,6 @@ async def _idle_tick(monkeypatch: Any, *, held: int) -> tuple[int, tuple[bool, b
                 await email_outbox.process_next_email_jobs(worker_id="test")
         return seen.count, (media_due, mail_due)
     finally:
-        # Leave no queued job behind for the suites that drain this shared queue after this one.
         await client.execute_raw(
             'DELETE FROM "MediaProcessingJob" WHERE "mediaFileId" IN (SELECT "id" FROM "MediaFile" WHERE "objectKey" LIKE $1)',
             f"k/{ids.tag}/%",
@@ -373,7 +321,6 @@ async def _idle_tick(monkeypatch: Any, *, held: int) -> tuple[int, tuple[bool, b
 
 def test_an_idle_worker_tick_is_one_read(monkeypatch) -> None:
     idle, flags = run(_idle_tick(monkeypatch, held=0))
-    # Transcription is paused (the seed's AppSetting) with jobs waiting: the settings row decides.
     held, held_flags = run(_idle_tick(monkeypatch, held=3))
     report("worker_idle_tick", empty=idle, paused_with_held_jobs=held)
     assert (idle, flags) == (1, (False, False))
@@ -381,10 +328,6 @@ def test_an_idle_worker_tick_is_one_read(monkeypatch) -> None:
 
 
 def test_the_idle_tick_probe_says_true_for_due_stale_and_retried_work(monkeypatch) -> None:
-    """The probe only ever skips a pass that would do nothing, so each kind of work a drain would
-    pick up must make it say True: a due job or e-mail, a job or e-mail whose lock went stale, a
-    transcription when the gate is open, and a retried row once its back-off has passed (and not
-    before)."""
     from datetime import timedelta
 
     from app.services import email_outbox, media_queue
@@ -396,8 +339,6 @@ def test_the_idle_tick_probe_says_true_for_due_stale_and_retried_work(monkeypatc
         stale_job = now - media_queue.STALE_PROCESSING_AFTER - timedelta(minutes=1)
         stale_mail = now - email_outbox.STALE_SENDING_AFTER - timedelta(minutes=1)
         fresh_lock = now - timedelta(seconds=30)
-        # A row's own runAfter defaults to the moment it is written, which is after `now` above: a due row
-        # is given one a minute back, so "due" does not depend on how fast the inserts run.
         due_at = now - timedelta(minutes=1)
         cases: list[tuple[str, list[dict[str, Any]], list[dict[str, Any]], bool, datetime, tuple[bool, bool]]] = [
             ("nothing", [], [], False, now, (False, False)),
@@ -448,8 +389,6 @@ def test_the_idle_tick_probe_says_true_for_due_stale_and_retried_work(monkeypatc
         assert got == expected, (name, got, expected)
 
 
-# ── telling every admin about a workshop-access request ──────────────────────────────────────
-
 
 async def _workshop_request(monkeypatch: Any, admins: int) -> tuple[int, int]:
     from app.services import email_outbox, mailer
@@ -464,7 +403,6 @@ async def _workshop_request(monkeypatch: Any, admins: int) -> tuple[int, int]:
         monkeypatch.setattr(mailer, "mail_configured", lambda settings=None: True)
         with counting(client) as seen:
             sent = await email_outbox.notify_workshop_access_request(requester=ids.lead, workshop_titles=["Bagru"], note=None)
-        # Every administrator in the (shared) database is told, these and any seeded before.
         assert sent >= admins
         return seen.count, sent
     finally:
@@ -475,11 +413,8 @@ def test_a_workshop_access_request_reads_the_admins_once(monkeypatch) -> None:
     small, sent_small = run(_workshop_request(monkeypatch, 1))
     large, sent_large = run(_workshop_request(monkeypatch, 4))
     report("workshop_access_request", queries_small=small, told_small=sent_small, queries_large=large, told_large=sent_large)
-    # One read of the admins and one of their opt-outs, then the one queued e-mail each must cost.
     assert (small - sent_small, large - sent_large) == (2, 2), (small, sent_small, large, sent_large)
 
-
-# ── assigning one scope to several people (POST /tasks/batch) ─────────────────────────────────
 
 
 async def _task_batch(monkeypatch: Any, people: int) -> int:
@@ -511,8 +446,6 @@ def test_a_task_batch_checks_and_writes_its_assignees_in_one_go(monkeypatch) -> 
     small = run(_task_batch(monkeypatch, 1))
     large = run(_task_batch(monkeypatch, 5))
     report("task_batch", assignees1=small, assignees5=large)
-    # The assignees' accounts, the insert and the read-back are three round trips however many people
-    # there are; what remains per person is their own derived-progress COUNT (run concurrently).
     assert (small - 1, large - 5) == (3, 3), (small, large)
 
 
@@ -551,24 +484,14 @@ async def _task_batch_pages(monkeypatch: Any, people: int, page_size: int) -> tu
 
 
 def test_a_task_batch_pages_every_member_exactly_once(monkeypatch) -> None:
-    """One create_many writes the whole batch, so its rows can share a createdAt (and have no dueAt):
-    the list's order must still be total, or a page boundary repeats one member and drops another."""
     made, seen, total_order = run(_task_batch_pages(monkeypatch, 7, 2))
     assert sorted(seen) == sorted(made), (seen, made)
     assert len(seen) == len(set(seen)) == 7
-    # No dueAt, then newest first, then id: the total order the database itself gives.
     assert seen == total_order, (seen, total_order)
 
 
-# ── the batched consent verdict says what the one-at-a-time verdict says ──────────────────────
-
 
 def test_batched_consent_verdicts_match_asking_one_recording_at_a_time(monkeypatch) -> None:
-    """``consent_gate.verdict_details`` (what the lists now use) against ``verdict_detail`` (what
-    they used per row) over every shape the rule distinguishes: a take with subjects, a take with
-    none, its own grant, a refusal by a subject, and media outside the questionnaire reached through
-    its artisan, its interview, its product (the product's artisan) and its tool (the tool's
-    ToolArtisan links)."""
     from app.services import consent_gate
     from app.questionnaire import sessions
 
@@ -622,8 +545,6 @@ def test_batched_consent_verdicts_match_asking_one_recording_at_a_time(monkeypat
             assert batched == one_by_one
             assert one_by_one[with_subjects["mediaFileId"]]["verdict"] == consent_gate.REFUSED
             assert one_by_one[granted["mediaFileId"]]["verdict"] == consent_gate.ALLOW
-            # Product and tool media answer for the artisans behind them: a refusal by any one of a
-            # tool's artisans refuses it, and a record whose artisans all allow it is allowed.
             by_link = dict(zip(("a1", "a2", "interview", "product_refused", "product_allowed", "tool_refused", "tool_allowed"), loose))
             assert one_by_one[by_link["product_refused"]]["verdict"] == consent_gate.REFUSED
             assert one_by_one[by_link["tool_refused"]]["verdict"] == consent_gate.REFUSED

@@ -40,7 +40,6 @@ import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
-/** Why Approve is disabled (DESIGN §3.10), in the order the reviewer fixes them; null when it may go. */
 internal fun approveBlocker(detail: QSessionDetail): String? {
     val decisions = detail.recordings.count { it.removedAt == null && it.filing == "NEEDS_DECISION" }
     val people = detail.participants.size + detail.respondents.count { it.artisanId == null }
@@ -52,7 +51,6 @@ internal fun approveBlocker(detail: QSessionDetail): String? {
     }
 }
 
-/** The review's flags line: "2 repeats · 1 needs a decision · dates estimated". */
 internal fun reviewFlags(detail: QSessionDetail): String {
     val live = detail.recordings.filter { it.removedAt == null }
     val repeats = live.count { r -> r.subjects.any { (it.position ?: 1) >= 2 } }
@@ -60,12 +58,6 @@ internal fun reviewFlags(detail: QSessionDetail): String {
     return QuestionnaireCopy.flagsLine(repeats, decisions, estimated = live.any { it.estimated } || detail.sessionDate == null)
 }
 
-/**
- * The read view and review (DESIGN §4.8, B27): the session's fields, its recordings grouped by section
- * in the form's order, its answers by section. A reviewer sees the flags and Return · Approve; Approve
- * is disabled with its reason, and approving cascades to the session's live takes and answers on the
- * server. Update (centred) opens the workspace.
- */
 @Composable
 fun SessionReadView(
     v2: QuestionnaireV2,
@@ -205,8 +197,6 @@ private fun TakeLine(r: QRecording, onPlay: () -> Unit) {
         if (r.mediaFileId != null) TextButton(onClick = { transcript = true }) { Text(TranscriptUiText.open, style = MaterialTheme.typography.labelSmall) }
         Text("▶", style = MaterialTheme.typography.bodySmall)
     }
-    // What was said (0.0.6): speakers as labels, two lines at most.
     r.transcript?.shownPreview()?.let { com.fieldrepository.app.transcript.ui.TranscriptPreviewText(it, maxLines = 2) }
-    // The take's chips (owner, 31 Oct 2026); a tap opens the recordings list filtered by it.
     RecordingChips(r.chips, onChip = QuestionnaireV2Nav::openRecordings)
 }

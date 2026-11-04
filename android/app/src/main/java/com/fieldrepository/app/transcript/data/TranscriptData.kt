@@ -3,14 +3,6 @@ package com.fieldrepository.app.transcript.data
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
-/**
- * TRANSCRIPTS IN "VIEW DATA" AND "DOWNLOAD DATA" (0.0.6, transcript contract `dataBrowser`).
- *
- * `GET /data/transcripts` pages recordings with everything the pipeline added: turns with speakers
- * (mapped names), times and English, the summary, quotes, glossary terms and the recording's chips.
- * `GET /data/transcripts/{kind}.{fmt}` streams every matching row. Consent refused means no words
- * at all ([DataRecording.withheld]); cost and model names reach administrators only.
- */
 @Serializable
 data class DataTurn(
     val index: Int = 0,
@@ -48,9 +40,7 @@ data class DataRecording(
     val uploadedBy: String? = null,
     val uploadedAt: String? = null,
     val transcriptStatus: String? = null,
-    /** `CONSENT_REFUSED`, or null. */
     val withheld: String? = null,
-    /** `TURNS`, or `TEXT` for a recording transcribed before the turn pipeline (turns carry no times). */
     val source: String? = null,
     val version: Int? = null,
     val languages: List<TranscriptLanguage> = emptyList(),
@@ -62,23 +52,16 @@ data class DataRecording(
     val quotes: List<DataQuote> = emptyList(),
     val glossary: List<DataGlossaryTerm> = emptyList(),
     val chips: JsonObject? = null,
-    /** Administrators only. */
     val models: DataModels? = null,
-    /** Administrators only. */
     val costUsd: Double? = null,
 )
 
 @Serializable
 data class DataTranscriptPage(val items: List<DataRecording> = emptyList(), val nextCursor: String? = null)
 
-/** One per-recording transcript file on a data-browser file entry (`transcriptFiles`). */
 @Serializable
 data class DataTranscriptFile(val name: String = "", val format: String = "", val track: String = "both", val timestamps: Boolean = true, val url: String? = null)
 
-/**
- * The recording filters of `/data/transcripts` (contract `dataBrowser.filters`), as query values.
- * Blank fields are left out; [extra] carries any questionnaire filter the host already holds.
- */
 data class DataTranscriptFilters(
     val q: String = "",
     val speaker: String = "",
@@ -86,7 +69,6 @@ data class DataTranscriptFilters(
     val status: String = "",
     val since: String = "",
     val until: String = "",
-    /** null: either; true: only with English; false: only without. */
     val hasEnglish: Boolean? = null,
     val extra: Map<String, String> = emptyMap(),
 ) {
@@ -104,11 +86,9 @@ data class DataTranscriptFilters(
     val active: Boolean get() = toQuery().isNotEmpty()
 
     companion object {
-        /** The three streamed datasets and their two formats. */
         val KINDS = listOf("recordings", "turns", "glossary")
         val FORMATS = listOf("csv", "ndjson")
 
-        /** `track` of a file entry as the download route takes it. */
         fun trackOf(file: DataTranscriptFile): CopyTrack = runCatching { CopyTrack.of(file.track) }.getOrDefault(CopyTrack.BOTH)
     }
 }

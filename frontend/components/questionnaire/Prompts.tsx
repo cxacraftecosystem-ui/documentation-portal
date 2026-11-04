@@ -4,7 +4,6 @@ import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { DISMISSED, type PromptButton, type PromptSpec } from "@/lib/questionnaire/prompts";
 
-/** The class each prompt button wears, by tone. */
 export function promptButtonClass(tone: PromptButton["tone"]): string {
   if (tone === "danger") return "field-button-secondary field-danger";
   if (tone === "secondary") return "field-button-secondary";
@@ -28,11 +27,6 @@ function buttons(spec: PromptSpec, onChoose: (id: string) => void) {
   };
 }
 
-/**
- * A modal prompt (P1, P3, P5, P7, P7r, P8, P9, P10, P13, leave, finish). Escape and the backdrop
- * resolve to the spec's own `dismiss` — the choice that loses nothing — or to `DISMISSED`, which no
- * handler acts on (audit H16). Never "the first secondary button": for P13 that was Discard.
- */
 export function PromptDialog({
   spec,
   open,
@@ -65,7 +59,6 @@ export function PromptDialog({
   );
 }
 
-/** An inline prompt: P11, P12 hints and the P14 banner. */
 export function InlinePrompt({ spec, onChoose }: { spec: PromptSpec; onChoose?: (id: string) => void }) {
   const row = buttons(spec, (id) => onChoose?.(id));
   return (

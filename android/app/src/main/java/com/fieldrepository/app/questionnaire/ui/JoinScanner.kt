@@ -34,11 +34,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * Join a session (DESIGN §3.7): scan the QR (works offline, live in the camera preview or from a
- * picked image) or type the 6-character code (online only). A scanned QR creates the session on this phone
- * under the SAME clientKey, so when its outbox syncs the server answers with the existing session.
- */
 @Composable
 fun JoinScanner(v2: QuestionnaireV2, meId: String?, onJoined: (clientKey: String) -> Unit, onError: (String) -> Unit) {
     val context = LocalContext.current
@@ -46,7 +41,6 @@ fun JoinScanner(v2: QuestionnaireV2, meId: String?, onJoined: (clientKey: String
     var code by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
 
-    /** A read QR joins offline: the session is created here under the same clientKey. */
     suspend fun joinFrom(text: String?) {
         val payload = text?.let(JoinQr::decode)
         if (payload == null) { onError(QuestionnaireCopy.s("join.noQr")); return }
@@ -72,7 +66,6 @@ fun JoinScanner(v2: QuestionnaireV2, meId: String?, onJoined: (clientKey: String
     fun decode(uri: Uri): Bitmap? = runCatching {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { d, info, _ ->
             d.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-            // A full-resolution photo is far more than a QR needs; 1600 px on the long side reads well.
             val long = maxOf(info.size.width, info.size.height)
             if (long > 1600) d.setTargetSampleSize(long / 1600)
         }
@@ -83,7 +76,6 @@ fun JoinScanner(v2: QuestionnaireV2, meId: String?, onJoined: (clientKey: String
 
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(QuestionnaireCopy.s("sessions.join"), style = MaterialTheme.typography.titleLarge)
-        // The portal's live reader (it asks for the camera itself); a picked picture reads the same code.
         QuestionnairePortal.LiveQrScan(
             label = QuestionnaireCopy.s("join.scan"),
             pickLabel = QuestionnaireCopy.s("join.pick"),
@@ -109,8 +101,6 @@ fun JoinScanner(v2: QuestionnaireV2, meId: String?, onJoined: (clientKey: String
                         val unit = v2.outbox.adoptSession(session, qid, meId)
                         onJoined(unit.clientKey)
                     }
-                    // Only the server's own refusal means no such session; no signal or a server fault
-                    // does not, and the QR still joins offline.
                     .onFailure { e -> onError(QuestionnaireCopy.s(joinFailureKey(e))) }
                 busy = false
             }
@@ -118,11 +108,6 @@ fun JoinScanner(v2: QuestionnaireV2, meId: String?, onJoined: (clientKey: String
     }
 }
 
-/** A typed code the server refused (4xx other than 408/429): the code is wrong, not the signal. */
-/**
- * What a failed join says: too many wrong codes (429 RATE_LIMITED, ten in ten minutes) asks the
- * researcher to wait; any other refusal is an unknown code; anything else needs a signal.
- */
 internal fun joinFailureKey(failure: Throwable): String = when {
     (failure as? retrofit2.HttpException)?.code() == 429 -> "join.rateLimited"
     joinCodeUnknown(failure) -> "join.notFound"

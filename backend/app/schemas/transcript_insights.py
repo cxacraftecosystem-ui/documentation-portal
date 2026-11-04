@@ -1,9 +1,3 @@
-"""Request and response models for /media/{id}/insights. Every model is ``extra="forbid"``.
-
-``editedAt`` / ``editedById`` are deliberately absent from the PATCH body: the edit stamp comes
-from the server clock and the server-resolved caller, so a body that tries to carry one is a 422.
-"""
-
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator

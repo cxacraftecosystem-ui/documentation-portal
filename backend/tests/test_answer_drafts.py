@@ -1,9 +1,3 @@
-"""C28: AI-drafted answers from a transcript — inert drafts, section accept, machine-suggested origin.
-
-No database and no provider: the route module's ``db``, ``get_settings`` and the drafting call are
-replaced by fakes, and the pure half of ``services/answer_drafts`` is exercised directly.
-"""
-
 from __future__ import annotations
 
 import pathlib
@@ -25,8 +19,6 @@ BACKEND = pathlib.Path(__file__).resolve().parents[1]
 def anyio_backend():
     return "asyncio"
 
-
-# ── the pure half ──────────────────────────────────────────────────────────────────────────────
 
 
 def test_parse_answers_keeps_only_asked_non_empty_answers():
@@ -65,8 +57,6 @@ def test_the_flag_defaults_to_off():
 
     assert Settings.model_fields["ai_answer_drafts_enabled"].default is False
 
-
-# ── the routes, against fakes ─────────────────────────────────────────────────────────────────
 
 
 def _match(row: dict[str, Any], where: dict[str, Any]) -> bool:
@@ -128,8 +118,6 @@ class Table:
 
 
 class FakeDb(SimpleNamespace):
-    """Tables, plus ``tx()``: writes go to copies that land only when the block ends cleanly."""
-
     def tx(self):
         db = self
 
@@ -196,7 +184,7 @@ def world(monkeypatch):
 
     async def fake_draft(questions, transcript, settings, *, user_id):
         asked.append((questions, transcript))
-        return {1: "Since my grandfather", 2: "My mother"}, "anthropic", "claude-sonnet-5"
+        return {1: "Since my grandfather", 2: "My mother"}, "anthropic", "claude-sonnet-5-5"
 
     monkeypatch.setattr(routes.ad, "draft_answers", fake_draft)
     consent = _consent_store(monkeypatch)
@@ -204,8 +192,6 @@ def world(monkeypatch):
 
 
 def _consent_store(monkeypatch) -> dict[str, dict[str, str]]:
-    """The one consent store, as current rows per subject: interview i1 and its recording m1 are
-    artisan a1's words, and a1 has GRANTED. The rule itself (``ledger.decide``) is the real one."""
     from app.services import consent_gate
 
     consent: dict[str, dict[str, str]] = {"ARTISAN": {"a1": "GRANTED"}, "RECORDING": {}}
@@ -245,8 +231,7 @@ async def test_drafting_asks_only_unanswered_questions_and_writes_no_answer(worl
     assert out["drafted"] == 2 and out["asked"] == 2
     drafts = world.db.questionnaireanswerdraft.rows
     assert {d["questionId"] for d in drafts} == {"q1", "q2"}
-    assert all(d["status"] == "PENDING" and d["model"] == "claude-sonnet-5" for d in drafts)
-    # Inert: not one answer was written by drafting.
+    assert all(d["status"] == "PENDING" and d["model"] == "claude-sonnet-5-5" for d in drafts)
     assert [r["questionId"] for r in world.db.questionnaireresponse.rows] == ["q3"]
 
 
@@ -305,8 +290,6 @@ async def test_dismiss_marks_the_sections_pending_drafts(world):
     assert out["dismissed"] == 2
     assert {d["status"] for d in world.db.questionnaireanswerdraft.rows} == {"DISMISSED"}
 
-
-# ── the read scope, the section check, the transaction ──────────────────────────────────────────
 
 
 async def test_only_someone_who_may_edit_reads_the_drafts(world, monkeypatch):
@@ -372,8 +355,6 @@ async def test_a_half_failed_accept_writes_nothing(world, monkeypatch):
     assert {d["status"] for d in world.db.questionnaireanswerdraft.rows} == {"PENDING"}
 
 
-# ── the label leaves the system with the answer ─────────────────────────────────────────────────
-
 
 def test_exports_mark_a_machine_suggested_answer():
     assert ad.origin_label(None) == ""
@@ -419,8 +400,6 @@ def test_a_merge_fill_keeps_the_answers_origin():
     assert 'fill["answerOrigin"] = get_value(row, "answerOrigin")' in source
 
 
-# ── consent: drafting sends the transcript to an AI provider ──────────────────────────────────
-
 
 async def test_a_withdrawn_consent_stops_a_draft_from_a_recording(world):
     world.consent["ARTISAN"]["a1"] = "REFUSED"
@@ -451,7 +430,6 @@ async def test_a_withdrawn_consent_stops_a_draft_from_pasted_text(world):
 
 
 async def test_pasted_text_in_an_interview_with_no_participant_is_drafted_by_default(world):
-    """Consent is assumed by default (19 Oct 2026): nobody refused, so the text is sent."""
     world.db.questionnaireinterview.rows.append({"id": "i2", "questionnaireId": "qn1", "createdById": "u1"})
     await routes.draft_section("i2", routes.DraftIn(sectionId="s1", transcript="Words."), USER)
     assert world.asked != []

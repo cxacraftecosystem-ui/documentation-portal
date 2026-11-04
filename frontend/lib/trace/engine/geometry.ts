@@ -3,19 +3,6 @@ import { gaussianBlur, gradients } from './convolve';
 import { resizeGray } from './resample';
 import { median } from './threshold';
 
-/**
- * Whole-image geometry: rotation, flips, homographies and document detection.
- *
- * Every resampling operation here **inverse maps** — it walks destination pixels and samples the
- * source — because forward mapping leaves unwritten holes wherever the Jacobian expands, and those
- * holes read as a dotted grid over the whole result.
- */
-
-/**
- * Rotate by a multiple of 90 degrees clockwise.
- * @param quarterTurns any integer; reduced modulo 4, negatives allowed
- * @returns a new RgbaImage; dimensions swap for odd turn counts.
- */
 export function rotate90(src: RgbaImage, quarterTurns: number): RgbaImage {
   const t = ((quarterTurns % 4) + 4) % 4;
   if (t === 0) return src.copy();
@@ -41,7 +28,6 @@ export function rotate90(src: RgbaImage, quarterTurns: number): RgbaImage {
   return new RgbaImage(ow, oh, out);
 }
 
-/** Mirror on either or both axes. @returns a new RgbaImage of the same dimensions. */
 export function flip(src: RgbaImage, horizontal: boolean, vertical: boolean): RgbaImage {
   if (!horizontal && !vertical) return src.copy();
   const w = src.width;
@@ -59,16 +45,6 @@ export function flip(src: RgbaImage, horizontal: boolean, vertical: boolean): Rg
   return new RgbaImage(w, h, out);
 }
 
-/**
- * Solve the projective transform mapping four source points to four destination points.
- *
- * @param srcQuad 8 numbers, `x0,y0,x1,y1,x2,y2,x3,y3`
- * @param dstQuad 8 numbers in the same order
- * @returns the 9 row-major coefficients of `H` with `h[8]` fixed to 1, mapping **source to
- *          destination**. Returns the identity when the system is singular (three collinear corners),
- *          because a caller cannot usefully handle a null here and an identity warp is visibly a
- *          no-op rather than silently wrong.
- */
 export function solveHomography(
   srcQuad: Float32Array | number[],
   dstQuad: Float32Array | number[],
@@ -96,7 +72,6 @@ export function solveHomography(
   }
   const h = new Float64Array(9);
   h[8] = 1;
-  // Gaussian elimination with partial pivoting on the 8x9 augmented system.
   for (let col = 0; col < 8; col++) {
     let pivot = col;
     let best = Math.abs(a[col * 9 + col]);
@@ -138,7 +113,6 @@ export function solveHomography(
   return h;
 }
 
-/** @returns the adjugate-based inverse of a 3x3, or null when the determinant is degenerate. */
 function invert3x3(m: Float64Array): Float64Array | null {
   const a = m[0];
   const b = m[1];
@@ -165,15 +139,6 @@ function invert3x3(m: Float64Array): Float64Array | null {
   return out;
 }
 
-/**
- * Perspective warp with bilinear sampling.
- *
- * @param h a **source to destination** homography (what {@link solveHomography} returns); it is
- *          inverted internally, because the sampler walks destination pixels
- * @returns a new RgbaImage of `outW` x `outH`; destination pixels whose source falls outside the image
- *          are fully transparent rather than clamped, so an over-large output shows the true extent of
- *          the corrected page instead of a smeared border.
- */
 export function warpPerspective(
   src: RgbaImage,
   h: Float64Array,
@@ -236,15 +201,6 @@ function sampleBilinearArgb(
   return packed >>> 0;
 }
 
-/**
- * Reorder four corners to TL, TR, BR, BL.
- *
- * TL/BR come from the extremes of `x + y` and TR/BL from the extremes of `x - y`. That test is
- * rotation-tolerant up to about 45 degrees, which is far beyond any page a user would photograph, and
- * unlike sorting by angle about the centroid it cannot swap two corners of a nearly-square quad.
- *
- * @param quad 8 numbers; anything shorter is returned unchanged
- */
 export function orderQuad(quad: Float32Array | number[]): Float32Array {
   const out = new Float32Array(8);
   if (quad.length < 8) {
@@ -289,21 +245,9 @@ export function orderQuad(quad: Float32Array | number[]): Float32Array {
   return out;
 }
 
-/** Long edge of the proxy used for quad detection; corners are refined back to full resolution after. */
 const QUAD_PROXY = 256;
-/** A candidate must cover at least this fraction of the frame, or it is noise rather than a page. */
 const QUAD_MIN_AREA_FRACTION = 0.2;
 
-/**
- * Find the largest quadrilateral that plausibly bounds a document.
- *
- * Deliberately simple and deterministic: blur, take the gradient magnitude, keep the strongest
- * responses, take the convex hull of those points, then repeatedly drop the hull vertex whose removal
- * costs the least area until four remain. No Hough transform, no RANSAC, no random seeds.
- *
- * @returns 8 numbers ordered TL,TR,BR,BL in **source** pixel coordinates, or null when nothing covers
- *          at least 20% of the frame — which is the honest answer for a photo with no page in it.
- */
 export function detectDocumentQuad(src: GrayF): Float32Array | null {
   const longEdge = Math.max(src.width, src.height);
   const scale = longEdge > QUAD_PROXY ? QUAD_PROXY / longEdge : 1;
@@ -311,8 +255,6 @@ export function detectDocumentQuad(src: GrayF): Float32Array | null {
   const ph = Math.max(8, Math.round(src.height * scale));
   const proxy = resizeGray(src, pw, ph);
   const mag = gradients(gaussianBlur(proxy, 1.2)).magnitude();
-  // The median plus a margin, so the threshold adapts to the contrast of the photograph instead of
-  // assuming a scanner's white background.
   const t = median(mag) * 3 + 1e-4;
 
   const xs: number[] = [];
@@ -339,11 +281,6 @@ export function detectDocumentQuad(src: GrayF): Float32Array | null {
   return orderQuad(full);
 }
 
-/**
- * Andrew's monotone chain.
- * @returns hull vertices as a flat `x,y` list with no repeated closing vertex; empty when fewer than
- *          three distinct points were supplied.
- */
 function convexHull(xs: number[], ys: number[]): Float64Array {
   const n = xs.length;
   const order: number[] = new Array<number>(n);
@@ -366,7 +303,6 @@ function convexHull(xs: number[], ys: number[]): Float64Array {
     }
     upper.push(i);
   }
-  // Both chains repeat the two extreme points; dropping each chain's last entry joins them once.
   const total = lower.length - 1 + upper.length - 1;
   if (total < 3) return new Float64Array(0);
   const hull = new Float64Array(total * 2);
@@ -396,7 +332,6 @@ function shoelace(p: Float32Array | Float64Array): number {
   return s * 0.5;
 }
 
-/** Greedy vertex removal down to four corners, always dropping the cheapest vertex first. */
 function reduceToQuad(hull: Float64Array): Float32Array | null {
   let pts = Array.from(hull);
   let guard = 0;
@@ -424,14 +359,6 @@ function reduceToQuad(hull: Float64Array): Float32Array | null {
   return Float32Array.from(pts.slice(0, 8));
 }
 
-/**
- * Rotate by an arbitrary angle about the image centre, inverse-mapped with bilinear sampling.
- *
- * @param degrees clockwise in image coordinates (y down)
- * @param expand  true grows the canvas to the rotated bounding box; false keeps the original size and
- *                lets the corners fall outside
- * @returns a new RgbaImage; pixels with no source are transparent.
- */
 export function rotate(src: RgbaImage, degrees: number, expand = true): RgbaImage {
   const rad = (degrees * Math.PI) / 180;
   const cos = Math.cos(rad);

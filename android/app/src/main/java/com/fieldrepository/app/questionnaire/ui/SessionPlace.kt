@@ -34,18 +34,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import kotlin.coroutines.resume
 
-/** Asked as the pair: Android 12+ ignores a request for the fine permission alone. */
 private val PLACE_PERMISSIONS = arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
 
 private fun holdsPlacePermission(context: Context): Boolean =
     PLACE_PERMISSIONS.any { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
 
-/**
- * C9 (UNIFY §1.3): the session's place from where the phone is, on the start sheet only; an edit keeps
- * the place it has (DR audit H1). The words are the geocoder's district and state, never its locality
- * (often wrong in rural India), and the researcher can type over them. Drawn as the place field's
- * trailing icon.
- */
 @Composable
 fun PlaceFromDevice(onPlace: (String) -> Unit, onError: (String) -> Unit) {
     val context = LocalContext.current
@@ -71,7 +64,6 @@ fun PlaceFromDevice(onPlace: (String) -> Unit, onError: (String) -> Unit) {
     }
 }
 
-/** "District, State" for where the phone is now, or null with no fix or no geocoder. */
 @SuppressLint("MissingPermission")
 internal suspend fun placeHere(context: Context): String? {
     val manager = context.getSystemService(LocationManager::class.java) ?: return null
@@ -92,7 +84,6 @@ internal suspend fun placeHere(context: Context): String? {
     }
 }
 
-/** The words a session's place takes from the geocoder: "District, State", or whichever of them it has. */
 fun placeWords(district: String?, state: String?): String? =
     listOfNotNull(district?.trim()?.ifBlank { null }, state?.trim()?.ifBlank { null })
         .distinct().joinToString(", ").ifBlank { null }

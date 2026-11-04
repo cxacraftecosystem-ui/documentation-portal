@@ -12,11 +12,6 @@ import okio.Buffer
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 
-/**
- * The real Retrofit interfaces over a server in memory: every request is recorded (method, path with
- * query, body) and answered from [routes] ("METHOD /path" prefix to a canned reply). Nothing leaves
- * the JVM; what is checked is exactly what the app would send.
- */
 class FakeServer {
     data class Seen(val method: String, val path: String, val body: String, val contentType: String?)
     data class Reply(val code: Int = 200, val body: String = "{}", val headers: Map<String, String> = emptyMap(), val type: String = "application/json")

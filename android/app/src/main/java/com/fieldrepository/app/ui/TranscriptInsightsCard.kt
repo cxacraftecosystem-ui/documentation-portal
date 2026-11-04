@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -27,37 +28,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.fieldrepository.app.data.TranscriptInsightActions
 import com.fieldrepository.app.data.TranscriptInsightDto
+import com.fieldrepository.app.data.TranscriptInsightEditing
 import com.fieldrepository.app.data.TranscriptInsightStates
 import com.fieldrepository.app.data.TranscriptInsightViewDto
 import kotlinx.coroutines.delay
 
-/**
- * How often a queued summary is looked at again, and for how long. The web's numbers. Every card's
- * poll goes through the repository's batch, so cards that fall due together share one request.
- */
 private const val POLL_MILLIS = 15_000L
 private const val POLL_LIMIT_MILLIS = 10 * 60_000L
 
-/**
- * Summary, key quotes and English translation under a transcript. READ-ONLY on the handset: editing
- * and regenerating are on the web. Draws nothing while loading, when the feature is off (the server
- * answers 404), offline, or when there is nothing to show.
- *
- * [load] reads the item through the screen-wide batch (no translation text), and polls through it;
- * [loadFull] reads the single item, for the translation when it is opened. [formatDate] is the
- * screen's own date format.
- */
 @Composable
 fun TranscriptInsightsCard(
     mediaId: String,
     load: suspend (String) -> TranscriptInsightViewDto?,
     loadFull: suspend (String) -> TranscriptInsightViewDto?,
-    formatDate: (String?) -> String?
+    formatDate: (String?) -> String?,
+    actions: TranscriptInsightActions? = null
 ) {
     var view by remember(mediaId) { mutableStateOf<TranscriptInsightViewDto?>(null) }
-    LaunchedEffect(mediaId) {
-        view = load(mediaId)
+    var pollKey by remember(mediaId) { mutableIntStateOf(0) }
+    var editing by remember(mediaId) { mutableStateOf(false) }
+    LaunchedEffect(mediaId, pollKey) {
+        if (pollKey == 0) view = load(mediaId)
         val started = System.currentTimeMillis()
         while (TranscriptInsightStates.isWorking(view) && System.currentTimeMillis() - started < POLL_LIMIT_MILLIS) {
             delay(POLL_MILLIS)
@@ -65,7 +58,12 @@ fun TranscriptInsightsCard(
         }
     }
     val current = view
-    if (!TranscriptInsightStates.isShown(current) || current == null) return
+    if (!TranscriptInsightEditing.isShown(current, actions != null) || current == null) return
+    val replace: (TranscriptInsightViewDto) -> Unit = { next ->
+        view = next
+        editing = false
+        pollKey += 1
+    }
 
     Column(
         modifier = Modifier
@@ -95,8 +93,19 @@ fun TranscriptInsightsCard(
         if (current.stale && insight != null) {
             Text("The transcript changed after this summary.", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
-        if (insight != null && !TranscriptInsightStates.isWorking(current)) {
+        if (insight != null && actions != null && editing) {
+            TranscriptInsightEditor(
+                view = current,
+                actions = actions,
+                loadTranslation = { TranscriptInsightStates.fullTranslationText(loadFull(current.mediaId.ifBlank { mediaId })) },
+                onCancel = { editing = false },
+                onSaved = replace
+            )
+        } else if (insight != null && !TranscriptInsightStates.isWorking(current)) {
             InsightBody(current.mediaId.ifBlank { mediaId }, insight, loadFull)
+        }
+        if (actions != null && !editing) {
+            TranscriptInsightControls(view = current, actions = actions, onEdit = { editing = true }, onReplaced = replace)
         }
     }
 }
@@ -141,7 +150,6 @@ private fun InsightBody(mediaId: String, insight: TranscriptInsightDto, loadFull
             }
         }
     }
-    // The text the full read answered with, once it has; see `TranslationDisclosure`.
     var loaded by remember(insight.id, insight.version) { mutableStateOf<String?>(null) }
     when {
         TranscriptInsightStates.offersTranslation(insight, loaded) ->
@@ -159,8 +167,6 @@ private fun TranslationDisclosure(
     loadFull: suspend (String) -> TranscriptInsightViewDto?
 ) {
     var open by remember(insight.id) { mutableStateOf(false) }
-    // The batch leaves the text out; it is read the first time the translation is opened. A failed
-    // read leaves it null, so closing and reopening asks again; a blank answer hides the panel.
     val text = loaded ?: insight.translation.text
     LaunchedEffect(open, text) {
         if (open && text == null) TranscriptInsightStates.fullTranslationText(loadFull(mediaId))?.let(onLoaded)

@@ -9,24 +9,15 @@ import { UploadedMediaChips, formatEta } from "@/components/media/UploadProgress
 import { bytes } from "@/lib/format";
 import { useUploads } from "@/lib/uploads";
 
-/**
- * Page-level upload dock: one aggregate bar for everything this page is pushing, the per-section
- * breakdown behind it, and the media that already landed. Sections publish into <UploadsProvider>
- * via <UploadProgress sectionId=…>, so a form only ever reports its own batch and this adds up the
- * page scope. Hidden entirely while the page is idle and nothing has been uploaded yet.
- */
 export function UploadTray() {
   const { enabled, aggregate, sections, completed, clearCompleted } = useUploads();
   const [expanded, setExpanded] = useState(false);
-  // Height of the dock, mirrored into a spacer in normal flow so the fixed card can never sit on
-  // top of a form's submit button when the page is scrolled to the bottom.
   const [dockHeight, setDockHeight] = useState(0);
   const dockRef = useRef<HTMLDivElement | null>(null);
 
   const uploading = Boolean(aggregate);
   const visible = enabled && (uploading || completed.length > 0);
 
-  // Uploading opens the breakdown; the user can collapse it again and it stays collapsed once idle.
   useEffect(() => {
     if (uploading) setExpanded(true);
   }, [uploading]);
@@ -51,12 +42,10 @@ export function UploadTray() {
 
   return (
     <>
-      {/* Flow spacer — reserves exactly the room the fixed dock occupies. */}
       <div aria-hidden style={{ height: dockHeight }} />
       <div
         ref={dockRef}
         className="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-4 pt-3"
-        // Lifted clear of the bottom island where one is drawn (`--bottom-nav-h`, below `lg` only).
         style={{ bottom: "var(--bottom-nav-h, 0px)", paddingBottom: "max(env(safe-area-inset-bottom), 0.75rem)" }}
       >
         <div

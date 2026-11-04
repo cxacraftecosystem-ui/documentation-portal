@@ -10,25 +10,6 @@ import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { isAdmin } from "@/lib/permissions";
 
-/**
- * /workshop-access — a fork that only one kind of account ever sees as a fork.
- *
- * "Workshop access" used to open the admin console (/settings/workshop-access) for everybody who
- * clicked it, which meant a researcher or volunteer — exactly the people the feature exists for —
- * got a padlock, while the page they were actually entitled to sat unadvertised inside /settings.
- * The Android client had this right all along: its Workshop access screen is the USER's screen,
- * "Request workshop access" over "My workshop access", and the queue lives in the admin hub.
- *
- * So the road forks only for someone who owns both ends of it:
- *  - an admin in admin view picks — their own standing, or the repository's queue and rosters;
- *  - everybody else, an admin with admin view OFF included, is sent straight to the page that is
- *    theirs. Not a teaser, not a lock: the toggle makes an admin browse as an ordinary user, and an
- *    ordinary user has one workshop-access page, so that is what they land on.
- *
- * The admin console's own role check is not here — it is on /workshop-access/manage, from
- * ROUTE_REDIRECTS — because a typed URL skips this page entirely.
- */
-
 type Choice = {
   href: string;
   label: string;
@@ -59,11 +40,6 @@ export default function WorkshopAccessPage() {
   const router = useRouter();
 
   const fork = isAdmin(user) && adminMode;
-  /**
-   * An admin's stored admin-view preference arrives a commit after the account does. Redirecting on
-   * that first commit would bounce an admin browsing in admin view off their own fork before it ever
-   * painted, so the decision waits — for a non-admin there is nothing to wait for.
-   */
   const settled = !loading && (!isAdmin(user) || adminViewResolved);
 
   useEffect(() => {

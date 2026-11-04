@@ -1,24 +1,3 @@
-"""Designer-portal's old-build shims (UNIFY_2026-10-21.md 4.5). Shared, and mounted only there.
-
-Every old call keeps its request and response shapes, and NONE EVER RETURNS A NEW ERROR CODE. With
-``QUESTIONNAIRE_V2`` off nothing here runs and the old routes behave exactly as before. With it on:
-
-* a FORM SITTING (``/questionnaires/{id}/entries``) is a session on that form, for every form whose
-  sections are in the shared instrument tables (``form_is_unified``; U5 copies them, ids kept):
-  ``respondentName`` becomes a guest respondent, the typed ``title`` becomes ``legacyTitle``, and
-  ``notes`` become the session note (at most 80 characters; anything longer goes on the guest);
-* ``PATCH .../entries/{eid}`` edits that guest (name, notes) and the session's ``legacyTitle``;
-* ``PUT .../entries/{eid}/answers`` becomes per-item answers, CREATE-ONLY (``baseVersion=None``,
-  FR audit H5) except the caller's own answer from this sitting. Never a 403 for the batch: a
-  locked item comes back in the old ``rejected`` list under the old code ``ANSWER_OWNED_BY_OTHER``;
-* deleting and restoring a sitting is the unified soft delete of its session;
-* ``POST /questionnaire/interviews`` (the retired global form) creates a session on the design
-  workshop's primary form (the four-step resolution); its clips land as NEEDS_DECISION takes in the
-  uploader's inbox (``after_legacy_complete``). With no form to resolve to, the old route runs;
-* the build headers, the create cutoff (503 + Retry-After) and the old-clip shim are the same rules
-  as documentation-portal's (``shims_fr``), re-exported here so each portal names its own module.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -60,12 +39,10 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-#: The old per-answer refusal codes (``services/questionnaire_forms.save_answers``), kept as they are.
 OLD_QUESTION_RETIRED = "QUESTION_RETIRED"
 OLD_ANSWER_OWNED_BY_OTHER = "ANSWER_OWNED_BY_OTHER"
 OLD_OWNED_MESSAGE = "Someone else recorded this answer. Only they or an admin can change it."
 OLD_RETIRED_MESSAGE = "This question was retired, so it takes no new answers."
-#: What an old sitting with no respondent name is called on the session.
 DEFAULT_RESPONDENT = "Respondent"
 
 
@@ -74,14 +51,12 @@ def _db() -> Any:
 
 
 def _old_error(exc: Exception) -> Exception:
-    """A package refusal in the old routes' shape: the same status, a plain sentence, no code."""
     detail = getattr(exc, "detail", None)
     message = detail.get("message") if isinstance(detail, dict) else detail
     return http_error(int(getattr(exc, "status_code", 400) or 400), str(message or "That can't be done here."))
 
 
 async def form_is_unified(questionnaire_id: str, *, client: Any = None) -> bool:
-    """True once the form's sections live in the shared instrument tables (U5 copied them)."""
     if not enabled():
         return False
     rows = await (client or _db()).query_raw(
@@ -90,7 +65,6 @@ async def form_is_unified(questionnaire_id: str, *, client: Any = None) -> bool:
     return bool(rows)
 
 
-# ── sittings ───────────────────────────────────────────────────────────────────────────────────
 async def _form_workshop(db: Any, questionnaire_id: str) -> str | None:
     rows = await db.query_raw(
         'SELECT b."designWorkshopId" FROM "QuestionnaireBinding" b WHERE b."questionnaireId" = $1 AND b."designWorkshopId" IS NOT NULL '
@@ -101,7 +75,6 @@ async def _form_workshop(db: Any, questionnaire_id: str) -> str | None:
 
 
 async def entry_out(db: Any, session_id: str) -> dict[str, Any]:
-    """One session in the old sitting's shape."""
     rows = await db.query_raw(
         'SELECT i."id", i."questionnaireId", i."title", i."legacyTitle", i."note", i."source"::text AS source, '
         'i."createdById", i."createdAt", i."updatedAt", i."deletedAt", i."deletedById" FROM "QuestionnaireInterview" i WHERE i."id" = $1',
@@ -124,7 +97,6 @@ async def entry_out(db: Any, session_id: str) -> dict[str, Any]:
 
 
 async def create_entry(questionnaire_id: str, payload: Any, user: Any, *, headers: Any = None) -> dict[str, Any]:
-    """``POST /questionnaires/{id}/entries`` with v2 on: a new session on this form, in the old shape."""
     if headers is not None:
         assert_old_build_may_create(headers)
     db = _db()
@@ -146,8 +118,6 @@ async def create_entry(questionnaire_id: str, payload: Any, user: Any, *, header
 
 
 async def update_entry(entry_id: str, payload: Any, user: Any) -> dict[str, Any]:
-    """``PATCH .../entries/{eid}``: the guest's name and notes (retracting personal data, A17) and the
-    typed title (kept as ``legacyTitle``; the generated title never changes)."""
     db = _db()
     sent = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else dict(payload)
     try:
@@ -179,8 +149,6 @@ async def _lineages(db: Any, questionnaire_id: str, question_ids: list[str]) -> 
 
 
 async def old_answers(db: Any, session_id: str) -> list[dict[str, Any]]:
-    """A session's current answers in the old ``QuestionnaireFormAnswer`` shape (one owner: the
-    sitting's guest, else its first participant)."""
     rows = await db.query_raw(
         'SELECT a."id", q."id" AS "questionId", rv."text", rv."note", rv."actorId", a."createdAt", rv."createdAt" AS "updatedAt" '
         'FROM "QuestionnaireAnswer" a JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
@@ -198,7 +166,6 @@ async def old_answers(db: Any, session_id: str) -> list[dict[str, Any]]:
 
 
 async def record_answers(questionnaire_id: str, entry_id: str, payload: Any, user: Any) -> dict[str, Any]:
-    """``PUT .../entries/{eid}/answers``: per-item answers; the old response shape."""
     db = _db()
     batch = list(getattr(payload, "answers", None) or [])
     if not batch:
@@ -239,7 +206,7 @@ async def record_answers(questionnaire_id: str, entry_id: str, payload: Any, use
         note = (getattr(a, "notes", None) or "").strip() or None
         now_row = current.get(str(q["lineageId"]))
         if now_row and (now_row.get("text") or "") == text and (now_row.get("note") or None) == note:
-            unchanged += 1  # an unchanged answer never asks who wrote it (DR audit H4)
+            unchanged += 1
             continue
         if not text and not now_row:
             unchanged += 1
@@ -287,8 +254,6 @@ async def restore_entry(entry_id: str, user: Any) -> dict[str, Any]:
 
 
 async def entries_for_form(questionnaire_id: str, *, deleted: bool = False) -> list[dict[str, Any]]:
-    """The form's sittings (its sessions) in the old shape, newest first; ``deleted`` for the
-    content admins' Deleted list."""
     db = _db()
     rows = await db.query_raw(
         'SELECT "id" FROM "QuestionnaireInterview" WHERE "questionnaireId" = $1 AND "mergedIntoId" IS NULL AND '
@@ -304,9 +269,7 @@ async def entries_for_form(questionnaire_id: str, *, deleted: bool = False) -> l
     return out
 
 
-# ── the retired global form ────────────────────────────────────────────────────────────────────
 async def form_for_design_workshop(design_workshop_id: str | None) -> str | None:
-    """The form an old global-form create lands on: the four-step resolution for its design workshop."""
     if not design_workshop_id:
         resolved = await bindings.resolve_for_workshop(client=_db())
     else:
@@ -318,9 +281,6 @@ async def form_for_design_workshop(design_workshop_id: str | None) -> str | None
 
 
 async def create_global_interview(payload: Any, user: Any, *, headers: Any = None) -> Any:
-    """``POST /questionnaire/interviews`` (an old build's global form) with v2 on: a session on the
-    design workshop's primary form, returned as the stored interview row. None when no form resolves
-    (the caller then runs the old route, so no new error code ever reaches the old build)."""
     if not enabled():
         return None
     design_workshop_id = getattr(payload, "designWorkshopId", None) or None
@@ -353,8 +313,6 @@ async def create_global_interview(payload: Any, user: Any, *, headers: Any = Non
 
 
 async def patch_global_interview(interview: Any, payload: Any, user: Any) -> dict[str, Any]:
-    """``PATCH /questionnaire/interviews/{id}`` on a v2 session: the shared edit (title to
-    ``legacyTitle``, artisans to participant changes). Returns the column changes left for the route."""
     from app.questionnaire.shims_fr import patch_interview_shim
 
     return await patch_interview_shim(interview, payload, user)

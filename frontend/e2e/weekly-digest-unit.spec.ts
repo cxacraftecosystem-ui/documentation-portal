@@ -16,11 +16,6 @@ import {
   type WeeklyDigest
 } from "@/lib/weeklyDigest";
 
-/**
- * THE MONDAY SUMMARY — the Settings card's judgements and the summary page's shape, held without a
- * renderer. The three paths are the shared contract with the designer portal and both handsets.
- */
-
 const ROOT = join(__dirname, "..");
 
 function preference(overrides: Partial<DigestPreference> = {}): DigestPreference {
@@ -111,7 +106,6 @@ test("the page draws four tiles and leaves out rows that count nothing", () => {
   ]);
   expect(digestTiles({ ...DIGEST, coverage: { label: "Reports in", value: 41, of: 58, percent: 71 } })[3].figure).toBe("71%");
   expect(visibleLines(DIGEST.sections[0]).map((line) => line.key)).toEqual(["records"]);
-  // Only app paths become links.
   expect(visibleLines(DIGEST.sections[2])[0].link).toBeNull();
 });
 

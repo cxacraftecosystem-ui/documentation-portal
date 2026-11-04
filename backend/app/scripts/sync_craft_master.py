@@ -1,12 +1,3 @@
-"""Bring the craft tables into line with ``app/data/craft_master_list.json`` (docs/CRAFTS.md).
-
-    cd backend && python -m app.scripts.sync_craft_master --dry-run
-    cd backend && python -m app.scripts.sync_craft_master
-
-Upserts by slug and never deletes; a seeded craft that has left the file becomes LEGACY. Run it after
-the file is revised. The same file in both portals.
-"""
-
 from __future__ import annotations
 
 import argparse

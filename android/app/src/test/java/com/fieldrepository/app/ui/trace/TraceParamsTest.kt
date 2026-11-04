@@ -7,16 +7,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * The control table: that it adds up, that every key it names is a key the engine has, and that the
- * two halves of the disclosure are exhaustive and disjoint.
- *
- * **THE WAY A LATER TIDY-UP LOSES A CONTROL IS NOT BY DELETING IT.** It is by leaving a gap between two
- * lists somebody maintains by hand. Most of this file exists to make that gap a red build.
- */
 class TraceParamsTest {
-
-    /* ── The table adds up ──────────────────────────────────────────────────────────────────── */
 
     @Test
     fun theFourKindsAccountForEveryControl() {
@@ -27,10 +18,6 @@ class TraceParamsTest {
         assertEquals(TRACE_CONTROLS.size, TRACE_PARAM_COUNT)
     }
 
-    /**
-     * The shape of the table, stated once. This is the number the panel prints, so if it changes
-     * somebody has either added a control or quietly lost one, and both want a person to look.
-     */
     @Test
     fun theTableIsSeventeenSlidersNineTogglesFourChoicesAndOneNamedOption() {
         assertEquals(17, TRACE_SLIDERS.size)
@@ -46,13 +33,6 @@ class TraceParamsTest {
         assertEquals("A control appears under two rows", keys.size, keys.toSet().size)
     }
 
-    /**
-     * **EVERY KEY IS A LEAF THE VENDORED ENGINE ACTUALLY HAS.**
-     *
-     * This is the check that makes the whole table a transcription rather than a guess: the keys are
-     * derived from the engine's own default tree, so a control naming `preprocess.longEdge` instead of
-     * `preprocess.workingLongEdge` fails here rather than drawing a row that silently does nothing.
-     */
     @Test
     fun everyControlNamesALeafTheEngineHas() {
         TRACE_CONTROLS.forEach { control ->
@@ -64,7 +44,6 @@ class TraceParamsTest {
         }
     }
 
-    /** Same for the cut list: a control cut on discipline must be a control that exists. */
     @Test
     fun everyCutControlNamesALeafTheEngineHas() {
         TRACE_CUT.keys.forEach { key ->
@@ -73,13 +52,6 @@ class TraceParamsTest {
         }
     }
 
-    /* ── The disclosure's two halves ────────────────────────────────────────────────────────── */
-
-    /**
-     * **NOTHING BECOMES UNREACHABLE, BY CONSTRUCTION.** The rows above the disclosure and the rows
-     * inside it are selected from ONE `tier` field by opposite tests, so a control added to the table
-     * lands in one of them without anybody choosing.
-     */
     @Test
     fun everyControlIsDrawnSomewhere() {
         val primary = TRACE_CONTROLS.count { it.tier == TraceTier.PRIMARY }
@@ -89,7 +61,6 @@ class TraceParamsTest {
         assertEquals(TRACE_ADVANCED_COUNT, advanced)
     }
 
-    /** Six lead, and they are the ones that change the KIND of drawing that comes out. */
     @Test
     fun sixControlsLeadAndStrokeWidthIsNotOneOfThem() {
         assertEquals(6, TRACE_PRIMARY_KEYS.size)
@@ -100,7 +71,6 @@ class TraceParamsTest {
         assertTrue("output.vectorMode" in TRACE_PRIMARY_KEYS)
     }
 
-    /** The background is relocated to the export step, not deleted: it must still be in the table. */
     @Test
     fun theBackgroundIsRelocatedRatherThanDropped() {
         val row = TRACE_CONTROLS.firstOrNull { it.key == "output.background" }
@@ -109,9 +79,6 @@ class TraceParamsTest {
         assertEquals(TRACE_GROUP_EXPORT, row.group)
     }
 
-    /* ── Travel and value ───────────────────────────────────────────────────────────────────── */
-
-    /** Every geometric (LOG) slider needs a positive minimum, or its whole track is a NaN. */
     @Test
     fun everyLogSliderHasAPositiveMinimum() {
         TRACE_SLIDERS.filter { it.scale == TraceScale.LOG }.forEach {
@@ -119,7 +86,6 @@ class TraceParamsTest {
         }
     }
 
-    /** `fractionOf` and `valueAt` are inverses, for all three scales. */
     @Test
     fun travelAndValueAreInverses() {
         TRACE_SLIDERS.forEach { slider ->
@@ -131,19 +97,12 @@ class TraceParamsTest {
                     "${slider.key} does not round-trip at travel $t",
                     value,
                     again,
-                    // One step of tolerance: `valueAt` snaps, so the comparison is between two snapped
-                    // values and not between two reals.
                     slider.step,
                 )
             }
         }
     }
 
-    /**
-     * THE SQUARE SCALE IS WHAT PUTS THE PRESET VALUES WHERE A THUMB CAN REACH THEM. A quarter of the
-     * travel must reach about a sixteenth of the range, or `minBlobArea`'s useful values are still
-     * crammed into 19 dp.
-     */
     @Test
     fun theSquareScalePutsTheSmallValuesInTheFirstQuarter() {
         val blob = TRACE_SLIDERS.first { it.key == "cleanup.minBlobArea" }
@@ -155,11 +114,6 @@ class TraceParamsTest {
         assertEquals("The range itself is unchanged", 1000.0, blob.valueAt(1f), 0.5)
     }
 
-    /**
-     * THE GEOMETRIC SCALE IS ABOUT THE HINT, NOT THE PRESETS. "3 is soft graphite" has to be somewhere
-     * near the middle of the track, or the whole soft half of the control's own documented range is one
-     * fingertip.
-     */
     @Test
     fun theGeometricScaleMakesTheSoftEndReachable() {
         val phi = TRACE_SLIDERS.first { it.key == "edge.xdogPhi" }
@@ -169,17 +123,12 @@ class TraceParamsTest {
         assertTrue(at3 < 0.6f)
     }
 
-    /**
-     * THE SNAP IS NOT COSMETIC. `0.05 * 7` is 0.35000000000000003 in binary floating point, and that
-     * value would reach the readout, the tree and the cross-runtime parity record.
-     */
     @Test
     fun theSnapRemovesBinaryFloatingPointDust() {
         val sharpen = TRACE_SLIDERS.first { it.key == "preprocess.unsharpAmount" }
         assertEquals(0.35, sharpen.snap(0.35000000000000003), 0.0)
     }
 
-    /** An integral leaf is rounded before it is sent, because the sanitiser truncates toward zero. */
     @Test
     fun anIntegralSliderSendsAWholeNumber() {
         val blob = TRACE_SLIDERS.first { it.key == "cleanup.minBlobArea" }
@@ -188,14 +137,6 @@ class TraceParamsTest {
         assertEquals(TraceValue.Num(24.0), patch["cleanup.minBlobArea"])
     }
 
-    /* ── The readout ────────────────────────────────────────────────────────────────────────── */
-
-    /**
-     * **THE FORMATTER'S LOCALE IS PINNED, NOT THE JVM'S.** `app/build.gradle.kts` runs these tests as
-     * en_US precisely so a locale bug can fail one, and its own comment forbids "fixing" such a failure
-     * by editing the build file. This asserts the readout at the formatter rather than at the JVM, so
-     * it is still true on a handset set to a language with a comma decimal separator.
-     */
     @Test
     fun theReadoutUsesADotWhateverTheDeviceLanguageIs() {
         val previous = java.util.Locale.getDefault()
@@ -216,13 +157,6 @@ class TraceParamsTest {
         assertEquals(2, traceDecimals(0.01))
     }
 
-    /* ── What a control cannot do right now ─────────────────────────────────────────────────── */
-
-    /**
-     * **THE MEDIAN TRAP.** The median branch reads a fixed radius and never `denoiseStrength`, and
-     * median is what the `sketch` subject selects — which is the subject this panel opens on. So on the
-     * ordinary configuration the "Noise reduction" slider is inert, and nothing on the portal says so.
-     */
     @Test
     fun theNoiseSliderSaysSoWhenTheMedianFilterIsChosen() {
         val slider = TRACE_SLIDERS.first { it.key == "preprocess.denoiseStrength" }
@@ -235,11 +169,6 @@ class TraceParamsTest {
         assertNull(traceInactiveReason(slider, bilateral))
     }
 
-    /**
-     * A MISSING LEAF IS NOT A FALSE ONE. A tree with no `cleanup.skeletonize` is a version skew, and
-     * reading it as "thinning is switched off" would put a confident sentence under a control on the
-     * strength of a leaf that is not there.
-     */
     @Test
     fun aMissingFlagDoesNotBecomeAConfidentSentence() {
         val prune = TRACE_SLIDERS.first { it.key == "cleanup.pruneSpurs" }
@@ -256,8 +185,6 @@ class TraceParamsTest {
         assertNotNull(traceInactiveReason(sigma, traceValuesOf("""{"edge":{"engine":"CANNY"}}""")))
     }
 
-    /* ── Reporting a version skew ───────────────────────────────────────────────────────────── */
-
     @Test
     fun aHealthyTreeIsMissingNothing() {
         assertEquals(emptyList<String>(), traceMissingKeys(traceValuesOfParams(defaults())))
@@ -268,10 +195,6 @@ class TraceParamsTest {
         assertEquals(TRACE_PARAM_COUNT, traceMissingKeys(traceValuesOf("{}")).size)
     }
 
-    /**
-     * THE TOGGLE'S COUNT IS WHAT THE PRESS PRODUCES, not what the table holds. A button reading "show
-     * the other 24 settings" that reveals 18 is the failure this pair of functions exists to prevent.
-     */
     @Test
     fun theDisclosureCountsRowsItCanActuallyDraw() {
         val healthy = traceValuesOfParams(defaults())
@@ -300,8 +223,6 @@ class TraceParamsTest {
         assertEquals("Collapsed", traceDisclosureState(false))
     }
 
-    /* ── Saying what changed ────────────────────────────────────────────────────────────────── */
-
     @Test
     fun anUnchangedTreeReportsNothing() {
         val values = traceValuesOfParams(defaults())
@@ -321,10 +242,6 @@ class TraceParamsTest {
         assertEquals("The “Woodcut” style changed one setting: Simplify.", notice)
     }
 
-    /**
-     * THE TOGGLE'S QUESTION IS NARROWER THAN THE SENTENCE'S. A count on the toggle that included the
-     * export tier would be the toggle claiming to reveal a control that lives on another step.
-     */
     @Test
     fun theToggleCountsOnlyWhatThePressReveals() {
         val before = traceValuesOfParams(defaults())
@@ -354,13 +271,6 @@ class TraceParamsTest {
         )
     }
 
-    /* ── Seeding the subject ────────────────────────────────────────────────────────────────── */
-
-    /**
-     * The map is carried across from the design workshop's registry and this product has no such
-     * vocabulary yet, so nothing here can check the KEYS. What it can check — and what matters — is
-     * that every VALUE names a subject this engine actually carries.
-     */
     @Test
     fun everySeededSubjectExistsInTheEngine() {
         val ids = Subjects.ALL.map { it.id }.toSet()

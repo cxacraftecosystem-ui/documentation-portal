@@ -1,9 +1,3 @@
-"""Cross-researcher data sharing: tiered access requests/grants, comments, and edit history.
-
-Tiers (strictly increasing): DOWNLOAD < COMMENT < EDIT — see app.services.access for the enforcement
-used across the record routes. This module owns the request/grant lifecycle plus the comment and
-revision read/write endpoints.
-"""
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -40,7 +34,6 @@ router = APIRouter(prefix="/data-access", tags=["data-access"])
 
 GRANT_INCLUDE = {"owner": True, "grantee": True, "requestedBy": True, "decidedBy": True, "scopeItems": True}
 
-# record type -> (delegate, owner-id field). Used to resolve a record's owner for comment/edit checks.
 RECORD_DELEGATES: dict[str, tuple[Any, str]] = {
     "artisan": (db.artisan, "createdById"),
     "craft": (db.craft, "createdById"),
@@ -60,7 +53,6 @@ def _validate_tier(tier: str | None) -> None:
 
 
 async def _resolve_record(record_type: str, record_id: str) -> tuple[Any, str | None]:
-    """The record and its owner's id (404 when it does not exist)."""
     entry = RECORD_DELEGATES.get(record_type.lower())
     if entry is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported record type")
@@ -77,9 +69,6 @@ async def _resolve_record_owner(record_type: str, record_id: str) -> str | None:
 
 
 async def _reviews_owner(user: Any, owner_id: str | None) -> bool:
-    """May ``user`` review this owner's work? (C20) A reviewer reads a record's edit history and
-    comments on it as part of reviewing it, without asking its owner for a grant first. Same ladder
-    as the review queue: review access, and an owner ranked strictly below them."""
     if not owner_id or not can_access_review(user):
         return False
     owner = await db.user.find_unique(where={"id": owner_id})
@@ -98,12 +87,11 @@ def _record_label(record: Any) -> str:
 
 
 async def _comment_label(record_type: str, record_id: str) -> str:
-    """What the comment e-mail calls the record. Read only when mail is on, and never fatal."""
     if not mailer.mail_configured():
         return "a record"
     try:
         record, _owner = await _resolve_record(record_type, record_id)
-    except Exception:  # the comment is saved; a plainer e-mail is fine
+    except Exception:
         return "a record"
     return _record_label(record)
 
@@ -114,16 +102,11 @@ def _scope_create(scope_items: list[Any] | None) -> list[dict[str, Any]]:
 
 @router.get("/tiers")
 async def list_tiers(_: Any = Depends(get_current_user)) -> list[dict[str, str]]:
-    """The tier catalogue with human definitions, so the UI can show exactly what each tier confers."""
     return [{"tier": tier, "description": TIER_DESCRIPTIONS[tier]} for tier in ("DOWNLOAD", "COMMENT", "EDIT")]
 
 
 @router.get("/grants")
 async def my_grants(current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Everything access-related for the current user, split by perspective:
-    - incoming: requests/grants where I am the OWNER (others want or have access to my data)
-    - outgoing: requests/grants where I am the GRANTEE (my access to others' data)
-    """
     uid = get_value(current_user, "id")
     incoming = await db.dataaccessgrant.find_many(
         where={"ownerId": uid}, include=GRANT_INCLUDE, order={"updatedAt": "desc"}
@@ -147,7 +130,6 @@ async def _upsert_grant(
     requested_by: str | None,
     decided_by: str | None,
 ) -> Any:
-    """Create or replace the single (owner, grantee) grant row, rebuilding its subset items."""
     existing = await db.dataaccessgrant.find_unique(
         where={"ownerId_granteeId": {"ownerId": owner_id, "granteeId": grantee_id}}
     )
@@ -182,7 +164,6 @@ async def _upsert_grant(
 
 @router.post("/requests", status_code=status.HTTP_201_CREATED)
 async def request_access(payload: DataAccessRequestIn, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """A researcher requests access to another researcher's data (PENDING until the owner decides)."""
     _validate_tier(payload.tier)
     uid = get_value(current_user, "id")
     if payload.ownerId == uid:
@@ -195,10 +176,6 @@ async def request_access(payload: DataAccessRequestIn, current_user: Any = Depen
         where={"ownerId_granteeId": {"ownerId": payload.ownerId, "granteeId": uid}}
     )
     if existing is not None and _status_str(existing.status) == "GRANTED":
-        # Never reset an ACTIVE grant back to PENDING: the single (owner, grantee) row means a
-        # re-request would strip the requester's WORKING access while the owner deliberates, and a
-        # deny would destroy the original tier/scope entirely. Upgrades and scope changes go
-        # through the owner, who can edit the grant in place without ever leaving GRANTED.
         granted_tier = _tier_str(existing.tier)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -226,7 +203,6 @@ async def request_access(payload: DataAccessRequestIn, current_user: Any = Depen
 
 @router.post("/grants", status_code=status.HTTP_201_CREATED)
 async def grant_access(payload: DataAccessGrantIn, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """An owner proactively grants a researcher access to their data (immediately GRANTED)."""
     _validate_tier(payload.tier)
     uid = get_value(current_user, "id")
     if payload.granteeId == uid:
@@ -260,7 +236,6 @@ async def _require_owned_grant(grant_id: str, current_user: Any) -> Any:
 
 @router.post("/grants/{grant_id}/decide")
 async def decide_request(grant_id: str, payload: DataAccessDecisionIn, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """The owner approves (GRANTED) or denies (DENIED) a pending request, optionally adjusting tier/scope."""
     if payload.status not in {"GRANTED", "DENIED"}:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="status must be GRANTED or DENIED")
     _validate_tier(payload.tier)
@@ -293,7 +268,6 @@ async def decide_request(grant_id: str, payload: DataAccessDecisionIn, current_u
 
 @router.patch("/grants/{grant_id}")
 async def update_grant(grant_id: str, payload: DataAccessUpdateIn, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """The owner edits an existing grant (change tier, scope, or revoke/reinstate)."""
     if payload.status is not None and payload.status not in {"GRANTED", "REVOKED"}:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="status must be GRANTED or REVOKED")
     _validate_tier(payload.tier)
@@ -328,7 +302,6 @@ async def delete_grant(grant_id: str, current_user: Any = Depends(get_current_us
     if grant is None:
         return
     uid = get_value(current_user, "id")
-    # Either party (or an admin) may remove the relationship entirely.
     if grant.ownerId != uid and grant.granteeId != uid and not is_admin(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your grant")
     await db.dataaccessgrant.delete(where={"id": grant.id})
@@ -342,16 +315,12 @@ def _status_str(value: Any) -> str:
     return str(getattr(value, "value", value))
 
 
-# ----------------------------------------------------------------------------- comments
-
 @router.get("/comments")
 async def list_comments(
     recordType: str = Query(..., min_length=1),
     recordId: str = Query(..., min_length=1),
     _: Any = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
-    """Comments on a record. Readable by any authenticated user (all records are viewable); posting
-    requires COMMENT tier (or owner/admin), or being somebody who may review the owner's work."""
     rows = await db.entrycomment.find_many(
         where={"recordType": recordType.lower(), "recordId": recordId},
         include={"author": True},
@@ -362,8 +331,6 @@ async def list_comments(
 
 @router.post("/comments", status_code=status.HTTP_201_CREATED)
 async def add_comment(payload: CommentIn, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    # A queued comment on an artisan merged away since belongs on the survivor: the old id resolves
-    # to no owner and the comment would be refused on every replay.
     if payload.recordType.strip().lower() == "artisan":
         payload.recordId = await survivor_of(payload.recordId) or payload.recordId
     owner_id = await _resolve_record_owner(payload.recordType, payload.recordId)
@@ -397,7 +364,6 @@ async def add_comment(payload: CommentIn, current_user: Any = Depends(get_curren
 async def update_comment(
     comment_id: str, payload: CommentUpdate, current_user: Any = Depends(get_current_user)
 ) -> dict[str, Any]:
-    """The author edits their own comment. Nobody else rewrites what somebody said."""
     comment = await db.entrycomment.find_unique(where={"id": comment_id})
     if comment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
@@ -411,7 +377,6 @@ async def update_comment(
 
 @router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_comment(comment_id: str, current_user: Any = Depends(get_current_user)) -> None:
-    """Content admins only (``roles.CONTENT_ADMIN_ROLES``, 2026-10-20). The author edits instead."""
     assert_can_delete(current_user)
     comment = await db.entrycomment.find_unique(where={"id": comment_id})
     if comment is None:
@@ -419,18 +384,12 @@ async def delete_comment(comment_id: str, current_user: Any = Depends(get_curren
     await db.entrycomment.delete(where={"id": comment_id})
 
 
-# ----------------------------------------------------------------------------- revisions (edit history)
-
 @router.get("/revisions")
 async def list_revisions(
     recordType: str = Query(..., min_length=1),
     recordId: str = Query(..., min_length=1),
     current_user: Any = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
-    """The edit history of a record (original values are reconstructable from the first edit's `old`).
-    Visible to admins, the record's owner, and anyone who may review the owner's work (C20), so the
-    original and every subsequent edit can be reviewed.
-    """
     owner_id = await _resolve_record_owner(recordType, recordId)
     if (
         not is_content_admin(current_user)

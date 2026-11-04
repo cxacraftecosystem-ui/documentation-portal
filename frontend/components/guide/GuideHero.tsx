@@ -7,45 +7,21 @@ import { riseItem, springy, staggerParent } from "@/components/guide/guideMotion
 import { useAppReducedMotion } from "@/components/guide/useAppReducedMotion";
 import { useGsapHeadline } from "@/components/guide/useGsapHeadline";
 
-/**
- * The walkthrough's opening band: a dark purple surface (`surface-dark`) carrying the promise
- * of the page, three orienting facts, and the control that drops the reader into step 1.
- *
- * The one piece of ambient motion here is a derived one — a purple wash whose centre is
- * driven by two motion values tracking the pointer, spring-smoothed and composed into a
- * `radial-gradient` string by `useTransform`. Nothing animates on its own: with no pointer
- * (touch, keyboard, or reduced motion from either the OS or the app's Settings toggle) the
- * values never leave their centred rest position, so the band renders as a plain static
- * gradient.
- */
 export function GuideHero({ stepCount, onStart }: { stepCount: number; onStart: () => void }) {
   const reduce = useAppReducedMotion();
   const headline = useGsapHeadline<HTMLHeadingElement>(reduce);
 
-  // Pointer position as a percentage of the band, defaulting to dead centre.
   const pointerX = useMotionValue(50);
   const pointerY = useMotionValue(50);
   const smoothX = useSpring(pointerX, { stiffness: 110, damping: 24, mass: 0.6 });
   const smoothY = useSpring(pointerY, { stiffness: 110, damping: 24, mass: 0.6 });
 
-  // Derived animation: two motion values → one CSS background string, recomputed off the
-  // main React render loop.
   const glow = useTransform([smoothX, smoothY], (latest: number[]) => {
     const [x, y] = latest;
     return `radial-gradient(30rem 26rem at ${x}% ${y}%, oklch(0.648 0.19 305 / 0.42), transparent 64%)`;
   });
 
   const facts = [
-    /*
-     * ACCESS COMES FIRST because the walkthrough is reachable before anybody has an account — it is
-     * linked off the landing page — so its readers now include people whose sign-in was just
-     * refused. Since the platform allow-list shipped, an address nobody has admitted gets a pending
-     * request instead of an account; teaching that reader the documentation steps without first
-     * telling them why the door did not open sends them looking for a fault in the app.
-     *
-     * It replaces the review fact rather than joining it: four facts is a list and three is an
-     * orientation, and review is taught properly at the step where the reader is doing it.
-     */
     { icon: ShieldCheck, text: "Access is by invitation" },
     { icon: ListOrdered, text: `${stepCount} steps, in field order` },
     { icon: Compass, text: "Every record is scoped to a workshop" }
@@ -80,9 +56,6 @@ export function GuideHero({ stepCount, onStart }: { stepCount: number; onStart: 
       <motion.p variants={riseItem(reduce)} className="text-[0.8125rem] font-semibold uppercase tracking-[0.14em] text-purple-300">
         Walkthrough
       </motion.p>
-      {/* The one GSAP-owned element on the page: an overlapping per-word timeline, which framer's
-          sequential stagger cannot express. See useGsapHeadline for why. `overflow-hidden` gives
-          the words something to rise out of. */}
       <h2
         ref={headline}
         className="mt-3 max-w-2xl overflow-hidden font-display text-3xl font-bold tracking-tight text-white sm:text-4xl"

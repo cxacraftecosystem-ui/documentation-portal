@@ -1,22 +1,3 @@
-"""Coverage, computed on read from ``questionnaire_take_v`` (DESIGN 3.1-3.3, 3.5 and 5.2).
-
-THE HIERARCHY RULE, used by the check, the grid, the backfill and the tests alike: a target is
-already covered for an artisan when the target itself, OR ITS PARENT SECTION, has a take for them.
-A question take after a section take therefore prompts; a section take after question takes does
-not (it shows "D3, D4 also have question takes."). Only ANSWERED subjects count; a general
-("Whole session") recording counts for nothing; a NEEDS_DECISION take counts for the prompt but
-NEVER for "covered" (DESIGN 3.1; audit M2), and only live questions count toward a section's total.
-
-TYPED OR RECORDED, EITHER COUNTS; RECORDING PREFERRED (owner, amendment 2 of 22 Oct 2026, point 4).
-A question is covered for an artisan by a take (ANSWERED) OR by a typed answer with text (their own
-or a group answer; a soft-deleted session's answers do not count). Every grid cell says where its
-coverage comes from: ``source`` is ``RECORDED`` when any take covers it (shown first: a recording is
-preferred), ``TYPED`` when only typed answers do (a lighter mark, and ``addRecording`` asks the
-gentle "Add a recording?"), else None. "14 of 24 sections" counts both. The "Already recorded"
-prompt (``check``) is about RECORDING, so a typed answer is NOT prior coverage there: recording over a
-typed answer asks nothing; each per-artisan entry carries ``typed`` so a client can say it is there.
-"""
-
 from __future__ import annotations
 
 from collections import defaultdict
@@ -44,8 +25,6 @@ def question_key(lineage_id: str) -> str:
 
 
 async def resolve_targets(client: Any, questionnaire_id: str, targets: list[Any]) -> list[dict[str, Any]]:
-    """Each requested target as ``{targetKey, sectionId, questionLineageId, askedQuestionId,
-    displayCode, label, parentSectionId, sectionCode}``. A target outside the instrument -> 422."""
     out = []
     for t in targets:
         section_id = get(t, "sectionId")
@@ -72,7 +51,7 @@ async def resolve_targets(client: Any, questionnaire_id: str, targets: list[Any]
             )
             if not rows:
                 fail("TARGET_OUTSIDE_INSTRUMENT")
-            q = rows[0]  # the live wording of the lineage: what is asked now
+            q = rows[0]
             out.append({
                 "targetKey": question_key(lineage_id), "sectionId": None, "questionLineageId": lineage_id,
                 "askedQuestionId": str(q["id"]), "displayCode": q.get("displayCode"),
@@ -137,9 +116,6 @@ def take_payload(row: dict[str, Any], *, session_id: str | None, user_id: str | 
 
 def suggest_reason(prior: list[dict[str, Any]], *, purpose: str | None, roster: int, user_id: str | None,
                    via_section: bool = False) -> str | None:
-    """DESIGN 3.3 rule 2: the session purpose first; otherwise a different setting -> NEW_SETTING,
-    a different researcher -> RE_INTERVIEW, the same researcher -> REDO. A question covered only by
-    its section's take is a FOLLOW_UP (DESIGN 8 E6: "recorded whole"; Follow-up preselected)."""
     if not prior:
         return None
     if purpose == "FOLLOW_UP":
@@ -156,13 +132,11 @@ def suggest_reason(prior: list[dict[str, Any]], *, purpose: str | None, roster: 
     return "REDO"
 
 
-#: Where a cell's coverage comes from (``shared/questionnaire-enums.json`` CoverageSource).
 SOURCE_RECORDED = "RECORDED"
 SOURCE_TYPED = "TYPED"
 
 
 async def typed_lineages(client: Any, questionnaire_id: str, artisan_ids: list[str]) -> dict[str, set[str]]:
-    """artisanId -> the question lineages they have a typed answer WITH TEXT for, in live sessions."""
     if not artisan_ids:
         return {}
     rows = await client.query_raw(
@@ -180,13 +154,10 @@ async def typed_lineages(client: Any, questionnaire_id: str, artisan_ids: list[s
 
 
 async def check(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
-    """``POST /coverage/check``: asked once, before recording or upload (P2, P5)."""
     db = _db(client)
     targets = await resolve_targets(db, payload.questionnaireId, payload.targets)
     identical = None
     if payload.contentSha256:
-        # Only a hash the SERVER verified (audit M9): a wrong client hash must never make P5 hide a
-        # distinct take, which would then upload nothing.
         rows = await db.query_raw(
             'SELECT r."id", m."questionnaireInterviewId" AS sid FROM "MediaFile" m JOIN "QuestionnaireRecording" r ON r."mediaFileId" = m."id" '
             'WHERE m."contentSha256" = $1 AND m."shaVerifiedAt" IS NOT NULL AND m."removedAt" IS NULL AND r."removedAt" IS NULL '
@@ -236,7 +207,6 @@ async def check(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any
             per.append({
                 "artisanId": artisan_id, "state": state, "viaSection": bool(via and not direct),
                 "takes": [take_payload(r, session_id=payload.sessionId, user_id=user.id) for r in shown],
-                # A typed answer is there; it never makes this prompt fire (recording over it is encouraged).
                 "typed": bool(t["questionLineageId"] and str(t["questionLineageId"]) in typed.get(artisan_id, set())),
             })
         out_targets.append({"targetKey": t["targetKey"], "label": t["label"], "perArtisan": per})
@@ -250,7 +220,6 @@ async def check(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any
 
 
 def cell_recording(row: dict[str, Any]) -> dict[str, Any]:
-    """One take behind a grid cell (0.0.6): what a dot opens, or what its chooser lists."""
     return {
         "recordingId": str(row["recordingId"]),
         "mediaFileId": str(row["mediaFileId"]) if row.get("mediaFileId") else None,
@@ -263,7 +232,6 @@ def cell_recording(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def cell_recordings(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The distinct takes of a cell, oldest first (one opens directly; several open a chooser)."""
     seen: dict[str, dict[str, Any]] = {}
     for row in rows:
         seen.setdefault(str(row["recordingId"]), row)
@@ -282,7 +250,6 @@ async def _sections(client: Any, questionnaire_id: str) -> list[dict[str, Any]]:
 
 
 async def _live_lineages(client: Any, questionnaire_id: str) -> dict[str, set[str]]:
-    """sectionId -> the lineages asked now (active, not retired, not superseded)."""
     rows = await client.query_raw(
         'SELECT q."sectionId", COALESCE(q."lineageId", q."id") AS lineage FROM "QuestionnaireQuestion" q '
         'WHERE q."questionnaireId" = $1 AND q."isActive" AND q."retiredAt" IS NULL AND q."supersededById" IS NULL',
@@ -297,9 +264,6 @@ async def _live_lineages(client: Any, questionnaire_id: str) -> dict[str, set[st
 
 async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, workshop_id: str | None = None, client: Any = None,
                respondent_ids: list[str] | None = None) -> dict[str, Any]:
-    """``GET /coverage``: artisan x section, with partial counts and the admin overrides. Every cell
-    carries its subject key; a session's guest respondents (``respondent_ids``) get their own cells
-    under ``guestCells`` (subject key ``R:<id>``): they are on the grid but have no artisan record."""
     db = _db(client)
     if artisan_ids is None:
         if not workshop_id:
@@ -345,7 +309,6 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
             sec = str(found)
         cell_takes[(a, sec)].append(t)
         if t.get("filing") == "NEEDS_DECISION":
-            # Waiting for a decision: shown, never counted as covered (DESIGN 3.1; audit M2).
             nd[(a, sec)] = True
             continue
         if t.get("sectionId"):
@@ -360,9 +323,6 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
         cells = []
         for a in order:
             st = section_takes.get((a, sid), [])
-            # Only questions asked NOW count toward "covered", so a retired question can never push
-            # Partial to 100% (audit M2). A typed answer with text covers its question too (owner,
-            # amendment 2 point 4); a section take covers the section whatever was typed.
             asked = live.get(sid, set())
             recorded_q = question_lineages.get((a, sid), set()) & asked
             typed_q = {x for x in typed.get(a, set()) if lineage_home.get(x) == sid} & asked
@@ -397,8 +357,6 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
 
 async def _guest_cells(db: Any, questionnaire_id: str, respondent_ids: list[str], out: dict[str, Any],
                        sections: list[dict[str, Any]], live: dict[str, set[str]], lineage_home: dict[str, str]) -> None:
-    """The grid's guest columns: the same rule as an artisan's cell (a take, or a typed answer with
-    text; recordings preferred) over the guest's own takes and answers, live sessions only."""
     people = await db.query_raw(
         'SELECT "id", "name" FROM "QuestionnaireRespondent" WHERE "id" = ANY($1::text[]) AND "artisanId" IS NULL ORDER BY "createdAt", "id"',
         respondent_ids,
@@ -471,16 +429,9 @@ async def _guest_cells(db: Any, questionnaire_id: str, respondent_ids: list[str]
 
 
 def section_covered(cell: dict[str, Any]) -> bool:
-    """"14 of 24 sections": Recorded, or Partial at 100% of the active questions. A take waiting
-    for a decision covers nothing until it is decided (audit M2)."""
     return cell["state"] == "RECORDED" or (cell["total"] > 0 and cell["covered"] >= cell["total"])
 
 
-#: The highest changeSeq that NO transaction still running can undercut (audit M3). A sequence value
-#: is taken when a row is written but becomes visible only on commit, so a slow transaction can
-#: commit a LOWER changeSeq after a reader saw a higher one. Rows written by transactions at or after
-#: the oldest one still running (the snapshot's xmin) do not advance the horizon; they are still
-#: returned, and returned again next time, which a client absorbs (it replaces per recording id).
 HORIZON_SQL = (
     'SELECT COALESCE(max("changeSeq"), 0) AS s FROM "QuestionnaireRecording" '
     'WHERE ("xmin"::text)::bigint < (pg_snapshot_xmin(pg_current_snapshot())::text::bigint % 4294967296)'
@@ -488,11 +439,6 @@ HORIZON_SQL = (
 
 
 async def snapshot(questionnaire_id: str, workshop_id: str | None, since_seq: int | None, *, client: Any = None) -> dict[str, Any]:
-    """Takes changed after ``since_seq`` (every take of each changed recording, so a client replaces
-    its takes per recordingId), the recordings removed since, and every recording that changed at
-    all (``changedRecordingIds``: one whose takes all went, e.g. a subject turned PRESENT, is in
-    neither of the other lists). Scoped to one workshop. ``asOfSeq`` is read FIRST and bounded by
-    the oldest running transaction, so a late commit is never skipped (audit M3)."""
     db = _db(client)
     since = int(since_seq or 0)
     horizon = await db.query_raw(HORIZON_SQL)
@@ -543,7 +489,6 @@ async def snapshot(questionnaire_id: str, workshop_id: str | None, since_seq: in
 
 
 async def first_gaps(client: Any, questionnaire_id: str, artisan_ids: list[str]) -> dict[str, Any]:
-    """Each artisan's first section (instrument order) with no take at all."""
     g = await grid(questionnaire_id, artisan_ids=artisan_ids, client=client)
     gaps: dict[str, Any] = dict.fromkeys(artisan_ids)
     for section in g["sections"]:
@@ -553,12 +498,9 @@ async def first_gaps(client: Any, questionnaire_id: str, artisan_ids: list[str])
     return gaps
 
 
-# ── the primary take (DESIGN 3.5) ──────────────────────────────────────────────────────────────
 def choose_primary(
     takes: list[dict[str, Any]], *, answer_source: str | None, explicit: str | None, senior_redoers: set[str] | None = None,
 ) -> str | None:
-    """The primary take of one (artisan, target), by the five rules in order. ``takes`` are view rows
-    (``recordingId``, ``capturedAt``, ``rosterCount``, ``reason``, ``recordedById``)."""
     if not takes:
         return None
     live = {str(t["recordingId"]) for t in takes}
@@ -577,9 +519,6 @@ def choose_primary(
             redos.append(t)
     if redos:
         return str(redos[-1]["recordingId"])
-    # "A Re-interview never demotes the earlier account" (DESIGN 3.5): a solo re-interview after a
-    # group take is a second account, so it never wins rule 4 over the take it re-interviews. The
-    # earliest take is nobody's second account, whatever reason a late upload inferred for it.
     solo = [t for i, t in enumerate(ordered) if int(t.get("rosterCount") or 0) == 1 and (i == 0 or t.get("reason") != "RE_INTERVIEW")]
     if solo:
         return str(solo[0]["recordingId"])
@@ -587,11 +526,6 @@ def choose_primary(
 
 
 async def primaries_many(client: Any, rows_by_artisan: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, str | None]]:
-    """:func:`primaries` for many artisans at once, keyed by artisan id, in three reads in all.
-
-    Each artisan sees exactly what its own call would: its answers, the MAKE_PRIMARY events on ITS
-    rows' recordings that name it, and the senior roles of ITS rows' recorders.
-    """
     targets: dict[str, dict[str, list]] = {}
     for artisan_id, rows in rows_by_artisan.items():
         by_target: dict[str, list] = defaultdict(list)
@@ -647,7 +581,6 @@ async def primaries_many(client: Any, rows_by_artisan: dict[str, list[dict[str, 
 
 
 async def primaries(client: Any, artisan_id: str, rows: list[dict[str, Any]]) -> dict[str, str | None]:
-    """targetKey -> primary recordingId for one artisan, over view rows of that artisan."""
     by_target: dict[str, list] = defaultdict(list)
     for r in rows:
         if r.get("continuationOfId"):
@@ -687,9 +620,6 @@ async def primaries(client: Any, artisan_id: str, rows: list[dict[str, Any]]) ->
 
 
 async def required_unanswered(client: Any, session_id: str) -> dict[str, Any]:
-    """A19: how many REQUIRED questions (``isRequired``, asked now) each subject of a session has
-    neither answered in text nor been recorded on (a question take, or a take on its section). Finish
-    reports it ("3 required questions unanswered") and NEVER blocks on it."""
     srow = await client.query_raw('SELECT "questionnaireId" FROM "QuestionnaireInterview" WHERE "id" = $1', session_id)
     if not srow:
         return {"count": 0, "bySubject": {}}

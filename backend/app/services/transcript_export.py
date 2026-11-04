@@ -1,28 +1,3 @@
-"""Transcripts in "View data" and "Download data": turns, summaries, quotes, glossary, chips (0.0.6).
-
-IDENTICAL IN BOTH PORTALS (listed in ``shared/transcription.sha256``). The data browser's manifest,
-its report and the streamed transcript datasets (``api/routes/transcript_data.py``) all read
-recordings through :func:`load`, so the three agree on every rule below.
-
-WHAT A RECORDING CARRIES. Its turns (speaker under the mapped name, start and end, language, the
-original and its English), its summary lines and quotes, the glossary terms heard in it, and its
-recording chips (form, session, section or question, artisans, researcher, workshop, language,
-duration). A recording transcribed before the turn pipeline has no timed turns: its stored markdown
-is read into speaker turns with no times.
-
-CONSENT. A recording whose consent was refused or withdrawn (the one ledger rule, through the
-portal's ``consent_gate``) is listed with ``withheld = CONSENT_REFUSED`` and NO words at all: no
-turns, no summary, no quotes, no glossary, no transcript files.
-
-COST AND MODELS are added only for the three administrator roles (``sees_spend``), as on the
-transcript page.
-
-MEMORY. Nothing here reads "everything". :func:`load` takes one batch of ids (:data:`BATCH`) and
-answers it in a FIXED number of reads, whatever the batch holds (``tests/test_transcript_export_db``
-counts them); :func:`select_page` pages the selection by keyset. A caller streams batch by batch and
-drops each before reading the next: the boxes are a t3.medium (designer) and a t3.small (field).
-"""
-
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -34,14 +9,10 @@ from app.core.db import db
 from app.transcription.transcript import preview, render
 from app.transcription.transcript.turns import language_label, speaker_order
 
-#: Recordings per :func:`load` call. Turns dominate: 50 long interviews is a few MB.
 BATCH = 50
 WITHHELD = "CONSENT_REFUSED"
 ALLOW = "ALLOW"
 
-#: The transcript files a download bundle carries per recording (contract ``transcriptFile``):
-#: ``(what, extension, format, track, timestamps, needs_times)``. ``what`` follows the naming skill
-#: and ``download_name``; subtitles are only offered for timed turns.
 BUNDLE_FILES: tuple[tuple[str, str, str, str, bool, bool], ...] = (
     ("Transcript-Bilingual", ".md", "md", "both", True, False),
     ("Transcript-Bilingual-No-Timestamps", ".md", "md", "both", False, False),
@@ -55,8 +26,6 @@ BUNDLE_FILES: tuple[tuple[str, str, str, str, bool, bool], ...] = (
 
 
 def transcript_file_url(media_id: str, fmt: str, track: str, timestamps: bool) -> str:
-    """The portal API path that renders one transcript file (``GET /api/transcripts/{id}/download``).
-    Relative: the web fetches it through its own origin with the session; the apps prefix their API."""
     return f"/api/transcripts/{media_id}/download?format={fmt}&track={track}&timestamps={'true' if timestamps else 'false'}"
 
 
@@ -72,8 +41,6 @@ def _iso(value: Any) -> str | None:
 
 
 async def _verdicts(ids: list[str], client: Any) -> dict[str, str]:
-    """``{mediaId: ALLOW|REFUSED|...}`` from the portal's consent gate, in its fixed reads. A failed
-    read withholds (the safe answer for an export)."""
     from app.questionnaire import ports
 
     gate = ports.consent_gate
@@ -86,7 +53,6 @@ async def _verdicts(ids: list[str], client: Any) -> dict[str, str]:
 
 
 def _labels(rows: list[dict[str, Any]], names: dict[str, dict[str, Any]]) -> dict[str, str]:
-    """The transcript page's labels: the mapped name (``(researcher)`` for a researcher), else Speaker N."""
     labels: dict[str, str] = {}
     for number, key in enumerate(speaker_order(rows), start=1):
         mapped = names.get(key)
@@ -106,7 +72,6 @@ def _english(row: dict[str, Any], text: str) -> str | None:
 
 
 async def load(media_ids: list[str], *, sees_spend: bool = False, client: Any = None) -> dict[str, dict[str, Any]]:
-    """``{mediaId: recording}`` for at most :data:`BATCH` ids, in a fixed number of reads."""
     from app.questionnaire import chips as q_chips
 
     ids = list(dict.fromkeys(str(i) for i in media_ids if i))[:BATCH]
@@ -140,7 +105,6 @@ async def load(media_ids: list[str], *, sees_spend: bool = False, client: Any = 
     ) if allowed else []
     insights = await conn.query_raw(
         'SELECT DISTINCT ON ("mediaFileId") "mediaFileId", "summaryLines", "quotes", '
-        # D38: only English a person pasted whole is read here, never a machine translation's text.
         """CASE WHEN "provider" = 'manual' THEN "translationText" END AS "manualEnglish", """
         """"generated"->>'versionId' AS "manualVersionId" FROM "TranscriptInsight" """
         'WHERE "mediaFileId" = ANY($1::text[]) AND "supersededAt" IS NULL ORDER BY "mediaFileId", "version" DESC',
@@ -246,7 +210,6 @@ async def load(media_ids: list[str], *, sees_spend: bool = False, client: Any = 
             ]
         insight = insight_by.get(mid)
         if insight is not None and rec["source"] == "TURNS" and str(insight.get("manualEnglish") or "").strip():
-            # English pasted whole (D38): the recording's English while its turns lack their own.
             made_for = insight.get("manualVersionId")
             lacking = any(not t["english"] for t in rec["turns"] if t["translationStatus"] != "ALREADY_ENGLISH")
             if lacking and (made_for is None or made_for == str(version["id"])):
@@ -269,22 +232,18 @@ async def load(media_ids: list[str], *, sees_spend: bool = False, client: Any = 
     return out
 
 
-# --- Selection, filters and paging ------------------------------------------------------------
-
 
 @dataclass
 class Filters:
-    """The recording fields a transcript export narrows by (query parameters of the same names)."""
-
-    language: list[str] = field(default_factory=list)       # a language heard (TranscriptVersion.languages)
-    status: list[str] = field(default_factory=list)         # MediaFile.transcriptStatus
-    speaker: str | None = None                              # a mapped speaker name, contains
-    researcher: list[str] = field(default_factory=list)     # uploader / recorder user ids
-    since: datetime | None = None                           # uploaded on or after
-    until: datetime | None = None                           # uploaded before
-    has_english: bool | None = None                         # at least one translated turn
-    q: str | None = None                                    # words in the transcript
-    media_ids: list[str] | None = None                      # narrowed by questionnaire filters
+    language: list[str] = field(default_factory=list)
+    status: list[str] = field(default_factory=list)
+    speaker: str | None = None
+    researcher: list[str] = field(default_factory=list)
+    since: datetime | None = None
+    until: datetime | None = None
+    has_english: bool | None = None
+    q: str | None = None
+    media_ids: list[str] | None = None
 
     def echo(self) -> dict[str, Any]:
         return {
@@ -298,7 +257,6 @@ def _split(values: list[str] | None) -> list[str]:
 
 
 def parse_filters(params: Any) -> Filters:
-    """``Filters`` from query parameters (repeatable or comma-separated)."""
     def many(name: str) -> list[str]:
         getter = getattr(params, "getlist", None)
         return _split(getter(name) if getter else ([params[name]] if params.get(name) else []))
@@ -362,7 +320,6 @@ def _where(f: Filters, cursor: str | None) -> tuple[str, list[Any]]:
 
 
 async def select_page(f: Filters, cursor: str | None, *, limit: int = BATCH, client: Any = None) -> list[str]:
-    """One keyset page of matching media ids (id order), at most ``limit``. One read."""
     where, params = _where(f, cursor)
     rows = await _conn(client).query_raw(
         f'SELECT m."id" FROM "MediaFile" m WHERE {where} ORDER BY m."id" LIMIT {max(1, min(int(limit), 500))}',
@@ -377,7 +334,6 @@ Visible = Callable[[list[str]], Awaitable[set[str]]]
 async def iter_recordings(
     f: Filters, *, sees_spend: bool, visible: Visible | None = None, client: Any = None
 ) -> AsyncIterator[dict[str, Any]]:
-    """Every matching recording the reader may see, batch by batch (one batch in memory at a time)."""
     cursor: str | None = None
     while True:
         page = await select_page(f, cursor, client=client)
@@ -398,8 +354,6 @@ async def iter_recordings(
         if len(page) < BATCH:
             return
 
-
-# --- Flat rows (CSV / NDJSON) -----------------------------------------------------------------
 
 
 def _chip_text(chips: dict[str, Any] | None) -> dict[str, str]:
@@ -495,12 +449,8 @@ def glossary_rows(rec: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-# --- The download bundle ----------------------------------------------------------------------
-
 
 async def bundle_plan(media_ids: list[str], *, client: Any = None) -> dict[str, dict[str, Any]]:
-    """``{mediaId: {"withheld", "turns", "timed"}}`` for a manifest: which transcript files a bundle
-    carries. Batched: one read of turn facts plus the consent gate per :data:`BATCH` ids."""
     out: dict[str, dict[str, Any]] = {}
     ids = list(dict.fromkeys(str(i) for i in media_ids if i))
     conn = _conn(client)
@@ -525,14 +475,6 @@ async def bundle_plan(media_ids: list[str], *, client: Any = None) -> dict[str, 
 
 
 async def finalize_manifest(files: list[dict[str, Any]], *, pipeline_on: bool, client: Any = None) -> list[dict[str, Any]]:
-    """Settle a manifest's transcript entries (marked ``_tx``) once the whole walk is known.
-
-    Each transcript-bearing recording was emitted twice by the walk: its stored markdown inline
-    (``_tx = (mediaId, "legacy")``) and the per-recording files of :data:`BUNDLE_FILES`
-    (``_tx = (mediaId, "pipeline", needs_times)``). Here, in batched reads: a withheld recording
-    keeps NONE of them; a recording with turns keeps the files (subtitles only when timed) while
-    the pipeline is on; any other keeps its markdown. Markers are removed. Returns ``files``.
-    """
     marked = [f for f in files if f.get("_tx")]
     if not marked:
         return files
@@ -554,8 +496,6 @@ async def finalize_manifest(files: list[dict[str, Any]], *, pipeline_on: bool, c
 
 
 def bundle_names(media: Any, name_kw: dict[str, Any] | None) -> list[tuple[str, str, str, bool, bool]]:
-    """``[(file name, format, track, timestamps, needs_times)]`` of :data:`BUNDLE_FILES` for one
-    recording: the clip's own name (``media_naming.display_filename``) with each file's What."""
     from app.services.media_naming import display_filename
 
     kw = dict(name_kw or {})
@@ -566,7 +506,6 @@ def bundle_names(media: Any, name_kw: dict[str, Any] | None) -> list[tuple[str, 
 
 
 def bundle_entries(media_id: str, names: list[tuple[str, str, str, bool, bool]]) -> list[tuple[str, dict[str, Any], bool]]:
-    """``[(name, manifest entry, needs_times)]``: each file fetched from the transcript API."""
     return [
         (
             name,
@@ -583,11 +522,6 @@ def bundle_entries(media_id: str, names: list[tuple[str, str, str, bool, bool]])
 
 
 async def settle_tree(entries: list[dict[str, Any]], *, pipeline_on: bool, client: Any = None) -> list[dict[str, Any]]:
-    """One /tree level after consent and the turn pipeline (one batched plan for the level).
-
-    A withheld recording shows no transcript (its ``.transcript.md`` leaves the level and its clip
-    reads ``transcriptAvailable: false``). A recording with turns lists its bundle files under
-    ``transcriptFiles`` (``[{name, format, track, timestamps, url}]``) while the pipeline is on."""
     ids = [str(e.get("_txMedia") or e.get("mediaId")) for e in entries
            if e.get("_txMedia") or (e.get("mediaId") and e.get("transcriptAvailable"))]
     if not ids:
@@ -617,15 +551,8 @@ async def settle_tree(entries: list[dict[str, Any]], *, pipeline_on: bool, clien
     return out
 
 
-# --- The data browser's report (View data tables and the .xlsx) --------------------------------
-
 
 def has_text(m: Any) -> bool:
-    """Whether a media row carries a transcript worth printing.
-
-    A row loaded with named columns (the data browser's report, D39) answers through its cheap
-    ``hasTranscript`` flag and never holds the text itself; a full Prisma row answers through
-    ``transcriptText``."""
     flag = getattr(m, "hasTranscript", None)
     if flag is not None:
         return bool(flag)
@@ -633,9 +560,6 @@ def has_text(m: Any) -> bool:
 
 
 async def withhold_refused(media: list[Any], *, client: Any = None) -> set[str]:
-    """Clear the transcript on every row whose consent was refused (fixed reads per 4 batches):
-    ``hasTranscript`` false and ``transcriptText`` blank, whichever the row carries.
-    Returns the withheld ids. The report's own sheets then never print those words."""
     ids = [str(m.id) for m in media if has_text(m)]
     withheld: set[str] = set()
     for start in range(0, len(ids), BATCH * 4):
@@ -658,9 +582,6 @@ def _clear(m: Any, name: str, value: Any) -> None:
 
 
 async def transcript_texts(media_ids: list[str], *, client: Any = None) -> dict[str, str]:
-    """``{mediaId: stored transcript}`` for the report's Transcripts sheet, :data:`BATCH` x 4 ids per
-    read, naming two columns only. The caller passes ids :func:`withhold_refused` has already
-    cleared, so no refused recording is asked for; a row with no text is left out."""
     ids = list(dict.fromkeys(str(i) for i in media_ids if i))
     out: dict[str, str] = {}
     conn = _conn(client)
@@ -680,10 +601,6 @@ async def report_sheets(
     media_ids: list[str], *, sees_spend: bool, sheet: Callable[..., dict[str, Any]], cap: int, color: str,
     client: Any = None,
 ) -> list[dict[str, Any]]:
-    """Three sheets for the report: recordings (summary, quotes, glossary, chips), turns, glossary.
-
-    Loaded :data:`BATCH` recordings at a time; rows stop at ``cap`` per sheet (flagged truncated, with
-    the sentence naming the streamed download that has every row)."""
     note = f"Note: capped at {cap} rows. Download data > Transcripts has every row."
     rec_cols = list(recording_columns(sees_spend))
     recs: list[list[Any]] = []

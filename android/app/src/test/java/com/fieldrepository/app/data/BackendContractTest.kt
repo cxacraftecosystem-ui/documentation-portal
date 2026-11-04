@@ -26,11 +26,6 @@ import java.io.File
 import java.lang.reflect.Proxy
 import java.time.Instant
 
-/**
- * The contract of fix/q-v2-backend (21-22 Oct 2026) as Android meets it: the build headers, closed
- * intents, `/complete`'s UPLOAD_MISSING, the join rate limit, the optional request fields, the
- * snapshot's changed takes, the inbox's named takes, and a researcher's replace keeping both takes.
- */
 class BackendContractTest {
     @get:Rule val tmp = TemporaryFolder()
     private val t0 = Instant.parse("2026-07-01T10:00:00Z")

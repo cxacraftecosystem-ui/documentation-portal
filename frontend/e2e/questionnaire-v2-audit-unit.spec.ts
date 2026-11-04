@@ -16,30 +16,19 @@ import { mergeStartLists, searchCachedArtisans } from "@/lib/startSheetCache";
 import { portalWorkshop, titleWorkshop, type WorkshopRow } from "@/lib/questionnairePortal";
 import { CONTRACT } from "./questionnaire-contract-fixture";
 
-/**
- * Regression tests for the Field Repository questionnaire audit of 21 Oct 2026 (web half, Phase 2):
- * one block per item, named by its id. The queue items (C3, C4, C5, H18) are in
- * `questionnaire-queue-unit.spec.ts`, the prompts (H16) in `questionnaire-prompts-unit.spec.ts`, the
- * inbox (H13, H14, copy) in `questionnaire-inbox-unit.spec.ts`; the real-backend run is
- * `questionnaire-v2-stack.spec.ts`.
- */
-
 const read = (...parts: string[]) => readFileSync(join(__dirname, "..", ...parts), "utf8").replace(/\r\n/g, "\n");
 const rec = CONTRACT.examples.Recording as Recording;
 
 test("C7: every call sends the platform and the build number, and the proxy forwards both", () => {
   expect(APP_PLATFORM).toBe("web");
-  // No build number in a unit run: no code is sent, which the server never refuses on the web.
   expect(APP_VERSION_CODE).toBeNull();
   const api = read("lib", "api.ts");
   expect(api).toContain('headers.set("X-App-Platform", APP_PLATFORM);');
   expect(api).toContain('if (APP_VERSION_CODE) headers.set("X-App-Version-Code", APP_VERSION_CODE);');
-  // Digits only: the server reads the code as a positive integer.
   expect(api).toContain("/^[1-9]\\d{0,8}$/");
   const proxy = read("lib", "server", "apiProxy.ts");
   expect(proxy).toContain('"x-app-version-code"');
   expect(proxy).toContain('"x-app-platform"');
-  // The number is the deploy run's, which only rises; a local build reads web-0.
   expect(read("next.config.ts")).toContain("process.env.GITHUB_RUN_NUMBER");
 });
 
@@ -51,12 +40,10 @@ test("H15: the Builder is the builder alone, for managers, with the page's Back"
   expect(screen).toContain("const allowed = canManageQuestionnaire(user);");
   expect(screen).toContain("<RestrictedPanel");
   expect(screen).toContain("<QuestionnaireAdminEditor");
-  // PageHeader draws the one Back control (back defaults to true); none is added by hand.
   expect(screen).toContain("<PageHeader title={qs(\"builder\")}");
   expect(screen).not.toContain("back={false}");
   expect(screen).not.toMatch(/<form[\s\S]*onSubmit=\{submit\}/);
   const list = read("components", "questionnaire", "SessionsList.tsx");
-  // The sessions list now opens the forms library, where a form's builder lives (UNIFY U3).
   expect(list).toContain('<Link className="field-button-secondary" href={FORMS_HREF}>');
 });
 
@@ -69,7 +56,6 @@ test("H17: a stopped take's draft stays open until the outbox holds it", () => {
   const queueClip = ws.slice(ws.indexOf("async function queueClip("), ws.indexOf("function chooseP2("));
   expect(queueClip.indexOf("await enqueue(unitSession, step")).toBeGreaterThan(-1);
   expect(queueClip.indexOf("await recorderStore.discard(take.takeKey)"), "the draft goes only after the outbox write").toBeGreaterThan(queueClip.indexOf("await enqueue(unitSession, step"));
-  // A failed write leaves the draft, and P13 offers it back at once.
   expect(queueClip).toContain("void checkRecovery();");
 });
 
@@ -88,11 +74,9 @@ const snapshot: Snapshot = {
 const ctx = { sectionOf: (l: string) => (l.startsWith("lin_d") ? "secD" : null), labelOf: (k: string) => k };
 
 test("M4: offline, P2 asks from the held snapshot plus this device's outbox", () => {
-  // Covered by the snapshot.
   const fromSnapshot = offlineCheck(snapshot, [], { questionnaireId: "q", artisanIds: ["a1"], targets: [{ questionLineageId: "lin_d3" }] }, ctx);
   expect(fromSnapshot.targets[0].perArtisan[0].state).toBe("VIA_SECTION");
   expect(fromSnapshot.targets[0].perArtisan[0].takes).toHaveLength(1);
-  // Covered only by a take still in the outbox.
   const clip: ClipStep = {
     kind: "clip",
     status: "PENDING",
@@ -124,10 +108,8 @@ test("M4: offline, P2 asks from the held snapshot plus this device's outbox", ()
   expect(overlay.map((t) => [t.artisanId, t.targetKey])).toEqual([["a2", "S:secE"]]);
   const fromOutbox = offlineCheck(null, overlay, { questionnaireId: "q", artisanIds: ["a2", "a3"], targets: [{ sectionId: "secE" }] }, ctx);
   expect(fromOutbox.targets[0].perArtisan.map((p) => p.state)).toEqual(["ON_DEVICE", "NOT_RECORDED"]);
-  // The session's own takes lie over the snapshot: a take removed since is not counted twice.
   const live = takesFromRecordings([{ ...rec, id: "r9", removedAt: null, sessionId: "s0" }]);
   expect(withTakes(snapshot, live).takes.filter((t) => t.recordingId === "r9")).toHaveLength(live.length);
-  // A failed check is never read as "not covered": the workspace falls back on ANY failure.
   const ws = read("components", "questionnaire", "SessionWorkspace.tsx");
   const check = ws.slice(ws.indexOf("async function check("), ws.indexOf("async function dropParticipant("));
   expect(check).toContain("readSnapshot(");
@@ -253,7 +235,6 @@ test("Low: the title preview carries the workshop's locality and craft, as the s
     titlePreviewInput({ sessionDate: "2026-07-01", place: "", workshop, artisans: [{ name: "Giriraj Prasad Chhipa", craft: { name: "Hand Block Printing" } }] })
   );
   expect(title).toBe(individual.title);
-  // Two crafts at the workshop: no craft from the workshop, as on the server.
   expect(titleWorkshop(portalWorkshop({ ...row, crafts: [{ craft: { name: "Dokra" } }, { craft: { name: "Terracotta" } }] } as unknown as WorkshopRow))?.craft).toBeNull();
 });
 

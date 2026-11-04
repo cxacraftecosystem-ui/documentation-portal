@@ -1,16 +1,8 @@
-/**
- * What the start sheet last read, kept on this device so a session can be started with no signal
- * (audit M4): the workshops, the instruments, the artisans seen, and each instrument's sections with
- * their question lineages (for the offline coverage line). A per-viewer convenience in localStorage;
- * every read and write survives storage being blocked, and the sheet works without it online.
- */
-
 import type { TitleWorkshop } from "@/lib/naming";
 import { STORAGE_PREFIX, titleWorkshop as portalTitleWorkshop, type PortalForm, type PortalWorkshop } from "@/lib/questionnairePortal";
 import type { Artisan } from "@/lib/types";
 
 const KEY = `${STORAGE_PREFIX}_start_lists`;
-/** Artisans kept: the most recently seen first. */
 export const CACHED_ARTISANS = 400;
 
 export type CachedWorkshop = PortalWorkshop;
@@ -19,7 +11,6 @@ export type StartLists = {
   workshops: CachedWorkshop[];
   instruments: PortalForm[];
   artisans: CachedArtisan[];
-  /** questionnaireId → sectionId → active question lineage ids. */
   sections: Record<string, Record<string, string[]>>;
   at: string | null;
 };
@@ -51,7 +42,6 @@ export function trimArtisan(a: Artisan & { workshopId?: string | null }): Cached
   return { id: a.id, name: a.name, localName: a.localName ?? null, place: a.place, craft: a.craft?.name ? { name: a.craft.name } : null, workshopId: a.workshopId ?? null };
 }
 
-/** Merges what was just read into what is held; artisans newest first, capped. */
 export function mergeStartLists(held: StartLists, next: Partial<StartLists>, now: Date = new Date()): StartLists {
   const artisans = next.artisans
     ? [...next.artisans, ...held.artisans.filter((a) => !next.artisans!.some((n) => n.id === a.id))].slice(0, CACHED_ARTISANS)
@@ -69,11 +59,9 @@ export function writeStartLists(next: Partial<StartLists>): void {
   try {
     window.localStorage.setItem(KEY, JSON.stringify(mergeStartLists(readStartLists(), next)));
   } catch {
-    // Storage full or blocked: the sheet still works online.
   }
 }
 
-/** Held artisans matching a search, for the picker with no signal. */
 export function searchCachedArtisans(artisans: CachedArtisan[], query: string, workshopId: string | null): CachedArtisan[] {
   const q = query.trim().toLowerCase();
   return artisans.filter(
@@ -81,10 +69,6 @@ export function searchCachedArtisans(artisans: CachedArtisan[], query: string, w
   );
 }
 
-/**
- * The workshop half of the title preview, built exactly as the server builds it
- * (`app/questionnaire/titles.py`); each portal says how its workshop reads (`lib/questionnairePortal`).
- */
 export function titleWorkshop(w: PortalWorkshop | null | undefined): TitleWorkshop | null {
   return portalTitleWorkshop(w);
 }

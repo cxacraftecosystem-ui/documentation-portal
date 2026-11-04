@@ -38,11 +38,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 
-/**
- * View data and Download data on a device (0.0.6): recordings with speakers, times, English,
- * summary and glossary; a refused recording shows no words; the filters reach the server; each
- * dataset downloads; a recording's transcript files download one tap each.
- */
 @RunWith(AndroidJUnit4::class)
 class TranscriptDataUiTest {
     @get:Rule

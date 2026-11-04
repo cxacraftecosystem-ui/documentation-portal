@@ -1,9 +1,3 @@
-"""OpenAI Whisper: one shot up to 24 MB. Longer recordings are cut into parts by the chain.
-
-``response_format=json`` returns text only: no speakers, no timings. That is why Whisper is the
-last rung and why the subtitle path leaves it out.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -14,7 +8,6 @@ from app.transcription.providers import _http
 ID = "whisper"
 URL = "https://api.openai.com/v1/audio/transcriptions"
 MODEL = "whisper-1"
-#: Whisper refuses files at or over 25 MB. Stay comfortably under it.
 MAX_BYTES = 24 * 1024 * 1024
 
 
@@ -24,7 +17,6 @@ class Whisper:
     key_env = "OPENAI_API_KEY"
     max_bytes: int | None = MAX_BYTES
     max_duration_ms: int | None = None
-    #: Over ``max_bytes`` the chain normalises and cuts the audio into parts rather than skipping.
     chunkable = True
     supports = Capabilities()
     price_per_hour_usd = 0.36

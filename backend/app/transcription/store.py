@@ -1,11 +1,3 @@
-"""What a portal's store must provide, and the bridge that lets the chain call it from a thread.
-
-The chain runs inside ``asyncio.to_thread`` (the provider calls block). Prisma is async. So the
-hooks the chain calls are synchronous wrappers that schedule the store's coroutine back onto the
-event loop and wait for it: the loop is free while the thread waits, so this cannot deadlock.
-A store failure is logged and swallowed: losing a usage row must never lose a transcript.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -46,8 +38,6 @@ class TranscriptionStore(Protocol):
 
 
 class StoreHooks:
-    """``ChainHooks`` over a :class:`TranscriptionStore`, callable from a worker thread."""
-
     def __init__(
         self,
         store: TranscriptionStore,

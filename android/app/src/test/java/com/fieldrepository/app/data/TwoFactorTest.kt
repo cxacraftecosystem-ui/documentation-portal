@@ -8,11 +8,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Two-step verification's pure half on the handset: the code-shape rule the server and the web share,
- * reading the server's QR square, the guard on "Open in authenticator app", and decoding a sign-in
- * that answered a challenge instead of a session.
- */
 class TwoFactorTest {
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false; coerceInputValues = true }
 

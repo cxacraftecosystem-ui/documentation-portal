@@ -1,10 +1,3 @@
-"""Meaning ranking behind the AI flag (services/search_embeddings; docs/SEARCH.md).
-
-No provider is ever called: ``embed`` is replaced by a fake that counts its calls. The database
-tests are opt-in (see ``search_support``); the vector ones also need the ``embedding`` column, which
-exists where pgvector is installed (a local pgvector container), and skip elsewhere.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -75,7 +68,6 @@ def fake_embed(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def ai_master_switch(monkeypatch):
-    """The AI master switch on (``AI_FEATURES_ENABLED``) and no back-off left from another test."""
     monkeypatch.setattr(search_embeddings, "ai_master_on", lambda: True)
     search_indexer.reset_backoff()
     yield
@@ -146,7 +138,6 @@ async def test_embed_pending_skips_unchanged_documents(world, fake_embed):
     fake_embed.clear()
     assert await search_indexer.embed_pending(settings=settings) == 0
     assert fake_embed == []
-    # A changed document is embedded again, and only it.
     await search_indexer.index_one("crafts", world.other_craft.id)
     await db.craft.update(where={"id": world.other_craft.id}, data={"description": "Changed text."})
     await search_indexer.index_one("crafts", world.other_craft.id)
@@ -170,7 +161,6 @@ async def test_hybrid_mode_ranks_by_meaning(world, fake_embed):
         target[0]["id"],
     )
     scope = search_query.Scope(types=["products"], craft_ids=[world.craft.id])
-    # Words that match nothing: only the vector list can find it.
     result = await search_query.run("zzqx wvvk", scope, limit=5, qvec=_unit(7))
     assert result.mode == "hybrid"
     assert result.items["products"][0]["id"] == world.product_free.id
@@ -185,7 +175,6 @@ async def test_the_query_embedding_is_cached(fake_embed):
 
 
 async def _two_pending(world) -> list[dict[str, Any]]:
-    """Every document embedded, then two of them changed again (embeddedHash cleared)."""
     from app.core.db import db
 
     async def ok(texts, *, settings=None, timeout=30.0):
@@ -237,7 +226,6 @@ async def test_one_refused_document_is_marked_and_stops_blocking(world, monkeypa
     )
     assert marked[0]["embeddedHash"] == "failed:" + marked[0]["contentHash"]
     calls.clear()
-    # The refused document no longer comes back, so it costs nothing until its text changes.
     assert await search_indexer.embed_pending(settings=_settings()) == 0
     assert calls == []
 
@@ -257,16 +245,16 @@ async def test_a_provider_outage_backs_off_without_marking(world, monkeypatch):
 
     monkeypatch.setattr(search_embeddings, "embed", down)
     assert await search_indexer.embed_pending(settings=_settings()) == 0
-    assert len(calls) == 3  # the batch, then each document once
+    assert len(calls) == 3
     assert await search_indexer.embed_pending(settings=_settings()) == 0
-    assert len(calls) == 3  # backing off: no call at all
+    assert len(calls) == 3
     left = await db.query_raw(
         """SELECT count(*)::int AS n FROM "SearchDocument"
             WHERE "id" IN ($1, $2) AND "embeddedHash" IS NULL""",
         rows[0]["id"],
         rows[1]["id"],
     )
-    assert left[0]["n"] == 2  # an outage marks nothing
+    assert left[0]["n"] == 2
 
 
 def test_vector_literal_is_pgvector_text():

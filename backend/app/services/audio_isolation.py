@@ -1,19 +1,3 @@
-"""Voice Isolator on transcribed recordings: the queue job, the switch and the stored copy (0.0.5).
-
-IDENTICAL IN BOTH PORTALS (``shared/transcription.sha256``). What only one portal knows (whose
-consent to read) comes from ``services/transcript_portal.py``.
-
-OFF BY DEFAULT. ``AppSetting.audioIsolationEnabled`` is set from Settings → API keys by an
-administrator. While it is on, every recording that finishes transcribing gets one AUDIO_ISOLATION
-job: the original is sent to ElevenLabs Voice Isolator (consent re-read immediately before the send),
-and the cleaned audio is stored under the SAME FILE NAME in a key of its own, beside the original.
-``MediaFile.objectKey`` is never changed, so the recording as made stays exactly as it was (and its
-checksum stays true); players use the cleaned copy and offer the original.
-
-A busy ElevenLabs, no route, or credit run out parks the job and asks again later without spending
-an attempt; a key without the Voice Isolator permission closes the job with that sentence.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 JOB_TYPE = "AUDIO_ISOLATION"
 KEY_NAME = "ELEVENLABS_API_KEY"
-#: After transcription and translation: cleaning never holds a transcript back.
 PRIORITY = 95
 
 
@@ -65,7 +48,6 @@ def _eligible(media: Any) -> bool:
 
 
 async def enqueue_if_enabled(media_id: str) -> Any | None:
-    """One AUDIO_ISOLATION job for a recording that has just been transcribed; None when off."""
     try:
         if not await enabled():
             return None
@@ -92,13 +74,11 @@ async def enqueue_if_enabled(media_id: str) -> Any | None:
 
 
 def cleaned_key(media: Any, mime_type: str) -> str:
-    """``media/<uploader>/<uuid>/<the original's file name, the cleaned type's extension>``."""
     owner = str(getattr(media, "uploadedById", "") or "system")
     return f"media/{owner}/{uuid4().hex}/{isolation.cleaned_leaf(str(media.objectKey), mime_type)}"
 
 
 async def process(media: Any) -> dict[str, Any]:
-    """Clean one recording. Raises :class:`isolation.IsolationError` for the queue to hold or fail."""
     from app.services import s3
 
     if not await enabled():

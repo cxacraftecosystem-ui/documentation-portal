@@ -1,13 +1,5 @@
 "use client";
 
-/**
- * Administrators only: place spellings the register cannot place, and a way to map each one once.
- *
- * A saved mapping applies to every record written that way, is kept in the audit ledger and can be
- * removed. There is no fuzzy matching: the only suggestion offered is a district that exists, by
- * exactly that name, in one other state.
- */
-
 import { useEffect, useMemo, useState } from "react";
 
 import { describeApiDetail, ApiError } from "@/lib/api";
@@ -20,7 +12,6 @@ export function unmatchedKey(item: Pick<UnmatchedItem, "model" | "rawState" | "r
   return `${item.model}|${item.rawState ?? ""}|${item.rawDistrict ?? ""}`;
 }
 
-/** "Rajasthan / Kachchh", "Somewhere Unmapped" — the raw text exactly as it was typed. */
 export function rawPlace(item: Pick<UnmatchedItem, "rawState" | "rawDistrict">): string {
   return [item.rawState, item.rawDistrict].filter(Boolean).join(" / ") || "(blank)";
 }

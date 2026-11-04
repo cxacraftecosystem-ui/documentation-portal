@@ -1,16 +1,5 @@
 "use client";
 
-/**
- * The filter controls behind BOTH repository searches: the Search page and the search panel at the
- * top of View Data.
- *
- * They were drifting apart — the Search page had type chips and a place box, the View Data panel
- * had a text field and nothing else — which meant the same question got two different answers
- * depending on which screen a researcher happened to be standing on. The vocabulary (what a "type"
- * is, what "Last 30 days" resolves to, how the filters become a query string) lives here once, so
- * the two screens cannot disagree again.
- */
-
 import { useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 
@@ -19,11 +8,9 @@ import { CalendarField } from "@/components/ui/CalendarField";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { SearchableMultiSelect } from "@/components/ui/SearchableSelect";
 
-/** The five buckets `GET /search` returns, in the order the results are rendered. */
 export const RECORD_TYPES = ["artisans", "workshops", "products", "tools", "media"] as const;
 export type RecordType = (typeof RECORD_TYPES)[number];
 
-/** Chip vocabulary: the five buckets plus "all". Also the `?type=` values the dashboard links use. */
 export const CHIP_IDS = ["all", ...RECORD_TYPES] as const;
 export type ChipId = (typeof CHIP_IDS)[number];
 
@@ -51,17 +38,11 @@ const RANGE_OPTIONS: Array<{ value: RangeId; label: string }> = [
 ];
 
 export type SearchFilters = {
-  /**
-   * The record types to search. EMPTY MEANS EVERYTHING — the set never lists all five explicitly,
-   * so "nothing ticked" and "everything ticked" cannot both exist and mean the same thing.
-   */
   types: RecordType[];
   place: string;
   range: RangeId;
-  /** `yyyy-mm-dd` from the two date inputs; only read when `range` is "custom". */
   from: string;
   to: string;
-  /** One craft from the master list (REQUIREMENTS_2026-10-20 §2.4); "" or absent is every craft. */
   craftId?: string;
 };
 
@@ -79,10 +60,6 @@ function daysBefore(date: Date, days: number) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() - days);
 }
 
-/**
- * `yyyy-mm-dd` as a LOCAL date. `new Date("2026-07-20")` is parsed as UTC midnight, which is the
- * previous day for anyone west of Greenwich — the one bug every date filter is born with.
- */
 function parseDateInput(value: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
   if (!match) return null;
@@ -90,12 +67,6 @@ function parseDateInput(value: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/**
- * Presets become concrete instants HERE, not on the server: "Last 30 days" means 30 days as the
- * researcher's clock sees them, and only the browser knows that clock. The boundaries are built in
- * local time and serialised as UTC instants, so an inclusive end date really does include the whole
- * of that day instead of stopping at its midnight.
- */
 export function resolveRange(filters: SearchFilters, now: Date = new Date()): { dateFrom?: string; dateTo?: string } {
   const untilNow = { dateTo: endOfDay(now).toISOString() };
   switch (filters.range) {
@@ -124,16 +95,6 @@ export function resolveRange(filters: SearchFilters, now: Date = new Date()): { 
   }
 }
 
-/**
- * The filters as query keys for `GET /search`, to be spread into one `buildQuery` call alongside
- * `q` and the pager — every active filter therefore ANDs into a single request rather than being
- * applied in passes.
- *
- * `types` is sent comma-joined and is the one key the API may not know yet. That is survivable
- * because it is an optimisation, not the filter itself: both screens also drop the buckets they
- * were not asked for when they render, so an API that ignores `types` still shows the right rows —
- * it just counts and pages the hidden buckets too.
- */
 export function searchFilterParams(filters: SearchFilters) {
   return {
     place: filters.place.trim() || undefined,
@@ -143,40 +104,23 @@ export function searchFilterParams(filters: SearchFilters) {
   };
 }
 
-/**
- * The selected types as one canonical `types=` value. Always in bucket order and de-duplicated, so
- * the same three types cannot produce two different query strings — and therefore two cache entries
- * and two "why did that reload?" — depending on which control the researcher ticked first.
- */
 function typeList(filters: SearchFilters): string | undefined {
   const ordered = RECORD_TYPES.filter((type) => filters.types.includes(type));
   return ordered.length ? ordered.join(",") : undefined;
 }
 
-/** Whether a bucket survives the type filter — the client half of the `types` contract. */
 export function typeVisible(filters: SearchFilters, type: RecordType) {
   return filters.types.length === 0 || filters.types.includes(type);
 }
 
-/**
- * How many filters the disclosure is hiding. Types are deliberately NOT counted: the chip row shows
- * them whether the panel is open or shut, and a badge that counts something already on screen reads
- * as a second, disagreeing filter.
- */
 export function activeFilterCount(filters: SearchFilters) {
   return (filters.place.trim() ? 1 : 0) + (filters.range !== "any" ? 1 : 0) + (filters.craftId ? 1 : 0);
 }
 
-/** True when anything at all is narrowing the search — used to decide whether a bare filter searches. */
 export function hasActiveFilters(filters: SearchFilters) {
   return filters.types.length > 0 || activeFilterCount(filters) > 0;
 }
 
-/**
- * Filters carried in a URL. `type` keeps the singular name and the single-value form the dashboard
- * totals already link with (`/search?type=tools`), and simply accepts a comma list as well, so every
- * link that exists today still resolves.
- */
 export function filtersFromSearchParams(params: URLSearchParams): SearchFilters {
   const requested = (params.get("type") ?? "")
     .split(",")
@@ -202,7 +146,6 @@ export function filtersFromSearchParams(params: URLSearchParams): SearchFilters 
   };
 }
 
-/** The same filters as `/search` link params, so a hit found in View Data opens fully filtered. */
 export function filtersToLinkParams(filters: SearchFilters) {
   return {
     type: typeList(filters),
@@ -219,23 +162,6 @@ const CHIP_ON = "border-purple-700 bg-purple-700 text-white";
 const CHIP_PART = "border-purple-300 bg-purple-50 text-purple-700 hover:border-purple-400";
 const CHIP_OFF = "border-line-200 bg-surface-50 text-ink-700 hover:border-purple-300 hover:text-purple-700";
 
-/**
- * Chips, a disclosure, and the advanced panel behind it.
- *
- * THE CHIPS AND THE MULTI-SELECT ARE ONE PIECE OF STATE, not two. `filters.types` is the only store
- * of which types are being searched; the chip row and the Record types multi-select are two editors of that same
- * set, which is why they can never fall out of step:
- *
- *   - a chip is the shortcut for "only this" — clicking one REPLACES the set with that single type,
- *     and "Everything" empties it;
- *   - picking in the multi-select adds or removes one member and leaves the rest alone.
- *
- * The chip row keeps saying what the set is even when the set is something chips alone cannot
- * express: with two or more types selected no chip is the solid "this is the filter" purple, the
- * members are drawn in the lighter included style instead, and a line of text says how many types
- * are in play. So the state is always legible from the chips, and clicking one is always the same
- * promise — "narrow to just this".
- */
 export function SearchFilterBar({
   value,
   onChange,
@@ -246,9 +172,7 @@ export function SearchFilterBar({
   value: SearchFilters;
   onChange: (next: SearchFilters) => void;
   className?: string;
-  /** False where the screen already has its own place box, so the field is not asked for twice. */
   showPlace?: boolean;
-  /** The craft picker, on the screens whose search route filters by `craftId`. */
   showCraft?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -266,8 +190,6 @@ export function SearchFilterBar({
   }
 
   function setTypes(next: string[]) {
-    // Held in bucket order so the state reads the same as the row of chips above it, whatever order
-    // the choices went in. `typeList` re-derives it anyway; this keeps what is stored honest too.
     onChange({ ...value, types: RECORD_TYPES.filter((current) => next.includes(current)) });
   }
 
@@ -336,8 +258,6 @@ export function SearchFilterBar({
           ) : null}
 
           {value.range === "custom" ? (
-            // Only reachable once "Custom range" has been chosen, so the presets — which are what
-            // nearly every search actually wants — never have to walk past a calendar to be used.
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="grid gap-1">
                 <label className="field-label" htmlFor="search-range-from">

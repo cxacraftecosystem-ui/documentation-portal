@@ -1,15 +1,3 @@
-"""Transcripts in View data / Download data (0.0.6) against a real, migrated Postgres.
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal (``shared/transcription.sha256``).
-It runs in each portal's database CI job and skips anywhere else. Nothing calls a provider: turns
-are stored from the recorded Scribe fixture, and the summary and glossary rows are written directly.
-
-What it holds: a batch is read in a FIXED number of statements whatever it holds (2 recordings or
-10); turns carry mapped speaker names, times and English; a recording whose consent was refused
-exports no words; the list preview uses the mapped names; the filters narrow by recording fields;
-the streamed CSV has every turn and never the cost columns for a non-administrator.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -50,8 +38,6 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "transcript"
 
 
 class Counting:
-    """The Prisma client, counting the raw statements sent through it."""
-
     def __init__(self, inner: Any) -> None:
         self._inner = inner
         self.reads = 0
@@ -92,8 +78,6 @@ def _run(body: Any) -> Any:
 
 
 async def _seed(count: int, tag: str) -> dict[str, Any]:
-    """``count`` transcribed recordings by one researcher: turns from the fixture, the first speaker
-    named, a summary, a quote and a glossary term on each."""
     from app.core.db import db
     from app.services import transcript_pipeline as pipeline
     from prisma import Json
@@ -206,7 +190,6 @@ def test_a_refused_recording_exports_no_words_anywhere() -> None:
             assert await tx.withhold_refused(rows) == {refused}
             assert rows[1].transcriptText is None and rows[0].transcriptText == "t"
 
-            # The list preview: plain text under the MAPPED name.
             previews = await transcript_pipeline.previews({kept: "**Speaker 1:** words"})
             assert previews[kept]["lines"][0]["speaker"] in {"Asha", "Speaker 2"}
             assert "*" not in previews[kept]["text"]

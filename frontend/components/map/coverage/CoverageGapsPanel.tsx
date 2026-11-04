@@ -5,7 +5,6 @@ import { ChevronDown } from "lucide-react";
 
 import type { CoverageGaps } from "@/components/map/coverage/coverageTypes";
 
-/** What is missing: shared crafts nobody has documented, and districts with no workshop, by state. */
 export function CoverageGapsPanel({ gaps }: { gaps: CoverageGaps }) {
   const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set());
   const toggle = (lgd: number) =>

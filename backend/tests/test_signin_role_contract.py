@@ -1,20 +1,3 @@
-"""THE SIGN-IN LIST RULE CONTRACT — one rule in both portals (convergence decision 2, 2026-10-18).
-
-An entry on the sign-in list sets an account's role only when the account is created; it never
-raises or lowers an existing account at sign-in or on approval; a later change of role is an
-administrator's explicit act on Manage users, with an audit entry. ``shared/signin-role-contract.json``
-declares it once and is byte-identical in both repositories. This file is identical in both too, and
-it holds:
-
-* ``services/signin_role`` to the contract's copy and vectors;
-* the audit entry: written for a real change, never for an echo;
-* each client's admin screen to the copy, read from source, and none of the retired promise;
-* the two repositories to each other, when the sibling checkout is present.
-
-Each portal's own ``tests/test_signin_role_once.py`` drives its sign-in and approval doors over the
-contract's ``existingAccountAtSignIn`` vectors. No database here.
-"""
-
 from __future__ import annotations
 
 import json
@@ -41,7 +24,6 @@ SHARED_FILES = (
     "backend/tests/test_signin_role_contract.py",
 )
 
-#: Words the admin screens used to say and must not say again: the list no longer promotes anybody.
 RETIRED_COPY = (
     "raised to match",
     "Existing accounts are raised",
@@ -74,7 +56,6 @@ def test_an_approval_says_when_an_existing_account_keeps_its_role(vector):
 
 
 def test_the_vectors_at_sign_in_never_move_an_existing_account():
-    """The table each portal's sign-in test drives: the expected role is always the current one."""
     for vector in contract()["existingAccountAtSignIn"]:
         assert vector["expect"] == vector["current"], vector
 

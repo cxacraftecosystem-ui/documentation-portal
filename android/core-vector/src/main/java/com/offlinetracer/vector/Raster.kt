@@ -7,33 +7,10 @@ import com.offlinetracer.imaging.RgbaImage
 import kotlin.math.ceil
 import kotlin.math.floor
 
-/**
- * Scanline rasterisation of vector geometry, for previews and for raster export.
- *
- * Coverage is computed on an **ordered 4×4 sub-pixel grid** (16 samples per pixel by default): the
- * scanline is evaluated at each of the 4 sub-rows and spans are accumulated into the 4 sub-columns.
- * An ordered grid rather than a stochastic one because the engine is required to be deterministic —
- * two runs on the same input must produce byte-identical output — and because on the long, nearly
- * straight edges that dominate traced line art a regular grid is visually cleaner than jittered
- * sampling at the same cost.
- *
- * Both fill rules are implemented. Strokes are converted to outlines by [StrokeStyle] first and then
- * filled **non-zero**, which is what SVG requires and what makes a self-overlapping stroke render
- * solid instead of showing a seam where the offset lobes cross.
- */
 object Raster {
 
-    /** Curve flattening tolerance used when rasterising. Finer than a pixel, so it never shows. */
     private const val FLATTEN_TOLERANCE = 0.25f
 
-    /**
-     * Rasterises the union of [paths] into a coverage image in 0..1 under [rule].
-     *
-     * Open paths are filled as if closed, exactly as SVG's `fill` does. [samples] is the sub-grid
-     * size **per axis** (4 means 16 samples per pixel) and is clamped to 1..8. Non-positive
-     * dimensions are clamped up to 1 rather than throwing, so a zero-sized preview request returns
-     * an empty image instead of taking down the caller.
-     */
     fun fill(paths: List<VecPath>, w: Int, h: Int, rule: FillRule, samples: Int = 4): GrayF {
         val width = if (w < 1) 1 else w
         val height = if (h < 1) 1 else h
@@ -41,7 +18,6 @@ object Raster {
         val out = GrayF(width, height)
         if (paths.isEmpty()) return out
 
-        // -- edge table -----------------------------------------------------------------------
         val rings = ArrayList<List<VecPoint>>(paths.size)
         var cap = 0
         for (p in paths) {
@@ -78,26 +54,6 @@ object Raster {
         }
         if (ne == 0) return out
 
-        // Sorted by the sub-row an edge becomes active on, packed into a LongArray so the sort is
-        // primitive: sorting an IntArray by a Float key otherwise means boxing every index.
-        //
-        // The key must be `ceil(y * ss - 0.5)` and not `floor(y * ss)`. Sub-rows are sampled at
-        // `yPos = py + (sy + 0.5) / ss`, i.e. at half-integer multiples of `1 / ss`, so the first
-        // sub-row on which an edge is active satisfies `py * ss + sy + 0.5 >= yMin * ss` — which is
-        // `ceil(yMin * ss - 0.5)`, half a sub-row above the floor.
-        //
-        // Getting this wrong drops whole scanlines rather than merely reordering them, because the
-        // activation loop below BREAKS on the first edge with `eYMin > yPos` and `ptr` never rewinds.
-        // A floor key puts edges from the upper and lower halves of one `1 / ss` bucket together,
-        // ordered by edge index; a single upper-half edge sitting at a low index then blocks every
-        // later edge in that bucket permanently, `na` stays 0, and the `na == 0` guard abandons the
-        // sub-scanline — including the parts of the shape that had nothing to do with that edge.
-        //
-        // It survived every axis-aligned and 45° fixture in the suite because edges sharing a bucket
-        // there share an identical `eYMin`, so the tie cannot mis-order. It takes a descending run of
-        // vertices spaced under `1 / ss` apart to trigger — which is to say, every flattened Bezier,
-        // every round cap and every traced contour in real artwork. Measured on a 12-chord round cap:
-        // four of eight sub-rows emitted no crossings at all, and the stroke lost half its coverage.
         val order = LongArray(ne)
         for (i in 0 until ne) {
             var k = ceil(eYMin[i].toDouble() * ss - 0.5).toLong() + 0x4000_0000L
@@ -119,7 +75,6 @@ object Raster {
         if (rowEnd > height) rowEnd = height
         if (rowStart >= rowEnd) return out
 
-        // -- sweep ----------------------------------------------------------------------------
         val active = IntArray(ne)
         val xs = FloatArray(ne)
         val dirs = IntArray(ne)
@@ -158,8 +113,6 @@ object Raster {
                 }
                 if (nc < 2) continue
 
-                // Insertion sort: crossing counts per scanline are small even for complex art, and
-                // the list is nearly sorted from the previous sub-row.
                 for (t in 1 until nc) {
                     val xv = xs[t]
                     val dv = dirs[t]
@@ -199,12 +152,6 @@ object Raster {
         return out
     }
 
-    /**
-     * Binary version of [fill]: a pixel is set when its supersampled coverage reaches 50%.
-     *
-     * Thresholding antialiased coverage rather than point-sampling pixel centres is what keeps a
-     * thin diagonal stroke connected in the mask instead of breaking it into dots.
-     */
     fun toMask(paths: List<VecPath>, w: Int, h: Int, rule: FillRule): Mask {
         val cov = fill(paths, w, h, rule, 4)
         val out = Mask(cov.width, cov.height)
@@ -214,14 +161,6 @@ object Raster {
         return out
     }
 
-    /**
-     * Renders [doc] into a new [RgbaImage] of the requested size over [background] (an ARGB int;
-     * pass 0 for transparent).
-     *
-     * The document is scaled to fit `w × h` exactly — aspect ratio is the caller's business, since
-     * export dialogs already enforce it. Hidden layers are skipped and layer opacity is folded into
-     * each shape's opacity.
-     */
     fun render(doc: VecDocument, w: Int, h: Int, background: Int, samples: Int = 4): RgbaImage {
         val width = if (w < 1) 1 else w
         val height = if (h < 1) 1 else h
@@ -248,14 +187,6 @@ object Raster {
         return target
     }
 
-    /**
-     * Composites one shape onto [target] with source-over alpha, in the target's own pixel
-     * coordinates (no transform is applied — [render] scales beforehand).
-     *
-     * Fill is drawn first, then stroke, which is the SVG painting order. A path carrying
-     * `strokeWidths` is stroked as a variable-width outline; that is the only place a modulated
-     * width becomes visible pixels.
-     */
     fun renderShape(target: RgbaImage, shape: VecShape, samples: Int = 4) {
         val path = shape.path
         if (path.segments.isEmpty()) return
@@ -284,16 +215,6 @@ object Raster {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Internals
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * Accumulates a span `[xa, xb)` of one sub-row into the per-pixel sub-sample counters.
-     *
-     * Work is done in sub-column index space so the interior pixels of a wide span cost one add
-     * each instead of one add per sub-sample.
-     */
     private fun addSpan(cov: IntArray, w: Int, ss: Int, xa: Float, xb: Float) {
         if (!(xb > xa)) return
         var j0 = ceil(xa.toDouble() * ss - 0.5).toInt()

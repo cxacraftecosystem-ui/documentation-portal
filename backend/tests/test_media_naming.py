@@ -1,14 +1,3 @@
-"""Download names of media files (NAMING 2.1), rebuilt at read time from the row.
-
-Two files of one folder must never answer to the same name, and each must answer to the SAME name
-on every request. Re-recording an answer several times inside one minute is ordinary practice, so
-the numbering that separates them (``_2``, ``_3``) is not a nicety, and the stability half of it is
-tested the way it actually breaks: the same folder is named twice with the rows fed in a DIFFERENT
-order, because the order rows come back from Postgres is exactly what varies between two requests.
-
-This file is identical in designer-portal and documentation-portal.
-"""
-
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -27,8 +16,6 @@ from app.services.naming_portal import PORTAL
 
 
 class Row:
-    """The handful of columns a display name is read from, as a media row exposes them."""
-
     def __init__(self, **fields):
         self.id = fields.pop("id", "m1")
         self.originalFilename = fields.pop("originalFilename", "AUD_1_190620261703.m4a")
@@ -59,7 +46,6 @@ class Obj:
 
 
 def take(n, *, minute=33, second=0, **overrides):
-    """One of several recordings of the same answer, distinguishable only by when it was saved."""
     return Row(
         id=f"take{n}",
         originalFilename=f"K_1_ANSWER_00104{n}_1906202611{minute:02d}{second:02d}.m4a",
@@ -72,17 +58,12 @@ def take(n, *, minute=33, second=0, **overrides):
 
 
 def name_folder(rows, **kwargs):
-    """One folder's files named the way ``_media_entries`` names them: ordered, then numbered."""
     used: set[str] = set()
     return {
         row.id: unique_display_filename(row, used, position=position, fallback=row.id, **kwargs)
         for position, row in enumerate(folder_order(rows), start=1)
     }
 
-
-# --------------------------------------------------------------------------------------------
-# The grammar
-# --------------------------------------------------------------------------------------------
 
 
 def test_an_old_capture_code_reads_as_the_convention():
@@ -133,7 +114,6 @@ def test_place_and_craft_come_from_loaded_relations():
 
 
 def test_an_upload_time_never_states_a_capture_time():
-    """``createdAt`` is when the row was written, so it gives the day and never a time."""
     row = Row(originalFilename="scan.pdf", mediaType="PDF")
     name = display_filename(row, record_type="Artisan", record_name="Om")
     assert name == f"{PORTAL}_Artisan_2026-06-19_Om_Document_01.pdf"
@@ -160,10 +140,6 @@ def test_every_name_is_an_ascii_s3_safe_leaf():
         assert name.isascii() and len(name) <= naming.MAX_FILE_NAME, name
         assert " " not in name and "·" not in name
 
-
-# --------------------------------------------------------------------------------------------
-# The suffix itself
-# --------------------------------------------------------------------------------------------
 
 
 def test_first_of_a_colliding_group_is_not_numbered():
@@ -293,7 +269,6 @@ def test_folder_order_is_by_created_at_then_id():
 
 
 def test_a_plain_dict_row_is_named_like_a_model_row():
-    """``datasets`` signs rows that may arrive as dicts; they must not lose their name."""
     row = {
         "id": "d1",
         "originalFilename": "K_1_ANSWER_001041_190620261133.m4a",

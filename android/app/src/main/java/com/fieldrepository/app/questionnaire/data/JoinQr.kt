@@ -13,12 +13,6 @@ import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import kotlinx.serialization.Serializable
 import java.time.Instant
 
-/**
- * Joining a session (DESIGN §3.7). The 6-character code works online only (`POST /sessions/join`).
- * The QR code also works OFFLINE: it carries the session's `clientKey` and what a second phone needs
- * to create the same session locally. When that phone's outbox syncs, `POST /sessions` with the same
- * `clientKey` answers with the existing row, so two phones end up in one session.
- */
 @Serializable
 data class JoinQrPayload(
     val v: Int = 1,
@@ -26,7 +20,6 @@ data class JoinQrPayload(
     val questionnaireId: String,
     val workshopId: String? = null,
     val sessionDate: String,
-    /** Server artisan ids, or an offline-registered artisan's local id. */
     val participants: List<String> = emptyList()
 )
 
@@ -36,17 +29,14 @@ object JoinQr {
 
     fun encode(payload: JoinQrPayload): String = outboxJson.encodeToString(JoinQrPayload.serializer(), payload.copy(v = VERSION))
 
-    /** Null for anything that is not a v1 join payload (another app's QR, a URL, a newer version). */
     fun decode(text: String): JoinQrPayload? {
         val payload = runCatching { outboxJson.decodeFromString(JoinQrPayload.serializer(), text.trim()) }.getOrNull() ?: return null
         if (payload.v != VERSION || payload.clientKey.isBlank() || payload.questionnaireId.isBlank() || payload.sessionDate.isBlank()) return null
         return payload
     }
 
-    /** A typed join code, normalised: upper case, no spaces; null when it cannot be one. */
     fun normaliseCode(typed: String): String? = typed.uppercase().filter { !it.isWhitespace() && it != '-' }.takeIf { CODE_ALPHABET.matches(it) }
 
-    /** The session create a scanning phone queues: same clientKey, so the server returns one session. */
     fun sessionCreate(payload: JoinQrPayload, me: String?, now: Instant = Instant.now()): QSessionCreate = QSessionCreate(
         clientKey = payload.clientKey,
         questionnaireId = payload.questionnaireId,
@@ -62,16 +52,11 @@ object JoinQr {
         mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M, EncodeHintType.MARGIN to 2, EncodeHintType.CHARACTER_SET to "UTF-8")
     )
 
-    /** Read a QR from ARGB pixels (a photo or a picked image). Null when no QR is found. */
     fun read(argb: IntArray, width: Int, height: Int): String? = runCatching {
         val source = RGBLuminanceSource(width, height, argb)
         QRCodeReader().decode(BinaryBitmap(HybridBinarizer(source)), mapOf(DecodeHintType.TRY_HARDER to true)).text
     }.getOrNull()
 
-    /**
-     * One camera frame's luminance (the Y plane of a YUV_420_888 image, [rowStride] bytes a row).
-     * No TRY_HARDER: the live scanner sees many frames a second and a quick miss is cheaper.
-     */
     fun readLuminance(y: ByteArray, rowStride: Int, width: Int, height: Int): String? = runCatching {
         val source = com.google.zxing.PlanarYUVLuminanceSource(y, rowStride, height, 0, 0, width, height, false)
         QRCodeReader().decode(BinaryBitmap(HybridBinarizer(source))).text

@@ -1,5 +1,11 @@
 # Research notes: architecture and engineering results from a rural craft-documentation pilot
 
+> **A snapshot of July 2026.** Everything here describes commit `a0fa3a85` and the deployment of
+> that week: a 1 GiB t3.micro on Ubuntu 24.04 and a database in another region. Production has since
+> moved (database to ap-south-1 on 13 Sep 2026; a 2 GiB t3.small on Ubuntu 26.04 on 10 Oct 2026; blue/green
+> releases on 19 Oct 2026; the Scribe v2 + Gemini transcript pipeline on 1 Nov 2026). The results are
+> kept as measured; [ARCHITECTURE.md](ARCHITECTURE.md) is the current system.
+
 Source material for a paper. Every claim below carries a provenance label and the method that
 produced it. Sections are written to be lifted whole.
 
@@ -63,6 +69,7 @@ snapshot is therefore the commit, not the checkout. All code counts in §3 are t
 ## 1. System under study
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TB
   subgraph clients["Field clients"]
     web["Next.js 16 App Router<br/>Vercel"]
@@ -402,6 +409,7 @@ The honest statement for a paper is that relation resolution is *partially* pipe
 Rust engine and that the residual serialisation is what the 390 ms measures.
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart LR
   subgraph before["BEFORE — include, sequential resolution"]
     direction TB
@@ -416,7 +424,7 @@ flowchart LR
 
 ### 5.5 What the fix is, and the honesty about what it changes
 
-The read fix is `hydrate_relations` (`backend/app/services/records.py:420`), which issues **exactly
+The read fix is `hydrate_relations` (`backend/app/services/records.py:182`), which issues **exactly
 one `find_many` per relation — the same statements the `include` produced — and awaits them
 together** through a semaphore-bounded `asyncio.gather` (`backend/app/services/concurrency.py`).
 
@@ -532,6 +540,7 @@ anything that is not a Supabase pooler host untouched, so local development is u
 `git log -S`). The failure was self-sustaining:
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart LR
   spike["Pooler briefly at its<br/>200-client ceiling"] --> fail["connect() raises"]
   fail --> exit["uvicorn exits"]
@@ -568,7 +577,7 @@ draining the queue in parallel, ordinary API requests were slowed past CloudFron
 origin-response timeout and clients saw HTTP 504.
 
 **Fix:** a host-wide `fcntl` advisory file lock elects exactly **one** queue worker per host
-(`backend/app/main.py:31-46`); every other process serves requests only. The lock degrades
+(`backend/app/main.py:31-39`); every other process serves requests only. The lock degrades
 gracefully — on platforms without `fcntl`, which run a single worker anyway, it simply grants.
 
 *The 30 s ceiling against the 699 ms constant means any handler issuing more than ~43 sequential
@@ -578,7 +587,7 @@ labelled as such.*
 ### 6.4 Memory ceiling
 
 **MEASURED (cited)**, `docs/SCALABILITY.md` §5.1, 2026-07-26: media objects are read whole into RAM
-at `backend/app/services/s3.py:243`. Against a 1 GiB box, the **668.4 MiB largest live object**
+at `backend/app/services/s3.py:156`. Against a 1 GiB box, the **668.4 MiB largest live object**
 (independently **MEASURED** by me in §2.3) is a live out-of-memory risk today, not a projection.
 
 ---
@@ -604,6 +613,7 @@ The Android outbox stops at the first failure. That is right for a connection th
 entry behind it forever, and nothing tells the user why.
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 stateDiagram-v2
   [*] --> Queued
   Queued --> Replaying: online event
@@ -663,6 +673,7 @@ verifiable by reading it; its field performance is not measured.
 ### 8.1 The chain
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TB
   job["Queued transcription job"] --> el
   el["ElevenLabs Scribe<br/>≤ 1,000 MiB, diarized"] -->|"429/503"| dg
@@ -694,14 +705,14 @@ Design points that are not obvious:
 - **An empty result does not stop the walk.** A codec or language one engine cannot decode is often
   fine on another, so `EMPTY` is retained as a fallback while the next provider still gets a turn.
 
-**Provider size ceilings** (DERIVED, `ai.py:57-61`): Whisper 24 MiB, ElevenLabs 1,000 MiB, Deepgram
+**Provider size ceilings** (DERIVED, `ai.py:41-43`): Whisper 24 MiB, ElevenLabs 1,000 MiB, Deepgram
 2 GiB. Against the measured corpus (§2.3), the 668.4 MiB largest object and the 108.8 MiB largest
 audio file both exceed Whisper's ceiling by more than an order of magnitude — which is why the
 dedicated providers skip local chunking and Whisper alone chunks into ≤10-minute mono MP3 segments.
 
 ### 8.2 Rate-limit backoff and idle-time scheduling
 
-**DERIVED** from `backend/app/services/media_queue.py:31-80`.
+**DERIVED** from `backend/app/services/media_queue.py:31-69`.
 
 | Parameter | Value |
 |---|---|
@@ -753,6 +764,7 @@ from keyterm boosting would be unsupported and should not appear in a paper base
 ### 9.1 A six-tier ladder, mirrored exactly in three clients
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart LR
   v["CROWDSOURCE_VOLUNTEER<br/>10"] --> f["FIELD_CONTRIBUTOR<br/>20"] --> r["RESEARCHER<br/>30"] --> p["PROFESSOR<br/>40"] --> a["ADMIN<br/>50"] --> m["MASTER_ADMIN<br/>60"]
 ```
@@ -762,8 +774,8 @@ Higher rank inherits every power below it; grantable capability booleans (`canRe
 lower-tier account without promoting them.
 
 **DERIVED** — the identical ladder appears in `backend/app/core/deps.py:30`,
-`frontend/lib/permissions.ts:8`, `android/.../MainActivity.kt:2277` and
-`android/.../ui/AppNavigation.kt:144`. Numeric ranks are spaced by ten specifically so a tier can be
+`frontend/lib/permissions.ts:3`, `android/app/src/main/java/com/fieldrepository/app/MainActivity.kt:2277` and
+`android/app/src/main/java/com/fieldrepository/app/ui/AppNavigation.kt:144`. Numeric ranks are spaced by ten specifically so a tier can be
 inserted without renumbering.
 
 **Enforcement is server-side.** **127 route-level dependency guards** across the route modules —
@@ -910,6 +922,7 @@ to recover it. The symptom was one; the causes were three, and all three are rea
 field data.
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TB
   v["Any value destined for a cell"] --> door["_put — the single door"]
   door --> c1["Strip codepoints XML 1.0 cannot carry"]
@@ -1037,6 +1050,7 @@ own `placeName` says so in plain English on every row: `"Android precise locatio
 The schema conflated two different things under one field:
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TB
   subgraph before["What one Location field meant"]
     L["Artisan.locationId → Location"]
@@ -1170,7 +1184,7 @@ object keys share the single `media/` prefix.
 > hides while the keyboard is up for a field on the page (`QuickReturnHeader`, `quickReturnStep`).
 
 The Android navigation bar sheds width in five ordered tiers rather than scrolling horizontally. The
-rationale, from `android/.../ui/AppNavigation.kt`, is worth quoting because it is a usability claim
+rationale, from `android/app/src/main/java/com/fieldrepository/app/ui/AppNavigation.kt`, is worth quoting because it is a usability claim
 with a mechanism: an earlier pass wrapped the bar in a horizontal scroller, and on a 360 dp phone
 that showed the wordmark, Dashboard and part of Walkthrough while four groups, the admin toggle and
 the hamburger sat off-screen behind a gesture nobody discovers — *"which reads to the person holding
@@ -1178,6 +1192,7 @@ the phone as a navigation bar that was never built. A chip the user cannot see i
 not exist."*
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TB
   full["FULL — wordmark + every chip labelled"] -->|"drop the wordmark"| mark["MARK — logo only, all labels"]
   mark -->|"labelMedium, tighter padding"| compact["MARK_COMPACT — smaller labels, still words"]
@@ -1199,7 +1214,7 @@ system font scale, via `rememberTextMeasurer()` — the face, weight and font sc
 It replaced arithmetic that priced text at "~7.5 dp a character" and then padded every threshold
 upward to cover the guess.
 
-**MEASURED (cited)** — reported in the source at `AppNavigation.kt:502-516`, on one handset in
+**MEASURED (cited)** — reported in the source at `AppNavigation.kt:296-309`, on one handset in
 landscape. I did **not** re-run these on a device; reproducing them requires an emulator or handset
 session that was out of scope.
 
@@ -1439,3 +1454,12 @@ field-capture system that defaults a record's location to the device's).
 - `docs/SECURITY.md` — the access-control surface in operational rather than research terms.
 - `backend/prisma/migrations/20260726200000_index_coverage/` — the `EXPLAIN` evidence for §14,
   including the rejected candidates.
+
+## How this document is kept true
+
+It is a dated snapshot, and that is how it stays true: every result names its commit, its method and
+its provenance label, and none is revised after the fact. A later measurement is added beside the
+old one with its own date. The current system is [ARCHITECTURE.md](ARCHITECTURE.md); the counts are
+[REPO_FACTS.md](REPO_FACTS.md).
+
+**Review triggers:** a new measurement worth publishing, or a paper draft that quotes this file.

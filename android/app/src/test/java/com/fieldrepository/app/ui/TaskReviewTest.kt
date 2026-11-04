@@ -11,39 +11,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * The review state, the assignee's progress card, and the admin's approve/send-back control —
- * asserted rather than eyeballed.
- *
- * WHY THIS FILE EXISTS, AND WHY IT IS MOSTLY ABOUT WORDS. Reproducing any of this by hand means two
- * accounts, a real assignment, a real submission and then reading a phone screen carefully — and
- * every failure mode below is SILENT. That is not a figure of speech here: Kotlin decodes this API
- * with `ignoreUnknownKeys = true`, so a status this client has never heard of does not throw, does
- * not warn and does not log. It falls through the nearest `else ->` branch and renders as whatever
- * lives there. When `SUBMITTED` was added server-side, the branch it would have fallen through to
- * was the one OPEN uses — so a researcher who had already handed work in would have been shown a
- * to-do item and told, by omission, to do it all again. Nothing anywhere would have gone red.
- *
- * So the decisions were lifted out of the composables into pure functions, where one assertion can
- * hold them. If somebody folds `taskOverrideTargets` back into an `if` inside a composable, these
- * tests stop compiling — which is the point.
- *
- * THE WEB TWIN OF EVERY STRING BELOW IS `frontend/components/tasks/` (`TaskPrimitives.tsx`,
- * `AssigneeProgressCard.tsx`, `MyTaskCard.tsx`), and the SOURCE of the status wording is
- * `backend/app/api/routes/tasks.py:129` (`STATUS_LABELS`). Change one, change all three: a
- * researcher told "Under review" on a phone and "Submitted" on a laptop is looking at two features,
- * not one.
- */
 class TaskReviewTest {
 
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
-
-    /**
-     * One task as the server actually serialises it, with every field of the review contract
-     * present. Defaults describe an ordinary open task; each test overrides only what it is about.
-     */
     private fun task(
         status: String = TASK_STATUS_OPEN,
         statusLabel: String = taskStatusLabel(status),
@@ -103,15 +72,8 @@ class TaskReviewTest {
         truncated = truncated
     )
 
-    // -----------------------------------------------------------------------
-    // The status vocabulary — the contract with the server and with the web
-    // -----------------------------------------------------------------------
-
     @Test
     fun `every status has the server's wording`() {
-        // Mirrors backend STATUS_LABELS exactly. "Approved" and not "Done", because after the review
-        // step DONE carries new information: a SECOND person agreed. "To do" and not "Open" for the
-        // matching reason — OPEN is now specifically the assignee's own queue.
         assertEquals("To do", taskStatusLabel("OPEN"))
         assertEquals("In progress", taskStatusLabel("IN_PROGRESS"))
         assertEquals("Under review", taskStatusLabel("SUBMITTED"))
@@ -121,24 +83,16 @@ class TaskReviewTest {
 
     @Test
     fun `the owner's phrase is the wording a researcher actually sees`() {
-        // The owner asked for "tell them that it is currently under review". The server carries the
-        // phrase so three hand-written clients cannot each invent their own; this pins the Android
-        // end of that.
         assertEquals("Under review", taskStatusLabel(TASK_STATUS_SUBMITTED))
     }
 
     @Test
     fun `an unknown status is shown as itself rather than swallowed`() {
-        // The server grew a fifth state; it may grow a sixth before this APK is rebuilt. A raw
-        // "ESCALATED" on screen is ugly and honest. A fallback of "To do" would be neither — it
-        // would put finished work back on somebody's list without a trace.
         assertEquals("ESCALATED", taskStatusLabel("ESCALATED"))
     }
 
     @Test
     fun `the server's label wins over this client's table`() {
-        // If the server rewords a state, the phone follows without an APK. The local table is the
-        // net, not the source.
         assertEquals("Awaiting sign-off", taskStatusText(task(statusLabel = "Awaiting sign-off")))
     }
 
@@ -147,28 +101,18 @@ class TaskReviewTest {
         assertEquals("Under review", taskStatusText(task(status = TASK_STATUS_SUBMITTED, statusLabel = "")))
     }
 
-    // -----------------------------------------------------------------------
-    // The two booleans, and why they are nullable
-    // -----------------------------------------------------------------------
-
     @Test
     fun `awaiting review is derived from the status when the server did not send the flag`() {
-        // A non-null `false` default would make "this server is older than the review state"
-        // indistinguishable from "this task is not awaiting review" — and would hand a submitted
-        // task its "Mark done" button back, letting a researcher re-submit work already in a queue.
         assertTrue(taskAwaitingReview(task(status = TASK_STATUS_SUBMITTED, isAwaitingReview = null)))
         assertFalse(taskAwaitingReview(task(status = TASK_STATUS_IN_PROGRESS, isAwaitingReview = null)))
     }
 
     @Test
     fun `outstanding keeps submitted work on the list and drops withdrawn work`() {
-        // The owner's "for it to not pop up next time", read backwards, IS the requirement: it must
-        // go on popping up until somebody approves it.
         assertTrue(taskOutstanding(task(status = TASK_STATUS_OPEN, isOutstanding = null)))
         assertTrue(taskOutstanding(task(status = TASK_STATUS_IN_PROGRESS, isOutstanding = null)))
         assertTrue(taskOutstanding(task(status = TASK_STATUS_SUBMITTED, isOutstanding = null)))
         assertFalse(taskOutstanding(task(status = TASK_STATUS_DONE, isOutstanding = null)))
-        // The reason `status != "DONE"` is the wrong filter: it keeps this one.
         assertFalse(taskOutstanding(task(status = TASK_STATUS_CANCELLED, isOutstanding = null)))
     }
 
@@ -178,14 +122,8 @@ class TaskReviewTest {
         assertFalse(taskOutstanding(task(status = TASK_STATUS_OPEN, isOutstanding = false)))
     }
 
-    // -----------------------------------------------------------------------
-    // The admin's decision
-    // -----------------------------------------------------------------------
-
     @Test
     fun `a submission offers approval first and sending back beside it`() {
-        // Both answers, in this order: approving is the expected outcome, and a reviewer who can
-        // only approve is not reviewing. Matches the web's `overrideTargets`.
         assertEquals(
             listOf(TASK_STATUS_DONE, TASK_STATUS_IN_PROGRESS),
             taskOverrideTargets(TASK_STATUS_SUBMITTED)
@@ -194,18 +132,12 @@ class TaskReviewTest {
 
     @Test
     fun `sending back lands on in progress rather than on to-do`() {
-        // The work demonstrably started — they handed it in — so restoring "not started" would be
-        // the board contradicting a fact it is looking at, and would tell every rollup counting
-        // openCount the same untruth.
         assertEquals(TASK_STATUS_IN_PROGRESS, taskOverrideTargets(TASK_STATUS_SUBMITTED).last())
         assertFalse(taskOverrideTargets(TASK_STATUS_SUBMITTED).contains(TASK_STATUS_OPEN))
     }
 
     @Test
     fun `an approved task offers both ways back`() {
-        // Here "never started" and "half done" ARE genuinely different answers about somebody's
-        // week, and an undo that could only restore OPEN would erase that difference on every task
-        // it touched.
         assertEquals(
             listOf(TASK_STATUS_IN_PROGRESS, TASK_STATUS_OPEN),
             taskOverrideTargets(TASK_STATUS_DONE)
@@ -214,20 +146,12 @@ class TaskReviewTest {
 
     @Test
     fun `a withdrawn task offers nothing at all`() {
-        // The server WOULD accept a status write here — update_task's manager branch takes any
-        // value — so nothing but this empty list keeps withdrawal off the accountability board,
-        // where it would sit as a third small button beside two reversible ones.
         assertEquals(emptyList<String>(), taskOverrideTargets(TASK_STATUS_CANCELLED))
         assertEquals(emptyList<String>(), taskOverrideTargets("ESCALATED"))
     }
 
     @Test
     fun `approving and marking done for them are worded differently`() {
-        // The same database write, two different human acts. From SUBMITTED the researcher has
-        // already claimed it and the admin is AGREEING. From OPEN nobody has claimed anything and
-        // the admin is declaring it finished over their head — which is what "for them" admits.
-        // One label for both would tell an approver they are overruling the researcher at the exact
-        // moment they are backing them up.
         assertEquals("Approve", taskOverrideActionLabel(TASK_STATUS_SUBMITTED, TASK_STATUS_DONE))
         assertEquals("Mark done for them", taskOverrideActionLabel(TASK_STATUS_OPEN, TASK_STATUS_DONE))
         assertEquals("Mark done for them", taskOverrideActionLabel(TASK_STATUS_IN_PROGRESS, TASK_STATUS_DONE))
@@ -235,18 +159,11 @@ class TaskReviewTest {
 
     @Test
     fun `refusing a submission is called sending back, not rejecting`() {
-        // "Send back", not "Reject": the work is not refused, it is returned for more of it, and the
-        // row it writes is plain IN_PROGRESS. Nor "Send for revision", which is this app's REVIEW
-        // LADDER's wording and carries a promise this screen cannot keep — that one takes mandatory
-        // comments, and an assigned task has no column to put them in.
         assertEquals("Send back", taskOverrideActionLabel(TASK_STATUS_SUBMITTED, TASK_STATUS_IN_PROGRESS))
     }
 
     @Test
     fun `the ways back borrow the pill's own words`() {
-        // These buttons sit inches below the status pill for the very task they act on. A button
-        // reading "Reopen as not started" beside a pill reading "To do" is two names for one state
-        // on one row — so the label is DERIVED from the pill's rather than written beside it.
         assertEquals(
             "Back to ${taskStatusLabel(TASK_STATUS_OPEN).lowercase()}",
             taskOverrideActionLabel(TASK_STATUS_DONE, TASK_STATUS_OPEN)
@@ -256,8 +173,6 @@ class TaskReviewTest {
 
     @Test
     fun `every confirmation names the person it lands on`() {
-        // An override is the one act on this board whose effect reaches somebody not in the room.
-        // "Mark this task done?" gives a tired admin no way to notice they are on the wrong row.
         val moves = listOf(
             TASK_STATUS_SUBMITTED to TASK_STATUS_DONE,
             TASK_STATUS_SUBMITTED to TASK_STATUS_IN_PROGRESS,
@@ -282,10 +197,6 @@ class TaskReviewTest {
 
     @Test
     fun `the approval note promises that approving late does not make them look late`() {
-        // The server stamps completedAt at the SUBMISSION and never re-stamps it on approval, so
-        // `completedAt > dueAt` stays a fact about the doer. An approver has to be told that, or a
-        // conscientious one delays clicking to avoid "marking them late", which is the opposite of
-        // what the delay does.
         val copy = taskOverrideConfirm(TASK_STATUS_SUBMITTED, TASK_STATUS_DONE, "Meera Joshi")
         assertTrue(copy.note.contains("not today"))
         assertEquals("Approve", copy.confirmLabel)
@@ -293,8 +204,6 @@ class TaskReviewTest {
 
     @Test
     fun `the send-back note asks the admin to tell them why`() {
-        // Nothing on the wire carries a message with a send-back. An admin who assumes one is sent
-        // leaves somebody in the field re-reading a task they thought was finished.
         val copy = taskOverrideConfirm(TASK_STATUS_SUBMITTED, TASK_STATUS_IN_PROGRESS, "Meera Joshi")
         assertTrue(copy.note.contains("Let them know why"))
         assertEquals("Send back", copy.confirmLabel)
@@ -302,9 +211,6 @@ class TaskReviewTest {
 
     @Test
     fun `marking done for somebody who never claimed it says to ask them first`() {
-        // `test_an_override_leaves_no_trace_of_who_performed_it` pins this server-side: the row is
-        // identical to one the assignee wrote themselves. The only place that can be said is here,
-        // before the press.
         val copy = taskOverrideConfirm(TASK_STATUS_OPEN, TASK_STATUS_DONE, "Meera Joshi")
         assertTrue(copy.note.contains("ask them first"))
         assertEquals("Mark done for them", copy.confirmLabel)
@@ -312,8 +218,6 @@ class TaskReviewTest {
 
     @Test
     fun `the confirm button repeats the button that opened it`() {
-        // A dialog whose confirm reads differently from the button pressed to reach it makes a
-        // reader wonder whether they opened the wrong one.
         listOf(
             TASK_STATUS_SUBMITTED to TASK_STATUS_DONE,
             TASK_STATUS_SUBMITTED to TASK_STATUS_IN_PROGRESS,
@@ -327,15 +231,8 @@ class TaskReviewTest {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // The assignee's side
-    // -----------------------------------------------------------------------
-
     @Test
     fun `marking done writes SUBMITTED, never DONE`() {
-        // The owner's rule: an admin has to approve it. The server rewrites an assignee's DONE to
-        // SUBMITTED rather than refusing it (so older field builds keep working), but sending the
-        // true word means the request and the response agree about what happened.
         assertEquals(listOf(TASK_STATUS_IN_PROGRESS, TASK_STATUS_SUBMITTED), assigneeStatusChoices(TASK_STATUS_OPEN))
         assertEquals(listOf(TASK_STATUS_OPEN, TASK_STATUS_SUBMITTED), assigneeStatusChoices(TASK_STATUS_IN_PROGRESS))
         assertFalse(assigneeStatusChoices(TASK_STATUS_OPEN).contains(TASK_STATUS_DONE))
@@ -344,38 +241,24 @@ class TaskReviewTest {
 
     @Test
     fun `an approved task offers the assignee nothing`() {
-        // The server answers this with 403 "Only the task creator or an admin can reopen an approved
-        // task". Without that clause the person whose work was approved could PATCH the approval
-        // away, which would make the whole review step decorative — and a button that produces a red
-        // banner has already told somebody they did something wrong when they were merely offered
-        // something they were never allowed.
         assertEquals(emptyList<String>(), assigneeStatusChoices(TASK_STATUS_DONE))
         assertEquals(emptyList<String>(), assigneeStatusChoices(TASK_STATUS_CANCELLED))
     }
 
     @Test
     fun `a submitted task offers the way back but no second way forward`() {
-        // Withdrawing your own submission is legitimate — you spotted a gap before the admin did.
-        // A second "Mark done" would re-send something already in the queue.
         assertEquals(listOf(TASK_STATUS_IN_PROGRESS), assigneeStatusChoices(TASK_STATUS_SUBMITTED))
         assertEquals("Withdraw", assigneeStatusActionLabel(TASK_STATUS_SUBMITTED, TASK_STATUS_IN_PROGRESS))
     }
 
     @Test
     fun `the assignee's button still says mark done`() {
-        // It writes SUBMITTED, and it still reads "Mark done". That is what the researcher means, it
-        // is the web's wording and the wording on every build already in the field. The review step
-        // is the ADMIN'S hurdle and belongs in the notice beside the button, not on it, where it
-        // would read as friction before the work is even claimed.
         assertEquals("Mark done", assigneeStatusActionLabel(TASK_STATUS_IN_PROGRESS, TASK_STATUS_SUBMITTED))
         assertEquals("Start", assigneeStatusActionLabel(TASK_STATUS_OPEN, TASK_STATUS_IN_PROGRESS))
     }
 
     @Test
     fun `the confirmation after marking done explains why the task stayed put`() {
-        // The generic "Marked ${label}" would render as "Marked under review", which reads like the
-        // app deciding something rather than like the researcher's own act having a consequence —
-        // and says nothing about the card still being there afterwards.
         val message = assigneeStatusConfirmation(TASK_STATUS_SUBMITTED)
         assertTrue(message.contains("approval"))
         assertTrue(message.contains("stays on your list"))
@@ -393,10 +276,6 @@ class TaskReviewTest {
 
     @Test
     fun `the notice answers all three questions a stranded card raises`() {
-        // "Did it work?" (yes, recorded), "whose problem is it now?" (an admin's), "is there
-        // anything left for me to do?" (no). Without all three, the honest reading of a task that
-        // stayed put after being marked done is "the app did not save it" — and the reasonable
-        // response to that is to press the button again, then do the work again.
         val notice = taskReviewNotice(task(status = TASK_STATUS_SUBMITTED))!!
         assertEquals("Handed in — under review", notice.title)
         assertTrue(notice.body.contains("You marked this done"))
@@ -407,9 +286,6 @@ class TaskReviewTest {
 
     @Test
     fun `the notice is worded exactly as the web words it`() {
-        // `frontend/components/tasks/TaskPrimitives.tsx:reviewNoticeCopy`. This is the sentence that
-        // decides whether a researcher trusts the button, and the person who would find a divergence
-        // is the one who works a workshop on the handset and writes it up on the laptop that evening.
         assertEquals(
             "You marked this done. An admin or the master admin will approve it; it stays on your list until then.",
             taskReviewNotice(task(status = TASK_STATUS_SUBMITTED))!!.body
@@ -420,22 +296,14 @@ class TaskReviewTest {
     fun `naming the admin turns an anonymous wait into somebody who can be asked`() {
         val named = taskReviewNotice(task(status = TASK_STATUS_SUBMITTED), "Dr Iyer")!!
         assertTrue(named.body.contains("Dr Iyer or another admin"))
-        // Blank is not a name. A stray space would otherwise produce " or another admin".
         assertEquals(
             taskReviewNotice(task(status = TASK_STATUS_SUBMITTED))!!.body,
             taskReviewNotice(task(status = TASK_STATUS_SUBMITTED), "   ")!!.body
         )
     }
 
-    // -----------------------------------------------------------------------
-    // The one progress number
-    // -----------------------------------------------------------------------
-
     @Test
     fun `a task with nothing measurable draws no bar at all`() {
-        // "Food, and collect the TA's bank details" has no record types, no sections and no quota.
-        // A bar at 0% beside somebody's name asserts they have produced nothing, which is a claim
-        // about them; the absent bar asserts only that there is nothing here to count.
         val unmeasurable = task(
             status = TASK_STATUS_IN_PROGRESS,
             effectivePercent = null,
@@ -454,10 +322,6 @@ class TaskReviewTest {
 
     @Test
     fun `a pre-review payload keeps its old bar instead of losing it`() {
-        // Detected by the ABSENT LABEL, not by the absent percentage: every server that sends
-        // effectivePercent also sends statusLabel, so a blank label is the only available evidence
-        // that a null percentage means "not sent" rather than "not measurable". Reading the null
-        // percentage as the signal would delete the bar from every task on an older server.
         val legacy = TaskDto(id = "t", status = "IN_PROGRESS", percentComplete = 40)
         assertEquals(40, taskBarPercent(legacy))
         assertEquals("0 reported", taskProgressCaption(legacy))
@@ -478,9 +342,6 @@ class TaskReviewTest {
 
     @Test
     fun `a typed-in figure is never presented as a measured one`() {
-        // This is the owner's "should progress automatically as they record for more and more
-        // artisans", made checkable. A bar that moved because somebody typed 10 into a box and a bar
-        // that moved because ten artisans were recorded look identical on screen.
         assertFalse(taskProgressIsMeasured(task(progressSource = "reported", effectivePercent = 80)))
         assertFalse(taskProgressIsMeasured(task(progressSource = "status", effectivePercent = 100)))
         assertFalse(taskProgressIsMeasured(task(progressSource = null)))
@@ -492,17 +353,8 @@ class TaskReviewTest {
         assertEquals("4 reported", taskProgressCaption(task(progressCount = 4, targetCount = null)))
     }
 
-    // -----------------------------------------------------------------------
-    // The full-width card — a port of the web's AssigneeProgressCard, so these
-    // assertions are simultaneously a spec and a parity check.
-    // -----------------------------------------------------------------------
-
     @Test
     fun `a bar is refused outright when nothing behind it is real`() {
-        // THE HONESTY RULE. `percentComplete` arrives already averaged, with 0 stood in for every
-        // task the server could not measure. "Every task I can count is at zero" and "nothing you
-        // have is countable" are the same empty rectangle once drawn, and only the first is a fact
-        // about the person. So: no bar, and a sentence saying why.
         val bar = taskSummaryBar(summary(taskCount = 4, remainingCount = 4, measuredCount = 0, percentComplete = 0))
         assertNull(bar.percent)
         assertTrue(bar.caption.contains("No progress yet"))
@@ -510,8 +362,6 @@ class TaskReviewTest {
 
     @Test
     fun `a measured zero IS drawn, because it says the counting is happening`() {
-        // The distinction the rule above turns on: measuredCount > 0 means the repository looked and
-        // found nothing, which is a real measurement and worth a real empty bar.
         val bar = taskSummaryBar(summary(taskCount = 4, remainingCount = 4, measuredCount = 4, percentComplete = 0))
         assertEquals(0, bar.percent)
         assertEquals("all", bar.measured)
@@ -519,7 +369,6 @@ class TaskReviewTest {
 
     @Test
     fun `an average above zero is drawn even with nothing measured`() {
-        // It cannot be above zero without a reported figure, a submission or an approval under it.
         val bar = taskSummaryBar(summary(taskCount = 4, remainingCount = 2, awaitingReviewCount = 2, percentComplete = 50))
         assertEquals(50, bar.percent)
         assertEquals("none", bar.measured)
@@ -528,8 +377,6 @@ class TaskReviewTest {
 
     @Test
     fun `a fully measured card says the bar moves on its own`() {
-        // The owner's "should progress automatically as they record for more and more artisans",
-        // said to the person it is a promise to.
         val bar = taskSummaryBar(summary(taskCount = 6, remainingCount = 6, measuredCount = 6, percentComplete = 25))
         assertEquals("all", bar.measured)
         assertTrue(bar.caption.contains("All 6 counted from your records"))
@@ -546,8 +393,6 @@ class TaskReviewTest {
 
     @Test
     fun `withdrawn tasks are out of the denominator, so the card cannot disagree with its own bar`() {
-        // The server already keeps CANCELLED out of the average. Counting them here would put
-        // "3 of 6 counted" beside a bar averaged over three.
         val bar = taskSummaryBar(summary(taskCount = 6, cancelledCount = 3, measuredCount = 3, percentComplete = 40))
         assertEquals("all", bar.measured)
         assertTrue(bar.caption.contains("All 3 counted"))
@@ -569,8 +414,6 @@ class TaskReviewTest {
 
     @Test
     fun `a declined derivation is a caveat, not a silently reported bar`() {
-        // The server refused to count records for a list this long. Not a failure and not hidden:
-        // the alternative is a bar that looks measured and is not.
         val bar = taskSummaryBar(
             summary(taskCount = 400, remainingCount = 400, percentComplete = 20, derivationSkipped = true)
         )
@@ -591,14 +434,8 @@ class TaskReviewTest {
         assertEquals(100, taskSummaryBar(summary(taskCount = 1, remainingCount = 1, percentComplete = 140)).percent)
     }
 
-    // -----------------------------------------------------------------------
-    // The deadline line
-    // -----------------------------------------------------------------------
-
     @Test
     fun `a list with no deadlines gets no cheerful zero`() {
-        // "0 overdue" is not news. An empty sentence must be genuinely empty so the caller draws no
-        // line at all rather than an empty one with its own spacing.
         assertNull(taskDueSentence(summary(taskCount = 3, remainingCount = 3)))
     }
 
@@ -615,28 +452,17 @@ class TaskReviewTest {
         )!!
         assertTrue(sentence.startsWith("2 tasks are past their due date"))
         assertTrue(sentence.indexOf("past their due date") < sentence.indexOf("due within the next two days"))
-        // Month abbreviation only, not the full formatted date: `formatDate` renders through the
-        // JVM's default locale, which spells September "Sept" on a modern CLDR and "Sep" on an
-        // older one. Pinning the whole string here would make this test fail on somebody's machine
-        // for a reason that has nothing to do with tasks.
         assertTrue(sentence.contains("next due 20 Sep"))
         assertTrue(sentence.endsWith("."))
     }
 
     @Test
     fun `one overdue task is described in the singular, pronoun included`() {
-        // "1 tasks are past their due date" is the kind of sentence that makes a reader stop
-        // trusting the number in front of it.
         assertEquals("1 task is past its due date.", taskDueSentence(summary(taskCount = 1, overdueCount = 1)))
     }
 
-    // -----------------------------------------------------------------------
-    // The sentence that stops the second press
-    // -----------------------------------------------------------------------
-
     @Test
     fun `the under-review sentence is worded exactly as the web words it`() {
-        // `frontend/components/tasks/AssigneeProgressCard.tsx`, singular and plural both.
         assertEquals(
             "1 task awaiting approval.",
             taskAwaitingReviewSentence(1)
@@ -653,19 +479,10 @@ class TaskReviewTest {
         assertNull(taskAwaitingReviewSentence(-1))
     }
 
-    // -----------------------------------------------------------------------
-    // THE WIRE — the silent-failure class this whole feature is exposed to
-    // -----------------------------------------------------------------------
-
-    /** THE decoder this app actually uses. Borrowed rather than re-declared: a second `Json { }`
-     *  built here with the same settings would stop tracking the real one the day it changes. */
     private val json: Json = ApiClient.json
 
     @Test
     fun `a submitted task decodes with every review field intact`() {
-        // THE TEST THE WHOLE FILE IS FOR. `ignoreUnknownKeys = true` means a field this DTO forgot
-        // to declare is dropped in total silence — no throw, no warning, no log line. Nothing else
-        // in the build would have caught `statusLabel` being misspelled here.
         val payload = """
             {
               "id": "task-9",
@@ -698,11 +515,8 @@ class TaskReviewTest {
         assertEquals("6 of 24 artisan sections recorded", decoded.progressLabel)
         assertEquals(25, decoded.derivedPercent)
         assertEquals(12, decoded.derivedArtisanCount)
-        // Explains a stuck 0%: answers filed against an interview with no artisan attached cannot
-        // raise an (artisan, section) pair count, and the fix is a data link, not a chase.
         assertEquals(3, decoded.derivedBreakdown["unlinkedSections"])
 
-        // And the whole point of decoding it: it renders as review work, not as a to-do item.
         assertEquals("Under review", taskStatusText(decoded))
         assertTrue(taskAwaitingReview(decoded))
         assertTrue(taskOutstanding(decoded))
@@ -713,8 +527,6 @@ class TaskReviewTest {
 
     @Test
     fun `a server that has never heard of the review state still decodes`() {
-        // The other direction of the skew, and the one that must degrade rather than break: an older
-        // backend sends four statuses and none of the new fields.
         val payload = """
             {"id":"task-1","title":"Record tools","status":"IN_PROGRESS","progressCount":4,
              "targetCount":10,"percentComplete":40}
@@ -724,8 +536,6 @@ class TaskReviewTest {
         assertEquals("", decoded.statusLabel)
         assertNull(decoded.isAwaitingReview)
         assertNull(decoded.isOutstanding)
-        // Derived from the status rather than defaulted to false — a `false` here would empty the
-        // researcher's task list, and an empty to-do list is indistinguishable from a finished one.
         assertTrue(taskOutstanding(decoded))
         assertFalse(taskAwaitingReview(decoded))
         assertEquals("In progress", taskStatusText(decoded))
@@ -775,9 +585,6 @@ class TaskReviewTest {
 
     @Test
     fun `a batch that nobody has submitted in still answers the SUBMITTED question`() {
-        // The server builds statusCounts from a fixed key list precisely so a client reading
-        // counts["SUBMITTED"] does not fault on the happy path. Pinned here because the failure
-        // would only ever show up on a batch where everything is going well.
         val payload = """
             {"assignee":null,"taskCount":2,
              "statusCounts":{"OPEN":2,"IN_PROGRESS":0,"SUBMITTED":0,"DONE":0,"CANCELLED":0},

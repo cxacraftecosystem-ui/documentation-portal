@@ -1,16 +1,3 @@
-"""Gemini through the AI Studio API, with structured JSON output: the one transport the pipeline uses.
-
-Owner decision 31 Oct 2026 (design section 9): an AI Studio key on ``cxa-craftecosystem-1``, model
-``gemini-3.8-flash``, falling back to ``gemini-3.7-flash``. Keys come from the portal's existing
-Gemini key list (``GEMINI_API_KEY`` + ``GEMINI_API_KEYS``), so a throttled or refused key moves to
-the next one and a model the project cannot reach moves to the fallback model.
-
-``requests.post`` is looked up at call time, so a test that replaces it (or passes ``post=``)
-reaches this module; tests use recorded responses and never call Google.
-
-Nothing here logs a prompt, a reply or a key: only the model id, the key's ref and a status code.
-"""
-
 from __future__ import annotations
 
 import json
@@ -32,7 +19,6 @@ FALLBACK_MODEL = "gemini-3.7-flash"
 MODELS: tuple[str, ...] = (MODEL, FALLBACK_MODEL)
 URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}"
-#: USD per million tokens (input, output), as listed in services/ai_providers.py.
 PRICES: dict[str, tuple[float, float]] = {
     "gemini-3.8-flash": (0.75, 3.75),
     "gemini-3.7-flash": (0.75, 3.75),
@@ -40,7 +26,6 @@ PRICES: dict[str, tuple[float, float]] = {
 DISPLAY_NAMES = {"gemini-3.8-flash": "Gemini 3.8 Flash", "gemini-3.7-flash": "Gemini 3.7 Flash"}
 TIMEOUT_SECONDS = 180
 
-#: Kinds of failure, worst-for-retry last.
 THROTTLED = "throttled"
 BILLING = "billing"
 UNREACHABLE = "unreachable"
@@ -53,9 +38,6 @@ DECLINED = "declined"
 UNAVAILABLE = "unavailable"
 
 _RETRYABLE = {THROTTLED, BILLING, UNREACHABLE, FAILED, UNREADABLE}
-#: Failures that clear by themselves (a busy model, no route, a project whose credit ran out and is
-#: topped up): the queue parks the job and asks again later WITHOUT spending an attempt, so it
-#: resumes on its own however long the hold lasts. Seconds to wait before asking again.
 HOLD_SECONDS = {THROTTLED: 180, UNREACHABLE: 180, BILLING: 900}
 
 MESSAGES = {
@@ -73,8 +55,6 @@ MESSAGES = {
 
 
 class GeminiError(RuntimeError):
-    """Every way a call ends without an answer. ``message`` is a sentence for a person."""
-
     def __init__(self, kind: str, *, status: int | None = None) -> None:
         super().__init__(MESSAGES.get(kind, MESSAGES[FAILED]))
         self.kind = kind
@@ -109,7 +89,6 @@ _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 
 def parse_json_text(text: str | None) -> dict[str, Any] | None:
-    """The JSON object in a reply's text (fences tolerated), or None."""
     if not text:
         return None
     cleaned = _FENCE.sub("", text.strip())
@@ -124,7 +103,6 @@ def parse_json_text(text: str | None) -> dict[str, Any] | None:
 
 
 def _reply_text(payload: dict[str, Any]) -> tuple[str | None, str | None]:
-    """``(text, finishReason)`` of the first candidate."""
     candidates = payload.get("candidates") or []
     if not candidates:
         return None, (payload.get("promptFeedback") or {}).get("blockReason") or "NO_CANDIDATE"
@@ -135,7 +113,7 @@ def _reply_text(payload: dict[str, Any]) -> tuple[str | None, str | None]:
 
 
 def _post(url: str, **kwargs: Any) -> Any:
-    return requests.post(url, **kwargs)  # looked up at call time, so a test can replace it
+    return requests.post(url, **kwargs)
 
 
 def request_body(system: str, user: str, schema: dict[str, Any] | None, temperature: float) -> dict[str, Any]:
@@ -160,12 +138,6 @@ def generate_json(
     timeout: float = TIMEOUT_SECONDS,
     post: Callable[..., Any] | None = None,
 ) -> GeminiReply:
-    """One structured answer. Tries every key on the first model, then the fallback model.
-
-    Raises :class:`GeminiError`. A refused key or a throttle moves to the next key; a model the
-    project cannot use (404) or a request the model rejects (400) moves to the next model; an answer
-    that is not the JSON asked for moves to the next model too.
-    """
     if not keys:
         raise GeminiError(UNAVAILABLE)
     send = post or _post
@@ -250,20 +222,18 @@ def generate_json(
                 latency_ms=int((time.monotonic() - started) * 1000),
             )
         if not next_model and kinds and all(kind == KEY for kind in kinds):
-            break  # every key refused: the fallback model would refuse them too
+            break
     raise GeminiError(_worst(kinds), status=last_status)
 
 
 def _worst(kinds: list[str]) -> str:
-    """The failure to report: a throttle when anything was busy (it clears by itself), else the
-    first that will not clear."""
     if not kinds:
         return FAILED
     for kind in (DECLINED, KEY):
         if kinds and all(k == kind for k in kinds):
             return kind
     if BILLING in kinds:
-        return BILLING  # does not clear until somebody pays; say so rather than "busy"
+        return BILLING
     if THROTTLED in kinds:
         return THROTTLED
     if UNREACHABLE in kinds:

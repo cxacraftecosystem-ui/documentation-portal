@@ -1,9 +1,3 @@
-"""A workshop create with no date is a 422, not a 500.
-
-``date`` is a required column. Before the schema checked it, a body with neither ``date`` nor
-``startDate`` reached Prisma and the route answered a bare 500.
-"""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime

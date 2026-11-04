@@ -1,20 +1,3 @@
-/**
- * "CONTINUE WITH MICROSOFT" AND "CONTINUE WITH YAHOO" — the browser's half, pinned.
- *
- * Pure functions from `lib/oidcSignIn.ts`, plus source assertions on the login page and the callback
- * route for the judgements that live in JSX (there is no React renderer in devDependencies). What is
- * pinned, and why each would ship unnoticed:
- *
- *   1. A provider with no client ID has NO button — the "Coming soon" badge and toast are gone and
- *      must not come back as a disabled control.
- *   2. The authorization request carries PKCE S256 and the DIGEST of the nonce; the raw nonce and the
- *      verifier go only to our own sign-in route.
- *   3. A callback this tab did not start (wrong `state`), or one too old, is never completed.
- *   4. The callback hands the code back in the FRAGMENT, and hands an `app.` state to the Android app.
- *
- * ⚠ Source assertions are line-ending agnostic: `\s` and `[\s\S]`, never `\n`.
- */
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -53,8 +36,6 @@ class MemoryStorage {
   }
 }
 
-/* 1. Shown only when configured */
-
 test("no client ID, no provider", () => {
   expect(configuredOidcProviders({})).toEqual([]);
   expect(configuredOidcProviders({ microsoftClientId: "  ", yahooClientId: "" })).toEqual([]);
@@ -83,8 +64,6 @@ test("the login page has no coming-soon copy and draws only configured providers
   expect(LOGIN).toMatch(/oidcProviders\.map\(\(provider\) =>/);
   expect(LOGIN).toContain("configuredOidcProviders()");
 });
-
-/* 2. The authorization request */
 
 test("the request carries PKCE S256 and the nonce's digest, never the raw values", async () => {
   const storage = new MemoryStorage();
@@ -137,15 +116,12 @@ test("the sign-in body carries the raw nonce and the verifier to our own route o
   });
 });
 
-/* 3. Completing only what this tab started */
-
 test("a callback for another state, a second read, or a stale sign-in completes nothing", async () => {
   const storage = new MemoryStorage();
   const [yahoo] = configuredOidcProviders({ yahooClientId: "y-id" });
   await beginSignIn(yahoo, "https://x", null, storage);
   const state = (JSON.parse(storage.getItem("frp.oidc.pending") ?? "{}") as PendingSignIn).state;
   expect(takePendingSignIn("web.somebody-else", storage)).toBeNull();
-  // The wrong state consumed it: a code is single use and so is its verifier.
   expect(takePendingSignIn(state, storage)).toBeNull();
 
   await beginSignIn(yahoo, "https://x", null, storage);
@@ -164,8 +140,6 @@ test("a cancelled sign-in says so without blaming anybody", () => {
   );
   expect(callbackErrorMessage("YAHOO", "server_error")).not.toMatch(/server|endpoint|http/i);
 });
-
-/* 4. The callback route */
 
 test("a web state goes back to /login in the fragment, with nothing but code, state and error", () => {
   const target = callbackTarget(new URLSearchParams("code=abc&state=web.s1&session_state=zzz&iss=x"));

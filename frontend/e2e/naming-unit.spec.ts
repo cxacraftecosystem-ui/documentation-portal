@@ -27,12 +27,6 @@ import {
   workshopFilename
 } from "@/lib/naming";
 
-/**
- * The browser's half of the naming convention, held to the same two golden tables as `naming.py`
- * and `Naming.kt` (byte-identical in both portals): `shared/session-title.json`, the frozen
- * questionnaire contract (DESIGN test 60, web half), and `shared/naming-golden.json`, every other
- * generated name. No browser is opened.
- */
 const GOLDEN = JSON.parse(readFileSync(join(__dirname, "..", "..", "shared", "naming-golden.json"), "utf8"));
 
 type Row =
@@ -44,7 +38,6 @@ type Row =
 
 const CONTRACT = JSON.parse(readFileSync(join(__dirname, "..", "..", "shared", "session-title.json"), "utf8")) as { golden: Row[] };
 
-/** The contract's rows are written for documentation-portal; designer-portal's word replaces it. */
 const here = (name: string) => name.replace("FieldRepository_", `${PORTAL}_`);
 
 test("the contract table covers every kind", () => {
@@ -135,7 +128,6 @@ test("transliteration, fields, places and sequences match the golden table", () 
 });
 
 test("recording sequences read the question after its own section code", () => {
-  // "F21" in section F2 is question 1: the section comes from the target, never from the display code.
   type RecRow = {
     input: { targets: TargetRef[]; part?: number | null; position?: number | null; rosterCount?: number | null };
     sequence: string | null;

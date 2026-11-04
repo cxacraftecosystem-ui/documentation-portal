@@ -4,50 +4,8 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sqrt
 
-/**
- * Skeletonisation and skeleton repair (ALGORITHMS §9).
- *
- * The neighbour numbering used throughout is the one the Zhang–Suen paper uses: `P1` is the pixel
- * itself and `P2..P9` run **clockwise from north** in image coordinates (y down):
- *
- * ```
- *   P9 P2 P3
- *   P8 P1 P4
- *   P7 P6 P5
- * ```
- *
- * Every sub-iteration collects its deletions and applies them **after** the full pass. Deleting in
- * place is a one-line "optimisation" that makes the output depend on scan order — the result stops
- * matching the TypeScript port, and worse, it eats through 2px-wide strokes because the left half of
- * a stroke is gone by the time the right half is tested.
- */
 object Thinning {
 
-    /**
-     * Zhang–Suen thinning, the two-sub-iteration form.
-     *
-     * **The skeleton of an even-width stroke is off its true centreline by exactly half a pixel.**
-     * That is not a rounding error and it is not fixable inside a binary operator: a stroke covering
-     * columns `[x0, x0+w-1]` has its centreline at `x0 + (w-1)/2`, which is a half-integer for even
-     * `w` and therefore cannot be a pixel. Measured on axis-aligned bars of width 1 to 10, the bias is
-     * **exactly 0 for every odd width and exactly −0.5 px for every even one** — toward decreasing x
-     * and decreasing y, because sub-iteration 1 deletes the south and east boundary and so always wins
-     * the last tie. [guoHall] is the mirror image, exactly **+0.5 px** on the same inputs, which is the
-     * proof that the bias belongs to the sub-iteration ordering rather than to the input. A 45° bar of
-     * any width measures 0.
-     *
-     * What it costs downstream: a stroke whose width varies along its length — every brush stroke,
-     * every lit edge of a photographed object — crosses between even and odd width repeatedly, and the
-     * traced centreline steps half a pixel sideways each time it does. That reads as a wobble.
-     * Correcting it needs a half-pixel shift along the local stroke normal wherever the width is even,
-     * which requires the distance transform and therefore belongs to the centreline tracer, not here.
-     * Until then the bound is **0.5 px, one-sided, on even-width strokes only**.
-     *
-     * @param maxIterations hard bound on the number of full (two sub-iteration) passes; `≤ 0`
-     *   returns a copy. The loop normally converges long before the default 200 — the bound exists
-     *   so a pathological input degrades instead of hanging.
-     * @return a new [Mask] the size of [src], thinned to (mostly) 8-connected unit-width strokes.
-     */
     fun zhangSuen(src: Mask, maxIterations: Int = 200): Mask {
         val w = src.width
         val h = src.height
@@ -122,18 +80,6 @@ object Thinning {
         return Mask(w, h, d)
     }
 
-    /**
-     * Guo–Hall thinning. Preserves diagonal connectivity better than Zhang–Suen and grows noticeably
-     * fewer spurs, at the cost of slightly thicker junctions — offered because those two failure
-     * modes matter to different sources (engraving vs. pencil).
-     *
-     * Carries the same half-pixel centreline bias on even-width strokes as [zhangSuen] and in the
-     * **opposite** direction, +0.5 px rather than −0.5. See the note there; switching between the two
-     * is not a way to remove the bias, only to move it.
-     *
-     * @param maxIterations hard bound on the number of full passes; `≤ 0` returns a copy.
-     * @return a new [Mask] the size of [src].
-     */
     fun guoHall(src: Mask, maxIterations: Int = 200): Mask {
         val w = src.width
         val h = src.height
@@ -202,11 +148,6 @@ object Thinning {
         return Mask(w, h, d)
     }
 
-    /**
-     * @return how many of the eight neighbours of `(x, y)` are set. The pixel itself is not
-     *   inspected, so this is meaningful (and returns a count) for background pixels too.
-     *   Out-of-bounds neighbours count as background, per the binary border policy.
-     */
     fun neighbourCount(m: Mask, x: Int, y: Int): Int {
         var n = 0
         if (m.safe(x, y - 1)) n++
@@ -220,13 +161,6 @@ object Thinning {
         return n
     }
 
-    /**
-     * Counts `0 → 1` transitions in the **ordered** ring `P2,P3,…,P9,P2` (the wrap-around pair is
-     * part of the sequence — dropping it is the classic Zhang–Suen bug that leaves the algorithm
-     * unable to recognise a simple corner).
-     *
-     * @return the transition count, 0..4.
-     */
     fun transitions(m: Mask, x: Int, y: Int): Int {
         val p2 = m.safe(x, y - 1)
         val p3 = m.safe(x + 1, y - 1)
@@ -248,39 +182,12 @@ object Thinning {
         return a
     }
 
-    /**
-     * Removes branches shorter than [minBranchLength] that run from a degree-1 pixel to a junction —
-     * the "hair" that thinning grows on every noisy blob and that otherwise becomes dozens of
-     * three-point paths in the SVG.
-     *
-     * A run that ends at another degree-1 pixel is a whole short stroke, not a branch, and is left
-     * alone; dropping those is [Components.removeSmallBlobs]'s job and conflating the two silently
-     * deletes legitimate detail. The classification is recomputed from scratch after each round,
-     * because removing one branch changes the degree of the junction it hung from.
-     *
-     * The walk stops at a **crossing number** ≥ 3 ([transitions]), not at a neighbour count ≥ 3.
-     * They disagree on exactly the case that matters. In any 8-connected skeleton a branch leaving a
-     * horizontal trunk looks like
-     * ```
-     *   . X .        the middle row's X has FOUR neighbours — up, and all three trunk pixels
-     *   . X .        below it — yet it is plainly part of the branch, not a junction.
-     *   X X X        Its crossing number is 2 (one run of neighbours above, one below): interior.
-     * ```
-     * Stopping on the neighbour count therefore deletes only the tip and leaves a permanent 1px stub
-     * on every branch it prunes — visible in the SVG as a two-point path hanging off the line, which
-     * is precisely the artefact this function exists to remove.
-     *
-     * @param minBranchLength branches of exactly this many pixels survive; `≤ 0` returns a copy.
-     * @param maxRounds hard bound on the recompute-and-prune loop.
-     * @return a new [Mask] the size of [skeleton].
-     */
     fun pruneSpurs(skeleton: Mask, minBranchLength: Int, maxRounds: Int = 10): Mask {
         val w = skeleton.width
         val h = skeleton.height
         val d = skeleton.data.copyOf()
         if (minBranchLength <= 0 || maxRounds <= 0) return Mask(w, h, d)
 
-        // Capped so the path buffer stays small; nothing at working resolution has a 65k-pixel spur.
         val limit = if (minBranchLength > 65536) 65536 else minBranchLength
         val path = IntArray(limit)
         val toDelete = BooleanArray(d.size)
@@ -320,24 +227,6 @@ object Thinning {
         return Mask(w, h, d)
     }
 
-    /**
-     * Joins skeleton endpoints across gaps of at most [maxGap] pixels (ALGORITHMS §9, stage 2).
-     *
-     * Pairs are considered in ascending distance order and **each endpoint is used at most once** —
-     * greedy nearest-first. A pair is joined only when
-     *  - the two outgoing directions face each other: `dot(dirA, −dirB) > cos(maxAngle)`, and
-     *  - the straight segment between them crosses no existing ink (including ink drawn by an
-     *    earlier bridge in this same call, which is what stops a fan of endpoints being stitched
-     *    into a cat's cradle).
-     *
-     * Each endpoint's direction is estimated from the ~5 skeleton pixels behind it, so it is the
-     * direction of the stroke rather than of its last staircase step. Endpoints whose walk-back
-     * finds nothing (an isolated pixel) have no direction and are never paired.
-     *
-     * @param maxGap `≤ 0` returns a copy; internally capped at 1024 px.
-     * @param maxAngleDegrees half-angle of the acceptance cone, clamped to 0..180.
-     * @return a new [Mask] the size of [skeleton].
-     */
     fun bridgeEndpoints(skeleton: Mask, maxGap: Int, maxAngleDegrees: Float = 60f): Mask {
         val w = skeleton.width
         val h = skeleton.height
@@ -347,8 +236,6 @@ object Thinning {
 
         val eps = endpointIndices(d, w, h)
         val m = eps.size
-        // The candidate key packs (distance², i, j) into one long: 21 + 20 + 20 bits. More than a
-        // million endpoints means the skeleton is noise, and bridging noise helps nobody.
         if (m < 2 || m > 0xFFFFF) return Mask(w, h, d)
 
         val dirX = FloatArray(m)
@@ -368,8 +255,6 @@ object Thinning {
             }
         }
 
-        // Uniform grid with cells the size of the gap, so each endpoint only tests the 3×3 cells
-        // around it. All-pairs is O(E²) and a noisy skeleton has tens of thousands of endpoints.
         val gw = (w + gap - 1) / gap
         val gh = (h + gap - 1) / gap
         val cellOf = IntArray(m)
@@ -445,25 +330,12 @@ object Thinning {
         return Mask(w, h, d)
     }
 
-    /**
-     * @return packed `y * width + x` indices of every set pixel with exactly one set neighbour, in
-     *   scan order. Empty when there are none.
-     */
     fun endpoints(skeleton: Mask): IntArray =
         collect(skeleton.data, skeleton.width, skeleton.height, 1, 1)
 
-    /**
-     * @return packed `y * width + x` indices of every set pixel with three or more set neighbours,
-     *   in scan order. Empty when there are none. These are the branch points the centreline tracer
-     *   must not walk through.
-     */
     fun junctions(skeleton: Mask): IntArray =
         collect(skeleton.data, skeleton.width, skeleton.height, 3, 8)
 
-    // ---------------------------------------------------------------------------------------
-
-    /** Set pixels whose neighbour count falls in `[lo, hi]`, counted then filled — two passes so the
-     *  result array is exact and nothing has to grow. */
     private fun collect(d: BooleanArray, w: Int, h: Int, lo: Int, hi: Int): IntArray {
         var n = 0
         for (i in d.indices) {
@@ -501,7 +373,6 @@ object Thinning {
         return n
     }
 
-    /** Crossing number of [idx] — [transitions] over a raw [BooleanArray]. */
     private fun crossing(d: BooleanArray, w: Int, h: Int, idx: Int): Int {
         val x = idx % w
         val y = idx / w
@@ -525,15 +396,6 @@ object Thinning {
         return a
     }
 
-    /**
-     * The neighbour of [idx] (other than [exclude]) that the branch walk should continue to: the
-     * candidate with the **highest crossing number**, ties going to the first in ring order
-     * `P2..P9`. Preferring the highest is what steers the last step of a branch onto the junction
-     * itself rather than off along the trunk, which would make the walk overrun its length limit and
-     * conclude the branch was long enough to keep.
-     *
-     * @return the chosen neighbour index, or -1 when there is none.
-     */
     private fun pickNext(d: BooleanArray, w: Int, h: Int, idx: Int, exclude: Int): Int {
         val x = idx % w
         val y = idx / w
@@ -556,12 +418,9 @@ object Thinning {
         return best
     }
 
-    /** P2..P9 offsets: clockwise from north, y down. */
     private val RING_X = intArrayOf(0, 1, 1, 1, 0, -1, -1, -1)
     private val RING_Y = intArrayOf(-1, -1, 0, 1, 1, 1, 0, -1)
 
-    /** The single set neighbour of [idx] other than [exclude], or -1 when there is none or more than
-     *  one. Returning -1 at a junction is what makes the walkers stop there instead of guessing. */
     private fun soleNeighbour(d: BooleanArray, w: Int, h: Int, idx: Int, exclude: Int): Int {
         val x = idx % w
         val y = idx / w
@@ -590,8 +449,6 @@ object Thinning {
         return if (n == 1) found else -1
     }
 
-    /** Walk inward from an endpoint up to [steps] pixels, stopping early at a junction or a dead
-     *  end. Returns the pixel reached, which equals [start] when the walk could not move. */
     private fun walkBack(d: BooleanArray, w: Int, h: Int, start: Int, steps: Int): Int {
         var prev = -1
         var cur = start
@@ -606,7 +463,6 @@ object Thinning {
         return cur
     }
 
-    /** True when any pixel strictly between [a] and [b] on the Bresenham line is already set. */
     private fun crossesInk(d: BooleanArray, w: Int, h: Int, a: Int, b: Int): Boolean {
         var x = a % w
         var y = a / w
@@ -633,7 +489,6 @@ object Thinning {
         }
     }
 
-    /** Set every pixel on the Bresenham line from [a] to [b], endpoints included. */
     private fun drawLine(d: BooleanArray, w: Int, h: Int, a: Int, b: Int) {
         var x = a % w
         var y = a / w

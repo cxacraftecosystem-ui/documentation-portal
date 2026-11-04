@@ -1,18 +1,5 @@
 import { DEFAULT_FLATTEN_TOLERANCE, VecDocument, VecPoint } from './path';
 
-/**
- * DXF R12 (AC1009) ASCII writer.
- *
- * R12 rather than a modern release on purpose: it is the one DXF version every CAM package, laser cutter
- * and CNC controller in existence reads, and it has no LWPOLYLINE, no object handles and no class table —
- * so there is nothing in the file that an old reader can choke on.
- *
- * Curves are **flattened**: R12 has no spline entity, and emitting one would produce a file that opens
- * empty in exactly the tool chains this format exists to serve. DXF's y axis points up, so every
- * coordinate is mirrored through the document height.
- */
-
-/** DXF group codes and values go on alternating lines, which is the whole format. */
 function pair(out: string[], code: number, value: string): void {
   out.push(String(code));
   out.push(value);
@@ -24,14 +11,6 @@ function num(v: number): string {
   return s;
 }
 
-/**
- * Write a DXF R12 file.
- *
- * @param flatten flattening tolerance in document units for curve segments
- * @returns the complete DXF bytes. Layer names come from the document's layers, sanitised to the R12
- *          character set (upper-case letters, digits, `$`, `-`, `_`), because a name with a space makes
- *          some readers reject the table.
- */
 export function writeDxf(doc: VecDocument, flatten = DEFAULT_FLATTEN_TOLERANCE): Uint8Array {
   const height = Math.max(1, doc.height);
   const out: string[] = [];
@@ -91,7 +70,7 @@ function writeLayerRecord(out: string[], name: string): void {
   pair(out, 0, 'LAYER');
   pair(out, 2, name);
   pair(out, 70, '0');
-  pair(out, 62, '7'); // white/black, the "use the viewer's default" colour index
+  pair(out, 62, '7');
   pair(out, 6, 'CONTINUOUS');
 }
 
@@ -104,7 +83,7 @@ function writePolyline(
 ): void {
   pair(out, 0, 'POLYLINE');
   pair(out, 8, layer);
-  pair(out, 66, '1'); // vertices follow
+  pair(out, 66, '1');
   pair(out, 70, closed ? '1' : '0');
   pair(out, 10, '0.0');
   pair(out, 20, '0.0');
@@ -120,7 +99,6 @@ function writePolyline(
   pair(out, 8, layer);
 }
 
-/** @returns an R12-safe layer name; falls back to `LAYER<n>` when nothing usable survives. */
 function dxfName(name: string, index: number): string {
   let out = '';
   const upper = name.toUpperCase();

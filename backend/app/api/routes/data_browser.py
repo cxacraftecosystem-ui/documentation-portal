@@ -1,77 +1,3 @@
-"""Virtual data browser: a lazily-explorable file-system view over the repository.
-
-Four endpoints, all gated by the dataset-download permission AND by row visibility (see
-:class:`Scope`): the permission decides whether an account may download data at all, the scope
-decides whose data that is:
-
-- ``GET /data/tree?path=...``      one level of the virtual tree (folders + files), plus
-                                   server-resolved breadcrumbs and, on record folders, an
-                                   ``info`` panel of human-labelled fields
-- ``GET /data/manifest?path=...``  the flattened subtree below a path, same shape as
-                                   ``/export/dataset`` (clients zip client-side), filterable by
-                                   an ``include`` CSV of text,images,videos,audios,transcripts
-- ``GET /data/report?path=...``    relational report of the subtree (Workshops/Crafts/Artisans/
-                                   Products/Processes/Tools/Questionnaires/Transcripts/Media)
-                                   as ``format=json`` sheets or a styled ``format=xlsx`` workbook
-- ``GET /data/media/{id}/download``  one media file; audio is converted to .mp4 (AAC) on the fly
-
-Tree layout — folder *paths* use record ids so navigation is unambiguous; folder *names* are
-always the clean human name (workshop title, artisan name, product name, ...), never an id.
-Duplicate display names within one level get a numeric suffix: "Name (2)".
-
-The root is not a folder listing but a TAXONOMY chooser (see ``TAXONOMIES``): the same repository
-browsed three ways. ``by-workshop`` is the default one the client opens on.
-
-    ''                     -> by-workshop | by-uploader | by-type
-
-``by-workshop`` — the hierarchy: workshop, craft, artisan, then that artisan's work.
-
-    by-workshop                                 -> one folder per workshop (name = title)
-    by-workshop/<wid>                           -> one folder per craft (the workshop's linked
-                                                   crafts plus its artisans' crafts; artisans with
-                                                   no craft go under 'No craft'), '_misc' (shown
-                                                   "Miscellaneous") and details.txt
-    by-workshop/<wid>/crafts/<cid>              -> the workshop's artisans having that craft
-    .../crafts/<cid>/artisans/<aid>             -> products | tools | questionnaire | misc
-    .../products/<pid>                          -> details.txt + media + 'processes' (when any)
-    .../products/<pid>/processes/<procid>       -> details.txt + process media + per-step folders
-    .../products/<pid>/processes/<procid>/<sid> -> notes.txt + step media
-    .../tools/<tid>                             -> details.txt + media
-    .../questionnaire/<iid>                     -> answers.txt + per-question audio clips
-
-``by-uploader`` — who recorded what, always scoped to one workshop so "their media" means the
-media they put into THAT workshop.
-
-    by-uploader                                 -> one folder per workshop (name = title)
-    by-uploader/<wid>                           -> one folder per researcher who uploaded media to,
-                                                   or authored a record in, that workshop
-    by-uploader/<wid>/<uid>                     -> artisans | products | tools | questionnaire
-                                                   | media
-    by-uploader/<wid>/<uid>/<branch>            -> one '<record name>.txt' per record of that type
-                                                   they created in that workshop
-    by-uploader/<wid>/<uid>/media               -> images | videos | audios | transcripts
-                                                   | documents | other
-    by-uploader/<wid>/<uid>/media/<slug>        -> their files of that kind in that workshop
-
-``by-type`` — every file in the repository grouped purely by what it is.
-
-    by-type                -> images | videos | audios | transcripts | documents | other
-    by-type/<slug>         -> the files themselves. 'transcripts' is not a MediaType: it is every
-                              media row carrying transcript text, rendered as .transcript.md files
-                              so the folder holds transcripts rather than the audio they came from
-
-Pre-taxonomy paths still resolve so links saved before the switcher existed keep working:
-``workshops/...`` is the same lister as ``by-workshop/...``, ``media-types/...`` the same as
-``by-type/...``, and ``users`` keeps its own older shape (one folder per uploader, then
-artisans | products | tools | workshops | questionnaire | misc, repository-wide rather than
-per workshop). ``_LEGACY_TAXONOMY`` maps each old root onto the taxonomy that replaced it so the
-switcher still highlights the right tab. Inside ``by-workshop`` the pre-craft-level
-``<wid>/artisans/<aid>`` path also still resolves.
-
-The query/mapping style mirrors export.py's dataset manifest, but every level is lazy: a /tree
-call only runs the queries that level needs (each bounded by ``TAKE``).
-"""
-
 import asyncio
 import contextlib
 import ctypes
@@ -163,40 +89,22 @@ router = APIRouter(
     dependencies=[Depends(require_dataset_downloader)],
 )
 
-# Upper bound for any single level's listing query, keeping every /tree call cheap.
 TAKE = 500
-# Safety valve for /manifest walks so a pathological subtree cannot run away.
 MAX_MANIFEST_FILES = 20000
 MAX_WALK_DEPTH = 16
-# Manifest walks visit sibling subtrees concurrently; this caps in-flight DB queries safely
-# below the Prisma connection limit (10 per worker).
 _WALK_SEM = asyncio.Semaphore(5)
-# Refuse in-process audio conversion beyond this size — decoding a very large WAV would exhaust
-# the t3.micro's RAM; the client falls back to the original object URL.
 MAX_CONVERT_BYTES = 200 * 1024 * 1024
-# Per-sheet row cap for /data/report (a truncation note row is appended when hit).
 REPORT_TAKE = 5000
-#: Rows per sheet in ``/data/report?format=json``, the View Data tables (D39). The screen shows a
-#: PREVIEW; the .xlsx and ``/data/manifest`` stay complete. A whole-repository report rendered in
-#: full was 7.8 MB of JSON per request and ratcheted the API's resident memory in steps.
 PREVIEW_ROWS = 200
-#: One report build at a time per process (D39). A second request while one is building is answered
-#: at once with this sentence and ``Retry-After`` rather than queued: two whole-repository builds at
-#: once is the shape that took the field API from 179 to 288 MB.
 _REPORT_BUILD = asyncio.Semaphore(1)
 REPORT_BUSY = "A report is already being prepared. Try again in a minute."
 REPORT_RETRY_AFTER_SECONDS = 60
-# Pseudo craft-folder id gathering a workshop's artisans that have no craft assigned.
 NO_CRAFT = "_none"
 
 
-# Name caps. File systems limit a name to ~255 BYTES, not characters, and a Devanagari character
-# costs three of them, so both limits are applied. The character rules themselves now live in
-# services/media_naming.py, which needs the identical answer for the file names it builds.
 _MAX_SEG_CHARS = 80
 _MAX_SEG_BYTES = 200
 
-# MediaType -> the `include` CSV token that selects it in /data/manifest.
 _TYPE_TOKEN = {
     "IMAGE": "images",
     "VIDEO": "videos",
@@ -206,7 +114,6 @@ _TYPE_TOKEN = {
     "OTHER": "other",
 }
 
-# linkedRecordType tags considered "attached to a typed record" (everything else is misc).
 _TYPED_TAGS = [
     "artisan",
     "product",
@@ -240,8 +147,6 @@ _MEDIA_TYPE_WHERE: dict[str, dict[str, Any]] = {
     "other": {"mediaType": "OTHER"},
 }
 
-# The three ways the same repository can be browsed. The client renders these as a
-# switcher at the root; `default` decides which one it opens on.
 TAXONOMIES: list[dict[str, Any]] = [
     {
         "id": "by-workshop",
@@ -276,7 +181,6 @@ TAXONOMIES: list[dict[str, Any]] = [
     },
 ]
 
-# Display labels for the static (non-record) folder slugs used across the tree.
 _CATEGORY_LABEL: dict[str, str] = {
     "by-workshop": "By workshop",
     "by-uploader": "By uploader",
@@ -302,56 +206,19 @@ _CATEGORY_LABEL: dict[str, str] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Small helpers (same style as export.py; re-implemented locally on purpose —
-# export.py is owned elsewhere and must not be touched).
-# ---------------------------------------------------------------------------
-
 
 def _seg(value: str | None, fallback: str) -> str:
-    """One path segment of a folder or file name, safe for a filesystem and for a zip.
-
-    This used to be ``_SAFE.sub("_", …)`` against ``[^A-Za-z0-9 _.-]``, which replaced every
-    character outside ASCII. For a repository whose subject IS Indian craft that was the wrong
-    failure: an artisan named in Devanagari became ``_ _``, and several such artisans collapsed onto
-    the same segment, so the tree and the exported zip showed a row of identical ``_`` folders and a
-    researcher could not tell whose was whose. Names are the data here, not decoration.
-
-    So the rule is inverted. Instead of allowing a list of characters, it removes the ones that are
-    genuinely unusable — the two path separators and the punctuation Windows reserves, plus control
-    and format characters by Unicode category — and keeps everything else, in any script. The zero
-    width joiner and non joiner are deliberately exempted from the format-character sweep: they are
-    invisible, but in Devanagari and other Indic scripts they select conjunct and half forms, so
-    dropping them misspells the very names this change exists to preserve.
-
-    That character rule and the two-limit trim now live in services/media_naming.py, which applies
-    the identical reasoning to the file names it derives; this stays the folder-segment entry point.
-    """
     cleaned = _safe_chars((value or "").strip()).strip(" .")
     cleaned = _clip(cleaned, _MAX_SEG_CHARS, _MAX_SEG_BYTES).strip(" .")
 
     if not cleaned:
         return fallback
-    # CON, PRN, LPT1 … are refused by Windows with or without an extension, so a craft or an artisan
-    # legitimately called "Aux" would produce a folder that cannot be written on extraction.
     if cleaned.split(".")[0].upper() in _RESERVED_NAMES:
         return f"{cleaned}_"
     return cleaned
 
 
 def _content_disposition(name: str) -> str:
-    """An attachment header that survives a non-ASCII filename.
-
-    Necessary because :func:`_seg` now keeps Devanagari (and every other script). An HTTP header
-    field is latin-1 by definition, so interpolating those bytes straight into `filename="…"`
-    either raises on encode or ships mojibake — a download that used to work would start failing
-    for exactly the names the Unicode fix set out to preserve, which would be a worse bug than the
-    one it replaced.
-
-    RFC 6266 is built for this: `filename=` carries an ASCII reduction for old clients, and
-    `filename*=UTF-8''…` carries the real name percent-encoded. Every current browser prefers the
-    starred form, so the researcher gets the artisan's actual name and nothing breaks in between.
-    """
     return naming.content_disposition(name)
 
 
@@ -363,13 +230,10 @@ def _norm(path: str) -> str:
     return "/".join(s for s in (path or "").split("/") if s)
 
 
-# Pre-taxonomy roots map onto the taxonomy that replaced them, so an old saved link
-# still reports the right active tab in the switcher.
 _LEGACY_TAXONOMY = {"workshops": "by-workshop", "users": "by-uploader", "media-types": "by-type"}
 
 
 def _taxonomy_of(norm: str) -> str | None:
-    """Which taxonomy a path sits in, or None at the root (where none is chosen yet)."""
     head = norm.split("/", 1)[0] if norm else ""
     if not head:
         return None
@@ -378,49 +242,21 @@ def _taxonomy_of(norm: str) -> str | None:
     return head if any(t["id"] == head for t in TAXONOMIES) else None
 
 
-# ---------------------------------------------------------------------------
-# Row visibility.
-#
-# The router-level dependency answers "may this account download data at all". It does NOT answer
-# "WHOSE data" — and ``canDownloadDataset`` is a GRANTABLE boolean, so a researcher can hold it
-# without ranking Professor+. Until this scope existed every /data endpoint handed such a
-# researcher the whole repository, while /export/dataset — the sibling endpoint doing the same job
-# — filtered by ``owned_or_granted_where``. The permission means "download the data you can SEE", so the
-# same filter now rides every query behind /tree, /manifest, /report and /media/{id}/download.
-#
-# Both filters are EMPTY for Professor and above (``owned_or_granted_where`` returns ``{}`` for them) and
-# every helper below short-circuits on an empty filter back to the exact call it made before, so
-# for professors, admins and the master admin this is a no-op down to the query shape.
-#
-# Crafts are deliberately NOT filtered: they are shared vocabulary (GET /crafts lists them to every
-# authenticated user) and ``Craft.createdById`` is nullable, so filtering them would hide the
-# taxonomy the tree is built from rather than protect anybody's data.
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class Scope:
-    """The row-visibility filters for one /data request.
-
-    ``records`` filters record tables on their ``createdById`` owner column; ``media`` filters
-    MediaFile on ``uploadedById`` — the same split ``/dashboard/stats`` and ``GET /media`` use.
-    """
-
     records: dict[str, Any]
     media: dict[str, Any]
 
     @property
     def restricted(self) -> bool:
-        """False for Professor+/admins, whose filters are empty (they see everything)."""
         return bool(self.records or self.media)
 
 
-#: The review states the Data page can narrow to (C21). "APPROVED" is what an export means.
 DATA_STATUSES = ("APPROVED", "PENDING", "NEEDS_REVISION", "REJECTED")
 
 
 def data_status(value: str | None) -> str | None:
-    """The ``status`` query parameter, checked. Absent or ``ALL`` is every status."""
     if value is None or not value.strip() or value.strip().upper() == "ALL":
         return None
     wanted = value.strip().upper()
@@ -433,12 +269,6 @@ def data_status(value: str | None) -> str | None:
 
 
 async def _scope_for(user: Any, status_filter: str | None = None) -> Scope:
-    """Visibility, and optionally one review status, for every record table and the media table.
-
-    The status narrows rows the same way visibility does — ANDed into both filters, which every
-    lister already composes — and never touches crafts, which carry no status. Media inherits its
-    record's approval (``review.approve_record_media``), so "approved" reads the same on both.
-    """
     records = await owned_or_granted_where(user)
     media = await owned_or_granted_where(user, owner_field="uploadedById")
     if status_filter:
@@ -448,8 +278,6 @@ async def _scope_for(user: Any, status_filter: str | None = None) -> Scope:
 
 
 def _and(where: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
-    """``where`` AND ``extra`` — returning ``where`` untouched when there is nothing to add, which
-    is what keeps every query identical for an unrestricted caller."""
     if not extra:
         return where
     if not where:
@@ -458,11 +286,6 @@ def _and(where: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _visible_only(delegate: Any, records: list[Any], scope_where: dict[str, Any]) -> list[Any]:
-    """Filter an already-loaded (relation-include-derived) list down to the rows the caller may see.
-
-    Runs NO query at all when the scope is unrestricted; otherwise one id-set query decides the
-    whole list and the ORIGINAL objects are returned, so the relations loaded with them survive.
-    """
     if not scope_where or not records:
         return records
     rows = await delegate.find_many(
@@ -473,14 +296,6 @@ async def _visible_only(delegate: Any, records: list[Any], scope_where: dict[str
 
 
 def _uniq(name: str, used: set[str]) -> str:
-    """Keep FOLDER names unique within one level: "Name", "Name (2)", "Name (3)", ...
-
-    Dedupes case-insensitively (zip extraction on Windows is case-insensitive) and keeps a trailing
-    extension at the end, for the craft or artisan whose name happens to contain a dot. Files no
-    longer come through here: they are numbered by ``media_naming.unique_name``, in the same "-2"
-    the capture screens would have written, which reads as part of the name rather than as an
-    apology for one.
-    """
     key = name.lower()
     if key not in used:
         used.add(key)
@@ -499,12 +314,10 @@ def _uniq(name: str, used: set[str]) -> str:
         n += 1
 
 
-# Extensions of more than one part, which a split on the last dot would cut in half.
 _COMPOUND_EXTENSIONS = (".transcript.md",)
 
 
 def _split_leaf(name: str) -> tuple[str, str]:
-    """A file name as (stem, extension), so a duplicate can be numbered between the two."""
     for compound in _COMPOUND_EXTENSIONS:
         if name.lower().endswith(compound):
             return name[: -len(compound)], name[-len(compound) :]
@@ -531,24 +344,6 @@ def _media_entries(
     step_number: int | None = None,
     step_name: str | None = None,
 ) -> list[dict[str, Any]]:
-    """The files in one folder, each shown under a name derived from the record it belongs to.
-
-    The uploaded name is a code the capture screen minted — ``D_SEC_GIRIRAJ_001046_010720261824.wav``
-    — and it survives a download into a folder that explains nothing. ``display_filename`` rebuilds
-    it as ``Artisan-Giriraj-Prasad-Chhipa-Interview-Section-D-010720261824.wav`` from the row and its
-    relations; nothing is renamed in storage, so every URL and every objectKey is untouched. The
-    uploaded name rides along in ``originalFilename`` because a researcher reconciling an export
-    against files already on their laptop still has to match the two up.
-
-    A caller that already holds the parent record names it here, which is both cheaper than loading
-    the relations back off the row and more precise — the step number and step name in particular
-    exist nowhere on the media row.
-
-    The names are decided in ``folder_order`` — createdAt, then id — and not in whatever order the
-    rows arrived in. That fixes both halves of the answer for good: which of four takes recorded in
-    one minute keeps the unnumbered name, and which photo of a batch is "Photo-1" when the uploaded
-    name carries no index of its own.
-    """
     used: set[str] = set()
     entries: list[dict[str, Any]] = []
     for position, m in enumerate(folder_order(media), start=1):
@@ -573,8 +368,6 @@ def _media_entries(
                 "url": m.url,
                 "sizeBytes": int(m.sizeBytes) if m.sizeBytes is not None else None,
                 "transcriptAvailable": bool((m.transcriptText or "").strip()),
-                # Internal (stripped from /tree responses): lets /manifest emit transcript files
-                # without a second query, under the clip's own name with What ``Transcript``.
                 "_transcriptText": m.transcriptText,
                 "_transcriptName": transcript_filename(
                     m,
@@ -583,8 +376,6 @@ def _media_entries(
                     step_number=step_number,
                     position=position,
                 ),
-                # 0.0.6: the row and its naming arguments, so /manifest and /tree can name the
-                # recording's transcript files (services/transcript_export.bundle_names).
                 "_media": m,
                 "_nameKw": {
                     "record_type": record_type,
@@ -597,10 +388,6 @@ def _media_entries(
     return entries
 
 
-# The relations a display name is read from when the caller has no parent record to hand: the flat
-# listers (by media type, by uploader, a user's media) show files from all over the repository at
-# once. Nested for interviews because a questionnaire clip is named after the ARTISAN it is with,
-# and that is two hops from the media row.
 _NAMING_INCLUDE: dict[str, Any] = {
     "artisan": True,
     "craft": True,
@@ -612,12 +399,6 @@ _NAMING_INCLUDE: dict[str, Any] = {
 
 
 async def _media(where: dict[str, Any], scope: Scope, *, named: bool = False) -> list[Any]:
-    """Media rows for one folder. ``named`` loads the relations a display name needs.
-
-    Off by default, and deliberately: the record-level folders pass the record they already hold
-    straight to :func:`_media_entries`, so making every level pay for six relation loads — on a
-    query the manifest walk repeats for every folder in the subtree — would buy nothing.
-    """
     kwargs: dict[str, Any] = {}
     if named:
         kwargs["include"] = _NAMING_INCLUDE
@@ -627,7 +408,6 @@ async def _media(where: dict[str, Any], scope: Scope, *, named: bool = False) ->
 
 
 async def _workshop_misc_media(wid: str, scope: Scope, *, named: bool = False) -> list[Any]:
-    """Media that belongs to the WORKSHOP itself: nothing finer-grained claims it."""
     return await _media(
         {
             "AND": [
@@ -644,7 +424,6 @@ async def _workshop_misc_media(wid: str, scope: Scope, *, named: bool = False) -
 
 
 async def _artisan_own_media(aid: str, scope: Scope) -> list[Any]:
-    """Media that belongs to the ARTISAN itself, not to a product, tool or interview of theirs."""
     return await _media(
         {
             "OR": [
@@ -657,18 +436,11 @@ async def _artisan_own_media(aid: str, scope: Scope) -> list[Any]:
 
 
 async def _artisan_display_name(aid: str) -> str | None:
-    """The artisan's name for the file names in a legacy 'misc' listing, which loads no record.
-
-    Half of an artisan's own media carries the string tag rather than the FK, so the ``artisan``
-    relation is not there to read the name off; one lookup keeps those files named after the person
-    instead of falling back to whatever the capture screen encoded in the upload.
-    """
     artisan = await db.artisan.find_unique(where={"id": aid})
     return (getattr(artisan, "name", None) or "").strip() or None
 
 
 def _record_media_where(fk_field: str, rec_id: str, tags: list[str]) -> dict[str, Any]:
-    """Media attached to one record — via its typed FK column OR the string tag pair."""
     return {
         "OR": [
             {fk_field: rec_id},
@@ -676,15 +448,6 @@ def _record_media_where(fk_field: str, rec_id: str, tags: list[str]) -> dict[str
         ]
     }
 
-
-# ---------------------------------------------------------------------------
-# Info panels per record type.
-#
-# Field lists, labels, colours and value coercion all live in
-# app/services/record_fields.py so the browser's info card, the browser's in-folder
-# table and the .xlsx report sheets can never drift apart. The thin wrappers below
-# keep the call sites in this module readable.
-# ---------------------------------------------------------------------------
 
 
 def _workshop_info(ws: Any) -> dict[str, Any]:
@@ -742,12 +505,6 @@ async def _require(
     include: dict[str, Any] | None = None,
     scope_where: dict[str, Any] | None = None,
 ) -> Any:
-    """Load one record by id or 404.
-
-    With ``scope_where`` the row must ALSO satisfy the visibility filter, and one it does not is
-    reported as "not found" rather than 403 — a browser path the caller may not open must not
-    confirm that the record exists. Unrestricted callers keep the plain ``find_unique``.
-    """
     kwargs: dict[str, Any] = {"where": {"id": rec_id}}
     if include:
         kwargs["include"] = include
@@ -761,23 +518,8 @@ async def _require(
     return record
 
 
-# ---------------------------------------------------------------------------
-# Server-resolved breadcrumbs: clean display names for every ancestor of a path
-# (including the path itself). At most one find_unique per id segment.
-#
-# These lookups are deliberately unscoped: every endpoint resolves crumbs only AFTER the level (or
-# report) it was asked for was produced, and that step already 404s on a path the caller may not
-# open — so a name resolved here always belongs to a path they were allowed to reach.
-# ---------------------------------------------------------------------------
-
 
 async def _artisan_crumb_names(tail: list[str]) -> list[str]:
-    """Crumb names for the segments from an artisan id downwards (products/tools/... subtree).
-
-    ``tail`` starts right AFTER an 'artisans' keyword segment: [<aid>, <sub>, <rid>, ...].
-    Shared by the legacy workshops/<wid>/artisans/... shape and the craft-ful
-    workshops/<wid>/crafts/<cid>/artisans/... shape.
-    """
     names: list[str] = []
     if not tail:
         return names
@@ -812,7 +554,6 @@ async def _artisan_crumb_names(tail: list[str]) -> list[str]:
 
 
 async def _crumb_names(segs: list[str]) -> list[str]:
-    """One display name per path segment, resolved from the DB where the segment is an id."""
     names: list[str] = []
     if not segs:
         return names
@@ -868,7 +609,6 @@ async def _crumb_names(segs: list[str]) -> list[str]:
         if len(segs) >= 2:
             names.append(_CATEGORY_LABEL.get(segs[1], segs[1]))
 
-    # Any unresolved tail segments (unknown shapes) fall back to the raw segment.
     while len(names) < len(segs):
         names.append(segs[len(names)])
     return names
@@ -885,12 +625,6 @@ async def _resolve_crumbs(norm: str) -> list[dict[str, str]]:
     return crumbs
 
 
-# ---------------------------------------------------------------------------
-# One level of the virtual tree. Each lister returns (entries, info): entries may
-# carry _-prefixed internal fields consumed by the manifest walk and stripped from
-# /tree; info is the record panel for record-folder levels (None elsewhere).
-# ---------------------------------------------------------------------------
-
 Level = tuple[list[dict[str, Any]], dict[str, Any] | None]
 
 
@@ -899,17 +633,12 @@ async def _list_level(path: str, scope: Scope) -> Level:
     parent = "/".join(segs)
 
     if not segs:
-        # The root is the taxonomy chooser. The hierarchy taxonomy is listed first and is
-        # what the client opens by default.
         return [
             _folder(t["name"], t["path"], "taxonomy") for t in TAXONOMIES
         ], None
 
     head = segs[0]
 
-    # by-workshop / by-uploader / by-type are the current taxonomy roots; workshops /
-    # users / media-types are the pre-taxonomy paths, still resolved so links saved
-    # before the switcher existed keep working.
     if head in ("by-workshop", "workshops"):
         return await _list_workshops_level(segs, parent, scope)
     if head == "by-uploader":
@@ -923,24 +652,6 @@ async def _list_level(path: str, scope: Scope) -> Level:
 
 
 async def _linked_artisans(ws: Any, scope: Scope) -> list[Any]:
-    """Every artisan this workshop reaches, by any of the three routes the data actually uses.
-
-    A workshop is joined to its artisans three different ways, because three different features
-    wrote the link at three different times:
-
-    1. ``WorkshopArtisan`` — the explicit "linked artisans" multi-select on the workshop form;
-    2. ``Artisan.workshopId`` — the workshop dropdown that later went on every record form;
-    3. ``WorkshopCraft`` -> ``Artisan.craftId`` — the workshop declares the crafts it covers, and an
-       artisan practising one of those crafts was documented at it.
-
-    Only route 1 used to count here, and on the live repository route 1 is EMPTY: the workshop has
-    nine linked crafts and sixteen artisans hanging off those crafts, and not one ``WorkshopArtisan``
-    row. That is why every craft folder in the browser opened onto nothing. Reaching an artisan
-    through the craft is not a fallback — it is the relationship the data was entered with.
-
-    Visibility is applied in the query, so an artisan the caller may not open never appears and
-    never conjures a craft folder.
-    """
     return await db.artisan.find_many(
         where=_and({"OR": workshop_artisan_reach(ws)}, scope.records),
         include={"craft": True},
@@ -950,13 +661,6 @@ async def _linked_artisans(ws: Any, scope: Scope) -> list[Any]:
 
 
 def workshop_artisan_reach(ws: Any) -> list[dict[str, Any]]:
-    """The three routes of :func:`_linked_artisans`, as Prisma ``OR`` terms on Artisan.
-
-    ``ws`` must carry its ``artisans`` and ``crafts`` link rows. Exported because /export/dataset
-    files the same artisans into the same folders and must not answer this question differently:
-    the export used route 1 alone, so on the live repository — where route 1 is empty — every
-    artisan's details.txt and own media were left out of the ZIP that the browser showed.
-    """
     ors: list[dict[str, Any]] = [{"workshopId": ws.id}]
     linked_ids = [link.artisanId for link in ws.artisans or [] if getattr(link, "artisanId", None)]
     if linked_ids:
@@ -968,12 +672,6 @@ def workshop_artisan_reach(ws: Any) -> list[dict[str, Any]]:
 
 
 def workshop_reaches_artisan(ws: Any, artisan: Any) -> bool:
-    """Does this workshop reach this artisan? The in-memory twin of :func:`workshop_artisan_reach`,
-    for the export, which already holds every artisan row and must not re-query per workshop.
-
-    It EVALUATES the same OR terms rather than restating the three routes, so a fourth route added
-    to the query is honoured here too instead of quietly splitting the two answers apart.
-    """
     for term in workshop_artisan_reach(ws):
         for field, condition in term.items():
             value = getattr(artisan, field, None)
@@ -990,13 +688,6 @@ def workshop_reaches_artisan(ws: Any, artisan: Any) -> bool:
 
 
 def _craft_folder_entries(ws: Any, base: str, artisans: list[Any]) -> list[dict[str, Any]]:
-    """One folder per craft reachable in this workshop: its directly linked crafts unioned with
-    its artisans' crafts, plus a 'No craft' folder when any linked artisan has no craft.
-
-    ``ws`` must be loaded with ``crafts->craft`` included; ``artisans`` are the workshop's linked
-    artisans the caller may see (already visibility-filtered, each loaded with its ``craft``), so a
-    craft folder is never conjured out of an artisan this caller cannot open.
-    """
     crafts: dict[str, Any] = {}
     for link in ws.crafts or []:
         craft = getattr(link, "craft", None)
@@ -1020,12 +711,6 @@ def _craft_folder_entries(ws: Any, base: str, artisans: list[Any]) -> list[dict[
 
 
 async def _workshop_craft_artisans(wid: str, cid: str, scope: Scope) -> list[Any]:
-    """The workshop's visible artisans practising ``cid`` (NO_CRAFT = the ones with no craft).
-
-    Loads with ``_WS_CRAFTS_INCLUDE`` so :func:`_linked_artisans` can see the workshop's crafts and
-    therefore reach artisans through them; loading only the ``artisans`` relation (as this used to)
-    silently removed route 3 and returned an empty folder.
-    """
     ws = await _require(
         db.workshop, wid, "Workshop", include=_WS_CRAFTS_INCLUDE, scope_where=scope.records
     )
@@ -1063,10 +748,6 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
         details = _text(parent, "details.txt", _info_text(info))
         if details:
             entries.append(details)
-        # The workshop OWN media, in the workshop folder - not behind a "Miscellaneous" door.
-        # Every level of this tree shows the same three things together: the folders below it, its
-        # own fields as a table, and the files that belong to it. A folder whose files are one more
-        # click away reads as a folder with no files. (`_misc` still resolves, for saved links.)
         entries.extend(
             _media_entries(
                 parent,
@@ -1079,8 +760,6 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
 
     if segs[2] == "crafts":
         if len(segs) == 3:
-            # The intermediate 'crafts' path — reachable from breadcrumbs — lists the same craft
-            # folders as the workshop level, so every displayed crumb resolves.
             ws = await _require(
                 db.workshop, wid, "Workshop", include=_WS_CRAFTS_INCLUDE, scope_where=scope.records
             )
@@ -1102,7 +781,6 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
             details = _text(parent, "details.txt", _info_text(info))
             if details:
                 entries.append(details)
-            # Media captured against the craft itself (the craft form has its own capture field).
             if cid != NO_CRAFT:
                 entries.extend(
                     _media_entries(
@@ -1115,7 +793,6 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
             return entries, info
 
         if len(segs) == 5 and segs[4] == "artisans":
-            # Intermediate 'artisans' crumb path under a craft folder.
             artisans = await _workshop_craft_artisans(wid, cid, scope)
             used = set()
             return [
@@ -1124,21 +801,15 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
             ], None
 
         if len(segs) >= 6 and segs[4] == "artisans":
-            # Below the artisan everything is craft-agnostic: reuse the artisan lister with the
-            # segments remapped to the legacy shape (child paths still keep the craft-ful parent).
             remapped = [segs[0], wid, "artisans", *segs[5:]]
             return await _list_artisan_level(remapped, parent, scope)
 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown data path")
 
     if len(segs) == 3 and segs[2] == "_misc":
-        # No longer listed as a folder (the same files now render in the workshop folder itself),
-        # but still resolvable so a link saved or bookmarked before that change does not 404.
         return _media_entries(parent, await _workshop_misc_media(wid, scope, named=True)), None
 
     if len(segs) == 3 and segs[2] == "artisans":
-        # Legacy intermediate 'artisans' path (pre-craft-level tree): lists every linked artisan
-        # so links saved before the craft level existed keep resolving.
         ws = await _require(
             db.workshop,
             wid,
@@ -1163,8 +834,6 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
     wid, aid = segs[1], segs[3]
 
     if len(segs) == 4:
-        # `location` is loaded because the info panel below prints the artisan's State and Pincode
-        # from it; `_artisan_info` renders the full spec, not just the name shown in the tree.
         artisan = await _require(
             db.artisan,
             aid,
@@ -1181,8 +850,6 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
         details = _text(parent, "details.txt", _info_text(info))
         if details:
             entries.append(details)
-        # The artisan own photographs and clips sit here with the sub-folders and the table, the
-        # same shape as every other level. ("misc" still resolves for links saved before this.)
         entries.extend(
             _media_entries(
                 parent,
@@ -1273,7 +940,6 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
             answers = _text(parent, "answers.txt", _interview_answers(interview, info))
             if answers:
                 entries.append(answers)
-            # Per-question audio clips (and any other media) recorded for this interview.
             media = await _media(
                 _record_media_where(
                     "questionnaireInterviewId",
@@ -1282,9 +948,6 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
                 ),
                 scope,
             )
-            # Named after the artisan(s) the interview is WITH, not after the folder it is being
-            # listed in: a group sitting shows up under each of its artisans, and a file that
-            # changed its name depending on which door you came through would be unmatchable.
             interview_type, interview_name = interview_record(interview)
             entries.extend(
                 _media_entries(
@@ -1294,7 +957,6 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
             return entries, info
 
     if sub == "misc" and len(segs) == 5:
-        # Same as the workshop "_misc": kept resolvable for older links, no longer a folder.
         return _media_entries(
             parent,
             await _artisan_own_media(aid, scope),
@@ -1382,15 +1044,10 @@ async def _list_products_level(
         return entries, info
 
     if len(segs) == 9 and segs[6] == "processes":
-        # ProcessStep carries no owner column of its own: its parent process decides who may see
-        # it. For a scoped caller that means proving the process is visible AND that this step
-        # really hangs off it; an unrestricted caller keeps the original single lookup.
         step_scope: dict[str, Any] | None = None
         if scope.records:
             await _require(db.process, segs[7], "Process", scope_where=scope.records)
             step_scope = {"processId": segs[7]}
-        # The parent process rides along because a step's files are named "Process-<process>-Step-N
-        # -<step>-..."; the step row carries the number and the name but not the process it is in.
         step = await _require(
             db.processstep,
             segs[8],
@@ -1422,7 +1079,6 @@ async def _list_products_level(
 
 async def _list_users_level(segs: list[str], parent: str, scope: Scope) -> Level:
     if len(segs) == 1:
-        # Only uploaders who have media THIS caller can see are worth a folder.
         uploaders = await db.user.find_many(
             where={"media": {"some": _and({}, scope.media)}}, take=TAKE, order={"name": "asc"}
         )
@@ -1435,9 +1091,6 @@ async def _list_users_level(segs: list[str], parent: str, scope: Scope) -> Level
     uid = segs[1]
 
     if len(segs) == 2:
-        # Unscoped on purpose: this only proves the account exists — the same directory-level fact
-        # /users/directory serves to every authenticated user — and each folder under it lists
-        # nothing but visibility-filtered media.
         await _require(db.user, uid, "User")
         return [
             _folder(_CATEGORY_LABEL[slug], f"{parent}/{slug}")
@@ -1454,11 +1107,6 @@ async def _list_users_level(segs: list[str], parent: str, scope: Scope) -> Level
 
 
 def _transcript_entries(parent: str, media: list[Any]) -> list[dict[str, Any]]:
-    """Transcripts rendered as their own text files, so the Transcripts folder actually
-    contains transcripts rather than the audio they came from.
-
-    Named off the same stem as the clip, so a transcript and the recording it came from still sort
-    next to each other once both have been extracted from a zip."""
     used: set[str] = set()
     entries: list[dict[str, Any]] = []
     for position, m in enumerate(folder_order(media), start=1):
@@ -1476,7 +1124,6 @@ def _transcript_entries(parent: str, media: list[Any]) -> list[dict[str, Any]]:
                 "originalFilename": m.originalFilename,
                 "content": m.transcriptText,
                 "mediaId": m.id,
-                # 0.0.6: consent and the per-recording transcript files (transcript_export).
                 "_txMedia": m.id,
                 "_media": m,
                 "_nameKw": {"position": position},
@@ -1486,11 +1133,6 @@ def _transcript_entries(parent: str, media: list[Any]) -> list[dict[str, Any]]:
 
 
 async def _list_media_types_level(segs: list[str], parent: str, scope: Scope) -> Level:
-    """The by-type taxonomy: every file grouped purely by what kind of file it is.
-
-    'transcripts' is not a MediaType — it is every media row that has transcript text,
-    surfaced as .transcript.md documents in a folder of their own.
-    """
     if len(segs) == 1:
         return [
             _folder(_CATEGORY_LABEL[slug], _join(parent, slug))
@@ -1505,14 +1147,6 @@ async def _list_media_types_level(segs: list[str], parent: str, scope: Scope) ->
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown data path")
 
 
-# ---------------------------------------------------------------------------
-# The by-uploader taxonomy: workshop -> the researcher who uploaded -> what they
-# recorded there. Each record folder carries the fields they filled in (as a table)
-# and their media split by type.
-# ---------------------------------------------------------------------------
-
-# Record types a user's contribution is broken down into, with the delegate and the
-# workshop-scoping predicate for each.
 _UPLOADER_BRANCHES: dict[str, str] = {
     "artisans": "Artisans",
     "products": "Products",
@@ -1525,7 +1159,6 @@ _UPLOADER_BRANCHES: dict[str, str] = {
 async def _uploader_records(
     branch: str, wid: str, uid: str, scope: Scope
 ) -> tuple[str, list[Any]]:
-    """(record kind, records) this user created of one type within one workshop."""
     if branch == "artisans":
         return "artisan", await db.artisan.find_many(
             where=_and(
@@ -1573,7 +1206,6 @@ async def _uploader_records(
 
 
 async def _list_uploader_level(segs: list[str], parent: str, scope: Scope) -> Level:
-    # by-uploader -> one folder per workshop
     if len(segs) == 1:
         workshops = await db.workshop.find_many(
             where=scope.records, take=TAKE, order={"title": "asc"}
@@ -1586,7 +1218,6 @@ async def _list_uploader_level(segs: list[str], parent: str, scope: Scope) -> Le
 
     wid = segs[1]
 
-    # by-uploader/<wid> -> the people who put data into this workshop
     if len(segs) == 2:
         ws = await _require(
             db.workshop, wid, "Workshop", include=_WS_CRAFTS_INCLUDE, scope_where=scope.records
@@ -1596,7 +1227,6 @@ async def _list_uploader_level(segs: list[str], parent: str, scope: Scope) -> Le
             take=TAKE,
             order={"name": "asc"},
         )
-        # Someone can author records without ever uploading a file, so union the two sets.
         authors = await db.user.find_many(
             where={
                 "OR": [
@@ -1619,8 +1249,6 @@ async def _list_uploader_level(segs: list[str], parent: str, scope: Scope) -> Le
 
     uid = segs[2]
 
-    # by-uploader/<wid>/<uid> -> what this person recorded here. Unscoped like the legacy users
-    # level: it resolves an account's directory card, and every branch below it is filtered.
     if len(segs) == 3:
         user = await _require(db.user, uid, "User")
         entries = [
@@ -1641,7 +1269,6 @@ async def _list_uploader_level(segs: list[str], parent: str, scope: Scope) -> Le
     branch = segs[3]
 
     if branch == "media":
-        # .../media -> the same by-type split, scoped to this uploader and workshop
         if len(segs) == 4:
             return [
                 _folder(_CATEGORY_LABEL[slug], _join(parent, slug))
@@ -1669,7 +1296,6 @@ async def _list_uploader_level(segs: list[str], parent: str, scope: Scope) -> Le
         used: set[str] = set()
         entries: list[dict[str, Any]] = []
         for record in records:
-            # NAMING 2.1: FieldRepository_Artisan_Giriraj-Prasad-Chhipa_Details.txt
             stem = naming.file_name(
                 entity=None if spec.label == "Craft" else spec.label,
                 craft=spec.title(record) if spec.label == "Craft" else None,
@@ -1680,30 +1306,14 @@ async def _list_uploader_level(segs: list[str], parent: str, scope: Scope) -> Le
             details = _text(parent, name, _info_text(info_panel(kind, record)))
             if details:
                 entries.append(details)
-        # The folder itself carries the tabular view of every record listed in it.
         return entries, None
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown data path")
 
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Reverse lookup: record -> its folder.
-#
-# Search finds a record by name; this says where that record LIVES, so a hit can drop the
-# reader into the right folder instead of a dead end. The web View Data page ("Show in
-# folders") and the Android data screen both call it. Everything below reuses the same
-# reachability rule the tree itself walks (:func:`_linked_artisans`), so a path this returns
-# is always a path :func:`data_tree` can open.
-# ---------------------------------------------------------------------------
 
 
 async def _workshop_for_artisan(artisan: Any, scope: Scope) -> Any | None:
-    """The workshop whose folder holds this artisan, by the same three routes the tree uses."""
     if artisan.workshopId:
         found = await db.workshop.find_first(
             where=_and({"id": artisan.workshopId}, scope.records)
@@ -1783,13 +1393,6 @@ async def _locate_path(record_type: str, record_id: str, scope: Scope) -> str | 
         return f"{product_path}/processes/{record_id}" if product_path else None
 
     if kind in {"interview", "questionnaire", "questionnaireinterview"}:
-        # `questionnaireinterviewartisan` / `interviewId` — the model is
-        # QuestionnaireInterviewArtisan and its column is `interviewId` (schema.prisma:836). The
-        # shorter names I first wrote do not exist, and because a delegate is resolved by attribute
-        # access this failed at RUNTIME with an AttributeError, not at import: every "Show in
-        # folders" on a questionnaire recording returned a 500. Nothing caught it because the media
-        # branch below tries the interview owner FIRST, so no other owner was ever reached, and my
-        # own smoke test only ever asked for an artisan.
         link = await db.questionnaireinterviewartisan.find_first(
             where={"interviewId": record_id}
         )
@@ -1802,7 +1405,6 @@ async def _locate_path(record_type: str, record_id: str, scope: Scope) -> str | 
         media = await db.mediafile.find_first(where=_and({"id": record_id}, scope.media))
         if media is None:
             return None
-        # Deepest owner wins: a clip on a product belongs in the product folder, not the artisan's.
         for owner_kind, owner_id in (
             ("interview", media.questionnaireInterviewId),
             ("product", media.productId),
@@ -1815,7 +1417,6 @@ async def _locate_path(record_type: str, record_id: str, scope: Scope) -> str | 
                 found = await _locate_path(owner_kind, owner_id, scope)
                 if found:
                     return found
-        # No owner at all: it can still be reached in the by-type taxonomy.
         bucket = _TYPE_TOKEN.get(str(_ev(media.mediaType)).upper())
         return f"by-type/{bucket}" if bucket else "by-type"
 
@@ -1829,11 +1430,6 @@ async def data_locate(
     status_value: str | None = Query(None, alias="status"),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, str | None]:
-    """The tree path that holds this record, or ``{"path": null}`` when nothing files it yet.
-
-    A null is not an error: a product whose artisan has never been attached to a workshop genuinely
-    has no folder, and the caller should say so rather than open the wrong one.
-    """
     scope = await _scope_for(current_user, data_status(status_value))
     return {"path": await _locate_path(type, id, scope)}
 
@@ -1844,14 +1440,6 @@ async def data_tree(
     status_value: str | None = Query(None, alias="status"),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
-    """One level of the virtual data tree (lazy: only this level's queries run).
-
-    Response: {path, crumbs:[{name,path}], entries:[...], info:{title,fields}|null, truncated}.
-    Crumbs cover every ancestor including the requested path itself, with clean names; info is
-    populated on record folders (workshop/artisan/product/tool/process/interview). Everything
-    listed is filtered by the caller's row visibility (see :class:`Scope`), and by ``status`` when
-    one is given.
-    """
     scope = await _scope_for(current_user, data_status(status_value))
     norm = _norm(path)
     entries, info = await _list_level(norm, scope)
@@ -1859,15 +1447,12 @@ async def data_tree(
     crumbs = await _resolve_crumbs(norm)
     public = [{k: v for k, v in e.items() if not k.startswith("_")} for e in entries]
     public.sort(key=lambda e: (0 if e["kind"] == "folder" else 1, e["name"].lower()))
-    # A listing that hits the per-level cap likely has more rows than shown.
     return {
         "path": norm,
         "crumbs": crumbs,
         "entries": public,
         "info": info,
         "truncated": len(entries) >= TAKE,
-        # The switcher is served with every level so the client always knows which
-        # taxonomy it is inside and can offer the other two without a second call.
         "taxonomies": TAXONOMIES,
         "taxonomy": _taxonomy_of(norm),
     }
@@ -1887,25 +1472,15 @@ async def _walk(
         state["truncated"] = True
         return
     try:
-        # DB access capped by the semaphore (never held across recursion) so sibling subtrees
-        # can walk concurrently without exhausting the connection pool.
         async with _WALK_SEM:
             entries, _ = await _list_level(path, scope)
     except HTTPException:
-        return  # a record vanished mid-walk; skip that branch rather than failing the manifest
+        return
     if len(entries) >= TAKE:
         state["truncated"] = True
-    # One folder's leaf names, and only this folder's: the ZIP writes these entries side by side, so
-    # two of them may not agree, while the identical name a sibling folder holds is no clash at all.
     used_names: set[str] = set()
 
     def emit(entry: dict[str, Any], stem: str, extension: str) -> None:
-        """Add one file to the manifest under a leaf nothing else in this folder answers to.
-
-        The stem and the extension arrive apart because the number belongs between them, and the
-        extension is not always the last dot: a transcript is a ``.transcript.md``, and splitting it
-        off blindly would number the file ``…transcript-2.md``.
-        """
         if len(files) < MAX_MANIFEST_FILES:
             entry["path"] = _join(rel, unique_name(stem, extension, used_names))
             files.append(entry)
@@ -1930,7 +1505,6 @@ async def _walk(
             continue
         if "content" in e:
             if e.get("_txMedia"):
-                # A transcript file of the Transcripts folder: settled with the rest of them.
                 if include is None or "transcripts" in include or "text" in include:
                     mid = str(e["_txMedia"])
                     entry = {"content": e["content"], "mediaId": mid, "_tx": (mid, "legacy")}
@@ -1949,8 +1523,6 @@ async def _walk(
                     entry["originalFilename"] = e["originalFilename"]
                 emit(entry, *_split_leaf(e["name"]))
             continue
-        # The three top-level views (workshops/users/media-types) overlap; each media object is
-        # zipped once, at its first occurrence.
         if e["mediaId"] in seen_media:
             continue
         seen_media.add(e["mediaId"])
@@ -1958,13 +1530,9 @@ async def _walk(
         token = _TYPE_TOKEN.get(media_type, "other")
         name = e["name"]
         stem, extension = _split_leaf(name)
-        # The zip entry is named for what the file IS; the name it was uploaded under travels with
-        # it so a researcher can still line an extracted file up against their own copy.
         original = e.get("originalFilename")
         if include is None or token in include:
             if media_type == "AUDIO":
-                # Client fetches the AAC/mp4 conversion via /data/media/{id}/download?format=mp4,
-                # falling back to the original object URL when conversion fails.
                 emit(
                     {
                         "url": e.get("url"),
@@ -1989,9 +1557,6 @@ async def _walk(
                     extension,
                 )
         if e.get("transcriptAvailable") and (include is None or "transcripts" in include):
-            # The stored transcript inline, AND the recording's transcript files (md and docx with
-            # and without timestamps, srt and vtt): ``transcript_export.finalize_manifest`` keeps
-            # one set or the other per recording, and none where consent was refused.
             mid = str(e["mediaId"])
             emit(
                 {
@@ -2013,49 +1578,10 @@ async def _walk(
         await asyncio.gather(*child_walks)
 
 
-# ---------------------------------------------------------------------------
-# Serving a manifest as NDJSON — shared with /export/dataset.
-#
-# WHY THIS EXISTS. Both manifest endpoints answered with ONE JSON object holding every entry, and
-# the entries carry inline text: a details.txt body per record, and — with ``include=transcripts``
-# or no filter at all — the FULL transcript of every audio row in the subtree. ``MAX_MANIFEST_FILES
-# = 20000`` here and ``MEDIA_TAKE = 20000`` + 6x``EXPORT_TAKE`` in export.py bound the entry COUNT
-# and nothing bounds the byte size, so ``docs/SCALABILITY.md:373-377`` already measures this at
-# 476 kB today and models ~48 MB at 100x the media.
-#
-# On the handset that single body is what fails. Retrofit's kotlinx-serialization converter is
-# ``Serializer.FromString``: its ``fromResponseBody`` calls ``okhttp3.ResponseBody.string()`` and
-# then ``decodeFromString`` (verified against the bytecode of
-# retrofit2-kotlinx-serialization-converter 1.0.0, not from memory). ``string()`` bottoms out in
-# okio's ``Buffer.readByteArray(byteCount)``, which is ONE contiguous ``ByteArray`` of the whole
-# body, immediately copied into one contiguous ``String``. A 48 MB manifest therefore asks Android's
-# allocator for a single 48 MB array on a heap that is also holding Compose, and the app dies with
-# ``java.lang.OutOfMemoryError: Failed to allocate a 48000000 byte allocation``. ``largeHeap`` is
-# already on (AndroidManifest.xml:22), so that mitigation is spent — a big enough CONTIGUOUS
-# allocation fails on a fragmented heap regardless of how much total free memory there is.
-#
-# NDJSON rather than a JSON array, for the reason ``datasets.py`` already gives: an array must be
-# closed before a parser can begin, so a client cannot consume it incrementally and a truncated one
-# yields nothing. One entry per line means the client decodes one entry at a time and never holds
-# more than the longest single line.
-#
-# THE DEFAULT SHAPE IS UNCHANGED, DELIBERATELY. ``?stream=1`` is opt-in because the browser clients
-# (frontend/app/(protected)/data/page.tsx, sharing/page.tsx) and every installed Android build read
-# the JSON object, and there is no way to make them all upgrade at once. Do not "tidy" this by
-# making NDJSON the default: that turns a deployment into a fleet-wide download outage.
-# ---------------------------------------------------------------------------
-
 MANIFEST_NDJSON_MEDIA_TYPE = "application/x-ndjson"
-# The counts and the truncation flag travel as HEADERS because in NDJSON there is nowhere else to
-# put them: they must arrive BEFORE the first entry so the client can show real progress from the
-# first file, and a trailing summary line would be lost exactly when it matters (a dropped
-# connection). ``X-Dataset-Total`` is the name datasets.py's ``_stream_headers`` already uses for
-# "how many things are in this body"; the two must not disagree about that word.
 MANIFEST_TOTAL_HEADER = "X-Dataset-Total"
 MANIFEST_MEDIA_HEADER = "X-Dataset-Media"
 MANIFEST_TRUNCATED_HEADER = "X-Dataset-Truncated"
-# Lines per yield. Matches datasets.py's STREAM_BATCH: one ASGI send per entry would spend more
-# time in the protocol than in the encode on a 20,000-entry manifest.
 _MANIFEST_STREAM_CHUNK = 200
 
 
@@ -2065,21 +1591,6 @@ def manifest_ndjson_response(
     truncated: bool,
     filename: str,
 ) -> StreamingResponse:
-    """Serve an already-built manifest as newline-delimited JSON, one entry per line.
-
-    This does NOT make the SERVER's manifest build incremental — both callers still assemble the
-    whole ``files`` list before they get here, and doing otherwise means restructuring two
-    recursive builders that de-duplicate paths against sets they can only fill by walking
-    everything first. What it does remove is the SECOND copy: ``JSONResponse`` would encode that
-    list into one ~48 MB ``bytes`` object held beside the list itself while the socket drains.
-
-    The entries are dropped from ``files`` as they are encoded (``files[i] = None``) for the same
-    reason — the inline ``content`` strings are most of the manifest's weight, and releasing each
-    one at the point it becomes bytes keeps the peak at roughly one copy instead of two. The list
-    is the caller's, but the caller has already returned by the time this generator runs, so
-    nothing else can observe the holes. Do not remove the ``= None`` as a tidy-up: on a
-    single-worker t3.micro the doubled peak is the difference this endpoint's caps exist to avoid.
-    """
     total_files = len(files)
 
     async def body() -> AsyncIterator[bytes]:
@@ -2087,7 +1598,7 @@ def manifest_ndjson_response(
             lines: list[str] = []
             for index in range(start, min(start + _MANIFEST_STREAM_CHUNK, total_files)):
                 entry = files[index]
-                files[index] = None  # type: ignore[call-overload]  # see the docstring
+                files[index] = None  # type: ignore[call-overload]
                 lines.append(json.dumps(entry, ensure_ascii=False))
             yield ("\n".join(lines) + "\n").encode("utf-8")
 
@@ -2097,7 +1608,6 @@ def manifest_ndjson_response(
         headers={
             MANIFEST_TOTAL_HEADER: str(total_files),
             MANIFEST_MEDIA_HEADER: str(total_media),
-            # Spelled "true"/"false" rather than 1/0 so a reader cannot mistake it for a count.
             MANIFEST_TRUNCATED_HEADER: "true" if truncated else "false",
             "Content-Disposition": f'attachment; filename="{filename}"',
         },
@@ -2112,14 +1622,6 @@ async def data_manifest(
     status_value: str | None = Query(None, alias="status"),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any] | StreamingResponse:
-    """Flattened manifest of the subtree below ``path`` — same shape as /export/dataset
-    ({files:[{path,url?,content?,mediaId?,mediaType?}], totalFiles, totalMedia, truncated});
-    the client downloads/zips client-side. ``include`` filters entry kinds; omitted = everything.
-    The walk reuses the /tree listers, so it carries the same row visibility.
-
-    ``stream=1`` answers the same entries as NDJSON with the counts in headers — see
-    :func:`manifest_ndjson_response` for why, and why it is opt-in.
-    """
     include_set: set[str] | None = None
     if include is not None and include.strip():
         include_set = {t.strip().lower() for t in include.split(",") if t.strip()}
@@ -2144,25 +1646,13 @@ async def data_manifest(
     }
 
 
-# ---------------------------------------------------------------------------
-# Relational report (/data/report): the subtree at a path flattened into linked
-# sheets — one per record type — served as JSON or a styled .xlsx workbook.
-# ---------------------------------------------------------------------------
-
-# Sheet colours now come from the shared field registry (services/record_fields.py),
-# so a record type is the same colour in the workbook tab, the web pill and the tree icon.
-
 _ARTISAN_INCLUDE = {
     "craft": True,
     "createdBy": True,
     "workshops": {"include": {"workshop": True}},
-    # The artisan spec prints State and Pincode off this relation; without it both cells fall back
-    # to the legacy extraMetadata and read blank for every record entered since they became columns.
     "location": True,
 }
 _PRODUCT_INCLUDE = {"workshop": True, "createdBy": True}
-# product->workshop is nested so a process row can resolve its workshop placement for the
-# hierarchy columns without a second query.
 _PROCESS_INCLUDE = {
     "steps": True,
     "product": {"include": {"workshop": True}},
@@ -2174,11 +1664,6 @@ _INTERVIEW_INCLUDE = {
     "responses": {"include": {"question": True}},
     "createdBy": True,
 }
-#: THE MEDIA COLUMNS THE REPORT READS, BY NAME (D39). ``find_many`` selects every scalar of the
-#: row, which on ``MediaFile`` means ``transcriptText``, ``transcriptSegments`` and ``extraMetadata``
-#: for up to REPORT_TAKE files — the bulk of a whole-repository build. Nothing here may name those:
-#: whether a file has a transcript is the cheap ``hasTranscript`` expression, and the words reach the
-#: Transcripts sheet through ``transcript_export.transcript_texts`` in batches.
 _REPORT_MEDIA_COLUMNS = (
     'm."id"',
     'm."originalFilename"',
@@ -2220,12 +1705,6 @@ def _tag_where(tags: list[str], ids: list[str]) -> dict[str, Any]:
 
 
 async def _report_media(where: dict[str, Any] | None, scope: Scope) -> list[Any]:
-    """The media rows of one report, newest first, at most REPORT_TAKE, in a fixed number of reads.
-
-    Three steps, none of which reads a transcript (D39): the visible ids through Prisma's own
-    filter (``group_by`` on ``id`` and ``createdAt`` selects those two columns and no other), the named columns of those
-    rows (``_REPORT_MEDIA_SQL``), then each relation the sheets print, once, by id.
-    """
     kwargs: dict[str, Any] = {
         "by": ["id", "createdAt"],
         "take": REPORT_TAKE,
@@ -2239,7 +1718,6 @@ async def _report_media(where: dict[str, Any] | None, scope: Scope) -> list[Any]
 
 
 def _moment(value: Any) -> Any:
-    """A raw-query timestamp as a datetime (the engine may answer an ISO string)."""
     if isinstance(value, str):
         try:
             return datetime.fromisoformat(value)
@@ -2260,7 +1738,6 @@ async def _by_ids(
 
 
 async def _media_rows(ids: list[str]) -> list[Any]:
-    """``ids`` as report rows, in the order given: the named columns plus the relations."""
     if not ids:
         return []
     found = {str(row["id"]): row for row in await db.query_raw(_REPORT_MEDIA_SQL, ids)}
@@ -2273,7 +1750,6 @@ async def _media_rows(ids: list[str]) -> list[Any]:
         _by_ids(db.user, wanted("uploadedById")),
         _by_ids(db.productdocumentation, wanted("productId")),
         _by_ids(db.tooldocumentation, wanted("toolId")),
-        # artisan->craft so a file attached only to an artisan still fills its Craft column.
         _by_ids(db.artisan, wanted("artisanId"), {"craft": True}),
         _by_ids(db.workshop, wanted("workshopId")),
         _by_ids(db.craft, wanted("craftId")),
@@ -2298,26 +1774,14 @@ async def _media_rows(ids: list[str]) -> list[Any]:
 
 
 async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]:
-    """Load every record reachable under the given tree path, one list per report sheet.
-
-    Root = the whole repository; a workshop path = that workshop's crafts/artisans/records; an
-    artisan path = that artisan's records; record paths narrow to the single record (ancestor
-    rows are kept so the sheets still interlink). users/media-types paths yield media sheets
-    only, mirroring what those tree branches expose. Every query is capped at REPORT_TAKE and
-    filtered by ``scope`` — the report must never contain a row the tree would not show.
-    """
     data: dict[str, list[Any]] = {key: [] for key in _REPORT_KEYS}
 
-    # Normalise the taxonomy roots onto the shapes the loaders below understand.
     if segs:
         if segs[0] == "by-workshop":
             segs = ["workshops", *segs[1:]]
         elif segs[0] == "by-type":
             segs = ["media-types", *segs[1:]]
         elif segs[0] == "by-uploader":
-            # by-uploader/<wid>[/<uid>[/<branch>]] — report on what that person put into
-            # that workshop. Without a uid it is the whole workshop, so fall through to
-            # the workshop loader below.
             if len(segs) >= 3:
                 wid, uid = segs[1], segs[2]
                 owned: list[dict[str, Any]] = [{"uploadedById": uid}, {"workshopId": wid}]
@@ -2357,7 +1821,6 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown data path")
 
     if len(segs) <= 1:
-        # Root (or the all-workshops folder): everything visible, each sheet capped at REPORT_TAKE.
         data["workshops"] = await db.workshop.find_many(
             where=scope.records,
             take=REPORT_TAKE,
@@ -2417,7 +1880,6 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
     data["workshops"] = [ws]
     linked = await _linked_artisans(ws, scope)
 
-    # Parse the (legacy or craft-ful) path below the workshop into craft/artisan/branch parts.
     cid: str | None = None
     aid: str | None = None
     rest: list[str] = []
@@ -2447,7 +1909,6 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
         else:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown data path")
 
-    # Artisans in scope.
     if aid is not None:
         artisan = await _require(
             db.artisan, aid, "Artisan", include=_ARTISAN_INCLUDE, scope_where=scope.records
@@ -2473,7 +1934,6 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
     data["artisans"] = scoped
     aids = [a.id for a in scoped]
 
-    # Crafts in scope.
     if aid is not None:
         craft_ids = [a.craftId for a in scoped if a.craftId]
     elif cid == NO_CRAFT:
@@ -2514,7 +1974,6 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
                 )
             ]
         else:
-            # Mirrors the tree: an artisan's products, in this workshop or workshop-less.
             products = await db.productdocumentation.find_many(
                 where=_and(
                     {
@@ -2604,7 +2063,6 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
     data["interviews"] = interviews
 
     if branch == "misc" and aid is not None:
-        # Mirrors the tree's artisan misc listing exactly.
         data["media"] = await _report_media(
             {
                 "OR": [
@@ -2618,7 +2076,6 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
 
     ors: list[dict[str, Any]] = []
     if cid is None and aid is None and branch is None:
-        # Whole-workshop scope also covers workshop-level (misc) media.
         ors.append(_record_media_where("workshopId", wid, ["workshop"]))
     if aids and branch is None:
         ors.append({"artisanId": {"in": aids}})
@@ -2652,15 +2109,6 @@ def _sheet(
     truncated: bool = False,
     prose: list[int] | None = None,
 ) -> dict[str, Any]:
-    """One sheet payload.
-
-    An over-long sheet is clipped and flagged twice: as a trailing note row (so the
-    downloaded .xlsx carries the warning inline) and as a ``truncated`` flag (so the web
-    viewer can render a banner instead of showing the note as a fake data row).
-
-    ``prose`` names the column indexes whose cells hold stored Markdown rather than a label; see
-    ``_rendered`` for what the .xlsx does with them.
-    """
     capped = truncated or len(rows) > REPORT_TAKE
     if capped:
         rows = rows[:REPORT_TAKE]
@@ -2676,18 +2124,10 @@ def _sheet(
         "rows": rows,
         "truncated": capped,
         "prose": prose or [],
-        # The last row is the note above, not data; the JSON preview keeps it last (D39).
         "noteRow": capped,
     }
 
 
-# ---------------------------------------------------------------------------
-# Media indexing: which record does each file belong to, and where does that
-# record sit in the workshop -> craft -> artisan hierarchy.
-# ---------------------------------------------------------------------------
-
-# Most specific relation first — a photo of a product is filed under the product, not
-# under the artisan who also happens to be on the row.
 _OWNER_TAGS = ("processstep", "process")
 _OWNER_FKS = (
     "productId",
@@ -2700,7 +2140,6 @@ _OWNER_FKS = (
 
 
 def _media_owner_id(m: Any) -> str | None:
-    """The single record id a media file is filed under, most specific relation first."""
     tag = (getattr(m, "linkedRecordType", None) or "").strip().lower()
     if tag in _OWNER_TAGS and getattr(m, "linkedRecordId", None):
         return m.linkedRecordId
@@ -2708,12 +2147,10 @@ def _media_owner_id(m: Any) -> str | None:
         value = getattr(m, fk, None)
         if value:
             return value
-    # Tag-only attachment (the FK column was never populated).
     return getattr(m, "linkedRecordId", None)
 
 
 def _index_media_by_record(media: list[Any]) -> dict[str, list[Any]]:
-    """record id -> its media files, each file counted exactly once."""
     index: dict[str, list[Any]] = {}
     for m in media:
         owner = _media_owner_id(m)
@@ -2723,7 +2160,6 @@ def _index_media_by_record(media: list[Any]) -> dict[str, list[Any]]:
 
 
 def _hierarchy_of(kind: str, record: Any) -> tuple[str, str, str]:
-    """(workshop, craft, artisan) display names for a record, for the flat sheets."""
     if kind == "workshop":
         return _cell(record.title), "", ""
     if kind == "craft":
@@ -2761,7 +2197,6 @@ def _hierarchy_of(kind: str, record: Any) -> tuple[str, str, str]:
 
 
 def _media_link_label(m: Any, proc_names: dict[str, str], step_names: dict[str, str]) -> str:
-    """Human 'record link' for one media row, most specific relation first."""
     tag = (m.linkedRecordType or "").strip().lower()
     if tag == "process":
         name = proc_names.get(m.linkedRecordId or "")
@@ -2793,12 +2228,6 @@ def _media_link_label(m: Any, proc_names: dict[str, str], step_names: dict[str, 
 def _media_context(
     m: Any, proc_names: dict[str, str], step_names: dict[str, str]
 ) -> dict[str, str]:
-    """Where one media file sits: its workshop/craft/artisan plus what it is attached to.
-
-    Resolved from whichever relations the row actually carries — a product photo gets its
-    craft and artisan from the product's denormalised names, a loose workshop upload gets
-    only the workshop.
-    """
     product = getattr(m, "product", None)
     tool = getattr(m, "tool", None)
     artisan = getattr(m, "artisan", None)
@@ -2831,7 +2260,6 @@ def _media_context(
 
 
 def _media_facts(m: Any) -> dict[str, str]:
-    """The per-file cells shared by all three media taxonomy sheets."""
     return {
         "file": _cell(m.originalFilename) or _cell(m.id),
         "type": _cell(str(_ev(m.mediaType)).title()),
@@ -2844,17 +2272,10 @@ def _media_facts(m: Any) -> dict[str, str]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Sheet builders
-# ---------------------------------------------------------------------------
-
 
 def _record_sheet(
     kind: str, records: list[Any], media_index: dict[str, list[Any]]
 ) -> dict[str, Any]:
-    """One sheet per record type, columns straight from the shared field registry so the
-    sheet, the browser's info card and the in-folder table can never disagree. Each row
-    carries its own media inline (count / filenames / URLs)."""
     spec = SPECS[kind]
     rows = [sheet_row(kind, r, media_index.get(r.id, [])) for r in records]
     return _sheet(
@@ -2865,8 +2286,6 @@ def _record_sheet(
 def _process_step_sheet(
     processes: list[Any], media_index: dict[str, list[Any]]
 ) -> dict[str, Any]:
-    """Steps get their own sheet rather than being interleaved as half-empty rows in the
-    Processes sheet, so both stay rectangular and sortable."""
     columns = [
         "Step",
         "Process",
@@ -2897,8 +2316,6 @@ def _process_step_sheet(
 
 
 def _questionnaire_answer_sheet(interviews: list[Any]) -> dict[str, Any]:
-    """The per-question answers, one row each, beside the interview-level sheet."""
-    # "Origin" says which answers a model drafted from the transcript (C28); blank = typed.
     columns = ["Interview", "Artisans", "Section", "Question", "Answer", "Notes", "Origin"]
     rows: list[list[Any]] = []
     for interview in interviews:
@@ -2930,12 +2347,6 @@ def _questionnaire_answer_sheet(interviews: list[Any]) -> dict[str, Any]:
 def _all_records_sheet(
     data: dict[str, list[Any]], media_index: dict[str, list[Any]]
 ) -> dict[str, Any]:
-    """THE coalesced sheet: every record of every type on one page, each row carrying its
-    full workshop -> craft -> artisan placement, its media, and its complete field dump.
-
-    This is the single page to hand someone who wants the whole taxonomy at once without
-    hopping between eight tabs.
-    """
     columns = [
         "Workshop",
         "Craft",
@@ -2981,9 +2392,6 @@ def _transcript_sheet(
     step_names: dict[str, str],
     texts: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """``texts`` is ``{mediaId: transcript}`` from ``transcript_export.transcript_texts`` (D39): the
-    media rows carry only ``hasTranscript``. A row it does not hold prints an empty cell, which only
-    happens past the JSON preview, where the row is cut anyway."""
     texts = texts or {}
     columns = [
         "File",
@@ -3023,7 +2431,6 @@ def _transcript_sheet(
 def _media_by_hierarchy_sheet(
     media: list[Any], proc_names: dict[str, str], step_names: dict[str, str]
 ) -> dict[str, Any]:
-    """Media taxonomy 1 — the default browse order: workshop -> craft -> artisan -> record."""
     columns = [
         "Workshop",
         "Craft",
@@ -3065,7 +2472,6 @@ def _media_by_hierarchy_sheet(
 def _media_by_uploader_sheet(
     media: list[Any], proc_names: dict[str, str], step_names: dict[str, str]
 ) -> dict[str, Any]:
-    """Media taxonomy 2 — who uploaded what, and into which workshop."""
     columns = [
         "Uploaded by",
         "Workshop",
@@ -3103,7 +2509,6 @@ def _media_by_uploader_sheet(
 def _media_by_type_sheet(
     media: list[Any], proc_names: dict[str, str], step_names: dict[str, str]
 ) -> dict[str, Any]:
-    """Media taxonomy 3 — grouped by kind of file (audios, videos, images, documents)."""
     columns = [
         "Type",
         "File",
@@ -3143,13 +2548,6 @@ def _media_by_type_sheet(
 def _report_sheets(
     data: dict[str, list[Any]], texts: dict[str, str] | None = None
 ) -> list[dict[str, Any]]:
-    """Every sheet in the workbook, in tab order.
-
-    Layout: the coalesced All-records page first (the whole taxonomy at a glance), then
-    one page per record type, then the questionnaire answers and process steps, then the
-    transcripts, and finally the same media set presented under each of the three
-    taxonomies the browser offers.
-    """
     media = data["media"]
     proc_names = {p.id: _cell(p.name) for p in data["processes"]}
     step_names = {s.id: _cell(s.name) for p in data["processes"] for s in (p.steps or [])}
@@ -3174,12 +2572,6 @@ def _report_sheets(
 
 
 def _rendered(sheets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The sheets with every ``prose`` column re-expressed as Excel rich text.
-
-    Only the .xlsx render goes through here. ``format=json`` keeps the stored Markdown, because
-    its consumers (the web viewer, the manifest's .md files) render Markdown themselves — Excel
-    is the one reader that cannot, and shows the asterisks instead.
-    """
     rendered = []
     for sheet in sheets:
         prose = sheet["prose"]
@@ -3201,13 +2593,6 @@ async def data_report(
     status_value: str | None = Query(None, alias="status"),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
-    """Relational report of the subtree at ``path``: one sheet per record type, rows carrying
-    their parent relations so the sheets interlink. ``format=json`` returns a PREVIEW, at most
-    :data:`PREVIEW_ROWS` rows a sheet (see :func:`_preview`); ``format=xlsx`` (default) streams the
-    complete workbook. Every sheet is built from the caller's visible rows only.
-
-    ONE BUILD AT A TIME (D39): while one is running, another request is answered 503 with
-    ``Retry-After`` and :data:`REPORT_BUSY` straight away, never queued."""
     fmt = (format or "xlsx").strip().lower()
     if fmt not in ("json", "xlsx"):
         raise HTTPException(
@@ -3215,7 +2600,6 @@ async def data_report(
             detail="format must be 'json' or 'xlsx'",
         )
     status_filter = data_status(status_value)
-    # No await between the test and the acquire, so two requests cannot both pass it.
     if _REPORT_BUILD.locked():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -3230,16 +2614,6 @@ async def data_report(
 
 
 def _preview(sheets: list[dict[str, Any]], uncounted: set[int]) -> list[dict[str, Any]]:
-    """The JSON shape of each sheet: the first :data:`PREVIEW_ROWS` data rows.
-
-    ``truncated``  the screen shows fewer rows than exist (the preview cut, or the download's own cap)
-    ``preview``    the preview cut this sheet; the .xlsx has the rest
-    ``totalRows``  rows in the .xlsx, or ``None`` where they were not counted (the three transcript
-                   pipeline sheets, built only as far as the preview needs; ``uncounted`` indexes)
-    ``capped``     the .xlsx itself stops at REPORT_TAKE (the old ``truncated``)
-
-    A note row ``_sheet`` appended stays last, as before.
-    """
     out = []
     for index, sheet in enumerate(sheets):
         rows = sheet.get("rows") or []
@@ -3263,7 +2637,6 @@ def _preview(sheets: list[dict[str, Any]], uncounted: set[int]) -> list[dict[str
 
 @functools.cache
 def _malloc_trim() -> Any:
-    """glibc's ``malloc_trim``, or None off Linux or without that libc."""
     if not sys.platform.startswith("linux"):
         return None
     try:
@@ -3273,11 +2646,9 @@ def _malloc_trim() -> Any:
 
 
 def _trim_heap() -> None:
-    """Hand the heap pages a report build freed back to the OS (D39). Never fails a request."""
     trim = _malloc_trim()
     if trim is None:
         return
-    # A hint to the allocator, never worth an error.
     with contextlib.suppress(Exception):
         trim(0)
 
@@ -3289,11 +2660,8 @@ async def _build_report(
     norm = _norm(path)
     segs = [s for s in norm.split("/") if s]
     records = await _report_records(segs, scope)
-    # 0.0.6: no words of a recording whose consent was refused, in any sheet; then the transcript
-    # pipeline's sheets (recordings with summary, quotes, glossary and chips; turns; glossary).
     await transcript_export.withhold_refused(records["media"])
     transcribed = [str(m.id) for m in records["media"] if transcript_export.has_text(m)]
-    # The words, in batches, and for the JSON preview only as many as it shows (D39).
     texts = await transcript_export.transcript_texts(
         transcribed[:PREVIEW_ROWS] if fmt == "json" else transcribed
     )
@@ -3313,13 +2681,10 @@ async def _build_report(
 
     crumbs = await _resolve_crumbs(norm)
     level_name = crumbs[-1]["name"] if crumbs else "Repository"
-    # openpyxl is sync; building a big workbook off-loop keeps requests flowing.
     payload = await asyncio.to_thread(
         build_report_workbook, _rendered(sheets), f"{level_name} report"
     )
     del sheets, records
-    # NAMING 2.1: DesignWorkshop_Dataset_2026-10-18_Rajasthan_Report.xlsx. The web takes this name
-    # from the header rather than building its own, so the two can no longer disagree.
     report_name = naming.export_filename(
         "Dataset",
         "Report",
@@ -3334,12 +2699,11 @@ async def _build_report(
 
 
 def _convert_audio_to_mp4(raw: bytes) -> io.BytesIO:
-    """Decode any uploaded audio container and re-encode as .mp4/AAC (sync; run off-loop)."""
     from pydub import AudioSegment
 
     segment = AudioSegment.from_file(io.BytesIO(raw))
     out = io.BytesIO()
-    segment.export(out, format="mp4")  # ffmpeg's mp4 muxer defaults to AAC audio
+    segment.export(out, format="mp4")
     out.seek(0)
     return out
 
@@ -3350,22 +2714,7 @@ async def download_media(
     format: str | None = None,
     current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
-    """Download one media file. Audio defaults to an .mp4 (AAC) conversion done server-side;
-    anything else redirects to (or streams) the stored object untouched.
-
-    The row must be one the caller can see: this route takes a bare id, so without the visibility
-    check the whole media table would be readable by id even though the tree only ever lists the
-    caller's own (and granted) uploads. An out-of-scope id reads as 404, never 403.
-    """
     scope = await _scope_for(current_user)
-    # Relations loaded so the Content-Disposition carries the same derived name the tree showed;
-    # a file that arrives on disk under a different name than the one that was clicked is a bug.
-    #
-    # The name is the unnumbered one. The "-2" a duplicate picks up says "another file in the folder
-    # you are extracting already answers to this", and a single download has no such folder — it
-    # lands in Downloads, where the browser does its own numbering against whatever is already
-    # there. Inventing a suffix here would mean guessing which of three taxonomies the click came
-    # from, and each of them shows this file beside a different set of siblings.
     media = (
         await db.mediafile.find_first(
             where={"AND": [{"id": media_id}, scope.media]}, include=_NAMING_INCLUDE
@@ -3381,33 +2730,12 @@ async def download_media(
 
     if is_audio and fmt == "mp4":
         try:
-            import pydub  # noqa: F401 — local import: optional runtime dep (needs ffmpeg)
-        except Exception as exc:  # pragma: no cover - environment-dependent
+            import pydub  # noqa: F401
+        except Exception as exc:  # pragma: no cover
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="This recording can't be converted right now; download the original instead.",
             ) from exc
-        # TWO CHECKS, BECAUSE THE COLUMN IS A CLAIM AND THE LENGTH IS A FACT.
-        #
-        # ``MediaFile.sizeBytes`` is whatever the client declared at ``POST /media/complete``: the
-        # schema bounds it only from below (``Field(gt=0)``), it is stored verbatim, and nothing in
-        # this codebase ever reconciles it against the stored object — there is no ``head_object``
-        # anywhere in ``backend/app``. Nor does the upload signature bound the body:
-        # ``s3.presign_put_url`` signs Bucket/Key/ContentType and no ``content-length-range``, and
-        # its docstring records why that must stay so (a signed condition breaks every Android build
-        # already in the field). So an account holding ``canDownloadDataset`` could presign an upload
-        # declaring ``sizeBytes: 1024``, PUT 1.5 GB to the returned URL, complete it as AUDIO, and
-        # then click download on their OWN row: the 413 below would not fire, ``get_object_bytes``
-        # would pull 1.5 GB into the heap of this single-worker uvicorn process, and pydub/ffmpeg
-        # would decode a second copy beside it. The box OOMs, taking every in-flight request with it.
-        #
-        # The declared size is kept as the CHEAP first refusal — it costs nothing and rejects the
-        # honest large recording before a byte moves. The real length is then checked before the
-        # expensive half, which is the transcode: ffmpeg decoding compressed audio is where one copy
-        # becomes several, so refusing between the fetch and the decode removes the multiplier even
-        # though the fetch itself has already happened. What remains after this is one oversized read
-        # into the heap; closing that needs a ``head_object`` helper in ``services/s3``, which is
-        # written up as a follow-up rather than bolted on from here.
         declared = int(media.sizeBytes or 0)
         if declared > MAX_CONVERT_BYTES:
             raise HTTPException(
@@ -3415,7 +2743,6 @@ async def download_media(
                 detail="This recording is too large to convert in-process; download the original.",
             )
         try:
-            # Blocking S3 read off the event loop — this is the single-worker web process.
             raw = await asyncio.to_thread(get_object_bytes, media.objectKey)
         except Exception as exc:
             raise HTTPException(
@@ -3423,17 +2750,12 @@ async def download_media(
                 detail="The recording couldn't be loaded. Try again.",
             ) from exc
         if len(raw) > MAX_CONVERT_BYTES:
-            # Same answer as the declared-size refusal, deliberately: the caller asked for a
-            # conversion of something too big to convert, and which of the two numbers caught it is
-            # the server's business. Dropping the reference first so the bytes are collectable while
-            # FastAPI builds the response.
             del raw
             raise HTTPException(
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 detail="This recording is too large to convert in-process; download the original.",
             )
         try:
-            # ffmpeg decode + AAC encode runs in a worker thread so requests keep flowing.
             out = await asyncio.to_thread(_convert_audio_to_mp4, raw)
         except Exception as exc:
             raise HTTPException(
@@ -3447,7 +2769,6 @@ async def download_media(
             headers={"Content-Disposition": _content_disposition(mp4_name)},
         )
 
-    # Non-audio (or an explicitly non-mp4 format): hand back the original object.
     if media.url:
         return RedirectResponse(media.url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
     try:

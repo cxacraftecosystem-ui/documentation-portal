@@ -38,7 +38,6 @@ import com.fieldrepository.app.ui.SearchableSelectField
 import com.fieldrepository.app.ui.SelectOption
 import com.fieldrepository.app.ui.field
 
-/** A server grid cell as the session grid draws it: ● recorded, ✎ typed, an override wins (D1, D4). */
 internal fun cellOf(cell: QGridCell): GridCell {
     val mark = when {
         cell.needsDecision -> CellMark.NEEDS_DECISION
@@ -51,11 +50,6 @@ internal fun cellOf(cell: QGridCell): GridCell {
     return GridCell(cell.subjectId, mark, count = cell.takes, partial = partial, override = cell.override)
 }
 
-/**
- * The workshop coverage page (B12): one form at a time, every artisan the form has recorded or typed
- * for, section by section, with the admin overrides. Online (the server's grid); the legend reads as
- * the session grid's does.
- */
 @Composable
 fun WorkshopCoverageScreen(
     v2: QuestionnaireV2,
@@ -69,7 +63,6 @@ fun WorkshopCoverageScreen(
     var grid by remember { mutableStateOf<QGrid?>(null) }
     var names by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var loading by remember { mutableStateOf(false) }
-    // A dot's takes (0.0.6): one opens its transcript, several open the chooser first.
     var choosing by remember { mutableStateOf<List<CoverageRecordings.Take>?>(null) }
     var opened by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -83,7 +76,6 @@ fun WorkshopCoverageScreen(
     fun openDot(sectionId: String, subjectId: String, cell: QGridCell) {
         val listed = CoverageRecordings.ofCell(cell)
         if (cell.recordings.isNotEmpty()) return open(listed)
-        // A server older than 0.0.6 sends only the count: ask the recordings list.
         scope.launch {
             val filters = CoverageRecordings.filters(formId, sectionId, subjectId, workshopId, QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP)
             val rows = runCatching { v2.recordingsPage(filters, limit = 50).items }.getOrElse { onError(it.userSentence()); return@launch }
@@ -99,7 +91,6 @@ fun WorkshopCoverageScreen(
         }
         grid = fetched.getOrNull()
         fetched.exceptionOrNull()?.let { onError(it.userSentence()) }
-        // The grid names its artisans once; the cells carry ids.
         names = grid?.names.orEmpty()
         loading = false
     }

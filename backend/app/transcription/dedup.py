@@ -1,5 +1,3 @@
-"""Same bytes, same options: one provider call. The cache key and the checksum."""
-
 from __future__ import annotations
 
 import hashlib
@@ -11,7 +9,6 @@ _BLOCK = 1024 * 1024
 
 
 def sha256_of(audio: AudioInput) -> str:
-    """SHA-256 of the recording, read in 1 MB blocks so a large file never sits in the heap."""
     digest = hashlib.sha256()
     if audio.source_path is not None:
         with open(audio.source_path, "rb") as handle:
@@ -23,8 +20,6 @@ def sha256_of(audio: AudioInput) -> str:
 
 
 def options_hash(opts: SttOptions) -> str:
-    """What changes a transcript: diarization, the language hint and the model choices. Keyterms
-    are left out on purpose; a vocabulary edit should not throw the whole cache away."""
     material = {
         "diarize": bool(opts.diarize),
         "languageBias": sorted(opts.language_bias),

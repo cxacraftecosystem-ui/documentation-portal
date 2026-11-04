@@ -1,36 +1,3 @@
-"""Queue the translation of every transcript that never got one (D38, 0.0.9): a one-off sweep.
-
-    cd backend && python -m app.scripts.queue_pending_translations            # dry run: counts only
-    cd backend && python -m app.scripts.queue_pending_translations --apply    # queue them
-    cd backend && python -m app.scripts.queue_pending_translations --json     # the counts as JSON
-
-IDENTICAL IN BOTH PORTALS (``shared/transcription.sha256``). Before 0.0.9 a transcript made before
-the turn pipeline got its turns the first time it was opened or exported (``ensure_version``) but
-no TRANSCRIPT_INSIGHTS job, so its turns stayed untranslated. From 0.0.9 ``ensure_version`` queues
-that job itself; this sweep catches the recordings that were opened before it did, and the ones
-never opened at all (``generate`` makes their turns inside the job).
-
-A CANDIDATE is a recording with transcript text whose current version is missing (no turns yet) or
-has a turn that needs English and has none. It is QUEUED unless, in this order:
-
-* an insights job for it is queued or running (``already-active``);
-* Gemini declined its translation (``declined``): asking again gets the same answer, so a person
-  adds the English on the transcript page instead;
-* a researcher edited its summary (``edited-insight-skipped``): an automatic run never replaces it;
-* an insights job completed after its current version was made (``already-run``): the turns it
-  left untranslated failed, and Retry on the page is the way to ask again;
-* the AI transcript switch is off (``feature-off``);
-* consent refuses the send, re-read now (``consent-refused``).
-
-DRY RUN BY DEFAULT: it changes nothing and prints COUNTS ONLY, never transcript text, names or ids.
-``--apply`` queues through ``transcript_insights.enqueue_after_transcript``, which refuses again
-when a job became active meanwhile, so running it twice queues nothing new.
-
-MEMORY. Recordings are read a page of ids at a time (keyset on the id, ``--page`` rows) with explicit
-columns and every flag worked out in the database; no transcript text is read. Only a candidate that
-may be queued is loaded whole, one at a time, for the consent rule.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -58,7 +25,6 @@ BUCKETS = (
     WOULD_QUEUE, QUEUED, NOT_QUEUED,
 )
 
-#: One page of recordings with a transcript, every flag the rules need, no transcript text.
 PAGE_SQL = (
     'SELECT m."id", v."id" AS "versionId", v."translationStatus" AS "versionStatus", '
     "EXISTS (SELECT 1 FROM \"TranscriptTurn\" t WHERE t.\"versionId\" = v.\"id\" "
@@ -83,20 +49,14 @@ PAGE_SQL = (
     'ORDER BY m."id" LIMIT $2'
 )
 
-#: ``--only``: the sweep narrowed to named recordings (a check after a fix; the tests).
 SCOPE_IDS = 'AND m."id" = ANY($3::text[]) '
 
 
 def is_candidate(row: dict[str, Any]) -> bool:
-    """No current version yet (``generate`` makes the turns), or a turn that needs English lacks it."""
     return row.get("versionId") is None or bool(row.get("untranslated"))
 
 
 def classify(row: dict[str, Any], *, enabled: bool, declined_message: str) -> str | None:
-    """The bucket a candidate stops in before consent is read, or None when it may be queued.
-
-    The rules, in the module docstring's order. ``declined_message`` is ``gemini.MESSAGES[DECLINED]``:
-    a recording declined before 0.0.9 carries only that sentence on its last job."""
     if row.get("active"):
         return ALREADY_ACTIVE
     if row.get("versionStatus") == "DECLINED" or (
@@ -113,7 +73,6 @@ def classify(row: dict[str, Any], *, enabled: bool, declined_message: str) -> st
 
 
 async def sweep(*, apply: bool, page: int = PAGE, ids: list[str] | None = None, client: Any = None) -> Counter[str]:
-    """The counts (see :data:`BUCKETS`). ``apply`` False reads only; ``ids`` narrows the sweep."""
     from app.core.db import db
     from app.services import transcript_insights, transcript_pipeline, transcript_portal
     from app.transcription.transcript import gemini

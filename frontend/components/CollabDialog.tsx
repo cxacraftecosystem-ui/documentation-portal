@@ -2,14 +2,6 @@
 
 import { CollabPanel } from "@/components/CollabPanel";
 
-/**
- * The modal every list page opens from its row "Discuss" button: comments plus (for the record's
- * owner and admins) its edit history, for one record. Rendered only while `recordId` is set, so a
- * page can pass its `collabId` state straight through.
- *
- * Kept here rather than repeated per page so Discuss looks and behaves the same on artisans,
- * products, tools, workshops and processes.
- */
 export function CollabDialog({
   recordType,
   recordId,

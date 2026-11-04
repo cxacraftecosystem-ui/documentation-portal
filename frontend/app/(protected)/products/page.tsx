@@ -50,7 +50,6 @@ export default function ProductsPage() {
 
   async function load() {
     try {
-      // /products supports all three funnel params directly.
       setData(
         await listResource<ProductDocumentation>("/products", {
           search: applied || undefined,
@@ -69,14 +68,12 @@ export default function ProductsPage() {
     }
   }
 
-  // Waits for the funnel's initial onChange (default = most recent workshop) before the first fetch.
   useEffect(() => {
     if (!funnelReady) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [funnelReady, page, applied, funnel, statusChoice, completeness]);
 
-  // Live search: debounce typing by 350ms; Enter applies immediately via onSubmit.
   useEffect(() => {
     if (skipFirstDebounce.current) {
       skipFirstDebounce.current = false;
@@ -89,12 +86,6 @@ export default function ProductsPage() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  /*
-   * BACK FROM A RECORD PUTS THE LIST BACK AS IT WAS. A row click opens the product's read-only view,
-   * so the search, page, funnel and scroll position are written down as it opens (`rememberPlace`)
-   * and restored here on the way back — see `lib/listReturn.ts` and the artisans list, which carries
-   * the same block.
-   */
   const listReturn = useListReturn("products", { query: applied, page, funnel, completeness }, Boolean(data));
   const restoredPage = useRef<number | null>(null);
   useEffect(() => {
@@ -146,9 +137,6 @@ export default function ProductsPage() {
         actions={
           <>
             {canDownloadDataset(user) ? <DownloadCsvButton path="/export/products.csv?status=APPROVED" filename={exportFilename("Product", "Export", "csv", { subject: "Approved" })} label="Export approved CSV" /> : null}
-            {/* Gated, not merely locked: an ungated "New …" invited every tier to press a
-                button that lands on the route guard's refusal. Below researcher the honest UI is
-                no button, matching `require_record_creator` on the server. */}
             {canCreateRecords(user) ? (
               <Link className="field-button" href="/products/new">
                 <Plus className="h-4 w-4" aria-hidden />

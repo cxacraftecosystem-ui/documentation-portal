@@ -12,11 +12,6 @@ import { questionnaireApi, type Recording } from "@/lib/questionnaire/api";
 import { filtersToQuery } from "@/lib/questionnaire/filters";
 import { qs } from "@/lib/questionnaire/qs";
 
-/**
- * The Recordings group of a search results page (owner, 31 Oct 2026): the first takes whose chips,
- * transcript or file name match the words, each with its chips, and a link to all of them on the
- * recordings list. Draws nothing for an empty query, with the questionnaire off, or with no match.
- */
 export function RecordingSearchGroup({ q, limit = 5 }: { q: string; limit?: number }) {
   const on = Boolean(useQuestionnaireConfig()?.v2Enabled);
   const goChip = useChipNavigator();

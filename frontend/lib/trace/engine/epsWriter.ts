@@ -1,17 +1,5 @@
 import { FillRule, LineCap, LineJoin, VecDocument, VecShape, VecStyle } from './path';
 
-/**
- * Encapsulated PostScript 3.0 writer.
- *
- * EPS exists here for print shops and older sign-cutting software that will not take an SVG. Like the PDF
- * writer, it emits one coordinate-system flip (`1 0 0 -1 0 H concat`) rather than negating every y, so the
- * geometry in the file reads the same as the geometry in the document.
- *
- * PostScript has **no alpha**. Rather than pretend, partially transparent paint is composited against the
- * document background at write time and the fact is recorded in a comment in the file — a silently opaque
- * export is the failure mode this avoids.
- */
-
 const COORD_PRECISION = 3;
 
 function num(v: number): string {
@@ -25,7 +13,6 @@ function comp(v: number): string {
   return num((v & 0xff) / 255);
 }
 
-/** PostScript comments run to end of line, so a newline in a title would inject code. */
 function psComment(s: string): string {
   let out = '';
   for (let i = 0; i < s.length; i++) {
@@ -47,7 +34,6 @@ function joinCode(j: LineJoin): number {
   return 0;
 }
 
-/** Blend a colour towards the page background by its own alpha, since PostScript cannot express alpha. */
 function flatten(argb: number, opacity: number, background: number | null): string {
   const a = (((argb >>> 24) & 0xff) / 255) * opacity;
   const bg = background === null ? 0xffffffff : background;
@@ -74,7 +60,6 @@ function pathOps(shape: VecShape): string[] {
           `${num(seg.to.x)} ${num(seg.to.y)} curveto`,
       );
     } else {
-      // PostScript has no quadratic; the exact cubic equivalent lifts the control point to 2/3.
       const c1x = cur.x + (2 / 3) * (seg.c.x - cur.x);
       const c1y = cur.y + (2 / 3) * (seg.c.y - cur.y);
       const c2x = seg.to.x + (2 / 3) * (seg.c.x - seg.to.x);
@@ -96,7 +81,6 @@ function shapeOps(shape: VecShape, layerOpacity: number, background: number | nu
   const hasStroke = style.stroke !== null && style.strokeWidth > 0;
   if (!hasFill && !hasStroke) return parts;
   if (hasFill && hasStroke) {
-    // Fill then stroke needs the path twice: PostScript consumes the current path on either operator.
     parts.push('gsave');
     parts.push(...pathOps(shape));
     parts.push(flatten(style.fill as number, style.opacity, background));
@@ -122,10 +106,6 @@ function shapeOps(shape: VecShape, layerOpacity: number, background: number | nu
 
 const ascii = new TextEncoder();
 
-/**
- * Write an EPS file.
- * @returns the complete EPS bytes, with a `%%BoundingBox` matching the document canvas.
- */
 export function writeEps(
   doc: VecDocument,
   options: { includeMetadata: boolean; title?: string } = { includeMetadata: true },
@@ -154,7 +134,6 @@ export function writeEps(
     lines.push(`newpath 0 0 moveto ${num(width)} 0 lineto ${num(width)} ${num(height)} lineto ` +
       `0 ${num(height)} lineto closepath fill`);
   }
-  // One flip so the document's y-down geometry can be written verbatim.
   lines.push(`1 0 0 -1 0 ${num(height)} concat`);
   for (const layer of doc.layers) {
     if (!layer.visible) continue;

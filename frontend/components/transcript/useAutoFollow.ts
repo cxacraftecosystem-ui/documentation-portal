@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-/** The page's top and bottom chrome (the island or the search header, the bottom bar, the pill). */
 const TOP_CLEAR = 96;
 const BOTTOM_CLEAR = 120;
 
@@ -16,10 +15,6 @@ function typing(target: EventTarget | null): boolean {
   return Boolean(element && (element.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName)));
 }
 
-/**
- * Bring the line being spoken into view when it has left the reading band, centred, scrolling the
- * page or whichever container holds the transcript (a sheet, a dialog).
- */
 export function revealTurn(turnId: string, smooth: boolean): void {
   const element = document.querySelector<HTMLElement>(`[data-follow-turn="${CSS.escape(turnId)}"]`);
   if (!element) return;
@@ -28,17 +23,9 @@ export function revealTurn(turnId: string, smooth: boolean): void {
   element.scrollIntoView({ block: "center", behavior: smooth ? "smooth" : "auto" });
 }
 
-/**
- * AUTO-FOLLOW (owner, 1 Nov 2026): while the recording plays, the transcript keeps the current line
- * in view. It starts with playback, and stops the moment the reader takes the page back — a touch
- * or a press on the screen, or a scroll against the reading direction (a wheel or a key upwards).
- * `resume` is the "Follow along" pill. Only the reader's own input stops it: the scrolls this hook
- * makes raise no wheel, touch or key event.
- */
 export function useAutoFollow(activeTurnId: string | null, playing: boolean) {
   const [following, setFollowing] = useState(false);
 
-  // Playback starting is the reader asking to listen: follow from there.
   useEffect(() => {
     if (playing) setFollowing(true);
   }, [playing]);

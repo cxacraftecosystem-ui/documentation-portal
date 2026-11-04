@@ -22,12 +22,6 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/**
- * What else can be done with a session (DESIGN §4.3, UNIFY B6, B8, B9, A14, A17, A18): add a
- * researcher, add or edit a guest and register one as an artisan, edit the session's details,
- * continue it another day, and — content admins — merge it into another session or delete it
- * (a restorable soft delete). The row is pills on a wide screen and stacked on a phone (ButtonRow).
- */
 export function SessionActions({ session, onChanged }: { session: Session; onChanged: () => void }) {
   const router = useRouter();
   const { canDeleteRecords } = useAdminView();
@@ -370,7 +364,6 @@ function EditSession({
           className="field-button"
           disabled={busy || !date}
           onClick={() =>
-            // An edit sends only what changed: a field left alone is never cleared (DR audit C1, H1).
             onSave({
               version: session.version,
               place: place.trim() || null,

@@ -3,8 +3,6 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-/** DESIGN test 46: `/media` has no Questionnaire link type under v2; the read view has no transcript action; old URLs redirect. */
-
 const read = (...p: string[]) => readFileSync(join(__dirname, "..", ...p), "utf8");
 
 test("/media drops the Questionnaire link type under v2", () => {

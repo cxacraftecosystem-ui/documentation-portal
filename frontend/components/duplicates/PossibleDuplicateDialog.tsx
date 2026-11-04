@@ -6,12 +6,6 @@ import { useRef } from "react";
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import { candidateSubtitle, type PossibleDuplicateHold } from "@/lib/duplicates";
 
-/**
- * The save was held: the new artisan looks like one already recorded (409
- * `artisan_possible_duplicate`). Two ways forward — keep editing (the default, loses nothing) or say
- * it is a different person, which saves with those records acknowledged. Each candidate opens in a
- * new tab so the form stays as it is.
- */
 export function PossibleDuplicateDialog({
   hold,
   busy = false,

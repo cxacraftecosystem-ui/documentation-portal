@@ -25,17 +25,11 @@ export type RecorderTarget = {
   sessionKey: string;
 };
 
-/** One recording at a time per tab; a second Record press asks P3 first. */
 let active: { label: string; stop: () => Promise<void>; elapsed: () => number } | null = null;
 export function activeRecording() {
   return active;
 }
 
-/**
- * Takes stopped in this tab whose hand-over to the outbox has not finished yet. Their drafts stay
- * open until the outbox write succeeds (audit H17), so P13 must not offer them in THIS tab meanwhile;
- * after a crash or reload the set is empty and P13 offers them, which is the point.
- */
 export const takesInHand = new Set<string>();
 
 function clock(ms: number): string {
@@ -43,12 +37,6 @@ function clock(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-/**
- * The recorder (DESIGN §4.3, §6.2): MediaRecorder with a 10-second timeslice; each chunk goes to
- * IndexedDB as it arrives (the first carries the header), so a killed tab still leaves a playable
- * take for P13. The draft is written before recording starts. A Screen Wake Lock is held while it
- * runs. Starts offline — nothing here waits for the network.
- */
 export function Recorder({
   target,
   onFinished,
@@ -80,7 +68,6 @@ export function Recorder({
 
   useEffect(
     () => () => {
-      // Leaving the component mid-take stops cleanly; the chunks already written are the take.
       if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
       void wakeRef.current?.release();
       if (active?.label === target.label) active = null;
@@ -121,9 +108,6 @@ export function Recorder({
         void (async () => {
           await writes.current;
           const chunks = await recorderStore.chunks(draft.takeKey);
-          // NOT marked finished here (audit H17). The draft stays open until the take is in the
-          // outbox — the caller discards it then — so a crash between Stop and that write leaves a
-          // draft P13 offers back instead of chunks nothing will ever look at.
           takesInHand.add(draft.takeKey);
           const durationMs = Date.now() - startedRef.current - pausedTotal.current;
           active = null;

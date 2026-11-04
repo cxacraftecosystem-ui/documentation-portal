@@ -17,17 +17,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/**
- * The completeness ring — the design workshop list's (46dp, with its percentage) and the record cards'
- * (18dp, no label), one drawing.
- *
- * Drawn rather than approximated with a determinate CircularProgressIndicator because that control
- * leaves a gap at the top for its indeterminate animation, so a record at 100% renders as a ring that
- * is visibly not closed — which reads, on a list somebody is scanning to decide what is finished, as
- * "almost".
- *
- * [description] is the spoken name ("5 of 7 fields filled"); null leaves the ring to the text beside it.
- */
 @Composable
 fun CompletenessRing(
     percent: Int,

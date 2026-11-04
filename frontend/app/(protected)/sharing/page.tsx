@@ -36,38 +36,16 @@ const TIER_LABEL: Record<DataAccessTier, string> = {
   EDIT: "Edit (maximum)"
 };
 
-/**
- * The tier ladder as ranks, mirroring `TIER_ORDER` in `backend/app/services/access.py`.
- *
- * This is why the two tier pickers on this page stay SINGLE-select while the two people pickers
- * became multi. The tiers are cumulative, not a set of independent permissions: the backend compares
- * them with `tier_at_least`, a `>=` against these ranks, and its own catalogue text says so outright
- * — COMMENT is "everything in Download, plus…", EDIT is "everything in Comment, plus…". A person
- * holds exactly one rung. So a multi-select of "DOWNLOAD and EDIT" would have no meaning to express;
- * it is just EDIT, and offering it would invite an owner to think they had granted something
- * narrower than they had.
- */
 const TIER_RANK: Record<DataAccessTier, number> = { DOWNLOAD: 1, COMMENT: 2, EDIT: 3 };
 
-/** What a tier lets someone actually DO, for the one sentence in the confirm dialog. */
 const TIER_CONSEQUENCE: Record<DataAccessTier, string> = {
   DOWNLOAD: "download",
   COMMENT: "download and comment on",
   EDIT: "download, comment on and edit"
 };
 
-/**
- * From how many people an action stops being routine and gets a confirm.
- *
- * Two, not one. Granting a single colleague has never asked for confirmation and must not start:
- * this is the everyday act the page exists for, it is visible in the table underneath the moment it
- * lands, and one Revoke click undoes it. What is new — and what earns the interruption — is that a
- * single "Select all" can now widen access to nineteen people's worth of someone else's unpublished
- * fieldwork in one press, which is not a mistake anyone notices from a green banner.
- */
 const BULK_CONFIRM_AT = 2;
 
-/** Names read out in full in a dialog before the tail collapses to a count. */
 const NAMES_IN_PROSE = 6;
 
 const STATUS_STYLE: Record<string, string> = {
@@ -94,26 +72,14 @@ function nameList(names: string[], max = NAMES_IN_PROSE) {
   return `${names.slice(0, max).join(", ")} and ${plural(names.length - max, "other")}`;
 }
 
-// --------------------------------------------------------------------------- existing standing
-//
-// "Do not offer a person who already holds a grant as though they were new." Everything below turns
-// the grant rows the page already loads into a one-line statement of where each person stands, so an
-// owner reading the picker can see what they are CHANGING rather than only what they are choosing.
-
-/** One person's existing relationship, flattened out of their single (owner, grantee) grant row. */
 type Standing = { status: DataAccessStatus; tier: DataAccessTier; allData: boolean; keys: Set<string> };
 
-/** A reach over records: everything, or an explicit set of `type::id` keys. */
 type Scope = { allData: boolean; keys: Set<string> };
 
 function scopeKeysOf(grant: DataAccessGrant) {
   return new Set((grant.scopeItems ?? []).map((item) => `${item.recordType}::${item.recordId}`));
 }
 
-/**
- * People indexed by id. Safe as a plain overwrite: the grant table is uniquely keyed on
- * (ownerId, granteeId), so a person can appear at most once on either side.
- */
 function standingsBy(rows: DataAccessGrant[], personField: "granteeId" | "ownerId") {
   const map = new Map<string, Standing>();
   rows.forEach((row) =>
@@ -122,7 +88,6 @@ function standingsBy(rows: DataAccessGrant[], personField: "granteeId" | "ownerI
   return map;
 }
 
-/** Does `wider` reach every record `narrower` reaches? */
 function covers(wider: Scope, narrower: Scope) {
   if (wider.allData) return true;
   if (narrower.allData) return false;
@@ -132,15 +97,6 @@ function covers(wider: Scope, narrower: Scope) {
 
 type Change = "new" | "same" | "raise" | "reduce";
 
-/**
- * What pressing Grant would do to one person who already holds something.
- *
- * `reduce` is the case worth the trouble. The server's `_upsert_grant` writes the single
- * (owner, grantee) row in place and DELETES its scope items before rebuilding them, so a grant is a
- * replacement and not an addition: including a colleague who holds EDIT on everything in a bulk
- * "DOWNLOAD on 3 records" action silently strips the access they had. That is invisible from a
- * picker that only shows names, and it is the one outcome on this screen that destroys something.
- */
 function classifyChange(standing: Standing | undefined, next: Scope & { tier: DataAccessTier }): Change {
   if (!standing || standing.status !== "GRANTED") return "new";
   const held: Scope = { allData: standing.allData, keys: standing.keys };
@@ -153,13 +109,6 @@ function scopeWords(standing: Standing) {
   return standing.allData ? "all data" : plural(standing.keys.size, "record");
 }
 
-/**
- * The tail of a picker row, for people I might grant access to.
- *
- * Kept short on purpose. The panel truncates a label that outruns its width, and the longest name
- * and address in this deployment already spend fifty characters before this suffix starts — so the
- * state has to survive in a handful of words or it is the part that gets cut off.
- */
 function grantSuffix(standing: Standing | undefined, change: Change) {
   if (!standing) return "";
   switch (standing.status) {
@@ -176,7 +125,6 @@ function grantSuffix(standing: Standing | undefined, change: Change) {
   }
 }
 
-/** The same tail for people I might request access FROM, worded from the other side. */
 function requestSuffix(standing: Standing | undefined) {
   if (!standing) return "";
   switch (standing.status) {
@@ -191,22 +139,12 @@ function requestSuffix(standing: Standing | undefined) {
   }
 }
 
-// --------------------------------------------------------------------------- the batch report
-
-/** The single-person call this batch replays, held so Retry cannot drift from what was pressed. */
 type Attempt =
   | { kind: "grant"; tier: DataAccessTier; allData: boolean; scopeItems: Array<{ recordType: string; recordId: string }> }
   | { kind: "request"; tier: DataAccessTier; requestNote?: string };
 
 type Ledger = { attempt: Attempt; intent: string; succeeded: BatchOutcome[]; failed: BatchOutcome[] };
 
-/**
- * Who worked, who did not, and why — shown only when something failed.
- *
- * A batch that goes through completely says so in the ordinary green banner and leaves the tables
- * below to name the people; a report would be noise. A batch that half-worked cannot be summarised
- * by either banner, because "Access granted" and "Action failed" are both lies about it.
- */
 function BatchReport({ ledger, busy, onRetry, onDismiss }: { ledger: Ledger; busy: boolean; onRetry: () => void; onDismiss: () => void }) {
   const { succeeded, failed } = ledger;
   const noun = ledger.attempt.kind === "grant" ? "granted" : "sent";
@@ -214,8 +152,6 @@ function BatchReport({ ledger, busy, onRetry, onDismiss }: { ledger: Ledger; bus
 
   return (
     <div className="mt-4 overflow-hidden rounded-md border border-amber-500/40">
-      {/* The small status pills on this page keep a fixed light palette in both themes, but a band
-          this wide would be a slab of cream across a dark screen, so it is tinted instead. */}
       <div className="flex items-start gap-2 bg-amber-100 px-3 py-2 text-amber-800 dark:bg-amber-500/15 dark:text-amber-100">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
         <div className="min-w-0 flex-1">
@@ -266,9 +202,6 @@ function BatchReport({ ledger, busy, onRetry, onDismiss }: { ledger: Ledger; bus
           </button>
         </ButtonRow>
         {succeeded.length ? (
-          // Said out loud because the reader's actual worry about a Retry button is that it will
-          // do the successful half twice. It cannot: the server keeps one row per person and
-          // rewrites it in place, and this retries only the failures anyway.
           <p className="mt-2 text-center text-xs text-ink-500">Only the failed ones are sent again.</p>
         ) : null}
       </div>
@@ -285,18 +218,14 @@ export default function SharingPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // Carries WHICH of the two forms is running, so the progress line appears under the button that
-  // was pressed rather than under both of them.
   const [progress, setProgress] = useState<{ kind: Attempt["kind"]; done: number; total: number } | null>(null);
   const [ledger, setLedger] = useState<Ledger | null>(null);
 
-  // Request form state
   const [reqOwnerIds, setReqOwnerIds] = useState<string[]>([]);
   const [reqOwnerText, setReqOwnerText] = useState("");
   const [reqTier, setReqTier] = useState<DataAccessTier>("DOWNLOAD");
   const [reqNote, setReqNote] = useState("");
 
-  // Direct-grant form state (owner grants colleagues access to all, or a chosen subset, of their data)
   const [grantGranteeIds, setGrantGranteeIds] = useState<string[]>([]);
   const [grantTier, setGrantTier] = useState<DataAccessTier>("DOWNLOAD");
   const [grantScopeAll, setGrantScopeAll] = useState(true);
@@ -351,7 +280,6 @@ export default function SharingPage() {
     load();
   }, [load]);
 
-  // Researchers can't list /users (admin-only). Fall back to a free-text owner id only if needed.
   const canPickUsers = users.length > 0;
 
   const ownerNameById = useMemo(() => {
@@ -360,7 +288,6 @@ export default function SharingPage() {
     return map;
   }, [users]);
 
-  /** Just the person's name, for prose. The picker rows carry the address; a sentence should not. */
   const plainNameById = useMemo(() => {
     const map = new Map<string, string>();
     users.forEach((u) => map.set(u.id, u.name));
@@ -378,12 +305,6 @@ export default function SharingPage() {
     [grantScopeAll, selectedKeys]
   );
 
-  /**
-   * The colleague picker's rows, each carrying what that person holds today.
-   *
-   * Recomputed against the current tier and scope so "no change" means no change to what is on
-   * screen right now, not to some earlier draft of the action.
-   */
   const grantOptions: SelectOption[] = useMemo(
     () =>
       users.map((u) => {
@@ -396,15 +317,6 @@ export default function SharingPage() {
     [users, granteeStandings, nextScope, grantTier]
   );
 
-  /**
-   * The researcher picker's rows.
-   *
-   * Anyone whose data I already hold an active grant on is DISABLED rather than merely annotated,
-   * because the server refuses that request outright — `request_access` 409s on an existing GRANTED
-   * row so that re-asking cannot knock a working grant back to PENDING. Offering the row anyway
-   * would mean "Select all" reliably produced failures nobody could have avoided; disabled rows are
-   * also skipped by the panel's own select-all, so the bulk action stays clean by construction.
-   */
   const requestOptions: SelectOption[] = useMemo(
     () =>
       users.map((u) => {
@@ -418,7 +330,6 @@ export default function SharingPage() {
     [users, ownerStandings]
   );
 
-  /** Colleagues in the current selection whose existing access this action would cut back. */
   const reductions = useMemo(
     () =>
       grantGranteeIds
@@ -437,10 +348,6 @@ export default function SharingPage() {
 
   const grantScopePhrase = grantScopeAll ? "all your data" : `${plural(selectedKeys.size, "selected record")}`;
 
-  /**
-   * The sentence to check before pressing. One scope and one tier apply to EVERY person chosen, and
-   * that is exactly the thing a row of separate controls does not say out loud.
-   */
   const grantSentence =
     grantGranteeIds.length === 0
       ? "Choose colleagues."
@@ -475,14 +382,6 @@ export default function SharingPage() {
     }
   }
 
-  /**
-   * The fan-out: one POST per person, no rollback, a named reason for each one that fails.
-   *
-   * `runPerPerson` never throws — a batch always produces a full account — so everything after the
-   * await is about telling the truth and leaving the screen in a state the reader can act from. On a
-   * partial failure the picker is reset to exactly the people who did NOT go through, so both the
-   * Retry button and a second press of Grant mean the same, obvious thing.
-   */
   async function runPeople(attempt: Attempt, intent: string, targets: BatchTarget[]) {
     setBusy(true);
     setError(null);
@@ -511,8 +410,6 @@ export default function SharingPage() {
     );
 
     setProgress(null);
-    // Reload before the messaging, so the tables and the picker's standing labels already agree with
-    // whatever the report is about to claim.
     await load();
     setBusy(false);
 
@@ -553,8 +450,6 @@ export default function SharingPage() {
       return;
     }
     const names = ids.map((id) => plainNameById.get(id) ?? id);
-    // A request exposes nothing, so this is not the permissions warning the grant side gets — it is
-    // a guard against one "Select all" quietly putting a request in front of every colleague at once.
     if (ids.length >= BULK_CONFIRM_AT) {
       const ok = await confirm({
         title: `Send ${plural(ids.length, "access request")}?`,
@@ -589,8 +484,6 @@ export default function SharingPage() {
     }
     const names = grantGranteeIds.map((id) => plainNameById.get(id) ?? id);
     if (grantGranteeIds.length >= BULK_CONFIRM_AT) {
-      // Red, not amber, in the two cases that are not merely consequential: handing several people
-      // the maximum tier over everything, and any action that destroys access somebody already has.
       const severe = reductions.length > 0 || (grantTier === "EDIT" && grantScopeAll);
       const ok = await confirm({
         title: `Grant ${grantTier} to ${plural(grantGranteeIds.length, "colleague")}?`,
@@ -625,8 +518,6 @@ export default function SharingPage() {
 
   async function decide(grant: DataAccessGrant, status: "GRANTED" | "DENIED", tier?: DataAccessTier) {
     const who = grant.grantee?.name ?? grant.granteeId;
-    // Denying is reversible — the requester can ask again, and the owner can grant later — so this is
-    // amber rather than red. Granting needs no confirmation at all.
     if (status === "DENIED") {
       const ok = await confirm({
         title: "Deny this request?",
@@ -672,8 +563,6 @@ export default function SharingPage() {
     await act(() => apiFetch(`/data-access/grants/${grant.id}/revoke`, { method: "POST" }), "Access revoked.");
   }
 
-  // Destructive on both sides of the table: as owner it deletes a denied/revoked row, as grantee it
-  // withdraws a pending request or drops access already held. Confirm before it fires.
   async function remove(grant: DataAccessGrant) {
     const ok = await confirm({
       ...deleteConfirm(
@@ -694,11 +583,9 @@ export default function SharingPage() {
         files: Array<{ path: string; url?: string | null; content?: string | null }>;
         totalFiles: number;
         totalMedia: number;
-        /** The server hit a per-table row cap: this archive is a prefix of the data, not all of it. */
         truncated?: boolean;
       }>(`/export/dataset?ownerId=${encodeURIComponent(ownerId)}`);
       capped = Boolean(manifest.truncated);
-      // Assemble a real zip in the browser: text entries inline, media fetched from storage.
       const { default: JSZip } = await import("jszip");
       const zip = new JSZip();
       const failed: string[] = [];
@@ -731,8 +618,6 @@ export default function SharingPage() {
       const blob = await zip.generateAsync({ type: "blob" });
       saveBlobToDevice(blob, `data-${ownerLabel.replace(/[^A-Za-z0-9]+/g, "_")}.zip`);
     }, "Download ready.");
-    // Said AFTER `act`, which writes its own success message last. A partial archive that presents
-    // itself as complete is worse than a failed one, because nobody goes back for the rest.
     if (capped) {
       setMessage(
 `Downloaded — some of ${ownerLabel}’s records aren’t included.`
@@ -756,7 +641,6 @@ export default function SharingPage() {
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {message ? <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</div> : null}
 
-      {/* Tier definitions, shown so a user knows exactly what each tier confers. */}
       <section className="panel mb-5 p-4">
         <h2 className="font-display font-bold text-lg text-ink">Access tiers</h2>
         <ul className="mt-2 grid gap-2 md:grid-cols-3">
@@ -769,7 +653,6 @@ export default function SharingPage() {
         </ul>
       </section>
 
-      {/* Request access from one or more researchers. */}
       <section className="panel mb-5 p-4">
         <h2 className="font-display font-bold text-lg text-ink">Request access to researchers&apos; data</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-[2fr_1.4fr_2fr_auto] md:items-end">
@@ -782,17 +665,12 @@ export default function SharingPage() {
                 placeholder="Select…"
                 ariaLabel="Researchers to request access from"
                 disabled={busy}
-                // No Confirm button inside the panel: the real commit is the Request button sitting
-                // beside it, and two buttons that both look like "done" on a permissions form is how
-                // someone sends the wrong thing. Clicking Request closes the panel and fires in one
-                // press, so single-person use is no slower than the old single select.
                 confirmOnSelect={false}
               />
             ) : (
               <TextInput value={reqOwnerText} onChange={(e) => setReqOwnerText(e.target.value)} placeholder="Researcher ID" />
             )}
           </Field>
-          {/* Single-select on purpose: the tiers are a ladder, not a set. See TIER_RANK. */}
           <Field label="Tier">
             <Select value={reqTier} onChange={(e) => setReqTier(e.target.value as DataAccessTier)}>
               <option value="DOWNLOAD">{TIER_LABEL.DOWNLOAD}</option>
@@ -807,8 +685,6 @@ export default function SharingPage() {
             Request
           </button>
         </div>
-        {/* Below the button row, never above it: this block grows and shrinks with the selection, and
-            a control that moves between the press and the release is a control that misses. */}
         <p className="mt-3 rounded-md border border-line-200 bg-field-50 px-3 py-2 text-sm font-medium text-ink-900">
           {progressLine("request") ?? requestSentence}
         </p>
@@ -820,7 +696,6 @@ export default function SharingPage() {
         ) : null}
       </section>
 
-      {/* Grant access directly — owner shares all, or a chosen subset, of their own data. */}
       <section className="panel mb-5 p-4">
         <h2 className="font-display font-bold text-lg text-ink">Grant access to your data</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-[2fr_1.4fr_auto] md:items-end">
@@ -835,7 +710,6 @@ export default function SharingPage() {
               confirmOnSelect={false}
             />
           </Field>
-          {/* Single-select on purpose: the tiers are a ladder, not a set. See TIER_RANK. */}
           <Field label="Tier">
             <Select value={grantTier} onChange={(e) => setGrantTier(e.target.value as DataAccessTier)}>
               <option value="DOWNLOAD">{TIER_LABEL.DOWNLOAD}</option>
@@ -910,7 +784,6 @@ export default function SharingPage() {
         ) : null}
       </section>
 
-      {/* Incoming: requests and grants on MY data. */}
       <section className="panel mb-5 overflow-hidden">
         <div className="border-b border-line-200 p-4">
           <h2 className="font-display font-bold text-lg text-ink">Access to your data</h2>
@@ -962,7 +835,6 @@ export default function SharingPage() {
         )}
       </section>
 
-      {/* Outgoing: access I hold on others' data. */}
       <section className="panel overflow-hidden">
         <div className="border-b border-line-200 p-4">
           <h2 className="font-display font-bold text-lg text-ink">Your access to others&apos; data</h2>

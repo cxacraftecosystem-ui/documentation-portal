@@ -1,21 +1,5 @@
 "use client";
 
-/**
- * `CraftSelect` — the one way to pick a craft on the web (REQUIREMENTS_2026-10-20 §2.4).
- *
- * Byte-identical in designer-portal and documentation-portal; a parity test in each repo pins it.
- *
- * - Options come only from `GET /crafts/catalogue` (`lib/craftCatalogue.ts`). Nothing typed is ever
- *   submitted: the text box searches, a pick submits the craft's id.
- * - Grouped under "Category › Sub-category"; each row shows the name, a GI badge, and the states of
- *   practice in muted text.
- * - Search folds case and accents over name, slug, aliases, states and sub-category, ranked by
- *   `appSearchScore` (`craftSearchScore`).
- * - Keyboard-complete: arrows move, Enter picks, Escape closes. Single and multi modes.
- * - With `name`, a zero-size text mirror submits the id(s) and carries `required` into native
- *   validation (a hidden input is exempt from it).
- */
-
 import { Check, ChevronDown, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
@@ -35,25 +19,18 @@ import { cn } from "@/lib/utils";
 
 type CraftSelectCommon = {
   id?: string;
-  /** Submitted through FormData: the craft id (single) or one entry per id (multi). */
   name?: string;
   required?: boolean;
   disabled?: boolean;
   placeholder?: string;
   ariaLabel?: string;
-  /** Ids of the visible label(s) naming this control. */
   labelledBy?: string;
   describedBy?: string;
   className?: string;
-  /** Show "Add it to the list" under a search with no match (`canManageCrafts`). */
   canAddCraft?: boolean;
-  /** Runs before "Add it to the list" leaves for `/crafts?new=…` — save the form draft here. */
   onBeforeAddCraft?: (query: string) => void;
-  /** A themed control fires no native input event; forms mark themselves dirty from this. */
   onDirty?: () => void;
-  /** Names for ids not on the list (a LEGACY craft an old record still points at). */
   fallbackLabels?: Record<string, string>;
-  /** Offer only these crafts (a filter narrowed by a workshop's own crafts). Absent = every craft. */
   allowedIds?: readonly string[];
 };
 
@@ -115,7 +92,6 @@ export function CraftSelect(props: CraftSelectProps) {
     return found.filter((craft) => allowed.has(craft.id));
   }, [catalogue, query, allowedIds]);
   const groups = useMemo(() => (catalogue ? groupCrafts(catalogue, matches) : []), [catalogue, matches]);
-  // The flat order the arrows walk: the order the groups draw. `start` is each group's first index.
   const flat = useMemo(() => groups.flatMap((group) => group.crafts), [groups]);
   const groupStarts = useMemo(() => {
     const starts: number[] = [];
@@ -132,12 +108,10 @@ export function CraftSelect(props: CraftSelectProps) {
   const labelFor = (craftId: string) => index?.byId.get(craftId)?.name ?? fallbackLabels?.[craftId] ?? "Craft not on the list";
   const singleLabel = !multiple && selectedIds[0] ? labelFor(selectedIds[0]) : "";
 
-  // Native validation speaks the contract's sentence, not the browser's "fill in this field".
   useEffect(() => {
     mirrorRef.current?.setCustomValidity(required && selectedIds.length === 0 ? CRAFT_NOT_IN_LIST : "");
   }, [required, selectedIds.length]);
 
-  // Keep the highlighted row in view as the arrows move it.
   useEffect(() => {
     if (!open || active < 0) return;
     const node = listRef.current?.querySelector<HTMLElement>(`[data-craft-index="${active}"]`);
@@ -207,7 +181,6 @@ export function CraftSelect(props: CraftSelectProps) {
     }
     if (event.key === "Enter") {
       if (!open) return;
-      // Enter belongs to the list while it is open: it must never submit the form or walk focus.
       event.preventDefault();
       event.stopPropagation();
       if (active >= 0) pick(flat[active]);
@@ -231,7 +204,6 @@ export function CraftSelect(props: CraftSelectProps) {
   return (
     <div
       className={cn("relative min-w-0", className)}
-      // Typing to search is not an edit: keep the form's dirty tracking and Enter-walker out of it.
       onInput={(event) => event.stopPropagation()}
     >
       <div
@@ -292,7 +264,6 @@ export function CraftSelect(props: CraftSelectProps) {
           }}
           onClick={openList}
           onKeyDown={onKeyDown}
-          // A form that walks focus on Enter reads this attribute and skips the field.
           data-craft-select=""
           className="min-w-[8rem] flex-1 border-0 bg-transparent p-0 text-sm text-ink-900 outline-hidden placeholder:text-ink-300"
         />

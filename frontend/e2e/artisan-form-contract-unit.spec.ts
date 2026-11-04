@@ -13,13 +13,6 @@ import {
   missingArtisanDatesSentence
 } from "@/lib/artisanFormContract";
 
-/**
- * The web half of the artisan form contract (2026-10-17), against `shared/artisan-form-contract.json`
- * — the one table both portals carry byte for byte, which the server and the handset also run. The
- * server's `test_artisan_form_contract.py` reads `ArtisanForm.tsx` itself for the labels, their order
- * and the retired words; this file proves the sentence, the key and the month rows. No browser.
- */
-
 type Vector = { dateOfBirth: string | null; craftStartDate: string | null; sentence: string | null };
 
 const contract = JSON.parse(

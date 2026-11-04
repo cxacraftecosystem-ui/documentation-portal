@@ -5,25 +5,6 @@ import { CalendarDays, Clock, FileText, Hash, Languages, MapPin, Mic, User, User
 import { displayChips, sessionChips, type ChipFilter, type ChipKind, type DisplayChip, type RecordingChips as Chips } from "@/lib/questionnaire/chips";
 import { isChipActive, type Filters } from "@/lib/questionnaire/filters";
 
-/**
- * A recording's chips (owner, 31 Oct 2026): section or question, form, who answered (present-only
- * marked, "+N" past two), the day (and the capture day when it differs, "estimated" when either
- * is), the workshop, the language and the duration. REUSABLE: any screen that shows a take — the
- * transcript viewer's header included — drops it in with the server's `chips` object.
- *
- * Props:
- * - `chips`     the server's `chips` (a recording's, a session's or an inbox row's); null draws nothing.
- * - `onChip`    called with a chip's filter (and the chip, for its label) when it is tapped. Absent →
- *               the chips are plain text.
- * - `filters`   the filters in force, so an applied chip reads as active (`aria-pressed`).
- * - `variant`   "recording" (default) or "session" (no target, no duration).
- * - `size`      "sm" (default, list rows) or "md" (a sheet or viewer header).
- * - `maxTargets`, `maxPeople`  override the shared two-and-"+N" caps; `people={false}` leaves the
- *               people out where the screen lists them beside the chips.
- * - `className` extra classes on the wrapper.
- *
- * Imports only `lucide-react` and the shared chip/filter modules, so it is safe in any tree.
- */
 export type RecordingChipsProps = {
   chips: Chips | null | undefined;
   onChip?: (filter: ChipFilter, chip: DisplayChip) => void;

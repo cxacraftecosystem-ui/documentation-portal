@@ -78,6 +78,8 @@ variable is absent; a blank default means the app **refuses to start** without i
 | `TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS` | No | empty | **Yes** | Comma-separated keys in the same format that still OPEN secrets sealed with them. Rotation: new key in `TWO_FACTOR_ENCRYPTION_KEY`, old one here, restart; each secret moves to the new key the next time it is used, or all at once with `python -m scripts.reencrypt_two_factor_secrets --apply` (a dry run without `--apply`; idempotent). Drop the old key once a dry run says `would move: 0` and `unreadable: 0`. Legacy `v1` secrets are always read with the `JWT_SECRET`-derived key. |
 | `AADHAAR_FINGERPRINT_KEY` | **Yes, to store or match an Aadhaar** | — | **Yes** | HMAC key the artisan register fingerprints Aadhaar numbers under (`app/services/aadhaar_fingerprint.py`): 32 random bytes, base64 (`python -c "import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())"`). **The same value as the designer portal's**, so the two registers match. Unset or under 32 characters: any write or lookup carrying an Aadhaar answers 503. Never rotate it without re-entering every number; losing it makes every stored fingerprint unmatchable. Actions secret `AADHAAR_FINGERPRINT_KEY` (pinned onto the box by `deploy-backend.yml`), SSM backup `/iit/shared/aadhaar-fingerprint-key`. |
 | `TRUSTED_PROXY_HOPS` | No | `2` | No | How many proxies of ours append to `X-Forwarded-For` (CloudFront, then nginx). The per-client limits key on the entry the outermost wrote. Safe only while the box admits ports 80 and 443 from CloudFront's origin-facing prefix list alone (the CloudFront lock); `1` on any box reachable directly. Pinned by `deploy-backend.yml`: 2 when the box does not answer the runner directly, 1 when it does. |
+| `DATASET_TOKEN_EXPIRES_MINUTES` | No | `43200` (30 days) | No | Lifetime of a `dataset:read` token from `POST /api/datasets/token`. Longer than a session token because it is narrower: it reads the dataset API and nothing else, and it is held by a cron job nobody re-authenticates by hand. Revoke it by demoting or deleting the account it names. |
+| `WEB_PROXY_SECRET` | No | unset | **Yes** | Shared with the web app's server (`frontend/proxy.ts`), which sends the visitor's address in `X-Viewer-Address` beside it; the rate limits believe that address only when the secret matches. Unset: the header is ignored. Backup in SSM `/iit/documentation-portal/web-proxy-secret`. |
 | `SECRETS_ENCRYPTION_KEY` | No | unset → derived from `JWT_SECRET` | **Yes** | Fernet key encrypting the runtime-editable provider keys stored in `ManagedSecret` (`app/services/managed_secrets.py`). Left unset it is derived deterministically from `JWT_SECRET`, which is why the feature needs no setup — but it also means **rotating `JWT_SECRET` makes every stored secret undecryptable** and each one has to be re-entered in the Settings hub. Set it explicitly *before* you ever rotate. Accepts a Fernet key or any high-entropy passphrase. |
 
 ### Authenticated-identity cache
@@ -95,7 +97,7 @@ authorisation decisions read, so the TTL is a revocation window.
 |---|---|---|---|---|
 | `AUTH_USER_CACHE_ENABLED` | No | `true` | No | `false` restores one query per request. **This is the kill switch**: if the cache is ever suspected of serving a stale role during an incident, this reverts the behaviour with a restart and no deploy. |
 | `AUTH_USER_CACHE_TTL_SECONDS` | No | `5.0` | No | Seconds, and deliberately single-digit. Writes *this process* makes invalidate explicitly and have no window at all; the TTL is only the backstop for writes it cannot see — a `psql` session, the seed script, another worker. Every second added here is a second a demoted or deleted account keeps working after such a write. |
-| `AUTH_USER_CACHE_MAX_ENTRIES` | No | `512` | No | LRU ceiling. A cached row is the `User` model's scalar columns, order 1 KB, so 512 identities is well under a megabyte on a 1 GiB box. |
+| `AUTH_USER_CACHE_MAX_ENTRIES` | No | `512` | No | LRU ceiling. A cached row is the `User` model's scalar columns, order 1 KB, so 512 identities is well under a megabyte. |
 
 ### API schema exposure
 
@@ -145,6 +147,8 @@ Emitted by `app.main.SecurityHeadersMiddleware`. Defaults are correct for local 
 | `YAHOO_CLIENT_SECRET` | With the above | unset | **Yes** | Client Secret (Consumer Secret) of that app. Yahoo's token endpoint accepts nothing but a secret, which is why the code is redeemed here and never on a phone or in a browser. |
 | `MASTER_ADMIN_EMAIL` | **Yes** | — | No | Google account permanently at `MASTER_ADMIN` (rank 60). The app will not start without it. |
 | `MASTER_ADMIN_NAME` | No | `Ankit Kumar` | No | Display name for that account. |
+| `ACCESS_ROSTER_ENFORCED` | No | `true` | No | **A kill switch, never a feature flag.** The sign-in gate refuses everybody not on the access roster. If the roster's back-fill ever missed somebody in production, `false` plus a restart restores the behaviour from before the gate while an admin repairs the roster. Off means any verified Google address on earth gets an account and a token. |
+| `ACCESS_ROSTER_MAX_PENDING` | No | `2000` | No | Ceiling on PENDING roster rows. A pending row is written by an unauthenticated caller who proved a mailbox, so the queue is bounded: at the cap new addresses are refused with the same sentence as everyone else and nothing is stored, while addresses already on the roster keep working. |
 | `DEFAULT_SIGNUP_ROLE` | No | `CROWDSOURCE_VOLUNTEER` | No | Tier given to brand-new self-registered Google accounts on the six-tier ladder. Set `RESEARCHER` to restore the old open-signup behaviour. |
 
 ### Speech-to-text and AI (all optional)
@@ -160,10 +164,14 @@ uploads still succeed — transcripts and grid measurements simply stay empty.
 | `DEEPGRAM_STT_MODEL` | No | `nova-3` | No | |
 | `OPENAI_API_KEY` | No | unset | **Yes** | Primary role is transcript **refinement/translation**; only transcribes when neither dedicated STT key is set (priority 3, Whisper). |
 | `OPENAI_TRANSCRIPTION_MODEL` | No | `whisper-1` | No | |
-| `OPENAI_CHAT_MODEL` | No | `gpt-4o-mini` | No | Rewrites raw transcripts into clean interviewer/interviewee dialogue. |
-| `GEMINI_API_KEY` | No | unset | **Yes** | Single legacy key for grid measurement. |
+| `OPENAI_CHAT_MODEL` | No | `gpt-6-luna` | No | GPT-6 Luna. Used for text jobs only when `AI_TEXT_PROVIDER=OPENAI`, or when a person runs their own OpenAI key. GPT-5, GPT-6 and o-series models are sent no `temperature`. |
+| `ANTHROPIC_API_KEY` | No | unset | **Yes** | The deployment's Claude key. Used for text jobs only when `AI_TEXT_PROVIDER=ANTHROPIC`; the model comes from the catalogue in `app/services/ai_providers.py` (default `claude-sonnet-5-5`, Claude Sonnet 5.5), never from a variable. |
+| `AI_TEXT_PROVIDER` | No | `GEMINI` | No | Which deployment key runs the text jobs (proofread, expand, summarise, translate, captions, refine, answer drafts, transcript summaries): `GEMINI` (3.8 Flash, falling back to 3.7 Flash on a 404), `OPENAI` or `ANTHROPIC`. A person's own key still runs their own choice. Transcription keeps its own provider order. |
+| `GEMINI_API_KEY` | No | unset | **Yes** | The deployment's Gemini key: transcript translation and insights, Ask, autodraft, quote cards, refine, the text verbs and grid measurement. Written into the release `.env` by the pin in `deploy-backend.yml`, never by hand. |
 | `GEMINI_API_KEYS` | No | `""` | **Yes** | Any number of comma- or newline-separated keys; the worker rotates and fails over across them. Combined with `GEMINI_API_KEY` and de-duplicated. |
-| `GEMINI_MEASUREMENT_MODEL` | No | `gemini-2.5-flash-lite` | No | Pin an id that still exists — `gemini-1.5-flash` now 404s. |
+| `GEMINI_MEASUREMENT_MODEL` | No | `gemini-3.8-flash` | No | Grid measurement and photo captions. A configured model that answers 404 falls back to `gemini-3.7-flash`. A box that sets it keeps its own value. |
+| `META_MODEL_API_KEY` | No | unset | **Yes** | Meta Muse Voice Transcribe, the fourth speech-to-text provider. Ships disabled (`AppSetting.sttProvidersDisabled` holds `muse`) until its processing location is accepted. |
+| `MUSE_STT_MODEL` | No | `muse-voice-transcribe-1.0` | No | |
 | `NEXT_PUBLIC_MAPTILER_API_KEY` | No | unset | No | Read by the backend only so one `.env` can feed both apps; the browser gets it from the frontend build. |
 
 > **`ELEVENLABS_STT_MODEL` defaults to `scribe_v2`** (since 31 Oct 2026; it used to read `scribe_v1`
@@ -186,6 +194,18 @@ with no restart. Full semantics: [ARCHITECTURE.md §6](ARCHITECTURE.md).
 | `MEDIA_QUEUE_INTERVAL_SECONDS` | No | `5.0` | No | Poll interval between queue sweeps. |
 | `MEDIA_QUEUE_BATCH_SIZE` | No | `3` | No | Jobs claimed per sweep. |
 | `MEDIA_QUEUE_JOB_MAX_ATTEMPTS` | No | `3` | No | Retries before a job is marked failed. Provider throttling (HTTP 429/503) requeues **without** burning an attempt. |
+| `MEDIA_QUEUE_INSIGHTS_CONCURRENCY` | No | `2` | No | The translation lane beside transcription (0.0.5): Gemini jobs in flight at once. |
+
+The transcription working directory is read by `backend/app/transcription/workdir.py`, not by
+`config.py`. Every temporary file a transcription makes (the S3 download, a video's extracted sound,
+chunks, Voice Isolator output) goes there and is deleted afterwards; the worker also sweeps files
+older than the stale limit, so a killed job cannot fill the disk (D37, fixed in 0.0.6).
+
+| Variable | Default | Notes |
+|---|---|---|
+| `TRANSCRIPTION_WORK_DIR` | `var/work` inside the backend directory, else the system temp directory | Created mode 700. |
+| `TRANSCRIPTION_WORK_DIR_MAX_MB` | `2048` | A job that would pass it fails with "Transcription working directory is full" instead of filling the disk. |
+| `TRANSCRIPTION_WORK_STALE_MINUTES` | `180` | Files older than this are swept. |
 
 ### E-mail (Amazon SES)
 
@@ -330,17 +350,17 @@ the box `.env` and an SSM SecureString backup. Then run `python -m scripts.backf
 |---|---|---|---|---|
 | `AI_ANSWER_DRAFTS_ENABLED` | No | **`false`** | No | Lets a researcher draft a section's unanswered questions from the interview's transcript. Drafts are inert until a person accepts or edits the section; accepted answers carry `answerOrigin` `MACHINE_SUGGESTED` / `MACHINE_SUGGESTED_EDITED` and are labelled "Machine-suggested". Runs on the researcher's own AI key or the deployment's (the keys above). Off: every `/api/questionnaire/*/drafts` route answers 404. |
 
-### Questionnaire v2 — shipped dark
+### Questionnaire v2 — on
 
 The redesign of `C:/dev/IIT/docs/questionnaire/DESIGN_2026-10-18.md` (sessions, recordings, computed
-coverage, canonical answers). Off: every v2 route answers 404, `POST /api/questionnaire/interviews`
+coverage, canonical answers). On by default and on in production since 0.0.3 (23 Oct 2026). Off: every v2 route answers 404, `POST /api/questionnaire/interviews`
 and `/api/media/complete` behave exactly as before, and `GET /api/questionnaire/config` tells both
 clients to draw the old screens. The consent routes (`/api/artisans/{id}/consent`) and the
 transcription pause work either way. See `docs/questionnaire/API.md`.
 
 | Variable | Required | Default | Secret | Notes |
 |---|---|---|---|---|
-| `QUESTIONNAIRE_V2` | No | **`false`** | No | The switch. The owner turns it on after the legacy backfill has been applied (rollout steps 3 and 4). |
+| `QUESTIONNAIRE_V2` | No | **`true`** | No | The switch. Turned on after the legacy backfill was applied (rollout steps 3 and 4); `false` is the way back. |
 | `QUESTIONNAIRE_MIN_ANDROID_VERSION_CODE_FOR_CREATE` | No | unset | No | Owner decision 5: once every active Android device runs the new build (plus 30 days; `GET /api/admin/app-versions` shows `accountsBelow`), set this to that build's **versionCode**. A session create from a lower `X-App-Version-Code`, or an Android build that sends none, then gets `503` + `Retry-After: 86400` and the update banner; its queued clips are always accepted. The version name is never compared (it was reset to 0.0.1 on 21 Oct 2026). |
 | `QUESTIONNAIRE_MIN_WEB_VERSION_CODE_FOR_CREATE` | No | unset | No | The same for the web, compared with the web's build number. A web request that sends no code is never refused (the page ships with the server). |
 
@@ -522,4 +542,5 @@ reference under `frontend/`, or a new workflow secret.
 
 **Known unverified:** every value stated as a *production* value — the bucket name, the region, the
 CloudFront hostname, the Vercel org and project ids — is recorded from a deployment, not read from
-code. They are correct as of 2026-07-27 to the extent the deployment has not changed under them.
+code. The CloudFront host answered `/health` and `/health/ready` on 2026-11-04; the rest are correct
+as of 2026-07-27 to the extent the deployment has not changed under them.

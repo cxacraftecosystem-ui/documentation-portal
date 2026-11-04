@@ -8,16 +8,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * The search panel's pure rules — ranking, grouping, de-duplication, recents — and the role filter
- * on the screens it offers. Shared verbatim, package line aside, by both portals' Android apps.
- */
 class AppSearchTest {
 
     private fun item(group: AppSearchGroup, key: String, title: String, keywords: List<String> = emptyList()) =
         AppSearchItem(group, key, title, Icons.Filled.Star, keywords = keywords) {}
-
-    // ── appSearchScore ─────────────────────────────────────────────────────────────────────────
 
     @Test
     fun `scores exact, prefix, word prefix, substring and other in that order`() {
@@ -33,8 +27,6 @@ class AppSearchTest {
         assertEquals(0, appSearchScore("  Map ", " MAP"))
         assertEquals(4, appSearchScore("Map", "   "))
     }
-
-    // ── groupAppSearchResults ──────────────────────────────────────────────────────────────────
 
     @Test
     fun `groups come out in the fixed order and empty groups are left out`() {
@@ -85,8 +77,6 @@ class AppSearchTest {
         assertEquals(1, sections.first { it.group == AppSearchGroup.CRAFTS }.items.size)
     }
 
-    // ── appSearchLocalMatch ────────────────────────────────────────────────────────────────────
-
     @Test
     fun `local items match on title, subtitle or keyword, never on a blank query`() {
         val theme = item(AppSearchGroup.SETTINGS, "theme", "Theme", keywords = listOf("dark mode"))
@@ -95,8 +85,6 @@ class AppSearchTest {
         assertFalse(appSearchLocalMatch(theme, "font"))
         assertFalse(appSearchLocalMatch(theme, " "))
     }
-
-    // ── recents ────────────────────────────────────────────────────────────────────────────────
 
     @Test
     fun `a recent search goes to the front, once, and the list is capped`() {
@@ -114,8 +102,6 @@ class AppSearchTest {
     fun `removing a recent search ignores case`() {
         assertEquals(listOf("indigo"), removeRecentSearch(listOf("Bagru", "indigo"), "bagru"))
     }
-
-    // ── quick return ───────────────────────────────────────────────────────────────────────────
 
     private val header = 150
     private val hideAfter = 60f
@@ -178,11 +164,8 @@ class AppSearchTest {
         assertTrue(QUICK_RETURN_SLIDE_MS > 0)
     }
 
-    // ── screens follow the menu's role filter ──────────────────────────────────────────────────
-
     private fun user(role: String) = UserDto(id = "u-$role", email = "$role@example.org", name = role, role = role)
 
-    // Every tier this app's FieldPermissions ladder knows (six on the documentation portal).
     private val everyRole = listOf(
         "CROWDSOURCE_VOLUNTEER", "FIELD_CONTRIBUTOR", "RESEARCHER", "PROFESSOR", "ADMIN", "MASTER_ADMIN"
     )
@@ -211,8 +194,6 @@ class AppSearchTest {
         assertEquals(settings.size, opened)
         assertTrue(settings.any { appSearchLocalMatch(it, "dark mode") })
     }
-
-    // ── one search across both portals (docs/SEARCH.md) ───────────────────────────────────────
 
     @Test
     fun `clusters, transcripts and reports sit where the shared vocabulary puts them`() {

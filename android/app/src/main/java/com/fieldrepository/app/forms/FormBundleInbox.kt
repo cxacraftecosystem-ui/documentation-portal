@@ -6,16 +6,11 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import kotlinx.coroutines.flow.MutableStateFlow
 
-/**
- * A form another phone sent (A10): Quick Share, Bluetooth or a file manager opens this app with a
- * `.frwq` or `.dpwq`; the questionnaire screen shows P17 ("Received a form", Not now · Add).
- */
 object FormBundleInbox {
     data class Received(val bundle: FormBundle?, val refusal: String?, val fileName: String?)
 
     val pending = MutableStateFlow<Received?>(null)
 
-    /** Reads a VIEW or SEND intent that carries a form file; anything else is left alone. */
     fun take(context: Context, intent: Intent?): Boolean {
         intent ?: return false
         val uri: Uri = when (intent.action) {

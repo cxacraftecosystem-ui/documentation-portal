@@ -9,23 +9,8 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/**
- * Rigid and projective geometry: orientation fixes, perspective correction and the document-corner
- * detector that drives it.
- *
- * Two conventions hold throughout:
- *  - A pixel's coordinate is its **centre at integer (x, y)**, matching `GrayF.sampleBilinear`.
- *  - Positive rotation angles turn the image **clockwise on screen**, because y runs down. This is
- *    the same direction as `rotate90(+1)`, and disagreeing with it would make "rotate right" in the
- *    UI mean two different things depending on which function ran.
- */
 object Geometry {
 
-    /**
-     * Rotates by [quarterTurns] × 90° clockwise. Negative and out-of-range values wrap. Odd turn
-     * counts swap the dimensions. This is exact — no resampling — which is why every 90° case is
-     * routed here instead of through [rotate].
-     */
     fun rotate90(src: RgbaImage, quarterTurns: Int): RgbaImage {
         val q = ((quarterTurns % 4) + 4) % 4
         if (q == 0) return src.copy()
@@ -64,7 +49,6 @@ object Geometry {
         }
     }
 
-    /** Mirrors the image. Both flags together are the same as a 180° turn. Neither is a copy. */
     fun flip(src: RgbaImage, horizontal: Boolean, vertical: Boolean): RgbaImage {
         val w = src.width
         val h = src.height
@@ -84,16 +68,6 @@ object Geometry {
         return out
     }
 
-    /**
-     * Solves the homography mapping the four points of [srcQuad] (8 floats, x,y interleaved) onto
-     * [dstQuad], returned as 9 row-major coefficients with `h[8] = 1`.
-     *
-     * The 8×8 linear system is solved by Gauss–Jordan elimination with partial pivoting. A
-     * degenerate quad (three collinear corners, a zero-area quad) makes the system singular; rather
-     * than returning a matrix full of NaN that poisons every pixel downstream, the identity
-     * homography is returned. Callers get an untransformed image, which is visibly wrong and
-     * therefore fixable, instead of a blank one.
-     */
     fun solveHomography(srcQuad: FloatArray, dstQuad: FloatArray): DoubleArray {
         val identity = doubleArrayOf(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
         if (srcQuad.size < 8 || dstQuad.size < 8) return identity
@@ -148,15 +122,6 @@ object Geometry {
         return out
     }
 
-    /**
-     * Warps [src] through the homography [h] (source → destination, as produced by
-     * [solveHomography]) into an [outW]×[outH] image.
-     *
-     * The loop runs over **destination** pixels and samples the source through `h⁻¹`. Forward
-     * mapping is the classic mistake here: it scatters source pixels into the destination and
-     * leaves a lattice of unwritten holes wherever the transform expands. Destination pixels whose
-     * source falls outside the image are left fully transparent.
-     */
     fun warpPerspective(src: RgbaImage, h: DoubleArray, outW: Int, outH: Int): RgbaImage {
         val w = if (outW < 1) 1 else outW
         val hh = if (outH < 1) 1 else outH
@@ -180,8 +145,6 @@ object Geometry {
                         val invW = 1.0 / nw
                         op[row + x] = sampleArgb(src, (nx * invW).toFloat(), (ny * invW).toFloat())
                     }
-                    // Incremental step along the row: the projective map is affine in x, so one add
-                    // per coefficient replaces three multiplies per pixel.
                     nx += i0
                     ny += i3
                     nw += i6
@@ -191,23 +154,11 @@ object Geometry {
         return out
     }
 
-    /**
-     * Finds the four corners of a document-like quadrilateral in [src], returned as 8 floats
-     * (x,y interleaved, ordered TL,TR,BR,BL), or `null` when there is no confident candidate.
-     *
-     * Canny → largest edge component → convex hull → polygon approximation, accepting only a
-     * 4-vertex result that covers more than 15% of the frame. Both rejections matter: a 3- or
-     * 5-vertex hull means the page border was not closed, and a small quad is almost always a
-     * picture frame, a sticker or a shadow rather than the page.
-     */
     fun detectDocumentQuad(src: GrayF): FloatArray? {
         val w = src.width
         val h = src.height
         if (w < 8 || h < 8) return null
 
-        // Canny's median-based auto thresholds collapse to zero on a mostly-flat frame (the median
-        // gradient of a page on a plain background is 0), which marks every pixel as an edge. Otsu
-        // over the actual magnitude range does not have that failure mode.
         val blurred = Convolve.gaussianBlur(src, 1.4f)
         val magnitude = Convolve.gradients(blurred).magnitude()
         val range = magnitude.range()
@@ -216,8 +167,6 @@ object Geometry {
         val high = range.first + t * (range.second - range.first)
         val edges = EdgeCanny.detect(src, 1.4f, high * 0.4f, high)
 
-        // A page border broken by a highlight or a low-contrast corner otherwise splits into two
-        // components and the hull covers only half the page.
         val joined = Morphology.close(edges, 2)
         val labels = Components.label(joined, 8)
         if (labels.count < 1) return null
@@ -237,8 +186,6 @@ object Geometry {
         if (perimeter <= 0f) return null
         val frameArea = w.toFloat() * h.toFloat()
 
-        // Deterministic epsilon sweep from fine to coarse; the first approximation that lands on
-        // exactly four vertices wins. A fixed epsilon works on one image and not the next.
         var step = 0
         while (step < 20) {
             val eps = (0.010f + 0.005f * step) * perimeter
@@ -254,14 +201,6 @@ object Geometry {
         return null
     }
 
-    /**
-     * Reorders four corner points (8 floats) into TL, TR, BR, BL. Input in any rotation or winding
-     * is accepted; arrays that are not exactly 8 long are returned unchanged.
-     *
-     * Sorting by angle about the centroid rather than by the usual `min(x+y)` / `max(x-y)` corner
-     * rules: those rules pick the same point twice on a strongly rotated or sheared quad, and the
-     * resulting duplicate corner produces a singular homography.
-     */
     fun orderQuad(quad: FloatArray): FloatArray {
         if (quad.size != 8) return quad.copyOf()
         var cx = 0f
@@ -287,8 +226,6 @@ object Geometry {
             order[j + 1] = key
         }
 
-        // With y down, ascending atan2 walks the quad clockwise, so starting the cycle at the
-        // top-left corner yields TL, TR, BR, BL directly.
         var startPos = 0
         var best = Float.MAX_VALUE
         for (i in 0 until 4) {
@@ -308,15 +245,6 @@ object Geometry {
         return out
     }
 
-    /**
-     * Rotates by an arbitrary angle (clockwise, degrees) about the image centre with bilinear
-     * sampling. With [expand] the canvas grows to hold the whole rotated image; without it the
-     * canvas keeps the source size and the corners are cropped. Uncovered pixels are transparent.
-     *
-     * Exact quarter turns are routed to [rotate90]: resampling them is lossless in theory and
-     * visibly soft in practice, because bilinear taps at exactly .0 offsets still round-trip
-     * through float.
-     */
     fun rotate(src: RgbaImage, degrees: Float, expand: Boolean = true): RgbaImage {
         val w = src.width
         val h = src.height
@@ -361,11 +289,6 @@ object Geometry {
         return out
     }
 
-    // ---------------------------------------------------------------------------------------
-    // internals
-    // ---------------------------------------------------------------------------------------
-
-    /** Adjugate/determinant inverse of a row-major 3×3, or null when it is singular. */
     private fun invert3x3(m: DoubleArray): DoubleArray? {
         val a = m[4] * m[8] - m[5] * m[7]
         val b = m[5] * m[6] - m[3] * m[8]
@@ -386,11 +309,6 @@ object Geometry {
         )
     }
 
-    /**
-     * Bilinear ARGB sample, transparent outside the image. Interpolation is done on
-     * **premultiplied** channels: interpolating straight alpha pulls the (undefined) colour of
-     * fully transparent pixels into the result and haloes every cut-out edge with black.
-     */
     private fun sampleArgb(src: RgbaImage, fx: Float, fy: Float): Int {
         val w = src.width
         val h = src.height
@@ -434,15 +352,6 @@ object Geometry {
         )
     }
 
-    /**
-     * Convex hull of a mask's foreground, as x,y interleaved floats, or null for fewer than three
-     * distinct points.
-     *
-     * Only the leftmost and rightmost foreground pixel of each row is a hull candidate, so a
-     * 12 MP component contributes at most `2 · height` points instead of millions — the hull is
-     * identical either way, and this is the difference between a sort of 2 000 items and one of
-     * 2 000 000.
-     */
     private fun convexHullOf(mask: Mask): FloatArray? {
         val w = mask.width
         val h = mask.height
@@ -465,8 +374,6 @@ object Geometry {
         }
         if (np < 3) return null
         val pts = packed.copyOf(np)
-        // x in the high word, y in the low word, both non-negative: the natural long ordering is
-        // exactly the (x, then y) ordering monotone chain needs.
         java.util.Arrays.sort(pts)
 
         val n = pts.size
@@ -502,13 +409,6 @@ object Geometry {
         return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox)
     }
 
-    /**
-     * Douglas–Peucker approximation of a closed polygon, iterative with an explicit stack.
-     *
-     * The ring is re-based at its two most distant vertices before splitting, so both halves are
-     * plain ranges. Running DP straight through index 0 of a ring instead deletes the arbitrary
-     * start vertex and unrolls the polygon into a line.
-     */
     private fun approxPolyClosed(poly: FloatArray, epsilon: Float): FloatArray {
         val n = poly.size / 2
         if (n <= 4) return poly.copyOf()
@@ -575,7 +475,6 @@ object Geometry {
     ) {
         val span = to - from
         if (span < 2) return
-        // The stack holds disjoint ranges, so it can never exceed one entry per index in the span.
         val stack = IntArray(2 * span + 4)
         var sp = 0
         stack[sp++] = from
@@ -645,7 +544,6 @@ object Geometry {
         return total.toFloat()
     }
 
-    /** Signed shoelace area; the sign is the winding direction, so callers take the absolute value. */
     private fun polygonArea(poly: FloatArray): Float {
         val n = poly.size / 2
         if (n < 3) return 0f

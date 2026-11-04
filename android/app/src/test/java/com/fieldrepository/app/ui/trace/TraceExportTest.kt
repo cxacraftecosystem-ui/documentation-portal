@@ -16,19 +16,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * The export table, its arithmetic, its sentences, and the one claim about the vendored writers that
- * would otherwise be a paragraph nobody had checked.
- */
 class TraceExportTest {
 
-    /* ── The table against the engine's own enum ────────────────────────────────────────────── */
-
-    /**
-     * **TEN IS THE WHOLE OF `ExportFormat`: five offered plus five refused in writing.** The web could
-     * only assert this on its own side because its enum was behind a bundle; here the enum is on this
-     * module's compile classpath, so the bijection is checked directly.
-     */
     @Test
     fun everyEngineFormatIsEitherOfferedOrRefusedInWriting() {
         assertEquals(5, TRACE_EXPORT_FORMAT_COUNT)
@@ -43,7 +32,6 @@ class TraceExportTest {
         )
     }
 
-    /** Every offered row resolves to a format `:core-export` can actually write on its own. */
     @Test
     fun everyOfferedFormatIsOneTheEngineOrThePlatformCanWrite() {
         TRACE_EXPORT_FORMATS.forEach { row ->
@@ -56,7 +44,6 @@ class TraceExportTest {
         }
     }
 
-    /** The attachable list is DERIVED, never a second list that could go stale. */
     @Test
     fun theAttachableRowsAreDerivedFromTheTable() {
         assertEquals(TRACE_EXPORT_FORMATS.filter { it.attachable }, TRACE_ATTACHABLE_FORMATS)
@@ -69,8 +56,6 @@ class TraceExportTest {
         assertEquals(null, traceExportFormat("SVG"))
         assertEquals(null, traceExportFormat("tiff"))
     }
-
-    /* ── The claim about the vendored writers ───────────────────────────────────────────────── */
 
     private fun oneLineDocument(): VecDocument = VecDocument(
         width = 100f,
@@ -101,7 +86,6 @@ class TraceExportTest {
                 background = null,
                 dpi = TRACE_PNG_DPI,
                 precision = 2,
-                // The switch this whole section is about.
                 includeMetadata = false,
                 flattenLayers = false,
             ),
@@ -109,20 +93,6 @@ class TraceExportTest {
         Charsets.ISO_8859_1,
     )
 
-    /**
-     * **THE BRANDING CLAIM, CHECKED AGAINST THE WRITERS RATHER THAN ASSERTED IN PROSE.**
-     *
-     * `TRACE_EXPORT_ENGINE_NAME_SENTENCE` tells somebody that one of the five formats records the
-     * tracing library's name and the others do not. That is a claim about bytes in a file that reaches
-     * an archive, so it is read out of the writers here. SVG, PDF and DXF must be clean with
-     * `includeMetadata = false`; EPS must NOT be, because it writes its `%%Creator` outside that guard
-     * and no option removes it.
-     *
-     * The PNG is the fifth and cannot be checked on a desktop JVM — it leaves through
-     * `Bitmap.compress`, which is an Android stub here. It is clean because that encoder writes no text
-     * chunk and is given no dpi, which is a property of the platform call rather than of anything this
-     * app passes.
-     */
     @Test
     fun onlyTheEpsWriterStampsTheTracersNameWithMetadataOff() {
         assertFalse("SvgExport stamped a title with includeMetadata off", write(ExportFormat.SVG).contains("Offline Tracer"))
@@ -135,10 +105,6 @@ class TraceExportTest {
         )
     }
 
-    /**
-     * **AND THE PROVENANCE NOTE REACHES NONE OF THEM**, because `ExportOptions` has no title field. The
-     * sentence that says so is printed for all five; this is why.
-     */
     @Test
     fun thereIsNowhereForTheProvenanceNoteToGo() {
         val note = traceProvenanceNote("sheet-3.jpg", 412, 8100)
@@ -148,13 +114,10 @@ class TraceExportTest {
         assertTrue("The note is still built, for the seam and for the day a title exists", note.contains("sheet-3.jpg"))
     }
 
-    /** The layer name is load-bearing in exactly one format: a CAD operator assigns a tool by it. */
     @Test
     fun theDxfCarriesTheLayerName() {
         assertTrue(write(ExportFormat.DXF).contains("LINE_ART"))
     }
-
-    /* ── The PNG cap ────────────────────────────────────────────────────────────────────────── */
 
     @Test
     fun aDocumentInsideTheCapIsNotEnlarged() {
@@ -176,10 +139,6 @@ class TraceExportTest {
         assertEquals(TRACE_PNG_MAX_EDGE_PX, portrait.height)
     }
 
-    /**
-     * THE FLOOR OF ONE PIXEL IS NOT DECORATION: a 4096x3 document scales its short edge to 1.5, and a
-     * bitmap of height 0 throws inside a save.
-     */
     @Test
     fun noEdgeEverReachesZero() {
         val size = tracePngSize(4096, 3)
@@ -187,7 +146,6 @@ class TraceExportTest {
         assertEquals(TRACE_PNG_MAX_EDGE_PX, size.width)
     }
 
-    /** A non-positive dimension is read as 1 by the ordinary rule rather than by a special case. */
     @Test
     fun aDegenerateDocumentDoesNotDivideByZero() {
         val size = tracePngSize(0, 0)
@@ -204,8 +162,6 @@ class TraceExportTest {
         assertTrue("It names the remedy", note.contains("SVG"))
     }
 
-    /* ── Naming ─────────────────────────────────────────────────────────────────────────────── */
-
     @Test
     fun aDerivedNameKeepsThePhotographsStem() {
         assertEquals("sheet-3-line-art.svg", traceExportFileName("sheet-3.jpg", "svg"))
@@ -215,23 +171,12 @@ class TraceExportTest {
         )
     }
 
-    /** A path or a Uri segment: the last segment past either separator. */
     @Test
     fun aPathIsReducedToItsLastSegment() {
         assertEquals("sheet-line-art.svg", traceExportFileName("/storage/emulated/0/DCIM/sheet.jpg", "svg"))
         assertEquals("sheet-line-art.svg", traceExportFileName("C:\\pictures\\sheet.jpg", "svg"))
     }
 
-    /**
-     * A name carrying a colon produces a MediaStore insert that fails with a bare
-     * `IllegalArgumentException` after the whole file has already been built. A SPACE does not, and is
-     * kept — the web's rule, so the two clients name one file one way.
-     *
-     * A SLASH NEVER REACHES THE SANITISER AT ALL, and that is worth asserting rather than assuming: it
-     * is taken as a path separator by the segment extraction above, exactly as the web's rule starts
-     * from a `File.name`. So "Ikat/Bandha.jpg" is the file "Bandha.jpg" in a directory called "Ikat",
-     * which is what every filesystem on earth also thinks it is.
-     */
     @Test
     fun theSanitiserRemovesWhatMediaStoreRefusesAndKeepsTheSpace() {
         assertEquals("Ikat_Bandha-line-art.svg", traceExportFileName("Ikat:Bandha.jpg", "svg"))
@@ -252,7 +197,6 @@ class TraceExportTest {
         assertEquals(80 + "-line-art.svg".length, name.length)
     }
 
-    /** The split is raster-versus-vector: is this a picture OF the drawing, or the drawing. */
     @Test
     fun onlyTheRasterGetsTheOtherSuffix() {
         TRACE_EXPORT_FORMATS.forEach {
@@ -262,13 +206,6 @@ class TraceExportTest {
         assertEquals(TRACE_RENDER_SUFFIX, traceSaveSuffix(TRACE_EXPORT_FORMATS.first { it.id == "png" }))
     }
 
-    /* ── The background ─────────────────────────────────────────────────────────────────────── */
-
-    /**
-     * **THE PASS-THROUGH IS THE WHOLE RULE.** `background = null` means "leave the document alone" to
-     * the vector writers and "transparent" to the rasteriser, so an exporter that substituted null
-     * would produce a white PDF beside a transparent PNG for one drawing.
-     */
     @Test
     fun theExportBackgroundIsThePassThroughAndNothingElse() {
         assertEquals(null, traceExportBackground(null))
@@ -287,9 +224,6 @@ class TraceExportTest {
         assertEquals("Transparent", traceBackgroundLabel(null))
     }
 
-    /* ── The losses ─────────────────────────────────────────────────────────────────────────── */
-
-    /** The "yours to keep" sentence is always first, on every format, unconditionally. */
     @Test
     fun everyFormatLeadsWithWhatASavedCopyIsAndIsNot() {
         TRACE_EXPORT_FORMATS.forEach {
@@ -301,7 +235,6 @@ class TraceExportTest {
         }
     }
 
-    /** All five are silent about their source, so all five say so. */
     @Test
     fun everyFormatSaysItCannotRecordItsSource() {
         TRACE_EXPORT_FORMATS.forEach {
@@ -312,11 +245,6 @@ class TraceExportTest {
         }
     }
 
-    /**
-     * The crop sentence is keyed on the provenance sentence already being present rather than on a
-     * second list of ids — the question both answer is the same one, and a second list is the register
-     * that goes stale the day a sixth format is added.
-     */
     @Test
     fun theCropSentenceAppearsOnlyForATraceThatWasCropped() {
         val svg = TRACE_EXPORT_FORMATS.first { it.id == "svg" }
@@ -327,7 +255,6 @@ class TraceExportTest {
         )
     }
 
-    /** Only the EPS carries the branding sentence, because only the EPS carries the branding. */
     @Test
     fun onlyTheEpsRowWarnsAboutTheTracersName() {
         TRACE_EXPORT_FORMATS.forEach {
@@ -336,7 +263,6 @@ class TraceExportTest {
         }
     }
 
-    /** The PNG's cap is named when it bites and not when it does not. */
     @Test
     fun thePngCapIsNamedOnlyWhenItApplies() {
         val png = TRACE_EXPORT_FORMATS.first { it.id == "png" }
@@ -348,7 +274,6 @@ class TraceExportTest {
         assertTrue("An unknown size states the cap, which is the safe direction", capMentioned(0))
     }
 
-    /** The DXF carries no background at all, so it says the choice changes nothing in that file. */
     @Test
     fun theDxfSaysTheBackgroundChoiceDoesNothingToIt() {
         val dxf = TRACE_EXPORT_FORMATS.first { it.id == "dxf" }
@@ -366,11 +291,6 @@ class TraceExportTest {
         assertFalse(traceExportLosses(svg, 0xFFFFFFFF.toInt()).any { it.contains("page shows through") })
     }
 
-    /**
-     * The two sentences about where a file goes are DIFFERENT sentences, because two different files
-     * have two different fates. Saying "yours to keep" of the attached one would be false in the other
-     * direction.
-     */
     @Test
     fun theSavedCopyAndTheAddedCopyAreDescribedSeparately() {
         assertNotEquals(TRACE_EXPORT_KEEP_SENTENCE, TRACE_ATTACH_SENTENCE)

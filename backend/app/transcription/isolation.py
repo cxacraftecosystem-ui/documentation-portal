@@ -1,14 +1,3 @@
-"""ElevenLabs Voice Isolator: one recording in, the same recording with the background removed out.
-
-IDENTICAL IN BOTH PORTALS (``shared/transcription.sha256``). Pure transport: no database, no S3.
-``services/audio_isolation.py`` decides whether to send, re-reads consent, and stores the result.
-
-Scribe v2 transcribes; it does not clean audio. Noise removal is this separate endpoint, billed
-separately by ElevenLabs, and it is switched OFF unless an administrator turns it on in Settings.
-The key is the portal's own ``ELEVENLABS_API_KEY``; a key restricted to speech-to-text answers 401
-``missing_permissions`` here, which is reported as a key that needs the Voice Isolator permission.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -40,7 +29,6 @@ MESSAGES = {
     KEY: "ElevenLabs didn't accept the key. An administrator can check it in Settings.",
     REJECTED: "ElevenLabs couldn't clean this recording.",
 }
-#: Seconds to wait before asking again; a kind not here does not clear by itself.
 HOLD_SECONDS = {THROTTLED: 300, UNREACHABLE: 300, BILLING: 1800}
 
 
@@ -76,7 +64,6 @@ def isolate(
     send: Callable[..., Any] = requests.post,
     timeout: float = TIMEOUT_SECONDS,
 ) -> Isolated:
-    """POST the file at ``path``; the cleaned audio, or :class:`IsolationError`. Never logs the key."""
     try:
         with open(path, "rb") as handle:
             response = send(
@@ -104,12 +91,10 @@ def isolate(
     raise IsolationError(FAILED, status=status)
 
 
-#: What the cleaned copy is stored as, by the type the isolator answered with.
 EXTENSIONS = {"audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/wav": "wav", "audio/x-wav": "wav", "audio/mp4": "m4a"}
 
 
 def cleaned_leaf(original_key: str, mime_type: str) -> str:
-    """The cleaned copy's file name: the original's own name, with the extension of what came back."""
     leaf = (original_key or "recording").rsplit("/", 1)[-1]
     stem = leaf.rsplit(".", 1)[0] if "." in leaf else leaf
     return f"{stem or 'recording'}.{EXTENSIONS.get(mime_type, 'mp3')}"

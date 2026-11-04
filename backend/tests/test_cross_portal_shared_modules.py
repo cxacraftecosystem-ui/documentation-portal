@@ -1,11 +1,3 @@
-"""The modules both portals carry byte for byte (docs/SEARCH.md).
-
-``services/cross_portal.py``, ``services/cross_portal_client.py``, ``services/cross_portal_peer.py``
-and ``services/search_embeddings.py`` are the same files in the designer portal and the Field Repository; a change to one is a change to
-both. Point ``CROSS_PORTAL_PEER_REPO`` at a checkout of the other repository to compare them (line
-endings normalised, as git stores them); without it the comparison skips and only the local rules run.
-"""
-
 from __future__ import annotations
 
 import os
@@ -38,7 +30,6 @@ def test_the_shared_module_matches_the_other_portal(name):
 
 @pytest.mark.parametrize("name", SHARED)
 def test_the_shared_module_names_no_portal_specific_module(name):
-    """What would stop the file being copied verbatim: an import only one portal has."""
     text = (HERE / name).read_text(encoding="utf-8")
     for line in text.splitlines():
         if line.startswith(("from app.", "import app.")):
@@ -46,6 +37,5 @@ def test_the_shared_module_names_no_portal_specific_module(name):
                 "app.core.config",
                 "app.core.db",
                 "app.services",
-                # Shared byte for byte with the designer portal too (shared/standard-values-vectors.json).
                 "app.services.standard_values",
             }, line

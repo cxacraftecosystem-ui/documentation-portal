@@ -1,29 +1,23 @@
-"""A queued recording through the shared transcription service: dedup first, then the chain.
-
-IDENTICAL IN BOTH PORTALS. ``media_queue`` calls :func:`transcribe_recording` for every
-TRANSCRIPTION job and for "Transcribe now"; everything that is the same in both portals lives here
-so the two queues cannot drift on it:
-
-* **The pause** (:func:`paused_result`): a held recording answers with a calm status, not an error.
-* **Dedup**: the recording's SHA-256 (``MediaFile.checksum`` when it is already a SHA-256, else
-  computed from the temp file and written back) plus the options hash. A cache hit copies the stored
-  transcript at no cost and is recorded as a zero-cost usage row.
-* **Throttles per job**: a provider that throttled this job ``THROTTLES_PER_JOB`` times is skipped
-  for it, so the job moves to the next provider instead of spinning.
-* **Language hint**: ``extraMetadata.languageHint`` on the recording, else its location's state.
-* **What is written**: segments, detected language and provider beside the transcript.
-"""
-
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
+import os
 import re
 from typing import Any
 
 from app.core.db import db
 from app.services import ai
 from app.services.transcription_store import PrismaTranscriptionStore, cached_result
-from app.transcription import dedup, languages, schedule, service
+from app.transcription import (
+    audio as transcription_audio,
+    dedup,
+    languages,
+    schedule,
+    service,
+    workdir,
+)
 from app.transcription.chain import THROTTLES_PER_JOB, UsageEvent
 from app.transcription.contract import AudioInput
 from prisma import Json
@@ -34,15 +28,11 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class TranscriptionPaused(Exception):
-    """Raised by "Transcribe now" while the pause is set; routes answer 409 with this sentence."""
-
     def __init__(self) -> None:
         super().__init__(schedule.PAUSED_MESSAGE)
 
 
 def paused_result() -> dict[str, Any]:
-    """What an inline dictation answers while paused: UNAVAILABLE, which both clients already
-    render as a calm message (and then fall back to on-device speech where they have it)."""
     return {
         "available": False,
         "status": "UNAVAILABLE",
@@ -51,6 +41,41 @@ def paused_result() -> dict[str, Any]:
         "formattedTranscript": None,
         "message": schedule.PAUSED_MESSAGE,
     }
+
+
+NO_SOUND_MESSAGE = "This video has no sound that could be read. Nothing was spent."
+
+
+def no_sound_result() -> dict[str, Any]:
+    return {
+        "available": False,
+        "status": "UNAVAILABLE",
+        "text": None,
+        "formattedTranscript": None,
+        "message": NO_SOUND_MESSAGE,
+    }
+
+
+def video_sound_name(filename: str) -> str:
+    stem = os.path.splitext(os.path.basename(filename or ""))[0] or "recording"
+    return f"{stem}{transcription_audio.VIDEO_AUDIO_SUFFIX}"
+
+
+async def _video_sound(source_path: str | None, content: bytes | None) -> str | None:
+    spill: str | None = None
+    if not source_path:
+        if not content:
+            return None
+        with workdir.named_file(prefix="transcription_source_") as handle:
+            handle.write(content)
+            spill = handle.name
+        source_path = spill
+    try:
+        return await asyncio.to_thread(transcription_audio.extract_to_workdir, source_path)
+    finally:
+        if spill is not None:
+            with contextlib.suppress(OSError):
+                os.remove(spill)
 
 
 def _value(record: Any, key: str) -> Any:
@@ -70,7 +95,6 @@ def skipped_providers(job: Any) -> set[str]:
 
 
 async def note_throttle(job: Any, provider: str | None) -> None:
-    """Count one throttle against *provider* on this job, in ``MediaProcessingJob.result``."""
     if not provider or job is None:
         return
     counts = throttle_counts(job)
@@ -84,7 +108,6 @@ async def note_throttle(job: Any, provider: str | None) -> None:
 
 
 async def language_hint(media: Any) -> list[str]:
-    """The recording's own hint first, else the language(s) its location's state suggests."""
     metadata = _value(media, "extraMetadata")
     if isinstance(metadata, dict):
         hint = metadata.get("languageHint")
@@ -130,11 +153,6 @@ async def transcribe_recording(
     job: Any = None,
     transcribe: Any = None,
 ) -> dict[str, Any]:
-    """Transcribe one stored recording. Never called while paused (callers check first).
-
-    ``transcribe`` is the portal's ``ai.transcribe_audio_bytes`` as the caller holds it, so a test
-    that replaces the queue's reference still intercepts the call.
-    """
     transcribe = transcribe or ai.transcribe_audio_bytes
     media_id = str(_value(media, "id"))
     filename = _value(media, "originalFilename") or "recording.webm"
@@ -167,8 +185,6 @@ async def transcribe_recording(
                     "could not record a cache hit for media %s (%s)", media_id, type(exc).__name__
                 )
             return result
-    # THE TRANSCRIPT PIPELINE (31 Oct 2026): this recording's own key terms (its artisans, its craft,
-    # the glossary heard for that craft, then the master list), at most 100, most specific first.
     from app.services import transcript_pipeline
 
     extra: dict[str, Any] = {}
@@ -177,19 +193,32 @@ async def transcribe_recording(
         terms = await transcript_pipeline.keyterms_for(media)
         if terms:
             extra["keyterms"] = terms
-    result = await transcribe(
-        content if not source_path else None,
-        filename,
-        mime_type,
-        settings,
-        source_path=source_path,
-        user_id=user_id,
-        media_id=media_id,
-        job_id=_value(job, "id"),
-        language_bias=bias,
-        skip_providers=skipped_providers(job) if job is not None else None,
-        **extra,
-    )
+    extracted: str | None = None
+    if transcription_audio.is_video(_value(media, "mediaType"), mime_type):
+        extracted = await _video_sound(source_path, content)
+        if extracted is None:
+            return no_sound_result()
+        source_path, content = extracted, None
+        filename = video_sound_name(filename)
+        mime_type = transcription_audio.VIDEO_AUDIO_MIME
+    try:
+        result = await transcribe(
+            content if not source_path else None,
+            filename,
+            mime_type,
+            settings,
+            source_path=source_path,
+            user_id=user_id,
+            media_id=media_id,
+            job_id=_value(job, "id"),
+            language_bias=bias,
+            skip_providers=skipped_providers(job) if job is not None else None,
+            **extra,
+        )
+    finally:
+        if extracted is not None:
+            with contextlib.suppress(OSError):
+                os.remove(extracted)
     if result.get("status") == "COMPLETED":
         await transcript_pipeline.store_transcription(media, result, keyterm_count=len(terms))
         await transcript_pipeline.check_budget()
@@ -228,7 +257,6 @@ async def transcribe_recording(
 
 
 def transcript_extras(result: dict[str, Any]) -> dict[str, Any]:
-    """The MediaFile columns the service adds beside ``transcriptText``, for a run that produced text."""
     if result.get("status") not in {"COMPLETED", "EMPTY"}:
         return {}
     extras: dict[str, Any] = {}

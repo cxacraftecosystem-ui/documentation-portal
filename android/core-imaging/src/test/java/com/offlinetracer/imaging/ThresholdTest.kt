@@ -5,10 +5,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** Binarisation (ALGORITHMS §6). */
 class ThresholdTest {
 
-    /** Half the pixels at [lo], half at [hi] — a histogram with exactly two spikes. */
     private fun twoDeltas(lo: Float, hi: Float, n: Int = 100): GrayF {
         val g = GrayF(n, 1)
         for (x in 0 until n) g[x, 0] = if (x < n / 2) lo else hi
@@ -68,8 +66,6 @@ class ThresholdTest {
 
     @Test
     fun adaptiveMeanOnAConstantImageIsAllForegroundBecauseOfC() {
-        // in > localMean - C, and on a constant image in == localMean, so a positive C makes every
-        // pixel foreground. Getting the sign of C wrong inverts the whole document.
         val src = GrayF(20, 20).fill(0.5f)
         val m = Threshold.adaptiveMean(src, 3, 0.02f)
         assertEquals(400, m.countTrue())
@@ -79,7 +75,6 @@ class ThresholdTest {
 
     @Test
     fun adaptiveMeanFindsInkUnderAStrongBackgroundGradient() {
-        // The case a global threshold cannot do: the darkest "paper" is darker than the lightest ink.
         val w = 40
         val src = GrayF(w, 12)
         for (y in 0 until 12) for (x in 0 until w) src[x, y] = 1f - 0.8f * x / (w - 1f)
@@ -101,7 +96,6 @@ class ThresholdTest {
 
     @Test
     fun sauvolaOnAConstantImageIsAllForeground() {
-        // s = 0, so T = m(1 + k(0/R - 1)) = m(1 - k) < m, and every pixel is above its own threshold.
         val src = GrayF(16, 16).fill(0.5f)
         assertEquals(256, Threshold.sauvola(src, 4, 0.2f).countTrue())
     }
@@ -135,8 +129,6 @@ class ThresholdTest {
 
     @Test
     fun hysteresisFloodsALongChainWithoutOverflowingTheStack() {
-        // The recursive form dies somewhere around a few tens of thousands of pixels; this is what
-        // the "explicit IntArray stack" requirement in §6 exists for.
         val n = 512
         val src = GrayF(n, n).fill(0.5f)
         src[0, 0] = 1f

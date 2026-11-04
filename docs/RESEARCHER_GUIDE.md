@@ -234,13 +234,17 @@ is information, not an error, and usually means exactly what it did above.
 - **There is one interview per exact set of artisans.** If an interview already exists for the people
   in front of you, saving adds your answers to it — it never creates a second one. This is what stops
   five researchers producing five half-filled interviews with the same person.
-- **Record, don't type.** Each question has a *"Record this question"* control. The audio is uploaded
-  and transcribed on the server automatically, so you get the artisan's own voice *and* searchable
-  text without typing during the conversation. Answer in the artisan's language; the system handles
-  Hindi/English code-switching, and transcripts can be refined into clean interviewer/interviewee
-  dialogue and translated.
-- **Transcription is not instant.** It is queued, and the queue deliberately waits for the server to
-  be idle. A transcript that has not appeared after an hour is normal; after a day, tell an admin.
+- **Record, don't type.** Each question has a *"Record this question"* control. Every take is
+  uploaded, transcribed (ElevenLabs Scribe v2) and translated turn by turn into English (Gemini), so
+  you get the artisan's own voice, their words as text *and* the English without typing during the
+  conversation. Answer in the artisan's language; Hindi/English code-switching is handled.
+- **Reading a transcript.** The words light up as the recording plays, the view follows along until
+  you scroll, and reading mode shows it as plain prose. You can copy or download it (Word, Markdown,
+  SRT or VTT), ask a question about it, or make a quote card.
+- **Transcription is not instant.** It is queued and runs as soon as the server reaches it, usually
+  within minutes. A transcript still "Queued" after a day, or one marked "Needs attention", is worth
+  telling an admin about. "Waiting for consent" means somebody in the recording has not agreed to it
+  being sent out, and nothing was sent.
 - **Answer only what was actually asked.** Empty questions stay open for whoever continues the
   interview later.
 - **A question somebody else answered is theirs.** You cannot overwrite it; an admin can.

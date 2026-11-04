@@ -13,14 +13,6 @@ import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useConfirm } from "@/components/dialogs";
 
-/**
- * Assignments grouped back into the action that created them.
- *
- * An admin thinks in the thing they did — "I gave the tool survey to five people" — not in the five
- * rows it became, so withdrawing it has to be one action too. Rows written before batching existed
- * (and single-assignee creates) come back with `batchId: null`; those are deleted one task at a time
- * through the task endpoint, which is why the delete below branches.
- */
 export function BatchList({
   batches,
   loading,

@@ -6,32 +6,10 @@ import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/**
- * The geometry primitives every vector stage speaks.
- *
- * **Coordinate convention.** Pixel centres sit on *integer* coordinates, matching
- * `GrayF.sampleBilinear`, which treats `floor(fx)` as the pixel index. A contour or centreline
- * vertex at `(3, 7)` is the centre of pixel `(3, 7)`, not its top-left corner. Every tracer, the
- * rasteriser and the SVG writer have to agree on this: if one of them assumes the half-pixel
- * offset the vector output drifts half a pixel against the preview, which reads as "the tracer is
- * slightly wrong" rather than as a convention mismatch and is very hard to find later.
- *
- * **Closed paths never repeat their first point.** `closed = true` means "there is an implicit
- * segment from the last anchor back to [VecPath.start]". Repeating the start as an explicit final
- * anchor is legal input (the tracers do not produce it, but SVG parsing can), and [VecPath.flatten]
- * drops the duplicate so downstream stages never see a zero-length segment.
- */
-
-/** A point in path space. Immutable so paths can be shared across the undo stack without copying. */
 data class VecPoint(val x: Float, val y: Float)
 
-/** One segment of a path, always ending at an on-curve anchor. */
 sealed interface VecSeg {
 
-    /**
-     * The on-curve anchor this segment ends at. Declared on the interface so the common
-     * "walk the anchors" loop does not need a `when` over three subtypes in a hot path.
-     */
     val to: VecPoint
 
     data class Line(override val to: VecPoint) : VecSeg
@@ -41,12 +19,6 @@ sealed interface VecSeg {
     data class Quad(val c: VecPoint, override val to: VecPoint) : VecSeg
 }
 
-/**
- * A single subpath: one start anchor plus a list of segments, optionally closed.
- *
- * @param strokeWidths optional per-anchor stroke width (index 0 = [start], index i+1 = the anchor
- *   ending `segments[i]`). `null` means "uniform width, take it from the style".
- */
 data class VecPath(
     val start: VecPoint,
     val segments: List<VecSeg>,
@@ -55,7 +27,6 @@ data class VecPath(
     val strokeWidths: FloatArray? = null,
 ) {
 
-    /** Anchors only — [start] followed by each segment's end point. Control points are not included. */
     fun points(): List<VecPoint> {
         val out = ArrayList<VecPoint>(segments.size + 1)
         out.add(start)
@@ -63,19 +34,6 @@ data class VecPath(
         return out
     }
 
-    /**
-     * The path as a polyline, curves subdivided **adaptively** until each piece is within
-     * [tolerance] of its chord.
-     *
-     * Adaptive and not a fixed step count on purpose: a fixed count over-tessellates a 2 px curve
-     * into dozens of collinear points that the simplifier then has to remove, and under-tessellates
-     * a 2000 px curve into a visible polygon. The subdivision uses an explicit stack with a hard
-     * depth cap, so a pathological (cusped, self-overlapping) curve degrades in smoothness rather
-     * than hanging.
-     *
-     * For a closed path the returned list does **not** repeat [start]; a trailing anchor that
-     * already coincides with [start] is dropped so the caller never sees a zero-length closing edge.
-     */
     fun flatten(tolerance: Float = 0.25f): List<VecPoint> {
         val out = ArrayList<VecPoint>(segments.size * 4 + 1)
         out.add(start)
@@ -83,8 +41,6 @@ data class VecPath(
 
         val tol = if (tolerance < MIN_FLATTEN_TOLERANCE) MIN_FLATTEN_TOLERANCE else tolerance
         val tolSq = tol * tol
-        // Allocated once per call, not once per segment: flatten() runs over every path in the
-        // document on every preview.
         val stack = FloatArray(8 * (FLATTEN_MAX_DEPTH + 2))
         val depths = IntArray(FLATTEN_MAX_DEPTH + 2)
 
@@ -102,9 +58,6 @@ data class VecPath(
                 }
 
                 is VecSeg.Quad -> {
-                    // Degree-elevate to a cubic so there is exactly one subdivision code path.
-                    // A separate quadratic flattener is a second place for the tolerance test to
-                    // drift out of agreement with the cubic one.
                     val c1x = cx + 2f / 3f * (s.c.x - cx)
                     val c1y = cy + 2f / 3f * (s.c.y - cy)
                     val c2x = s.to.x + 2f / 3f * (s.c.x - s.to.x)
@@ -127,16 +80,6 @@ data class VecPath(
         return out
     }
 
-    /**
-     * Tight bounding box as `[minX, minY, maxX, maxY]`.
-     *
-     * Curve extrema are solved analytically (the roots of the derivative), not approximated by the
-     * control polygon: a control-hull box is up to a third too large on a strongly curved segment,
-     * and the document bounds become the SVG `viewBox`, so a loose box shows as unexpected margin
-     * around every export.
-     *
-     * A path with no segments returns the degenerate box at [start].
-     */
     fun bounds(): FloatArray {
         var minX = start.x
         var minY = start.y
@@ -181,15 +124,6 @@ data class VecPath(
         return floatArrayOf(minX, minY, maxX, maxY)
     }
 
-    /**
-     * Every anchor and control point mapped through [m].
-     *
-     * [strokeWidths] are scaled by `sqrt(|det m|)` — the geometric mean of the two axis scales, and
-     * exactly 1 for any rigid motion. This is not cosmetic: the pipeline traces at working
-     * resolution and multiplies by `original / working` on export, so a width that did not scale
-     * with the geometry would come out several times too thin on a downscaled 12 MP source.
-     * A singular transform yields zero widths, which is the honest answer for collapsed geometry.
-     */
     fun transform(m: Mat2D): VecPath {
         val segs = ArrayList<VecSeg>(segments.size)
         for (i in segments.indices) {
@@ -212,12 +146,6 @@ data class VecPath(
         return VecPath(m.apply(start), segs, closed, id, widths)
     }
 
-    /**
-     * Arc length of the flattened path, including the closing edge when [closed].
-     * This is the polyline approximation at the default flatness, not the analytic curve length;
-     * every consumer (minimum-path-length filtering, dash spacing) compares it against a
-     * pixel-scale threshold where the difference is far below one pixel.
-     */
     fun length(): Float {
         val pts = flatten()
         if (pts.size < 2) return 0f
@@ -235,11 +163,6 @@ data class VecPath(
         return total.toFloat()
     }
 
-    /**
-     * The same geometry walked in the opposite direction: anchors reversed, cubic control points
-     * swapped, [strokeWidths] reversed. Used to make two adjacent contours wind the same way and to
-     * join a path to its neighbour without a visible seam.
-     */
     fun reversed(): VecPath {
         if (segments.isEmpty()) return this
         val anchors = points()
@@ -264,14 +187,8 @@ data class VecPath(
         return VecPath(anchors[anchors.size - 1], segs, closed, id, widths)
     }
 
-    /** True when the path draws nothing — a lone anchor with no segments. */
     fun isEmpty(): Boolean = segments.isEmpty()
 
-    /**
-     * Hand-written because [strokeWidths] is an array: the generated `equals` would compare it by
-     * identity, so two paths built from the same trace would never be equal and undo/redo
-     * deduplication would silently stop collapsing no-op edits.
-     */
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is VecPath) return false
@@ -286,7 +203,6 @@ data class VecPath(
         return a.contentEquals(b)
     }
 
-    /** Mirrors [equals]; [strokeWidths] contributes via `contentHashCode`. */
     override fun hashCode(): Int {
         var result = start.hashCode()
         result = 31 * result + segments.hashCode()
@@ -296,31 +212,12 @@ data class VecPath(
         return result
     }
 
-    /**
-     * Curve maths, kept inside the class rather than at file scope on purpose: private *top-level*
-     * declarations still occupy the package namespace in Kotlin, and every other file in
-     * `com.offlinetracer.vector` has a different author who is just as likely to want a helper
-     * called `cubicAt`.
-     */
     private companion object {
 
-        /**
-         * 2^18 pieces is far past anything a sane tolerance asks for; the cap exists only so a
-         * cusped or degenerate curve (coincident control points, infinities from a bad parse)
-         * emits a coarse polyline instead of subdividing until the heap gives out.
-         */
         const val FLATTEN_MAX_DEPTH = 18
 
-        /** Below this the flatness test is float noise and subdivision never terminates early. */
         const val MIN_FLATTEN_TOLERANCE = 1e-3f
 
-        /**
-         * Adaptive de Casteljau subdivision with an explicit stack.
-         *
-         * The right half is pushed before the left so the left pops first and the emitted points
-         * stay in parameter order. Only the *end* point of each flat piece is emitted; the caller
-         * has already emitted the start.
-         */
         fun flattenCubic(
             out: ArrayList<VecPoint>,
             stack: FloatArray,
@@ -361,7 +258,7 @@ data class VecPath(
                 val x123 = (x12 + x23) * 0.5f; val y123 = (y12 + y23) * 0.5f
                 val xm = (x012 + x123) * 0.5f; val ym = (y012 + y123) * 0.5f
 
-                var t = sp * 8            // right half
+                var t = sp * 8
                 stack[t] = xm; stack[t + 1] = ym
                 stack[t + 2] = x123; stack[t + 3] = y123
                 stack[t + 4] = x23; stack[t + 5] = y23
@@ -369,7 +266,7 @@ data class VecPath(
                 depths[sp] = depth + 1
                 sp++
 
-                t = sp * 8                // left half
+                t = sp * 8
                 stack[t] = x0; stack[t + 1] = y0
                 stack[t + 2] = x01; stack[t + 3] = y01
                 stack[t + 4] = x012; stack[t + 5] = y012
@@ -379,11 +276,6 @@ data class VecPath(
             }
         }
 
-        /**
-         * The standard "control points close to the chord" flatness test: it bounds the true
-         * deviation without a square root or a division, which matters because it runs once per
-         * subdivision step of every curve in the document.
-         */
         fun isFlatCubic(
             x0: Float, y0: Float, x1: Float, y1: Float,
             x2: Float, y2: Float, x3: Float, y3: Float,
@@ -399,12 +291,10 @@ data class VecPath(
             return mx + my <= 16f * toleranceSq
         }
 
-        /** Writes `[min, max]` of a cubic Bezier component into [out], including analytic extrema. */
         fun cubicExtent(p0: Float, p1: Float, p2: Float, p3: Float, out: FloatArray) {
             var lo = if (p0 < p3) p0 else p3
             var hi = if (p0 > p3) p0 else p3
 
-            // B'(t)/3 = A t² + B t + C, with A = -p0+3p1-3p2+p3, B = 2(p0-2p1+p2), C = p1-p0.
             val a = (-p0 + 3f * p1 - 3f * p2 + p3).toDouble()
             val b = (2f * (p0 - 2f * p1 + p2)).toDouble()
             val c = (p1 - p0).toDouble()
@@ -446,7 +336,6 @@ data class VecPath(
                 3.0 * mt * t * t * p2 + t * t * t * p3).toFloat()
         }
 
-        /** Writes `[min, max]` of a quadratic Bezier component into [out], including its extremum. */
         fun quadExtent(p0: Float, p1: Float, p2: Float, out: FloatArray) {
             var lo = if (p0 < p2) p0 else p2
             var hi = if (p0 > p2) p0 else p2
@@ -466,33 +355,13 @@ data class VecPath(
     }
 }
 
-/**
- * A 2-D affine transform laid out as
- * ```
- * [ a  c  e ]
- * [ b  d  f ]
- * [ 0  0  1 ]
- * ```
- * i.e. the same `(a, b, c, d, e, f)` order SVG's `matrix(...)` and Android's `Matrix` use, so the
- * bridge to either is a straight copy.
- */
 data class Mat2D(
     val a: Float, val b: Float, val c: Float, val d: Float,
     val e: Float, val f: Float,
 ) {
 
-    /** `(a·x + c·y + e, b·x + d·y + f)`. */
     fun apply(p: VecPoint): VecPoint = VecPoint(a * p.x + c * p.y + e, b * p.x + d * p.y + f)
 
-    /**
-     * Matrix product `this · o`, which means **[o] is applied first and `this` second**:
-     * `(this * o).apply(p) == this.apply(o.apply(p))`.
-     *
-     * Stated explicitly because the opposite convention is equally common and the two differ only
-     * on non-commuting pairs — a scale-then-rotate composed the wrong way round still looks
-     * plausible on a square test image and only goes visibly wrong on real artwork. Every
-     * composition in this codebase reads right-to-left, e.g. [rotateAbout].
-     */
     operator fun times(o: Mat2D): Mat2D = Mat2D(
         a = a * o.a + c * o.b,
         b = b * o.a + d * o.b,
@@ -502,11 +371,6 @@ data class Mat2D(
         f = b * o.e + d * o.f + f,
     )
 
-    /**
-     * The isotropic scale factor `sqrt(|det|)`: 1 for any rotation/translation/reflection, `s` for
-     * a uniform scale `s`, and the geometric mean for an anisotropic one. This is the factor stroke
-     * widths and flatness tolerances scale by, since neither has a direction.
-     */
     fun meanScale(): Float = sqrt(abs(a * d - b * c))
 
     companion object {
@@ -516,14 +380,12 @@ data class Mat2D(
 
         fun scale(sx: Float, sy: Float): Mat2D = Mat2D(sx, 0f, 0f, sy, 0f, 0f)
 
-        /** Rotation by [radians], positive turning +x toward +y — clockwise on screen, since y is down. */
         fun rotate(radians: Float): Mat2D {
             val cs = cos(radians.toDouble()).toFloat()
             val sn = sin(radians.toDouble()).toFloat()
             return Mat2D(cs, sn, -sn, cs, 0f, 0f)
         }
 
-        /** [rotate] about `(cx, cy)` — composed right-to-left: translate back ∘ rotate ∘ translate to origin. */
         fun rotateAbout(radians: Float, cx: Float, cy: Float): Mat2D =
             translate(cx, cy) * rotate(radians) * translate(-cx, -cy)
     }
@@ -535,11 +397,6 @@ enum class LineCap { BUTT, ROUND, SQUARE }
 
 enum class LineJoin { MITER, ROUND, BEVEL }
 
-/**
- * Paint for one shape. Colours are packed ARGB exactly as `RgbaImage` stores them; `null` means
- * "no stroke" / "no fill" rather than transparent black, so an unset fill and a deliberately
- * invisible one stay distinguishable through a save/load round trip.
- */
 data class VecStyle(
     val stroke: Int? = 0xFF000000.toInt(),
     val strokeWidth: Float = 1.5f,
@@ -551,10 +408,8 @@ data class VecStyle(
     val opacity: Float = 1f,
 )
 
-/** One drawable: geometry plus paint. */
 data class VecShape(val path: VecPath, val style: VecStyle)
 
-/** A named, orderable group of shapes. */
 data class VecLayer(
     val id: String,
     val name: String,
@@ -564,7 +419,6 @@ data class VecLayer(
     val opacity: Float = 1f,
 )
 
-/** The whole drawing: a canvas size, ordered layers, and an optional page background. */
 data class VecDocument(
     val width: Float,
     val height: Float,
@@ -572,12 +426,6 @@ data class VecDocument(
     val background: Int? = null,
 ) {
 
-    /**
-     * Union of every shape's bounds as `[minX, minY, maxX, maxY]`, **including hidden and locked
-     * layers** — hiding a layer must not change the export box, or toggling visibility would
-     * silently reflow the whole document. A document with no shapes returns the canvas box
-     * `[0, 0, width, height]`.
-     */
     fun bounds(): FloatArray {
         var minX = Float.POSITIVE_INFINITY
         var minY = Float.POSITIVE_INFINITY
@@ -596,14 +444,12 @@ data class VecDocument(
         return floatArrayOf(minX, minY, maxX, maxY)
     }
 
-    /** Total shapes across all layers. */
     fun shapeCount(): Int {
         var n = 0
         for (layer in layers) n += layer.shapes.size
         return n
     }
 
-    /** Total anchors across all layers — the number the UI shows as "nodes", control points excluded. */
     fun nodeCount(): Int {
         var n = 0
         for (layer in layers) {
@@ -612,12 +458,6 @@ data class VecDocument(
         return n
     }
 
-    /**
-     * Every shape mapped through [m], with the canvas scaled by the transform's column norms
-     * (`hypot(a, b)` × `hypot(c, d)`). A rotation therefore leaves the canvas alone, which is what
-     * the export path wants: it composes a working→output scale and never a rotation, and a canvas
-     * that silently grew under a rotation would crop on the next export.
-     */
     fun transform(m: Mat2D): VecDocument {
         val sx = hypot(m.a.toDouble(), m.b.toDouble()).toFloat()
         val sy = hypot(m.c.toDouble(), m.d.toDouble()).toFloat()

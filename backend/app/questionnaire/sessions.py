@@ -1,12 +1,3 @@
-"""Sessions: one sitting, a dated event (DESIGN sections 3.7, 3.8, 3.12 and 5.1).
-
-* ``POST /sessions`` ALWAYS creates; a repeated ``clientKey`` returns the existing row (200).
-* The title is generated (``titles.regenerate_title``) in the same transaction as any change to its
-  inputs, and never accepted from a client (the route answers 422 ``TITLE_IS_GENERATED``).
-* The creator and anyone who joins are researchers; volunteers are added through "Add researcher".
-* CLOSED only stops the UI from starting new takes; the server never rejects a clip for it.
-"""
-
 from __future__ import annotations
 
 import json
@@ -48,7 +39,6 @@ def _client(client: Any) -> Any:
     return ports.db()
 
 
-# ── reading ────────────────────────────────────────────────────────────────────────────────────
 async def load_session_row(client: Any, session_id: str) -> dict[str, Any] | None:
     rows = await client.query_raw(
         'SELECT i.*, i."state"::text AS state_t, i."purpose"::text AS purpose_t, i."origin"::text AS origin_t, '
@@ -59,8 +49,6 @@ async def load_session_row(client: Any, session_id: str) -> dict[str, Any] | Non
 
 
 async def require_session(client: Any, session_id: str, *, include_deleted: bool = False) -> dict[str, Any]:
-    """The session row, or ``SESSION_UNKNOWN``. A soft-deleted session (owner decision 3) is unknown
-    to everything but restore and the content admins' Deleted list."""
     row = await load_session_row(client, session_id)
     if row is None or (row.get("deletedAt") is not None and not include_deleted):
         fail("SESSION_UNKNOWN")
@@ -71,8 +59,6 @@ MERGE_HOPS = 20
 
 
 async def follow_merges(client: Any, session_id: str) -> dict[str, Any] | None:
-    """The session a merged-away session now lives in (audit H4): ``mergedIntoId`` followed to the
-    end. A queued clip, a stale clientKey or a merge naming a merged-away target all land there."""
     row = await load_session_row(client, session_id)
     seen: set[str] = set()
     while row is not None and row.get("mergedIntoId") and str(row["id"]) not in seen and len(seen) < MERGE_HOPS:
@@ -98,7 +84,6 @@ async def participant_ids(client: Any, session_id: str) -> list[str]:
 
 
 async def can_work_in(client: Any, user: Any, session: dict[str, Any]) -> bool:
-    """Researchers of the session, its creator, Professor and above."""
     if is_admin(user) or has_rank(user, "PROFESSOR"):
         return True
     if str(session.get("createdById")) == str(user.id):
@@ -137,7 +122,6 @@ async def _counts(client: Any, session_ids: list[str]) -> dict[str, dict[str, in
 
 
 async def serialize_sessions(client: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Contract ``Session`` objects for these raw rows, in four batched reads."""
     if not rows:
         return []
     sids = [str(r["id"]) for r in rows]
@@ -153,7 +137,6 @@ async def serialize_sessions(client: Any, rows: list[dict[str, Any]]) -> list[di
         "ORDER BY CASE r.\"role\" WHEN 'LEAD' THEN 0 WHEN 'CONTRIBUTOR' THEN 1 ELSE 2 END, r.\"addedAt\"",
         sids,
     )
-    # The form, the workshop (field or design) and the date: the session's half of every chip.
     meta_by = await chips.session_meta(client, sids)
     reasons = await client.query_raw(
         'SELECT DISTINCT ON ("recordId") "recordId" AS sid, "reason", "status"::text AS status FROM "ReviewLog" '
@@ -229,7 +212,6 @@ async def serialize_sessions(client: Any, rows: list[dict[str, Any]]) -> list[di
                 "counts": counts.get(sid, {"sections": 0, "takes": 0, "needsDecision": 0}),
                 "source": enum_text(row.get("source")) or "APP",
                 "deletedAt": iso(row.get("deletedAt")),
-                # The session's chips (owner, 31 Oct 2026): the recording chips without a target.
                 "chips": chips.build(
                     meta=m or None, targets=[], subjects=[{"artisanId": p["artisanId"], "name": p["name"], "role": "ANSWERED"} for p in participants],
                     respondents=[], captured_at=None, captured_at_source=None, language_code=row.get("languageCode"),
@@ -249,7 +231,6 @@ async def session_payload(client: Any, session_id: str) -> dict[str, Any]:
     return out
 
 
-# ── writing ────────────────────────────────────────────────────────────────────────────────────
 async def _assert_exists(client: Any, table: str, ids: list[str], what: str) -> None:
     if not ids:
         return
@@ -269,9 +250,6 @@ bump_session = _bump
 
 
 async def note_pending_change(client: Any, session_id: str) -> None:
-    """New content on an APPROVED session stays PENDING and must reach review (DESIGN 3.10; audit
-    M13): the session keeps APPROVED and carries ``pendingChangesAt``, which puts it back in the
-    review queue until it is approved again."""
     await client.execute_raw(
         'UPDATE "QuestionnaireInterview" SET "pendingChangesAt" = COALESCE("pendingChangesAt", now()) '
         "WHERE \"id\" = $1 AND \"status\" = 'APPROVED'",
@@ -288,7 +266,6 @@ async def add_researcher(client: Any, session_id: str, user_id: str, role: str) 
 
 
 async def add_participants(client: Any, session_id: str, artisan_ids: list[str], joined_at: datetime | None = None) -> int:
-    """Insert participants that are not already there; returns how many were added."""
     rows = await client.query_raw(
         'SELECT COALESCE(max("sortOrder"), -1) AS m FROM "QuestionnaireInterviewArtisan" WHERE "interviewId" = $1', session_id
     )
@@ -312,16 +289,10 @@ NOT_SYNCED = "This session hasn't synced yet. Try again once the lead's phone is
 
 
 def _is_join_create(payload: Any, user: Any) -> bool:
-    """A create sent by somebody who scanned a session QR (Android's offline join): it names the
-    caller as a non-lead researcher. The lead's own create never does."""
     return any(r.userId == user.id and r.role != "LEAD" for r in payload.researchers)
 
 
 async def _arrive_on_existing(db: Any, session_id: str, payload: Any, user: Any, joining: bool) -> None:
-    """A create whose clientKey already has a row. A replay by somebody already on the session is a
-    no-op. Anyone else who holds the QR is added, as a join would add them, so their queued edits are
-    not refused. And when the row is a scanner's stand-in (no LEAD) and this is the lead's own create,
-    the lead takes it over: creator, LEAD, and the place, language, note and purpose they entered."""
     row = await require_session(db, session_id)
     if str(row.get("createdById")) == str(user.id) or str(user.id) in await researcher_ids(db, session_id):
         return
@@ -360,8 +331,6 @@ async def _arrive_on_existing(db: Any, session_id: str, payload: Any, user: Any,
 
 
 async def join_by_key(client_key: str, user: Any, *, client: Any = None) -> dict[str, Any]:
-    """Join the session a scanned QR names, without creating it: until the lead's phone has synced
-    there is nothing to join, and a stand-in made from the QR would lose what the lead entered."""
     db = _client(client)
     rows = await db.query_raw(
         'SELECT "id", "mergedIntoId", "state"::text AS state FROM "QuestionnaireInterview" WHERE "clientKey" = $1',
@@ -380,8 +349,6 @@ async def join_by_key(client_key: str, user: Any, *, client: Any = None) -> dict
 async def create_session(payload: Any, user: Any, *, client: Any = None, origin: str = "NATIVE",
                          legacy_title: str | None = None, estimated_date: bool = False,
                          extra: dict[str, Any] | None = None, check_instrument: bool = True) -> tuple[dict[str, Any], bool]:
-    """Create a session; returns ``(session, created)``. A repeated clientKey returns the row with
-    ``created=False`` (200). Volunteers cannot create (they record into sessions they are on)."""
     default_db = ports.db()
     from app.questionnaire.ports import (
         enforce_workshop_submission,
@@ -423,7 +390,6 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
 
         language_label = payload.languageOther if payload.languageCode == "other" else shared_vocab.LANGUAGE_LABELS.get(payload.languageCode)
     interview_date = datetime(session_date.year, session_date.month, session_date.day, 12, 0, tzinfo=IST) if session_date else None
-    # UNIFY C9: the start sheet's GPS fix becomes a Location row, linked once; an edit never sends one.
     location_id = None
     if getattr(payload, "location", None) is not None:
         from app.questionnaire.ports import attach_location
@@ -465,7 +431,6 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
                 await add_participants(tx, session_id, artisan_ids)
                 if guests:
                     await respondents.insert_many(tx, session_id, guests, user)
-                # A scanner's stand-in row has no LEAD, so the lead's own create can take it over.
                 await add_researcher(tx, session_id, user.id, "CONTRIBUTOR" if joining else "LEAD")
                 for r in payload.researchers:
                     if r.userId != user.id:
@@ -474,7 +439,7 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
             break
         except UniqueViolationError as exc:
             again = await _by_client_key(db, payload.clientKey)
-            if again:  # the same clientKey won a race: that row is this create
+            if again:
                 await _arrive_on_existing(db, again, payload, user, joining)
                 return await session_payload(db, again), False
             if "joinCode" not in str(exc):
@@ -483,7 +448,6 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
 
 
 async def _by_client_key(db: Any, client_key: str) -> str | None:
-    """The session a clientKey names, followed through any merge (audit H4)."""
     rows = await db.query_raw('SELECT "id" FROM "QuestionnaireInterview" WHERE "clientKey" = $1', client_key)
     if not rows:
         return None
@@ -494,10 +458,6 @@ async def _by_client_key(db: Any, client_key: str) -> str | None:
 async def assert_instrument_allowed(
     db: Any, questionnaire_id: str, workshop_id: str | None, user: Any, *, design_workshop_id: str | None = None,
 ) -> None:
-    """A session is never started on a retired or deleted form. Filed under a workshop, a caller who
-    does not manage questionnaires may use (decision 4 and owner amendment 2): any form BOUND to that
-    workshop, the workshop kind's type default, the global default, and their own or a shared form.
-    A questionnaire manager may use any live form."""
     from app.questionnaire import bindings
     from app.questionnaire.ports import can_manage_questionnaire
 
@@ -515,13 +475,12 @@ async def assert_instrument_allowed(
     bound = [str(b.questionnaireId) for b in
              await bindings.bindings_for_workshop(db, workshop_id=workshop_id, design_workshop_id=design_workshop_id)]
     if workshop_id:
-        # A Field Repository workshop's own form column (the legacy single form) binds it as well.
         legacy = await db.query_raw('SELECT "questionnaireId" FROM "Workshop" WHERE "id" = $1', workshop_id)
         if legacy and legacy[0].get("questionnaireId"):
             bound.append(str(legacy[0]["questionnaireId"]))
     type_default = await bindings.type_default_for(db, workshop_id=workshop_id, design_workshop_id=design_workshop_id)
     if not bound and not type_default:
-        return  # nothing is bound to this workshop: the start sheet offers the picker
+        return
     if str(questionnaire_id) in bound or (type_default and str(type_default) == str(questionnaire_id)):
         return
     fail("VALIDATION_FAILED", "This workshop uses a different questionnaire.", fields={"questionnaireId": [questionnaire_id]})
@@ -708,8 +667,6 @@ _JOIN_MISSES: dict[str, list[datetime]] = {}
 
 
 def join_rate_limit(user: Any, *, missed: bool = False) -> None:
-    """Ten wrong codes in ten minutes per account, then 429 (audit Low): a six-letter code can be
-    guessed by a script, never by a person reading it across a courtyard."""
     from app.questionnaire.errors import http_error
 
     key = str(get(user, "id"))
@@ -724,8 +681,6 @@ def join_rate_limit(user: Any, *, missed: bool = False) -> None:
 
 
 async def _assert_may_join(db: Any, session_id: str, user: Any) -> None:
-    """Joining a session in a workshop is a workshop submission (audit Low): the caller must be able
-    to submit into that workshop, exactly as for starting a session there."""
     rows = await db.query_raw('SELECT "workshopId" FROM "QuestionnaireInterview" WHERE "id" = $1', session_id)
     workshop_id = rows[0].get("workshopId") if rows else None
     if workshop_id:
@@ -762,17 +717,14 @@ async def finish(session_id: str, user: Any, *, client: Any = None) -> dict[str,
     from app.questionnaire import coverage
 
     out = await session_payload(db, session_id)
-    # A19: reported, never blocking ("3 required questions unanswered").
     out["requiredUnanswered"] = await coverage.required_unanswered(db, session_id)
     return out
 
 
 async def merge_into(source_id: str, target_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
-    """Move recordings, participants, researchers and answers onto the target, in one transaction."""
     default_db = ports.db()
 
     db = _client(client)
-    # A merge removes its source: content admins only (roles.CONTENT_ADMIN_ROLES, 2026-10-20).
     if not is_content_admin(user):
         fail("FORBIDDEN", CONTENT_DELETE_REFUSAL)
     if source_id == target_id:
@@ -780,7 +732,6 @@ async def merge_into(source_id: str, target_id: str, user: Any, *, client: Any =
     source = await require_session(db, source_id)
     if source.get("mergedIntoId"):
         fail("VALIDATION_FAILED", "That session has already been merged.")
-    # A target merged away itself is resolved to where it lives now, so merges never chain (audit H4).
     target = await follow_merges(db, target_id)
     if target is None:
         fail("SESSION_UNKNOWN")
@@ -829,13 +780,6 @@ async def merge_into(source_id: str, target_id: str, user: Any, *, client: Any =
 
 
 async def delete_session(session_id: str, user: Any, *, client: Any = None) -> None:
-    """A RESTORABLE SOFT DELETE, content admins only (owner decision 3, 21 Oct 2026), even when the
-    session holds recordings or answers: ``deletedAt`` hides the session, its takes and its answers
-    from every reader (``live.LIVE_SESSION_SQL``, ``questionnaire_take_v``) until a content admin
-    restores it. Nothing is erased; only the purge job ever hard-deletes.
-
-    The one refusal left is a take still on its way from a device (an open, unexpired upload
-    intent): it would land on a session nobody can see. ``HAS_RECORDINGS`` with ``pending``."""
     db = _client(client)
     if not (authoring.may_delete_session(user) and is_content_admin(user)):
         fail("FORBIDDEN", CONTENT_DELETE_REFUSAL)
@@ -856,7 +800,6 @@ async def delete_session(session_id: str, user: Any, *, client: Any = None) -> N
 
 
 async def restore_session(session_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
-    """Undo :func:`delete_session`; content admins only. Restoring a live session changes nothing."""
     db = _client(client)
     if not (authoring.may_restore_session(user) and is_content_admin(user)):
         fail("FORBIDDEN", "Only an admin can restore this.")
@@ -869,19 +812,12 @@ async def restore_session(session_id: str, user: Any, *, client: Any = None) -> 
     return await session_payload(db, session_id)
 
 
-# ── lists and lookups ──────────────────────────────────────────────────────────────────────────
 async def list_sessions(
     *, client: Any = None, workshopId: str | None = None, questionnaireId: str | None = None,
     artisanId: str | None = None, researcherId: str | None = None, dateFrom: Any = None, dateTo: Any = None,
     search: str | None = None, cursor: str | None = None, limit: int = 20, deleted: bool = False,
     filters: Any = None,
 ) -> dict[str, Any]:
-    """Newest ``sessionDate`` first (undated legacy rows last), keyset-paged by an opaque cursor.
-    ``deleted=True`` lists the soft-deleted sessions instead (the route allows it to content admins).
-
-    ``filters`` is the shared filter model (``app/questionnaire/filters.py``: form, section or
-    question, artisans, researchers, workshops, dates, kind, source, transcript, language, free
-    text); the single-value keywords are the older spelling of the same and still work."""
     from app.questionnaire import filters as F
 
     db = _client(client)
@@ -920,7 +856,6 @@ async def list_sessions(
 
 
 async def open_match(*, questionnaire_id: str, workshop_id: str | None, artisan_ids: list[str], day: Any, client: Any = None) -> dict[str, Any]:
-    """Same workshop, an overlapping participant, the same day, OPEN, by any researcher (P1)."""
     db = _client(client)
     if not artisan_ids:
         return {"items": []}
@@ -950,7 +885,6 @@ async def open_match(*, questionnaire_id: str, workshop_id: str | None, artisan_
 
 
 async def continue_sessions(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
-    """"Continue with...": one session for all, or one each, on a new day, with each artisan's first gap."""
     from app.questionnaire import coverage
     from app.questionnaire.schemas import ParticipantInput, SessionCreate
 
@@ -968,8 +902,6 @@ async def continue_sessions(payload: Any, user: Any, *, client: Any = None) -> d
             languageCode=source.get("languageCode"), languageOther=source.get("languageOther"),
             participants=[ParticipantInput(artisanId=a) for a in group],
         )
-        # Continuing keeps the instrument the artisans were interviewed on, even if the workshop has
-        # since been bound to another one.
         session, _created = await create_session(create, user, client=client, check_instrument=False)
         sessions.append(session)
     gaps = await coverage.first_gaps(db, str(source["questionnaireId"]), payload.artisanIds)
@@ -977,9 +909,6 @@ async def continue_sessions(payload: Any, user: Any, *, client: Any = None) -> d
 
 
 def continue_key(payload: Any, user: Any, index: int) -> str:
-    """The clientKey of the ``index``-th session a "Continue with..." creates. Derived from the
-    request (or the client's own ``clientKey``), never random, so a replay returns the same sessions
-    instead of making new ones (audit Low)."""
     import hashlib
 
     base = getattr(payload, "clientKey", None)
@@ -991,7 +920,6 @@ def continue_key(payload: Any, user: Any, index: int) -> str:
 
 
 async def close_stale_sessions(*, client: Any = None, older_than: timedelta = timedelta(hours=24)) -> int:
-    """Nightly: close OPEN sessions whose last take (or start, with no takes) is older than 24 h."""
     db = _client(client)
     return await db.execute_raw(
         'UPDATE "QuestionnaireInterview" i SET "state" = \'CLOSED\', "closedAt" = now(), "endedAt" = COALESCE(i."endedAt", now()), '
@@ -1007,9 +935,6 @@ _LAST_CLOSE_DAY: list[Any] = [None]
 
 
 async def maybe_close_stale_sessions(*, at: datetime | None = None) -> int | None:
-    """The nightly ``close_stale_sessions`` (DESIGN 3.7), run by the queue worker once per IST day
-    after 02:00, and only while QUESTIONNAIRE_V2 is on. Never rejects anything: CLOSED only stops
-    the UI from starting new takes."""
     from app.questionnaire.ports import get_settings
 
     if not get_settings().questionnaire_v2:
@@ -1019,7 +944,6 @@ async def maybe_close_stale_sessions(*, at: datetime | None = None) -> int | Non
         return None
     _LAST_CLOSE_DAY[0] = local.date()
     closed = await close_stale_sessions()
-    # The same nightly pass aborts the multipart uploads of expired upload intents (audit Low).
     from app.questionnaire import recordings
 
     await recordings.sweep_expired_intents()

@@ -33,7 +33,6 @@ class TranscriptKaraokeTest {
         val a = turns[0]
         assertEquals(0, TranscriptKaraoke.wordAt(a, 4100))
         assertEquals(2, TranscriptKaraoke.wordAt(a, 4700))
-        // 4300..4350 is the gap after word 0: still word 0.
         assertEquals(0, TranscriptKaraoke.wordAt(a, 4320))
         assertEquals(5, TranscriptKaraoke.wordAt(a, 7600 + 100))
         assertEquals(-1, TranscriptKaraoke.wordAt(a, 7600 + TranscriptKaraoke.LINGER_MS + 1))

@@ -1,20 +1,3 @@
-"""One search across both portals: the rules ``GET /search/unified`` and the peer routes share.
-
-* :func:`account_scope` turns an account into the permission half of a ``search_query.Scope``. On
-  the Field Repository every signed-in account reads every record (``records.viewable_where``), so
-  the scope is every local type; clusters, design workshops and reports exist only on the designer
-  portal and are asked of it, never of this index.
-* :func:`ask_peer` asks the designer portal over the signed channel and never raises: a slow,
-  missing or untrusted answer is ``remote.status = "unavailable"`` and this portal's results still
-  return.
-* :func:`drop_unconsented` removes designer items that name one of this portal's artisans whose
-  sharing consent is not granted, the third consent check (docs/SEARCH.md §6).
-* :func:`merge` interleaves local and remote items per group by reciprocal rank (peer items carry no
-  score, so both sides are scored by their position), local first on a tie.
-
-docs/SEARCH.md carries the contract.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -37,7 +20,6 @@ PORTAL_LABEL = "Field Repository"
 PEER_PORTAL = "designer"
 PEER_LABEL = "Designer portal"
 
-#: Types this portal indexes, in vocabulary order. The rest of the vocabulary is the designer's.
 LOCAL_TYPES: tuple[str, ...] = tuple(
     t for t in cross_portal.SEARCH_TYPES if t not in {"clusters", "designWorkshops", "reports"}
 )
@@ -65,8 +47,6 @@ STATUS_FILTERED_OUT = "filteredOut"
 
 
 def parse_types(raw: list[str] | None) -> list[str] | None:
-    """Repeatable or comma-separated names, in vocabulary order. ``None`` means every type.
-    Unknown names raise ``ValueError`` naming them."""
     if not raw:
         return None
     asked = {part.strip() for value in raw for part in str(value).split(",") if part.strip()}
@@ -77,9 +57,6 @@ def parse_types(raw: list[str] | None) -> list[str] | None:
 
 
 async def account_scope(user: Any | None, types: list[str] | None) -> tuple[Scope, list[str]]:
-    """The permission scope for one account (``None`` is the floor) and the asked types it may not
-    read at all. Every account, and the floor, reads every ``ALL`` document here, and every
-    document here is ``ALL``; nothing is refused locally."""
     wanted = [t for t in (types or list(LOCAL_TYPES)) if t in LOCAL_TYPES]
     return Scope(types=wanted), []
 
@@ -99,7 +76,6 @@ async def ask_peer(
     page: int,
     filters: dict[str, Any],
 ) -> tuple[str, dict[str, Any]]:
-    """``(status, peer body)``. Never raises."""
     body = {
         "q": q,
         "types": types or list(cross_portal.SEARCH_TYPES),
@@ -131,8 +107,6 @@ async def ask_peer(
 
 
 async def drop_unconsented(groups: list[Any]) -> list[dict[str, Any]]:
-    """The designer's groups without any item naming one of OUR artisans (``linkedArtisanIds``)
-    whose sharing consent is not granted here. A group's total drops by what was removed."""
     clean = [g for g in groups or [] if isinstance(g, dict)]
     named: set[str] = set()
     for group in clean:
@@ -212,7 +186,6 @@ def merge(
     *,
     limit: int,
 ) -> list[dict[str, Any]]:
-    """Groups in vocabulary order, empty ones left out, each holding at most ``limit`` items."""
     remote_by_type: dict[str, dict[str, Any]] = {}
     for group in remote_groups or []:
         if isinstance(group, dict) and group.get("type") in cross_portal.SEARCH_TYPES:

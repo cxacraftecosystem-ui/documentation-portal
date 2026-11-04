@@ -35,8 +35,6 @@ from typing import Any
 from app.core.db import connect_db, db, disconnect_db
 from app.services.questionnaire_instruments import W2_ID, W3_ID
 
-#: Task statuses that still have somebody working to them. Mirrors `_LIVE_TASK_STATUSES` in
-#: `app/api/routes/workshops.py`; a task that is done or cancelled cannot be made unachievable.
 LIVE_TASK_STATUSES = ("PENDING", "IN_PROGRESS", "BLOCKED")
 
 ALIASES = {"w2": W2_ID, "w3": W3_ID}
@@ -101,8 +99,6 @@ async def run(args: argparse.Namespace) -> int:
             print(f"\nFAIL: no instrument with id {target!r}. See the list above.")
             return 2
         if not value(instrument, "isActive"):
-            # The endpoint refuses this with a 422; refusing here too keeps the script and the API
-            # answering the same question the same way.
             print(f"\nFAIL: “{value(instrument, 'title')}” is retired and cannot be bound.")
             return 2
 

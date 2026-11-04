@@ -45,10 +45,6 @@ import com.fieldrepository.app.questionnaire.data.CoverageRecordings
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.ui.field
 
-/**
- * A coverage column's head (0.0.6): the first name, truncated to the column; touch-and-hold (or
- * keyboard focus) lifts the full name, enlarged, over it, and a screen reader hears the full name.
- */
 @Composable
 fun CoverageName(fullName: String, width: Dp, modifier: Modifier = Modifier, tag: String = "coverage.name") {
     var lifted by remember { mutableStateOf(false) }
@@ -85,10 +81,6 @@ fun CoverageName(fullName: String, width: Dp, modifier: Modifier = Modifier, tag
     }
 }
 
-/**
- * One dot of the coverage grid. With takes behind it, a tap opens them; with none it is plain text
- * that takes no tap and draws no ripple (no dead click).
- */
 @Composable
 fun CoverageDot(glyph: String, color: Color, width: Dp, describe: String, onOpen: (() -> Unit)?, modifier: Modifier = Modifier) {
     Text(
@@ -102,7 +94,6 @@ fun CoverageDot(glyph: String, color: Color, width: Dp, describe: String, onOpen
     )
 }
 
-/** Several takes behind one dot: a short list by date, researcher and length; one tap opens it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CoverageTakeChooser(takes: List<CoverageRecordings.Take>, onPick: (CoverageRecordings.Take) -> Unit, onDismiss: () -> Unit) {
@@ -130,7 +121,6 @@ fun CoverageTakeChooser(takes: List<CoverageRecordings.Take>, onPick: (CoverageR
     }
 }
 
-/** Centred on its anchor, a little above it, kept inside the window. */
 private class OverAnchor(private val gap: Int) : PopupPositionProvider {
     override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
         val x = (anchorBounds.center.x - popupContentSize.width / 2).coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))

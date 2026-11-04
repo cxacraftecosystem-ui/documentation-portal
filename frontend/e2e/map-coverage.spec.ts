@@ -1,14 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
-/**
- * The coverage view in a browser, against a dev server, with every API call answered by this file.
- *
- * Nothing here needs a backend or a real account: `/me` answers a master admin (so admin view is on
- * by default), `/map/coverage*` answers a small corpus, and the district shapes are one square for
- * Barmer. What is under test is the page — URL sync, the filters, the unit panel and its links, the
- * gaps panel and the unmatched flow — at a phone and a laptop width, in light and dark.
- */
-
 const SHOTS = process.env.SHOT_DIR ?? "shots/coverage";
 
 const UNIT = {
@@ -76,7 +67,6 @@ const SHAPES = {
   asOf: "2026-10-18",
   scale: 1000,
   districts: [
-    // A square around Barmer, encoded in the outline's polyline scheme by the unit spec's encoder.
     { lgd: 90, stateLgd: 8, rings: [encode([[70.5, 25.0], [72.0, 25.0], [72.0, 26.4], [70.5, 26.4]])], centroid: [71.2, 25.7] }
   ]
 };
@@ -116,14 +106,11 @@ async function mockApi(page: Page) {
     }
   ];
   const aliases: unknown[] = [];
-  // E2E_REAL_SHAPES=1 draws the committed district file instead of the one-square fixture.
   if (!process.env.E2E_REAL_SHAPES) {
     await page.route("**/boundaries/district-shapes.json", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(SHAPES) })
     );
   }
-  // Every call goes to `/api/...` on the page's own origin (`lib/api.ts`), so that is what is answered;
-  // the API's own address is never reached from the browser.
   await page.route((url) => url.pathname.startsWith("/api/"), async (route: Route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace(/^\/api/, "");

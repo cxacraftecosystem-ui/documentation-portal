@@ -1,28 +1,3 @@
-"""Map every craft recorded before the master list, and every free-text craft, onto the list.
-
-    cd backend && python -m app.scripts.map_crafts --dry-run          # the report, changes nothing
-    cd backend && python -m app.scripts.map_crafts --apply            # do it
-    cd backend && python -m app.scripts.map_crafts --dry-run --json   # the report as JSON
-
-The same file in both portals. The production order is in docs/RELEASE.md: deploy, dry run, compare
-with docs/CRAFTS.md, apply, dry run again (0 ``inPlace`` and 0 ``merge`` left). It is idempotent.
-
-For each LEGACY craft, in this order (docs/CRAFTS.md, "Mapping"):
-
-1. **Curated**: ``app/data/craft_master_aliases.json`` by old name: a serial, ``adopt``, or ``legacy``.
-2. **Exact**: the normalised name is a master craft's name or slug.
-3. **Alias**: the name is a known spelling of a shared code exactly one master craft carries.
-4. **Fuzzy**, reported as ``proposed`` and never applied: token-set ratio at least 0.90, and at least
-   0.05 better than the runner-up.
-
-The first old craft matched to a master craft is updated IN PLACE onto it, keeping its id so no
-reference moves, and the seeded duplicate is removed. Every further one is merged into it. An adopted
-craft becomes ACTIVE under its own name. Anything else stays LEGACY; nothing is ever deleted.
-
-Free text (the designer portal's workshop and plan ``craftName``, products with no ``craftId``, and
-records holding ``extraMetadata.legacyCraftText``) takes steps 1 to 3, and a match sets ``craftId``.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -33,12 +8,9 @@ from typing import Any
 
 from app.services import craft_master as cm
 
-#: The fuzzy step's thresholds.
 FUZZY_MIN = 0.90
 FUZZY_MARGIN = 0.05
 
-#: Free-text sources: (kind label, delegate, text column or None for legacyCraftText, name column to
-#: keep in step with the link or None). Delegates a portal lacks are skipped.
 FREE_TEXT_SOURCES: tuple[tuple[str, str, str | None, str | None], ...] = (
     ("designWorkshop", "designworkshop", "craftName", "craftName"),
     ("annualPlanEntry", "annualplanentry", "craftName", "craftName"),
@@ -89,21 +61,16 @@ def _fuzzy(name: str, masters: list[Any]) -> tuple[Any | None, float]:
 
 
 def _is_seeded(craft: Any) -> bool:
-    """A master row exactly as the migration or the seed loader inserted it."""
     return craft.id == cm.master_id("c", craft.slug)
 
 
 async def plan(client: Any) -> list[Row]:
-    """The report: one row per LEGACY craft and per unlinked free-text record."""
     curated, curated_free = _curated()
     actives = await cm.active_crafts(client)
     masters = [c for c in actives if getattr(c, "sourceSerial", None) is not None]
     by_serial = {c.sourceSerial: c for c in masters}
     subs = {s.slug: s for s in await client.craftsubcategory.find_many()}
     legacy = await client.craft.find_many(where={"status": cm.LEGACY})
-    # Read once for the whole report: the spelling table, and every reference count the loop below
-    # can ask for (each legacy craft's, and each master's it may be matched to) -- a handful of
-    # grouped reads where it used to be two spelling reads and seven counts per craft.
     index = await cm.spelling_index(client)
     reference_counts = await cm.reference_count_map(client, [c.id for c in legacy] + [c.id for c in masters])
 
@@ -156,8 +123,6 @@ async def plan(client: Any) -> list[Row]:
         table = getattr(client, delegate, None)
         if table is None:
             continue
-        # Filtered for text here rather than in the query: ``craftName`` is NOT NULL on products, and
-        # Prisma refuses a ``not: null`` clause on a required column.
         records = await table.find_many(where={"craftId": None})
         for record in records:
             text = getattr(record, column, None) if column else _legacy_text(record)
@@ -209,7 +174,6 @@ def _legacy_text(record: Any) -> str | None:
 def _resolve_same_as(
     name: str, actives: list[Any], planned: dict[str, tuple[Row, Any]], curated: dict[str, dict[str, Any]], by_serial: dict
 ) -> Any:
-    """The craft another old name maps to: an ACTIVE craft of that name, or that name's planned row."""
     hits = cm.exact_matches(name, actives)
     if len(hits) == 1:
         return hits[0]
@@ -223,7 +187,6 @@ def _resolve_same_as(
 
 
 async def apply(client: Any, rows: list[Row]) -> dict[str, int]:
-    """Carry out the planned rows: crafts first, then free text. Returns counts by action."""
     done: dict[str, int] = {}
     for row in rows:
         if row.kind != "craft" or row.action not in ("inPlace", "merge", "adopt"):
@@ -239,8 +202,6 @@ async def apply(client: Any, rows: list[Row]) -> dict[str, int]:
                     data={"status": cm.ACTIVE, "subCategoryId": sub.id, "category": sub.category.name},
                 )
             else:
-                # By slug: an earlier row of this run may have moved an old craft onto the target's
-                # identity in place, which removes the seeded row whose id the plan recorded.
                 target = await tx.craft.find_unique(where={"slug": row.targetSlug}) if row.targetSlug else None
                 if target is None:
                     continue
@@ -263,7 +224,6 @@ async def apply(client: Any, rows: list[Row]) -> dict[str, int]:
         if row.nameColumn:
             data[row.nameColumn] = craft.name
         await getattr(client, row.delegate).update(where={"id": row.id}, data=data)
-        # A tool's crafts are its ToolCraft rows; craftId and craftName are derived from them.
         if (
             row.delegate == "tooldocumentation"
             and await client.toolcraft.find_first(where={"toolId": row.id, "craftId": craft.id}) is None
@@ -274,11 +234,6 @@ async def apply(client: Any, rows: list[Row]) -> dict[str, int]:
 
 
 async def _in_place(tx: Any, craft: Any, master: Any) -> None:
-    """Move ``craft`` onto ``master``'s identity, keeping ``craft``'s id, and drop the seeded twin.
-
-    The master columns now come from the file, so the old craft's provenance for them is dropped and
-    the master's seed snapshot is carried over: a later revision of the file still reaches the row.
-    """
     meta = cm.without_master_provenance(cm.craft_meta(craft))
     seed = cm.craft_meta(master).get(cm.MASTER_SEED_KEY)
     if seed is not None:

@@ -12,13 +12,6 @@ import java.io.File
 import java.io.IOException
 import java.time.Instant
 
-/**
- * Audit M23 and Low (21 Oct 2026): every part URL of a long take was signed up front and lives an
- * hour, so on a slow link the last parts met an expired URL and the take failed for good; a dead
- * multipart upload made the complete retry for ever. Each part is now signed just before it goes, an
- * expired signature (403) is signed again once, a closed intent skips the PUT, and a complete that
- * keeps failing restarts the upload.
- */
 class UploadUrlExpiryTest {
     @get:Rule val tmp = TemporaryFolder()
     private val t0 = Instant.parse("2026-07-01T10:00:00Z")

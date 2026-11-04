@@ -1,16 +1,3 @@
-"""Meaning ranking for search: text embeddings, behind the AI flag (docs/SEARCH.md).
-
-OFF BY DEFAULT. :func:`available` is true only when ``SEARCH_EMBEDDINGS_ENABLED`` is on, the AI
-master switch (``AI_FEATURES_ENABLED``, read through ``app.ai_features.settings``, the switch an
-incident responder flips to stop every paid AI call) is on, the chosen provider has a key on this
-deployment, and the ``SearchDocument.embedding`` column exists (pgvector
-installed; probed once and cached). While it is false nothing here makes a network call, search runs
-on full-text and trigram alone, and the response says ``"mode": "text"``.
-
-What is embedded is the document's allowlisted text (``services/search_index``), never a file. The
-vectors stay in this portal's database and never cross to the other portal.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -24,15 +11,11 @@ from app.core.db import db
 
 logger = logging.getLogger(__name__)
 
-#: The vector width. Fixed in the migration's ``vector(768)``; both providers are asked for it.
 DIMENSIONS = 768
 
-#: How long a search waits for its query's embedding before ranking on text alone.
 QUERY_TIMEOUT_SECONDS = 1.5
-#: How long the indexer waits for one batch.
 BATCH_TIMEOUT_SECONDS = 30.0
 
-#: Gemini's embedding model when the configured model is the OpenAI default.
 GEMINI_DEFAULT_MODEL = "gemini-embedding-001"
 
 _column_present: bool | None = None
@@ -41,7 +24,7 @@ _QUERY_CACHE_SIZE = 256
 
 
 class EmbeddingError(RuntimeError):
-    """The provider could not be asked, or answered something unusable."""
+    pass
 
 
 def _provider(settings: Any) -> str:
@@ -56,20 +39,16 @@ def _key(settings: Any) -> str | None:
 
 
 def ai_master_on() -> bool:
-    """The AI master switch (``AiFeatureSettings.enabled``). Read only after the search flag is on,
-    so the dormant ``app.ai_features`` package is not imported on a deployment that never asks."""
     try:
         from app.ai_features.settings import get_ai_settings
 
         return bool(get_ai_settings().enabled)
-    except Exception:  # a broken optional package means no paid calls, never a failed search
+    except Exception:
         logger.warning("search embeddings: AI settings unreadable; text mode", exc_info=True)
         return False
 
 
 def configured(settings: Any | None = None) -> bool:
-    """The search flag and the AI master switch are on and the provider has a key. No database
-    call."""
     settings = settings or get_settings()
     if not getattr(settings, "search_embeddings_enabled", False) or not _key(settings):
         return False
@@ -77,7 +56,6 @@ def configured(settings: Any | None = None) -> bool:
 
 
 async def column_present() -> bool:
-    """Whether ``SearchDocument.embedding`` exists. Probed once per process."""
     global _column_present
     if _column_present is None:
         rows = await db.query_raw(
@@ -89,7 +67,6 @@ async def column_present() -> bool:
 
 
 def reset_cache() -> None:
-    """Forget the column probe and the query cache (tests, and a migration applied live)."""
     global _column_present
     _column_present = None
     _query_cache.clear()
@@ -101,7 +78,7 @@ async def available(settings: Any | None = None) -> bool:
         return False
     try:
         return await column_present()
-    except Exception:  # a probe failure means text mode, never a failed search
+    except Exception:
         logger.warning("search embeddings: column probe failed", exc_info=True)
         return False
 
@@ -150,7 +127,6 @@ async def _gemini(settings: Any, texts: list[str], timeout: float) -> list[list[
 async def embed(
     texts: list[str], *, settings: Any | None = None, timeout: float = BATCH_TIMEOUT_SECONDS
 ) -> list[list[float]]:
-    """One vector per text, in order. Raises :class:`EmbeddingError` on any failure."""
     settings = settings or get_settings()
     if not texts:
         return []
@@ -169,7 +145,6 @@ async def embed(
 
 
 async def embed_query(q: str, *, settings: Any | None = None) -> list[float] | None:
-    """The query's vector, or ``None`` (rank on text). One call, short timeout, small LRU."""
     key = q.strip().lower()
     if key in _query_cache:
         _query_cache.move_to_end(key)
@@ -186,5 +161,4 @@ async def embed_query(q: str, *, settings: Any | None = None) -> list[float] | N
 
 
 def vector_literal(vector: list[float]) -> str:
-    """pgvector's text form, for a ``$n::vector`` parameter."""
     return "[" + ",".join(f"{value:.7g}" for value in vector) + "]"

@@ -83,31 +83,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
-/*
- * TWO-STEP VERIFICATION on the handset — the twin of the web's `TwoStepChallengeForm` (the code step
- * of a sign-in) and `TwoStepVerificationCard` (the switch). Same words, same steps.
- *
- * Owner's ruling (2026-10-17), the same on both clients:
- *   - It is ONE switch ([AppToggle]) labelled "Two-step verification", never a bare "Off" line.
- *   - Off → switch on → setup opens (QR, key, the six code boxes). The switch reads "Setting up…" and
- *     stays OFF until the server has VERIFIED a code. Only then is it On.
- *   - Leaving setup without a verified code DISCARDS it (`POST /auth/two-factor/setup/cancel`):
- *     Cancel, Back, leaving the screen, or coming back after more than [TwoStepSwitch.AWAY_LIMIT_MILLIS]
- *     in the background. A SHORT trip to the authenticator app on this phone — which is how the code
- *     is read — does not cancel it. The server also drops a setup older than 15 minutes, and a setup
- *     found left over from an earlier visit reads Off and is cleared, never On.
- *   - On → switch off → a current code (six boxes) or, behind "Use a recovery code instead", a
- *     recovery code; then it is off.
- *
- * The phone is usually the device with the authenticator on it, so setup here also offers "Open in
- * authenticator app" (the otpauth link handed to the system) beside "Copy key".
- */
-
-/**
- * The second step of a sign-in, shown in place of the sign-in card after ANY first factor when the
- * account has two-step verification on. Nobody is signed in until a code is accepted, so "Back to
- * sign in" simply forgets the challenge.
- */
 @Composable
 fun TwoStepChallengeForm(
     repository: FieldRepository,
@@ -121,7 +96,6 @@ fun TwoStepChallengeForm(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var errorNonce by remember { mutableIntStateOf(0) }
-    /** The challenge is finished (five wrong codes, or five minutes); only signing in again leads anywhere. */
     var dead by remember { mutableStateOf(false) }
 
     fun send(typed: String) {
@@ -208,7 +182,6 @@ private sealed interface TwoStepStep {
     data class Confirm(val disable: Boolean) : TwoStepStep
 }
 
-/** "17 Oct 2026" from the server's ISO instant, in this phone's zone. */
 private fun twoStepDate(iso: String): String {
     val instant = runCatching { OffsetDateTime.parse(iso).toInstant() }.getOrNull()
         ?: runCatching { Instant.parse(iso) }.getOrNull()
@@ -216,12 +189,10 @@ private fun twoStepDate(iso: String): String {
     return DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH).format(instant.atZone(ZoneId.systemDefault()))
 }
 
-/** Fire-and-forget: the screen that asked may already be gone, so this must outlive its scope. */
 private fun discardSetup(repository: FieldRepository) {
     CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { runCatching { repository.cancelTwoFactorSetup() } }
 }
 
-/** The account's own two-step verification, reached from Settings. Open to every role. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TwoStepVerificationScreen(
@@ -264,8 +235,6 @@ fun TwoStepVerificationScreen(
     LaunchedEffect(Unit) {
         runCatching { repository.twoFactorStatus() }
             .onSuccess { answer ->
-                // A setup somebody started on an earlier visit and never finished: it is Off, so
-                // forget it rather than leave a half-made secret on the account.
                 status = if (!answer.enabled && answer.pending) {
                     runCatching { repository.cancelTwoFactorSetup() }
                     answer.copy(pending = false)
@@ -276,11 +245,6 @@ fun TwoStepVerificationScreen(
             .onFailure { error = it.apiFailure("Couldn't load this setting. Try again.").message }
     }
 
-    // Away too long with a setup open → discard it. Leaving the screen with one open → discard it.
-    // Rotating or resizing does NOT dispose this: MainActivity declares configChanges for orientation,
-    // screen size, density, font scale and uiMode, so those are recompositions, not recreations, and an
-    // open setup survives them. (A rarer recreation — a locale change, process death — does discard it,
-    // and the screen comes back Off: safe, never On.)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -315,7 +279,6 @@ fun TwoStepVerificationScreen(
                 code = ""
                 errorNonce += 1
                 error = it.apiFailure("Couldn't connect. Check your connection and try again.").message
-                // The server already dropped this setup (older than 15 minutes): back to Off.
                 if (it is HttpException && it.code() == 409 && step is TwoStepStep.Setup) {
                     step = TwoStepStep.Idle
                     reload()
@@ -561,7 +524,6 @@ fun TwoStepVerificationScreen(
     }
 }
 
-/** A recovery code (`xxxx-xxxx`): its own text field, never the six digit boxes. */
 @Composable
 internal fun RecoveryCodeBox(value: String, onChange: (String) -> Unit) {
     OutlinedTextField(
@@ -576,7 +538,6 @@ internal fun RecoveryCodeBox(value: String, onChange: (String) -> Unit) {
     )
 }
 
-/** The server's square, drawn black on white whatever the theme, so it scans. */
 @Composable
 private fun QrSquareImage(svg: String) {
     val drawing = remember(svg) { QrSquare.parse(svg) } ?: return

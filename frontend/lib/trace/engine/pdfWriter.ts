@@ -8,18 +8,6 @@ import {
   VecStyle,
 } from './path';
 
-/**
- * PDF 1.4 writer.
- *
- * Vector in, vector out: the paths become PDF path operators, so the file is resolution independent and
- * a print shop can scale it without asking for the original.
- *
- * PDF's y axis points **up** and the document's points down, so the whole content stream runs under one
- * `1 0 0 -1 0 H cm` flip. Flipping each coordinate instead would also mirror every stroke's dash phase
- * and every text baseline the moment either is added.
- */
-
-/** Coordinate precision in the content stream. Beyond three decimals a PDF viewer cannot resolve it. */
 const COORD_PRECISION = 3;
 
 function num(v: number): string {
@@ -33,14 +21,11 @@ function comp(v: number): string {
   return num(v / 255);
 }
 
-/** Escapes the three characters that terminate a PDF literal string. */
 function pdfString(s: string): string {
   let out = '';
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
     if (c === '(' || c === ')' || c === '\\') out += `\\${c}`;
-    // PDF literal strings are byte strings; anything outside printable ASCII is dropped rather than
-    // guessed at, because a mis-encoded /Title makes some readers reject the whole trailer.
     else if (c >= ' ' && c <= '~') out += c;
   }
   return out;
@@ -71,7 +56,6 @@ function pathOps(path: VecPath): string {
           `${num(seg.to.x)} ${num(seg.to.y)} c`,
       );
     } else {
-      // PDF has no quadratic operator; the exact cubic equivalent raises the control points to 2/3.
       const c1x = cur.x + (2 / 3) * (seg.c.x - cur.x);
       const c1y = cur.y + (2 / 3) * (seg.c.y - cur.y);
       const c2x = seg.to.x + (2 / 3) * (seg.c.x - seg.to.x);
@@ -96,7 +80,6 @@ function paintOperator(style: VecStyle, closed: boolean): string {
   return 'n';
 }
 
-/** One alpha pair needs one ExtGState; the pairs are deduplicated so a 4 000-path file has a few. */
 function alphaKey(style: VecStyle): string {
   const fa = style.fill === null ? 1 : ((style.fill >>> 24) & 0xff) / 255;
   const sa = style.stroke === null ? 1 : ((style.stroke >>> 24) & 0xff) / 255;
@@ -146,14 +129,6 @@ function shapeOps(shape: VecShape, layerOpacity: number, gsNames: Map<string, st
 
 const ascii = new TextEncoder();
 
-/**
- * Write a one-page PDF.
- *
- * @param doc      the document; its `width`/`height` become the MediaBox in points
- * @param options  only `includeMetadata` and the document geometry are read here — a PDF is vector, so
- *                 `width`, `height`, `scale` and `dpi` are applied by the caller before this point
- * @returns the complete PDF file bytes, with a correct cross-reference table.
- */
 export function writePdf(
   doc: VecDocument,
   options: { includeMetadata: boolean; title?: string } = { includeMetadata: true },
@@ -161,8 +136,6 @@ export function writePdf(
   const width = Math.max(1, doc.width);
   const height = Math.max(1, doc.height);
 
-  // Collect the distinct alpha pairs first: the Resources dictionary has to name them all before the
-  // content stream can reference any of them.
   const gsNames = new Map<string, string>();
   for (const layer of doc.layers) {
     if (!layer.visible) continue;
@@ -180,7 +153,7 @@ export function writePdf(
   const objects: Uint8Array[] = [];
   const push = (body: string): number => {
     objects.push(ascii.encode(body));
-    return objects.length; // 1-based object number
+    return objects.length;
   };
 
   const catalogNum = 1;
@@ -190,8 +163,6 @@ export function writePdf(
   const firstGsNum = 5;
   const infoNum = firstGsNum + gsNames.size;
 
-  // The map's insertion order is the object order, and it is also the order the /ExtGState references are
-  // written below, which is what keeps /GSn pointing at the state it names.
   const gsEntries: string[] = [];
   for (const key of gsNames.keys()) {
     const [fillAlpha, strokeAlpha] = key.split(',');

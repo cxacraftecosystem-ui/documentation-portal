@@ -8,11 +8,6 @@ import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
 
-/**
- * The questionnaire's default workshop: the most recent one the user may record in, by the day it
- * ran, then by when it was entered. Same cases as the web's
- * `frontend/e2e/questionnaire-default-workshop-unit.spec.ts`.
- */
 class DefaultWorkshopTest {
     private val today = LocalDate.of(2026, 10, 20)
 
@@ -46,7 +41,6 @@ class DefaultWorkshopTest {
     @Test
     fun aWorkshopStartingTodayCountsOnTheIstDay() {
         val list = listOf(ws("today", "2026-10-21T00:00:00.000Z"))
-        // 00:30 IST on 21 Oct is still 20 Oct in UTC.
         assertEquals("today", mostRecentRecordableWorkshop(list, workshopToday(Instant.parse("2026-10-20T19:00:00Z")))?.id)
         assertNull(mostRecentRecordableWorkshop(list, today))
     }

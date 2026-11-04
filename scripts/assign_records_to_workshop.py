@@ -46,37 +46,8 @@ from typing import Any
 from app.core.db import connect_db, db, disconnect_db
 from app.services.workshop_access import link_workshop_artisan
 
-# The default target: the workshop every record currently in the repository was documented at.
 DEFAULT_WORKSHOP_TITLE = "Shristi O Anusandhan 2nd Toolkit Workshop"
 
-# Every record type that carries a workshopId column, in the order they are reported. `media` is
-# included deliberately: a photograph is scoped by workshop exactly like the record it hangs off,
-# and MediaFile.workshopId is the column the map and the data browser read.
-#
-# CRAFT IS DELIBERATELY ABSENT, and this is the one entry it is tempting to add. The rule and its
-# reason are stated at ``app/services/workshop_inference.BUCKETS``: "A craft is taxonomy — 'Dabu hand
-# block printing' is not something that happened at a workshop — and while the column exists for the
-# roster join, no screen narrows crafts by workshop. Assigning them would be inventing a fact to fill
-# a column."
-#
-# This script DID fill it once, for the 9 crafts on the live repository, and the invented fact turned
-# out to have three consumers — which is exactly why the rule exists:
-#
-#   1. ``media.inherit_parent_workshop`` stamps an upload with its PARENT's workshop, and a craft is a
-#      valid media parent. A researcher at workshop B attaching a photo to the shared craft "Cane and
-#      Bamboo" had it filed under workshop A, where B's scope could never see it.
-#   2. ``workshop_inference`` reads ``craftId`` on the PARENT rung, which outranks the date WINDOW
-#      rung. Unassigned media hanging off a shared craft was then mapped confidently and
-#      unambiguously to workshop A, so the ladder's ambiguity brake never engaged.
-#   3. On the web craft form, a stored workshop makes ``confirmSubmission`` fire: editing any of those
-#      crafts raised a blocking dialog saying the save "needs an admin's approval" — a claim the
-#      backend does not honour, because ``update_craft`` only gates a workshopId that CHANGED and
-#      Craft has no status column to pin.
-#
-# THE RELATIONSHIP DOES NOT NEED THE COLUMN. A craft is linked to a workshop through ``WorkshopCraft``,
-# and every craft-scoping query in the app reads that join — ``GET /crafts?workshopId=`` ORs the two
-# readings, and so does the shared ``record_filters.craft_workshop_clause``. ``mirror_join_tables``
-# below still keeps that join complete, which is the half that is actually read.
 RECORD_TYPES: tuple[tuple[str, str], ...] = (
     ("artisans", "artisan"),
     ("products", "productdocumentation"),
@@ -124,9 +95,6 @@ async def plan_and_apply(workshop: Any, execute: bool) -> dict[str, int]:
         total = await model.count()
         blank = await model.count(where={"workshopId": None})
         already = await model.count(where={"workshopId": workshop.id})
-        # Pointing at some OTHER workshop. Counted and reported rather than silently ignored: this
-        # is the number that says whether "attach everything" is still the right description of what
-        # the script is about to do.
         elsewhere = total - blank - already
 
         print(f"{label:14} {total:7} {blank:7} {already:8} {elsewhere:10}")
@@ -161,7 +129,6 @@ async def mirror_join_tables(workshop: Any, execute: bool) -> dict[str, int]:
     dry run is this script's only safety mechanism.
     """
     added = {"workshopartisan": 0}
-    # In a dry run, include the rows still blank: those are the ones --execute is about to claim.
     scope: dict[str, Any] = (
         {"workshopId": workshop.id}
         if execute

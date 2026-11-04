@@ -1,28 +1,5 @@
 name: Android build
 
-# Stage 3 of 3:  deploy-backend.yml → deploy-frontend.yml → [ THIS ]
-#
-# ─── WHY LAST, AND WHY IT STILL RUNS WHEN A DEPLOY FAILED ─────────────────────────────
-# This stage builds and checks the APK; it does not deploy anything. (Shipping a build to
-# devices is a separate, deliberate act: the in-app OTA updater compares versionCode against
-# a release-signed APK uploaded by a master admin — see android/README.md. Nothing here can
-# reach a phone.) So it is ordered last purely as a dependency courtesy: it is the cheapest
-# stage and the least urgent, and putting it ahead of the deploys would delay them.
-#
-# But note there is deliberately NO `conclusion == 'success'` gate on the trigger, unlike
-# deploy-frontend.yml. A build+test gate's inputs are the source tree, not the state of the
-# servers: if the EC2 deploy fails, "does the Android app still compile?" is a question you
-# want answered *more* urgently, not less. Suppressing it would hide a Kotlin compile break
-# behind an unrelated infrastructure failure and you would not find it until the next push.
-# (deploy-frontend.yml's gate job always runs for the same reason — it keeps this workflow
-# reachable even when it decides not to publish.)
-#
-# Pull requests also build directly, without waiting on the chain: nothing is deployed from
-# a PR, so there is nothing to order against, and a contributor should get the compile
-# result on the PR itself rather than after their merge lands on main.
-#
-# No repository secrets are required by this workflow.
-
 on:
   workflow_run:
     workflows: ["Deploy frontend to Vercel"]
@@ -38,8 +15,6 @@ permissions:
   contents: read
 
 concurrency:
-  # Keyed by the commit under test so a re-push supersedes an in-flight build. Safe to
-  # cancel here (unlike the deploy stages) — nothing is mutated outside the runner.
   group: android-build-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
@@ -53,70 +28,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # On a workflow_run trigger the default ref is the tip of main, which may have
-          # moved past the commit that was deployed. Build the commit that went out.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up JDK 25
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
-          # The JDK that RUNS Gradle, not the bytecode level. 25 is the current Temurin LTS; Gradle
-          # 9.8 runs on 17-27 and AGP 9.4 needs at least 17. The output is unchanged by it: every
-          # module still compiles Java 17 bytecode (`compileOptions` in android/app/build.gradle.kts,
-          # which AGP's built-in Kotlin follows; `jvmTarget` + `java {}` in the four core modules),
-          # because 17 is the newest level Android documents. Not 27, the newest GA: Kotlin 2.4
-          # documents Java only up to 26, and 26 is already end-of-life — move to 27 when a stable
-          # Kotlin documents it.
-          # publish-android.yml pins the same value, so a release is built on the JDK these
-          # checks ran on.
           java-version: "25"
-          # Caches ~/.gradle/caches and the wrapper distribution (Gradle 9.8.1, ~145 MB),
-          # keyed on the gradle files. Without it every run re-downloads the whole
-          # AndroidX/Compose dependency graph, which dominates the wall-clock time.
           cache: gradle
 
       - name: Make the Gradle wrapper executable
-        # The wrapper is committed with mode 100644 (it was added from Windows), so the
-        # runner cannot exec it as-is. Cheaper than rewriting the file mode in git.
         run: chmod +x gradlew
 
       - name: Ensure the required Android SDK packages are installed
-        # The runner image ships an Android SDK, but which platform/build-tools versions are
-        # preinstalled drifts with the image. compileSdk/targetSdk are 37, which is the
-        # `android-37.2` platform package (compileSdk 37.2 since 0.0.7) (API 37's packages carry the minor in their name), and
-        # build-tools 37.0.0 is the newest (AGP 9.4 needs at least 36.0.0), so install them
-        # explicitly rather than betting on the image. Both are no-ops when already present.
-        # Must move with android/app/build.gradle.kts, and publish-android.yml installs the same.
         run: |
           set -euo pipefail
           sdkmanager="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
           yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
           "$sdkmanager" "platforms;android-37.2" "build-tools;37.0.0" > /dev/null
 
-      # android/local.properties is gitignored, so it does not exist here. Two consequences,
-      # both intended:
-      #   • sdk.dir falls back to $ANDROID_HOME, which the runner sets.
-      #   • buildConfigField DEFAULT_API_BASE_URL falls back to the CloudFront production
-      #     URL hard-coded in build.gradle.kts — i.e. the CI APK points at production, not
-      #     at anyone's laptop. Do not "helpfully" write a local.properties here.
-
       - name: Compile Kotlin (debug)
         id: compile
-        # Run before assembleDebug even though assemble depends on it: a compile break is
-        # by far the most common failure and this surfaces it in ~1 min instead of ~4.
         run: ./gradlew :app:compileDebugKotlin --console=plain --stacktrace
 
       - name: The other portal, for the shared-file parity tests
-        # THE SHARED FILES ARE HELD IDENTICAL BY CI, NOT BY MEMORY (owner's ruling, 2026-10-20). Every
-        # sibling-parity test in this repository (the craft master, the map files, the nav and scanner
-        # files, the transcription manifest, the cross-portal modules, the artisan form contract) compares
-        # against a checkout of the other portal and skips without one; until this step cloned it on every
-        # run, CI had one repository and every one of them skipped. The comparison is made against the
-        # other repository's `main`, or against the branch of the same name when a cross-repo stream has
-        # pushed one there. Both repositories are public, so no token is needed. The clone lands BESIDE
-        # this checkout, under the other repository's name, because some tests find the sibling by that
-        # relative path rather than by the environment.
         working-directory: .
         env:
           PEER: cxacraftecosystem-ui/designer-portal
@@ -135,28 +70,6 @@ jobs:
 
       - name: Unit tests
         id: tests
-        # HONEST STATUS: `app/src/test/` holds real suites (their counts are generated into
-        # docs/REPO_FACTS.md — this comment used to restate them and they went stale), so this
-        # step runs them for real and a red tick here is a real failure. `src/androidTest/`
-        # still does not exist, so nothing instrumented runs — see the note at the foot of
-        # this step.
-        #
-        # AND THE VENDORED TRACE ENGINE'S OWN SUITES, since 2026-10-09. The four core modules
-        # are plain Kotlin/JVM with their own `test` tasks, including :core-pipeline's
-        # ParityTest — the one check that the handset's engine draws what the browser's does —
-        # and until then CI never ran them. They are here because that date moved their
-        # compiler (Kotlin 2.0.21 -> 2.4.21) and their JSON library (kotlinx-serialization
-        # 1.7.3 -> 1.11.0) at once, and "the app compiled" says nothing about either.
-        #
-        # THIS COMMENT USED TO SAY THE OPPOSITE, and the shape of that is worth keeping: it
-        # read "android/app/src contains only `main/` … so it passes without asserting
-        # anything", which was measured, was true, and then quietly stopped being true when
-        # the first suites landed. Nothing here failed — the step had been written to detect
-        # the change rather than to assume it, which is why the RUN below needed no edit and
-        # only the prose did. That is the argument for the `if` under it: a step that decides
-        # at run time which case it is in survives the day the tree moves, and a comment that
-        # states the case as a fact does not. Rewritten rather than deleted so the next
-        # person can see that the branch has now taken both paths in anger.
         run: |
           set -euo pipefail
           if [ -d app/src/test ] && [ -n "$(find app/src/test -name '*.kt' -o -name '*.java' 2>/dev/null | head -1)" ]; then
@@ -165,22 +78,8 @@ jobs:
             echo "::warning::No app/src/test sources exist; :app:testDebugUnitTest is a placeholder (NO-SOURCE) and asserts nothing."
           fi
           ./gradlew :app:testDebugUnitTest             :core-imaging:test :core-vector:test :core-pipeline:test :core-export:test             --console=plain
-          # Instrumented tests (src/androidTest) are NOT run: there are none, and they would
-          # need an emulator on the runner. The emulator lives in its own workflow,
-          # android-emulator.yml, run by hand — do not bolt one onto this job.
 
       - name: Android Lint (debug)
-        # A REAL GATE SINCE 2026-10-09: errors fail the build, warnings do not.
-        #
-        # It was advisory from the day it was added, on a measured reason: the tree carried a
-        # pre-existing error (AndroidManifest.xml:6, PermissionImpliesUnsupportedChromeOsHardware —
-        # CAMERA with no `<uses-feature required="false">`), so a hard gate would have failed every
-        # run and trained everyone to ignore red. This comment said to delete continue-on-error the
-        # day that was fixed. It was fixed on 2026-10-09 with the AGP 9.4.1 upgrade, together with
-        # the other four errors the new lint reported (two MissingPermission the old lint had also
-        # been reporting, and two Compose checks that arrived with the new libraries,
-        # NonObservableLocale and RememberInComposition) — each at its source, none suppressed and
-        # no lint-baseline.xml — so the gate is on. The report is uploaded on every run either way.
         id: lint
         run: ./gradlew :app:lintDebug --console=plain
 
@@ -197,11 +96,6 @@ jobs:
       - name: Upload the debug APK
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          # DEBUG-SIGNED build. It is a compile artifact for testers to sideload, NOT a
-          # release: the in-app OTA updater only accepts APKs signed with the release key,
-          # and Android refuses to install an APK whose signature differs from the one
-          # already on the device. Cutting a real release is still the manual, key-holding
-          # process in android/README.md.
           name: app-debug-${{ github.event.workflow_run.head_sha || github.sha }}
           path: android/app/build/outputs/apk/debug/FieldRepository_Android-App_Debug-Build_v*.apk
           if-no-files-found: error
@@ -226,8 +120,6 @@ jobs:
           path: |
             android/app/build/reports/tests/
             android/core-*/build/reports/tests/
-          # `warn`, not `error`: a run that failed before the tests leaves no report, and the
-          # missing artifact must not replace the real error.
           if-no-files-found: warn
           retention-days: 14
 

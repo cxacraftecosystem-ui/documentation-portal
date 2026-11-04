@@ -1,22 +1,3 @@
-"""Seed the 3rd Craft Toolkit Workshop instrument — 22 sections coded A..V, 81 questions.
-
-It is a SECOND instrument standing alongside the 2nd workshop's, not a replacement for it. Every
-one of the 22 new section codes already exists in the 2nd workshop's corpus (RESP, A..W), and
-before migration 20260913100000 ``QuestionnaireSection.code`` was ``@unique`` GLOBALLY — so running
-anything like this against the old schema would have RETITLED 22 live sections rather than creating
-22 new ones, leaving 285 questions and every answer under headings that no longer described them.
-That migration is a hard prerequisite and this script will fail loudly without it.
-
-The instrument is created INACTIVE AS THE DEFAULT. Seeding it changes nothing for anybody until an
-admin binds it to a workshop (``PUT /api/workshops/{id}/questionnaire``) or makes it the default
-(``PUT /api/questionnaires/{id}/default``). A seeder that flipped the default would silently re-file
-every old Android build's submissions, because those clients send no questionnaireId at all.
-
-    cd backend
-    .\\.venv\\Scripts\\Activate.ps1
-    python scripts/seed_questionnaire_w3.py
-"""
-
 import asyncio
 
 from app.core.db import connect_db, disconnect_db

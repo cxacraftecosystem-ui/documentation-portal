@@ -35,10 +35,6 @@ import { Toggle } from "@/components/ui/Toggle";
 import { SearchableMultiSelect } from "@/components/ui/SearchableSelect";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 
-/**
- * A capability as the list reads it. The list only READS a person (owner ruling, 2026-10-16): a click
- * on the row opens their view, and the role and these grants change only behind its Update button.
- */
 function GrantCell({ included }: { included: boolean }) {
   return <td className="px-4 py-3 text-ink-700">{included ? "Yes" : "No"}</td>;
 }
@@ -47,16 +43,6 @@ export default function UsersPage() {
   const confirm = useConfirm();
   const { user: currentUser } = useAuth();
   const { adminMode } = useAdminView();
-  /**
-   * Professors reach this page too, with promotion rights only: the role column is editable for
-   * users beneath them, while creation, deletion, capability grants and the bulk panel stay admin+.
-   *
-   * `adminChromeVisible` is the admin-view half. For an ADMIN with admin view off AppShell already
-   * replaces the whole route (the nav link is hidden, so the page would otherwise be reachable only
-   * by URL) — this is the second line, keeping the admin-only controls tied to the toggle wherever
-   * the page renders. It cannot narrow a PROFESSOR: they are not `isAdmin`, so `adminChromeVisible`
-   * is true for them and nothing here changes, which matters because they have no toggle to undo.
-   */
   const chrome = adminChromeVisible(currentUser, adminMode);
   const admin = isAdmin(currentUser) && chrome;
   const masterControls = isMasterAdmin(currentUser) && chrome;
@@ -66,7 +52,6 @@ export default function UsersPage() {
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const skipFirstDebounce = useRef(true);
-  // The master-admin bulk panel picks from EVERY user, not just the page of the table above it.
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [adminSelection, setAdminSelection] = useState<Set<string>>(new Set());
   const [grantAdmin, setGrantAdmin] = useState(true);
@@ -74,7 +59,6 @@ export default function UsersPage() {
   const [grantDataset, setGrantDataset] = useState(false);
   const [applying, setApplying] = useState(false);
   const [adminMessage, setAdminMessage] = useState<string | null>(null);
-  /** "Help them back in": whether e-mail can carry a link, the link just made, and the two dialogs. */
   const [mailAvailable, setMailAvailable] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [issuedLink, setIssuedLink] = useState<{ user: User; link: IssuedPasswordLink } | null>(null);
@@ -93,10 +77,6 @@ export default function UsersPage() {
     };
   }, []);
 
-  /**
-   * Make a password link for somebody — copied and handed over (by phone, WhatsApp, in person), or
-   * e-mailed to their own address. The link exists only in this answer: no route reads one back.
-   */
   async function issueLink(user: User, delivery: PasswordLinkDelivery) {
     setLinkBusy(true);
     setError(null);
@@ -132,7 +112,6 @@ export default function UsersPage() {
       await navigator.clipboard.writeText(issuedLink.link.link);
       setLinkCopied(true);
     } catch {
-      // Clipboard refused: say nothing rather than claim success — the link is on screen to select.
       setLinkCopied(false);
     }
   }
@@ -166,8 +145,6 @@ export default function UsersPage() {
     setAdminMessage(null);
     setError(null);
     try {
-      // Additive grants only: checked privileges are granted, unchecked ones are left untouched
-      // (revoke individually via the per-user table above). This keeps the bulk action safe.
       const body: Record<string, unknown> = {};
       if (grantAdmin) body.role = "ADMIN";
       if (grantQuestionnaire) body.canManageQuestionnaire = true;
@@ -201,14 +178,12 @@ export default function UsersPage() {
     }
   }
 
-  /** Full roster for the bulk grants panel — the paged table alone would hide most accounts. */
   async function loadAllUsers() {
     if (!masterControls) return;
     try {
       const result = await listResource<User>("/users", { pageSize: 100 });
       setAllUsers(result.items);
     } catch {
-      // The bulk panel degrades to whatever is already loaded; the table above still works.
     }
   }
 
@@ -222,7 +197,6 @@ export default function UsersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id, masterControls]);
 
-  // Live search: debounce typing by 350ms; Enter applies immediately via onSubmit.
   useEffect(() => {
     if (skipFirstDebounce.current) {
       skipFirstDebounce.current = false;
@@ -235,10 +209,6 @@ export default function UsersPage() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  /*
-   * BACK FROM A PERSON'S VIEW PUTS THE LIST BACK AS IT WAS — search, page and scroll. A row click
-   * opens the read-only view (`/users/[id]`); see `lib/listReturn.ts`.
-   */
   const listReturn = useListReturn("users", { query: applied, page }, Boolean(data));
   useEffect(() => {
     const note = listReturn.restored;
@@ -254,7 +224,6 @@ export default function UsersPage() {
   useEffect(() => restoreListScroll(Boolean(data)), [data, restoreListScroll]);
   const rememberPlace = () => listReturn.remember({ query: applied, page });
 
-  /** "Open their account" after a duplicate: bring that row up in the table, where its role and access are. */
   function openExisting(_accountId: string, email: string) {
     setQuery(email);
     setApplied(email);
@@ -283,11 +252,6 @@ export default function UsersPage() {
     }
   }
 
-  /**
-   * For somebody who has lost the phone their authenticator was on. The server holds the same rule as
-   * Delete (an admin, over a person ranked below them) and never hands the secret back — only takes
-   * it away, with every recovery code beside it.
-   */
   async function turnOffTwoStep(user: User) {
     const ok = await confirm({
       title: "Turn off two-step verification?",
@@ -321,7 +285,6 @@ export default function UsersPage() {
           {error}
         </div>
       ) : null}
-      {/* Mounted from the first render, so a notice that appears later is announced. */}
       <div aria-live="polite">
         {notice ? (
           <div className="mb-4 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700">{notice}</div>
@@ -382,9 +345,6 @@ export default function UsersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line-200">
-                {/* A click anywhere on a person opens their view, read-only. Their role and grants
-                    change only behind Update (here, or on the view); Delete and the sign-in help
-                    keep their own clicks. */}
                 {data.items.map((user) => (
                   <OpenableRow key={user.id} href={`/users/${encodeURIComponent(user.id)}`} onOpen={rememberPlace}>
                     <td className="px-4 py-3 font-medium text-ink-900">
@@ -400,9 +360,6 @@ export default function UsersPage() {
                     <td className="px-4 py-3 text-ink-700">{user.email}</td>
                     <td className="px-4 py-3 text-sm text-ink-700">{roleLabel(user.role)}</td>
                     <GrantCell included={hasRank(user, "PROFESSOR") || !!user.canManageQuestionnaire} />
-                    {/* No Crafts or Workshops columns: both are rank-only now, so the cell could
-                        only ever have restated the role beside it or offered a toggle that changed
-                        nothing. Read the Role column for those two. */}
                     <GrantCell included={hasRank(user, "PROFESSOR") || !!user.canDownloadDataset} />
                     <td className="px-4 py-3 text-ink-700">{signInSummary(user)}</td>
                     <td className="px-4 py-3 text-right">
@@ -517,10 +474,6 @@ export default function UsersPage() {
   );
 }
 
-/**
- * "HELP THEM BACK IN" — every way an administrator can get somebody into their account again, on
- * the row of an account they manage. Only the offers `rowOffers` makes are drawn.
- */
 function HelpThemBackIn({
   offers,
   busy,
@@ -576,11 +529,6 @@ function HelpThemBackIn({
   );
 }
 
-/**
- * THE LINK JUST MADE, above the table and not inside the row that made it: this is the one panel
- * whose content cannot be recovered — no route reads a link back. An e-mailed link is not shown at
- * all; the administrator is told where it went and may withdraw it.
- */
 function IssuedLinkPanel({
   issued,
   copied,

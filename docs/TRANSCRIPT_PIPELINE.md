@@ -4,6 +4,57 @@ Built 31 Oct 2026 from the approved design, `C:/dev/IIT/docs/transcription/DESIG
 The backend is the same in both portals: shared files are listed in `shared/transcription.sha256`
 and copied from designer-portal by its transcription sync script.
 
+## At a glance
+
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE"}}}%%
+sequenceDiagram
+  autonumber
+  participant C as Web or Android
+  participant API
+  participant Q as Queue worker
+  participant EL as Scribe v2
+  participant GM as Gemini 3.8 Flash
+  C->>API: media/complete, Transcribe and translate ticked
+  API->>API: Store the choice on the row
+  API-->>C: Queued
+  Q->>Q: Consent re-read, budget and pause checked
+  Q->>EL: Audio, or a video's first sound track
+  EL-->>Q: Words, speakers, timings
+  Q->>Q: New TranscriptVersion of turns
+  Q->>GM: One structured pass, keyed by turn id
+  GM-->>Q: English, summary, quotes, craft terms
+  Note over Q,GM: 404 on 3.8 moves to 3.7 Flash. 402 holds 15 minutes, no attempt spent
+  C->>API: GET /api/transcripts/mediaId
+  API-->>C: Turns with English, Ready
+```
+
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE"}}}%%
+stateDiagram-v2
+  [*] --> WAITING_FOR_CONSENT: a subject refused
+  [*] --> QUEUED
+  WAITING_FOR_CONSENT --> QUEUED: consent given
+  QUEUED --> TRANSCRIBING
+  TRANSCRIBING --> TRANSLATING
+  TRANSLATING --> READY
+  TRANSCRIBING --> NEEDS_ATTENTION
+  TRANSLATING --> NEEDS_ATTENTION
+  NEEDS_ATTENTION --> QUEUED: Retry
+  READY --> [*]
+```
+
+`QUEUED` also covers paused, budget-paused and waiting (`view.queueReason`). A turn whose translation
+failed still leaves the transcript `READY`; that turn reads "Couldn't translate".
+
+| Release | What the pipeline gained |
+|---|---|
+| 0.0.4 (31 Oct) | Turns, the viewer's first cut, recording chips and filters, the AI switches pinned on |
+| 0.0.5 (1 Nov) | Scribe v2 + Gemini 3.8 Flash live, Ask, autodraft, glossary, quote cards, the monthly budget, the 402 billing hold, the parallel translation lane, Voice Isolator (built, off) |
+| 0.0.6 (1 Nov) | Karaoke, reading mode, marks and per-speaker colours, auto-follow, previews on list rows, transcripts in View and Download data, the work-directory leak fixed (D37) |
+| 0.0.9 (3 Nov) | Old transcripts translated on first open plus a one-off sweep; declined English typed or pasted by an editor (D38) |
+| 0.0.10 (4 Nov) | Video, the per-file choice, the admin auto switches and the backfill switch (off, D40), Refine on the web, summary edit on Android, Gemini-first text defaults, `[unclear]` translations accepted |
+
 ## Where things are
 
 | Piece | File |
@@ -36,7 +87,9 @@ re-translate a turn, Ask, auto-draft, quote card).
 
 - Everything is behind the existing AI switch (`AI_FEATURES_ENABLED` + `AI_TRANSCRIPT_INSIGHTS_ENABLED`);
   every `/api/transcripts` route answers 404 while it is off.
-- Transcription stays paused (`AppSetting.transcriptionPaused`) until the coordinator un-pauses it.
+- Transcription is paused while `AppSetting.transcriptionPaused` is true (the migration adds it true).
+  The coordinator un-paused it in both portals on 1 Nov 2026, with the nightly window off, so work
+  runs as it arrives.
 - **Budget:** `AppSetting.transcriptMonthlyBudgetUsd` (default USD 100). At 80 % the admins get one
   notice a month; at 100 % `transcriptionPaused` is set and translation jobs wait too. Spend is
   `SttUsage` (Scribe, USD 0.22 an hour) plus `TranscriptSpend` (Gemini).
@@ -60,6 +113,39 @@ cd backend && python scripts/backfill_transcripts.py --apply --batch 25
 Oldest first; a batch stops at `--batch` recordings or before its estimate passes what is left of
 this month's budget. Recordings whose consent refuses are left out and counted.
 
+## Video, the upload choice and the admin switches (0.0.10)
+
+- **Video is transcribed as its sound only.** `services/transcription_jobs.transcribe_recording` sees a
+  VIDEO row (or a `video/*` MIME type), extracts the first audio track with ffmpeg into the working
+  directory (`transcription/audio.extract_to_workdir`: `-map 0:a:0 -vn`, mono 16 kHz AAC), sends that
+  file and deletes it afterwards. The stored video is never changed. A video with no readable sound
+  ends UNAVAILABLE ("This video has no sound that could be read. Nothing was spent.") and nothing is
+  sent. The fetch ceiling is 1 GiB in both portals. Voice Isolator stays audio-only.
+- **The queue gate** (`media_queue._job_requests`) keeps TRANSCRIPTION for AUDIO and VIDEO and never
+  adds a job nobody asked for: a `/media/complete` body without `processingRequests: ["TRANSCRIPTION"]`
+  queues nothing.
+- **The choice is stored on the row.** `services/transcribe_choice.resolve_upload` runs in
+  `/media/complete` (and on a replayed complete, `resolve_retry`) and writes
+  `MediaFile.transcribeRequested`, `transcribeRequestSource` (`UPLOAD`, `AUTO_AUDIO`, `AUTO_VIDEO`,
+  `BUTTON`, `BACKFILL`) and `transcribeRequestedAt`. `null` means the row predates the choice. The
+  design-workshop stage save (designer-portal) only re-queues clips whose `transcribeRequested` is true.
+- **Consent and the budget apply as before**: the enqueue gate, the send-time re-read, the pause and the
+  monthly budget are unchanged.
+- **Admin switches**, in `AppSetting`, all off by default, changed only by a master admin through
+  `PUT /settings/transcription` with an `AUDIT transcription-settings` journal line:
+  `autoTranscribeVideo` and `autoTranscribeAudio` queue every new upload of that kind whatever the box
+  says; clients read them from `GET /settings/transcription/upload-policy` and show a pre-ticked,
+  locked box with a short note.
+- **The backfill switch** (`transcriptBackfillEnabled`) is the backfill script's logic
+  (`services/transcript_backfill`) run by the queue worker every 15 minutes: at most 25 open backfill
+  jobs at a time, oldest first, inside what is left of the month's budget, never while paused. Turning
+  it on needs `confirmBackfill: true` (a 409 otherwise); the clients show the estimate from
+  `GET /settings/transcription/backfill` (files, hours, cost) and ask first. Rows it queues are marked
+  `BACKFILL`, which is what the progress line counts. It ships OFF and stays off until the owner says
+  so (D40).
+- **Questionnaire takes** keep their own door (`questionnaire_transcription` / `transcription_enqueue`):
+  no box, always queued, consent and budget as before.
+
 ## Old transcripts and declined translations (0.0.9, D38)
 
 - **Old transcripts.** A recording transcribed before the turn pipeline gets its turns the first time
@@ -79,6 +165,28 @@ this month's budget. Recordings whose consent refuses are left out and counted.
   neutral "English isn't available for this recording." Pasted paragraphs land on the turns when they
   line up; otherwise the text is kept whole (`manualEnglish`, a `TranscriptInsight` with provider
   `manual`) and every copy, download and data export carries it.
+
+## The viewer, and what readers can do with a transcript
+
+The same contract (`shared/transcript-contract.json`) feeds the web viewer and the Android viewer,
+and the strings come from `shared/strings/transcript.json`, so the two read alike.
+
+| Feature | Route or rule |
+|---|---|
+| Read a version | `GET /api/transcripts/{mediaId}` (`?version=N` for an older one, read only) |
+| Karaoke and auto-follow | word timings in the turns; the view follows playback until the reader scrolls |
+| Reading mode, marks, speaker colours | client-side; `Speaker.colorKey` and `Turn.colorKey` from the speaker palette |
+| Edit a turn | `PATCH .../turns/{turnId}`; an edited original marks its English `STALE`; history per turn |
+| Name speakers | `PUT .../speakers`, applied to every turn, version and copy |
+| Retranslate a turn | `POST .../turns/{turnId}/retranslate`, consent re-checked |
+| Paste the English | `POST .../english`, when Gemini declined |
+| Copy and download | `POST .../copy`; `GET .../download?format=md\|docx\|srt\|vtt&track=original\|english\|both` |
+| Ask | `POST .../ask`: answers from this transcript only, consent re-checked, counted in the budget |
+| Autodraft | `POST .../autodraft`: questionnaire takes only; drafts wait for a person |
+| Quote card | `POST .../quote-card`: refused when a quoted artisan withdrew consent |
+| Glossary | `GET /api/transcripts/glossary`: craft terms and how often they were heard |
+| Budget | `GET` and `PUT /api/transcripts/budget`: admins only |
+| Cost and model badges | on `GET .../versions`, for Admin, Master Admin and Ministry Admin only |
 
 ## How this document is kept true
 

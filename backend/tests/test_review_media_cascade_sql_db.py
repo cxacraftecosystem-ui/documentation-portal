@@ -1,15 +1,3 @@
-"""The approval cascade RUN against a real, migrated Postgres (owner decision 2026-10-18).
-
-``test_review_media_cascade.py`` holds the rules against an in-memory stand-in. What only Postgres
-and the Prisma engine can judge is held here: the ``OR`` of tag and column clauses with an
-insensitive match, the first interactive transaction this backend opens (``db.tx()``) committing a
-record with its files, and rolling all of it back when a write fails part-way.
-
-It needs its own database, never ``backend/.env`` (that is production). Point
-``REVIEW_SQL_TEST_DATABASE_URL`` at a migrated throwaway clone; without it the test skips and says
-why. It seeds a few rows under unique ids and deletes them again.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -105,7 +93,6 @@ def test_an_approval_commits_the_record_with_its_files_and_a_failure_rolls_all_b
                 ("artisan", ids["a1"]): 3, ("artisan", ids["a2"]): 2,
             }
 
-            # A write failing inside the transaction takes the record's approval with it.
             real = review.approve_media_with_record
 
             async def fail_after_writing(client_: Any, *args: Any, **kwargs: Any) -> int:
@@ -131,8 +118,6 @@ def test_an_approval_commits_the_record_with_its_files_and_a_failure_rolls_all_b
             logs = await client.reviewlog.find_many(where={"reviewerId": ids["prof"], "recordType": "MEDIA"})
             assert sorted(log.recordId for log in logs) == sorted([ids["m1"], ids["m2"], ids["m3"]])
 
-            # The backfill: a2 approved the old way (record only) has one file left to bring along,
-            # and m5, uploaded after that approval, which stays pending for review.
             await client.execute_raw(
                 'UPDATE "Artisan" SET "status" = \'APPROVED\', "reviewedById" = $2, "reviewedAt" = now() WHERE "id" = $1',
                 ids["a2"], ids["prof"],

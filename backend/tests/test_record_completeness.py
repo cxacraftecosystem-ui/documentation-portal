@@ -1,24 +1,3 @@
-"""RECORD COMPLETENESS — one rules file, three evaluators, one list filter (feature 8, 2026-10-18).
-
-``shared/record-completeness.json`` declares which fields each record kind should carry. This file
-holds:
-
-* the server's evaluator and sentence to the file's own vectors;
-* THE KEY TEST: the Prisma clause behind ``completeness=`` agrees with the evaluator row for row, for
-  every kind and every mode, over generated rows run through a small interpreter of the clause;
-* the rules to their limits: a ``required`` rule is only something the artisan form already refuses
-  to save without, and no rule names a prose column, a consent-based personal column or a column the
-  schema does not have;
-* the page counter to one ``group_by`` per count source;
-* the copies (backend, web, Android, the sibling portal) to the same bytes;
-* the routes: the filter on every list, 422 on a bad value, the block on GET / POST / PATCH, the same
-  block for a masked viewer, and the rules endpoint's ETag.
-
-No database: the routes run against in-memory delegates that answer ``where`` clauses with the same
-interpreter. ``test_the_clauses_run_on_postgres`` runs the clauses on a real database when
-``RECORD_COMPLETENESS_DATABASE_URL`` names a throwaway one.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -55,10 +34,6 @@ def _text(path: pathlib.Path) -> str:
     return path.read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The evaluator and the sentence
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def test_the_shared_vectors_pass_through_evaluate_and_sentence():
     vectors = rc.RULES["vectors"]
@@ -73,7 +48,6 @@ def test_the_shared_vectors_pass_through_evaluate_and_sentence():
         assert rc.sentence(block) == expect["sentence"]
 
 
-#: Extra vectors this suite runs on all three ports (web and Android carry the same table).
 EXTRA_VECTORS = [
     ("artisan", {}, {}, 0, ["dateOfBirth", "craftStartDate", "craft", "dos", "donts", "location", "photo"],
      "7 fields left: date of birth, craft start date, craft, +4 more"),
@@ -105,8 +79,6 @@ def test_extra_vectors(kind, record, counts, percent, missing, text):
 
 
 def test_percent_rounds_down_as_both_portals_and_their_clients_do():
-    # Integer division in every port and in the designer portal's module: 7 of 8 is 87, never 88,
-    # so one record never reads 87% in one portal and 88% in the other.
     assert rc.percent_of(1, 8) == 12
     assert rc.percent_of(7, 8) == 87
     assert rc.percent_of(5, 7) == 71
@@ -130,17 +102,12 @@ def test_the_block_carries_names_never_values():
         assert set(item) == {"key", "label", "words", "level"}
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The filter agrees with the evaluator, row for row
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def _cmp_value(value: Any) -> Any:
     return getattr(value, "value", value)
 
 
 def matches(row: dict[str, Any], where: dict[str, Any] | list[Any]) -> bool:
-    """A small, SQL-faithful interpreter of the Prisma ``where`` shapes the module emits."""
     if isinstance(where, list):
         return all(matches(row, part) for part in where)
     for key, cond in where.items():
@@ -167,7 +134,7 @@ def matches(row: dict[str, Any], where: dict[str, Any] | list[Any]) -> bool:
         elif isinstance(cond, dict):
             value = _cmp_value(row.get(key))
             for op, arg in cond.items():
-                if value is None:  # SQL: NULL compared with anything is not true
+                if value is None:
                     return False
                 if op == "in" and value not in arg:
                     return False
@@ -183,8 +150,6 @@ def matches(row: dict[str, Any], where: dict[str, Any] | list[Any]) -> bool:
 
 
 def counts_of(kind: str, row: dict[str, Any]) -> dict[str, int]:
-    """The ``counts`` section of the rules file, computed from a row's relations — independently of
-    the module, so a wrong relation clause cannot agree with itself."""
     media = row.get("media") or []
     live = [m for m in media if m.get("status") != "REJECTED"]
     counts = {"photos": sum(1 for m in live if m.get("mediaType") == "IMAGE")}
@@ -246,7 +211,6 @@ def _rows(kind: str, n: int = 600) -> list[dict[str, Any]]:
                 else:
                     row[key] = value
         rows.append(row)
-    # The two ends, explicitly.
     rows.append({"id": "empty"})
     full: dict[str, Any] = {"id": "full"}
     for options in choices:
@@ -305,10 +269,6 @@ def test_add_filter_joins_the_and_list_and_never_replaces_it():
     rc.add_filter(bare, "tool", None)
     assert bare == {}
 
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The rules' limits
-# ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
 def test_every_required_rule_is_something_the_artisan_form_already_refuses():
@@ -388,10 +348,6 @@ def test_relation_clauses_name_real_relations():
                 assert relation in columns, f"{MODEL[kind]} has no relation {relation}"
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# Counting a page
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 class _Grouping:
     def __init__(self, rows: list[dict[str, Any]], calls: list[Any]) -> None:
@@ -446,7 +402,7 @@ def test_counts_for_issues_one_query_per_source_for_a_page_of_100(kind, monkeypa
     assert set(counts) == set(ids)
     if "photos" in rc.count_names(kind):
         assert counts["id0"]["photos"] == 1
-        assert counts["id1"]["photos"] == 0  # the REJECTED image
+        assert counts["id1"]["photos"] == 0
     if kind == "interview":
         assert counts["id0"] == {"artisans": 1, "answers": 1, "recordings": 1}
     if kind == "workshop":
@@ -477,10 +433,6 @@ def test_attach_reads_through_the_routes_client_and_never_fails_the_answer():
     assert "completeness" not in written
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The copies
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 @pytest.mark.parametrize("copy", COPIES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_every_copy_is_the_shared_file(copy):
@@ -510,10 +462,6 @@ def test_the_sibling_portal_carries_the_same_rules():
     assert _text(sibling / "shared" / "record-completeness.json") == _text(SHARED)
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The routes
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 _CURRENT: dict[str, Any] = {"user": None}
 
 
@@ -537,8 +485,6 @@ def _call(method: str, url: str, **kwargs: Any) -> httpx.Response:
 
 
 class _Table:
-    """An in-memory delegate: rows as dicts, answered with the interpreter above."""
-
     def __init__(self, rows: list[dict[str, Any]] | None = None, relations: Callable[[dict], dict] | None = None):
         self.rows = rows or []
         self.relations = relations or (lambda row: {})
@@ -619,7 +565,6 @@ def artisans(monkeypatch: pytest.MonkeyPatch):
         monkeypatch,
         artisan=table,
         mediafile=media,
-        # The craft the records link to is on the master list (2026-10-20): ACTIVE, so it may be picked.
         craft=_Table([{"id": "c1", "name": "Ajrakh", "status": "ACTIVE"}]),
         location=_Table(),
         user=_Table(),
@@ -675,7 +620,7 @@ def test_completeness_rides_on_get_post_and_patch(artisans):
     )
     assert created.status_code == 201, created.text
     block = created.json()["completeness"]
-    assert block["requiredMissing"] == 2  # both dates: a body without formContract is the old shape
+    assert block["requiredMissing"] == 2
     assert block["total"] == 7
 
 
@@ -686,7 +631,7 @@ def test_a_masked_viewer_gets_the_same_block_and_no_values(artisans):
         canReview=False,
     )
     as_researcher = _by_id(_call("GET", "/api/artisans"))
-    assert as_researcher["complete"]["aadhaarNumber"] != AADHAAR  # masked for this viewer
+    assert as_researcher["complete"]["aadhaarNumber"] != AADHAAR
     for record_id in as_admin:
         assert as_admin[record_id]["completeness"] == as_researcher[record_id]["completeness"]
         assert AADHAAR not in json.dumps(as_admin[record_id]["completeness"])
@@ -751,16 +696,11 @@ def test_the_rules_endpoint_requires_sign_in():
     assert asyncio.run(run()).status_code in (401, 403)
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# On a real database, when one is named
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 DB_URL = os.environ.get("RECORD_COMPLETENESS_DATABASE_URL")
 
 
 @pytest.mark.skipif(not DB_URL, reason="set RECORD_COMPLETENESS_DATABASE_URL to a throwaway database")
 def test_the_clauses_run_on_postgres():
-    """Every clause and every count source, executed by Prisma against a migrated, throwaway DB."""
     from prisma import Prisma
 
     async def run() -> None:

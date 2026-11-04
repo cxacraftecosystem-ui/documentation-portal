@@ -10,10 +10,6 @@ import {
   type NotificationPreferences
 } from "@/lib/notifications";
 
-/**
- * This account's e-mail opt-out. NO ROLE GATE — the opt-out belongs to the person — and NOTHING AT ALL
- * is drawn until the server says mail is on (`available`).
- */
 export function EmailNotificationsCard() {
   const [state, setState] = useState<NotificationPreferences | null>(null);
   const [saving, setSaving] = useState(false);

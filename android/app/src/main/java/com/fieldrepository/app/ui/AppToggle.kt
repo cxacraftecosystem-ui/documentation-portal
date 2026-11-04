@@ -21,24 +21,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/**
- * `AppToggle` — the ONE on/off control on the handset; the web's `Toggle` (components/ui/Toggle.tsx).
- *
- * Owner's ruling (2026-10-17): every setting that is on or off uses this — never a bare "On"/"Off"
- * line, never a Checkbox standing in for a setting. (A Checkbox is still right for PICKING rows in a
- * list: that is a selection, not a setting.)
- *
- * A full-width row: the label, an optional plain-words [description] under it, and a Material 3
- * Switch at the end. The WHOLE ROW toggles (`Modifier.toggleable` with `Role.Switch`), so the target
- * is the row and never only the 52x32 switch; the row is at least 56dp tall (48dp is the floor). The
- * Switch itself takes no clicks of its own (`onCheckedChange = null`), so TalkBack hears ONE node:
- * "<label>, <description>, switch, on/off".
- *
- * [busy] keeps the switch where it is and refuses taps — for a change waiting on the server. While busy,
- * TalkBack hears [busyLabel] as the state ("Working" unless the caller names the wait: two-step
- * verification passes "Setting up" only while its setup is open, and stays Off until the code is verified). Off is an outlined track with
- * an ink thumb, on is a filled purple track with a white thumb: the state reads without colour.
- */
 @Composable
 fun AppToggle(
     label: String,

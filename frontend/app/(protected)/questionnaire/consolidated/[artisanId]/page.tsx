@@ -32,26 +32,12 @@ import {
 import type { RecordStatus } from "@/lib/types";
 import { exportFilename } from "@/lib/naming";
 
-/**
- * One artisan's questionnaire, read as a single document.
- *
- * The repository stores one interview per exact SET of artisans, so an artisan who was interviewed
- * alone once and in three group sittings has their account split across four entries. Most artisans
- * here are in that position. This page gathers those into one ordered read WITHOUT touching how they
- * are stored — and its whole job is to keep the seams visible while doing so:
- *
- *   - every answer says which sitting it came from and when;
- *   - a question answered differently twice shows both, newest first, marked as a divergence;
- *   - an answer from a group sitting is labelled as unattributable, because the data model records
- *     no link between a response and one member of the group.
- */
 export default function ConsolidatedQuestionnairePage({
   params
 }: {
   params: Promise<{ artisanId: string }>;
 }) {
   const { artisanId } = use(params);
-  // Questionnaire v2: the artisan's record on `/artisans/[id]` is the one document; this URL lands there.
   const redirecting = useV2Redirect(`/artisans/${encodeURIComponent(artisanId)}?tab=questionnaire`);
   if (redirecting) return null;
   return <ConsolidatedQuestionnaireBody artisanId={artisanId} />;
@@ -62,19 +48,6 @@ function ConsolidatedQuestionnaireBody({ artisanId }: { artisanId: string }) {
   const [data, setData] = useState<ConsolidatedQuestionnaire | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  /**
-   * WHICH WORKSHOPS THIS DOCUMENT COVERS.
-   *
-   * `defaultToMostRecent` is FALSE here, and it is the one screen where that is right. This is a
-   * document — the artifact a researcher cites — and its default meaning has always been "everything
-   * this artisan has ever said". Silently narrowing it to one workshop would change what a citation
-   * means without the reader asking for it. The index page and the URL can still open it scoped, and
-   * the control makes narrowing one click.
-   *
-   * The whole document is recomputed server-side over the narrowed interviews, so the summary counts
-   * and the divergence flags describe the scope rather than being filtered after the fact: a
-   * disagreement between two workshops is not a disagreement within one of them.
-   */
   const scope = useWorkshopScope({
     defaultToMostRecent: false,
     initialWorkshopIds: workshopScopeFromSearchParams(new URLSearchParams(searchParams.toString()))
@@ -104,14 +77,6 @@ function ConsolidatedQuestionnaireBody({ artisanId }: { artisanId: string }) {
     [data]
   );
 
-  /**
-   * The scope control is rendered in EVERY branch, including the two failures below.
-   *
-   * That is not tidiness. Narrowing to a workshop this artisan was not at is a perfectly ordinary
-   * thing to do by accident, and it produces an empty or failed document — so the control that caused
-   * it has to still be on screen to undo it. Hiding it behind a successful load would leave the reader
-   * on a dead page whose only exit is the back button.
-   */
   const scopeControl = (
     <div className="mb-5 max-w-xl">
       <WorkshopScopeSelect scope={scope} label="Workshops in this document" />
@@ -146,9 +111,6 @@ function ConsolidatedQuestionnaireBody({ artisanId }: { artisanId: string }) {
     <div className="pb-16">
       <PageHeader
         title={artisan.name}
-        // The sentence has to follow the scope. "All N interviews they took part in" is a claim about
-        // the whole corpus, and repeating it under a workshop filter would tell the reader they were
-        // looking at everything while they were looking at one workshop.
         description={
           [
             subtitle,
@@ -166,9 +128,6 @@ function ConsolidatedQuestionnaireBody({ artisanId }: { artisanId: string }) {
         icon={<Layers className="h-5 w-5" aria-hidden />}
         actions={
           <DownloadCsvButton
-            // The CSV carries the same scope, so the file a researcher cites is the document they read.
-            // The endpoint is download-gated (see its docstring) while this page is not, so a reader
-            // without download access still gets the document and simply cannot take the file.
             path={`/questionnaire/artisans/${artisan.id}/consolidated.csv${buildQuery({
               workshopIds: scope.queryValue
             })}`}
@@ -211,10 +170,6 @@ function ConsolidatedQuestionnaireBody({ artisanId }: { artisanId: string }) {
     </div>
   );
 }
-
-/* ------------------------------------------------------------------------------------------------
- * Summary
- * ---------------------------------------------------------------------------------------------- */
 
 function SummaryStrip({ summary }: { summary: ConsolidatedQuestionnaire["summary"] }) {
   const tiles: Array<{ label: string; value: number; hint?: string; tone?: "caution" | "finding" }> = [
@@ -266,15 +221,6 @@ function SummaryStrip({ summary }: { summary: ConsolidatedQuestionnaire["summary
   );
 }
 
-/* ------------------------------------------------------------------------------------------------
- * Provenance chips — the part of this page that must never be quietly dropped
- * ---------------------------------------------------------------------------------------------- */
-
-/**
- * Says whether the answer can be pinned to this artisan. A group answer gets the amber treatment
- * because the honest reading is a caution: the sentence was said in a room of five and the record
- * does not say by whom.
- */
 function AttributionChip({ row, compact = false }: { row: ConsolidatedAnswer | InterviewSource; compact?: boolean }) {
   if (row.attribution === GROUP) {
     return (
@@ -292,15 +238,10 @@ function AttributionChip({ row, compact = false }: { row: ConsolidatedAnswer | I
   );
 }
 
-/**
- * An interview opens in its read-only view. These links used to hand the interview's id to the
- * questionnaire page as a query parameter it never reads, so a reader landed on the capture form.
- */
 function interviewViewHref(id: string): string {
   return recordViewHref("questionnaire", id) ?? "/questionnaire";
 }
 
-/** Interview, date and who else was present — repeated on every answer, deliberately. */
 function Provenance({ row }: { row: ConsolidatedAnswer }) {
   return (
     <div className="space-y-1 text-xs text-ink-500">
@@ -325,16 +266,10 @@ function Provenance({ row }: { row: ConsolidatedAnswer }) {
           </>
         ) : null}
       </div>
-      {/* Its own line rather than another separator-joined item: these lists run to four names and
-          wrapped mid-list, leaving a dangling "·" at the end of the row above. */}
       {row.coParticipants.length > 0 ? <p className="leading-5">with {row.coParticipants.join(", ")}</p> : null}
     </div>
   );
 }
-
-/* ------------------------------------------------------------------------------------------------
- * Answers
- * ---------------------------------------------------------------------------------------------- */
 
 function AnswerCard({ row, ordinal }: { row: ConsolidatedAnswer; ordinal?: number }) {
   const isGroup = row.attribution === GROUP;
@@ -370,19 +305,6 @@ function AnswerCard({ row, ordinal }: { row: ConsolidatedAnswer; ordinal?: numbe
 
 function RecordingBody({ row }: { row: ConsolidatedAnswer }) {
   const failed = row.transcriptStatus && row.transcriptStatus !== "COMPLETED";
-  /**
-   * A recording with no URL. This is a ROUTINE state, not a fault, and the two reasons for it read very
-   * differently to the person looking at the page:
-   *
-   *   * the clip is here but this account may not take the file. Reading the repository is open to
-   *     everyone; a URL is the file itself, so it travels only to callers who may download that
-   *     uploader's data. The transcript below IS still the record, which is the point.
-   *   * the upload never finished, in which case there is no file to have.
-   *
-   * The page cannot tell them apart from the payload — deliberately, since saying "you are not allowed
-   * this" per clip would be noise on a document — so it says the one true thing that covers both, rather
-   * than leaving a bare filename with nothing under it and no explanation.
-   */
   const withheld = !row.url;
   return (
     <div className="space-y-2">
@@ -412,11 +334,6 @@ function RecordingBody({ row }: { row: ConsolidatedAnswer }) {
   );
 }
 
-/**
- * A question whose answers disagree. Both are kept and the divergence is named, because an artisan
- * whose account changed between two sittings is a finding a researcher needs to see, not a
- * duplicate for the software to resolve.
- */
 function ConflictBanner({ count }: { count: number }) {
   return (
     <div className="mb-2 flex items-start gap-2 rounded-md border border-purple-300 bg-purple-50 px-3 py-2 text-xs leading-5 text-purple-700 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300">
@@ -460,8 +377,6 @@ function SectionBlock({ section }: { section: ConsolidatedSection }) {
         {section.recordings.length > 0 ? (
           <div>
             <h3 className="mb-1 text-sm font-semibold leading-6 text-ink-900">Recordings filed to this section</h3>
-            {/* Said plainly: the clip names its section and stops there. Pinning it to a question
-                would be a guess, and this page does not guess. */}
             <p className="mb-2 text-xs leading-5 text-ink-500">
               Not linked to a specific question.
             </p>
@@ -497,10 +412,6 @@ function UnfiledBlock({ rows }: { rows: ConsolidatedAnswer[] }) {
     </section>
   );
 }
-
-/* ------------------------------------------------------------------------------------------------
- * Sidebar
- * ---------------------------------------------------------------------------------------------- */
 
 function SourcesPanel({ interviews }: { interviews: InterviewSource[] }) {
   return (

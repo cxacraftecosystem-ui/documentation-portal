@@ -1,11 +1,3 @@
-"""The nightly workshop filing (A6): only the clear-cut rows, once a night, and the card's new counts.
-
-  * the job files PARENT-rung rows and nothing else — a row the artisans or the dates merely suggest
-    is an admin's call, and filing it unasked would be a guess dressed as a fact;
-  * it runs once per local night however many processes ask, because the night is CLAIMED;
-  * the admin card's payload leads with what still needs a person, and lists those rows first.
-"""
-
 import asyncio
 from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -31,7 +23,6 @@ from app.services.workshop_inference import (
     payload_for,
 )
 
-# A fixed offset rather than ZoneInfo, so the suite runs on a checkout without tzdata; IST has no DST.
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
@@ -87,8 +78,6 @@ def _workshop_of(fake: _Db, table: str, row_id: str) -> Any:
     return next(row.workshopId for row in getattr(fake, table).rows if row.id == row_id)
 
 
-# --- the window, pure ---------------------------------------------------------------------------
-
 
 def test_the_night_starts_at_two_local_and_not_before() -> None:
     before = datetime(2026, 10, 20, 1, 30, tzinfo=IST)
@@ -102,11 +91,8 @@ def test_it_is_due_once_per_night() -> None:
     assert is_due(None, now, IST) is True
     assert is_due(datetime(2026, 10, 19, 2, 1, tzinfo=IST), now, IST) is True
     assert is_due(datetime(2026, 10, 20, 2, 1, tzinfo=IST), now, IST) is False
-    # A worker that was down overnight runs it during the day instead of skipping it.
     assert is_due(datetime(2026, 10, 19, 2, 1, tzinfo=IST), datetime(2026, 10, 20, 15, 0, tzinfo=IST), IST) is True
 
-
-# --- the job ------------------------------------------------------------------------------------
 
 
 def test_the_job_files_only_the_rows_their_parent_settles(db: _Db) -> None:
@@ -139,8 +125,6 @@ def test_the_admin_button_still_files_every_resolved_row(db: _Db) -> None:
     assert _workshop_of(db, "mediafile", "m-window") == "w1"
 
 
-# --- the card's payload -------------------------------------------------------------------------
-
 
 def test_the_payload_leads_with_what_needs_a_person() -> None:
     payload = payload_for(_run())
@@ -148,7 +132,6 @@ def test_the_payload_leads_with_what_needs_a_person() -> None:
     assert payload["totals"]["needsReview"] == 3
     media = next(bucket for bucket in payload["buckets"] if bucket["bucket"] == "media")
     assert media["clearCut"] == 1 and media["needsReview"] == 2
-    # Needs a person, then suggestions, then the clear-cut row the job files anyway.
     assert [row["id"] for row in media["rows"]] == ["m-stuck", "m-window", "m-parent"]
     assert [row["clearCut"] for row in media["rows"]] == [False, False, True]
 
@@ -189,8 +172,6 @@ def test_only_an_admin_may_switch_it(db: _Db) -> None:
     assert db.appsetting.rows[0].workshopAutoMapEnabled is True
 
 
-# --- the privacy scrub rides its own gate --------------------------------------------------------
-
 
 def test_switching_the_filing_off_never_switches_off_the_snapshot_scrub(db: _Db) -> None:
     from prisma import Json
@@ -212,5 +193,4 @@ def test_switching_the_filing_off_never_switches_off_the_snapshot_scrub(db: _Db)
     snap = db.artisanmerge.rows[0].mergedSnapshot
     snap = getattr(snap, "data", snap)
     assert snap["aadhaarNumber"] == "XXXX XXXX 2346" and snap["pehchanCardNumber"] == "XXXX5678"
-    # Once a night: a second ask the same night does not scrub again.
     assert workshop_auto_map._last_scrubbed["at"] == now

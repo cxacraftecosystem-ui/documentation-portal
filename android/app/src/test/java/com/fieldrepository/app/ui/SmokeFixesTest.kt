@@ -11,12 +11,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * The five problems the 2026-10-17 emulator smoke test found with the wifi off and on the update
- * screens: banners hiding the end of long forms, a connection error raised under the offline banner,
- * the record switcher opening on an unrelated workshop, unreadable actions on the "files ready"
- * tile, and an admin-view switch that forgot itself.
- */
 class SmokeFixesTest {
 
     private val main: String by lazy {
@@ -26,8 +20,6 @@ class SmokeFixesTest {
             "android/app/src/main/java/com/fieldrepository/app/MainActivity.kt",
         )
     }
-
-    // ── 1. The banner stack's footprint ─────────────────────────────────────────────────────
 
     @Test
     fun `no banner, no reserve`() {
@@ -58,8 +50,6 @@ class SmokeFixesTest {
         assertTrue("the root must measure the banner stack", main.contains("bannerStackHeight = with(rootDensity)"))
     }
 
-    // ── 2. No "Could not connect" under the offline banner ──────────────────────────────────
-
     @Test
     fun `the connection error is swallowed only while the banner already says it`() {
         assertTrue(bannerAlreadySays(CONNECTION_FAILED_SENTENCE, AppMessageTone.ERROR, bannerShowing = true))
@@ -89,8 +79,6 @@ class SmokeFixesTest {
             com.fieldrepository.app.queuedMediaSentence(3)
         )
     }
-
-    // ── 3. The switcher opens on All workshops, then the record's own ───────────────────────
 
     @Test
     fun `all workshops is the first row and is the blank id`() {
@@ -128,8 +116,6 @@ class SmokeFixesTest {
         )
     }
 
-    // ── 4. Actions on the brand tile ────────────────────────────────────────────────────────
-
     @Test
     fun `tile ink clears AA on both tiles, and its outline is visible`() {
         for (tile in listOf(FieldPalette.Purple800, FieldPalette.Purple900)) {
@@ -147,8 +133,6 @@ class SmokeFixesTest {
         assertTrue(tile.contains("Text(\"Clear batch\", color = tileInk"))
         assertFalse("the bare primary-coloured TextButton is what vanished", tile.contains("TextButton(onClick = { selectedUris = emptyList() })"))
     }
-
-    // ── 5. Admin view remembered per account ────────────────────────────────────────────────
 
     @Test
     fun `the stored choice wins, else the role default`() {

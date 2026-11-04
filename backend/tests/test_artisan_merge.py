@@ -1,14 +1,3 @@
-"""Merging duplicate artisans (C24): the preview, the field pick, every child re-pointed, the undo.
-
-These drive the REAL router over HTTP with ``db`` replaced by the shared in-memory fake, so what is
-asserted is what the handlers did to the rows. Nothing touches a database.
-
-THE FAKE CARRIES THE UNIQUE INDEXES THE BEHAVIOUR RESTS ON: Aadhaar and Pehchan on the artisan (the
-survivor taking the duplicate's number only works because the duplicate's copy is freed first), the
-composite keys of the four link tables (folding), and ``(questionnaireId, artisanSetKey)`` on the
-interview (the collision a merge must refuse).
-"""
-
 import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -36,8 +25,6 @@ QNR = "qnr-2"
 
 
 def _unwrap_set(value: Any) -> Any:
-    """``{"set": [...]}`` is how a scalar-list column is written on an update; Postgres stores the
-    list. Local to this module: the shared fake records the raw shape, and other suites assert it."""
     if isinstance(value, dict) and set(value) == {"set"}:
         return value["set"]
     return value
@@ -51,7 +38,6 @@ class _Table(FakeTable):
         return await super().update_many(where, {k: _unwrap_set(v) for k, v in data.items()}, **kwargs)
 
     async def create_many(self, data: list[dict[str, Any]], **kwargs: Any) -> int:
-        """Row by row, so the fake's unique indexes still refuse a clash as Postgres would."""
         for row in data:
             await self.create(data=row)
         return len(data)
@@ -113,7 +99,6 @@ def _call(method: str, path: str, body: dict[str, Any] | None = None, **params: 
 
 
 AADHAAR = "234123412346"
-#: The duplicate's Aadhaar as the register keeps it: a fingerprint and the last four.
 DUP_FP = "cd" * 32
 
 
@@ -215,8 +200,6 @@ def _row(fake: _Db, table: str, row_id: str) -> Any:
     return next((row for row in getattr(fake, table).rows if getattr(row, "id", None) == row_id), None)
 
 
-# --- who may ------------------------------------------------------------------------------------
-
 
 def test_only_admins_reach_the_tool(db: _Db) -> None:
     _CURRENT["user"] = _user(RESEARCHER, "RESEARCHER")
@@ -233,29 +216,24 @@ def test_merging_an_artisan_into_itself_is_refused(db: _Db) -> None:
     assert response.status_code == 422
 
 
-# --- the preview ----------------------------------------------------------------------------------
-
 
 def test_the_preview_lays_both_records_side_by_side_and_counts_the_moves(db: _Db) -> None:
     response = _call("GET", "/artisans/merge/preview", keepId="keep", mergeId="dup")
     assert response.status_code == 200, response.text
     body = response.json()
     fields = {field["key"]: field for field in body["fields"]}
-    # Aadhaar only on the duplicate: offered, defaulting to the record that has it, and MASKED.
     assert fields["aadhaarNumber"]["keep"] is None
     assert fields["aadhaarNumber"]["merge"] == "XXXX XXXX 2346"
     assert fields["aadhaarNumber"]["default"] == "merge"
-    # Both have notes: the kept one's by default, and "both" is offered.
     assert fields["notes"]["default"] == "keep" and fields["notes"]["allowBoth"] is True
     assert fields["dateOfBirth"]["merge"] == "1971-03-04"
-    assert "gender" not in fields  # empty on both sides: nothing to choose
+    assert "gender" not in fields
     moves = {move["key"]: move for move in body["moves"]}
     assert moves["products"]["count"] == 2
     assert moves["workshopArtisan"]["count"] == 2 and moves["workshopArtisan"]["folded"] == 1
     assert moves["mediaTagged"]["count"] == 1
     assert body["canMerge"] is True and body["blockers"] == []
     assert body["undoDays"] == 30
-    # A read: nothing changed.
     assert _row(db, "artisan", "dup") is not None
     assert not db.artisanmerge.rows
 
@@ -270,8 +248,6 @@ def test_resolve_picks_refuses_an_unknown_field_and_a_both_on_a_short_field() ->
     assert chosen["name"] == "merge" and changes == {"name": "B"}
 
 
-# --- the merge ----------------------------------------------------------------------------------
-
 
 def _merge(picks: dict[str, str] | None = None) -> httpx.Response:
     return _call("POST", "/artisans/merge", {"keepId": "keep", "mergeId": "dup", "picks": picks or {}})
@@ -285,25 +261,21 @@ def test_a_merge_takes_the_picked_fields_and_moves_every_child(db: _Db) -> None:
 
     keep = _row(db, "artisan", "keep")
     assert _row(db, "artisan", "dup") is None
-    # The duplicate's Aadhaar moved to the survivor — possible only because its copy was freed first.
     assert keep.aadhaarFingerprint == DUP_FP and keep.aadhaarLast4 == AADHAAR[-4:]
     assert keep.dateOfBirth == datetime(1971, 3, 4, tzinfo=UTC)
-    assert keep.name == "Ramesh Kumar"  # the kept spelling, by default
+    assert keep.name == "Ramesh Kumar"
     assert keep.notes == "Block printer.\nUses indigo."
     assert keep.extraMetadata.data["mergedArtisans"][0]["artisanId"] == "dup"
 
     assert {row.artisanId for row in db.productdocumentation.rows} == {"keep"}
-    # A denormalised name that spelled the duplicate follows; one somebody typed differently stays.
     assert _row(db, "productdocumentation", "p1").artisanName == "Ramesh Kumar"
     assert _row(db, "productdocumentation", "p2").artisanName == "R. K. (typed)"
     assert _row(db, "tooldocumentation", "t1").artisanId == "keep"
     assert [row.artisanId for row in db.toolartisan.rows] == ["keep"]
     assert _row(db, "mediafile", "m1").artisanId == "keep"
     assert _row(db, "mediafile", "m2").linkedRecordId == "keep"
-    # The roster: w1 held both, so it FOLDS to one row; w2 moves.
     roster = sorted((row.workshopId, row.artisanId) for row in db.workshopartisan.rows)
     assert roster == [("w1", "keep"), ("w2", "keep")]
-    # The sitting now covers the survivor, under a recomputed set key.
     assert {row.artisanId for row in db.questionnaireinterviewartisan.rows} == {"keep", "other"}
     assert _row(db, "questionnaireinterview", "iv1").artisanSetKey == "keep,other"
     assert _row(db, "questionnairesectionstatus", "ss1").artisanId == "keep"
@@ -311,11 +283,9 @@ def test_a_merge_takes_the_picked_fields_and_moves_every_child(db: _Db) -> None:
     assert _row(db, "recordrevision", "rv1").recordId == "keep"
     assert _row(db, "reviewlog", "rl1").recordId == "keep"
     assert _row(db, "assignedtask", "task1").artisanIds == ["keep"]
-    # The audit row.
     merge = db.artisanmerge.rows[0]
     assert merge.status == "DONE" and merge.mergedById == ADMIN
     assert unjson(merge.mergedSnapshot)["aadhaarFingerprint"] == DUP_FP
-    # The survivor's own ledger names the fields that changed.
     ledger = [row for row in db.recordrevision.rows if row.recordId == "keep" and row.id != "rv1"]
     assert set(unjson(ledger[0].changes)) >= {"aadhaarNumber", "dateOfBirth", "notes"}
 
@@ -342,8 +312,6 @@ def test_an_unfinished_merge_must_be_undone_before_another(db: _Db) -> None:
     )
     assert _merge().status_code == 409
 
-
-# --- the undo -----------------------------------------------------------------------------------
 
 
 def test_undo_puts_everything_back(db: _Db) -> None:
@@ -372,7 +340,6 @@ def test_undo_puts_everything_back(db: _Db) -> None:
     assert _row(db, "assignedtask", "task1").artisanIds == ["dup", "keep"]
     assert _row(db, "entrycomment", "c1").recordId == "dup"
     assert db.artisanmerge.rows[0].status == "UNDONE"
-    # Twice is refused.
     assert _call("POST", f"/artisans/merge/{merge_id}/undo").status_code == 409
 
 
@@ -396,15 +363,12 @@ def test_undo_closes_after_thirty_days(db: _Db) -> None:
 
 def test_snapshots_past_the_window_stop_holding_the_raw_number(db: _Db) -> None:
     _merge()
-    # A snapshot taken before the legacy column's drop still holds the full number in its JSON.
     row = db.artisanmerge.rows[0]
     row.mergedSnapshot = {**unjson(row.mergedSnapshot), "aadhaarNumber": AADHAAR}
     asyncio.run(scrub_expired_merge_snapshots(datetime.now(UTC) + timedelta(days=31)))
     snap = unjson(db.artisanmerge.rows[0].mergedSnapshot)
     assert snap["aadhaarNumber"] == "XXXX XXXX 2346"
 
-
-# --- the redirect -------------------------------------------------------------------------------
 
 
 def test_a_queued_write_naming_the_merged_artisan_lands_on_the_survivor(db: _Db) -> None:
@@ -414,7 +378,6 @@ def test_a_queued_write_naming_the_merged_artisan_lands_on_the_survivor(db: _Db)
     assert payload.artisanId == "keep"
     assert payload.artisanIds == ["keep", "other"]
     assert payload.linkedRecordId == "keep"
-    # An old link opens the survivor.
     response = _call("GET", "/artisans/dup")
     assert response.status_code == 200 and response.json()["id"] == "keep"
 
@@ -426,8 +389,6 @@ def test_no_redirect_once_undone(db: _Db) -> None:
     asyncio.run(redirect_merged_artisans(payload))
     assert payload.artisanId == "dup"
 
-
-# --- likely duplicates --------------------------------------------------------------------------
 
 
 def test_candidates_pair_the_same_phone_or_the_same_name_in_the_same_place() -> None:
@@ -444,7 +405,7 @@ def test_candidates_pair_the_same_phone_or_the_same_name_in_the_same_place() -> 
         ]
     )
     found = {(pair["keepId"], pair["mergeId"], pair["reason"]) for pair in pairs}
-    assert ("a", "b", "Same name and place") in found  # older record first
+    assert ("a", "b", "Same name and place") in found
     assert ("d", "e", "Same phone number") in found
     assert not any("c" in (keep, merge) for keep, merge, _ in found)
     assert truncated is False
@@ -455,14 +416,11 @@ def test_the_candidates_route_answers(db: _Db) -> None:
     assert body["items"][0]["keepId"] == "keep" and body["items"][0]["mergeId"] == "dup"
 
 
-# --- queued replays through every route the phone queues -----------------------------------------
-
 
 OTHER = "u-other"
 
 
 def _merged_away_from_the_researcher(db: _Db) -> None:
-    """Merge ``dup`` (the researcher's) into ``keep``, then make ``keep`` someone else's record."""
     assert _merge().status_code == 200
     _row(db, "artisan", "keep").createdById = OTHER
 
@@ -489,7 +447,7 @@ def test_a_queued_tool_assignment_naming_the_merged_artisan_lands_on_the_survivo
 ) -> None:
     from app.api.routes import tools as tool_routes
 
-    async def assigned(tool_id: str) -> list[dict[str, str]]:  # the fake carries no ``include``
+    async def assigned(tool_id: str) -> list[dict[str, str]]:
         return [{"id": row.artisanId} for row in db.toolartisan.rows if row.toolId == tool_id]
 
     monkeypatch.setattr(tool_routes, "_assigned_artisans", assigned)
@@ -506,7 +464,6 @@ def test_a_queued_comment_on_the_merged_artisan_lands_on_the_survivor(
 ) -> None:
     from app.api.routes import data_access
 
-    # The route's owner table binds its delegates at import, before the fake is installed.
     monkeypatch.setitem(data_access.RECORD_DELEGATES, "artisan", (db.artisan, "createdById"))
     _merge()
     response = _call("POST", "/data-access/comments", {"recordType": "artisan", "recordId": "dup", "body": "Seen"})
@@ -533,12 +490,9 @@ def test_anyone_else_gets_no_allowance_through_the_old_id(db: _Db) -> None:
     db.user.rows.append(SimpleNamespace(id="u-r2", name="Second", role="RESEARCHER"))
     _CURRENT["user"] = _user("u-r2", "RESEARCHER")
     assert _call("PATCH", "/artisans/dup", {"notes": "Not mine."}).status_code == 403
-    # And the researcher gets none through the survivor's own id.
     _CURRENT["user"] = _user(RESEARCHER, "RESEARCHER")
     assert _call("PATCH", "/artisans/keep", {"notes": "Not mine."}).status_code == 403
 
-
-# --- merging a survivor -------------------------------------------------------------------------
 
 
 def test_merging_away_a_survivor_warns_and_the_old_undo_says_why_it_cannot(db: _Db) -> None:
@@ -553,13 +507,10 @@ def test_merging_away_a_survivor_warns_and_the_old_undo_says_why_it_cannot(db: _
     assert "merged into Sita Devi" in response.json()["detail"]
 
 
-# --- the Aadhaar fingerprint ----------------------------------------------------------------------
-
 FINGERPRINT = "ab" * 32
 
 
 def _fingerprint_the_duplicate(db: _Db) -> None:
-    """The duplicate as the fingerprint release stores it: no full number, a fingerprint and the last four."""
     dup = _row(db, "artisan", "dup")
     dup.aadhaarNumber = None
     dup.aadhaarFingerprint = FINGERPRINT
@@ -592,7 +543,6 @@ def test_a_merge_moves_a_fingerprinted_aadhaar_whole_and_records_no_value(db: _D
     response = _merge()
     assert response.status_code == 200, response.text
     keep = _row(db, "artisan", "keep")
-    # Possible only because the duplicate's unique fingerprint was freed first.
     assert keep.aadhaarFingerprint == FINGERPRINT and keep.aadhaarLast4 == "2346"
     ledger = [row for row in db.recordrevision.rows if row.recordId == "keep" and row.id != "rv1"]
     entry = unjson(ledger[0].changes)
@@ -614,8 +564,6 @@ def test_undo_gives_the_fingerprint_back(db: _Db) -> None:
     undo_ledger = unjson(db.recordrevision.rows[-1].changes)
     assert undo_ledger["aadhaarNumber"]["redacted"] is True
 
-
-# --- C27: sharing consent and the designer portal's links -----------------------------------------
 
 
 def _consent(artisan_id: str, granted: bool, day: int) -> dict[str, Any]:

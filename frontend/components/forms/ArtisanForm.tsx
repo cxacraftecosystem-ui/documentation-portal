@@ -69,40 +69,18 @@ import { ButtonRow } from "@/components/ui/ButtonRow";
 import { RecordingConsentToggle } from "@/components/forms/RecordingConsentToggle";
 import { SharingConsentToggle } from "@/components/forms/SharingConsentToggle";
 
-// The shared gender list (lib/standardValues, the same file in both portals and on Android).
 const genderOptions = GENDER_OPTIONS;
 
-/**
- * The rows of the "Experience (months)" picker: 0..11, built rather than typed out.
- *
- * ELEVEN IS THE LAST ONE, AND IT IS NOT AN OFF-BY-ONE. `Artisan.experienceMonths` is a REMAINDER on
- * top of `experienceYears`, not a total — twelve months is a year the box above already holds — and
- * the column carries `CHECK ("experienceMonths" BETWEEN 0 AND 11)`. `Array.from({ length: 12 })`
- * therefore yields exactly the legal set; a hand-typed list is one careless keystroke from offering
- * a 12 that the database refuses with a driver error naming no field.
- *
- * "Not stated" is NOT in here: it is a separate `<option value="">` at the call site, because it is
- * not a number of months and must not be able to sort among them.
- */
 const EXPERIENCE_MONTH_OPTIONS = Array.from({ length: 12 }, (_, month) => month);
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// The Pehchan Yes/No dropdown submits these through the Select's mirror input; `submit` parses them
-// back into the boolean the API expects. Keeping them as the option VALUES (with "Yes"/"No" only as
-// labels) means the payload never depends on how the question happens to be worded on screen.
 const PEHCHAN_YES = "true";
 const PEHCHAN_NO = "false";
 
-/**
- * The one combination the API refuses outright, worded exactly as Android and the server word it.
- * The browser's own "Please fill out this field." says nothing about the way OUT of the problem
- * (flip the answer to No), which is the half a researcher without a card in hand actually needs.
- */
 const PEHCHAN_NUMBER_REQUIRED =
   "Enter the Pehchan Card number, or set the card to No.";
 
-/** The `detail` of an API error response, whatever shape the server chose for it. */
 function errorDetail(error: unknown): unknown {
   if (!(error instanceof ApiError)) return null;
   const payload = error.payload;
@@ -110,23 +88,12 @@ function errorDetail(error: unknown): unknown {
   return (payload as { detail: unknown }).detail;
 }
 
-/**
- * The sentence the server actually wrote, dug back out of the response body.
- *
- * `apiFetch` builds `ApiError.message` with `String(detail)`, which is right for the plain-string
- * details most routes raise and useless for the two structured ones the identity fields produce: a
- * 409 whose detail is a conflict object, and FastAPI's 422 whose detail is a list of field errors.
- * Both stringify to "[object Object]", and a mistyped Aadhaar is exactly the case where the specific
- * message ("that number fails its checksum") is the entire value of the response.
- */
 function readableError(error: unknown, fallback: string): string {
   const detail = errorDetail(error);
   if (typeof detail === "string" && detail.trim()) return detail;
   if (Array.isArray(detail)) {
     const messages = detail
       .map((entry) => (entry && typeof entry === "object" && "msg" in entry ? String((entry as { msg: unknown }).msg) : ""))
-      // Pydantic prefixes every custom validator message with "Value error, "; the researcher only
-      // needs the sentence after it.
       .map((message) => message.replace(/^Value error,\s*/, "").trim())
       .filter(Boolean);
     if (messages.length) return messages.join(" ");
@@ -139,7 +106,6 @@ function readableError(error: unknown, fallback: string): string {
   return message && message !== "[object Object]" ? message : fallback;
 }
 
-/** The identity conflict behind a 409, or null when the failure was something else entirely. */
 function identityConflict(error: unknown): ArtisanIdentityConflict | null {
   if (!(error instanceof ApiError) || error.status !== 409) return null;
   const detail = errorDetail(error);
@@ -148,22 +114,6 @@ function identityConflict(error: unknown): ArtisanIdentityConflict | null {
   return conflict.code === "artisan_identity_conflict" ? conflict : null;
 }
 
-/**
- * The artisan who already holds `digits`, or null — the save-time half of the Aadhaar duplicate check.
- *
- * `AadhaarField` runs the same lookup as the number is typed and shows an inline warning, but a
- * warning three fields up the page is easy to type past. Asking again at submit is what turns it into
- * a decision (see :func:`DuplicateArtisanDialog`), and it costs one cheap request on a path that was
- * about to make an expensive one.
- *
- * Nothing here ever blocks on its own: a number that fails validation cannot match a stored (already
- * validated) Aadhaar, and a failed request means the server simply gets to answer the question itself
- * with its 409. Being offline must never stop a researcher saving.
- *
- * A MASK is skipped outright rather than left to fail validation. It means the number was not
- * changed, so the only artisan it could ever "match" is this one — and asking the server to look up
- * "XXXX XXXX 9012" would put a masked identifier in a query string for no answer at all.
- */
 async function findArtisanByAadhaar(digits: string | null, excludeArtisanId: string | null): Promise<ArtisanIdentityMatch | null> {
   const number = (digits ?? "").trim();
   if (!number || isMaskedIdentityNumber(number) || aadhaarValidationError(number)) return null;
@@ -179,31 +129,11 @@ async function findArtisanByAadhaar(digits: string | null, excludeArtisanId: str
   }
 }
 
-/**
- * "Does the artisan hold a Pehchan card?" and the card number, which only exist in one consistent
- * pair of states: Yes with a number, or No with nothing.
- *
- * Answering No clears the number rather than merely disabling the box — a disabled input is omitted
- * from FormData, so a stale number would survive invisibly in React state and reappear the moment
- * the answer flipped back to Yes. The API applies the same rule server-side (it forces the number to
- * null whenever availability is false); this is the UI half of that contract, so what the researcher
- * sees and what gets stored never disagree.
- *
- * `initialNumber` may be a MASK. `public_encode` runs the Pehchan number through the same
- * `mask_identity_number` as the Aadhaar, so a caller who is neither the artisan's own researcher nor
- * a professor upwards is handed "XXXX XXXX 3456" and may still edit the record. Editing the mask has
- * to be impossible: `validate_pehchan` accepts it (it is alphanumeric once the spaces come off and
- * comfortably inside 4-32 characters), so the API would have stored the literal "XXXXXXXX3456" over
- * a real card number — silently, with no error to notice, and then refused the next artisan who
- * genuinely holds that card on the unique index. The box is therefore read-only while it holds a
- * mask, and `submit` leaves the field out of the payload entirely rather than posting it back.
- */
 function PehchanFields({
   initialAvailable,
   initialNumber,
   onDirty
 }: {
-  /** `null` = not answered yet: a NEW artisan starts here (C18), so the answer is always a choice. */
   initialAvailable: boolean | null;
   initialNumber?: string | null;
   onDirty: () => void;
@@ -214,12 +144,8 @@ function PehchanFields({
   const [answer, setAnswer] = useState<boolean | null>(initialAvailable);
   const available = answer === true;
   const storedMask = isMaskedIdentityNumber(initialNumber) ? String(initialNumber).trim() : null;
-  // Set when the editor chooses to type a new card number over one they were never shown.
   const [replacing, setReplacing] = useState(false);
   const [number, setNumber] = useState(storedMask ? "" : (initialNumber ?? ""));
-  // The mask still standing in for the stored number: what to show, and what to submit. Dropped when
-  // the answer is No, so the box does not keep displaying a card number under the line that says
-  // this artisan holds no card — and a No that is saved clears the stored number as it always did.
   const keptMask = replacing || !available ? null : storedMask;
 
   return (
@@ -238,8 +164,6 @@ function PehchanFields({
             const next = event.target.value === PEHCHAN_YES;
             setAnswer(event.target.value === "" ? null : next);
             if (!next) setNumber("");
-            // The themed Dropdown is a button, so it fires no native input event for the form's
-            // onInput to catch: the dirty flag has to be raised by hand.
             onDirty();
           }}
         >
@@ -261,17 +185,12 @@ function PehchanFields({
           autoComplete="off"
           placeholder={available ? "As printed on the card" : answer === null ? "Answer the card question first" : "No card on record"}
           value={keptMask ?? number}
-          // A read-only box is exempt from constraint validation, which is the right answer here:
-          // `required` must not demand a number the editor is not permitted to read.
           readOnly={Boolean(keptMask)}
           required={available}
           disabled={!available}
           aria-disabled={!available}
           aria-describedby={hintId}
           onInvalid={(event) => event.currentTarget.setCustomValidity(PEHCHAN_NUMBER_REQUIRED)}
-          // The API stores card numbers upper-cased without separators; showing that as it is typed
-          // keeps the box honest about what will actually be saved. Clearing the custom validity
-          // here is what lets a corrected value submit — it survives until it is reset by hand.
           onChange={(event) => {
             event.currentTarget.setCustomValidity("");
             setNumber(event.currentTarget.value.toUpperCase());
@@ -318,11 +237,6 @@ function PehchanFields({
   );
 }
 
-/**
- * Status policy (backend-enforced; the UI mirrors it): professor+ may pick any status and new
- * records default to APPROVED; everyone below sees a locked chip — creations are forced to PENDING
- * and unauthorized status changes are silently dropped server-side on update.
- */
 function StatusField({
   canSetStatus,
   initialStatus,
@@ -359,45 +273,6 @@ function StatusField({
   );
 }
 
-/**
- * ── DICTATION ON THIS FORM: WHICH BOXES HAVE A MICROPHONE, AND WHY THE REST DO NOT ──────────────
- *
- * The rule: a free-text box HAS a microphone unless there is a reason it must not, and the reason is
- * written down here so that a later reader can tell a decision from an oversight. One-line boxes use
- * `DictatedTextInput`, multi-line non-narrative ones `DictatedTextArea`, and narrative ones
- * `RichTextField` (whose editor carries the microphone at the caret).
- *
- * DICTATED: Name · Local name · Place · Address · Notes · (and Village, inside
- * the location card, which owns its own decision — see `components/forms/LocationFields.tsx`).
- *
- * NOT DICTATED, one line each, and each is a rule rather than a preference:
- *
- *  - **Workshop, Craft, Gender, Status** — closed vocabularies and record pickers behind a themed
- *    dropdown. There is no free text to speak; the answer is picked.
- *  - **Date of birth** — a date. A recogniser hands back "the fourth of March nineteen seventy one",
- *    and worse, both readings of an ambiguous spoken date are BOTH valid dates, so a mis-transcribed
- *    birthday is a defect nothing anywhere reports. The record sheet derives an AGE from it.
- *  - **Experience (years)** — a numeric box bounded 0–90. Recognisers spell digits out in words
- *    ("thirty"), which a native number box discards silently, leaving it empty after a spoken answer.
- *  - **Phone** — a number, with the same digits-as-words problem and a dial-code dropdown beside it.
- *  - **Email** — a recogniser writes "at" for `@` and punctuates a domain, so the box would reliably
- *    produce a value its own `pattern` then refuses.
- *  - **Aadhaar number, Pehchan card number** — regulated identity fields. Beyond the digit problem,
- *    an Aadhaar failing its Verhoeff check is refused by the server, and a wrong Pehchan number is
- *    stored against the wrong person and then blocks the artisan who genuinely holds that card on a
- *    unique index. Both boxes also accept a stored MASK verbatim, which a control that normalised
- *    what it heard would overwrite with the literal mask.
- *  - **Do's / Don'ts** — `DosDontsField` is a numbered-list control whose whole interaction is
- *    "press Enter for each new point"; a microphone appending into one row would fight it. Worth
- *    revisiting as a per-row control the way the process notes did, but that is a change to that
- *    component — it would need an `onFocusRow` hook it does not have — and not to this form. OPEN.
- *  - **Artisan media** — a file picker.
- *
- * ONE SENTENCE FOR THE WHOLE FORM. Every control above passes `explainWhenUnavailable={false}` and
- * `DictationUnavailableNotice` sits once at the top. Seven microphones down one form is seven copies
- * of the Firefox paragraph, which is how a true sentence becomes wallpaper.
- */
-/** B6: the uncontrolled boxes an artisan draft reads from the form. No identity number is among them. */
 const ARTISAN_DRAFT_FORM_FIELDS = ["gender", "dateOfBirth", "craftStartDate", "experienceYears", "experienceMonths", "phone", "phoneCountryCode", "address", "notes", "dos", "donts"];
 
 export function ArtisanForm({ initial }: { initial?: Artisan }) {
@@ -407,30 +282,14 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   const identityLabelId = `${useId()}-identity`;
   const dateFieldsId = useId();
   const formRef = useRef<HTMLFormElement>(null);
-  // Controlled so the carried craft can land in it after the list arrives.
   const [craftId, setCraftId] = useState(initial?.craftId ?? "");
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
-  // A meter pill's `?focus=<key>` (record completeness): the edit page mounts this form with the record.
   useFocusField();
   const completenessCounts = useMemo(() => ({ photos: photosPicked(mediaFiles) }), [mediaFiles]);
   const [error, setError] = useState<string | null>(null);
-  // A rejected duplicate is not a generic error: it names an existing artisan the researcher should
-  // open instead, so it gets its own state and its own panel with a link.
   const [conflict, setConflict] = useState<ArtisanIdentityConflict | null>(null);
-  // The panel above is a reminder that stays put; the dialog is the one-time question asked at the
-  // moment of saving. Separate flags so dismissing the question does not erase the reminder.
   const [duplicatePromptOpen, setDuplicatePromptOpen] = useState(false);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
-  /*
-   * ── LIKELY DUPLICATES (create only) ────────────────────────────────────────────────────────────
-   *
-   * The server scores; this form asks (`POST /artisan-duplicates/check`) when the name, the district
-   * or the phone loses focus, and again before saving if anything changed. "Different person"
-   * dismisses what was shown, and every create sends those ids as `duplicateAcknowledged` — `[]`
-   * when nothing was shown — so the server's hold asks only about records nobody has looked at.
-   * `dismissedRef` mirrors the state because a re-submit straight after "Different person" reads it
-   * before React has re-rendered.
-   */
   const [duplicateCandidates, setDuplicateCandidates] = useState<DuplicateCandidate[]>([]);
   const [dismissedDuplicates, setDismissedDuplicates] = useState<string[]>([]);
   const dismissedRef = useRef<string[]>([]);
@@ -441,75 +300,27 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
   const [savedRecord, setSavedRecord] = useState<Artisan | null>(null);
   const [email, setEmail] = useState(initial?.email ?? "");
-  /*
-   * ── THE FOUR DICTATED ONE-LINE BOXES, IN REACT STATE ─────────────────────────────────
-   *
-   * `DictatedTextInput` is controlled by its caller and cannot be anything else — the argument is
-   * written out in that file, and the short version is that a self-controlled box repaints stale
-   * text on a form cleared by `formElement.reset()`. That is not this form (it clears by remounting
-   * on `formKey`), but one contract for the control across the app is worth more than a second mode
-   * here.
-   *
-   * SO THEY JOIN `email` ON THE LIST OF THINGS `discardEntry` MUST CLEAR BY HAND. State declared
-   * here lives OUTSIDE `<form key={formKey}>`, so bumping that key rebuilds the DOM and leaves these
-   * four exactly as they were — which would carry a discarded artisan's name into the form that
-   * replaced it. The same applies to "Add another artisan" below, and `email` is the proof that this
-   * is a real trap rather than a theoretical one: it is already on both lists.
-   */
   const [name, setName] = useState(initial?.name ?? "");
   const [localName, setLocalName] = useState(initial?.localName ?? "");
   const [place, setPlace] = useState(initial?.place ?? "");
-  // Bumped to throw the form away and rebuild it ("Discard this entry"). Remounting is what clears
-  // the state living inside the field components — the Aadhaar digits, the Pehchan pair, the notes
-  // rows, the Do's/Don'ts lists — which no amount of `form.reset()` can reach.
   const [formKey, setFormKey] = useState(0);
-  /*
-    C18 — FIND BEFORE TYPING. A new artisan opens on a lookup by Aadhaar or name, so a duplicate is
-    found before ten fields are typed, not after. "Record a new artisan" (or a search with no match)
-    opens the form, carrying what was typed into the Name or Aadhaar box.
-  */
   const [lookup, setLookup] = useState<ArtisanLookupStart | null>(initial ? { name: "", aadhaar: "" } : null);
-  /** C18 — "Not shared by artisan": the explicit outcome that saves without an Aadhaar, flagged. */
   const [aadhaarNotShared, setAadhaarNotShared] = useState(Boolean(initial?.aadhaarNotShared));
-  /** B7: files of a saved artisan that did not upload, held for one-tap retry. */
   const [retry, setRetry] = useState<{ files: File[]; upload: (files: File[]) => Promise<{ failed: Array<{ name: string; error?: string }> }> } | null>(null);
   const { dirty, markDirty, resetDirty } = useUnsavedChanges();
   const [backPromptOpen, setBackPromptOpen] = useState(false);
-  // Hands the prompt to the round back control in the page header, which is now the only back
-  // control on the page.
   useLeaveGuard(dirty, () => setBackPromptOpen(true));
-  // The API includes the record's stored location (not yet in the Artisan TS type); pass it so the
-  // edit form pre-fills coordinates instead of auto-capturing the editor's current position.
   const initialLocation = initial
     ? ((initial as Artisan & { location?: LocationInitialValues | null }).location ?? null)
     : undefined;
-  /**
-   * Aadhaar is what stops one artisan becoming two records, so a NEW artisan must come with one.
-   * An artisan documented before that rule has none, and a researcher who opened the record to fix a
-   * phone number must not have to invent a government ID to save the correction — so on edit it is
-   * required only when the record already carries one, where the requirement costs nothing and also
-   * stops a stored number being quietly emptied. A masked number counts as carrying one — it is a
-   * real number this caller may not read — and AadhaarField satisfies the requirement by posting the
-   * mask straight back.
-   */
-  // A record flagged "Not shared by artisan" that has the outcome switched off needs the number:
-  // Aadhaar is optional only through that explicit outcome (C18), and the server refuses the save.
   const aadhaarRequired =
     (!initial || Boolean(initial.aadhaarNumber?.trim()) || Boolean(initial.aadhaarNotShared)) && !aadhaarNotShared;
-  /** The outcome is offered only where no number is on file: it never retracts a stored Aadhaar. */
   const notSharedOffered = !initial?.aadhaarNumber?.trim();
-  // The workshop this artisan was documented at: shared picker, shared most-recent defaulting, and
-  // the late-submission gate (see components/forms/WorkshopSelect).
   const workshop = useWorkshopSelection({
     initialWorkshopId: initial?.workshopId,
     isEdit: Boolean(initial),
     resetKey: initial?.id ?? null
   });
-  /*
-    B6 — THIS FORM KEEPS A DRAFT, WITHOUT THE IDENTITY NUMBERS. Aadhaar and Pehchan are never written
-    to this device's draft store (field laptops are shared — the carry-forward allowlist's rule), so a
-    continued draft asks for them again. Everything else is kept as the product form keeps it.
-  */
   const [restored, setRestored] = useState<Record<string, string>>({});
   const [draftTick, setDraftTick] = useState(0);
   const draft = useFormDraft({
@@ -555,27 +366,13 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   const emailError =
     email.trim() && !EMAIL_RE.test(email.trim()) ? "Enter a valid email address (name@example.com)." : null;
 
-  /** The master craft list (`GET /crafts/catalogue`) — the only crafts this form can pick. */
   const craftCatalogue = useCraftCatalogue();
   const craftOptions = useMemo(() => craftCatalogue.catalogue?.crafts ?? [], [craftCatalogue.catalogue]);
   const craftListState: CarryScopeState =
     craftCatalogue.catalogue ? "loaded" : craftCatalogue.loading ? "pending" : "unavailable";
 
-  /**
-   * The craft and the workshop carry into a new artisan; the ARTISAN in the bag never does.
-   *
-   * This form's whole job is to create a person who is not yet in the bag, so prefilling the last
-   * one would be worse than useless — it is the "wrong artisan" hazard with the record itself as the
-   * casualty. Their place does not carry either: it belongs to that artisan, not to the sitting, and
-   * two artisans documented back to back are routinely from different villages. What genuinely
-   * transfers is the craft everyone at this workshop practises, and the workshop.
-   */
   const carry = useCarryContext({
     enabled: !initial,
-    // `craftOptions`, not `crafts`: a carried craft that is merely off the picker's first page IS
-    // reachable — the by-id lookup above fetched it — and pruning it would drop a good link from the
-    // bag for the "absent from page one" reason that is exactly what this port set out to stop
-    // meaning "absent from the repository".
     scopes: [carryScope("craft", craftListState, craftOptions)],
     applies: ["craft", "workshop"],
     onApply: (context) => {
@@ -583,13 +380,11 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       if (context.workshopId && !workshop.touched) workshop.setWorkshopId(context.workshopId);
     }
   });
-  /** "Change": drop the carried craft so the researcher picks from scratch. */
   function clearCarriedContext() {
     carry.change();
     setCraftId("");
   }
 
-  /** What the duplicate check needs, read off the live form. */
   function duplicateCheckInput(form: FormData | null) {
     if (!form) return null;
     return checkInputFrom({
@@ -608,7 +403,6 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
     });
   }
 
-  /** Ask the server who this already looks like. Quiet on failure: the save's own hold still asks. */
   async function runDuplicateCheck(form: FormData | null) {
     if (initial) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
@@ -619,11 +413,9 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
     try {
       setDuplicateCandidates(await checkDuplicates(input));
     } catch {
-      // Rate-limited or offline: nothing to show, and the server holds the save if it must.
     }
   }
 
-  /** Name, district and phone losing focus: check after a short pause, once per distinct value. */
   function scheduleDuplicateCheck(event: React.FocusEvent<HTMLFormElement>) {
     if (initial) return;
     const target = event.target as HTMLElement & { name?: string };
@@ -652,14 +444,6 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
     else router.back();
   }
 
-  /**
-   * Throw the in-progress entry away and start from a clean form.
-   *
-   * The workshop and the craft are deliberately left alone: the researcher is still standing in the
-   * same workshop documenting the same craft, and re-picking both after every discarded duplicate
-   * would be busywork. Clearing the craft would also make the carry-forward banner above lie about
-   * a field it no longer fills.
-   */
   function discardEntry() {
     setDuplicatePromptOpen(false);
     setConflict(null);
@@ -671,9 +455,6 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
     lastCheckKey.current = "";
     setMediaFiles([]);
     setEmail(initial?.email ?? "");
-    // And the four dictated boxes, for exactly the reason `email` is on this list: they are React
-    // state OUTSIDE the keyed form, so without these four lines "Discard this entry" would leave
-    // the discarded artisan's name, local name and place standing in the form that replaced it.
     setName(initial?.name ?? "");
     setLocalName(initial?.localName ?? "");
     setPlace(initial?.place ?? "");
@@ -686,12 +467,9 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // Read the form synchronously: React nulls event.currentTarget across the await below.
     const form = new FormData(event.currentTarget);
     setError(null);
     setConflict(null);
-    // Ask about a duplicate BEFORE the late-submission prompt: there is no point weighing up a late
-    // save that is about to be abandoned anyway.
     setCheckingDuplicate(true);
     const existing = aadhaarNotShared ? null : await findArtisanByAadhaar(textValue(form, "aadhaarNumber"), initial?.id ?? null);
     setCheckingDuplicate(false);
@@ -705,15 +483,11 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       setDuplicatePromptOpen(true);
       return;
     }
-    // Likely duplicates, once more if anything changed since the last check — so the card is up to
-    // date at the moment of saving. The server's hold is the guarantee; this is the courtesy.
     if (!initial) {
       setCheckingDuplicate(true);
       await runDuplicateCheck(form);
       setCheckingDuplicate(false);
     }
-    // A workshop that has already ended makes this a late submission needing admin approval — say so
-    // before anything is written. Resolves true immediately when there is nothing to warn about.
     if (!(await workshop.confirmSubmission())) return;
     setSaving(true);
     try {
@@ -721,20 +495,13 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       const exifRemark = exifMetadataToRemark(exifItems);
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
-      // Everything LocationFields renders, including the state and pincode that used to be merged
-      // in here by hand — `locationFromForm` reads them now, so the five other forms that share it
-      // stopped throwing the two answers away. Also goes onto the media batch below: same place.
       const location = locationFromForm(form);
-      // A craft from the master list, always — there is no free-text craft.
       const craftId = textValue(form, "craftId");
       if (!craftId) {
         setError(CRAFT_NOT_IN_LIST);
         setSaving(false);
         return;
       }
-      // Both dates are required on every save from this form (2026-10-17, one artisan form in both
-      // portals). The boxes carry `required`, so the browser stops a normal submit first; this is the
-      // server's own sentence, for a save that reaches here another way (Save in the leave dialog).
       const missingDates = missingArtisanDatesSentence({
         dateOfBirth: textValue(form, "dateOfBirth"),
         craftStartDate: textValue(form, "craftStartDate")
@@ -744,84 +511,27 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         setSaving(false);
         return;
       }
-      // The Yes/No dropdown mirrors its option value into FormData; anything other than an explicit
-      // "No" means the artisan holds a card, which matches the API's own default of Yes.
       const pehchanAvailable = textValue(form, "pehchanCardAvailable") !== PEHCHAN_NO;
       const pehchanNumber = textValue(form, "pehchanCardNumber");
-      // A masked card number means the editor was never shown the real one and left it alone. Unlike
-      // the Aadhaar mask the API does NOT recognise this one — `validate_pehchan` happily normalises
-      // "XXXX XXXX 3456" to "XXXXXXXX3456" and stores it over the real card — so the key is dropped
-      // from the payload instead, which a PATCH reads as "not sent, not changed".
       const pehchanUnchanged = pehchanAvailable && isMaskedIdentityNumber(pehchanNumber);
-      // Read once and named, because the payload below has to test it for NULL rather than for
-      // truthiness — see the comment on `experienceMonths`. Inlining it invites `|| null`.
       const experienceMonthsText = textValue(form, "experienceMonths");
       const payload = {
         name: requiredText(form, "name"),
         localName: textValue(form, "localName"),
         gender: textValue(form, "gender"),
-        // `null` and not `undefined` when blank: on a PATCH an omitted key means "leave it alone",
-        // so clearing a date entered by mistake would silently do nothing.
         dateOfBirth: textValue(form, "dateOfBirth") || null,
-        /*
-          THE DAY THE CRAFT WAS TAKEN UP, AND WHY IT IS A DATE RATHER THAN A SECOND NUMBER.
-
-          The record sheet prints an experience figure DERIVED from this on every read
-          (`derive_experience_years`, backend/app/services/records.py). A stated number of years is
-          right on the day it is typed and silently wrong from then on, with nothing anywhere to
-          notice — which is the same argument `dateOfBirth` above won, for the same reason.
-
-          `|| null` AND NOT A BARE `textValue`, EVEN THOUGH `textValue` ALREADY ANSWERS NULL FOR AN
-          EMPTY BOX. The idiom is load-bearing on a PATCH and it is written out so nobody
-          "simplifies" it into `textValue(form, "craftStartDate") ?? ""`: an omitted or empty key
-          would be a no-op, `""` is a 422 from a `datetime | None` field, and only an explicit null
-          clears the column (`craftStartDate` is in `_CLEARABLE_COLUMNS`,
-          backend/app/api/routes/artisans.py:117). A date typed into the wrong box has to be
-          retractable from the form that typed it.
-        */
         craftStartDate: textValue(form, "craftStartDate") || null,
         experienceYears: textValue(form, "experienceYears")
           ? Number(textValue(form, "experienceYears"))
           : null,
-        /*
-          THE ODD MONTHS ON TOP OF THE YEARS — A REMAINDER, NEVER A TOTAL, AND 0..11 NEVER 0..12.
-
-          NOT `Number(...) || null`, WHICH IS THE BUG THIS COMMENT EXISTS TO PREVENT. Zero is falsy,
-          so that idiom turns "nought months" into "no answer" — and the two are different answers
-          the column deliberately keeps apart (`ArtisanCreate.experienceMonths`,
-          backend/app/schemas/records.py:133): NULL is "the artisan said nothing about months", 0 is
-          "the artisan said none". `clean_data` drops a None on create and `_CLEARABLE_COLUMNS`
-          carries the explicit null through on a PATCH, so all three states really do survive — but
-          only if the client stops collapsing two of them here.
-
-          The empty half still submits null, for the same reason the date above does: the two boxes
-          are answered and un-answered together, and a pair where one can be blanked and the other
-          cannot leaves an artisan reading "and 6 months" under an empty years box.
-        */
         experienceMonths: experienceMonthsText === null ? null : Number(experienceMonthsText),
         phone: textValue(form, "phone"),
         phoneCountryCode: textValue(form, "phoneCountryCode"),
         email: textValue(form, "email"),
         place: requiredText(form, "place"),
         address: textValue(form, "address"),
-        // `appendStoredParagraph` and NOT `appendRemarksWithExif`: the notes box is a rich-text
-        // editor now, so this column may hold a JSON document. Concatenating the EXIF summary onto
-        // the end of a JSON string produces a value that is neither valid JSON nor readable prose —
-        // the editor would show raw braces followed by the summary, and so would the artisan CSV,
-        // the review panel and the Android form. The helper appends INTO the document when there is
-        // one and is byte-for-byte `appendRemarksWithExif` when there is not.
-        //
-        // "paragraph" because this column is blank-line separated: see the RichTextField below.
         notes: appendStoredParagraph(textValue(form, "notes") as string | null, exifRemark, "paragraph"),
-        // Identity. The Aadhaar mirror input carries the bare digits (the visible box only groups
-        // them for reading), or the mask verbatim when the editor was never shown the real number —
-        // which the API recognises and drops, leaving the stored value alone. The Pehchan mask has
-        // no such server-side guard, so it is omitted above instead. The card number IS sent, as an
-        // explicit null, when the artisan holds no card, so an edit that flips the answer to No
-        // clears the stored number instead of orphaning it: `aadhaarNumber` and `pehchanCardNumber`
-        // are both clearable server-side.
         aadhaarNumber: aadhaarNotShared ? null : textValue(form, "aadhaarNumber"),
-        // C18: sent only when it says something, so a body without the outcome is today's shape.
         ...(aadhaarNotShared || initial?.aadhaarNotShared ? { aadhaarNotShared } : {}),
         pehchanCardAvailable: pehchanAvailable,
         ...(pehchanUnchanged ? {} : { pehchanCardNumber: pehchanAvailable ? pehchanNumber : null }),
@@ -829,23 +539,14 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         donts: requiredText(form, "donts"),
         craftId,
         workshopId: workshop.workshopId || null,
-        // Below professor no status control is rendered: create submits PENDING, edit resubmits the
-        // current status (the backend drops unauthorized changes either way).
         status: requiredText(form, "status") || initial?.status || "PENDING",
         recordedAt,
         recordedTimezone,
         location,
-        // extraMetadata stays programmatic (EXIF etc.) — the raw JSON textarea was removed.
         extraMetadata: exifItems.length ? { mediaExif: exifItems } : {},
-        // The artisan form contract this save was made under: the server holds it to both dates.
-        // In the BODY, so the outbox stores it with the entry — see `lib/artisanFormContract`.
         formContract: ARTISAN_FORM_CONTRACT,
-        // The likely duplicates this person was shown and called a different person; `[]` when none
-        // were shown. Create only — the edit schema refuses the key.
         ...(initial ? {} : { duplicateAcknowledged: acknowledgedIds(dismissedRef.current) })
       };
-      // With no connection this queues to the offline outbox instead of failing at the Save button;
-      // the media goes with it, because the artisan will have gone home by the time signal returns.
       const outcome = await saveOrQueue<Artisan>({
         label: `Artisan · ${payload.name || "Untitled"}`,
         endpoint: initial ? `/artisans/${initial.id}` : "/artisans",
@@ -864,8 +565,6 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         ]
       });
       if (outcome.queued) {
-        // No per-form "queued" banner: OutboxBanner at the top of the page already names the entry
-        // and is the one place that says where it lives. Scroll so it is the next thing seen.
         draft.clear();
         resetDirty();
         if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -889,7 +588,6 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         const { failed } = await uploadTo(mediaFiles);
         setUploadProgress(null);
         if (failed.length) {
-          // B7: the artisan is saved; only the files that failed are kept, for one-tap retry.
           draft.clear();
           resetDirty();
           setRetry({ files: failedFilesOf(mediaFiles, failed), upload: uploadTo });
@@ -908,21 +606,14 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
       }
     } catch (err) {
-      // A duplicate Aadhaar/Pehchan number is the deduplication working, not a breakage: show the
-      // server's sentence and a way to reach the artisan who already holds the number.
       const duplicate = identityConflict(err);
       const hold = possibleDuplicateHold(err);
       if (hold) {
-        // Looks like somebody already recorded: ask, with the same rows the card shows.
         setDuplicateCandidates(hold.candidates);
         setDuplicateHold(hold);
       } else if (duplicate) {
         setConflict(duplicate);
-        // Same dialog as the pre-flight catch, so a duplicate reads identically whether it was found
-        // before the request or by the unique index behind it.
         setDuplicatePromptOpen(true);
-        // The panel renders at the top of a long form while the researcher is at the Save button:
-        // without this the save simply appears to do nothing.
         if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
       } else {
         setError(readableError(err, "Unable to save artisan"));
@@ -951,13 +642,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
                 setMediaFiles([]);
                 setEmail("");
                 setAadhaarNotShared(false);
-                // C18: the next artisan starts on the lookup too.
                 setLookup(null);
-                // Blank literals rather than `initial?.…`: this panel is only ever reached from the
-                // create path, so "what the record said" is by definition nothing. Dismissing it
-                // re-renders the form and the uncontrolled boxes come back blank because the whole
-                // `<form>` unmounted while the panel was up; anything held in THIS component's state
-                // does not — `ArtisanForm` never unmounted.
                 setName("");
                 setLocalName("");
                 setPlace("");
@@ -1043,27 +728,9 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             <p className="mt-1 text-xs">Not saved. Fix the number or edit the existing record.</p>
           </div>
         ) : null}
-        {/*
-          THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
-          Every dictated box below passes `explainWhenUnavailable={false}`, because on Firefox the
-          same honest paragraph printed seven times down one form is a block of grey text nobody
-          reads. Removing this line does not remove the sentence from one box; it removes it from ALL
-          of them, which is the silent-nothing the dictation controls exist to prevent.
-
-          OUTSIDE THE FIELD GRID, ON PURPOSE: the grid below is `md:grid-cols-2`, so a paragraph
-          mounted inside it would be one cell wide and would wrap to five lines beside the workshop
-          picker. It speaks for the whole form, so it stands above the whole form.
-        */}
         <DictationUnavailableNotice />
         <div className="grid gap-3 md:grid-cols-2">
-          {/* Android parity (ArtisanForm): the workshop opens the form, because it is the context
-              every other answer belongs to — not merely the first dropdown. */}
           <WorkshopSelect state={workshop} onDirty={markDirty} saving={saving} />
-          {/* Name and place are title-cased by the API on write
-              (`backend/app/services/records.py:341`, `:342`, `:348`), so the box says what will
-              actually be stored — `titleCased` mounts `TitleCasedInput` itself inside the dictated
-              box, never a copy of its hint. `markDirty` BY HAND because a dictated phrase is a React
-              state write and fires no native `input` event the form's `onInput` could catch. */}
           <DictatedTextInput
             name="name"
             label="Name"
@@ -1076,10 +743,6 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               markDirty();
             }}
           />
-          {/* NOT title-cased, and never: `localName` is Devanagari or Gujarati, where capitalising
-              means nothing, and `records.py:335-338` leaves it out for exactly that reason. It still
-              gets a microphone — the recogniser takes whichever of the eleven languages it is set
-              to. */}
           <DictatedTextInput
             name="localName"
             label="Local name"
@@ -1102,7 +765,6 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               onDirty={markDirty}
               onChange={(next, craft) => {
                 setCraftId(next);
-                // An explicit pick replaces the remembered craft and retires the banner.
                 if (craft) carry.remember({ craftId: craft.id, craftName: craft.name }, { explicit: true });
               }}
             />
@@ -1120,8 +782,6 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               markDirty();
             }}
           />
-          {/* UX audit DC-08: this box opened on "Male", so a form nobody touched saved a claim about a
-              person and skewed the dataset. It opens empty now and saves nothing until answered. */}
           <Field label="Gender">
             <Select name="gender" defaultValue={restored.gender ?? initial?.gender?.trim() ?? ""} onChange={markDirty}>
               <option value="">Select gender</option>
@@ -1130,24 +790,11 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               ))}
             </Select>
           </Field>
-          {/* ── THE TWO FACTS THE RECORD SHEET COULD NOT ANSWER ────────────────────────────
-              Age and experience were read only from `extraMetadata` spellings this form stopped
-              writing when the raw JSON textarea was removed, so both cells on the artisan record
-              sheet were permanently empty — not because artisans have no age, but because nothing
-              collected it. These are the inputs that fill them.
-
-              A DATE OF BIRTH AND NOT AN AGE: the sheet shows an age, derived from this on every
-              read, because an age written down is wrong within a year and nothing would notice. */}
-          {/* CalendarField, never the browser's native date input; labelled as a SIBLING because it holds buttons
-              (a wrapping <label> would fold "Open calendar" into its name). `max` is today in LOCAL
-              parts — toISOString() is UTC and, before 05:30 in India, still yesterday. */}
           <div className="grid min-w-0 gap-1" data-field="dateOfBirth">
             <label htmlFor={`${dateFieldsId}-dob`} className="field-label">
               Date of birth
               <RequiredMark when />
             </label>
-            {/* REQUIRED ON EVERY NEW SAVE (2026-10-17), and on an edit of a record saved before the
-                rule, which asks for it. `clearable` kept, so a wrong date can still be retyped. */}
             <CalendarField
               id={`${dateFieldsId}-dob`}
               name="dateOfBirth"
@@ -1158,11 +805,6 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               onChange={() => markDirty()}
             />
           </div>
-          {/* THE DATE THE DERIVED FIGURE IS COMPUTED FROM. It sits BEFORE the two stated boxes
-              because it outranks them: the record sheet prefers this, then `experienceYears`, then
-              the legacy metadata, and a form that asks for the weakest answer first teaches the
-              opposite. `max` is today for the same reason date of birth carries one — a craft taken
-              up next year is a typo, and the browser can refuse it by name. */}
           <div className="grid min-w-0 gap-1" data-field="craftStartDate">
             <label htmlFor={`${dateFieldsId}-craft-start`} className="field-label">
               Craft start date
@@ -1183,8 +825,6 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               name="experienceYears"
               type="number"
               inputMode="numeric"
-              /* 0..90, the same bound the sibling repository's design-workshop registry uses, so an
-                 artisan cannot carry a number the other product would refuse. */
               min={0}
               max={90}
               step={1}
@@ -1192,27 +832,6 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               onChange={markDirty}
             />
           </Field>
-          {/*
-            THE MONTHS BOX IS A CLOSED PICKER, NOT A NUMBER INPUT, AND THAT IS THE WHOLE POINT.
-
-            The column carries `CHECK ("experienceMonths" BETWEEN 0 AND 11)`. A CHECK violation
-            surfaces as a driver error raised from inside the write — a bare 500 naming no field, on
-            a save the researcher cannot correct. The Pydantic `ge=0, le=11` turns that into a 422
-            whose `loc` names the box; a picker with twelve rows in it means the researcher never
-            reaches either refusal, because 12 is not on the list to be typed.
-
-            ELEVEN AND NOT TWELVE: twelve months is not a bigger month, it is a year the box above
-            already holds. This is a REMAINDER.
-
-            "Not stated" IS A REAL OPTION AND IS NOT "0 months". It submits the empty string, which
-            `textValue` reads as null and the payload sends as an explicit null — see the comment on
-            `experienceMonths` there. A picker whose only way out was 0 would make every artisan who
-            said "about thirty years" and nothing else say "and no months" as well.
-
-            NO MICROPHONE, and it is in the not-dictated register above with the other closed
-            vocabularies: there is no free text to speak. `markDirty` BY HAND because a themed
-            dropdown is a `<button>` and fires no native input event for the form's `onInput`.
-          */}
           <Field label="Experience (months)">
             <Select
               name="experienceMonths"
@@ -1248,57 +867,22 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             />
             {emailError ? <p className="text-xs text-error-600">{emailError}</p> : null}
           </Field>
-          {/*
-            DICTATION BUT NOT RICH TEXT, and the split is the whole point of there being two
-            controls. An address is three lines, so a researcher standing in a courtyard genuinely
-            wants to speak it rather than thumb it in — but a bold word or a bulleted list in a
-            postal address is meaningless, and a formatting toolbar here would be an invitation to
-            store a document in the column `record_fields.py:257` prints as "Address" in the CSV and
-            the workbook.
-          */}
           <DictatedTextArea
             name="address"
             label="Address"
             defaultValue={restored.address ?? initial?.address ?? ""}
-            // Said once at the top of this form by `DictationUnavailableNotice`.
             explainWhenUnavailable={false}
             onDirty={markDirty}
           />
-          {/*
-            NOTES IS THE ONE LARGE NARRATIVE BOX ON THIS FORM, so it is the one that gets the editor.
-
-            IT REPLACES `MultiNoteField`, whose several textareas were joined with a blank line into
-            this same `Artisan.notes` column. `join="paragraph"` is what keeps that contract: an
-            unformatted document is written back blank-line separated, so `MultiNoteField` in
-            `components/FormControls.tsx` — which still edits this same column on the questionnaire
-            and workshop pages, and splits it on a blank line — and `MultiNoteInput` in Android's
-            `MainActivity.kt` both still reconstruct exactly the notes written here. Drop that
-            argument and four notes silently become one the next time the record is opened on a
-            handset or on either of those two pages.
-
-            WHAT THE RESEARCHER LOSES is the explicit "Add note" button; what they gain is a real
-            list control, a microphone, and the ability to write a paragraph that is longer than two
-            rows without it looking like a mistake. The stored value is the same shape either way,
-            which is why this substitution needs no migration and no Android release.
-
-            The EXIF remark that `submit` appends to this field goes through `appendStoredParagraph`
-            rather than `appendRemarksWithExif` for the reason given up there.
-          */}
           <RichTextField
             name="notes"
             label="Notes"
             defaultValue={restored.notes ?? initial?.notes ?? ""}
             join="paragraph"
             className="md:col-span-2"
-            // Said once at the top of this form by `DictationUnavailableNotice`. `join="paragraph"`
-            // above is NOT part of that change and must not be dropped while editing this block —
-            // it is what keeps four notes from becoming one on the next handset that opens them.
             explainWhenUnavailable={false}
             onDirty={markDirty}
           />
-          {/* Android parity (ArtisanForm): the three identity answers sit after the contact and
-              notes fields and before Do's/Don'ts. Grouping them makes the dependency between
-              "holds a card" and "card number" obvious at a glance. */}
           <div
             role="group"
             aria-labelledby={identityLabelId}
@@ -1376,12 +960,6 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             description="Photos, audio, video and documents."
           />
         </div>
-        {/*
-          `statedPlace` is the free-text box the researchers used while there was no district column
-          — "Bagru, Jaipur, Rajasthan", "Rudraprayag, Dehradun" — and it is passed READ ONLY, so the
-          card can tell a researcher that this record's Kharagpur coordinates disagree with the
-          Rajasthan place they typed. Nothing is parsed out of it and written back.
-        */}
         <div data-field="location">
           <LocationFields
             initial={initialLocation}
@@ -1413,8 +991,6 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         maskedValue={conflict?.maskedValue}
         onOpenExisting={() => {
           setDuplicatePromptOpen(false);
-          // Leaving for the other record discards this one either way, so drop the guard rather than
-          // making the researcher answer a second "unsaved changes" prompt on the way out.
           resetDirty();
           if (conflict?.existingArtisan) router.push(`/artisans/${conflict.existingArtisan.id}/edit`);
         }}
@@ -1449,11 +1025,6 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   );
 }
 
-/**
- * The artisan rule path the form answers under another name: a fix on the location card is a
- * location. Module-level so the live line's effect is not re-armed on
- * every render.
- */
 function artisanCompletenessFields(data: FormData): Record<string, unknown> {
   return { ...locationOnForm(data) };
 }

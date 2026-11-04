@@ -73,7 +73,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 const val XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-/** The library's action pills, in order, for this viewer (UNIFY 4.2). */
 fun libraryActions(user: UserDto?): List<String> = listOfNotNull(
     FormsCopy.NEW_FORM.takeIf { FormRights.mayCreate(user) },
     FormsCopy.UPLOAD_WORKBOOK.takeIf { FormRights.mayCreate(user) },
@@ -82,7 +81,6 @@ fun libraryActions(user: UserDto?): List<String> = listOfNotNull(
     FormsCopy.ANNEXURE.takeIf { FormRights.mayReadAnnexure(user) }
 )
 
-/** One row of the library. */
 @Composable
 fun FormRow(form: QForm, local: Boolean, onOpen: () -> Unit) {
     Column(
@@ -96,7 +94,6 @@ fun FormRow(form: QForm, local: Boolean, onOpen: () -> Unit) {
     HorizontalDivider(color = MaterialTheme.field.hairline)
 }
 
-/** The library list itself: tabs, kind filter, rows. Pure state in, events out, so a device test draws it. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FormsLibraryList(
@@ -124,7 +121,6 @@ fun FormsLibraryList(
             placeholder = "All kinds",
             includeNone = true
         ) { onKind(it.ifBlank { null }) }
-        // More than two actions: pills that wrap (the design bar).
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             libraryActions(user).forEach { action ->
                 val needsSignal = action == FormsCopy.UPLOAD_WORKBOOK || action == FormsCopy.DOWNLOAD_PRO_FORMA || action == FormsCopy.ANNEXURE
@@ -140,25 +136,15 @@ fun FormsLibraryList(
     }
 }
 
-/**
- * The Forms tab of the questionnaire home (UNIFY 4.2): the library, the form detail, workbooks,
- * received bundles (P17) and the workshop annexure (A12). Read offline from the owner-stamped copy
- * (A16); written offline through the form outbox (A15). The home draws it in its own scrolling
- * column and owns the "New form" button ([FormsNav.newForm]).
- */
 @Composable
 fun FormsTab(
     user: UserDto?,
-    /** "Start a session on this form" (A9, D3), when the server has sessions on. */
     onStartSession: ((questionnaireId: String) -> Unit)?,
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val v2 = remember { FormsV2.get(context) }
     val scope = rememberCoroutineScope()
-    // The open form, the library's tab and rows live in the memory the home gives this tab, so a
-    // session opened from a form comes back to that form, and closing a form comes back to the row it
-    // was opened from (owner, 1 Nov 2026).
     var openId by rememberKept("forms.openId") { null as String? }
     var annexureOpen by rememberKept("forms.annexureOpen") { false }
     var tab by rememberKept("forms.tab") { FormTab.MINE }
@@ -166,8 +152,6 @@ fun FormsTab(
     var forms by rememberKept("forms.rows") { emptyList<QForm>() }
     var localForms by rememberKept("forms.localRows") { emptyList<QForm>() }
     var workshops by rememberKept("forms.workshops") { emptyList<QWorkshopOption>() }
-    // Where the library was scrolled when a form was opened over it: the home's scroller is shared by
-    // the list and the form, so the list's place is written down and put back on close.
     val pageScroll = LocalFormsScroll.current
     var listScrollAt by rememberKept("forms.listScrollAt") { 0 }
     fun openForm(id: String) {
@@ -189,9 +173,6 @@ fun FormsTab(
     var message by remember { mutableStateOf<String?>(null) }
     val online = ConnectivityObserver.isOnline(context)
     val received by FormBundleInbox.pending.collectAsState()
-    // The shared search and filters (owner, 31 Oct 2026), kept across navigation for this account: the
-    // text finds a form by its title, sections, questions and sessions; the rest keep the forms with a
-    // session that matches (artisans, researcher, workshop, dates, source, transcript, language).
     val sessionsV2 = remember { QuestionnaireV2.get(context) }
     val (formFilters, setFormFilters) = rememberKeptFilters(sessionsV2, FilterStore.FORMS)
 
@@ -199,7 +180,6 @@ fun FormsTab(
         loading = true
         val narrowed = !formFilters.isEmpty
         val fetched = runCatching { v2.api.forms(activeOnly = false, filters = formFilters.without("kind").toParams()) }.getOrNull()
-        // Only the whole library is kept for offline: a filtered answer would read as all of it.
         if (fetched != null && user != null && !narrowed) v2.cache.putList(user.id, fetched)
         forms = fetched ?: v2.cache.read(user?.id)?.forms.orEmpty()
         localForms = v2.outbox.localForms()
@@ -266,7 +246,6 @@ fun FormsTab(
     if (creating) NewFormDialog(onDismiss = { FormsNav.newForm.value = false }) { body ->
         FormsNav.newForm.value = false
         scope.launch {
-            // Online: created at once. Offline: queued with a local id and opened from the phone (A15).
             val created = if (ConnectivityObserver.isOnline(context)) runCatching { v2.api.createForm(java.util.UUID.randomUUID().toString(), body) }.getOrNull() else null
             if (created != null) { refresh++; openForm(created.id) }
             else runCatching { v2.outbox.queueForm(body, user?.id) }
@@ -296,7 +275,6 @@ fun FormsTab(
     }
 }
 
-/** A12, C10: what the workshop export prints for one workshop, its forms grouped by kind, with answers. */
 @Composable
 fun AnnexureView(annexure: QAnnexure) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -319,10 +297,8 @@ fun AnnexureView(annexure: QAnnexure) {
 }
 
 object AnnexureModel {
-    /** "2nd Craft Toolkit · 3 sessions" */
     fun formLine(form: QAnnexureForm): String = "${form.title} · ${form.sessionCount} ${if (form.sessionCount == 1) "session" else "sessions"}"
 
-    /** Answers in the annexure, across every form and question. */
     fun answerCount(annexure: QAnnexure): Int = annexure.groups.sumOf { g -> g.forms.sumOf { f -> f.sections.sumOf { s -> s.questions.sumOf { it.answers.size } } } }
 }
 
@@ -360,7 +336,6 @@ fun WorkshopAnnexureScreen(v2: FormsV2, workshops: List<QWorkshopOption>, onBack
     }
 }
 
-/** P17: "Received a form". Not now · Add. A file that could not be read says why, with one OK. */
 @Composable
 fun ReceivedFormPrompt(received: FormBundleInbox.Received, onDismiss: () -> Unit, onAdd: (FormBundle) -> Unit) {
     val bundle = received.bundle
@@ -410,7 +385,6 @@ fun NewFormDialog(onDismiss: () -> Unit, onCreate: (QFormCreate) -> Unit) {
     )
 }
 
-/** The picked .xlsx as the multipart `file` part. */
 fun workbookPart(context: Context, uri: Uri): MultipartBody.Part {
     val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: throw IllegalStateException("Couldn't read that file.")
     val name = runCatching {
@@ -419,10 +393,8 @@ fun workbookPart(context: Context, uri: Uri): MultipartBody.Part {
     return workbookPartOf(bytes, name)
 }
 
-/** The multipart `file` part the workbook routes read: the picked bytes under an ASCII leaf of their name. */
 fun workbookPartOf(bytes: ByteArray, name: String): MultipartBody.Part =
     MultipartBody.Part.createFormData("file", Naming.asciiLeaf(name, "workbook.xlsx"), bytes.toRequestBody(XLSX_MIME.toMediaTypeOrNull()))
 
-/** The server's sentence when it gave one, else [fallback]. */
 fun errorText(error: Throwable, fallback: String): String =
     (error as? retrofit2.HttpException)?.let { apiDetail(it) } ?: fallback

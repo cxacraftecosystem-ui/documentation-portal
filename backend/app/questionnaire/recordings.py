@@ -1,21 +1,3 @@
-"""Recordings: server-known uploads, the atomic /complete, and every later change (DESIGN 3.3,
-3.8, 3.9, 5.3 and 5.5).
-
-* Presign writes a ``MediaUploadIntent`` keyed on ``clientClipKey``. A re-presign signs a fresh URL
-  for the SAME ``objectKey`` and reuses an open multipart upload; a CLOSED intent signs nothing and
-  answers ``{"closed": true}`` (the clip is already filed). An upload S3 has dropped is restarted on
-  the same key. The server mints the S3 leaf (``naming.recording_filename``); the client's file name
-  is never used.
-* ``/complete`` is ONE transaction under sorted advisory locks, idempotent on ``clientClipKey`` then
-  ``objectKey``. It never refuses a recording because of coverage: it files it, and flags it only
-  when it is truly ambiguous (CONCURRENT -> NEEDS_DECISION). A subject who is not a participant is
-  added as one. Inside the same transaction it queues the sha check and the (paused) transcription
-  job, so a crash after commit can never leave a take that is never transcribed.
-* A session merged away is followed to the session it was merged into, by presign and /complete.
-* Nothing is deleted implicitly: removal is soft and restorable, content admins only (owner,
-  21 Oct 2026), and every change is an event. A change of primary take writes PRIMARY_CHANGED.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -62,7 +44,6 @@ FRESH_OFFSET = timedelta(days=7)
 ESTIMATED = set(shared_vocab.ESTIMATED_CAPTURED_AT_SOURCES)
 TX_TIMEOUT = timedelta(seconds=45)
 TX_MAX_WAIT = timedelta(seconds=15)
-#: ``detail.reason`` of a /complete whose object is not in S3 (404 NOT_FOUND, ``retry: true``).
 UPLOAD_MISSING = "UPLOAD_MISSING"
 
 
@@ -73,7 +54,6 @@ def _db(client: Any) -> Any:
 
 
 def _owner(client: Any) -> Any:
-    """Who opens a transaction: the given client, else the app's."""
     if client is not None:
         return client
     return ports.db()
@@ -98,21 +78,10 @@ def _volunteer(user: Any) -> bool:
     return str(enum_text(get(user, "role"))) == "CROWDSOURCE_VOLUNTEER"
 
 
-# ── time (DESIGN 3.9) ──────────────────────────────────────────────────────────────────────────
 def correct_capture_time(
     *, device_captured_at: Any, clock_offset_ms: int | None, source: str | None, session_date: Any,
     server_now: datetime | None = None, offset_age: timedelta | None = None,
 ) -> tuple[datetime, str, bool]:
-    """``(capturedAt, capturedAtSource, clamped)``.
-
-    * DEVICE with an offset: ``deviceCapturedAt + clockOffsetMs``. An offset older than 7 days still
-      corrects the time, but the source becomes UPLOAD_TIME (estimated).
-    * DEVICE with no offset reported: the device time, estimated (UPLOAD_TIME).
-    * FILE_METADATA: the file's own time.
-    * SESSION_DATE, or no time at all for a picked file: the session date at 12:00 IST.
-    * Nothing usable: the upload time.
-    * More than 24 h in the future: clamped to server now and flagged (never rejected).
-    """
     current = server_now or now()
     device = aware(device_captured_at)
     source = (source or "DEVICE").upper()
@@ -136,18 +105,13 @@ def correct_capture_time(
 
 
 def offset_age(measured_at: Any, server_now: datetime | None = None) -> timedelta | None:
-    """How old the device's clock offset is (M5): the client says when it measured it."""
     measured = aware(measured_at)
     if measured is None:
         return None
     return max((server_now or now()) - measured, timedelta(0))
 
 
-# ── names ──────────────────────────────────────────────────────────────────────────────────────
 def target_ref(*, section_code: str | None, display_code: str | None, is_question: bool) -> naming.TargetRef:
-    """A file-name target. A question's display code is FROZEN for its lineage, so after a section
-    rename or a re-parent its own prefix (``D`` of ``D3``), not the section's current code, names it:
-    otherwise ``D3`` under section ``E`` would read as ``E-All`` (audit M16)."""
     if not is_question:
         return naming.TargetRef(sectionCode=section_code or "")
     code = display_code or ""
@@ -180,8 +144,6 @@ async def _part_number(client: Any, recording_id: str | None) -> int | None:
 
 
 async def _part_numbers(client: Any, recording_ids: list[str]) -> dict[str, int | None]:
-    """:func:`_part_number` for many recordings: one recursive read for every chain at once, then
-    the same walk (and the same answer on a broken or circular chain) over the rows it returned."""
     ids = list(dict.fromkeys(str(i) for i in recording_ids if i))
     if not ids:
         return {}
@@ -208,16 +170,12 @@ async def _part_numbers(client: Any, recording_ids: list[str]) -> dict[str, int 
 
 
 async def _next_part(client: Any, continuation_of: str | None) -> int | None:
-    """The part number of a new take that continues ``continuation_of`` (Part 2 is ``-P2``)."""
     if not continuation_of:
         return None
     return (await _part_number(client, continuation_of) or 1) + 1
 
 
-# ── presign, multipart, resume ─────────────────────────────────────────────────────────────────
 async def _session_for_upload(client: Any, session_id: str, user: Any) -> dict[str, Any]:
-    """The session a clip lands on, following merges (audit H4). Somebody who is not one of its
-    researchers passes the volunteer and workshop-submission rules first (audit Low, /complete)."""
     row = await sessions.follow_merges(client, session_id)
     if row is None:
         fail("SESSION_UNKNOWN")
@@ -260,9 +218,6 @@ async def _intent_row(client: Any, client_clip_key: str) -> dict[str, Any] | Non
 
 
 async def _rearm_if_expired(client: Any, intent: dict[str, Any]) -> dict[str, Any]:
-    """An open intent past ``expiresAt`` (audit Low): its multipart upload is aborted (S3 may have
-    dropped it already) and it gets a fresh window. It is never closed here: a phone that was
-    offline for a month still holds the clip, and closing would tell it the clip is filed."""
     from app.questionnaire.ports import s3
 
     expires = aware(intent.get("expiresAt"))
@@ -282,7 +237,6 @@ async def _rearm_if_expired(client: Any, intent: dict[str, Any]) -> dict[str, An
 
 
 async def _intent_for(client: Any, payload: Any, user: Any) -> dict[str, Any]:
-    """Create or reuse the intent for this clientClipKey (the idempotency of presign)."""
     intent = await _intent_row(client, payload.clientClipKey)
     if intent:
         if str(intent["uploaderId"]) != str(user.id):
@@ -310,9 +264,6 @@ async def _intent_for(client: Any, payload: Any, user: Any) -> dict[str, Any]:
 
 
 def _closed(intent: dict[str, Any]) -> dict[str, Any] | None:
-    """A closed intent signs nothing (audit H9): a replayed outbox step must never overwrite the
-    object of a recording that is already filed. The client reads ``closed`` and calls /complete,
-    which answers with the filed recording."""
     if intent.get("closedAt"):
         return {"objectKey": str(intent["objectKey"]), "closed": True}
     return None
@@ -336,8 +287,6 @@ async def presign(payload: Any, user: Any, *, client: Any = None) -> dict[str, A
 
 
 async def _live_parts(db: Any, intent: dict[str, Any]) -> tuple[str | None, list[dict[str, Any]]]:
-    """``(uploadId, parts)`` of the intent's open multipart upload; ``(None, [])`` when S3 has dropped
-    it (audit H8), after clearing the dead id so it is never asked about again."""
     from app.questionnaire.ports import s3
 
     upload_id = intent.get("multipartUploadId")
@@ -363,7 +312,6 @@ async def multipart_create(payload: Any, user: Any, *, client: Any = None) -> di
         return closed
     upload_id, parts = await _live_parts(db, intent)
     if not upload_id:
-        # A new upload on the SAME key: the name, the intent and the client's clip key all stay.
         upload_id = await asyncio.to_thread(s3.create_multipart_upload, str(intent["objectKey"]), str(intent["contentType"]))
         await db.execute_raw(
             'UPDATE "MediaUploadIntent" SET "multipartUploadId" = $1, "partSize" = $2 WHERE "id" = $3',
@@ -388,8 +336,6 @@ async def upload_state(client_clip_key: str, user: Any, *, client: Any = None) -
 
 
 async def sweep_expired_intents(*, client: Any = None, limit: int = 200) -> int:
-    """Abort the multipart uploads of open intents past ``expiresAt`` so their parts stop costing
-    storage (audit Low). The intent stays open (see :func:`_rearm_if_expired`)."""
     from app.questionnaire.ports import s3
 
     db = _db(client)
@@ -407,9 +353,7 @@ async def sweep_expired_intents(*, client: Any = None, limit: int = 200) -> int:
     return len(rows)
 
 
-# ── primary takes (DESIGN 3.5; audit M14) ──────────────────────────────────────────────────────
 async def primary_snapshot(client: Any, questionnaire_id: str, artisan_ids: list[str], target_keys: list[str]) -> dict[tuple[str, str], str | None]:
-    """``{(artisanId, targetKey): primary recordingId}`` for these artisans and targets, now."""
     out: dict[tuple[str, str], str | None] = {}
     if not artisan_ids or not target_keys:
         return out
@@ -426,8 +370,6 @@ async def primary_snapshot(client: Any, questionnaire_id: str, artisan_ids: list
 
 async def note_primary_changes(client: Any, before: dict[tuple[str, str], str | None], after: dict[tuple[str, str], str | None],
                                actor_id: str) -> int:
-    """One PRIMARY_CHANGED event per (artisan, target) whose primary moved from one take to another,
-    on the take that is primary now (or the one that stopped being primary)."""
     written = 0
     for key, was in before.items():
         is_now = after.get(key)
@@ -442,7 +384,6 @@ async def note_primary_changes(client: Any, before: dict[tuple[str, str], str | 
 
 
 async def _subject_target_keys(client: Any, recording_ids: list[str]) -> tuple[list[str], list[str], str | None]:
-    """``(ANSWERED artisans, target keys, questionnaireId)`` of these recordings."""
     rows = await client.query_raw(
         'SELECT DISTINCT s."artisanId", t."targetKey", i."questionnaireId" FROM "QuestionnaireRecording" r '
         'JOIN "MediaFile" m ON m."id" = r."mediaFileId" JOIN "QuestionnaireInterview" i ON i."id" = m."questionnaireInterviewId" '
@@ -456,7 +397,6 @@ async def _subject_target_keys(client: Any, recording_ids: list[str]) -> tuple[l
     return artisans, keys, qid
 
 
-# ── /complete ──────────────────────────────────────────────────────────────────────────────────
 async def _existing_by_clip(client: Any, client_clip_key: str) -> str | None:
     rows = await client.query_raw('SELECT "id" FROM "QuestionnaireRecording" WHERE "clientClipKey" = $1', client_clip_key)
     return str(rows[0]["id"]) if rows else None
@@ -467,7 +407,6 @@ async def _flag_subjects(
     targets: list[dict[str, Any]], answered: list[dict[str, Any]], acked: set[str], continuation_of: str | None,
     user_id: str, roster: int,
 ) -> tuple[str, str | None, dict[str, dict[str, Any]]]:
-    """DESIGN 3.3 rule 3, per ANSWERED subject: ``(filing, decisionKind, {artisanId: {flag, repeatReason}})``."""
     keys = {t["targetKey"] for t in targets} | {coverage.section_key(t["parentSectionId"]) for t in targets if t.get("parentSectionId")}
     rows = await coverage.take_rows(tx, questionnaire_id, artisan_ids=[s["artisanId"] for s in answered], target_keys=sorted(keys))
     rows = [r for r in rows if str(r["recordingId"]) != recording_id]
@@ -520,8 +459,6 @@ async def soft_remove(tx: Any, recording_id: str, actor_id: str, *, reason: str 
 
 
 async def _may_replace(client: Any, replaces_id: str | None, session_id: str, user: Any) -> bool:
-    """``replacesRecordingId`` removes the named take, and removing a take is for content admins
-    only (owner, 21 Oct 2026; audit H1). The take must also be live and in the same session."""
     if not replaces_id or not is_content_admin(user):
         return False
     rows = await recording_rows(client, recording_ids=[replaces_id])
@@ -529,7 +466,6 @@ async def _may_replace(client: Any, replaces_id: str | None, session_id: str, us
 
 
 async def _ensure_transcription(client: Any, media_id: str, user_id: str) -> None:
-    """A replayed /complete re-queues a take whose transcription was never queued (audit M6)."""
     rows = await client.query_raw(
         'SELECT m."transcriptStatus", EXISTS (SELECT 1 FROM "MediaProcessingJob" j WHERE j."mediaFileId" = m."id" '
         "AND j.\"jobType\" = 'TRANSCRIPTION') AS queued FROM \"MediaFile\" m WHERE m.\"id\" = $1",
@@ -540,7 +476,6 @@ async def _ensure_transcription(client: Any, media_id: str, user_id: str) -> Non
 
 
 async def _submission_stamp(user: Any, session: dict[str, Any]) -> dict[str, Any]:
-    """The workshop-submission stamp a take carries, like every other upload into a workshop."""
     if not session.get("workshopId"):
         return {}
     from app.questionnaire.ports import describe_workshop_submission
@@ -554,7 +489,6 @@ async def _submission_stamp(user: Any, session: dict[str, Any]) -> dict[str, Any
 
 async def complete(payload: Any, user: Any, *, client: Any = None, provenance: str = "NATIVE",
                    fault_after_insert: Any = None) -> tuple[dict[str, Any], bool]:
-    """``(recording, created)``. ``fault_after_insert`` is a test hook (DESIGN test 5)."""
     from app.questionnaire.ports import s3
 
     db = _db(client)
@@ -576,8 +510,6 @@ async def complete(payload: Any, user: Any, *, client: Any = None, provenance: s
         fail("VALIDATION_FAILED", "That object is not the one this clip was signed for.", fields={"objectKey": [payload.objectKey]})
     session = await _session_for_upload(db, payload.linkedRecordId, user)
     if not await asyncio.to_thread(s3.object_exists, payload.objectKey):
-        # The bytes are not in S3 yet (audit Low): nothing is filed. ``reason`` tells a client to
-        # upload the clip again and then complete again; it is never a reason to drop the clip.
         fail("NOT_FOUND", "The file has not arrived yet. Upload it again.", reason=UPLOAD_MISSING, retry=True)
     session_id = str(session["id"])
     questionnaire_id = str(session["questionnaireId"])
@@ -594,8 +526,6 @@ async def complete(payload: Any, user: Any, *, client: Any = None, provenance: s
     )
     present = [str(p["artisanId"]) for p in participants if not p.get("leftAt")] or [str(p["artisanId"]) for p in participants]
     sent = [s.model_dump() for s in rec.subjects]
-    # Guest respondents on the take (owner decision 1) sit beside the artisan subjects; every rule
-    # below (flags, locks, primaries) is about artisans, a guest is recorded and shown.
     guest_subjects = [s for s in sent if s.get("respondentId")]
     subjects = [s for s in sent if s.get("artisanId")] or ([] if guest_subjects else [
         {"artisanId": a, "role": "ANSWERED", "named": False, "repeatReason": None} for a in present
@@ -620,7 +550,6 @@ async def complete(payload: Any, user: Any, *, client: Any = None, provenance: s
     if newcomers:
         review_notes.append(f"Added to the session by a recording: {', '.join(newcomers)}")
     if rec.replacesRecordingId and not replace_ok:
-        # Never a refusal: both takes are kept, the new one is a redo, and the primary rule picks it.
         review_notes.append(f"Asked to replace take {rec.replacesRecordingId}; only an admin removes a take, so both are kept.")
         for s in answered:
             s["repeatReason"] = s.get("repeatReason") or "REDO"
@@ -726,8 +655,6 @@ async def complete(payload: Any, user: Any, *, client: Any = None, provenance: s
                 await titles.regenerate_title(tx, session_id)
             after = await primary_snapshot(tx, questionnaire_id, [s["artisanId"] for s in answered], target_keys)
             await note_primary_changes(tx, before, after, user.id)
-            # Inside the transaction (audit M6), and paused by default: it writes a QUEUED job and
-            # calls no provider. A crash after commit can no longer leave the take un-queued.
             await transcription.enqueue(media_id, "complete", requested_by_id=user.id, client=tx)
     return await recording_payload(db, recording_id, user), not again
 
@@ -738,7 +665,6 @@ def _bucket() -> str:
     return get_settings().aws_s3_bucket
 
 
-# ── reading ────────────────────────────────────────────────────────────────────────────────────
 async def recording_rows(client: Any, *, recording_ids: list[str] | None = None, session_id: str | None = None,
                          session_ids: list[str] | None = None, include_removed: bool = False, removed_only: bool = False,
                          artisan_id: str | None = None, media_ids: list[str] | None = None) -> list[dict[str, Any]]:
@@ -776,16 +702,10 @@ async def recording_rows(client: Any, *, recording_ids: list[str] | None = None,
 
 
 async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: Any = None) -> list[dict[str, Any]]:
-    """Contract ``Recording`` objects. A fixed number of reads however many takes (audit M26): the
-    consent verdicts come from one batched read, not four queries per take."""
     if not rows:
         return []
     rids = [str(r["id"]) for r in rows]
-    # The targets with their section's code and title, and the question's display code: what the
-    # take is about, and what its chips name.
     targets = await client.query_raw(chips.TARGETS_SQL, rids)
-    # Artisan subjects (with their names, for the chips) and guest respondents in ONE read (the
-    # statement budgets hold): a guest row has no artisanId and carries its respondentId and name.
     every_subject = await client.query_raw(chips.SUBJECTS_SQL, rids)
     subjects = [x for x in every_subject if x.get("artisanId")]
     guests = [x for x in every_subject if not x.get("artisanId")]
@@ -807,13 +727,9 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
         t_by[str(t["recordingId"])].append(t)
     for s in subjects:
         s_by[str(s["recordingId"])].append(s)
-    # Everything below that used to be read per row (the session's naming inputs, a continuation's
-    # part number, the consent verdict) is read once for the whole list.
     title_inputs = await titles.title_inputs(client, [r["sessionId"] for r in rows if r.get("sessionId")])
     parts = await _part_numbers(client, [str(r["id"]) for r in rows if r.get("continuationOfId")])
-    # The chips (owner, 31 Oct 2026) from the rows above, plus one read of the sessions behind them.
     chip_by = await chips.for_rows(client, rows, targets=targets, subjects=every_subject)
-    # The list preview (0.0.6): plain text under speaker labels, never the raw markdown. Two reads.
     shown = {
         str(r["mediaFileId"]): (r.get("transcriptText") if r.get("transcriptStatus") in ("COMPLETED", "SKIPPED_DUPLICATE") else None)
         for r in rows
@@ -886,8 +802,6 @@ async def require_recording(client: Any, recording_id: str) -> dict[str, Any]:
 
 
 async def recording_events(recording_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
-    """``GET /questionnaire/recordings/{id}/events`` (B40): the take's append-only history, oldest
-    first: moves, refilings, subject changes, decisions, removals, restores, date edits, primaries."""
     db = _db(client)
     await require_recording(db, recording_id)
     rows = await db.query_raw(
@@ -912,8 +826,6 @@ async def recording_events(recording_id: str, user: Any, *, client: Any = None) 
 
 async def removed_takes(user: Any, *, session_id: str | None = None, artisan_id: str | None = None,
                         client: Any = None) -> dict[str, Any]:
-    """``GET /questionnaire/recordings/removed`` (audit M12): the removed takes of one session or one
-    artisan, newest first, for "Show removed" and "Removed takes". Restore stays open to researchers."""
     db = _db(client)
     if not session_id and not artisan_id:
         fail("VALIDATION_FAILED", "Give a sessionId or an artisanId.")
@@ -937,11 +849,7 @@ async def _assert_can_change(client: Any, user: Any, row: dict[str, Any], *, rev
 assert_can_change = _assert_can_change
 
 
-# ── changes ────────────────────────────────────────────────────────────────────────────────────
 async def move_to_session(tx: Any, row: dict[str, Any], target_session: str, actor_id: str, *, merge: bool = False) -> None:
-    """Move one take to another session: its file follows, its subjects become participants there
-    (audit M11), the title is regenerated, and the move is an event. The one path for every move
-    (PATCH, relink; audit M10)."""
     recording_id = str(row["id"])
     await tx.execute_raw(
         'UPDATE "MediaFile" SET "questionnaireInterviewId" = $2, "linkedRecordId" = $2, "linkedRecordType" = \'questionnaire_session\' '
@@ -962,8 +870,6 @@ async def move_to_session(tx: Any, row: dict[str, Any], target_session: str, act
 
 
 async def relink_take(recording_id: str, session_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
-    """``POST /api/media/{id}/relink`` of a take (audit M10): the same move as a PATCH of its
-    session, on the same instrument, through :func:`move_to_session`."""
     db = _db(client)
     row = await require_recording(db, recording_id)
     dest = await sessions.follow_merges(db, session_id)
@@ -1076,10 +982,6 @@ async def _same_session_day(client: Any, a: Any, b: Any) -> bool:
 
 
 async def _assert_other_take(client: Any, user: Any, row: dict[str, Any], other: str, action: str | None = None) -> dict[str, Any]:
-    """The take a decision names (audit H2): not this take, live, and in the same session sharing a
-    target, or the verified twin of a "same file on two sessions" take, or (Keep both / Keep one) the
-    take a CONCURRENT one met in another session of the same day on a shared target (DESIGN 3.3
-    rule 3). Part 2 stays within one session. The caller may change it."""
     if other == str(row["id"]):
         fail("VALIDATION_FAILED", "A take can't be decided against itself.")
     rows = await recording_rows(client, recording_ids=[other])
@@ -1110,7 +1012,6 @@ async def decide(recording_id: str, payload: Any, user: Any, *, client: Any = No
     if other:
         await _assert_other_take(db, user, row, other, payload.action)
     if payload.action == "KEEP_THIS" and not is_content_admin(user):
-        # "Keep one" removes the other take, and removing a take is for content admins only.
         fail("FORBIDDEN", CONTENT_DELETE_REFUSAL)
     artisans, keys, qid = await _subject_target_keys(db, [recording_id] + ([other] if other else []))
     async with _owner(client).tx(max_wait=TX_MAX_WAIT, timeout=TX_TIMEOUT) as tx:
@@ -1133,9 +1034,6 @@ async def decide(recording_id: str, payload: Any, user: Any, *, client: Any = No
 
 
 async def file_recording(recording_id: str, payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
-    """``POST /recordings/{id}/file`` (audit H14): "File it" for a take the server could not place
-    (UNRESOLVED_LEGACY, NO_PARTICIPANTS): its targets, optionally its subjects and session, then
-    FILED. One transaction; each change is an event."""
     db = _db(client)
     row = await require_recording(db, recording_id)
     await _assert_can_change(db, user, row, reviewers=True)
@@ -1164,9 +1062,6 @@ async def file_recording(recording_id: str, payload: Any, user: Any, *, client: 
 
 
 async def file_media(media_id: str, payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
-    """``POST /questionnaire/media/{id}/file`` (audit H14): "File it" for an inbox "To file" clip,
-    which has no recording yet. It joins the session and becomes a recording with the chosen
-    targets (provenance MANUAL); the session's participants are its subjects unless named."""
     from app.questionnaire import shims_fr as shims
 
     db = _db(client)
@@ -1204,11 +1099,6 @@ async def file_media(media_id: str, payload: Any, user: Any, *, client: Any = No
 
 
 async def not_needed(media_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
-    """``POST /questionnaire/media/{id}/not-needed``: "Not needed" on an inbox "To file" clip, kept on
-    the server so every device agrees (audit M22, H14). It hides the clip from "To file" and from
-    the backfill's catch-up; it deletes nothing (deleting stays an admin's act) and "File it" still
-    works on it. The same people as "File it": the uploader, the session's researchers, an admin.
-    Idempotent: the first mark's who and when are kept."""
     db = _db(client)
     media = await db.mediafile.find_unique(where={"id": media_id})
     if media is None or getattr(media, "removedAt", None):
@@ -1257,7 +1147,6 @@ async def make_primary(recording_id: str, payload: Any, user: Any, *, client: An
 
 
 async def remove(recording_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
-    # Removing a take is a delete: content admins only (roles.CONTENT_ADMIN_ROLES, 2026-10-20).
     if not is_content_admin(user):
         fail("FORBIDDEN", CONTENT_DELETE_REFUSAL)
     db = _db(client)
@@ -1284,7 +1173,6 @@ async def restore(recording_id: str, user: Any, *, client: Any = None) -> dict[s
 
 
 async def transcribe(recording_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
-    """Take-level Retry. While paused: 202 ``{"status":"QUEUED","paused":true}``, never an error."""
     db = _db(client)
     row = await require_recording(db, recording_id)
     await _assert_can_change(db, user, row, reviewers=True)
@@ -1303,10 +1191,7 @@ async def download_url(recording_id: str, user: Any, *, client: Any = None) -> s
     )
 
 
-# ── the sha worker (DESIGN 3.3 rule 4, test 30; audit H10) ─────────────────────────────────────
 async def _merge_copy_into(tx: Any, copy_rid: str, keeper_rid: str) -> None:
-    """A same-session copy's subjects AND targets join the kept recording, so nothing is lost when
-    the copy is purged (audit Low: purged copies lost their targets)."""
     subs = await tx.query_raw(
         'SELECT "artisanId", "role"::text AS role, "named" FROM "QuestionnaireRecordingSubject" WHERE "recordingId" = $1', copy_rid
     )
@@ -1334,13 +1219,6 @@ async def _close_transcription(tx: Any, media_id: str, reason: str) -> None:
 
 
 async def verify_sha(media_id: str, *, client: Any = None, hasher: Any = None) -> dict[str, Any]:
-    """Hash the stored object, then, in ONE transaction locked on the hash (so two copies verified at
-    the same moment cannot each remove the other):
-
-    * a verified twin in the SAME session -> the LATER copy is soft-removed and its subjects and
-      targets merge into the EARLIEST, which is kept; the copy is never transcribed;
-    * in ANOTHER session -> the later copy is NEEDS_DECISION ("Same file on two sessions") with a
-      pointer to its twin; its transcription is closed only when the twin's transcript exists."""
     from app.questionnaire.ports import s3
 
     db = _db(client)
@@ -1381,7 +1259,6 @@ async def verify_sha(media_id: str, *, client: Any = None, hasher: Any = None) -
                         str(copy["id"]), keeper.get("transcriptText"), keeper.get("transcriptSummary"),
                     )
                 elif copy.get("transcriptStatus") == "COMPLETED":
-                    # The copy is the one with words: the kept take takes them, and needs no job of its own.
                     await tx.execute_raw(
                         'UPDATE "MediaFile" SET "transcriptStatus" = \'COMPLETED\', "transcriptText" = $2, "transcriptSummary" = $3 WHERE "id" = $1',
                         str(keeper["id"]), copy.get("transcriptText"), copy.get("transcriptSummary"),
@@ -1400,7 +1277,6 @@ async def verify_sha(media_id: str, *, client: Any = None, hasher: Any = None) -
                 'UPDATE "QuestionnaireRecording" SET "filing" = \'NEEDS_DECISION\', "decisionKind" = \'SAME_FILE_OTHER_SESSION\' WHERE "id" = $1',
                 str(flagged["rid"]),
             )
-            # A take waiting for a decision is never approved with its session (DESIGN 7.3; audit M1).
             await tx.execute_raw(
                 'UPDATE "MediaFile" SET "status" = \'PENDING\', "extraMetadata" = COALESCE("extraMetadata", \'{}\'::jsonb) || $2::jsonb WHERE "id" = $1',
                 str(flagged["id"]), json.dumps({"questionnaireV2": {"twinRecordingId": str(keeper["rid"]), "twinMediaId": str(keeper["id"])}}),

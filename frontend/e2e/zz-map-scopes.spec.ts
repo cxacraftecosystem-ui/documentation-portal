@@ -2,18 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 
-/**
- * The map at its three scopes, at desktop and phone widths.
- *
- * WHY THE MAP CALLS ARE PROXIED. The dev server talks to the deployed API, which does not have
- * `/map/*` until this branch ships. So the page is signed in against the real API as usual — every
- * other request is genuine — and only `/api/map/**` is forwarded to a locally-run backend that IS
- * on this branch and IS pointed at the same production database. What renders below is therefore
- * this branch's real code over the real corpus; the one thing swapped is which process answers.
- * `E2E_MAP_API` and `E2E_MAP_TOKEN` carry the address and a token minted by that local backend,
- * whose signing secret is its own.
- */
-
 const EMAIL = process.env.E2E_EMAIL ?? "";
 const PASSWORD = process.env.E2E_PASSWORD ?? "";
 const MAP_API = process.env.E2E_MAP_API ?? "";
@@ -21,13 +9,6 @@ const MAP_TOKEN = process.env.E2E_MAP_TOKEN ?? "";
 const OUT = process.env.SHOT_DIR ?? "shots/map";
 fs.mkdirSync(OUT, { recursive: true });
 
-/**
- * ONE sign-in for the whole file, replayed into every test as the stored session token.
- *
- * Six tests each driving the login form meant six round trips through a real auth endpoint in one
- * run, and two of them timed out on any given run — a flake in the harness, reported as a failure of
- * the map. The session is a precondition of these tests, not the thing under test.
- */
 let sessionToken = "";
 
 const DESKTOP = { width: 1280, height: 900 };
@@ -50,9 +31,6 @@ async function proxyMapApi(page: Page) {
 
 test.beforeAll(async ({ browser }) => {
   test.skip(!MAP_API || !MAP_TOKEN, "E2E_MAP_API and E2E_MAP_TOKEN must point at a local backend");
-  // Generous, and deliberately more than a test's own budget: this is one cold start of the dev
-  // server's /login route plus a round trip to a real auth endpoint behind a CDN, and it is paid
-  // once for the whole file rather than once per test.
   test.setTimeout(240_000);
 
   const context = await browser.newContext();
@@ -66,25 +44,15 @@ test.beforeAll(async ({ browser }) => {
       await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 60_000 });
       sessionToken = await page.evaluate(() => window.localStorage.getItem("field_repo_token") ?? "");
     } catch {
-      // Retried rather than failed: a cold compile or a slow CDN hop is not a result about the map.
     }
   }
   expect(sessionToken, "could not sign in against the API the dev server is pointed at").not.toBe("");
   await context.close();
 });
 
-/**
- * Open the map and wait for it to have drawn.
- *
- * `allRecords` exists because the map now OPENS SCOPED to the most recent workshop — that is the
- * default the feature asks for, and it is the right one for a screen read during a workshop. Every
- * test below that means "the whole corpus" therefore has to widen the scope first, and doing it here
- * rather than in each test keeps "what this test is about" separate from "how it got there".
- */
 async function openMap(page: Page, query = "", { allRecords = true } = {}) {
   await page.goto(`/map${query}`);
   await expect(page.getByRole("heading", { name: "Where the work comes from" })).toBeVisible();
-  // The list is the accessible half of the map, so waiting on it also proves it rendered.
   await expect(page.getByRole("heading", { name: "Every place, as a list" })).toBeVisible({
     timeout: 45_000
   });
@@ -95,16 +63,8 @@ async function openMap(page: Page, query = "", { allRecords = true } = {}) {
   await page.waitForTimeout(500);
 }
 
-/**
- * The three names the corpus's places are known by AT DISTRICT LEVEL, which is the map's default.
- *
- * The pins are administrative units now, not towns: Bagru is in Jaipur district and Kharagpur is in
- * Paschim Medinipur, so those are the labels. Bareilly is both a town and its district and reads the
- * same either way. Both spellings are matched so this stays true if the default level ever moves.
- */
 const PLACE_LABEL = /Kharagpur|Paschim Medinipur|Bareilly|Bagru|Jaipur/;
 
-/** No page may scroll sideways — the quality floor, checked rather than eyeballed. */
 async function expectNoHorizontalOverflow(page: Page) {
   const overflow = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -114,8 +74,6 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => {
-  // The app reads its session straight out of localStorage, so seeding the key it looks for is the
-  // whole of "already signed in" — no second trip through the login form.
   await page.addInitScript(
     (token) => window.localStorage.setItem("field_repo_token", token),
     sessionToken
@@ -123,8 +81,6 @@ test.beforeEach(async ({ page }) => {
   await proxyMapApi(page);
 });
 
-// A proxied request still in flight when a test ends fails inside the route callback and is
-// reported as an error belonging to no test. Dropping the routes first makes the teardown quiet.
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
@@ -136,10 +92,7 @@ test("scope 1 of 3 — the whole repository", async ({ page }) => {
   const places = page.getByRole("button", { name: PLACE_LABEL });
   await expect(places.first()).toBeVisible();
 
-  // Both layers are present and told apart in TEXT, not only by pin shape.
   await expect(page.getByText("Placed by address")).toBeVisible();
-  // The borders are real geometry now, and the legend names each one it is drawing. The default level
-  // is DISTRICT, so all three tiers should be listed.
   await expect(page.getByText("Outline: international border")).toBeVisible();
   await expect(page.getByText("State borders", { exact: true })).toBeVisible();
   await expect(page.getByText("District borders", { exact: true })).toBeVisible();
@@ -163,7 +116,6 @@ test("scope 2 of 3 — a filtered subset, driven by the shared filter vocabulary
 
 test("scope 3 of 3 — one record in context", async ({ page }) => {
   await page.setViewportSize(DESKTOP);
-  // Resolved at run time so the spec does not carry a record id that will rot.
   const listed = await page.request.get(`${MAP_API}/api/artisans?pageSize=1`, {
     headers: { Authorization: `Bearer ${MAP_TOKEN}` }
   });
@@ -186,18 +138,13 @@ test("a pin can be navigated from", async ({ page }) => {
   const panel = page.getByRole("region", { name: "Bareilly" });
   await expect(panel).toBeVisible();
 
-  // Specifically a RECORD link. The panel also carries an "Open these in Search" link, and
-  // matching the first link in the region would pass on that one while the list was still loading.
   const record = panel.locator("a[href^='/artisans/'], a[href^='/products/'], a[href^='/tools/']");
   await expect(record.first()).toBeVisible({ timeout: 30_000 });
   await expect(panel.getByRole("link", { name: /Open these in Search/ })).toBeVisible();
 
   await page.screenshot({ path: path.join(OUT, "1280-pin-panel.png"), fullPage: true });
-  // With the panel open is where the page DID scroll sideways: a record title is arbitrary text, and
-  // an implicit grid track sized itself to the longest one.
   await expectNoHorizontalOverflow(page);
 
-  // And it genuinely lands on the record — its read-only view, never straight into the edit form.
   await record.first().click();
   await page.waitForURL(/\/(artisans|products|tools)\/[^/?]+$/, { timeout: 45_000 });
 });
@@ -208,11 +155,8 @@ test("the graphic is hidden from assistive technology and holds nothing focusabl
 
   const svg = page.locator("svg[aria-hidden='true'][role='presentation']");
   await expect(svg).toHaveCount(1);
-  // Focusable content inside an aria-hidden subtree is the failure mode this asserts against: it is
-  // unreachable by a screen reader yet still lands in the tab order.
   expect(await svg.locator("a, button, [tabindex]:not([tabindex='-1'])").count()).toBe(0);
 
-  // Everything the picture says is reachable by keyboard through the list instead.
   const first = page.getByRole("button", { name: PLACE_LABEL }).first();
   await first.focus();
   await expect(first).toBeFocused();

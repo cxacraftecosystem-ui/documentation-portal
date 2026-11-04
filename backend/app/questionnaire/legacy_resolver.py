@@ -1,22 +1,3 @@
-"""ONE legacy resolver (DESIGN 7.2): where an old clip belongs, by CONTENT before position.
-
-Used by the backfill and the old-build shims only. In order:
-
-1. ``extraMetadata.questionId`` or ``sectionId``                       -> LEGACY_META
-2. the prompt text (Android caption "Question audio: F7 <prompt>", web ``extraMetadata.questionPrompt``)
-   matched against the question texts across each lineage (normalised, similarity >= 0.85)
-                                                                       -> LEGACY_CAPTION_TEXT
-3. no prompt text: candidates ranked by similarity between the clip's COMPLETED transcript and the
-   question texts;
-4. position ("F7" -> the 7th question) only as a tiebreak among those candidates, or when the
-   section has not been edited since the upload;
-5. the filename token (``F_7_...``, ``F_SEC_...``)                     -> LEGACY_FILENAME
-6. otherwise the section from "Section audio: F"; if even that is missing: general, NEEDS_DECISION
-   (UNRESOLVED_LEGACY), with up to 3 candidates for the inbox.
-
-NEVER USED: the interview title ("section F" titles were notes, not placement).
-"""
-
 from __future__ import annotations
 
 import re
@@ -37,7 +18,7 @@ _FILE_SECTION = re.compile(r"^([A-Za-z]{1,3})_SEC_", re.IGNORECASE)
 
 @dataclass
 class Resolution:
-    targets: list[dict[str, str]] = field(default_factory=list)  # [{"sectionId"} | {"questionLineageId"}]
+    targets: list[dict[str, str]] = field(default_factory=list)
     provenance: str = "LEGACY_META"
     step: str = ""
     needs_decision: bool = False
@@ -69,15 +50,11 @@ def _meta(media: Any) -> dict[str, Any]:
 
 
 def resolve(media: Any, questions: list[dict[str, Any]], sections: list[dict[str, Any]]) -> Resolution:
-    """``questions``: every row of the instrument (all wordings), each with ``id``, ``lineageId``,
-    ``prompt``, ``sectionId``, ``sectionCode``, ``sortOrder``, ``isActive``, ``updatedAt``;
-    ``sections``: ``id``, ``code``."""
     meta = _meta(media)
     by_id = {str(q["id"]): q for q in questions}
     section_by_code = {str(s["code"]).upper(): s for s in sections}
     section_ids = {str(s["id"]) for s in sections}
 
-    # 1. typed metadata
     qid = meta.get("questionId")
     if qid and str(qid) in by_id:
         q = by_id[str(qid)]
@@ -99,7 +76,6 @@ def resolve(media: Any, questions: list[dict[str, Any]], sections: list[dict[str
             return questions
         return [q for q in questions if str(q.get("sectionCode") or "").upper() == c] or questions
 
-    # 2. prompt text across the lineage chain
     if prompt:
         scored = sorted(((similarity(prompt, q.get("prompt")), q) for q in in_section(code)), key=lambda x: -x[0])
         if scored and scored[0][0] >= PROMPT_MATCH:
@@ -119,7 +95,6 @@ def resolve(media: Any, questions: list[dict[str, Any]], sections: list[dict[str
         stamps = [aware(q.get("updatedAt")) for q in questions if str(q.get("sectionCode") or "").upper() == c]
         return bool(uploaded) and all(s is not None and s <= uploaded for s in stamps)
 
-    # 3 + 4. transcript ranking, position as the tiebreak
     transcript = get(media, "transcriptText") if str(get(media, "transcriptStatus") or "").upper() == "COMPLETED" else None
     ranked: list[tuple[float, dict[str, Any]]] = []
     if transcript:
@@ -138,7 +113,6 @@ def resolve(media: Any, questions: list[dict[str, Any]], sections: list[dict[str
         q = ranked[0][1]
         return Resolution([{"questionLineageId": str(q.get("lineageId") or q["id"])}], "LEGACY_CAPTION_TEXT", "transcript")
 
-    # 5. the filename token
     name = str(get(media, "originalFilename") or "")
     fq, fs = _FILE_QUESTION.match(name), _FILE_SECTION.match(name)
     if fq:
@@ -151,7 +125,6 @@ def resolve(media: Any, questions: list[dict[str, Any]], sections: list[dict[str
     if fs and fs.group(1).upper() in section_by_code:
         return Resolution([{"sectionId": str(section_by_code[fs.group(1).upper()]["id"])}], "LEGACY_FILENAME", "filename.section")
 
-    # 6. the section caption, else unresolved
     cs = _CAPTION_SECTION.match(caption)
     section_code = (cs.group(1).upper() if cs else None) or code
     if section_code and section_code in section_by_code:

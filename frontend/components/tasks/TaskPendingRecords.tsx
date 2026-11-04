@@ -7,12 +7,6 @@ import { ClipboardCheck } from "lucide-react";
 import { plural, reviewQueueHref } from "@/lib/review";
 import { loadTaskPendingRecords, type TaskPendingSummary } from "@/lib/taskPendingRecords";
 
-/**
- * The records a task produced that are still waiting for review (B12), with a link to exactly those
- * rows in the review queue for whoever reviews them. Draws nothing while loading, on a failure, or
- * when nothing is waiting: it is an aside under the progress bar, never the card itself. Every card
- * mounted in the same tick shares one batched request (`lib/taskPendingRecords.ts`).
- */
 export function TaskPendingRecords({ taskId, showReviewLink }: { taskId: string; showReviewLink: boolean }) {
   const [answer, setAnswer] = useState<TaskPendingSummary | null>(null);
 

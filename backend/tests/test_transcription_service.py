@@ -1,11 +1,3 @@
-"""The shared transcription package, tested the same way in both portals.
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal (it is listed in
-``shared/transcription.sha256``). Nothing here touches the network: ``requests.post`` is replaced
-with a recorder that hands back recorded provider answers, and ffmpeg is replaced with a fake
-cutter, so no test spends a provider credit or needs ffmpeg installed.
-"""
-
 from __future__ import annotations
 
 import json
@@ -77,7 +69,6 @@ KEY = ApiKey("TEST_KEY", "secret-value")
 CLIP = AudioInput(b"audio", None, "clip.wav", "audio/wav", 30_000)
 WAV_PART = AudioInput(b"RIFF....", None, "chunk_001_of_001.wav", "audio/wav", 30_000)
 
-# Recorded answers, trimmed to the fields the adapters read.
 MUSE_FIXTURE = {
     "transcript": "Aap kitne saal se dabu kar rahe hain? Bees saal se.",
     "audioDurationMs": 30_000,
@@ -103,8 +94,6 @@ MUSE_FIXTURE = {
 def _deepgram(alternative: dict) -> dict:
     return {"results": {"channels": [{"alternatives": [alternative]}]}}
 
-
-# --- Muse: the request and the answer --------------------------------------------------------
 
 
 def test_muse_sends_the_documented_request(post) -> None:
@@ -175,7 +164,7 @@ def test_muse_errors_map_to_typed_failures(post, status, error) -> None:
     post(_Response(status, headers={"Retry-After": "12"}))
     with pytest.raises(error) as caught:
         ADAPTERS["muse"].transcribe(WAV_PART, SttOptions(), KEY)
-    assert isinstance(caught.value, requests.HTTPError)  # older callers still catch these
+    assert isinstance(caught.value, requests.HTTPError)
     if status == 429:
         assert caught.value.retry_after == 12.0
 
@@ -215,8 +204,6 @@ def test_muse_is_disabled_by_default_and_last_in_the_default_order() -> None:
         "muse",
     ]
 
-
-# --- The other three adapters: segments come back with the text ------------------------------
 
 
 def test_deepgram_paragraph_segments_carry_timings(post) -> None:
@@ -285,12 +272,8 @@ def test_elevenlabs_word_segments_group_by_voice(post) -> None:
     ]
 
 
-# --- The chain decision matrix ---------------------------------------------------------------
-
 
 class _Fake:
-    """An adapter that answers from a script, keeping every call."""
-
     def __init__(
         self, provider: str, script: list, *, max_bytes=None, needs_wav=False, chunkable=False
     ) -> None:
@@ -392,7 +375,7 @@ def test_a_rejected_key_is_a_hard_failure_when_nothing_else_answers() -> None:
 def test_budget_exhausted_moves_on_and_all_budgets_exhausted_defers() -> None:
     a = _Fake("elevenlabs", [_ok("elevenlabs")])
     b = _Fake("deepgram", [_ok("deepgram")])
-    state = chain.ChainState(budget_minutes_left={"elevenlabs": 0.1})  # the clip is 0.5 minutes
+    state = chain.ChainState(budget_minutes_left={"elevenlabs": 0.1})
 
     assert chain.run_chain(CLIP, _slots(a, b), SttOptions(), state).result.provider == "deepgram"
     assert a.calls == []
@@ -435,18 +418,16 @@ def test_cooldown_honours_retry_after_doubles_caps_and_only_jitters_upwards() ->
     assert chain.cooldown_seconds(3, None, rng=lambda: 0.0) == 120
     assert chain.cooldown_seconds(20, None, rng=lambda: 0.0) == 900
     assert chain.cooldown_seconds(1, 45, rng=lambda: 0.0) == 45
-    assert chain.cooldown_seconds(1, 5, rng=lambda: 0.0) == 30  # never shorter than the base
+    assert chain.cooldown_seconds(1, 5, rng=lambda: 0.0) == 30
     assert chain.cooldown_seconds(1, None, rng=lambda: 1.0) == pytest.approx(37.5)
 
-
-# --- Parts: planning, resume and stitching ---------------------------------------------------
 
 
 def test_parts_cut_at_a_silence_inside_the_window_and_stay_under_ten_minutes() -> None:
     plans = audio_mod.plan_parts(1_500_000, [(540_000, 542_000), (1_090_000, 1_094_000)])
     assert [p.own_start_ms for p in plans] == [0, 541_000, 1_092_000]
     assert all(p.end_ms - p.start_ms <= muse.MAX_DURATION_MS for p in plans)
-    assert plans[1].start_ms == 540_000  # one second of overlap
+    assert plans[1].start_ms == 540_000
     assert [p.file_name for p in plans] == [
         "chunk_001_of_003.wav",
         "chunk_002_of_003.wav",
@@ -562,8 +543,6 @@ def test_whisper_over_its_ceiling_goes_in_parts_and_under_it_whole() -> None:
     assert len(fake.calls) == 1
 
 
-# --- Pause, window, dedup --------------------------------------------------------------------
-
 
 def test_the_pause_holds_everything_and_a_missing_row_reads_as_paused() -> None:
     assert schedule.queue_gate(None) == schedule.QueueGate(False, "paused")
@@ -579,8 +558,8 @@ def test_the_window_applies_once_unpaused_and_wraps_midnight() -> None:
         "batchWindowEnd": "05:00",
         "batchTimezone": "Asia/Kolkata",
     }
-    ist_23 = datetime(2026, 10, 18, 17, 30, tzinfo=UTC)  # 23:00 IST
-    ist_12 = datetime(2026, 10, 18, 6, 30, tzinfo=UTC)  # 12:00 IST
+    ist_23 = datetime(2026, 10, 18, 17, 30, tzinfo=UTC)
+    ist_12 = datetime(2026, 10, 18, 6, 30, tzinfo=UTC)
     assert schedule.queue_gate(row, ist_23).may_run
     assert schedule.queue_gate(row, ist_12).reason == "window"
     assert schedule.next_window_start(row, ist_12) == datetime(2026, 10, 18, 16, 30, tzinfo=UTC)
@@ -600,8 +579,6 @@ def test_same_bytes_same_options_share_one_cache_key() -> None:
     )
     assert dedup.options_hash(SttOptions(language_bias=["hi"])) != dedup.options_hash(SttOptions())
 
-
-# --- The result dictionary every caller already reads ----------------------------------------
 
 
 def _messages() -> service.Messages:

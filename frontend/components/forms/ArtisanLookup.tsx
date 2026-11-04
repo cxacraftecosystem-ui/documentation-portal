@@ -12,14 +12,6 @@ import { lookupKind, lookupStart, type ArtisanLookupStart } from "@/components/f
 
 export type { ArtisanLookupStart } from "@/components/forms/artisanLookupRules";
 
-/**
- * C18 (owner decision 2026-10-17) — FIND THE ARTISAN BEFORE TYPING THEM IN.
- *
- * A duplicate used to surface only after about ten fields, at the Aadhaar box. This asks first: an
- * Aadhaar number goes to the exact lookup (`GET /artisans/lookup/aadhaar`), a name to the list's own
- * search, and a match opens the existing record. "Record a new artisan" is always one tap away and
- * carries what was typed into the form. The number is held in memory only — never stored.
- */
 type Match = { id: string; name: string; detail: string };
 
 export function ArtisanLookup({ onStart }: { onStart: (start: ArtisanLookupStart) => void }) {

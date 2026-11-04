@@ -48,36 +48,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/review", tags=["review"])
 
-# Appended to the ReviewLog notes when an approval clears a late-submission flag, so the audit trail
-# says WHY this approval mattered: the record was submitted after its workshop had ended.
 LATE_SUBMISSION_LOG_NOTE = "Late workshop submission — approved by an admin."
 
-# ReviewLog has NO action column: its only verb is ``status``, typed as the ``RecordStatus`` ENUM
-# (DRAFT | PENDING | APPROVED | REJECTED | NEEDS_REVISION). Adding an EDITED value would need a schema
-# change plus a migration, and a reviewer edit is not a status in any case — it deliberately leaves the
-# record's status alone. So the edit log row carries the record's UNCHANGED status and says what
-# happened in ``notes``, prefixed with this marker so a UI (or a human) can pick edits out of the
-# per-record log without parsing prose.
 EDIT_LOG_PREFIX = "EDITED"
 
 
-# The client attribute of each reviewable type, so a decision can run on a transaction's client.
 _DELEGATE_ATTRS: dict[str, tuple[str, str, str]] = {
     "artisan": ("artisan", "ARTISAN", "createdBy"),
     "workshop": ("workshop", "WORKSHOP", "createdBy"),
     "product": ("productdocumentation", "PRODUCT", "createdBy"),
     "tool": ("tooldocumentation", "TOOL", "createdBy"),
-    # Processes and interviews carry a status and can be pinned PENDING by the late-submission
-    # gate, so they must be reviewable — without these a late process or interview was
-    # unapprovable by anyone and sat in PENDING forever.
     "process": ("process", "PROCESS", "createdBy"),
     "questionnaire": ("questionnaireinterview", "QUESTIONNAIRE", "createdBy"),
     "media": ("mediafile", "MEDIA", "uploadedBy"),
 }
 
 
-# Questionnaire v2 names an interview a session; both clients post the v2 name (contract
-# linkedRecordType). It is the same row, so it resolves to the same delegate and log type.
 _RECORD_TYPE_ALIASES = {"questionnaire_session": "questionnaire"}
 
 
@@ -87,7 +73,6 @@ def canonical_type(record_type: str) -> str:
 
 
 def delegate_for(record_type: str, client: Any = None) -> tuple[Any, str, str]:
-    """Delegate, ReviewLog record type, and the name of the relation pointing at the creator."""
     key = canonical_type(record_type)
     if key not in _DELEGATE_ATTRS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported review record type")
@@ -95,8 +80,6 @@ def delegate_for(record_type: str, client: Any = None) -> tuple[Any, str, str]:
     return getattr(client or db, attr), log_type, creator_relation
 
 
-# Record types surfaced in the review queue, with the field used as a human label. Media is
-# excluded so the queue stays focused on the substantive records researchers submit for approval.
 _PENDING_SOURCES: list[tuple[str, Any, tuple[str, ...]]] = [
     ("artisan", db.artisan, ("name",)),
     ("workshop", db.workshop, ("title",)),
@@ -107,14 +90,10 @@ _PENDING_SOURCES: list[tuple[str, Any, tuple[str, ...]]] = [
 ]
 
 
-# Per-record-type row cap on the UNPAGED queue (the answer older clients in the field still read). It
-# is a cap on REVIEWABLE rows (see _reviewable_creator_roles), not on pending rows in general.
 PENDING_TAKE = 200
 
 
 def _reviewable_creator_roles(reviewer: Any) -> list[str] | None:
-    """The creator roles this reviewer may act on, or None for everyone. The rule lives in
-    :func:`app.services.review_queue.reviewable_creator_roles`, shared with the Monday summary."""
     return reviewable_creator_roles(reviewer)
 
 
@@ -136,11 +115,8 @@ def _creator_summary(creator: Any) -> dict[str, Any] | None:
     }
 
 
-# Largest page a caller may ask for. The queue is read by people, twenty rows at a time on the web.
 PENDING_MAX_PAGE_SIZE = 100
 
-# The table behind each queue record type, for the one-page key query (B13). Model names are the
-# table names in this schema (no @@map anywhere).
 _PENDING_TABLES: dict[str, str] = {
     "artisan": '"Artisan"',
     "workshop": '"Workshop"',
@@ -150,7 +126,6 @@ _PENDING_TABLES: dict[str, str] = {
     "questionnaire": '"QuestionnaireInterview"',
 }
 
-# ReviewLog's enum value per queue record type.
 _LOG_TYPES = {
     "artisan": "ARTISAN",
     "workshop": "WORKSHOP",
@@ -164,14 +139,11 @@ _LOG_TYPES = {
 
 @dataclass(frozen=True)
 class PendingFilters:
-    """What narrows the queue. ``roles`` None = every creator (the master admin)."""
-
     roles: list[str] | None = None
     workshop_id: str | None = None
     created_by: str | None = None
     record_types: tuple[str, ...] | None = None
     newest_first: bool = False
-    #: A task's artisans (B12): only records about these artisans. A workshop record has none.
     artisan_ids: tuple[str, ...] | None = None
 
     def sources(self) -> list[tuple[str, Any, tuple[str, ...]]]:
@@ -181,11 +153,8 @@ class PendingFilters:
 
 
 def pending_where(record_type: str, filters: PendingFilters) -> dict[str, Any]:
-    """The Prisma filter for one record type's slice of the queue."""
     where: dict[str, Any] = {"status": "PENDING"}
     if record_type == "questionnaire" and v2_shims.enabled():
-        # An APPROVED session that received new takes or answer revisions is back in the queue until
-        # it is approved again (DESIGN 3.10; audit M13). It stays APPROVED meanwhile.
         where = {"OR": [{"status": "PENDING"}, {"status": "APPROVED", "pendingChangesAt": {"not": None}}]}
     if filters.roles is not None:
         where["createdBy"] = {"is": {"role": {"in": filters.roles}}}
@@ -196,7 +165,6 @@ def pending_where(record_type: str, filters: PendingFilters) -> dict[str, Any]:
         if record_type == "workshop":
             where["id"] = workshop
         elif record_type == "artisan":
-            # An artisan reaches a workshop through the column or the roster join; both count.
             where["OR"] = [{"workshopId": workshop}, {"workshops": {"some": {"workshopId": workshop}}}]
         else:
             where["workshopId"] = workshop
@@ -208,7 +176,6 @@ def pending_where(record_type: str, filters: PendingFilters) -> dict[str, Any]:
         elif record_type in {"product", "tool"}:
             scope = {"artisanId": {"in": artisans}}
         elif record_type == "process":
-            # A process has no artisan of its own; it inherits one through its parent product.
             scope = {"product": {"is": {"artisanId": {"in": artisans}}}}
         elif record_type == "questionnaire":
             scope = {"artisans": {"some": {"artisanId": {"in": artisans}}}}
@@ -219,14 +186,6 @@ def pending_where(record_type: str, filters: PendingFilters) -> dict[str, Any]:
 
 
 def pending_keys_sql(filters: PendingFilters, *, limit: int, offset: int) -> tuple[str, list[Any]]:
-    """ONE page of queue keys across every record type, longest-waiting first, as one SQL statement.
-
-    The queue spans six tables, so "page 10" used to mean reading the newest 200 rows of each and
-    sorting them in Python (1,200 rows to show 20). This asks Postgres for exactly the page:
-    ``(recordType, id, submittedAt)`` from a UNION ALL, ordered and cut there. The rows themselves
-    are then read by id. Roles come from ``ROLE_RANK`` (validated, never from the request) and are
-    inlined; the workshop and creator ids travel as parameters.
-    """
     params: list[Any] = []
 
     def param(value: Any) -> str:
@@ -288,7 +247,6 @@ def pending_keys_sql(filters: PendingFilters, *, limit: int, offset: int) -> tup
 
 
 async def pending_page_keys(filters: PendingFilters, *, limit: int, offset: int) -> list[tuple[str, str]]:
-    """The (recordType, id) pairs on one page, in queue order. A seam the tests replace."""
     if not filters.sources():
         return []
     sql, params = pending_keys_sql(filters, limit=limit, offset=offset)
@@ -301,11 +259,6 @@ def _sort_moment(item: dict[str, Any]) -> str:
 
 
 async def _previous_reviews(rows: list[tuple[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
-    """The last send-back or rejection for each RESUBMITTED pending row, keyed (recordType, id).
-
-    A pending record with a ``reviewedAt`` was reviewed before and came back: the reviewer sees what
-    was asked last time beside it, instead of reviewing the fix blind.
-    """
     reviewed = [(record_type, row) for record_type, row in rows if get_value(row, "reviewedAt")]
     if not reviewed:
         return {}
@@ -320,7 +273,7 @@ async def _previous_reviews(rows: list[tuple[str, Any]]) -> dict[tuple[str, str]
         )
         if reviewer_ids:
             reviewers = await db.user.find_many(where={"id": {"in": sorted(reviewer_ids)}})
-    except Exception:  # the queue must still load; the flag is a help, not the record
+    except Exception:
         logs, reviewers = [], []
     names = {str(get_value(user, "id")): get_value(user, "name") for user in reviewers}
     latest_reason: dict[str, Any] = {}
@@ -354,7 +307,6 @@ def _pending_item(
         "status": "PENDING",
         "workshopId": get_value(row, "workshopId") if record_type != "workshop" else get_value(row, "id"),
         "createdAt": jsonable_encoder(get_value(row, "createdAt")),
-        # When it (re-)entered the queue — the order the queue is served in.
         "submittedAt": jsonable_encoder(submitted),
         "createdBy": _creator_summary(get_value(row, "createdBy")),
         "needsAdminApproval": record_needs_admin_approval(row),
@@ -365,7 +317,6 @@ def _pending_item(
 
 @router.get("/reasons")
 async def list_review_reasons(_: Any = Depends(require_reviewer)) -> list[dict[str, Any]]:
-    """The short list of reasons for not accepting a record. ``fixable`` reasons send it back."""
     return review_reasons.as_payload()
 
 
@@ -380,25 +331,6 @@ async def list_pending_reviews(
     order: str = Query(default="oldest", pattern="^(oldest|newest)$"),
     artisan_id: str | None = Query(default=None, alias="artisanId"),
 ) -> dict[str, Any]:
-    """Records awaiting review (status == PENDING) across record types, LONGEST-WAITING FIRST.
-
-    The order is by ``submittedAt`` — when the record entered the queue, or came back into it after
-    being sent back — so a fixed record goes to the front rather than sinking behind newer work.
-    ``order=newest`` reverses it. Each item says whether it is a ``resubmitted`` record and carries
-    the ``previousReview`` (the note and reason it was sent back with).
-
-    Filtered by the peer-review ladder IN THE QUERY (only creators ranked strictly below the viewer;
-    the master admin sees everyone), and optionally by ``workshopId``, ``createdById`` (a task's
-    assignee, from Tasks), ``recordType`` and ``artisanId`` (comma-separated: a task's artisans). ``needsAdminApproval`` marks a record submitted outside
-    its workshop's dates, which only an admin may approve.
-
-    TWO SHAPES, the second additive (UX audit 2026-10-16):
-
-    - **No ``page``** — the original answer for clients already in the field: up to ``PENDING_TAKE``
-      rows per record type, merged; ``truncated`` says when a type hit that take.
-    - **``page`` given** — exactly one page of the whole queue, read as one page (one key query
-      across the six tables, then the page's rows by id), with the true ``total``.
-    """
     paged = page is not None
     types: tuple[str, ...] | None = None
     if record_type:
@@ -412,8 +344,6 @@ async def list_pending_reviews(
         types = tuple(sorted(wanted))
     roles = _reviewable_creator_roles(reviewer)
     if roles is not None and not roles:
-        # Review access with nobody beneath them on the ladder — a granted ``canReview`` on the
-        # bottom tier. There is no record they may act on; six queries to prove it are wasted.
         if paged:
             return {"items": [], "total": 0, "page": page, "pageSize": page_size}
         return {"items": [], "total": 0, "truncated": False}
@@ -467,18 +397,12 @@ async def list_pending_reviews(
     ordered = [(key, by_key[key]) for key in keys if key in by_key]
     previous = await _previous_reviews([(key[0], row) for key, (row, _) in ordered])
     items = [_pending_item(key[0], row, labels, previous.get(key)) for key, (row, labels) in ordered]
-    # How many files approving each row would approve with it — the confirmation's "Also approves
-    # 4 files." One query for the page, never one per row.
     counts = await pending_media_counts([key for key, _ in ordered], reviewer)
     for item, (key, _) in zip(items, ordered, strict=True):
         item["pendingMediaCount"] = counts.get(key, 0)
     return {"items": items, "total": total, "page": page, "pageSize": page_size}
 
 
-# Media hangs off its record through a tag pair (linkedRecordType/linkedRecordId) and, on older rows,
-# only through a typed column. Approving the record approves the files that hang off it (C21): the
-# owner's decision is that a record and its still-pending files are approved together, while a
-# reviewer can still reject any one file on its own, before or after.
 _MEDIA_TAGS: dict[str, tuple[str, ...]] = {
     "artisan": ("artisan",),
     "workshop": ("workshop",),
@@ -492,14 +416,11 @@ _MEDIA_COLUMNS: dict[str, str] = {
     "tool": "toolId",
     "questionnaire": "questionnaireInterviewId",
 }
-# The audit line every file approved through its parent carries, so its history says why.
 MEDIA_WITH_RECORD_NOTE = "Approved with its {kind} record."
-# A file judged on its own after its record was approved (C21): the decisions it can still take.
 MEDIA_REJECTABLE_STATUSES = ("PENDING", "APPROVED")
 
 
 def _media_clauses(key: str, record_id: str, step_ids: list[str]) -> list[dict[str, Any]]:
-    """The Prisma ``OR`` clauses naming the files of one record. ``step_ids`` are a process's steps."""
     clauses: list[dict[str, Any]] = [
         {"linkedRecordType": {"equals": tag, "mode": "insensitive"}, "linkedRecordId": record_id}
         for tag in _MEDIA_TAGS.get(key, ())
@@ -519,10 +440,6 @@ def _media_clauses(key: str, record_id: str, step_ids: list[str]) -> list[dict[s
 
 
 def _media_belongs(media: Any, key: str, record_id: str, step_ids: list[str]) -> bool:
-    """``_media_clauses`` read in Python, to share one query between several records.
-
-    Kept beside the clauses on purpose: the two say the same thing and must change together.
-    """
     tag = str(get_value(media, "linkedRecordType") or "").lower()
     linked = get_value(media, "linkedRecordId")
     if tag:
@@ -550,7 +467,6 @@ async def _process_steps(process_ids: list[str], client: Any = None) -> dict[str
 async def media_of_records(
     keys: list[tuple[str, str]], statuses: tuple[str, ...] = ("PENDING",), client: Any = None
 ) -> dict[tuple[str, str], list[Any]]:
-    """The files of several records in ONE query, grouped by record. Only types that carry media."""
     wanted = [(t.lower(), rid) for t, rid in keys if t.lower() in _MEDIA_TAGS]
     found: dict[tuple[str, str], list[Any]] = {key: [] for key in wanted}
     if not wanted:
@@ -573,13 +489,6 @@ def _uploader_role(media: Any) -> Any:
 
 
 def cascade_eligible(files: list[Any], reviewer: Any) -> list[Any]:
-    """Which pending files approving their record would approve too, for this reviewer.
-
-    The review ladder applies to each file as it does to a record: a file uploaded by somebody at or
-    above the reviewer's own rank (an admin's photograph on a volunteer's record) stays pending for
-    a reviewer who may judge it. A file submitted outside its workshop's dates waits for an admin
-    exactly as a record does.
-    """
     admin = is_admin(reviewer)
     return [
         media
@@ -589,7 +498,6 @@ def cascade_eligible(files: list[Any], reviewer: Any) -> list[Any]:
 
 
 async def pending_media_counts(keys: list[tuple[str, str]], reviewer: Any) -> dict[tuple[str, str], int]:
-    """How many files approving each record would approve with it — what the confirmation says."""
     grouped = await media_of_records(keys)
     return {key: len(cascade_eligible(files, reviewer)) for key, files in grouped.items()}
 
@@ -597,10 +505,6 @@ async def pending_media_counts(keys: list[tuple[str, str]], reviewer: Any) -> di
 async def approve_media_with_record(
     client: Any, kind: str, files: list[Any], reviewer_id: str, reviewed_at: datetime, *, note: str | None = None
 ) -> int:
-    """Approve these files as their record was approved: same reviewer, same moment, one audit line
-    each. Runs on ``client`` — the approval's own transaction — so the record and its files land
-    together or not at all. A file decided meanwhile (``status`` no longer PENDING) is left alone.
-    """
     approved = 0
     for media in files:
         data: dict[str, Any] = {"status": "APPROVED", "reviewedById": reviewer_id, "reviewedAt": reviewed_at}
@@ -628,18 +532,12 @@ async def approve_media_with_record(
 async def approve_record_media(
     record_type: str, record_id: str, reviewer: Any, *, client: Any = None, reviewed_at: datetime | None = None
 ) -> int:
-    """Approve the still-pending files of a record that was just approved. Returns how many.
-
-    Only PENDING files move: a REJECTED file, or one already approved, keeps its decision. A
-    non-admin's approval leaves a late file pending; an admin's clears its flag too.
-    """
     key = canonical_type(record_type)
     if key not in _MEDIA_TAGS:
         return 0
     grouped = await media_of_records([(key, record_id)], client=client)
     files = cascade_eligible(grouped.get((key, record_id), []), reviewer)
     if key == "questionnaire" and files and v2_shims.enabled():
-        # Questionnaire v2: a removed take, or one waiting for a decision, never rides an approval.
         excluded = await v2_review.excluded_media_ids(client or db, record_id)
         files = [f for f in files if str(get_value(f, "id")) not in excluded]
     if not files:
@@ -649,11 +547,7 @@ async def approve_record_media(
     )
 
 
-# How long one approval's transaction may run: the record, its log line, and a write and a log line
-# per file. An interview with forty recordings is ~80 statements; the slow box needs the headroom.
 REVIEW_TX_TIMEOUT = timedelta(seconds=30)
-# How long to wait for a connection to START that transaction. Prisma's default is 2 s, and the
-# swap-bound box can take longer than that under load: an approval should be slow, never refused.
 REVIEW_TX_MAX_WAIT = timedelta(seconds=15)
 
 
@@ -677,10 +571,6 @@ async def set_review_status(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only review records created by users below your own tier",
         )
-    # A record submitted after its workshop ended carries needsAdminApproval in its extraMetadata.
-    # ONLY an admin or master admin may approve it — the normal review ladder would otherwise let a
-    # professor sign off on a researcher's late entry, which is exactly the decision reserved for
-    # admins. Rejecting or sending it back for revision stays open to any qualified reviewer.
     late = record_needs_admin_approval(record)
     if late and new_status == "APPROVED" and not is_admin(reviewer):
         raise HTTPException(
@@ -694,8 +584,6 @@ async def set_review_status(
     data = review_update(new_status, payload.notes, reviewer.id)
     log_notes = payload.notes
     if new_status == "APPROVED" and late:
-        # Approval IS that admin decision, so clear the flag (preserving the rest of the metadata)
-        # so it keeps reflecting reality instead of flagging an already-approved record forever.
         extra = get_value(record, "extraMetadata")
         submission = extra.get("workshopSubmission")
         data["extraMetadata"] = Json(
@@ -712,15 +600,9 @@ async def set_review_status(
     }
     if reason is not None:
         log_data["reason"] = reason.code
-    # ONE TRANSACTION: the record, its audit line and — on an approval — every still-pending file it
-    # carries, with the same reviewer and moment. A failure part-way leaves all of them as they were,
-    # never a record approved over files that silently stayed pending. Rejecting or sending a record
-    # back does not touch its files; each file keeps its own Reject.
     v2_session = record_type.lower() == "questionnaire" and v2_shims.enabled()
     if v2_session and new_status == "APPROVED":
-        # DESIGN 3.10: 0 participants, no content, or a take waiting for a decision -> 409 with the reason.
         await v2_review.assert_may_approve(db, record_id)
-        # Approving again reviews what arrived after the first approval (audit M13).
         data["pendingChangesAt"] = None
     media_approved = 0
     async with db.tx(max_wait=REVIEW_TX_MAX_WAIT, timeout=REVIEW_TX_TIMEOUT) as tx:
@@ -762,12 +644,6 @@ async def approve_record(
 
 
 def _resolve_refusal(payload: ReviewAction) -> tuple[str, ReviewAction]:
-    """Which status a "Reject" with this reason really means, and the note it carries.
-
-    No reason (an older client): a plain rejection, as before. A FIXABLE reason sends the record
-    back for revision instead — the creator is told what to fix and the record is not a dead end.
-    "Other" needs the reviewer's own words.
-    """
     code = getattr(payload, "reason", None)
     if not code:
         return "REJECTED", payload
@@ -794,8 +670,6 @@ async def reject_record(
     payload: ReviewAction,
     reviewer: Any = Depends(require_reviewer),
 ) -> dict[str, Any]:
-    """Reject a record. With a FIXABLE ``reason`` it is sent back for revision instead (C19); the
-    answer's ``status`` says which happened."""
     new_status, carried = _resolve_refusal(payload)
     return await set_review_status(record_type, record_id, new_status, carried, reviewer)
 
@@ -812,13 +686,6 @@ class BulkApproval(APIModel):
 
 @router.post("/bulk-approve")
 async def bulk_approve(payload: BulkApproval, reviewer: Any = Depends(require_reviewer)) -> dict[str, Any]:
-    """Approve many records in one request (B9).
-
-    Each record passes exactly the checks a single approval does — the review ladder and the
-    admin-only gate for a late submission — and a refusal of one never stops the rest: every item
-    comes back with its own ``outcome`` (``APPROVED`` or ``FAILED`` with the reason). The creators
-    hear about it in ONE e-mail each, not one per record.
-    """
     if not payload.items:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Choose at least one record.")
     results: list[dict[str, Any]] = []
@@ -863,12 +730,6 @@ async def bulk_approve(payload: BulkApproval, reviewer: Any = Depends(require_re
 async def record_media_review(
     record_type: str, record_id: str, reviewer: Any = Depends(require_reviewer)
 ) -> dict[str, Any]:
-    """What a reviewer may do with the files of one record, for its read-only page (C21).
-
-    ``approvesWith`` — how many files approving the record now would approve with it (zero once it
-    is decided). ``rejectable`` — the files this reviewer may still reject one by one: pending, or
-    approved (with their record or alone), uploaded by somebody below them on the ladder.
-    """
     key = canonical_type(record_type)
     delegate, _log_type, _relation = delegate_for(key)
     if key == "media":
@@ -887,7 +748,6 @@ async def record_media_review(
     }
 
 
-# The record types a creator's own "sent back" list covers, with the label fields of each.
 _MINE_SOURCES = _PENDING_SOURCES
 
 
@@ -896,12 +756,6 @@ async def my_returned_records(
     current_user: Any = Depends(get_current_user),
     status_filter: str | None = Query(default=None, alias="status"),
 ) -> dict[str, Any]:
-    """The caller's OWN records a reviewer sent back (``NEEDS_REVISION``) or rejected, across record
-    types, each with the reviewer's note and reason — the uploader's "Sent back to you" list (A2).
-
-    ``status`` narrows to one of the two; omitted, both come back, newest decision first.
-    ``counts`` gives each, so a tile can say "Sent back to you (3)" without a second request.
-    """
     wanted = ["NEEDS_REVISION", "REJECTED"]
     if status_filter:
         value = status_filter.strip().upper()
@@ -924,8 +778,6 @@ async def my_returned_records(
             state = str(enum_or_raw(get_value(row, "status")))
             if state in wanted:
                 loaded.append((record_type, row, label_fields))
-        # The counts are TRUE totals, not the rows read above (at most PENDING_TAKE per type), so the
-        # dashboard tile and this list agree past the cap.
         for state in ("NEEDS_REVISION", "REJECTED"):
             counts[state] += int(await delegate.count(where={"createdById": uid, "status": state}) or 0)
     ids = [str(get_value(row, "id")) for _, row, _ in loaded]
@@ -970,11 +822,6 @@ async def my_returned_records(
 async def latest_review(
     record_type: str, record_id: str, current_user: Any = Depends(get_current_user)
 ) -> dict[str, Any]:
-    """The last review decision on one record — what its edit form and its read-only page show.
-
-    For the record's creator, an admin, and anyone who may review it. Answers ``{"review": null}``
-    when nobody has decided anything yet.
-    """
     delegate, log_type, creator_relation = delegate_for(record_type)
     record = await delegate.find_unique(where={"id": record_id}, include={creator_relation: True})
     if not record:
@@ -1022,20 +869,11 @@ async def latest_review(
 
 
 class MediaReviewEdit(APIModel):
-    """The media fields a reviewer may correct. MediaFile has no ``*Update`` schema of its own — the
-    media routes patch it through purpose-built endpoints (relink, transcript refine) — so the
-    reviewable surface is spelled out here: the human-written caption and the machine transcript a
-    reviewer is often the first person qualified to fix."""
-
     caption: str | None = None
     transcriptText: str | None = None
     transcriptSummary: str | None = None
 
 
-# The payload for each record type is validated against the SAME pydantic model its own PATCH route
-# uses, so a reviewer edit cannot bypass a rule the normal edit path enforces (Aadhaar/Pehchan
-# normalisation, length limits, decimal parsing) and cannot invent a column that does not exist —
-# ``APIModel`` is ``extra="forbid"``, so an unknown key is a 422 rather than a 500 from Prisma.
 _EDIT_SCHEMAS: dict[str, type[APIModel]] = {
     "artisan": ArtisanUpdate,
     "workshop": WorkshopUpdate,
@@ -1046,22 +884,6 @@ _EDIT_SCHEMAS: dict[str, type[APIModel]] = {
     "media": MediaReviewEdit,
 }
 
-# Keys that are valid on the normal PATCH route but must never travel through a review edit:
-#
-# - ``status`` — an edit must not be a back-door approval. Status moves through approve/reject/revise
-#   (or this endpoint's own ``approve`` flag), where the late-submission gate is applied.
-# - ``extraMetadata`` — holds the SERVER-OWNED workshop-submission stamp; letting a reviewer post it
-#   would let them clear ``needsAdminApproval`` and then approve their way past the admin gate.
-# - ``workshopId`` — moving a record between workshops is a workshop submission with its own
-#   assignment + window checks (``enforce_workshop_submission``); it belongs on the record's own PATCH.
-# - the relation lists and ``location`` — those are separate writes (join rows, a Location row), not
-#   column updates, and a review edit is for correcting field values. ``artisanIds``/``craftIds``
-#   were named here for ``WorkshopUpdate``'s rosters and now cover ``ToolUpdate`` too, which gained
-#   the same two keys with migration 20260915100000 — same reason, no new entry needed. A reviewer
-#   who needs to change which crafts a tool covers sends them to the tool's own PATCH, where the
-#   404/403 checks on the ids live.
-# - ``formContract`` — a statement about the artisan FORM a save came from, not a column; a review
-#   edit corrects fields and is not that form (``services/artisan_form_contract``).
 _NOT_REVIEW_EDITABLE = frozenset(
     {
         "status",
@@ -1080,13 +902,6 @@ _NOT_REVIEW_EDITABLE = frozenset(
 
 
 class ReviewEdit(APIModel):
-    """``fields`` is validated against the record type's own update schema (see ``_EDIT_SCHEMAS``).
-
-    ``approve=true`` runs the ordinary approval immediately after the edit — the common "fix the typo
-    and sign it off" case — as a SECOND, separately logged action, so the audit trail still shows the
-    edit and the approval as two distinct decisions and the approval still passes the admin gate.
-    """
-
     fields: dict[str, Any] = Field(default_factory=dict)
     note: str | None = None
     approve: bool = False
@@ -1099,39 +914,10 @@ async def edit_reviewed_record(
     payload: ReviewEdit,
     reviewer: Any = Depends(require_reviewer),
 ) -> dict[str, Any]:
-    """Fix a record's field values in place from the review queue, instead of bouncing it back.
-
-    Sending a record back for revision costs a round trip through its creator for what is often a
-    misspelt village or a craft name in the wrong column — work the reviewer can simply do. This is
-    that shortcut, and it is the one review action that WRITES the record, so it is gated on the
-    editing authority rather than the reviewing one:
-
-    * ``can_edit_others_record``: the peer-review ladder narrowed to Professor and above. Reviewing
-      reaches further down the ladder than editing deliberately — a field contributor reviews a
-      volunteer's submission and a researcher reviews a field contributor's, and neither of them
-      gets to rewrite it. Everyone below the floor still has approve / reject / revise;
-    * the admin-only gate for a record flagged ``needsAdminApproval`` (submitted after its workshop
-      ended) — the whole edit is admin-only there, not just the optional approval, because acting on a
-      late submission at all is the decision reserved for admins.
-
-    That predicate is also what makes the record's own PATCH route and this one agree about who may
-    overwrite a populated field. There, an editor who is neither the author nor an admin is put
-    through ``assert_can_contribute_fields``, which locks every field that already has a value —
-    UNLESS ``may_edit_lower_ranked_record`` says they outrank its author, which is
-    ``can_edit_others_record``. So the callers this route now admits are exactly the callers the
-    PATCH route waves past that lock; no second field-level check is needed here, and before the
-    gate was narrowed there was no honest way to say that.
-
-    The change is attributable twice over: a ``RecordRevision`` captures the exact old -> new values
-    (the same edit history ``services/access.py`` writes for a granted cross-researcher edit) and a
-    ``ReviewLog`` row records that this reviewer edited the record and why.
-
-    The status is NOT touched unless ``approve`` is set — an edit is not an approval.
-    """
     key = canonical_type(record_type)
     delegate, log_type, creator_relation = delegate_for(record_type)
     schema = _EDIT_SCHEMAS.get(key)
-    if schema is None:  # pragma: no cover - delegate_for already rejects unknown types
+    if schema is None:  # pragma: no cover
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported review record type"
         )
@@ -1181,18 +967,12 @@ async def edit_reviewed_record(
             ),
         )
 
-    # Same shape as every PATCH route: clean (which also title-cases the name-like fields) and
-    # stringify decimals before anything compares the payload against the stored row. An identity
-    # number that came back as its own mask is dropped here for the same reason PATCH /artisans
-    # drops it — a reviewer's form is fed by the same masked responses.
     data = drop_masked_identity_numbers(decimal_to_string(clean_data(parsed.model_dump(exclude_unset=True))))
     if not data:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Send at least one field to change in 'fields'",
         )
-    # The artisan's Aadhaar is stored as a fingerprint and its last four (services/
-    # aadhaar_fingerprint.py), here exactly as on PATCH /artisans.
     if key == "artisan":
         try:
             aadhaar_fingerprint.seal(data, previous=record)
@@ -1203,7 +983,6 @@ async def edit_reviewed_record(
             ) from exc
     changed = sorted(
         {
-            # The log names the field the reviewer edited, never the stored halves of it.
             aadhaar_fingerprint.NUMBER_FIELD
             if field in (aadhaar_fingerprint.FINGERPRINT_FIELD, aadhaar_fingerprint.LAST4_FIELD)
             else field
@@ -1212,10 +991,7 @@ async def edit_reviewed_record(
         }
     )
 
-    # Audit BEFORE provenance is merged in, so the revision holds real content changes only.
     await record_revision(record, reviewer, data, key)
-    # Provenance rebuilds extraMetadata from this payload, which would drop the workshop-submission
-    # stamp; carry it forward first, exactly as the record's own PATCH route does.
     stamp_workshop_submission(data, record=record)
     merge_field_provenance(data, reviewer, previous=record)
     jsonify_metadata(data)
@@ -1227,7 +1003,6 @@ async def edit_reviewed_record(
         data={
             "recordType": log_type,
             "recordId": record_id,
-            # The record's own, unchanged status — see EDIT_LOG_PREFIX for why the verb lives in notes.
             "status": str(enum_or_raw(get_value(record, "status"))),
             "notes": f"{summary}\n\n{note}" if note else summary,
             "reviewerId": reviewer.id,
@@ -1235,8 +1010,6 @@ async def edit_reviewed_record(
     )
 
     if payload.approve:
-        # Re-reads the freshly edited row and re-applies the late-submission gate, so approving here
-        # is identical to calling /approve straight afterwards — including its own ReviewLog entry.
         return await set_review_status(record_type, record_id, "APPROVED", ReviewAction(notes=payload.note), reviewer)
     return public_encode(updated)
 
@@ -1248,11 +1021,6 @@ async def send_record_for_revision(
     payload: ReviewAction,
     reviewer: Any = Depends(require_reviewer),
 ) -> dict[str, Any]:
-    """Send the record back to its creator with mandatory comments (status NEEDS_REVISION).
-
-    When the creator next edits the record it returns to PENDING for a fresh review pass. An
-    optional ``reason`` from ``GET /review/reasons`` is recorded with it. A coded reason that
-    does not need the reviewer's own words stands in for the comments (its label is logged)."""
     reason = review_reasons.reason_for(payload.reason) if payload.reason else None
     if payload.reason and reason is None:
         raise HTTPException(

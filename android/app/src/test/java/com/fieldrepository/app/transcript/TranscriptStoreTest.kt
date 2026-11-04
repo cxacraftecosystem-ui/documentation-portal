@@ -40,7 +40,6 @@ import retrofit2.Response
 import java.io.IOException
 import java.nio.file.Files
 
-/** A server in memory: answers like the contract, or fails as told. Nothing leaves the JVM. */
 class FakeTranscriptServer(var view: Transcript = example) : TranscriptBackend {
     var offline = false
     var refuseWith: Int? = null

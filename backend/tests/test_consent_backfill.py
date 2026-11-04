@@ -1,11 +1,3 @@
-"""The owner's consent attestation (correction (c); DESIGN 7.6, test 35d).
-
-The dry run writes nothing (inside a verified READ ONLY transaction); apply writes one RECORDING row
-per audio or video file made on or before 18 Oct 2026 with source "owner attestation"; a second
-apply writes 0; no job, status or transcript changes; a later file gets no row; apply refuses
-without the owner's approved report and refuses an unlisted host.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -22,7 +14,6 @@ def _args(tmp: Path, **kw) -> argparse.Namespace:
 
     from datetime import datetime, timedelta, timezone
 
-    # The report is computed AS OF a day, so its approval does not go stale overnight (audit Low).
     today = datetime.now(timezone(timedelta(hours=5, minutes=30))).date().isoformat()
     base = {"database_url": URL, "allow_host": [urlsplit(URL).hostname], "apply": False, "approved_report": None,
             "out": str(tmp), "owner_email": None, "as_of": today}
@@ -66,7 +57,7 @@ def test_dry_run_apply_and_idempotence(tmp_path: Path, monkeypatch) -> None:
 
     assert run(count("in")) == 0, "the dry run wrote nothing"
     with pytest.raises(SystemExit):
-        run(script.run(_args(tmp_path, apply=True, approved_report=str(report))))  # no Approved-by line yet
+        run(script.run(_args(tmp_path, apply=True, approved_report=str(report))))
     report.write_text(report.read_text(encoding="utf-8") + f"Approved-by: {ids.admin.email} 2026-10-18\n", encoding="utf-8")
     assert qv2_guard.APPROVAL.search(report.read_text(encoding="utf-8"))
     assert run(script.run(_args(tmp_path, apply=True, approved_report=str(report)))) == 0
@@ -87,7 +78,6 @@ def test_dry_run_apply_and_idempotence(tmp_path: Path, monkeypatch) -> None:
     by = {m["id"]: m for m in media}
     assert by[f"old{ids.tag}"]["c"] == "GRANTED" and by[f"pending{ids.tag}"]["c"] is None
     assert by[f"pending{ids.tag}"]["transcriptStatus"] == "QUEUED", "statuses are untouched"
-    # A second apply: the data moved (rows now exist), so the old approval no longer matches.
     with pytest.raises(SystemExit):
         run(script.run(_args(tmp_path, apply=True, approved_report=str(report))))
     assert run(script.run(_args(tmp_path))) == 0

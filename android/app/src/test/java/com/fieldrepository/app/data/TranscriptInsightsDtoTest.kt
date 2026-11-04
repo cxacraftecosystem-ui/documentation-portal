@@ -12,7 +12,6 @@ import org.junit.Test
 import retrofit2.HttpException
 import retrofit2.Response
 
-/** GET /media/{id}/insights: decoding, nulls, unknown states, and a 404 hiding the card. */
 class TranscriptInsightsDtoTest {
 
     private val full = """
@@ -21,7 +20,7 @@ class TranscriptInsightsDtoTest {
            "summaryLines":["One.","Two."],
            "quotes":[{"original":"मिट्टी रात भर भिगोई जाती है।","english":"The mud is soaked overnight.","speaker":"Artisan"}],
            "translation":{"status":"COMPLETED","text":"We do dabu printing.","note":null},
-           "provenance":{"provider":"openai","modelId":"gpt-4o-mini","modelVersion":null,
+           "provenance":{"provider":"openai","modelId":"gpt-6-luna","modelVersion":null,
                          "promptVersion":"transcript-insights/1","generatedAt":"2026-10-30T10:00:00Z"},
            "edited":null,"futureField":1}}
     """.trimIndent()
@@ -38,7 +37,7 @@ class TranscriptInsightsDtoTest {
         assertTrue(TranscriptInsightStates.isShown(view))
         assertTrue(TranscriptInsightStates.hasTranslation(insight))
         assertEquals(
-            "Machine-generated · gpt-4o-mini · 30 Oct",
+            "Machine-generated · gpt-6-luna · 30 Oct",
             TranscriptInsightStates.provenanceLine(insight) { "30 Oct" }
         )
     }

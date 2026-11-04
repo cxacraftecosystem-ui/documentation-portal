@@ -1,17 +1,3 @@
-"""S3 object storage: presigned uploads, multipart uploads and object access.
-
-Security shape of this module (the full picture, including the console-side pieces, is in
-docs/SECURITY.md):
-
-* **In transit** — every AWS endpoint built here is ``https://``, so bytes are TLS-protected on the
-  browser/phone -> S3 hop as well as on the API -> S3 hop. A custom ``AWS_S3_ENDPOINT`` (MinIO) is
-  honoured verbatim; a plaintext one is logged as a warning unless it is a local dev host.
-* **At rest** — the multipart path requests SSE-S3 explicitly. The single-PUT presign path *cannot*
-  (see ``presign_put_url``), so encryption for those objects comes from the bucket's **default
-  encryption** setting, which S3 applies server-side to every object regardless of what the client
-  sends. That bucket setting is the load-bearing control; the header here is belt-and-braces.
-"""
-
 import contextlib
 import logging
 import os
@@ -28,19 +14,11 @@ from app.transcription import workdir
 
 logger = logging.getLogger(__name__)
 
-# Hosts where a plaintext object-storage endpoint is expected and harmless (local MinIO).
 _LOCAL_ENDPOINT_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "minio", "host.docker.internal"})
 _insecure_endpoint_warned = False
 
 
 def _warn_if_insecure_endpoint(endpoint: str | None) -> None:
-    """Log once if media bytes would travel to storage over plaintext HTTP.
-
-    Uploads go CLIENT -> storage directly (presigned URL), so a plaintext endpoint means every
-    photo, recording and transcript crosses the network unencrypted, and the presigned URL itself —
-    a bearer credential for writing that object — is exposed to anyone on the path. Local MinIO on
-    a loopback host is exempt.
-    """
     global _insecure_endpoint_warned
     if not endpoint or _insecure_endpoint_warned:
         return
@@ -58,37 +36,18 @@ def _warn_if_insecure_endpoint(endpoint: str | None) -> None:
 
 
 def _sse_params() -> dict[str, str]:
-    """Server-side-encryption parameters for uploads the API itself starts.
-
-    Empty when ``AWS_S3_SSE_ALGORITHM`` is blank — local MinIO without a KMS backend rejects the
-    header outright, and failing an upload is worse than falling back to the storage layer's own
-    at-rest behaviour in development.
-    """
     algorithm = (get_settings().aws_s3_sse_algorithm or "").strip()
     return {"ServerSideEncryption": algorithm} if algorithm else {}
 
 
 def _client():
     settings = get_settings()
-    # For a real AWS bucket outside us-east-1, presign against the *regional* endpoint. The global
-    # endpoint (bucket.s3.amazonaws.com) 307-redirects to the regional host, which changes the Host
-    # header the client sends and breaks the SigV4 signature -> 403 SignatureDoesNotMatch. Pinning
-    # the regional endpoint (bucket.s3.<region>.amazonaws.com) keeps the signed host and the request
-    # host identical. A custom endpoint (MinIO) is honoured as-is.
     endpoint = settings.aws_s3_endpoint
-    # Virtual-hosted addressing only for real AWS (regional endpoint). A custom endpoint such as
-    # MinIO needs path-style, so leave its addressing on boto3's default ("auto").
     s3_config: dict = {}
     if not endpoint and settings.aws_region:
-        # Dual-stack regional endpoint (s3.dualstack.<region>) so presigned PUT URLs resolve a
-        # native IPv6 (AAAA) address. IPv4-only mobile data is increasingly IPv6-only (Jio/Airtel);
-        # the plain s3.<region> host has no AAAA, so uploads from such phones fail to connect.
-        # Dual-stack serves IPv4 too, so Wi-Fi is unaffected, and SigV4 signs the dual-stack host.
         endpoint = f"https://s3.dualstack.{settings.aws_region}.amazonaws.com"
         s3_config = {"addressing_style": "virtual"}
     _warn_if_insecure_endpoint(endpoint)
-    # Imported here, not at the top: boto3 and botocore are 8 MB the queue worker would otherwise
-    # hold from start-up while it waits for a job (backend/tests/test_import_footprint.py).
     import boto3
     from botocore.client import Config
 
@@ -98,15 +57,11 @@ def _client():
         endpoint_url=endpoint,
         aws_access_key_id=settings.aws_access_key_id,
         aws_secret_access_key=settings.aws_secret_access_key,
-        # SigV4 so presigned PUTs validate in every region.
         config=Config(signature_version="s3v4", s3=s3_config),
     )
 
 
 def safe_filename(filename: str) -> str:
-    """The ASCII S3 leaf for a client-named upload (NAMING 2.3): transliterated, ``[A-Za-z0-9._-]``,
-    at most 150 characters, never a Windows reserved stem. It used to keep any ``str.isalnum()``
-    character, which let Devanagari into object keys (``media/.../गिरिराज.jpg``)."""
     return ascii_leaf(PurePath(str(filename).replace("\\", "/")).name)
 
 
@@ -115,9 +70,6 @@ def make_object_key(user_id: str, filename: str) -> str:
 
 
 def _promote_dualstack(url: str, region: str | None) -> str:
-    """Rewrite a regional AWS S3 host to its dual-stack form so stored media URLs resolve a native
-    IPv6 address on IPv6-only mobile networks. Idempotent, and a no-op when the host isn't the
-    plain regional S3 endpoint (e.g. a custom CDN/MinIO base)."""
     if not region:
         return url
     plain = f".s3.{region}.amazonaws.com"
@@ -132,31 +84,15 @@ def public_url_for_key(object_key: str) -> str | None:
     if settings.aws_s3_public_base_url:
         base = f"{settings.aws_s3_public_base_url.rstrip('/')}/{object_key}"
     elif settings.aws_s3_endpoint:
-        # Custom endpoint (MinIO/CDN) is served verbatim — no dual-stack promotion.
         return f"{settings.aws_s3_endpoint.rstrip('/')}/{settings.aws_s3_bucket}/{object_key}"
     else:
         return None
-    # Promote the public base only when it points at a real AWS regional host (not a custom endpoint).
     if not settings.aws_s3_endpoint:
         base = _promote_dualstack(base, settings.aws_region)
     return base
 
 
 def presign_put_url(object_key: str, mime_type: str) -> str:
-    """Presigned PUT URL for a whole (small) file, valid for 15 minutes.
-
-    **Why there is no ``ServerSideEncryption`` here, deliberately.** Adding it would put
-    ``x-amz-server-side-encryption: AES256`` into the SigV4 *signed headers*, which makes the header
-    mandatory for the client: every PUT that omits it fails with ``SignatureDoesNotMatch``. The web
-    client and the Android client both send only the headers ``/media/presign`` hands them
-    (currently ``Content-Type``), and Android builds already installed in the field can never be
-    updated retroactively — so signing the header here would break all existing uploads.
-
-    Objects uploaded this way are still encrypted at rest, by the bucket's **default encryption**
-    setting: S3 applies it server-side to every object, whatever the client sends, and it needs no
-    cooperation from the signature. docs/SECURITY.md has the exact bucket configuration (default
-    SSE-S3 + a policy denying non-TLS requests) that a human must apply in the console.
-    """
     settings = get_settings()
     return _client().generate_presigned_url(
         ClientMethod="put_object",
@@ -171,19 +107,6 @@ def presign_put_url(object_key: str, mime_type: str) -> str:
 
 
 def presign_get_url(object_key: str, *, filename: str, mime_type: str, expires_in: int = 900) -> str:
-    """Presigned GET URL that also dictates how the browser receives the object.
-
-    ``public_url_for_key`` cannot do this job. S3 honours the ``response-content-*`` overrides only
-    on a **signed** request — an anonymous GET carrying them is rejected outright — so a download
-    that has to arrive as an attachment, under a chosen filename and content type, must be signed
-    even when the object itself is world-readable. That matters when the stored object's own
-    metadata is wrong or its key spells a name nobody should see: the overrides win, whatever the
-    object says.
-
-    The signature also expires, which is the point for anything a page hands out as a link: a URL
-    that stops working cannot be bookmarked, mailed on, or cached by an intermediary and quietly
-    replayed months later.
-    """
     settings = get_settings()
     return _client().generate_presigned_url(
         ClientMethod="get_object",
@@ -199,13 +122,6 @@ def presign_get_url(object_key: str, *, filename: str, mime_type: str, expires_i
 
 
 def create_multipart_upload(object_key: str, mime_type: str) -> str:
-    """Begin an S3 multipart upload (for large files). Returns the UploadId the client uploads parts
-    against; S3 stitches the parts into one object on complete, so the stored file stays whole.
-
-    Requests server-side encryption at rest explicitly (SSE-S3 / AES-256 by default). This call is
-    made by the API with its own credentials, not presigned, so the encryption header costs the
-    client nothing — unlike the single-PUT path above. The parts themselves inherit the setting, so
-    ``presign_upload_part`` needs no encryption header either."""
     response = _client().create_multipart_upload(
         Bucket=get_settings().aws_s3_bucket,
         Key=object_key,
@@ -216,7 +132,6 @@ def create_multipart_upload(object_key: str, mime_type: str) -> str:
 
 
 def presign_upload_part(object_key: str, upload_id: str, part_number: int) -> str:
-    """Presigned PUT URL for one part, so the (large) bytes go straight to S3, never via the API."""
     return _client().generate_presigned_url(
         ClientMethod="upload_part",
         Params={
@@ -231,7 +146,6 @@ def presign_upload_part(object_key: str, upload_id: str, part_number: int) -> st
 
 
 def complete_multipart_upload(object_key: str, upload_id: str, parts: list[dict[str, Any]]) -> None:
-    """Finalise the multipart upload — S3 assembles the parts into a single object."""
     _client().complete_multipart_upload(
         Bucket=get_settings().aws_s3_bucket,
         Key=object_key,
@@ -241,7 +155,6 @@ def complete_multipart_upload(object_key: str, upload_id: str, parts: list[dict[
 
 
 def abort_multipart_upload(object_key: str, upload_id: str) -> None:
-    """Discard an interrupted multipart upload so its uploaded parts don't linger and incur storage."""
     _client().abort_multipart_upload(
         Bucket=get_settings().aws_s3_bucket,
         Key=object_key,
@@ -250,8 +163,6 @@ def abort_multipart_upload(object_key: str, upload_id: str) -> None:
 
 
 def put_object_bytes(object_key: str, data: bytes, *, mime_type: str) -> None:
-    """Store ``data`` under ``object_key`` (0.0.5: the Voice Isolator copy). Server-side, so no presign;
-    the bucket's encryption settings apply as for every other object. Blocking: call it from a thread."""
     settings = get_settings()
     _client().put_object(
         Bucket=settings.aws_s3_bucket,
@@ -271,11 +182,6 @@ def get_object_bytes(object_key: str) -> bytes:
         response["Body"].close()
 
 
-# --- Streaming a stored object to disk (ported from designer-portal, 18 Oct 2026) ----------------
-#
-# The transcription queue used to read every recording whole into the heap with get_object_bytes.
-# These stream it to a temp file instead, so the box trades RAM it does not have for disk it does.
-
 
 @dataclass(frozen=True, slots=True)
 class ObjectHead:
@@ -292,18 +198,15 @@ class ObjectTooLarge(Exception):
 
 
 def head_object(object_key: str) -> ObjectHead | None:
-    """The object's real length without fetching it, or None when storage will not say."""
     settings = get_settings()
     try:
         response = _client().head_object(Bucket=settings.aws_s3_bucket, Key=object_key)
         return ObjectHead(int(response.get("ContentLength") or 0), response.get("ContentType") or None)
-    except Exception:  # noqa: BLE001 - None means unknown, never small
+    except Exception:  # noqa: BLE001
         return None
 
 
 class _BoundedWriter:
-    """Refuses the first write that would reach past *limit* (offset-based, so retried parts count once)."""
-
     def __init__(self, handle: Any, object_key: str, limit: int) -> None:
         self._handle = handle
         self._object_key = object_key
@@ -336,15 +239,11 @@ class _BoundedWriter:
 
 
 def download_to_temp(object_key: str, *, suffix: str = "", max_bytes: int | None = None) -> str:
-    """Stream one stored object to a temp file and return its path. The caller deletes it with
-    :func:`discard_temp` in a ``finally``."""
     settings = get_settings()
     if max_bytes is not None:
         head = head_object(object_key)
         if head is not None and head.size_bytes > max_bytes:
             raise ObjectTooLarge(object_key, head.size_bytes, max_bytes)
-    # The transcription working directory (D37), not the system temp: sized, and swept of stale
-    # files when the queue worker starts, so a process killed mid-download leaves nothing for ever.
     handle = workdir.named_file(prefix="s3obj-", suffix=suffix)
     path = handle.name
     try:
@@ -361,14 +260,10 @@ def download_to_temp(object_key: str, *, suffix: str = "", max_bytes: int | None
 
 
 async def download_to_temp_async(object_key: str, *, suffix: str = "", max_bytes: int | None = None) -> str:
-    """:func:`download_to_temp` on a worker thread, and safe to cancel (D37): when the awaiting task
-    is cancelled mid-download, the file the thread finishes is deleted (``workdir.owned``). Every
-    other failure is :func:`download_to_temp`'s own, which already leaves nothing behind."""
     return await workdir.owned(download_to_temp, object_key, suffix=suffix, max_bytes=max_bytes)
 
 
 def discard_temp(path: str | None) -> None:
-    """Delete a :func:`download_to_temp` file. Safe to call twice, and on None."""
     if not path:
         return
     try:
@@ -380,20 +275,11 @@ def discard_temp(path: str | None) -> None:
 
 
 def delete_object(object_key: str) -> None:
-    """Remove a single object. Used to clean up staged uploads that were cancelled before save."""
     settings = get_settings()
     _client().delete_object(Bucket=settings.aws_s3_bucket, Key=object_key)
 
 
-# ── questionnaire v2 (DESIGN 5.5) ──────────────────────────────────────────────────────────────
 def presign_put_url_checksum(object_key: str, mime_type: str, checksum_b64: str | None, expires_in: int = 900) -> str:
-    """A presigned single PUT that S3 rejects unless the body's sha256 equals ``checksum_b64``.
-
-    ``ChecksumSHA256`` is SIGNED into the URL, so the client must send ``x-amz-checksum-sha256``
-    with exactly this value (the presign response lists it in ``headers``) and S3 refuses any other
-    bytes (``BadDigest``). Only questionnaire v2 clips use it; every older client keeps the
-    unchanged ``presign_put_url`` above, whose signed headers they already send.
-    """
     params: dict[str, Any] = {"Bucket": get_settings().aws_s3_bucket, "Key": object_key, "ContentType": mime_type}
     if checksum_b64:
         params["ChecksumSHA256"] = checksum_b64
@@ -401,14 +287,10 @@ def presign_put_url_checksum(object_key: str, mime_type: str, checksum_b64: str 
 
 
 class NoSuchUpload(Exception):
-    """The multipart upload was aborted or expired: S3 no longer knows its id (audit H8)."""
+    pass
 
 
 def list_uploaded_parts(object_key: str, upload_id: str) -> list[dict[str, Any]]:
-    """The parts S3 already holds for an open multipart upload, so a client resumes after a restart.
-
-    Raises :class:`NoSuchUpload` when S3 has dropped the upload, so the caller can start a new one on
-    the same key instead of answering 500 for ever."""
     from botocore.exceptions import ClientError
 
     parts: list[dict[str, Any]] = []
@@ -430,7 +312,6 @@ def list_uploaded_parts(object_key: str, upload_id: str) -> list[dict[str, Any]]
 
 
 def stream_sha256(object_key: str, chunk_size: int = 1024 * 1024) -> tuple[str, int]:
-    """(hex sha256, size) of a stored object, read in chunks so a 40-minute WAV is never held whole."""
     import hashlib
 
     digest = hashlib.sha256()

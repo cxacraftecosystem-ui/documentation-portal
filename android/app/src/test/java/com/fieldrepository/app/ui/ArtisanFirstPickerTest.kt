@@ -7,7 +7,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** B5: the product and tool forms pick the artisan first, and the artisan sets craft and place. */
 class ArtisanFirstPickerTest {
 
     private fun artisan(craft: String?, place: String = "Bagru") = ArtisanDto(

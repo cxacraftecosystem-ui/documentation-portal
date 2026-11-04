@@ -14,9 +14,7 @@ import { Actions, Badge, ICON_BUTTON, MenuButton, PRIMARY, SECONDARY, TimeChip }
 type Props = {
   turn: TranscriptTurn;
   tab: ViewTab;
-  /** The audio is inside this turn. */
   active: boolean;
-  /** The word being spoken, when `active`. */
   activeWord: number | null;
   selecting: boolean;
   selected: boolean;
@@ -27,7 +25,6 @@ type Props = {
   onSave: (turn: TranscriptTurn, change: { text?: string; english?: string }) => Promise<boolean>;
   onRetranslate: (turn: TranscriptTurn) => void;
   retranslating: boolean;
-  /** This turn is a marked point on the audio timeline (off until ticked). */
   marked?: boolean;
   onMark?: (turnId: string, marked: boolean) => void;
 };
@@ -35,12 +32,6 @@ type Props = {
 const FIELD =
   "min-h-20 w-full rounded-md border border-line-200 bg-card px-3 py-2 text-sm text-ink-900 focus:border-purple-600 focus:outline-hidden focus:ring-4 focus:ring-purple-600/15";
 
-/**
- * One turn: **Speaker** · `00:03:12` (the clock plays from there), its copy menu, and its text in the
- * chosen view. The original is drawn piece by piece from the word timings: the spoken word is lit,
- * an unsure stretch is faintly underlined, and tapping a word plays from it. Turn text is plain text
- * (what was said), so it is drawn as text and never parsed as markup.
- */
 export const TurnRow = memo(function TurnRow(props: Props) {
   const { turn, tab, active, activeWord, selecting, selected, canEdit } = props;
   const [editing, setEditing] = useState(false);
@@ -214,11 +205,6 @@ export const TurnRow = memo(function TurnRow(props: Props) {
   );
 });
 
-/**
- * The original, in pieces. One click handler on the paragraph reads the word's start from
- * `data-ms`, so a long turn is not hundreds of stops in the tab order; the turn's clock is the
- * keyboard's way to the same moment.
- */
 function OriginalText({ turn, activeWord, onSeek }: { turn: TranscriptTurn; activeWord: number | null; onSeek: (ms: number) => void }) {
   const parts = pieces(turn);
   return (

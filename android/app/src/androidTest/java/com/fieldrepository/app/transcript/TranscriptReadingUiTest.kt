@@ -40,11 +40,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.math.abs
 
-/**
- * 0.0.6 on a device: reading mode, the all-marks toggle, the mark bubble on touch-and-hold, marks
- * centred on the seek bar, auto-follow that a touch stops and "Follow along" resumes, and the list
- * preview with speakers as labels.
- */
 @RunWith(AndroidJUnit4::class)
 class TranscriptReadingUiTest {
     @get:Rule
@@ -92,26 +87,22 @@ class TranscriptReadingUiTest {
     @Test fun readingModeIsOneFlowingTranscriptWithNoTimestamps() {
         val host = show(short)
         compose.onNodeWithTag("transcript.reading").performClick()
-        // A speaker's run is one paragraph, under one label; no turn carries a timestamp.
         compose.onNodeWithTag("reading.t0").assertIsDisplayed()
         compose.onNodeWithTag("reading.t1").assertDoesNotExist()
         compose.onNodeWithTag("reading.t2").assertIsDisplayed()
         compose.onNodeWithText("आप ये रंग कैसे बनाते हैं?").assertIsDisplayed()
         assertEquals(0, compose.onAllNodesWithTag("turn.time.t0").fetchSemanticsNodes().size)
-        // English, then Both (original and its English).
         compose.onNodeWithTag("transcript.tab.english").performClick()
         compose.onNodeWithText("How do you make these colours?").assertIsDisplayed()
         compose.onNodeWithTag("transcript.tab.side_by_side").performClick()
         compose.onNodeWithText(TranscriptUiText.both).assertIsDisplayed()
         compose.onNodeWithText("मिट्टी और गोंद").assertIsDisplayed()
         compose.onNodeWithText("Clay and gum.").assertIsDisplayed()
-        // Copy and download are the view's own: no timestamps, the tab's track.
         compose.onNodeWithTag("transcript.reading.copy").performClick()
         assertEquals(TranscriptFormat.all(short, CopyTrack.BOTH, timestamps = false), host.copies.single())
         compose.onNodeWithTag("transcript.reading.download").performClick()
         compose.onNodeWithTag("transcript.reading.download.docx").performClick()
         assertEquals(Triple("docx", CopyTrack.BOTH, false), host.downloads.single())
-        // And back to turns.
         compose.onNodeWithTag("transcript.reading").performClick()
         compose.onNodeWithTag("turn.time.t0").assertIsDisplayed()
     }
@@ -124,7 +115,6 @@ class TranscriptReadingUiTest {
         compose.onNodeWithText(TranscriptUiText.clearMarks).assertIsDisplayed()
         compose.onNodeWithTag("transcript.marks.all").performClick()
         listOf("t0", "t1", "t2").forEach { compose.onNodeWithTag("timeline.mark.$it").assertDoesNotExist() }
-        // The per-turn box still marks one.
         compose.onNodeWithTag("turn.mark.t2").performClick()
         compose.onNodeWithTag("timeline.mark.t2").assertExists()
     }
@@ -171,7 +161,6 @@ class TranscriptReadingUiTest {
         compose.waitForIdle()
         compose.onNodeWithTag("turn.t36").assertIsDisplayed()
         compose.onNodeWithTag("transcript.followAlong").assertDoesNotExist()
-        // The reader drags the transcript: it stops following and offers to resume.
         compose.onNodeWithTag("transcript.list").performTouchInput { swipeDown() }
         compose.onNodeWithTag("transcript.followAlong").assertIsDisplayed()
         playback.positionSeconds = 20.0
@@ -181,7 +170,6 @@ class TranscriptReadingUiTest {
         compose.waitForIdle()
         compose.onNodeWithTag("turn.t4").assertIsDisplayed()
         compose.onNodeWithTag("transcript.followAlong").assertDoesNotExist()
-        // A press held on the transcript stops it too.
         compose.onNodeWithTag("transcript.list").performTouchInput { down(center) }
         compose.onNodeWithTag("transcript.followAlong").assertIsDisplayed()
         compose.onNodeWithTag("transcript.list").performTouchInput { up() }
@@ -193,7 +181,6 @@ class TranscriptReadingUiTest {
         compose.onNodeWithTag("transcript.reading").performClick()
         compose.onNodeWithTag("transcript.list").performTouchInput { swipeUp() }
         playback.positionSeconds = 190.0
-        // Pressing play follows again.
         compose.onNodeWithTag("transcript.play").performClick()
         compose.waitForIdle()
         compose.onNodeWithTag("reading.t38").assertIsDisplayed()

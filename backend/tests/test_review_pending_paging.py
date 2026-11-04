@@ -1,19 +1,3 @@
-"""``GET /review/pending`` — longest-waiting first, one page read as one page, and the filters.
-
-UX audit 2026-10-16: the queue read at most ``PENDING_TAKE`` (200) rows per record type and said
-nothing when it stopped. A caller that passes ``page`` gets one page of the WHOLE queue with the true
-``total``; a caller that does not keeps the old answer, plus ``truncated``.
-
-2026-10-20 (A3, B13, A13): the queue is served by ``submittedAt`` ascending — the longest-waiting
-record first, and a record that was sent back and fixed comes back at the front — a page is read as
-ONE key query across the tables (``pending_page_keys``) and then by id, and it can be narrowed to a
-workshop, a creator and record types.
-
-NOTHING HERE TOUCHES A DATABASE: ``_PENDING_SOURCES`` is replaced by in-memory delegates and the key
-query by an in-memory equivalent. ``pending_keys_sql`` is checked as text here; ``test_review_pending_sql_db.py`` runs it against a
-real Postgres.
-"""
-
 import asyncio
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -43,8 +27,6 @@ def _user(role: str, user_id: str) -> SimpleNamespace:
 
 
 class _Delegate:
-    """One record type's pending rows, honouring ``take``, ``order`` and an id list."""
-
     def __init__(self, prefix: str, minutes: list[int]) -> None:
         self.rows = [
             SimpleNamespace(
@@ -100,7 +82,6 @@ def _get(path: str) -> httpx.Response:
 
 @pytest.fixture
 def sources(monkeypatch: pytest.MonkeyPatch):
-    # Artisans at even minutes, workshops at odd ones: the merged order interleaves the two types.
     artisans = _Delegate("a", list(range(0, 50, 2)))
     workshops = _Delegate("w", list(range(1, 50, 2)))
     delegates = {"artisan": artisans, "workshop": workshops}
@@ -139,7 +120,6 @@ def test_a_page_is_the_longest_waiting_rows_across_types_with_the_true_total(sou
     body = response.json()
     assert body["total"] == 50
     assert body["page"] == 2 and body["pageSize"] == 10
-    # Minutes 0..49 oldest first; page 2 of 10 is minutes 10..19, interleaved across both types.
     assert [item["id"] for item in body["items"]] == [f"{'w' if m % 2 else 'a'}{m}" for m in range(10, 20)]
     assert "truncated" not in body
     assert body["items"][0]["submittedAt"].startswith("2026-10-01T00:10")
@@ -154,7 +134,6 @@ def test_a_page_reads_one_page_of_keys_and_then_only_those_rows(sources) -> None
     _get("/pending?page=3&pageSize=5")
     (call,) = sources.calls
     assert (call["limit"], call["offset"]) == (5, 10)
-    # No "newest N per type" reads: the rows are fetched by id.
     assert sources.artisans.takes == [] and sources.workshops.takes == []
 
 
@@ -176,7 +155,7 @@ def test_without_page_the_old_shape_is_unchanged_and_says_it_is_whole(sources) -
     assert body["total"] == 50 and len(body["items"]) == 50
     assert body["truncated"] is False
     assert "page" not in body
-    assert body["items"][0]["id"] == "a0"  # oldest first in the old shape too
+    assert body["items"][0]["id"] == "a0"
 
 
 def test_without_page_a_type_that_hits_the_take_is_reported_as_truncated(
@@ -189,7 +168,6 @@ def test_without_page_a_type_that_hits_the_take_is_reported_as_truncated(
 
 
 def test_a_reviewer_with_nobody_below_them_gets_an_empty_page(sources) -> None:
-    # A granted ``canReview`` on the bottom tier: review access, and nobody beneath them.
     _CURRENT["user"] = _user("CROWDSOURCE_VOLUNTEER", "reviewer")
     _CURRENT["user"].canReview = True
     response = _get("/pending?page=1")
@@ -203,7 +181,6 @@ def test_the_filters_reach_the_query(sources) -> None:
     filters = call["filters"]
     assert (filters.workshop_id, filters.created_by, filters.record_types) == ("W1", "U1", ("workshop",))
     assert all(item["recordType"] == "workshop" for item in body["items"])
-    # The count used the same narrowing: a workshop row is its own workshop.
     assert sources.workshops.wheres[0] == {"status": "PENDING", "createdById": "U1", "id": "W1"}
     assert sources.artisans.wheres == []
 
@@ -241,7 +218,7 @@ def test_the_key_query_is_one_ordered_union_with_its_ids_as_parameters() -> None
     assert "'RESEARCHER'" in sql and "NOT_A_ROLE" not in sql
     assert params == ["U1", "W1"]
     assert "W1" not in sql and "U1" not in sql
-    assert '"WorkshopArtisan"' in sql  # an artisan reaches a workshop through the roster too
+    assert '"WorkshopArtisan"' in sql
     newest, _ = review.pending_keys_sql(review.PendingFilters(newest_first=True), limit=5, offset=0)
     assert 'q."submittedAt" DESC' in newest and "JOIN" not in newest
 
@@ -252,7 +229,7 @@ def test_a_tasks_artisans_narrow_every_type_and_travel_as_parameters() -> None:
     assert params == ["U1", "A1", "A2"] and "A1" not in sql
     assert 't."id" IN ($2, $3)' in sql and 't."artisanId" IN ($2, $3)' in sql
     assert '"QuestionnaireInterviewArtisan"' in sql and '"ProductDocumentation" p' in sql
-    assert " AND FALSE" in sql  # a workshop record has no artisan
+    assert " AND FALSE" in sql
     assert review.pending_where("process", filters)["AND"][1] == {"product": {"is": {"artisanId": {"in": ["A1", "A2"]}}}}
     assert review.pending_where("workshop", filters)["AND"][1] == {"id": {"in": []}}
 

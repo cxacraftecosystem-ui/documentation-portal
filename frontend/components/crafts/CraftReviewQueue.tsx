@@ -20,12 +20,6 @@ import { countNoun } from "@/lib/format";
 import type { CraftCatalogue } from "@/lib/craftCatalogue";
 import { recordViewHref } from "@/lib/recordView";
 
-/**
- * "Needs review" (REQUIREMENTS_2026-10-20 §2.5), from `GET /crafts/review`: crafts that predate the
- * master list and did not map, and records whose typed craft text matched nothing. A craft is merged
- * into one on the list or added to the list in a sub-category; a record is given a craft. Nothing here
- * deletes a craft: a merge keeps the old row so old links still resolve.
- */
 export function CraftReviewQueue({ catalogue, onChanged }: { catalogue: CraftCatalogue; onChanged: () => void }) {
   const [queue, setQueue] = useState<CraftReviewQueueData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +91,6 @@ export function CraftReviewQueue({ catalogue, onChanged }: { catalogue: CraftCat
   );
 }
 
-/** "Suggested: Kutch Ajrakh · 94%" — the mapping's own target for this craft, if it has one. */
 function suggestion(entry: CraftReviewEntry, catalogue: CraftCatalogue): string | null {
   if (!entry.targetId) return null;
   const name = catalogue.crafts.find((craft) => craft.id === entry.targetId)?.name ?? entry.target;

@@ -23,11 +23,6 @@ import {
 } from "@/lib/transcriptInsights";
 import type { InsightQuote, TranscriptInsightView } from "@/lib/types";
 
-/**
- * Summary, key quotes and English translation under a transcript. Draws nothing while loading,
- * when the feature is off (404), or when there is no transcript. `readOnly` hides Edit and
- * Regenerate (the lightbox).
- */
 export function TranscriptInsights({ mediaId, readOnly = false }: { mediaId: string; readOnly?: boolean }) {
   const { view, replace } = useTranscriptInsight(mediaId);
   if (!view || view.state === "NO_TRANSCRIPT") return null;
@@ -52,13 +47,11 @@ function InsightsPanel({
   const insight = view.insight;
   const working = isWorking(view);
   const mayRegenerate = !readOnly && view.canRegenerate && !working;
-  // No editing while a new version is being written: it would supersede the edit.
   const mayEdit = !readOnly && view.canEdit && Boolean(insight) && !working;
 
   async function regenerate() {
     setError(null);
     if (!needsRegenerateConfirm(view)) return start(false);
-    // A page without the confirm dialog asks inline instead.
     if (!confirm) return setAskReplace(true);
     const ok = await confirm({
       title: "Regenerating replaces your edits.",

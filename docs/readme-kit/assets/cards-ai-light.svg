@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="460" viewBox="0 0 1200 460" role="img" aria-label="The AI in the Field Repository: transcription, translation, Ask, autodraft, quote cards, consent and budget">
+<title>The AI in the Field Repository: transcription, translation, Ask, autodraft, quote cards, consent and budget</title>
+<defs>
+<style>.d{font-family:'Plus Jakarta Sans','Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}.s{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}.m{font-family:'JetBrains Mono',ui-monospace,'SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace}.rise{animation:rise .9s cubic-bezier(.2,.7,.2,1) both}@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}.shine{animation:shine 5.6s cubic-bezier(.5,0,.3,1) infinite}@keyframes shine{0%{transform:translateX(0)}45%,100%{transform:translateX(562.7px)}}.r0{animation-delay:0.1s}.r1{animation-delay:0.2s}.r2{animation-delay:0.3s}.r3{animation-delay:0.5s}.r4{animation-delay:0.6s}.r5{animation-delay:0.7s}@media (prefers-reduced-motion:reduce){*{animation:none!important}.smil{display:none}.sweep{fill:url(#still)}}</style>
+<radialGradient id="halo"><stop offset="0" stop-color="#AA69E9" stop-opacity=".16"/><stop offset="1" stop-color="#AA69E9" stop-opacity="0"/></radialGradient>
+<linearGradient id="glint" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#762CB1" stop-opacity="0"/><stop offset=".5" stop-color="#762CB1"/><stop offset="1" stop-color="#CD9200" stop-opacity="0"/></linearGradient>
+<clipPath id="k0"><rect x="6" y="6" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k1"><rect x="408.7" y="6" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k2"><rect x="811.3" y="6" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k3"><rect x="6" y="240" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k4"><rect x="408.7" y="240" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k5"><rect x="811.3" y="240" width="382.7" height="214" rx="18"/></clipPath>
+</defs>
+<g class="rise r0">
+<rect x="6" y="6" width="382.7" height="214" rx="18" fill="#FFFFFF" stroke="#E4E2EF"/>
+<g clip-path="url(#k0)"><circle cx="358.7" cy="26" r="120" fill="url(#halo)"/><rect x="6" y="6" width="382.7" height="3" fill="#E7D5FE"/><rect class="shine" style="animation-delay:0s" x="-174" y="6" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="30" y="30" width="48" height="48" rx="14" fill="#F9F5FF" stroke="#E7D5FE"/>
+<g transform="translate(42 42) scale(1)" fill="none" stroke="#762CB1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></g>
+<text x="364.7" y="52" class="m" fill="#615D7A" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">HEAR</text>
+<text x="30" y="116" class="d" fill="#1E1B2E" font-size="20" font-weight="700" letter-spacing="-.3">Scribe v2 words</text>
+<text x="30" y="146" class="s" fill="#615D7A" font-size="15">Speakers, timings and key terms from the</text><text x="30" y="169" class="s" fill="#615D7A" font-size="15">artisan, the craft and the master list.</text><text x="30" y="192" class="s" fill="#615D7A" font-size="15">Video is heard from its sound.</text>
+</g>
+<g class="rise r1">
+<rect x="408.7" y="6" width="382.7" height="214" rx="18" fill="#FFFFFF" stroke="#E4E2EF"/>
+<g clip-path="url(#k1)"><circle cx="761.3" cy="26" r="120" fill="url(#halo)"/><rect x="408.7" y="6" width="382.7" height="3" fill="#E7D5FE"/><rect class="shine" style="animation-delay:0.7s" x="228.7" y="6" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="432.7" y="30" width="48" height="48" rx="14" fill="#F9F5FF" stroke="#E7D5FE"/>
+<g transform="translate(444.7 42) scale(1)" fill="none" stroke="#762CB1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></g>
+<text x="767.3" y="52" class="m" fill="#615D7A" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">TRANSLATE</text>
+<text x="432.7" y="116" class="d" fill="#1E1B2E" font-size="20" font-weight="700" letter-spacing="-.3">Gemini 3.8 Flash</text>
+<text x="432.7" y="146" class="s" fill="#615D7A" font-size="15">English for every turn, a summary and</text><text x="432.7" y="169" class="s" fill="#615D7A" font-size="15">key quotes in one pass, with 3.7 Flash</text><text x="432.7" y="192" class="s" fill="#615D7A" font-size="15">as the fallback.</text>
+</g>
+<g class="rise r2">
+<rect x="811.3" y="6" width="382.7" height="214" rx="18" fill="#FFFFFF" stroke="#E4E2EF"/>
+<g clip-path="url(#k2)"><circle cx="1164" cy="26" r="120" fill="url(#halo)"/><rect x="811.3" y="6" width="382.7" height="3" fill="#E7D5FE"/><rect class="shine" style="animation-delay:1.4s" x="631.3" y="6" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="835.3" y="30" width="48" height="48" rx="14" fill="#F9F5FF" stroke="#E7D5FE"/>
+<g transform="translate(847.3 42) scale(1)" fill="none" stroke="#762CB1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></g>
+<text x="1170" y="52" class="m" fill="#615D7A" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">ASK</text>
+<text x="835.3" y="116" class="d" fill="#1E1B2E" font-size="20" font-weight="700" letter-spacing="-.3">Questions, cited</text>
+<text x="835.3" y="146" class="s" fill="#615D7A" font-size="15">Ask one transcript a question and get an</text><text x="835.3" y="169" class="s" fill="#615D7A" font-size="15">answer that points back to the turns it</text><text x="835.3" y="192" class="s" fill="#615D7A" font-size="15">came from.</text>
+</g>
+<g class="rise r3">
+<rect x="6" y="240" width="382.7" height="214" rx="18" fill="#FFFFFF" stroke="#E4E2EF"/>
+<g clip-path="url(#k3)"><circle cx="358.7" cy="260" r="120" fill="url(#halo)"/><rect x="6" y="240" width="382.7" height="3" fill="#E7D5FE"/><rect class="shine" style="animation-delay:2.1s" x="-174" y="240" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="30" y="264" width="48" height="48" rx="14" fill="#F9F5FF" stroke="#E7D5FE"/>
+<g transform="translate(42 276) scale(1)" fill="none" stroke="#762CB1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/></g>
+<text x="364.7" y="286" class="m" fill="#615D7A" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">AUTODRAFT</text>
+<text x="30" y="350" class="d" fill="#1E1B2E" font-size="20" font-weight="700" letter-spacing="-.3">Drafts, not answers</text>
+<text x="30" y="380" class="s" fill="#615D7A" font-size="15">Open questionnaire questions drafted</text><text x="30" y="403" class="s" fill="#615D7A" font-size="15">from a take; a person accepts each one</text><text x="30" y="426" class="s" fill="#615D7A" font-size="15">before it counts.</text>
+</g>
+<g class="rise r4">
+<rect x="408.7" y="240" width="382.7" height="214" rx="18" fill="#FFFFFF" stroke="#E4E2EF"/>
+<g clip-path="url(#k4)"><circle cx="761.3" cy="260" r="120" fill="url(#halo)"/><rect x="408.7" y="240" width="382.7" height="3" fill="#E7D5FE"/><rect class="shine" style="animation-delay:2.8s" x="228.7" y="240" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="432.7" y="264" width="48" height="48" rx="14" fill="#F9F5FF" stroke="#E7D5FE"/>
+<g transform="translate(444.7 276) scale(1)" fill="none" stroke="#762CB1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></g>
+<text x="767.3" y="286" class="m" fill="#615D7A" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">QUOTE CARDS</text>
+<text x="432.7" y="350" class="d" fill="#1E1B2E" font-size="20" font-weight="700" letter-spacing="-.3">Their words, shared</text>
+<text x="432.7" y="380" class="s" fill="#615D7A" font-size="15">An image and audio clip of a quote,</text><text x="432.7" y="403" class="s" fill="#615D7A" font-size="15">refused the moment the artisan withdraws</text><text x="432.7" y="426" class="s" fill="#615D7A" font-size="15">consent.</text>
+</g>
+<g class="rise r5">
+<rect x="811.3" y="240" width="382.7" height="214" rx="18" fill="#FFFFFF" stroke="#E4E2EF"/>
+<g clip-path="url(#k5)"><circle cx="1164" cy="260" r="120" fill="url(#halo)"/><rect x="811.3" y="240" width="382.7" height="3" fill="#E7D5FE"/><rect class="shine" style="animation-delay:3.5s" x="631.3" y="240" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="835.3" y="264" width="48" height="48" rx="14" fill="#F9F5FF" stroke="#E7D5FE"/>
+<g transform="translate(847.3 276) scale(1)" fill="none" stroke="#762CB1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></g>
+<text x="1170" y="286" class="m" fill="#615D7A" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">GUARDED</text>
+<text x="835.3" y="350" class="d" fill="#1E1B2E" font-size="20" font-weight="700" letter-spacing="-.3">Consent and budget</text>
+<text x="835.3" y="380" class="s" fill="#615D7A" font-size="15">Consent re-read before every send, a</text><text x="835.3" y="403" class="s" fill="#615D7A" font-size="15">monthly budget per portal, and a</text><text x="835.3" y="426" class="s" fill="#615D7A" font-size="15">15-minute hold on a 402.</text>
+</g>
+</svg>

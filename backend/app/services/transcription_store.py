@@ -1,13 +1,3 @@
-"""This portal's half of the shared transcription service: the Prisma store behind the chain.
-
-IDENTICAL IN BOTH PORTALS (the models it reads are the same, see shared/transcription.sha256's
-neighbour test ``tests/test_transcription_parity.py``). It implements
-``app.transcription.store.TranscriptionStore`` plus the reads the admin Transcription panel needs.
-
-Every write here is bookkeeping: a failure is logged by the caller's bridge and never fails a
-transcription. Nothing here calls a provider.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -30,7 +20,6 @@ OPEN_STATUSES = ("QUEUED", "PROCESSING")
 
 
 def period_start(period: str, now: datetime | None = None) -> datetime:
-    """Start of the current India-time day or month, in UTC."""
     local = (now or datetime.now(UTC)).astimezone(IST)
     start = local.replace(hour=0, minute=0, second=0, microsecond=0)
     if period == "MONTH":
@@ -213,8 +202,6 @@ class PrismaTranscriptionStore:
             },
         )
 
-    # --- Dedup ---------------------------------------------------------------------------------
-
     async def cache_get(self, sha256: str, options_hash: str) -> Any | None:
         row = await db.transcriptcache.find_unique(
             where={"sha256_optionsHash": {"sha256": sha256, "optionsHash": options_hash}}
@@ -253,12 +240,8 @@ def cached_result(row: Any) -> SttResult:
     )
 
 
-# --- The admin Transcription panel ----------------------------------------------------------------
-
 
 async def panel_snapshot() -> dict[str, Any]:
-    """Queue depth, minutes and spend per provider (today and this month), cooldowns, budgets and
-    the last 20 failures. Reads only."""
     now = datetime.now(UTC)
     depth_rows = await db.query_raw(
         'SELECT "status"::text AS status, COUNT(*)::int AS n FROM "MediaProcessingJob" '

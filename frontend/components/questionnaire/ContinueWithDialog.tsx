@@ -17,21 +17,14 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** The session "Continue with…" carries on from: the artisan's latest one on this instrument. */
 export function latestSession(sessions: RecordSession[]): RecordSession | null {
   return [...sessions].sort((a, b) => String(b.session.sessionDate ?? "").localeCompare(String(a.session.sessionDate ?? "")))[0] ?? null;
 }
 
-/** The body `POST /sessions/continue` takes; a single artisan is always one session. */
 export function continueBody(input: { fromSessionId: string; artisanIds: string[]; split: "ONE" | "EACH"; sessionDate: string }) {
   return { ...input, split: input.artisanIds.length > 1 ? input.split : ("ONE" as const) };
 }
 
-/**
- * "Continue with…" (DESIGN §3.7): the participant picker prefilled with this artisan, the people
- * from the last sitting on offer, One session · One each, and today's date. The server opens the
- * session(s) and the workspace lands on the first.
- */
 export function ContinueWithDialog({
   artisanId,
   artisanName,

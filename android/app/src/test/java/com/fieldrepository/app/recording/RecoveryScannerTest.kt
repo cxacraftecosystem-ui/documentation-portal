@@ -6,10 +6,6 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 
-/**
- * P13 on the JVM: which drafts come back after a kill. The playable-m4a half of DESIGN §9 test 50
- * needs MediaMuxer and a handset; see the hand-off notes.
- */
 class RecoveryScannerTest {
     @get:Rule val tmp = TemporaryFolder()
 

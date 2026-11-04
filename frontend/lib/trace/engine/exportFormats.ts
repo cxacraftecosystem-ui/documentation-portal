@@ -7,16 +7,6 @@ import { encode as encodePng, encodeGray as encodePngGray } from './pngEncoder';
 import { render } from './raster';
 import { SvgOptions, svgOptions, write as writeSvg } from './svgWriter';
 
-/**
- * Export formats, options, and the single dispatcher every caller uses.
- *
- * **JPEG and WEBP are deliberately absent.** Writing a JPEG encoder by hand would be worse than the
- * platform's in every dimension that matters, so {@link exportDocument} throws for those two and the
- * platform layer routes them through `canvas.toBlob` (web) or `Bitmap.compress` (Android).
- * {@link ExportOptions.isVector} and this comment are where that fact is recorded, so it cannot be
- * discovered by surprise at run time.
- */
-
 export enum ExportFormat {
   PNG = 'PNG',
   JPEG = 'JPEG',
@@ -30,18 +20,6 @@ export enum ExportFormat {
   PROJECT = 'PROJECT',
 }
 
-/**
- * Everything an export needs.
- *
- * A class rather than an interface because `isVector`, `extension` and `mimeType` are properties in the
- * Kotlin contract, and a caller who has to remember to call three free functions will eventually write a
- * `.svg` file with a PNG mime type.
- *
- * @property width  0 means "the document's own size"; `scale` still applies
- * @property height 0 means "the document's own size"
- * @property background null means transparent — honoured by the raster formats, and expressed by the
- *           vector ones as simply not emitting a background rectangle
- */
 export class ExportOptions {
   readonly format: ExportFormat;
   readonly width: number;
@@ -67,7 +45,6 @@ export class ExportOptions {
     this.flattenLayers = init.flattenLayers ?? false;
   }
 
-  /** True for the resolution-independent formats. PROJECT counts: it stores geometry, not pixels. */
   get isVector(): boolean {
     return (
       this.format === ExportFormat.SVG ||
@@ -78,7 +55,6 @@ export class ExportOptions {
     );
   }
 
-  /** File extension without the dot. */
   get extension(): string {
     switch (this.format) {
       case ExportFormat.PNG:
@@ -129,7 +105,6 @@ export class ExportOptions {
     }
   }
 
-  /** @returns a copy with `over` applied, re-clamped. */
   with(over: Partial<ExportOptionsInit>): ExportOptions {
     return new ExportOptions({
       format: this.format,
@@ -147,7 +122,6 @@ export class ExportOptions {
   }
 }
 
-/** Constructor shape for {@link ExportOptions}; every field but `format` has a documented default. */
 export interface ExportOptionsInit {
   format: ExportFormat;
   width?: number;
@@ -161,7 +135,6 @@ export interface ExportOptionsInit {
   flattenLayers?: boolean;
 }
 
-/** @returns the pixel dimensions a raster export should produce for `doc` under `o`. */
 export function outputSize(doc: VecDocument, o: ExportOptions): { width: number; height: number } {
   const baseW = o.width > 0 ? o.width : doc.width;
   const baseH = o.height > 0 ? o.height : doc.height;
@@ -173,12 +146,10 @@ export function outputSize(doc: VecDocument, o: ExportOptions): { width: number;
 
 const utf8 = new TextEncoder();
 
-/** @returns the bytes of `s` as UTF-8. Centralised so no writer hand-rolls a byte loop. */
 export function encodeUtf8(s: string): Uint8Array {
   return utf8.encode(s);
 }
 
-/** @returns `doc` scaled by `o.scale`, with `o.background` applied when it is set. */
 function prepareVectorDoc(doc: VecDocument, o: ExportOptions): VecDocument {
   const scaled =
     o.scale === 1
@@ -194,12 +165,6 @@ function prepareVectorDoc(doc: VecDocument, o: ExportOptions): VecDocument {
     : new VecDocument(scaled.width, scaled.height, scaled.layers, o.background);
 }
 
-/**
- * Scale every shape, including its stroke widths.
- *
- * `VecPath.transform` deliberately leaves `strokeWidth` alone — it is a style property, not geometry — so
- * a scale that did not touch it would emit a 300 dpi export with hairlines meant for a 72 dpi preview.
- */
 function scaleShapes(doc: VecDocument, scale: number): VecDocument['layers'] {
   const m = Mat2D.scale(scale, scale);
   const widthScale = m.meanScale();
@@ -212,7 +177,6 @@ function scaleShapes(doc: VecDocument, scale: number): VecDocument['layers'] {
   }));
 }
 
-/** SVG export: {@link writeSvg} with the export options mapped across, then UTF-8 encoded. */
 export function exportSvg(doc: VecDocument, o: ExportOptions): Uint8Array {
   const opts: SvgOptions = svgOptions({
     precision: o.precision,
@@ -222,28 +186,18 @@ export function exportSvg(doc: VecDocument, o: ExportOptions): Uint8Array {
   return encodeUtf8(writeSvg(prepareVectorDoc(doc, o), opts));
 }
 
-/** PDF 1.4 export. */
 export function exportPdf(doc: VecDocument, o: ExportOptions): Uint8Array {
   return writePdf(prepareVectorDoc(doc, o), { includeMetadata: o.includeMetadata });
 }
 
-/** EPS 3.0 export. */
 export function exportEps(doc: VecDocument, o: ExportOptions): Uint8Array {
   return writeEps(prepareVectorDoc(doc, o), { includeMetadata: o.includeMetadata });
 }
 
-/** DXF R12 export. Curves are flattened, because R12 has no spline entity. */
 export function exportDxf(doc: VecDocument, o: ExportOptions): Uint8Array {
   return writeDxf(prepareVectorDoc(doc, o));
 }
 
-/**
- * BMP export: 32-bit BGRA, `BITMAPINFOHEADER`, bottom-up.
- *
- * 32 bpp with `BI_RGB` rather than 24 bpp: the fourth byte is ignored by readers that do not understand
- * alpha and honoured by the ones that do, whereas 24 bpp would silently composite the artwork against
- * whatever the reader felt like. Rows are 4-byte aligned for free at 32 bpp.
- */
 export function encodeBmp(src: RgbaImage): Uint8Array {
   const w = src.width;
   const h = src.height;
@@ -260,14 +214,12 @@ export function encodeBmp(src: RgbaImage): Uint8Array {
   view.setInt32(22, h, true);
   view.setUint16(26, 1, true);
   view.setUint16(28, 32, true);
-  view.setUint32(30, 0, true); // BI_RGB
+  view.setUint32(30, 0, true);
   view.setUint32(34, pixelBytes, true);
-  view.setInt32(38, 2835, true); // ~72 dpi in pixels per metre
+  view.setInt32(38, 2835, true);
   view.setInt32(42, 2835, true);
   const px = src.pixels;
   let o = headerSize;
-  // Bottom-up row order is the baseline BMP convention; a negative height means top-down and is the
-  // single most common way a hand-written BMP comes out upside down in one viewer and not another.
   for (let y = h - 1; y >= 0; y--) {
     const row = y * w;
     for (let x = 0; x < w; x++) {
@@ -281,19 +233,12 @@ export function encodeBmp(src: RgbaImage): Uint8Array {
   return out;
 }
 
-/**
- * TIFF export: baseline, uncompressed, RGBA in one strip, little-endian.
- *
- * `ExtraSamples = 2` (unassociated alpha) is written explicitly. Without it a reader is entitled to treat
- * the fourth sample as premultiplied, and every antialiased edge comes back dark.
- */
 export function encodeTiff(src: RgbaImage): Uint8Array {
   const w = src.width;
   const h = src.height;
   const pixelBytes = w * h * 4;
   const entryCount = 12;
   const ifdSize = 2 + entryCount * 12 + 4;
-  // BitsPerSample and the two rationals live outside the IFD because their values exceed four bytes.
   const bitsOffset = 8 + ifdSize;
   const resOffset = bitsOffset + 8;
   const dataOffset = resOffset + 16;
@@ -310,24 +255,23 @@ export function encodeTiff(src: RgbaImage): Uint8Array {
     view.setUint16(p, tag, true);
     view.setUint16(p + 2, type, true);
     view.setUint32(p + 4, count, true);
-    // A SHORT that fits in the value field is left-aligned in it; a LONG or an offset fills it.
     if (type === 3 && count === 1) view.setUint16(p + 8, value, true);
     else view.setUint32(p + 8, value, true);
     p += 12;
   };
-  entry(256, 4, 1, w); // ImageWidth
-  entry(257, 4, 1, h); // ImageLength
-  entry(258, 3, 4, bitsOffset); // BitsPerSample
-  entry(259, 3, 1, 1); // Compression = none
-  entry(262, 3, 1, 2); // PhotometricInterpretation = RGB
-  entry(273, 4, 1, dataOffset); // StripOffsets
-  entry(277, 3, 1, 4); // SamplesPerPixel
-  entry(278, 4, 1, h); // RowsPerStrip
-  entry(279, 4, 1, pixelBytes); // StripByteCounts
-  entry(282, 5, 1, resOffset); // XResolution
-  entry(283, 5, 1, resOffset + 8); // YResolution
-  entry(338, 3, 1, 2); // ExtraSamples = unassociated alpha
-  view.setUint32(p, 0, true); // next IFD: none
+  entry(256, 4, 1, w);
+  entry(257, 4, 1, h);
+  entry(258, 3, 4, bitsOffset);
+  entry(259, 3, 1, 1);
+  entry(262, 3, 1, 2);
+  entry(273, 4, 1, dataOffset);
+  entry(277, 3, 1, 4);
+  entry(278, 4, 1, h);
+  entry(279, 4, 1, pixelBytes);
+  entry(282, 5, 1, resOffset);
+  entry(283, 5, 1, resOffset + 8);
+  entry(338, 3, 1, 2);
+  view.setUint32(p, 0, true);
 
   for (let i = 0; i < 4; i++) view.setUint16(bitsOffset + i * 2, 8, true);
   view.setUint32(resOffset, 72, true);
@@ -347,24 +291,12 @@ export function encodeTiff(src: RgbaImage): Uint8Array {
   return out;
 }
 
-/** PNG export of a packed image, with the dpi written into a `pHYs` chunk when non-zero. */
 export function encodePngImage(src: RgbaImage, dpi = 0): Uint8Array {
   return encodePng(src, dpi);
 }
 
-/** PNG export of a grey plane; roughly a quarter the size of the RGBA form. */
 export { encodePngGray };
 
-/**
- * The one dispatcher.
- *
- * @param raster an already-rendered raster to use for the pixel formats. When null, the document is
- *               rendered at {@link outputSize} — passing the pipeline's own preview avoids rendering the
- *               same geometry twice.
- * @returns the encoded file bytes.
- * @throws for JPEG and WEBP, which have no encoder here by design (see the module comment), and for
- *         PROJECT, which is `project.ts`'s job because it needs the parameters as well as the geometry.
- */
 export function exportDocument(
   doc: VecDocument,
   raster: RgbaImage | null,

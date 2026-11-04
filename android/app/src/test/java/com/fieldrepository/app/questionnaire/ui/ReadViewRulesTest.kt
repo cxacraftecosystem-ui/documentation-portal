@@ -17,10 +17,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/**
- * The read view and review (B27), History (B21), a take's history (B40), the transcript line while
- * transcription is paused (B34) and the consent line (B33, C4).
- */
 class ReadViewRulesTest {
     private val detail = QSessionDetail(
         id = "s1", sessionDate = "2026-07-01",

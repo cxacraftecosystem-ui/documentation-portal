@@ -1,24 +1,3 @@
-"""One Gemini pass over a transcript's turns: English per turn, plus the summary, quotes and craft terms.
-
-THE RULES THE MODEL IS GIVEN (design section 2):
-
-* translate faithfully, turn by turn, and NEVER summarise or merge turns;
-* keep craft terms in the original with a short English gloss the FIRST time only, e.g.
-  ``bandhani (tie-dye)``; later mentions keep the term alone;
-* keep names, places, numbers and units exactly;
-* a turn already in English is not translated (it is marked "Already in English" here, before the
-  call, from the script it is written in; the model can also say so for a turn it was sent).
-
-THE REPLY IS STRUCTURED JSON keyed by turn id and matched back by id, so a reply can never shift
-an English line onto the wrong speaker. A turn the reply leaves out, answers with nothing, or
-answers with something far shorter than the original (a summary, not a translation) or without a
-number the original states, is asked for once more on its own; if it is still wrong it is FAILED,
-never a guess.
-
-Very long transcripts are split ON TURN BOUNDARIES ONLY (:func:`batches`), and the craft terms
-already glossed in an earlier part are passed on, so a gloss still appears only the first time.
-"""
-
 from __future__ import annotations
 
 import json
@@ -31,15 +10,12 @@ from typing import Any
 from app.transcription.contract import ApiKey
 from app.transcription.transcript import gemini
 
-#: Characters of turn text per request. Flash's context is far larger; this keeps one reply's
-#: output (the translation is about as long as the input) comfortably inside its output limit.
 BATCH_CHARS = 40_000
 SUMMARY_MAX_LINES = 5
 SUMMARY_LINE_MAX_CHARS = 400
 QUOTES_MAX = 5
 QUOTE_MAX_CHARS = 1_000
 TERMS_MAX = 60
-#: A non-trivial turn whose English is under this share of its length was summarised, not translated.
 SUMMARISED_RATIO = 0.3
 SUMMARISED_MIN_CHARS = 120
 
@@ -119,8 +95,6 @@ RESPONSE_SCHEMA: dict[str, Any] = {
 
 @dataclass
 class TurnIn:
-    """One turn as the pass sees it. ``id`` is the turn's database id."""
-
     id: str
     speaker: str
     language: str
@@ -130,7 +104,7 @@ class TurnIn:
 @dataclass
 class TurnOut:
     id: str
-    status: str  # TRANSLATED | ALREADY_ENGLISH | FAILED
+    status: str
     english: str | None
 
 
@@ -139,9 +113,7 @@ class PassResult:
     translations: dict[str, TurnOut] = field(default_factory=dict)
     primary_language: str | None = None
     summary: list[str] = field(default_factory=list)
-    #: [{turnId, original, english}], every original verified against its turn.
     quotes: list[dict[str, Any]] = field(default_factory=list)
-    #: [{term, gloss}]
     terms: list[dict[str, str]] = field(default_factory=list)
     model: str | None = None
     cost_usd: float = 0.0
@@ -162,34 +134,38 @@ _SPACE = re.compile(r"\s+")
 
 
 def normalise(text: str) -> str:
-    """Casefolded, NFC, whitespace collapsed, outer quotes off: what "verbatim" is checked against."""
     value = unicodedata.normalize("NFC", str(text or "")).casefold()
     return _SPACE.sub(" ", value).strip().strip("\"'“”‘’").strip()
 
 
-_DIGITS = re.compile(r"\d+")
-_INDIC_DIGITS = {ord(c): str(i) for base in (0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66, 0x0BE6, 0x0C66, 0x0CE6, 0x0D66) for i, c in enumerate(chr(base + n) for n in range(10))}
+_DIGITS = re.compile(r"[0-9]+")
+_UNCLEAR = re.compile(r"\[\s*unclear\s*\]", re.IGNORECASE)
+
+
+def _ascii_digits(text: str) -> str:
+    return "".join(str(unicodedata.decimal(ch)) if not ch.isascii() and unicodedata.decimal(ch, None) is not None else ch for ch in text)
 
 
 def numbers_in(text: str) -> set[str]:
-    """Digit runs, Indic digits read as ASCII, leading zeros kept."""
-    return set(_DIGITS.findall(str(text or "").translate(_INDIC_DIGITS)))
+    return set(_DIGITS.findall(_ascii_digits(str(text or ""))))
+
+
+def flags_unclear(english: str) -> bool:
+    return bool(_UNCLEAR.search(english or ""))
 
 
 def suspicious(original: str, english: str, *, numbers: bool = True) -> bool:
-    """True when ``english`` cannot be a faithful translation of ``original``: empty, far shorter
-    (a summary), or, with ``numbers``, missing a number the original states."""
     source = original.strip()
     target = english.strip()
     if not target:
         return bool(source)
-    if len(source) >= SUMMARISED_MIN_CHARS and len(target) < SUMMARISED_RATIO * len(source):
+    unclear = flags_unclear(target)
+    if not unclear and len(source) >= SUMMARISED_MIN_CHARS and len(target) < SUMMARISED_RATIO * len(source):
         return True
-    return numbers and not numbers_in(source) <= numbers_in(target)
+    return numbers and not unclear and not numbers_in(source) <= numbers_in(target)
 
 
 def batches(turns: list[TurnIn], limit: int = BATCH_CHARS) -> list[list[TurnIn]]:
-    """Consecutive turns packed up to ``limit`` characters; never splits a turn."""
     out: list[list[TurnIn]] = []
     current: list[TurnIn] = []
     size = 0
@@ -239,7 +215,6 @@ def _str(value: Any, limit: int) -> str | None:
 
 
 def _gloss_terms(english: str) -> list[str]:
-    """Terms glossed in a translation: the Latin word right before ``(gloss)``."""
     return [m.group(1) for m in re.finditer(r"\b([A-Za-z][A-Za-z'-]*) \([^()]{2,60}\)", english)]
 
 
@@ -251,7 +226,6 @@ def parse_reply(
     by_short: dict[str, str],
     strict: bool = True,
 ) -> tuple[dict[str, TurnOut], dict[str, Any]]:
-    """``(translations, extras)``. A translation for an id not in this batch is ignored."""
     texts = {turn.id: turn.text for turn in batch}
     out: dict[str, TurnOut] = {}
     for item in data.get("translations") or []:
@@ -265,7 +239,7 @@ def parse_reply(
             out[turn_id] = TurnOut(turn_id, ALREADY_ENGLISH, texts[turn_id])
             continue
         if suspicious(texts[turn_id], english, numbers=strict):
-            continue  # asked again on its own
+            continue
         out[turn_id] = TurnOut(turn_id, TRANSLATED, english.strip())
     summary: list[str] = []
     raw_summary = data.get("summary")
@@ -290,7 +264,7 @@ def parse_reply(
         else:
             home = next((tid for tid, text in texts.items() if needle and needle in normalise(text)), None)
         if home is None:
-            continue  # an invented quote would be attributed to an artisan who never said it
+            continue
         quotes.append(
             {
                 "turnId": home,
@@ -326,11 +300,6 @@ def run_pass(
     models: tuple[str, ...] = gemini.MODELS,
     batch_chars: int = BATCH_CHARS,
 ) -> PassResult:
-    """Translate ``turns`` (and, unless ``translations_only``, summarise them) in as few calls as fit.
-
-    Raises :class:`gemini.GeminiError` when the FIRST batch gets no answer at all; a later batch
-    that fails leaves its turns FAILED so the parts already paid for are kept.
-    """
     result = PassResult()
     glossary = list(glossary or [])
     short_ids = {turn.id: f"t{index + 1}" for index, turn in enumerate(turns)}
@@ -386,7 +355,6 @@ def run_pass(
             for term in extras["terms"]:
                 if all(normalise(term["term"]) != normalise(t["term"]) for t in result.terms):
                     result.terms.append(term)
-    # One more ask, turn by turn, for whatever came back missing or wrong.
     missing = [turn for turn in turns if turn.id in translate_ids and turn.id not in result.translations]
     if missing:
         for batch in batches(missing, batch_chars):
@@ -434,7 +402,6 @@ def _account(result: PassResult, reply: gemini.GeminiReply) -> None:
 
 
 def _merge_summaries(parts: list[list[str]]) -> list[str]:
-    """One summary from each part's: an even share of five lines per part, in transcript order."""
     parts = [part for part in parts if part]
     if not parts:
         return []

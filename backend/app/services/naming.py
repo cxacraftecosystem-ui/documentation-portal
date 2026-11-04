@@ -1,35 +1,3 @@
-"""THE one naming convention for generated names (owner correction (a), 18 Oct 2026).
-
-Every generated title, file name, export or download name and S3 leaf in either portal comes out of
-this module, and nowhere else formats one inline. The convention is
-``C:/dev/IIT/docs/conventions/NAMING_2026-10-18.md`` and the ``naming`` skill. Two golden tables hold
-three runtimes (this module, ``frontend/lib/naming.ts``, ``android/.../data/Naming.kt``) to the same
-bytes:
-
-* ``shared/session-title.json``: the frozen questionnaire contract (titles, recording names,
-  transliteration, exports, collisions). Its rules section is the specification of this module.
-* ``shared/naming-golden.json``: the rows for the helpers outside that contract (any file name,
-  places, sequences, workshop reports, S3 leaves).
-
-This file is byte-identical in designer-portal and documentation-portal; the portal word comes from
-``naming_portal.PORTAL``.
-
-    title      Entity_Date_Place_Craft_Subject                                     (<= 120 chars)
-    file name  Portal_Entity_Date[_Time]_Place_Craft_Subject_What[_Sequence][_n].ext
-                                                                                   (<= 150 chars, ASCII)
-
-``_`` separates fields and ``-`` joins the words inside a field; nothing else is a separator. A
-field that is unknown is LEFT OUT, never written as "Unknown" or guessed. Titles may keep the
-original script; file names are transliterated to ASCII.
-
-The questionnaire streams call the TitleInput API (``session_title(TitleInput)``,
-``recording_filename(session, captured_at=..., captured_at_source=..., targets=[TargetRef])``,
-``export_filename(entity=..., what=..., ext=..., day=...)``, ``ascii_leaf(name, fallback=...)``);
-the rest of the code base calls the same functions with plain fields
-(``recording_filename("Interview", "m4a", captured_at=...)``, ``session_title({"date": ...})``).
-Both shapes are one implementation.
-"""
-
 from __future__ import annotations
 
 import re
@@ -46,7 +14,6 @@ IST = timezone(timedelta(hours=5, minutes=30), name="IST")
 TITLE_MAX = 120
 FILE_MAX = 150
 SUBJECT_MIN = 40
-# The names the rest of the code base already imports.
 MAX_TITLE = TITLE_MAX
 MAX_FILE_NAME = FILE_MAX
 MIN_SUBJECT = SUBJECT_MIN
@@ -54,19 +21,12 @@ ESTIMATED_SOURCES = frozenset({"SESSION_DATE", "UPLOAD_TIME", "UPLOAD_TIME_OUT_O
 RESERVED_STEMS = frozenset(
     {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
 )
-_ZW = frozenset({"\u200c", "\u200d"})  # ZWNJ / ZWJ: load-bearing inside Indic words
-# A question number is read from the display code AFTER its own section code: "F21" in section F2
-# is question 1, not section F question 21. The section is never guessed from the display code.
+_ZW = frozenset({"\u200c", "\u200d"})
 _CODE_GAP = re.compile(r"[ \t\r\n._-]+")
 _NUMBER_TAIL = re.compile(r"^[A-Z]*([0-9]+)$")
 _VERSION = re.compile(r"^v\d+(?:\.\d+)*$")
 _DOUBLE_EXTENSIONS = (".sql.gz", ".tar.gz")
 
-# ── Indic inherent vowel (session-title.json rules.transliteration) ────────────────────────────
-# anyascii maps every Brahmic consonant WITHOUT its inherent "a" (प्रसाद -> "prsad"). Before handing a
-# string to it, an ASCII "a" is inserted after a consonant that is followed, inside the same word, by
-# another letter of the same block that is not a virama or a vowel sign. A consonant at the end of a
-# word gets nothing (schwa deletion), so गिरिराज प्रसाद becomes "giriraj prasad".
 _INDIC_BLOCKS = (0x0900, 0x0980, 0x0A00, 0x0A80, 0x0B00, 0x0B80, 0x0C00, 0x0C80, 0x0D00)
 
 
@@ -86,12 +46,10 @@ def _is_vowel_sign_or_virama(off: int) -> bool:
 
 
 def _is_word_letter(off: int) -> bool:
-    # consonants, independent vowels, candrabindu / anusvara / visarga
     return _is_consonant(off) or 0x05 <= off <= 0x14 or 0x01 <= off <= 0x03 or off in (0x60, 0x61)
 
 
 def indic_inherent_vowels(value: str) -> str:
-    """Drop every nukta (offset 0x3C), then insert the inherent "a" (see the comment above)."""
     chars = [ch for ch in value if not ((info := _indic(ord(ch))) and info[1] == 0x3C)]
     out: list[str] = []
     for i, ch in enumerate(chars):
@@ -105,7 +63,6 @@ def indic_inherent_vowels(value: str) -> str:
 
 
 def to_ascii(value: str | None) -> str:
-    """Transliterate to ASCII: the Indic inherent-vowel pass, then ``anyascii``."""
     if not value:
         return ""
     from anyascii import anyascii
@@ -116,7 +73,6 @@ def to_ascii(value: str | None) -> str:
 transliterate = to_ascii
 
 
-# ── words and fields ───────────────────────────────────────────────────────────────────────────
 def _is_word_char(ch: str) -> bool:
     if ch in _ZW:
         return True
@@ -125,7 +81,6 @@ def _is_word_char(ch: str) -> bool:
 
 
 def split_words(value: Any) -> list[str]:
-    """Spaces and punctuation (including ``_``, ``-``, ``:``, ``·``, ``,`` and ``/``) end a word."""
     words: list[str] = []
     current: list[str] = []
     for ch in unicodedata.normalize("NFC", "" if value is None else str(value)):
@@ -140,8 +95,6 @@ def split_words(value: Any) -> list[str]:
 
 
 def title_case_word(word: str) -> str:
-    """Title-Case one word. A word holding a digit, or an upper-case Latin word of 2-3 letters
-    (an acronym or code part: ``DW``, ``RJ``, ``GI``), keeps its own case."""
     if any(ch.isdigit() for ch in word):
         return word
     if 2 <= len(word) <= 3 and word.isascii() and word.isalpha() and word.isupper():
@@ -167,20 +120,16 @@ def join_field(words: Sequence[str]) -> str:
 
 
 def field(value: Any, *, ascii_only: bool = True) -> str:
-    """One field: words Title-Cased and joined by ``-``. ASCII unless ``ascii_only`` is False."""
     return join_field(field_words(value, ascii_only=ascii_only))
 
 
 def _same(a: str | None, b: str | None) -> bool:
-    """The same words, ignoring case; also when one is written in another script (Majuli, माजुली)."""
     if " ".join(split_words(a)).casefold() == " ".join(split_words(b)).casefold():
         return True
     return field(a).casefold() == field(b).casefold() != ""
 
 
 def _place_text(locality: Any, district: Any, state: Any) -> str | None:
-    """``locality district`` (district dropped when it equals the locality); else locality; else
-    district; else state."""
     loc = str(locality or "").strip()
     dist = str(district or "").strip()
     st = str(state or "").strip()
@@ -190,11 +139,9 @@ def _place_text(locality: Any, district: Any, state: Any) -> str | None:
 
 
 def place_field(locality: Any = None, district: Any = None, state: Any = None, *, ascii_only: bool = True) -> str:
-    """The Place field: ``Locality-District``, else ``Locality``, else ``District``, else ``State``."""
     return field(_place_text(locality, district, state), ascii_only=ascii_only)
 
 
-# ── the inputs ─────────────────────────────────────────────────────────────────────────────────
 @dataclass
 class Person:
     name: str | None = None
@@ -204,20 +151,16 @@ class Person:
 
 @dataclass
 class TitleInput:
-    """What a generated title is computed from. Runtime-neutral: the golden table uses this shape."""
-
     sessionDate: date | None = None
     place: str | None = None
-    workshop: Mapping[str, Any] | None = None  # {locality, district, state, craft}
+    workshop: Mapping[str, Any] | None = None
     participants: list[Person] = dataclass_field(default_factory=list)
-    entity: str | None = None  # override (designer portal: "Workshop"); else derived
-    subject: str | None = None  # override (a design workshop's code)
-    participantCount: int | None = None  # when only the head count is known
+    entity: str | None = None
+    subject: str | None = None
+    participantCount: int | None = None
 
 
 def _parse_date(value: Any) -> date | None:
-    """A calendar day: a date as it is, a datetime's IST day (naive is UTC), a string's first ten
-    characters (``sessionDate`` is a day, never an instant)."""
     if value is None or value == "":
         return None
     if isinstance(value, datetime):
@@ -228,7 +171,6 @@ def _parse_date(value: Any) -> date | None:
 
 
 def _ist_date(value: Any) -> date | None:
-    """The IST day of a moment: a datetime or an ISO instant string; a bare day as it is."""
     instant = _parse_instant(value)
     return instant.astimezone(IST).date() if instant else _parse_date(value)
 
@@ -262,10 +204,6 @@ def _person(p: Any) -> Person | None:
 
 
 def title_input(data: Mapping[str, Any]) -> TitleInput:
-    """A :class:`TitleInput` from a mapping: the golden-table shape (``sessionDate``, ``place``,
-    ``workshop``, ``participants`` of ``{name, localName, craft}``), plus the plain-field spellings
-    (``date``, ``craft``, participant names as strings or ``{name, romanisedName}``,
-    ``participantCount``)."""
     people = [person for p in (data.get("participants") or []) if (person := _person(p))]
     workshop = data.get("workshop")
     craft = data.get("craft")
@@ -328,7 +266,6 @@ def _subject_source(inp: TitleInput, *, ascii_only: bool) -> str | None:
     if n == 1 and inp.participants:
         person = inp.participants[0]
         if ascii_only:
-            # A stored romanised name wins over transliteration.
             for candidate in (person.name, person.localName):
                 if candidate and candidate.strip() and candidate.isascii():
                     return candidate
@@ -337,9 +274,6 @@ def _subject_source(inp: TitleInput, *, ascii_only: bool) -> str | None:
 
 
 def _fit(render: Any, place: list[str], craft: list[str], subject: list[str], limit: int) -> str:
-    """Shorten until ``render`` fits ``limit``: Subject first (to SUBJECT_MIN, at a word boundary),
-    then Craft, then Place, then Subject again, then drop Craft, then Place, then cut Subject."""
-
     def too_long() -> bool:
         return len(render(place, craft, subject)) > limit
 
@@ -366,12 +300,7 @@ def _fields(*parts: str | None) -> str:
     return "_".join(p for p in parts if p)
 
 
-# ── titles ─────────────────────────────────────────────────────────────────────────────────────
 def session_title(inp: Any) -> str:
-    """``Entity_Date_Place_Craft_Subject``, at most 120 characters, original script allowed.
-
-    ``inp`` is a :class:`TitleInput`, a mapping (see :func:`title_input`) or a record with those
-    attributes."""
     inp = _as_input(inp)
     entity = join_field(field_words(_entity(inp), ascii_only=False))
     day = inp.sessionDate.isoformat() if inp.sessionDate else None
@@ -385,9 +314,7 @@ def session_title(inp: Any) -> str:
     return _fit(render, place, craft, subject, TITLE_MAX)
 
 
-# ── dates (IST) ────────────────────────────────────────────────────────────────────────────────
 def as_ist(value: Any) -> datetime | date | None:
-    """A datetime in IST, a date as it is, or None. Naive datetimes are UTC (the database's)."""
     if value is None or value == "":
         return None
     if isinstance(value, datetime):
@@ -402,7 +329,6 @@ def now_ist() -> datetime:
     return datetime.now(IST)
 
 
-# ── file names ─────────────────────────────────────────────────────────────────────────────────
 def _guard(stem: str) -> str:
     return f"{stem}-File" if stem.upper() in RESERVED_STEMS else stem
 
@@ -437,11 +363,6 @@ def file_name(
     date: Any = None,
     period: Any = None,
 ) -> str:
-    """The NAMING §2.1 grammar, ASCII, at most 150 characters including the extension.
-
-    The Date field is ``period`` (a field such as ``FY2026-27``), else ``day``, else the IST day of
-    ``date``. ``time`` is ``HHMM`` as given, or ``True`` for the IST time of ``date``. An empty
-    ``ext`` gives a bare stem."""
     moment = None if period else as_ist(date if date is not None else day)
     if period:
         day_f = join_field(field_words(period, ascii_only=True))
@@ -476,10 +397,6 @@ def file_name(
 
 @dataclass
 class TargetRef:
-    """A recording target. ``sectionCode`` is the question's own section and is the only source of
-    the section piece. A question carries ``questionNumber``, or a ``displayCode`` read relative to
-    the section code; neither one means the whole section."""
-
     sectionCode: str
     displayCode: str | None = None
     questionNumber: int | None = None
@@ -494,9 +411,6 @@ def _compact(text: str) -> str:
 
 
 def question_number(section_code: str, display_code: str) -> int | None:
-    """The question number in ``display_code`` once ``section_code`` is taken off its front:
-    ``("F2", "F21")`` -> 1, ``("F2", "F2.13")`` -> 13, ``("D", "D03")`` -> 3. A display code that
-    does not start with the section code gives its trailing digits (``("F2", "Q4")`` -> 4)."""
     code, sec = _compact(display_code), _compact(section_code)
     if sec and code.startswith(sec) and code[len(sec):].isdigit() and code[len(sec):].isascii():
         return int(code[len(sec):])
@@ -518,8 +432,6 @@ def recording_sequence(
     targets: Iterable[TargetRef | Mapping[str, Any]], *, part: int | None = None, position: int | None = None,
     roster_count: int | None = None,
 ) -> str | None:
-    """``D-Q03``, ``B-All``, ``F-Q01-Q06``, plus ``-P2`` for a continuation or ``-T2`` for a solo
-    repeat. Whole-session takes have no section piece. Group takes never carry ``-T``."""
     by_section: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     for raw in targets:
@@ -558,7 +470,6 @@ def recording_sequence(
 
 
 def question_sequence(section: Any, question: Any, *, take: int | None = None, part: int | None = None) -> str:
-    """``D-Q03``; ``-P2`` for part 2, else ``-T2`` for a solo take at position 2 or more."""
     sec = join_field(field_words(section, ascii_only=True)).upper()
     if not sec or question is None or str(question).strip() == "":
         return ""
@@ -567,7 +478,6 @@ def question_sequence(section: Any, question: Any, *, take: int | None = None, p
 
 
 def section_sequence(section: Any) -> str:
-    """``D-All``: a recording that covers a whole section."""
     sec = join_field(field_words(section, ascii_only=True)).upper()
     if not sec:
         return ""
@@ -593,12 +503,6 @@ def recording_filename(
     sequence: Any = None,
     portal: str | None = None,
 ) -> str:
-    """§3.13: the recording, transcript or subtitle file name of one take.
-
-    ``session`` is a :class:`TitleInput` or a mapping (the questionnaire shape: place, craft and
-    subject come from it, the sequence from ``targets``), or an Entity word with the fields passed
-    directly (``recording_filename("Interview", "m4a", captured_at=..., subject=...)``). A time
-    whose ``captured_at_source`` is an estimate, or with ``time_known=False``, is left out."""
     estimated = (captured_at_source or "").upper() in ESTIMATED_SOURCES or not time_known
     instant = _parse_instant(captured_at)
     local = instant.astimezone(IST) if instant else None
@@ -627,7 +531,6 @@ def recording_filename(
 
 
 def session_filename(session: Any, *, what: str, ext: str) -> str:
-    """A file about a whole session (the zip of its recordings): no time, no sequence."""
     inp = _as_input(session)
     return file_name(
         entity=_entity(inp), what=what, ext=ext, day=inp.sessionDate, place=_place_source(inp),
@@ -653,9 +556,6 @@ def export_filename(
     n: int | None = None,
     portal: str | None = None,
 ) -> str:
-    """A download, export, report or backup, dated the day it is generated (IST) unless ``day`` or
-    ``at`` says otherwise. ``with_time`` adds ``HHMM`` for snapshots that can repeat within a day;
-    ``dated=False`` is for templates (pro formas), which carry no date at all."""
     if period or not dated:
         when: Any = None
     elif day is not None:
@@ -676,11 +576,6 @@ def workshop_filename(
     workshop: Any, what: Any, ext: str, *, at: Any = None, dated: bool = True, n: int | None = None,
     portal: str | None = None,
 ) -> str:
-    """A design workshop's report, cards or list: ``..._Workshop_Date_Place_Craft_Code_What.ext``.
-
-    ``workshop`` is the record or a mapping with ``workshopCode``, ``title``, ``clusterName``,
-    ``district``, ``state`` and ``craftName``. The server, the web's offline report and the handset
-    name one report identically through this."""
     return export_filename(
         "Workshop", what, ext, at=at, dated=dated, n=n, portal=portal,
         place=_place_text(_get(workshop, "clusterName"), _get(workshop, "district"), _get(workshop, "state")),
@@ -689,9 +584,7 @@ def workshop_filename(
     )
 
 
-# ── leaves, collisions, Content-Disposition ────────────────────────────────────────────────────
 def split_extension(name: str) -> tuple[str, str]:
-    """``("x", ".sql.gz")``, ``("x", ".m4a")`` or ``("x", "")``."""
     lower = name.lower()
     for double in _DOUBLE_EXTENSIONS:
         if lower.endswith(double) and len(name) > len(double):
@@ -703,8 +596,6 @@ def split_extension(name: str) -> tuple[str, str]:
 
 
 def ascii_leaf(filename: Any, *, fallback: str = "upload.bin") -> str:
-    """Any file name as an ASCII S3 leaf: ``[A-Za-z0-9._-]``, at most 150 characters, never empty,
-    never a Windows reserved stem. Used for client-named uploads; generated names already comply."""
     raw = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
     text = to_ascii(raw)
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", text)
@@ -722,7 +613,6 @@ def ascii_leaf(filename: Any, *, fallback: str = "upload.bin") -> str:
 
 
 def with_n(name: str, n: int) -> str:
-    """``..._Recording_D-Q03.m4a`` -> ``..._Recording_D-Q03_2.m4a`` (``n`` is always last)."""
     if n <= 1:
         return name
     if name.endswith(".sql.gz"):
@@ -732,9 +622,6 @@ def with_n(name: str, n: int) -> str:
 
 
 def dedupe_names(names: Sequence[str]) -> list[str]:
-    """Give colliding names ``_2``, ``_3`` in the order given. Callers pass rows sorted by
-    (createdAt, id), so a repeated download yields the same names. Matching ignores case, because a
-    zip extracted on Windows does."""
     seen: dict[str, int] = {}
     taken: set[str] = set()
     out: list[str] = []
@@ -753,7 +640,6 @@ def dedupe_names(names: Sequence[str]) -> list[str]:
 
 
 def content_disposition(filename: str, *, inline: bool = False) -> str:
-    """``attachment; filename="<ascii>"; filename*=UTF-8''<percent-encoded>``."""
     ascii_name = ascii_leaf(filename, fallback="download")
     kind = "inline" if inline else "attachment"
     return f"{kind}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(str(filename or ascii_name), safe='')}"

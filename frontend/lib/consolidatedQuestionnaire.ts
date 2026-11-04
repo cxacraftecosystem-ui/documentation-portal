@@ -1,23 +1,9 @@
-/**
- * Types for `GET /questionnaire/artisans/{id}/consolidated` — one artisan's questionnaire gathered
- * from every interview they sat in.
- *
- * Kept in their own module rather than appended to `lib/types.ts` so this feature adds no lines to a
- * file every other screen imports.
- */
-
-/** The sitting had ONE artisan, so what was recorded in it is theirs. */
 export const SOLE = "SOLE";
-/**
- * The sitting had several artisans and the schema records no per-artisan link on a response, so who
- * actually spoke is NOT stored. The UI must say so rather than let the reader assume.
- */
 export const GROUP = "GROUP";
 
 export type Attribution = typeof SOLE | typeof GROUP;
 export type AnswerKind = "TYPED" | "RECORDED";
 
-/** Which column the displayed date came from — `interviewDate` is null on every stored interview. */
 export type DateBasis = "interviewDate" | "recordedAt" | "createdAt" | "unknown";
 
 export type InterviewSource = {
@@ -32,14 +18,12 @@ export type InterviewSource = {
   attribution: Attribution;
 };
 
-/** One answer, with the provenance that makes it citable. */
 export type ConsolidatedAnswer = {
   kind: AnswerKind;
   sourceId: string;
   answerText?: string | null;
   notes?: string | null;
   recordedByName?: string | null;
-  /** RECORDED only. */
   mediaId?: string;
   filename?: string | null;
   mediaType?: string | null;
@@ -61,7 +45,6 @@ export type ConsolidatedQuestion = {
   id: string;
   prompt: string;
   sortOrder: number;
-  /** Two or more materially different answers to this question across interviews. */
   conflict: boolean;
   answers: ConsolidatedAnswer[];
 };
@@ -72,7 +55,6 @@ export type ConsolidatedSection = {
   title: string;
   sortOrder: number;
   questions: ConsolidatedQuestion[];
-  /** Clips that resolved to this section but to no single question. */
   recordings: ConsolidatedAnswer[];
 };
 
@@ -81,7 +63,6 @@ export type ConsolidatedQuestionnaire = {
   generatedAt: string;
   interviews: InterviewSource[];
   sections: ConsolidatedSection[];
-  /** Recordings whose section could not be determined — shown, never dropped. */
   unfiled: ConsolidatedAnswer[];
   summary: {
     interviewCount: number;
@@ -96,7 +77,6 @@ export type ConsolidatedQuestionnaire = {
   meta: { queryCount: number };
 };
 
-/** How a fallback date is explained in the UI, so a system timestamp is never read as a field date. */
 export const DATE_BASIS_NOTE: Record<DateBasis, string> = {
   interviewDate: "Date of interview, as recorded on the entry.",
   recordedAt: "No interview date; showing when it was entered.",

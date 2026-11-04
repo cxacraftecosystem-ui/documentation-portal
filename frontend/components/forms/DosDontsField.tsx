@@ -5,7 +5,6 @@ import { useId, useRef, useState } from "react";
 
 import { RequiredMark } from "@/components/ui/RequiredMark";
 
-/** Android parity (MainActivity.kt splitNumbered): stored newline-joined string → editable rows. */
 function splitNumbered(value: string | null | undefined): string[] {
   const rows = (value ?? "")
     .split("\n")
@@ -14,7 +13,6 @@ function splitNumbered(value: string | null | undefined): string[] {
   return rows.length ? rows : [""];
 }
 
-/** Android parity (joinNumbered): rows → newline-joined stored string, blank rows dropped. */
 function joinNumbered(items: string[]): string {
   return items
     .map((row) => row.trim())
@@ -22,14 +20,6 @@ function joinNumbered(items: string[]): string {
     .join("\n");
 }
 
-/**
- * Web twin of Android's NumberedListInput (MainActivity.kt): a required, numbered multi-point input
- * used for an artisan's Do's and Don'ts. Each row is one
- * numbered bullet; pressing Enter inside a row splits it into a new bullet, rows can be removed
- * individually, and "Add point" appends an empty one. The rows serialize to the same
- * newline-joined string as Android via a zero-size mirror input under `name`, so the existing
- * FormData handlers (`requiredText(form, "dos"/"donts")`) are unchanged.
- */
 export function DosDontsField({
   name,
   label,
@@ -39,7 +29,6 @@ export function DosDontsField({
   fieldKey
 }: {
   name: string;
-  /** The completeness rule key this box answers — the `data-field` a meter pill scrolls to. */
   fieldKey?: string;
   label: string;
   helper?: string;
@@ -55,13 +44,11 @@ export function DosDontsField({
   }
 
   function focusRow(index: number) {
-    // After React commits the new row.
     requestAnimationFrame(() => rowRefs.current[index]?.focus());
   }
 
   function changeRow(index: number, raw: string) {
     if (raw.includes("\n")) {
-      // Pasted multi-line text: commit the first segment here, push the rest to new bullets.
       const segments = raw.split("\n");
       const next = [...items];
       next[index] = segments[0].trim();
@@ -83,12 +70,6 @@ export function DosDontsField({
   const helperId = `${groupId}-helper`;
 
   return (
-    /*
-     * UX audit DC-04 (2026-10-16), ported from the designer portal's same component: every row was
-     * an `<input>` with no name, so a screen reader announced "edit text, blank" for each point and
-     * could not tell the Do's from the Don'ts. The group carries the visible heading and each row
-     * carries the ordinal it is drawn with — what is announced is what is printed.
-     */
     <div data-field={fieldKey} className="relative grid content-start gap-1.5" role="group" aria-labelledby={groupId} aria-describedby={helper ? helperId : undefined}>
       <span id={groupId} className="field-label">
         {label}
@@ -112,7 +93,6 @@ export function DosDontsField({
             value={item}
             onChange={(event) => changeRow(index, event.target.value)}
             onKeyDown={(event) => {
-              // Enter commits this point and starts the next one (instead of submitting the form).
               if (event.key === "Enter") {
                 event.preventDefault();
                 addRowAfter(index);
@@ -139,15 +119,6 @@ export function DosDontsField({
         <Plus className="h-4 w-4" aria-hidden />
         Add point
       </button>
-      {/* Zero-size (not hidden) mirror: submits the newline-joined value under the existing field
-          name AND makes `required` participate in native form validation.
-
-          It MUST be a <textarea>, not an <input type="text">. An input's value sanitization
-          algorithm strips CR/LF, so `joined` arrived in FormData as "point onepoint two" — every
-          multi-point Do's/Don'ts was stored as one run-on string, which `splitNumbered` could then
-          never split back into rows. A textarea preserves newlines and still participates in
-          constraint validation, so `required` behaves exactly as before. (MultiNoteField gets away
-          with an input because its mirror is type="hidden", which is not sanitized.) */}
       <textarea
         name={name}
         value={joined}

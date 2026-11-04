@@ -1,11 +1,3 @@
-"""Issuing, reissuing and reading artisan cards, and the card event log.
-
-Every function takes the Prisma client (or a transaction) as ``client`` so the routes, the backfill
-script and the tests share one implementation. One LIVE card per artisan is guaranteed by the
-partial unique index ``ArtisanCard_one_live_per_artisan``: two first reads that race both try to
-insert, one wins, and the loser reads the winner's card back.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
@@ -26,10 +18,8 @@ ACTION_PEER_RESOLVE = "PEER_RESOLVE"
 SOURCES = ("WEB", "ANDROID", "PEER")
 REASONS = ("LOST", "DAMAGED", "OTHER")
 
-#: How far back the miss budget looks.
 MISS_WINDOW = timedelta(minutes=10)
 
-#: Attempts at a fresh random code before giving up (a 50-bit collision is already vanishingly rare).
 _CODE_ATTEMPTS = 6
 
 
@@ -101,8 +91,6 @@ async def _insert(client: Any, artisan_id: str, *, user_id: str | None, key_vers
             if not _is_unique_violation(exc):
                 raise
             last = exc
-            # Either another request issued this artisan's card first (the partial index), or the
-            # random code collided. The first is answered by reading the winner back.
             existing = await live_card(client, artisan_id)
             if existing is not None:
                 raise _AlreadyIssued(existing) from exc
@@ -123,7 +111,6 @@ async def ensure_card(
     user_id: str | None,
     source: str = "WEB",
 ) -> tuple[Any, bool]:
-    """The artisan's live card, issuing one (and logging ISSUE) if there is none. ``(card, issued)``."""
     card = await live_card(client, artisan_id)
     if card is not None:
         return card, False
@@ -148,7 +135,6 @@ async def reissue(
     user_id: str | None,
     source: str = "WEB",
 ) -> Any:
-    """Revoke the live card (if any) and issue a new one. Logs REISSUE."""
     now = datetime.now(UTC)
     await client.artisancard.update_many(
         where={"artisanId": artisan_id, "revokedAt": None},
@@ -173,12 +159,6 @@ async def reissue(
 async def ensure_cards(
     client: Any, artisan_ids: Iterable[str], *, settings: Any, user_id: str | None
 ) -> dict[str, Any]:
-    """Live cards for every id, issuing the missing ones together in one transaction.
-
-    The backend's only bulk issue path (sheet.pdf and the backfill). If a concurrent first read
-    issues one of the same artisans mid-way, the transaction rolls back and the missing set is
-    read again once; the partial unique index is what makes that safe.
-    """
     ids = list(dict.fromkeys(artisan_ids))
     found = await live_cards(client, ids)
     for _attempt in range(2):
@@ -229,7 +209,6 @@ async def ensure_cards(
 
 
 async def assert_under_miss_limit(client: Any, settings: Any, user_id: str | None) -> None:
-    """429 once this account has missed ARTISAN_CARD_RESOLVE_MISS_LIMIT times in ten minutes."""
     if not user_id:
         return
     since = datetime.now(UTC) - MISS_WINDOW
@@ -244,13 +223,8 @@ async def assert_under_miss_limit(client: Any, settings: Any, user_id: str | Non
         )
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# What a card says
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def cluster_of(artisan: Any) -> str | None:
-    """The card's cluster line: the stated village, then district, then the typed place."""
     location = _get(artisan, "location")
     for value in (_get(location, "village"), _get(location, "district"), _get(artisan, "place")):
         if isinstance(value, str) and value.strip():
@@ -286,7 +260,6 @@ def face(artisan: Any, photo_media_id: str | None) -> dict[str, Any]:
 
 
 def qr_svg(token: str) -> str:
-    """The QR as inline SVG, the same symbol the PDF draws (alphanumeric, level Q, version 3)."""
     import segno
 
     symbol = segno.make(token, error="q", mode="alphanumeric", micro=False, boost_error=False)
@@ -308,7 +281,6 @@ def card_payload(
 
 
 def resolved_artisan(artisan: Any) -> dict[str, Any]:
-    """The artisan as a resolve answer shows them: enough to confirm the right person, no more."""
     return {
         "id": artisan.id,
         "name": _get(artisan, "name"),

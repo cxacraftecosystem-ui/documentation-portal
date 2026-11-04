@@ -1,8 +1,3 @@
-"""The LGD register file against the district list it codes, and against the sibling portal's copy.
-
-No database.
-"""
-
 from __future__ import annotations
 
 import json
@@ -67,7 +62,6 @@ def test_list_version_matches_the_district_list():
 
 
 def test_well_known_codes():
-    # Spot checks against lgdirectory.gov.in: a rename keeps its code, a 2023 district has its own.
     assert lgd.state_lgd("Rajasthan") == 8
     assert lgd.district_lgd("Rajasthan", "Barmer") == 90
     assert lgd.district_lgd("Rajasthan", "Balotra") == 775

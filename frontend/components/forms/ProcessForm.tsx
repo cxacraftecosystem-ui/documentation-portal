@@ -38,11 +38,6 @@ import { ReviewNoteBanner } from "@/components/review/ReviewNoteBanner";
 import { Badge } from "@/components/ui/Badge";
 import { countNoun } from "@/lib/format";
 
-// ---------------------------------------------------------------------------
-// Types for the /processes endpoints (hydrated detail: media on the process =
-// pre-process clips, media on each step = that step's captures).
-// ---------------------------------------------------------------------------
-
 export type ProcessStepRecord = {
   id: string;
   name: string;
@@ -62,35 +57,17 @@ export type ProcessRecord = {
   steps?: ProcessStepRecord[];
   media?: MediaFile[];
   product?: ProductDocumentation | null;
-  // The workshop this process was documented at. The API also resolves a process through its parent
-  // product's workshop, so an older process can be null here and still belong to a workshop.
   workshopId?: string | null;
   workshop?: Workshop | null;
   extraMetadata?: ExtraMetadata | null;
   createdAt: string;
   createdById?: string;
   createdBy?: User;
-  /**
-   * Idempotency key for an offline create. WRITTEN BY THE OUTBOX, NEVER BY THIS FORM, and absent on
-   * every row nobody replayed.
-   *
-   * DECLARED HERE AND NOT IN `lib/types.ts` ONLY BECAUSE `ProcessRecord` ITSELF IS. The other three
-   * keyed records — `Workshop`, `ProductDocumentation`, `ToolDocumentation` — carry the same field
-   * beside their own declarations over there; this type is local to this file, so its copy is local
-   * too, and the canonical argument lives at `Workshop.clientKey`.
-   *
-   * IT IS ON THE RESPONSE SHAPE, NOT THE REQUEST. `saveOrQueue` merges the key into the body on a
-   * POST to one of `CLIENT_KEY_ENDPOINTS` (`lib/offline.ts`), so the form never mentions it — but
-   * the created record comes BACK carrying it, and `saveOrQueue<ProcessRecord>` below types that
-   * answer. Without this line a reader comparing the wire to the type would conclude the key is
-   * dropped on the way back, which is the sort of absence that gets "fixed" by removing the key.
-   */
   clientKey?: string | null;
 };
 
 const STATUS_OPTIONS = ["DRAFT", "PENDING", "APPROVED", "REJECTED"];
 
-/** Mutable UI holder for one step: name, fixed type, optional notes, and its own media. */
 type StepUi = {
   key: string;
   serverId?: string;
@@ -101,7 +78,6 @@ type StepUi = {
   files: File[];
   existingMedia: MediaFile[];
   nameError?: string | null;
-  /** C22: copied from the craft's last process and not yet edited — marked "From last process". */
   template?: boolean;
 };
 
@@ -112,10 +88,6 @@ function stepTypeLabel(stepType: string): string {
 function makeKey(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
-
-// ---------------------------------------------------------------------------
-// Saved media list ("Already attached:") with per-item delete — Android parity.
-// ---------------------------------------------------------------------------
 
 function SavedMediaList({
   items,
@@ -129,7 +101,6 @@ function SavedMediaList({
   const [active, setActive] = useState<PreviewMedia | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const confirm = useConfirm();
-  // After the hooks: an empty list renders nothing at all (no "Already attached:" heading).
   if (!items.length) return null;
 
   async function remove(media: MediaFile) {
@@ -186,11 +157,6 @@ function SavedMediaList({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Controlled multi-note input (Android MultiNoteInput): notes stored \n\n-joined.
-// Give it a fresh React `key` to reset its internal rows.
-// ---------------------------------------------------------------------------
-
 function splitNotes(value: string): string[] {
   return value
     .split(/\n\s*\n/)
@@ -239,35 +205,6 @@ function MultiNoteInput({ label, value, onChange }: { label: string; value: stri
               </button>
             ) : null}
           </div>
-          {/*
-            A MICROPHONE PER NOTE, AND NO FORMATTING TOOLBAR.
-
-            Dictation belongs here: this is the box a researcher fills standing at a loom describing
-            what the artisan's hands are doing, which is the whole argument for speaking instead of
-            typing. Rich text does not belong here, and the reason is thirty lines above this
-            comment — `emit` joins the rows with a blank line and `splitNotes` tears them apart
-            again on the way back in, and Android's own `MultiNoteInput` in `MainActivity.kt` does
-            the same to the same column. A document in one of these rows would come back as one note containing
-            JSON. The user's rule — formatting on the LARGER boxes only — reads the same way from
-            this side: a two-line "additional context for this step" is not a larger box.
-
-            The button is per ROW rather than one for the group because a single microphone would
-            have to guess which note the phrase belongs in, and its only defensible guess (the last
-            one) is wrong exactly when somebody is going back to fill in note two.
-
-            `explainWhenUnavailable={false}` ON EVERY ROW. The first row used to carry the sentence,
-            which was right while these were the only microphones on the page. The process name, every
-            step name and the whole-process notes box each have one now, so "once per note group"
-            became once per STEP — the form says it exactly once at the top instead
-            (`DictationUnavailableNotice`, mounted beside the workshop picker). The sentence is not
-            gone; it moved.
-
-            The joiner is `appendDictatedPhrase`, shared with both dictated boxes rather than written
-            out here for a third time — same rule, one place, see `richtext/dictatedValue.ts`. The
-            reason has not changed: the recogniser stops and starts across a long answer, so a commit
-            APPENDS, and without the space a note dictated in three goes comes out as
-            "…the warpis sized…".
-          */}
           <OnDeviceDictationButton
             fieldLabel={rows.length > 1 ? `${label}, note ${index + 1}` : label}
             explainWhenUnavailable={false}
@@ -285,44 +222,6 @@ function MultiNoteInput({ label, value, onChange }: { label: string; value: stri
   );
 }
 
-// ---------------------------------------------------------------------------
-// The process form (create + edit) — Android ProcessForm parity.
-// ---------------------------------------------------------------------------
-
-/**
- * ── DICTATION ON THIS FORM: WHICH BOXES HAVE A MICROPHONE, AND WHY THE REST DO NOT ──────────────
- *
- * The rule: a free-text box HAS a microphone unless there is a reason it must not, and the reason is
- * written down here so that a later reader can tell a decision from an oversight.
- *
- * DICTATED: Name of the process · What happens in this process (the narrative box, new here) · Name
- * of the step, once per step · Additional context for this step, once per NOTE ROW per step.
- *
- * NOT DICTATED, one line each:
- *
- *  - **Workshop, Artisan, Product, Status** — record pickers and a closed vocabulary. The artisan is
- *    the one that decides which product list appears, so it is chosen from a list and never typed.
- *  - **Pre-processes available / Record additional information** — switches. A recogniser answers a
- *    yes/no question with a sentence.
- *  - **Pre-process media, per-step media** — file pickers.
- *
- * ── TWO THINGS ON THIS FORM ARE UNLIKE EVERY OTHER FORM IN THE APP ─────────────────────────
- *
- * 1. NO `FormData`, EVER. `submit()` builds its body out of React state (see `payload`), so no child
- *    here may rely on a hidden input or a `name=` attribute: `DictatedTextInput` is mounted WITHOUT
- *    `name` on both boxes, and the notes editor reports its value through `onValueChange` rather than
- *    through the hidden input every other form reads. A `name=`-only child on this form submits
- *    nothing, silently.
- *
- * 2. THE UNSAVED-CHANGES GUARD IS A SIGNATURE DIFF, not an `onDirty` event. Any new value must join
- *    `signature` or it is a box a researcher can fill in, navigate away from, and be told there was
- *    nothing to lose. `notes` is in it for exactly that reason.
- *
- * And one that follows from the first: this `<form>` carries `noValidate`. The refusal ladder in
- * `submit()` is the ONLY refusal path, because `UnsavedChangesDialog`'s Save button calls `submit()`
- * directly and never goes through the browser's constraint validation. Shipping `required` without
- * `noValidate` would give the two save buttons two different refusals for the same empty box.
- */
 export function ProcessForm({
   initial,
   onDone,
@@ -335,20 +234,13 @@ export function ProcessForm({
   const { user } = useAuth();
   const isEdit = Boolean(initial);
   const canPickStatus = hasRank(user, "PROFESSOR");
-  // The workshop this process was documented at: shared picker, shared most-recent defaulting, and
-  // the late-submission gate (see components/forms/WorkshopSelect).
   const workshop = useWorkshopSelection({ initialWorkshopId: initial?.workshopId, isEdit, resetKey: initial?.id ?? null });
 
   const [name, setName] = useState(initial?.name ?? "");
   const [artisanId, setArtisanId] = useState(initial?.product?.artisanId ?? "");
   const [productId, setProductId] = useState(initial?.productId ?? "");
   const [preProcessAvailable, setPreProcessAvailable] = useState(initial?.preProcessAvailable ?? false);
-  // Was carried through unchanged from `initial` because this form had no input for it — Android's
-  // ProcessForm still has none. It has one now (the narrative editor below), so this is live state
-  // rather than a constant, and it joins `signature` so the guard can see it change.
   const [notes, setNotes] = useState(initial?.notes ?? "");
-  // Status policy: professor+ defaults to APPROVED on create and may pick any status; below
-  // professor the status is forced to PENDING (locked chip below) and the server enforces it too.
   const [status, setStatus] = useState<string>(initial?.status ?? (canPickStatus ? "APPROVED" : "PENDING"));
   const [steps, setSteps] = useState<StepUi[]>(() =>
     (initial?.steps ?? []).map((step) => ({
@@ -365,25 +257,10 @@ export function ProcessForm({
   const [preFiles, setPreFiles] = useState<File[]>([]);
   const [existingPreMedia, setExistingPreMedia] = useState<MediaFile[]>(initial?.media ?? []);
 
-  /*
-    A11 — THE ARTISAN PICKER SEARCHES THE SERVER. One page is held; when the table is longer than
-    that page, typing in the picker re-asks `GET /artisans?search=` (see `useServerSearchList`).
-    "Can I see this artisan?" and "is there any signal?" stay different answers — `state` is the
-    carry-forward prefill's scope, as before.
-  */
   const artisanList = useServerSearchList<Artisan>("/artisans", "artisans");
   const artisans = artisanList.items;
   const artisanListState: CarryScopeState = artisanList.state;
   const [artisanProducts, setArtisanProducts] = useState<ProductDocumentation[]>([]);
-  /**
-   * WHAT THE TWO PICKERS ARE NOT SHOWING — see `components/data/cappedList`.
-   *
-   * Both loads below ask for the ceiling `normalize_pagination` clamps to and both used to keep only
-   * `.items`. The artisan dropdown is the exposed one: unlike the product and tool forms' it is NOT
-   * scoped by craft, so it really is the newest hundred rows of the whole artisan table, with no
-   * search box and no page two. The products load is per artisan and is therefore whole in practice
-   * — but "in practice" is not a property of the code, so it is reported the same way.
-   */
   const artisanCut = artisanList.cut;
   const [productCut, setProductCut] = useState<ListCut | null>(null);
   const [productsLoading, setProductsLoading] = useState(false);
@@ -402,43 +279,17 @@ export function ProcessForm({
 
   const statusChoices = initial?.status && !STATUS_OPTIONS.includes(String(initial.status)) ? [String(initial.status), ...STATUS_OPTIONS] : STATUS_OPTIONS;
 
-  /**
-   * THE ARTISAN THIS PROCESS IS ALREADY FILED UNDER, whatever page they are on.
-   *
-   * `GET /artisans` orders `createdAt desc` and is clamped to 100 rows, so an older process opened
-   * for editing pointed at an artisan the dropdown could not draw — and this field is REQUIRED and
-   * gates the product dropdown beneath it, which is fetched per artisan. The form therefore opened
-   * claiming no artisan, offering no products, and the only way forward on screen was to pick a
-   * DIFFERENT artisan. Same hook, same argument, as the craft pickers in the artisan, product and
-   * tool forms (`forms/recordPickers`).
-   */
   const offPageArtisan = useRecordOffPage<Artisan>("/artisans", artisanId, artisans);
   const artisanOptions = useMemo(
     () => (offPageArtisan ? mergeById(artisans, [offPageArtisan]) : artisans),
     [artisans, offPageArtisan]
   );
 
-  /**
-   * The carried product, held until the artisan's product list arrives.
-   *
-   * A process is documented against a product, so "I just recorded a product, now let me record how
-   * it is made" is the most common journey into this form — and the one the old artisan-only context
-   * left half-finished. The product cannot be applied on the spot the way the artisan can: the
-   * dropdown it belongs in is fetched per artisan, and that fetch only starts once the prefill has
-   * supplied the artisan. So it waits here for one round trip.
-   */
   const carriedProductRef = useRef<string | null>(null);
 
-  // Offer the sitting this researcher was last working in: the artisan, the workshop, and the
-  // product they documented last, which is what this record is about.
   const carry = useCarryContext({
     enabled: !isEdit,
-    // `artisanOptions`, not `artisans`: a carried artisan who is merely off the picker's first page
-    // IS reachable — the by-id lookup fetched them — and pruning them here would drop a good link
-    // from the bag for the "absent from page one" reason this whole change set exists to stop
-    // conflating with "absent from the repository".
     scopes: [carryScope("artisan", artisanListState, artisanOptions)],
-    // No craft or tool field here, so neither is filled in nor claimed; both stay in the bag.
     applies: ["artisan", "product", "workshop"],
     onApply: (context) => {
       if (context.artisanId) setArtisanId(context.artisanId);
@@ -447,7 +298,6 @@ export function ProcessForm({
     }
   });
   const pruneCarried = carry.prune;
-  /** "Change": drop the carried artisan and product in one action. */
   function clearCarriedContext() {
     carry.change();
     carriedProductRef.current = null;
@@ -455,9 +305,6 @@ export function ProcessForm({
     setProductId("");
   }
 
-  // Products belong to an artisan, so the product list is scoped to the chosen artisan. The server
-  // OR-matches FK-linked products plus products carrying the artisan's typed name (no FK), so the
-  // dropdown never hides a product that genuinely belongs to the artisan.
   useEffect(() => {
     let cancelled = false;
     if (!artisanId) {
@@ -475,8 +322,6 @@ export function ProcessForm({
         setArtisanProducts(result.items);
         setProductCut(listCut(result, "products for this artisan"));
         setProductsLoading(false);
-        // This list is both the dropdown's options and the only proof the carried product is still
-        // this artisan's and still reachable, so the deferred half of the prefill resolves here.
         const carried = carriedProductRef.current;
         if (carried) {
           carriedProductRef.current = null;
@@ -484,11 +329,8 @@ export function ProcessForm({
             setProductId(carried);
             return;
           }
-          // Deleted, or it turned out not to belong to this artisan. Either way it is dropped from
-          // the bag and from the banner rather than offered as a link nobody can follow.
           pruneCarried("product");
         }
-        // Keep a valid selection: clear product if it is no longer offered for this artisan.
         setProductId((current) => (current && result.items.every((product) => product.id !== current) ? "" : current));
       })
       .catch((err) => {
@@ -504,12 +346,6 @@ export function ProcessForm({
     };
   }, [artisanId, artisanOptions, pruneCarried]);
 
-  // Unsaved-changes guard: signature of every user-editable field + pending file counts. The
-  // workshop only counts once the USER has picked one — the create form's automatic most-recent
-  // default lands asynchronously and must not make an untouched form look dirty.
-  // A carried artisan is on the same footing as the automatic workshop default: the researcher did
-  // not type it, so it must not make an untouched form prompt "discard your changes?". Picking one
-  // themselves retires the offer (carry.applied goes null) and the value starts counting.
   const carriedArtisanId = carry.applied?.context.artisanId ?? null;
   const carriedProductId = carry.applied?.context.productId ?? null;
   const signature = JSON.stringify({
@@ -518,10 +354,6 @@ export function ProcessForm({
     productId: productId && productId === carriedProductId ? "" : productId,
     workshopId: workshop.touched ? workshop.workshopId : "",
     status,
-    // IN THE SIGNATURE, because this form's unsaved-changes guard is a DIFF of state rather than an
-    // `onDirty` event — so a box left out of it is a box a researcher can fill in, navigate away
-    // from, and be told there was nothing to lose. `RichTextField` reports its value through
-    // `onValueChange`, which lands in `notes`, which lands here.
     notes,
     preProcessAvailable,
     pre: preFiles.length,
@@ -533,7 +365,6 @@ export function ProcessForm({
       files: step.files.length
     }))
   });
-  // Captured once on first render (state initializer), so it is safe to read while rendering.
   const [initialSignature] = useState(signature);
   const dirty = !saving && signature !== initialSignature;
 
@@ -558,7 +389,6 @@ export function ProcessForm({
     setAddMenu(false);
   }
 
-  /** C22 — "Steps from photos": one unnamed step per file, in the order the photos were taken. */
   async function addStepsFromFiles(list: FileList | null) {
     const files = Array.from(list ?? []);
     if (!files.length) return;
@@ -583,7 +413,6 @@ export function ProcessForm({
     ]);
   }
 
-  /** C22 — the craft this process's product is of, for "Start from last process". */
   const productCraftId = artisanProducts.find((product) => product.id === productId)?.craftId ?? null;
   const [templateBusy, setTemplateBusy] = useState(false);
   const [templateNote, setTemplateNote] = useState<string | null>(null);
@@ -620,28 +449,8 @@ export function ProcessForm({
   }
   const unnamed = unnamedStepCount(steps);
 
-  /**
-   * HAND THE PROMPT TO EVERY CONTROL THAT CAN LEAVE THIS FORM, not just to this form's own Cancel.
-   *
-   * `dirty` above has always been computed and has always armed the `beforeunload` handler, which
-   * covers closing the tab — and covers nothing else, because `beforeunload` does not fire for a
-   * CLIENT navigation. Three controls perform one: the round back control in `PageHeader`, and now
-   * the two dropdowns of `RecordSwitcher` above this form. `ArtisanForm`, `ProductForm` and
-   * `ToolForm` all registered here; this form was the one that had not, so on `/processes` every one
-   * of those three discarded a half-written process silently and answered 200 to nothing.
-   *
-   * The prompt is the one already built below — `guardOpen` and its `UnsavedChangesDialog` — so this
-   * is a registration and not a second dialog. Discard runs `onCancel`, which on `/processes` drops
-   * back to the list; see `RecordSwitcher.open` for why that destination is not always the one the
-   * researcher had just asked for, and what fixing it properly would cost.
-   */
   useLeaveGuard(dirty, () => setGuardOpen(true));
 
-  /*
-    B6 — THIS FORM KEEPS A DRAFT. Everything the researcher typed or attached is autosaved (debounced,
-    only while `dirty`) and offered back after a closed tab. The notes editor seeds once, so a
-    restored note remounts it through `notesSeed`.
-  */
   const [notesSeed, setNotesSeed] = useState<{ value: string; nonce: number }>({ value: initial?.notes ?? "", nonce: 0 });
   const draft = useFormDraft({
     kind: "process",
@@ -723,7 +532,6 @@ export function ProcessForm({
       setStepsError("Add at least one step");
       blocked = true;
     }
-    // C22: a step may be saved without a name; it is flagged "Unnamed step" until somebody names it.
     if (blocked) {
       setError("Please fill the required fields highlighted above.");
       setGuardOpen(false);
@@ -731,8 +539,6 @@ export function ProcessForm({
       return;
     }
 
-    // A workshop that has already ended makes this a late submission needing admin approval — say so
-    // before anything is written. Resolves true immediately when there is nothing to warn about.
     if (!(await workshop.confirmSubmission())) {
       setGuardOpen(false);
       return;
@@ -747,7 +553,6 @@ export function ProcessForm({
         workshopId: workshop.workshopId || null,
         preProcessAvailable,
         notes: notes.trim() || null,
-        // Unauthorized status changes are silently dropped server-side.
         status,
         steps: steps.map((step, index) => ({
           id: step.serverId,
@@ -758,16 +563,11 @@ export function ProcessForm({
         })),
         ...(isEdit ? {} : { recordedAt: new Date().toISOString() })
       };
-      // Offline this queues to the outbox. The step captures are the awkward part: they link to
-      // `processstep` rows the server has not minted yet, so each step's batch carries its index and
-      // the replay resolves the real id from the create response's `steps[]`.
       const outcome = await saveOrQueue<ProcessRecord>({
         label: `Process · ${trimmedName || "Untitled"}`,
         endpoint: isEdit ? `/processes/${initial!.id}` : "/processes",
         method: isEdit ? "PATCH" : "POST",
         body: payload,
-        // Queued offline, the process name the researcher typed is the best this can know; the
-        // online path below re-derives the names from what the server actually stored.
         media: [
           {
             files: preProcessAvailable
@@ -801,8 +601,6 @@ export function ProcessForm({
           }))
         ]
       });
-      // Bank the sitting the moment the record is accepted (queued counts — offline is the normal
-      // case), so the next form opened from the dashboard already knows where the researcher is.
       const savedArtisan = artisanOptions.find((a) => a.id === artisanId);
       const savedProduct = artisanProducts.find((product) => product.id === productId);
       carry.remember({
@@ -810,17 +608,13 @@ export function ProcessForm({
         artisanName: savedArtisan?.name ?? null,
         place: savedArtisan?.place ?? null,
         craftId: savedArtisan?.craftId ?? null,
-        // The product this process documents stays in the bag: a second process for the same
-        // product is the next thing a researcher does, and it should not need finding again.
         productId,
         productName: savedProduct?.productName ?? null,
         workshopId: workshop.workshopId,
         workshopName: workshop.workshops.find((w) => w.id === workshop.workshopId)?.title ?? null
       });
-      // Saved or queued: the draft has done its job.
       draft.clear();
       if (outcome.queued) {
-        // OutboxBanner at the top of the page names the entry and says where it lives.
         setGuardOpen(false);
         setSaving(false);
         onDone();
@@ -828,10 +622,6 @@ export function ProcessForm({
       }
       const saved = outcome.saved;
 
-      // Upload media after the record exists: pre-process clips link to the process itself, each
-      // step's files link to that step (linkedRecordType "processstep" + the step id). Names come
-      // from the SAVED process and step names — the API title-cases both, and the browser's name for
-      // a file has to read the same as the one the data browser derives from the row.
       const failures: string[] = [];
       const totalUploads = (preProcessAvailable ? preFiles.length : 0) + steps.reduce((sum, step) => sum + step.files.length, 0);
       let uploadCount = 0;
@@ -875,8 +665,6 @@ export function ProcessForm({
                   stepNumber: serverStep.sortOrder ?? index + 1,
                   stepName: serverStep.name,
                   subject: local.files[fileIndex],
-                  // Continues past what is already on the step, so a second save cannot re-issue a
-                  // name the first one already wrote in the same minute.
                   index: local.existingMedia.length + fileIndex + 1
                 })
               }),
@@ -919,26 +707,6 @@ export function ProcessForm({
   return (
     <form
       className="panel grid gap-4 p-5"
-      /*
-        THE ONLY `noValidate` IN THIS REPOSITORY, AND IT IS NOT A LICENCE TO COPY.
-
-        The two dictated boxes below carry `required`, which every other form in the app relies on
-        the browser to enforce. Here that would be a SECOND refusal mechanism: `submit()` already
-        refuses an empty name, sets `nameError`, and moves focus to the offending control by id
-        (`document.getElementById(focusId)?.focus()`). Without this attribute the submit button would
-        show a browser bubble before `submit()` ever ran — making `nameError` and the focus ladder
-        dead code for the empty case — while `UnsavedChangesDialog`'s Save button, which calls
-        `submit()` DIRECTLY, would still show the red paragraph. Two save buttons, two different
-        refusals, for the same empty box.
-
-        So the JS ladder is the single refusal path and `required` stays for what it still does: the
-        asterisk beside the label and `aria-required` for a screen reader.
-
-        DO NOT PUT THIS ON ANY OTHER FORM. Everywhere else `Select`'s zero-size mirror input exists
-        precisely so that native validation keeps working (`components/FormControls.tsx:198-213`);
-        `noValidate` would disarm every one of them at once. It is safe here only because this form
-        has no `name` attributes, no `FormData` and no mirrors at all.
-      */
       noValidate
       onKeyDown={handleFormEnter}
       onSubmit={(event) => {
@@ -959,37 +727,11 @@ export function ProcessForm({
       {error ? <div className="rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div> : null}
       <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
 
-      {/*
-        THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
-        Every dictated control below passes `explainWhenUnavailable={false}`, including the per-note
-        buttons inside `MultiNoteInput`, which used to elect their first row to carry the sentence.
-        That was right while the notes were the only microphones on the page; with a process name, a
-        notes editor, a step name per step and a note per row it would be one paragraph per step,
-        which is the noise the button's own prop documentation warns about.
-      */}
       <DictationUnavailableNotice />
 
-      {/* Android parity (ProcessForm): the workshop opens the form, because it is the context
-          every other answer belongs to — not merely the first dropdown. */}
       <WorkshopSelect state={workshop} saving={saving} />
 
       <div>
-        {/*
-          `name` is one of the API's title-cased columns (`backend/app/services/records.py:341`), so
-          the box says what will actually be stored; `titleCased` mounts that exact component inside
-          the dictated box rather than copying its hint.
-
-          NOT WRAPPED IN `Field` ANY MORE, and that is required rather than incidental: `Field` is a
-          `<label>`, and a `<label>` forwards a stray click to the first labelable control inside it —
-          so clicking "Dictate" would also focus the box and, on a phone, throw the keyboard up over
-          the interim readout the researcher is watching. The control writes its own `<label htmlFor>`
-          instead, and `id="process-name"` is passed EXPLICITLY because `submit()` reaches this box by
-          `document.getElementById` when it refuses an empty name. A generated id would make that
-          refusal a red paragraph nobody is taken to.
-
-          NO `name` ATTRIBUTE: this form builds its body from React state and never constructs a
-          `FormData`, so a submitted name would be read by nobody.
-        */}
         <DictatedTextInput
           id="process-name"
           label="Name of the process"
@@ -998,8 +740,6 @@ export function ProcessForm({
           explainWhenUnavailable={false}
           value={name}
           aria-invalid={!!nameError}
-          /* `TitleCasedInput` MERGES an incoming `aria-describedby` with its own "Will be saved as …"
-             hint rather than replacing it, so the refusal and the hint are both announced. */
           aria-describedby={nameError ? "process-name-error" : undefined}
           onChange={(next) => setName(next)}
         />
@@ -1022,8 +762,6 @@ export function ProcessForm({
                 setArtisanId(picked);
                 setProductId("");
                 const artisan = artisanOptions.find((a) => a.id === picked);
-                // An explicit pick replaces the remembered context and retires the banner: from
-                // here on the artisan on screen is the researcher's own choice, not a suggestion.
                 if (artisan) {
                   carry.remember({ artisanId: artisan.id, artisanName: artisan.name, place: artisan.place }, { explicit: true });
                 }
@@ -1045,10 +783,6 @@ export function ProcessForm({
               setProductId(picked);
               const product = artisanProducts.find((candidate) => candidate.id === picked);
               if (!product) return;
-              // Two calls, in this order, and the order is the point: pruning first drops the
-              // product the banner was offering — the researcher has just overruled it, so the
-              // banner must stop claiming it — and remembering then banks the one they chose. The
-              // artisan above is still our suggestion, so the banner stays up saying so.
               pruneCarried("product");
               const artisan = artisanOptions.find((candidate) => candidate.id === artisanId);
               carry.remember({
@@ -1078,47 +812,10 @@ export function ProcessForm({
         {!productsLoading && !productLoadError && artisanId && artisanProducts.length > 0 ? (
           <p className="mt-1 text-xs text-ink-500">{countNoun(artisanProducts.length, "product")} available for this artisan.</p>
         ) : null}
-        {/* The count above says how many are OFFERED. This says whether that is all of them — the
-            two sentences answer different questions and a reader given only the first will read it
-            as the second. */}
         <CappedListNotice cuts={[artisanId ? productCut : null]} />
         {productError ? <p className="mt-1 text-xs text-error-600">{productError}</p> : null}
       </div>
 
-      {/*
-        THE ONE LARGE NARRATIVE BOX ON THIS FORM, and the first web input this column has ever had.
-
-        `Process.notes` was carried through unchanged on edit because nothing here wrote it (the old
-        comment at this component's state block said so). It is a sequence described in the
-        researcher's own words, which is the definition of a larger box under the rule that decided
-        every other editor in this app, and it is the one field the sibling application surfaces here
-        that this one did not.
-
-        `onValueChange` and NOT the hidden input every other form reads: this form builds its request
-        body out of React state and never constructs a `FormData`, so `textValue(form, "notes")` has
-        nothing to read and a `name=`-only child would silently submit nothing. `defaultValue` is
-        seeded once from `initial` and the reported string is deliberately NOT fed back — see the note
-        on `initialValue` inside `RichTextField` for the caret that would throw to position zero on
-        every keystroke. `name="notes"` is kept anyway, because it is what the editor announces itself
-        as and costs nothing; it is `onValueChange` that carries the value.
-
-        NO `className`: the form's root grid is a SINGLE column (`panel grid gap-4 p-5`), so there is
-        nothing here for `md:col-span-2` to span. On the two-column record forms that prop is
-        load-bearing; here it would be cargo.
-
-        THE STORAGE COST IS THE SAME BOUNDED ONE THE OTHER SEVEN EDITORS ALREADY CARRY.
-        `encodeStoredRichText` writes PROSE for as long as the document is unformatted, so an
-        unformatted note is byte-identical to what a `<TextArea>` would have written; only a
-        deliberately formatted one becomes `{"blocks":…}`, which `record_fields.cell()` then prints
-        verbatim into a CSV. That trade was made for `Artisan.notes`, `Product.remarks` and five
-        others — see the header of `components/richtext/storedRichText.ts` — and this column joins
-        them rather than inventing a second answer.
-
-        IT IS THE WHOLE-PROCESS COLUMN AND NOT THE STEP COLUMN. `ProcessStep.notes` stays several
-        plain textareas inside `MultiNoteInput` above, because two platforms split THAT column on a
-        blank line and a document in one of its rows comes back as one note holding JSON. The two
-        columns are different and only one of them gets an editor.
-      */}
       <RichTextField
         key={notesSeed.nonce}
         name="notes"
@@ -1126,7 +823,6 @@ export function ProcessForm({
         defaultValue={notesSeed.value}
         helper="The sequence in your own words."
         onValueChange={setNotes}
-        // Said once at the top of this form by `DictationUnavailableNotice`.
         explainWhenUnavailable={false}
       />
 
@@ -1149,7 +845,7 @@ export function ProcessForm({
             files={preFiles}
             onFilesChange={setPreFiles}
             title="Attach media"
-            description="Photos, video, audio and files link to this record automatically. Audio is queued for transcription after upload."
+            description="Photos, video, audio and files link to this record automatically."
           />
           {preMediaError ? <p className="text-xs text-error-600">{preMediaError}</p> : null}
         </div>
@@ -1182,13 +878,6 @@ export function ProcessForm({
                 </button>
               </div>
               <div>
-                {/* A step's name is free prose ("beating the weft down", "second indigo dip") and it
-                    sits directly above the per-note microphones this card already carried, so leaving
-                    it as the one silent box in the card was the odd thing. Its id stays keyed on the
-                    step, because `submit()` focuses it by `document.getElementById` when it refuses an
-                    unnamed step. NOT title-cased: the nested `steps[].name` never passes through
-                    `clean_data`'s top-level key set (`records.py:357-371` iterates `data.items()`
-                    only), so a hint would promise a normalisation that does not happen. */}
                 <DictatedTextInput
                   id={`step-name-${step.key}`}
                   label="Name of the step"
@@ -1229,7 +918,7 @@ export function ProcessForm({
                 files={step.files}
                 onFilesChange={(files) => updateStep(step.key, { files })}
                 title="Attach media"
-                description="Photos, video, audio and files link to this record automatically. Audio is queued for transcription after upload."
+                description="Photos, video, audio and files link to this record automatically."
               />
             </div>
           ))}

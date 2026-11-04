@@ -3,16 +3,6 @@ import { join } from "node:path";
 
 import type { Page, Route } from "@playwright/test";
 
-/**
- * AN IN-MEMORY TRANSCRIPT API FOR THE BROWSER SPEC (`e2e/transcript-web.spec.ts`), shared by both
- * portals (`shared/transcript-web.sha256`).
- *
- * The page runs for real over a production build; every `/api/...` call is answered here. The
- * transcript is the contract's own example (`shared/transcript-contract.json`), with a playable
- * audio url and, where a test asks for it, hostile markdown where the server's markdown goes. What
- * each request asked is kept in `calls`.
- */
-
 export type Call = { method: string; path: string; query: URLSearchParams; body: unknown };
 type Json = Record<string, unknown>;
 
@@ -20,8 +10,8 @@ const CONTRACT = JSON.parse(readFileSync(join(__dirname, "..", "..", "..", "shar
 export const FIXTURES = CONTRACT.fixtures as { copy: Record<string, string> };
 export const MEDIA_ID = "cm_media_1";
 export const AUDIO_PATH = "/e2e-audio/interview.wav";
+export const VIDEO_PATH = "/e2e-video/workshop.mp4";
 
-/** Thirty seconds of silence, 8 kHz mono 8-bit PCM: enough for the browser to seek and play. */
 export function silentWav(seconds = 30): Buffer {
   const rate = 8000;
   const samples = rate * seconds;
@@ -57,8 +47,11 @@ export class TranscriptFake {
   view: Json;
   role = "ADMIN";
   hostile = false;
-  /** Pipeline off: every transcript route answers 404 NOT_FOUND and the legacy text shows. */
   off = false;
+  video = false;
+  policy = { autoTranscribeVideo: false, autoTranscribeAudio: false };
+  backfill = { enabled: false, queued: 0, done: 0, waiting: 0, lastRunAt: null as string | null };
+  estimate = { recordings: 42, queued: 0, failed: 2, untranscribed: 40, leftOutForConsent: 1, minutes: 630, hours: 10.5, costUsd: 3.57, computedAt: "2026-11-03T10:00:00Z" };
 
   constructor() {
     this.view = JSON.parse(JSON.stringify(CONTRACT.examples.TranscriptView));
@@ -71,14 +64,33 @@ export class TranscriptFake {
     return this.calls.filter((call) => call.method === method && call.path === path);
   }
 
+  asVideo(): this {
+    this.video = true;
+    this.view.audio = { url: VIDEO_PATH, durationMs: 30000, cleaned: false, originalUrl: null, video: true };
+    return this;
+  }
+
+  transcriptionSettings(): Json {
+    return {
+      paused: true,
+      providers: [],
+      window: { enabled: false, start: "02:00", end: "05:00", timezone: "Asia/Kolkata" },
+      mode: "REFINED_TRANSLATED",
+      audioIsolation: { enabled: false, keyConfigured: true },
+      autoTranscribe: { video: this.policy.autoTranscribeVideo, audio: this.policy.autoTranscribeAudio },
+      backfill: this.backfill,
+      queue: { QUEUED: 0, FAILED: 0 }
+    };
+  }
+
   media(): Json {
     return {
       id: MEDIA_ID,
-      mediaType: "AUDIO",
-      mimeType: "audio/wav",
-      originalFilename: "interview.wav",
+      mediaType: this.video ? "VIDEO" : "AUDIO",
+      mimeType: this.video ? "video/mp4" : "audio/wav",
+      originalFilename: this.video ? "workshop.mp4" : "interview.wav",
       caption: "Interview with Giriraj",
-      url: AUDIO_PATH,
+      url: this.video ? VIDEO_PATH : AUDIO_PATH,
       sizeBytes: 240044,
       transcriptStatus: "COMPLETED",
       transcriptText: "Legacy transcript text.",
@@ -100,6 +112,18 @@ export class TranscriptFake {
       return { status: 200, json: { id: "u-lead", name: "Nandini Rao", email: "nandini@example.org", role: this.role, isActive: true, mustChangePassword: false, twoFactorEnabled: false, usageConsentAt: "2026-01-01T00:00:00Z" } };
     if (path === "/preferences/me") return { status: 200, json: {} };
     if (path === `/media/${MEDIA_ID}` && method === "GET") return { status: 200, json: this.media() };
+    if (path === "/settings/transcription/upload-policy" && method === "GET") return { status: 200, json: this.policy };
+    if (path === "/settings/transcription/backfill" && method === "GET")
+      return { status: 200, json: { estimate: this.estimate, progress: this.backfill } };
+    if (path === "/settings/transcription" && method === "GET") return { status: 200, json: this.transcriptionSettings() };
+    if (path === "/settings/transcription" && method === "PUT") {
+      if (typeof body?.autoTranscribeVideo === "boolean") this.policy = { ...this.policy, autoTranscribeVideo: body.autoTranscribeVideo };
+      if (typeof body?.autoTranscribeAudio === "boolean") this.policy = { ...this.policy, autoTranscribeAudio: body.autoTranscribeAudio };
+      if (body?.transcriptBackfill === true && body?.confirmBackfill !== true)
+        return { status: 409, json: { detail: "Confirm the estimate to start the backfill." } };
+      if (typeof body?.transcriptBackfill === "boolean") this.backfill = { ...this.backfill, enabled: body.transcriptBackfill };
+      return { status: 200, json: this.transcriptionSettings() };
+    }
     if (path === "/media" && method === "GET") return { status: 200, json: { items: [this.media()], total: 1, page: 1, pageSize: 20, pages: 1 } };
     if (!path.startsWith("/transcripts")) return null;
     if (this.off) return { status: 404, json: { detail: { code: "NOT_FOUND", message: "Not found." } } };
@@ -172,8 +196,6 @@ export class TranscriptFake {
       return { status: 200, json: updated };
     }
     if (path === `${base}/english` && method === "POST") {
-      // The server's rule (add_english): one paragraph per turn that needs English, or per turn, lands on
-      // the turns; anything else is kept whole as manualEnglish. Either way the notice goes.
       if (Number(body?.baseRevision) !== Number(this.view.revision))
         return { status: 409, json: { detail: { code: "STALE_REVISION", message: "Changed on another device." } } };
       const paragraphs = String(body?.text ?? "").split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
@@ -252,9 +274,8 @@ export class TranscriptFake {
     });
     const wav = silentWav();
     await page.route(
-      (url) => url.pathname === AUDIO_PATH,
+      (url) => url.pathname === AUDIO_PATH || url.pathname === VIDEO_PATH,
       (route: Route) => {
-        // Byte ranges, so the browser can seek: a media element seeks a stream without them badly.
         const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers()["range"] ?? "");
         if (!range) return route.fulfill({ status: 200, contentType: "audio/wav", headers: { "accept-ranges": "bytes" }, body: wav });
         const start = Number(range[1]);

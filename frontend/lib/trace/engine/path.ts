@@ -1,17 +1,8 @@
-/**
- * Vector primitives: points, segments, paths, transforms, styles and documents.
- *
- * Kotlin's `sealed interface VecSeg` becomes a discriminated union on `kind`, with a companion
- * `VecSeg` object carrying the three constructors so call sites read the same in both engines.
- */
-
-/** A point in document space. Plain object, not a class: point lists are the hot data here. */
 export interface VecPoint {
   readonly x: number;
   readonly y: number;
 }
 
-/** @returns a VecPoint; use this rather than an object literal so the shape stays monomorphic. */
 export function vecPoint(x: number, y: number): VecPoint {
   return { x, y };
 }
@@ -36,7 +27,6 @@ export interface QuadSeg {
 
 export type VecSeg = LineSeg | CubicSeg | QuadSeg;
 
-/** Constructors for {@link VecSeg}, mirroring `VecSeg.Line` / `.Cubic` / `.Quad`. */
 export const VecSeg = {
   line(to: VecPoint): LineSeg {
     return { kind: 'line', to };
@@ -49,7 +39,6 @@ export const VecSeg = {
   },
 } as const;
 
-/** 2x3 affine transform laid out as `[a c e / b d f / 0 0 1]`, matching the SVG matrix order. */
 export class Mat2D {
   constructor(
     readonly a: number,
@@ -64,20 +53,10 @@ export class Mat2D {
     return { x: this.a * p.x + this.c * p.y + this.e, y: this.b * p.x + this.d * p.y + this.f };
   }
 
-  /**
-   * The isotropic scale factor `sqrt(|det|)`: 1 for any rotation, translation or reflection, `s` for a
-   * uniform scale `s`, and the geometric mean for an anisotropic one.
-   *
-   * This is the factor stroke widths and flatness tolerances scale by, since neither has a direction.
-   * It is not cosmetic: the pipeline traces at working resolution and multiplies by `original/working`
-   * on export, so a width that did not scale with the geometry comes out several times too thin on a
-   * downscaled 12 MP source.
-   */
   meanScale(): number {
     return Math.sqrt(Math.abs(this.a * this.d - this.b * this.c));
   }
 
-  /** @returns `this * o` — `o` is applied first, then `this`, which is the SVG composition order. */
   times(o: Mat2D): Mat2D {
     return new Mat2D(
       this.a * o.a + this.c * o.b,
@@ -127,25 +106,12 @@ export enum LineJoin {
   BEVEL = 'BEVEL',
 }
 
-/** Default flattening tolerance in document units, shared by every consumer that needs a polyline. */
 export const DEFAULT_FLATTEN_TOLERANCE = 0.25;
 
-/**
- * 2^18 pieces is far past anything a sane tolerance asks for; the cap exists only so a cusped or
- * degenerate curve (coincident control points, infinities from a bad parse) emits a coarse polyline
- * instead of subdividing until the heap gives out.
- */
 const FLATTEN_MAX_DEPTH = 18;
 
-/** Below this the flatness test is float noise and subdivision never terminates early. */
 const MIN_FLATTEN_TOLERANCE = 1e-3;
 
-/**
- * One path: a start point plus a chain of segments.
- *
- * `strokeWidths`, when present, holds one width per **anchor** (`points().length` entries) and is what
- * a width-modulated centreline carries from the distance transform through to the outliner.
- */
 export class VecPath {
   constructor(
     readonly start: VecPoint,
@@ -155,35 +121,18 @@ export class VecPath {
     readonly strokeWidths: Float32Array | null = null,
   ) {}
 
-  /** @returns the anchors only — the start point followed by each segment's `to`. */
   points(): VecPoint[] {
     const out: VecPoint[] = [this.start];
     for (let i = 0; i < this.segments.length; i++) out.push(this.segments[i].to);
     return out;
   }
 
-  /**
-   * Flatten to a polyline by **adaptive de Casteljau subdivision** with an explicit stack.
-   *
-   * Adaptive and not a fixed step count on purpose: a fixed count over-tessellates a 2 px curve into
-   * dozens of collinear points that the simplifier then has to remove, and under-tessellates a 2000 px
-   * curve into a visible polygon. The depth cap means a cusped or degenerate curve degrades in
-   * smoothness rather than subdividing until the heap gives out.
-   *
-   * For a closed path the result does **not** repeat the start point; a trailing anchor that already
-   * coincides with it is dropped, so no consumer ever sees a zero-length closing edge.
-   *
-   * @param tolerance maximum deviation in document units; values below 1e-3 are treated as 1e-3,
-   *                  below which the flatness test is float noise and subdivision never terminates
-   */
   flatten(tolerance = DEFAULT_FLATTEN_TOLERANCE): VecPoint[] {
     const out: VecPoint[] = [this.start];
     if (this.segments.length === 0) return out;
 
     const tol = tolerance < MIN_FLATTEN_TOLERANCE ? MIN_FLATTEN_TOLERANCE : tolerance;
     const tolSq = tol * tol;
-    // Allocated once per call, not once per segment: this runs over every path in the document on
-    // every preview frame.
     const stack = new Float64Array(8 * (FLATTEN_MAX_DEPTH + 2));
     const depths = new Int32Array(FLATTEN_MAX_DEPTH + 2);
 
@@ -199,8 +148,6 @@ export class VecPath {
           cx, cy, seg.c1.x, seg.c1.y, seg.c2.x, seg.c2.y, seg.to.x, seg.to.y, tolSq,
         );
       } else {
-        // Degree-elevate to a cubic so there is exactly one subdivision code path. A separate
-        // quadratic flattener is a second place for the tolerance test to drift out of agreement.
         const c1x = cx + (2 / 3) * (seg.c.x - cx);
         const c1y = cy + (2 / 3) * (seg.c.y - cy);
         const c2x = seg.to.x + (2 / 3) * (seg.c.x - seg.to.x);
@@ -218,16 +165,6 @@ export class VecPath {
     return out;
   }
 
-  /**
-   * Tight bounding box as `[minX, minY, maxX, maxY]`.
-   *
-   * Curve extrema are solved analytically — the roots of the derivative — not approximated from the
-   * control hull or from a flattened polyline. A control-hull box is up to a third too large on a
-   * strongly curved segment, and the document bounds become the SVG `viewBox`, so a loose box shows as
-   * unexpected margin around every export.
-   *
-   * A path with no segments returns the degenerate box at `start`.
-   */
   bounds(): Float32Array {
     let minX = this.start.x;
     let minY = this.start.y;
@@ -266,12 +203,6 @@ export class VecPath {
     return Float32Array.from([minX, minY, maxX, maxY]);
   }
 
-  /**
-   * @returns a new path with every anchor and control point mapped through `m`, and `strokeWidths`
-   *          scaled by `m.meanScale()` — a width that did not scale with the geometry would come out
-   *          several times too thin on an export from a downscaled source. A singular transform yields
-   *          zero widths, which is the honest answer for collapsed geometry.
-   */
   transform(m: Mat2D): VecPath {
     const segs: VecSeg[] = new Array<VecSeg>(this.segments.length);
     for (let i = 0; i < this.segments.length; i++) {
@@ -290,7 +221,6 @@ export class VecPath {
     return new VecPath(m.apply(this.start), segs, this.closed, this.id, widths);
   }
 
-  /** @returns the flattened arc length, including the closing segment when the path is closed. */
   length(): number {
     const pts = this.flatten();
     let total = 0;
@@ -305,10 +235,6 @@ export class VecPath {
     return total;
   }
 
-  /**
-   * @returns the same geometry traversed backwards. Control points swap so the curve shape is
-   *          preserved exactly; `strokeWidths` is reversed alongside the anchors it describes.
-   */
   reversed(): VecPath {
     const anchors = this.points();
     const n = anchors.length;
@@ -331,18 +257,10 @@ export class VecPath {
     return new VecPath(anchors[n - 1], segs, this.closed, this.id, widths);
   }
 
-  /** @returns true when the path has no segments, i.e. nothing to draw but the start point. */
   isEmpty(): boolean {
     return this.segments.length === 0;
   }
 
-  /**
-   * Structural equality including `strokeWidths` contents.
-   *
-   * Kotlin's generated `equals` on a data class holding a `FloatArray` compares the array by identity,
-   * which makes two identical paths unequal and silently breaks undo/redo deduplication. The same trap
-   * exists here for anyone reaching for `===`, so the comparison is provided rather than left to chance.
-   */
   equals(other: VecPath): boolean {
     if (this === other) return true;
     if (
@@ -381,7 +299,6 @@ function segEquals(a: VecSeg, b: VecSeg): boolean {
   return pointEquals(a.c, q.c) && pointEquals(a.to, q.to);
 }
 
-/** @returns the point on a cubic Bezier at parameter `t`. Exported because every fitter needs it. */
 export function cubicAt(
   p0: VecPoint,
   p1: VecPoint,
@@ -400,7 +317,6 @@ export function cubicAt(
   };
 }
 
-/** @returns the point on a quadratic Bezier at parameter `t`. */
 export function quadAt(p0: VecPoint, p1: VecPoint, p2: VecPoint, t: number): VecPoint {
   const mt = 1 - t;
   const a = mt * mt;
@@ -409,13 +325,6 @@ export function quadAt(p0: VecPoint, p1: VecPoint, p2: VecPoint, t: number): Vec
   return { x: a * p0.x + b * p1.x + c * p2.x, y: a * p0.y + b * p1.y + c * p2.y };
 }
 
-/**
- * Adaptive de Casteljau subdivision with an explicit stack.
- *
- * The right half is pushed before the left so the left pops first and the emitted points stay in
- * parameter order. Only the *end* point of each flat piece is emitted; the caller has already emitted
- * the start.
- */
 function flattenCubic(
   out: VecPoint[],
   stack: Float64Array,
@@ -464,7 +373,7 @@ function flattenCubic(
     const xm = (x012 + x123) * 0.5;
     const ym = (y012 + y123) * 0.5;
 
-    let t = sp * 8; // right half
+    let t = sp * 8;
     stack[t] = xm; stack[t + 1] = ym;
     stack[t + 2] = x123; stack[t + 3] = y123;
     stack[t + 4] = x23; stack[t + 5] = y23;
@@ -472,7 +381,7 @@ function flattenCubic(
     depths[sp] = depth + 1;
     sp++;
 
-    t = sp * 8; // left half
+    t = sp * 8;
     stack[t] = x0; stack[t + 1] = y0;
     stack[t + 2] = x01; stack[t + 3] = y01;
     stack[t + 4] = x012; stack[t + 5] = y012;
@@ -482,11 +391,6 @@ function flattenCubic(
   }
 }
 
-/**
- * The standard "control points close to the chord" flatness test: it bounds the true deviation without
- * a square root or a division, which matters because it runs once per subdivision step of every curve
- * in the document.
- */
 function isFlatCubic(
   x0: number, y0: number, x1: number, y1: number,
   x2: number, y2: number, x3: number, y3: number,
@@ -505,12 +409,10 @@ function isFlatCubic(
   return mx + my <= 16 * toleranceSq;
 }
 
-/** Writes `[min, max]` of a cubic Bezier component into `out`, including its analytic extrema. */
 function cubicExtent(p0: number, p1: number, p2: number, p3: number, out: Float64Array): void {
   let lo = p0 < p3 ? p0 : p3;
   let hi = p0 > p3 ? p0 : p3;
 
-  // B'(t)/3 = A t^2 + B t + C, with A = -p0 + 3p1 - 3p2 + p3, B = 2(p0 - 2p1 + p2), C = p1 - p0.
   const a = -p0 + 3 * p1 - 3 * p2 + p3;
   const b = 2 * (p0 - 2 * p1 + p2);
   const c = p1 - p0;
@@ -537,7 +439,6 @@ function cubicExtent(p0: number, p1: number, p2: number, p3: number, out: Float6
   out[1] = hi;
 }
 
-/** Writes `[min, max]` of a quadratic Bezier component into `out`, including its extremum. */
 function quadExtent(p0: number, p1: number, p2: number, out: Float64Array): void {
   let lo = p0 < p2 ? p0 : p2;
   let hi = p0 > p2 ? p0 : p2;
@@ -555,7 +456,6 @@ function quadExtent(p0: number, p1: number, p2: number, out: Float64Array): void
   out[1] = hi;
 }
 
-/** Paint and stroke attributes. `null` for `stroke` or `fill` means "none", as in SVG. */
 export interface VecStyle {
   readonly stroke: number | null;
   readonly strokeWidth: number;
@@ -567,7 +467,6 @@ export interface VecStyle {
   readonly opacity: number;
 }
 
-/** The Kotlin data class's default arguments, in one place. */
 export const DEFAULT_STYLE: VecStyle = {
   stroke: 0xff000000,
   strokeWidth: 1.5,
@@ -579,7 +478,6 @@ export const DEFAULT_STYLE: VecStyle = {
   opacity: 1,
 };
 
-/** @returns {@link DEFAULT_STYLE} with `over` applied — the equivalent of Kotlin's named arguments. */
 export function vecStyle(over: Partial<VecStyle> = {}): VecStyle {
   return { ...DEFAULT_STYLE, ...over };
 }
@@ -611,7 +509,6 @@ export function vecLayer(
   return { id, name, shapes, visible: true, locked: false, opacity: 1, ...over };
 }
 
-/** A whole drawing: a canvas size, ordered layers (bottom first) and an optional background. */
 export class VecDocument {
   constructor(
     readonly width: number,
@@ -620,11 +517,6 @@ export class VecDocument {
     readonly background: number | null = null,
   ) {}
 
-  /**
-   * @returns `[minX, minY, maxX, maxY]` over every shape in every layer, **including hidden ones** —
-   *          a hidden layer is still part of the document and an export that cropped it away would lose
-   *          data the moment it was made visible again. `[0, 0, width, height]` when there are no shapes.
-   */
   bounds(): Float32Array {
     let minX = Infinity;
     let minY = Infinity;
@@ -661,7 +553,6 @@ export class VecDocument {
     return n;
   }
 
-  /** @returns the total anchor count across the document — the number the UI shows as "nodes". */
   nodeCount(): number {
     let n = 0;
     for (const layer of this.layers) {
@@ -670,13 +561,6 @@ export class VecDocument {
     return n;
   }
 
-  /**
-   * @returns a new document with every shape mapped through `m`, stroke widths scaled by
-   *          `m.meanScale()`, and the canvas scaled by the transform's **column norms**
-   *          (`hypot(a, b)` by `hypot(c, d)`). A rotation therefore leaves the canvas alone, which is
-   *          what the export path wants: it composes a working-to-output scale and never a rotation,
-   *          and a canvas that silently grew under a rotation would crop on the next export.
-   */
   transform(m: Mat2D): VecDocument {
     const sx = Math.hypot(m.a, m.b);
     const sy = Math.hypot(m.c, m.d);

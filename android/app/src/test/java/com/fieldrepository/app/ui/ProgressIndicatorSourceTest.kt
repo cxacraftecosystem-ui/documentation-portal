@@ -8,11 +8,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/**
- * Progress indicators go through `FieldProgress.kt` and nowhere else, and the colours it hands out
- * meet the rule written there: a track visibly distinct from the card, a fill at WCAG 1.4.11's 3:1
- * against both the track and the card, in light and in dark.
- */
 class ProgressIndicatorSourceTest {
 
     @Test

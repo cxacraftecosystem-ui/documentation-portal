@@ -16,15 +16,6 @@ import androidx.core.content.ContextCompat
 import com.fieldrepository.app.MainActivity
 import com.fieldrepository.app.R
 
-/**
- * Keeps the legacy questionnaire recorder alive: a foreground service of type `microphone` for as
- * long as a [LegacyTake] runs. Without it a locked screen or an app switch silences the microphone,
- * and a kill leaves an MPEG-4 file with no index, which nothing can play.
- *
- * The recorder itself stays in [LegacyTake]; the form drives Pause and Stop. When the system takes
- * the service away, or the app is swiped from recents, the take is finalised so the file plays, and
- * the form claims it the next time its recorder stops or is disposed.
- */
 class LegacyRecordingService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -70,16 +61,13 @@ class LegacyRecordingService : Service() {
 
     companion object {
         const val TITLE = "Recording interview"
-        // The same channel the v2 recorder posts to, so settings show one "Recording" channel.
         private const val CHANNEL_ID = "questionnaire-recording"
         private const val NOTIFICATION_ID = 7302
 
-        /** Call right after [LegacyTake.begin], from the Record tap while the app is visible. */
         fun start(context: Context) {
             runCatching { ContextCompat.startForegroundService(context, Intent(context, LegacyRecordingService::class.java)) }
         }
 
-        /** Call after [LegacyTake.finalise]; the take is already safe. */
         fun stop(context: Context) {
             runCatching { context.stopService(Intent(context, LegacyRecordingService::class.java)) }
         }

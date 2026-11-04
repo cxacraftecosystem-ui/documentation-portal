@@ -1,33 +1,6 @@
 import { GrayF, Px } from './buffers';
 import { gaussianBlur } from './convolve';
 
-/**
- * Contrast and tone. See ALGORITHMS.md §5.
- *
- * Local contrast (CLAHE) is what makes a faint pencil line survive the same threshold as a bold ink
- * line, which is why it is on by default in every preset that expects a photograph.
- */
-
-/**
- * Contrast-limited adaptive histogram equalisation.
- *
- * The four nearest tile LUTs are **bilinearly interpolated** using tile *centres* as the lattice, and
- * pixels outside that lattice (the border half-tile) clamp to the edge tiles. Skipping the
- * interpolation is what produces visible tile seams and is the most common way CLAHE is implemented
- * wrong.
- *
- * A tile holding a **single grey level** is mapped by the identity instead of by its CDF. The literal
- * algorithm sends that level to 255 — its CDF is 1.0 at the one occupied bin — so a constant tile, a
- * 1x1 image, or any image small enough that a tile is one pixel would come back pure white. "Enhance
- * local contrast" has no meaning where there is one level to enhance, and white is not an answer a
- * user would accept for a mid-grey input.
- *
- * @param tilesX tiles across; clamped to `1..width`
- * @param tilesY tiles down; clamped to `1..height`
- * @param clipLimit multiple of the mean bin count above which a bin is clipped; <= 0 disables
- *                  clipping and degenerates to tiled equalisation
- * @returns a new GrayF with values in 0..1.
- */
 export function clahe(src: GrayF, tilesX = 8, tilesY = 8, clipLimit = 2): GrayF {
   const w = src.width;
   const h = src.height;
@@ -35,14 +8,11 @@ export function clahe(src: GrayF, tilesX = 8, tilesY = 8, clipLimit = 2): GrayF 
   const ty = Px.clampInt(tilesY, 1, h);
   const d = src.data;
 
-  // Tile boundaries by exact partition rather than a fixed tile size, so no tile is ever empty and
-  // the last tile is not silently 1/8th the width of the others.
   const xb = new Int32Array(tx + 1);
   const yb = new Int32Array(ty + 1);
   for (let i = 0; i <= tx; i++) xb[i] = Math.floor((i * w) / tx);
   for (let i = 0; i <= ty; i++) yb[i] = Math.floor((i * h) / ty);
 
-  // Integer 0..255 LUTs, per ALGORITHMS.md §5 step 4, divided down after the interpolation.
   const luts = new Int32Array(tx * ty * 256);
   const hist = new Int32Array(256);
   for (let tyi = 0; tyi < ty; tyi++) {
@@ -67,7 +37,6 @@ export function clahe(src: GrayF, tilesX = 8, tilesY = 8, clipLimit = 2): GrayF 
     }
   }
 
-  // Tile centres, in pixel coordinates, are the interpolation lattice.
   const cx = new Float32Array(tx);
   const cy = new Float32Array(ty);
   for (let i = 0; i < tx; i++) cx[i] = (xb[i] + xb[i + 1] - 1) * 0.5;
@@ -100,11 +69,6 @@ export function clahe(src: GrayF, tilesX = 8, tilesY = 8, clipLimit = 2): GrayF 
   return new GrayF(w, h, out);
 }
 
-/**
- * Clip, redistribute and integrate one tile histogram into a 0..255 mapping LUT.
- *
- * @param occupied how many bins hold at least one pixel, counted before clipping
- */
 function buildClaheLut(
   hist: Int32Array,
   count: number,
@@ -114,9 +78,6 @@ function buildClaheLut(
   destOffset: number,
 ): void {
   if (occupied <= 1) {
-    // One level, or (impossibly, since tx <= width) none at all: pass the tile through. See the note
-    // in the clahe doc comment — equalising a single level yields white — and note that the empty
-    // case would divide by zero below and poison a quarter of the interpolation.
     for (let i = 0; i < 256; i++) dest[destOffset + i] = i;
     return;
   }
@@ -129,17 +90,10 @@ function buildClaheLut(
         hist[i] = limit;
       }
     }
-    // One redistribution pass, uniform across all bins. The standard accepts that redistribution can
-    // push bins back over the limit; iterating to a fixed point measurably flattens the result for no
-    // visible benefit. The remainder goes to the lowest bins so the split is deterministic.
     const share = (excess / 256) | 0;
     const rest = excess - share * 256;
     for (let i = 0; i < 256; i++) hist[i] += share + (i < rest ? 1 : 0);
   }
-  // Redistribution moves counts between bins and never changes their sum, so the CDF still ends at
-  // `count`. `round(cum * 255 / count)` is evaluated in exact integer arithmetic: as a float product
-  // the result lands either side of a .5 tie depending on the working precision — Double here, Float
-  // in Kotlin — and one LUT step is 1/255, forty times the parity tolerance.
   let cum = 0;
   const denom = 2 * count;
   for (let i = 0; i < 256; i++) {
@@ -148,10 +102,6 @@ function buildClaheLut(
   }
 }
 
-/**
- * Global histogram equalisation over 256 bins.
- * @returns a new GrayF with values in 0..1; `src.copy()` when the image is a single level.
- */
 export function equalize(src: GrayF): GrayF {
   const d = src.data;
   const n = d.length;
@@ -175,10 +125,6 @@ export function equalize(src: GrayF): GrayF {
   return new GrayF(src.width, src.height, out);
 }
 
-/**
- * Power-law tone curve `out = clamp01(in) ^ (1 / gamma)`.
- * @param gamma > 1 lightens, < 1 darkens; <= 0 returns `src.copy()`.
- */
 export function gamma(src: GrayF, gammaValue: number): GrayF {
   if (!(gammaValue > 0)) return src.copy();
   if (gammaValue === 1) return src.copy();
@@ -190,10 +136,6 @@ export function gamma(src: GrayF, gammaValue: number): GrayF {
   return new GrayF(src.width, src.height, out);
 }
 
-/**
- * Black/white point remap with a gamma: `out = ((clamp(in, black, white) - black) / (white - black)) ^ (1/gamma)`.
- * @returns a new GrayF with values in 0..1; `src.copy()` when `white - black` is degenerate.
- */
 export function levels(src: GrayF, black: number, white: number, gammaValue: number): GrayF {
   const span = white - black;
   if (!(Math.abs(span) > 1e-6) || !(gammaValue > 0)) return src.copy();
@@ -210,14 +152,6 @@ export function levels(src: GrayF, black: number, white: number, gammaValue: num
   return new GrayF(src.width, src.height, out);
 }
 
-/**
- * Linear brightness and contrast, both in -1..1.
- *
- * Contrast is a slope about mid-grey, `slope = (1 + c) / (1 - c)`, so 0 is identity, +1 would be
- * infinite and is therefore clamped just short of it. Brightness is a plain offset applied after.
- *
- * @returns a new GrayF with values in 0..1.
- */
 export function brightnessContrast(src: GrayF, brightness: number, contrast: number): GrayF {
   const b = Px.clamp(brightness, -1, 1);
   const c = Px.clamp(contrast, -0.999, 0.999);
@@ -229,12 +163,6 @@ export function brightnessContrast(src: GrayF, brightness: number, contrast: num
   return new GrayF(src.width, src.height, out);
 }
 
-/**
- * Unsharp mask: `out = in + amount * (in - blur(in, sigma))`, skipping differences at or below
- * `threshold` so flat areas do not gain noise.
- * @returns a new GrayF; values are **not** clamped, matching the engine's "never clamp between
- *          stages" rule.
- */
 export function unsharpMask(src: GrayF, sigma: number, amount: number, threshold = 0): GrayF {
   if (amount === 0) return src.copy();
   const blurred = gaussianBlur(src, sigma);
@@ -250,11 +178,6 @@ export function unsharpMask(src: GrayF, sigma: number, amount: number, threshold
   return new GrayF(src.width, src.height, out);
 }
 
-/**
- * Map the actual `[lo, hi]` range to `[0, 1]`.
- * @returns a new GrayF; `src.copy()` when the range is degenerate (a flat image has nothing to
- *          stretch and scaling it by 1/0 would produce NaN everywhere).
- */
 export function stretch(src: GrayF): GrayF {
   const { lo, hi } = src.range();
   const span = hi - lo;
@@ -267,25 +190,8 @@ export function stretch(src: GrayF): GrayF {
   return new GrayF(src.width, src.height, out);
 }
 
-/**
- * 256, matching `Contrast.kt`. The bin count is part of the answer, not an implementation detail: a
- * percentile read from a histogram is only as precise as its bins, so two engines that bin differently
- * return different percentiles for the same image and §14 parity fails.
- */
 const PERCENTILE_BINS = 256;
 
-/**
- * Stretch using the `p`-th and `(100 - p)`-th percentiles instead of the extremes, which is what you
- * want on any real photograph: a single specular highlight otherwise owns the whole top of the range.
- *
- * Percentiles come from a 256-bin histogram over the actual range rather than a full sort —
- * deterministic, O(n), and {@link percentileAt} interpolates inside the crossing bin so the answer is
- * not quantised to a bin edge.
- *
- * @param percentile 0..49; values outside are clamped. 0 degenerates to {@link stretch} — which is
- *   also what the general path computes there, since bin 0 always holds `lo` and the last bin `hi`.
- * @returns a new GrayF with values in 0..1.
- */
 export function percentileStretch(src: GrayF, percentile = 1): GrayF {
   const p = Px.clamp(percentile, 0, 49);
   if (p === 0) return stretch(src);
@@ -312,27 +218,6 @@ export function percentileStretch(src: GrayF, percentile = 1): GrayF {
   return new GrayF(src.width, src.height, out);
 }
 
-/**
- * Locates the value at cumulative `rank` in `hist` and returns it as a **fraction of the histogram's
- * range** (0..1), interpolating linearly inside the bin the rank falls in.
- *
- * The interpolation is the whole point, and returning the bin *edge* — the obvious implementation — is
- * a real error rather than a rounding one. A bin is only narrow when the data fills the range, which is
- * exactly the case {@link percentileStretch} does not exist for. In the case it does exist for, one
- * outlier stretches the range so far that all the real data crowds into a handful of bins:
- *
- *   100 samples, 99 spread evenly over 0.20..0.396 and one at 8.0. The range is 7.8, so a bin spans
- *   0.0305 and the real data occupies bins 0..6. The 95th percentile crosses in bin 6, which holds 7
- *   samples starting at cumulative 92. That bin's top edge is 0.4133 and the true percentile is 0.390;
- *   interpolating gives 0.2 + (6 + 3/7)/256 * 7.8 = 0.3959, an error of 0.006 instead of 0.023 — the
- *   difference between the artwork reaching the top of the output range and being squashed into the
- *   bottom 84% of it.
- *
- * Empty bins are skipped so the `count` divisor is never zero. Mirrors `Contrast.percentileAt`.
- *
- * @param rank cumulative sample index to locate, 0..`n`; clamped into range.
- * @returns the position in 0..1 across the histogram's span.
- */
 function percentileAt(hist: Int32Array, n: number, rank: number): number {
   const bins = hist.length;
   if (bins === 0 || n <= 0) return 0;
@@ -351,7 +236,6 @@ function percentileAt(hist: Int32Array, n: number, rank: number): number {
   return 1;
 }
 
-/** @returns a new GrayF holding `1 - in`, unclamped, so signed inputs stay signed. */
 export function invert(src: GrayF): GrayF {
   const n = src.data.length;
   const out = new Float32Array(n);
@@ -360,11 +244,6 @@ export function invert(src: GrayF): GrayF {
   return new GrayF(src.width, src.height, out);
 }
 
-/**
- * Histogram over the 0..1 interval; values outside are clamped into the end bins.
- * @param bins clamped to `1..65536`
- * @returns counts, length `bins`, summing to `src.size`.
- */
 export function histogram(src: GrayF, bins = 256): Int32Array {
   const nb = Px.clampInt(bins, 1, 65536);
   const out = new Int32Array(nb);
@@ -373,10 +252,6 @@ export function histogram(src: GrayF, bins = 256): Int32Array {
     out[0] = d.length;
     return out;
   }
-  // Quantisation to `bins` *levels*, `round(v * (bins - 1))`, not `bins` equal-width buckets. That
-  // makes `bins = 256` produce exactly `Px.toByte255`, so a histogram bin and the LUT it indexes
-  // cannot disagree — with floor binning they differ by one bin for most values and every equalised
-  // image comes out a level dark.
   const scale = nb - 1;
   for (let i = 0; i < d.length; i++) {
     let b = Math.round(Px.clamp01(d[i]) * scale);

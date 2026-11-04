@@ -27,18 +27,6 @@ import { roleLabel } from "@/lib/permissions";
 import type { User, Workshop } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 
-/**
- * One workshop's roster: everybody with a row on it, at what level, in what state.
- *
- * Two things about the backend shape drive this table and are easy to get wrong:
- *
- * - the list is NOT "the assigned researchers". Every row on the workshop comes back — pending
- *   requests, denials and revocations included — and only `status === "GRANTED"` confers access.
- * - revoking does not delete. The row moves to REVOKED and stays, because a deleted row is
- *   indistinguishable from "never asked" and the history of who granted or withdrew access is the
- *   whole audit trail. A revoked person can be put straight back with Grant again.
- */
-
 type DirectoryUser = Pick<User, "id" | "name" | "email" | "role">;
 
 export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken: number; onChanged: () => void }) {
@@ -53,9 +41,6 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
 
-  // Plural, because granting access is almost never a one-person job: a workshop starts and six
-  // researchers need in at the same level on the same afternoon. One at a time meant six passes
-  // through the same three controls, and six chances to pick the wrong level on one of them.
   const [grantUserIds, setGrantUserIds] = useState<string[]>([]);
   const [grantLevel, setGrantLevel] = useState<WorkshopAccessLevel>(DEFAULT_ACCESS_LEVEL);
   const [grantNote, setGrantNote] = useState("");
@@ -96,8 +81,6 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
     [workshops]
   );
 
-  // Anybody already GRANTED belongs in the table, where their level is changed — offering them in the
-  // "add somebody" picker too would give two different controls for one piece of state.
   const grantableUsers = useMemo(() => {
     const granted = new Set((roster ?? []).filter((row) => row.status === "GRANTED").map((row) => row.userId));
     return directory
@@ -112,8 +95,6 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
     if (!grantUserIds.length || !workshopId) return;
     setBusy(`grant:${grantUserIds.join(",")}`);
     setError(null);
-    // One request per person (the endpoint takes one WorkshopAssignment), but settled together so
-    // one failure does not silently abandon the rest of the list. Whoever DID get in stays in.
     const results = await Promise.allSettled(
       grantUserIds.map((userId) =>
         apiFetch<WorkshopAccessRow>(`/workshops/${workshopId}/assignments`, {
@@ -141,11 +122,10 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
         .join(", ");
       setError(`Couldn’t add ${names}. Everyone else was added.`);
     }
-    // Keep only the ones that failed selected, so a retry is one click and nobody is granted twice.
     setGrantUserIds(failed);
     if (!failed.length) setGrantNote("");
     setBusy(null);
-    onChanged(); // bumps the shared token; both panels re-read through their effects
+    onChanged();
   }
 
   async function changeLevel(row: WorkshopAccessRow, level: WorkshopAccessLevel) {
@@ -156,7 +136,7 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
         method: "PATCH",
         body: JSON.stringify({ accessLevel: level })
       });
-      onChanged(); // bumps the shared token; both panels re-read through their effects
+      onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to change that level");
     } finally {
@@ -175,7 +155,7 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
         tone: "info"
       });
       setConfirmRevoke(null);
-      onChanged(); // bumps the shared token; both panels re-read through their effects
+      onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to revoke that access");
     } finally {
@@ -183,15 +163,6 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
     }
   }
 
-  /**
-   * Turn a non-GRANTED row back on. The two cases are deliberately different calls:
-   *
-   * - PENDING is somebody's own request, so it is ANSWERED with PATCH — which records `decidedBy` but
-   *   leaves `assignedById` alone. Answering one request must not silently curate an open workshop
-   *   and 403 the team already working in it.
-   * - DENIED/REVOKED is reopened with POST, the act of an admin deliberately putting them back on the
-   *   roster; that one is supposed to mark the workshop as curated.
-   */
   async function restore(row: WorkshopAccessRow) {
     setBusy(row.id);
     setError(null);
@@ -212,7 +183,7 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
         description: `${personName(row.user)} can work in this workshop.`,
         tone: "success"
       });
-      onChanged(); // bumps the shared token; both panels re-read through their effects
+      onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to restore that access");
     } finally {
@@ -244,8 +215,6 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
             onChange={(next: string) => {
               setWorkshopId(next);
               setConfirmRevoke(null);
-              // A selection made against the previous workshop must not carry over: that roster is
-              // a different set of people, and half of them may already be granted here.
               setGrantUserIds([]);
             }}
             options={workshopOptions}
@@ -303,7 +272,6 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
                   </td>
                   <td className="px-4 py-3">
                     <div className="w-40">
-                      {/* Changes the row in place — focus must stay on the control being adjusted. */}
                       <Dropdown
                         advanceOnSelect={false}
                         ariaLabel={`Access level for ${personName(row.user)}`}

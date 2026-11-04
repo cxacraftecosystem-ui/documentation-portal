@@ -1,11 +1,3 @@
-"""The in-app activity list's routes (``app/api/routes/notifications.py``): the caller's own notices,
-newest first and paged, the unread count, and marking read — one, several, or all — idempotently.
-
-Over HTTP against the real router, with ``get_current_user`` overridden and the route module's ``db``
-replaced by a small in-memory table that answers exactly the calls the routes make. The same file,
-byte for byte, runs in the documentation portal: the two servers' routes are one contract.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -44,7 +36,6 @@ def _call(method: str, path: str, body: dict[str, Any] | None = None) -> httpx.R
 
 
 def _matches(row: Any, where: dict[str, Any]) -> bool:
-    """Prisma's ``where`` for what the routes send: equality, ``in``, ``lt``, ``AND`` and ``OR``."""
     for key, expected in where.items():
         if key == "AND":
             if not all(_matches(row, part) for part in expected):
@@ -134,14 +125,11 @@ def test_pages_follow_the_last_id_shown(table: Any) -> None:
     assert [item["title"] for item in second["items"]] == ["notice 2", "notice 3"] and second["hasMore"] is True
     last = _call("GET", f"/api/notifications?limit=2&before={second['items'][-1]['id']}").json()
     assert [item["title"] for item in last["items"]] == ["notice 4"] and last["hasMore"] is False
-    # Somebody else's id is no anchor: the list starts from the top.
     other = table.add("bina", "not hers", 100)
     assert _call("GET", f"/api/notifications?limit=2&before={other.id}").json()["items"][0]["title"] == "notice 0"
 
 
 def test_unread_paging_survives_opening_the_last_notice_shown(table: Any) -> None:
-    # "Show older" with unreadOnly sends the last row's id; the person has just opened that row, so it
-    # is read and outside the filter. The next page must still start right after it.
     for minutes in range(5):
         table.add("asha", f"notice {minutes}", minutes)
     first = _call("GET", "/api/notifications?limit=2&unreadOnly=true").json()
@@ -182,7 +170,6 @@ def test_a_batch_marks_the_named_ones_and_all_marks_the_rest(table: Any) -> None
     a, b, c = table.add("asha", "a", 1), table.add("asha", "b", 2), table.add("asha", "c", 3)
     theirs = table.add("bina", "not hers", 1)
     assert _call("POST", "/api/notifications/read", {"ids": [a.id, a.id, b.id]}).json() == {"updated": 2, "unreadCount": 1}
-    # A replay of the same mark (the handset's offline queue) changes nothing.
     assert _call("POST", "/api/notifications/read", {"ids": [a.id, b.id]}).json() == {"updated": 0, "unreadCount": 1}
     assert _call("POST", "/api/notifications/read", {}).json() == {"updated": 0, "unreadCount": 1}
     assert _call("POST", "/api/notifications/read", {"all": True}).json() == {"updated": 1, "unreadCount": 0}
@@ -193,8 +180,6 @@ def test_the_page_size_is_bounded(table: Any) -> None:
     assert _call("GET", "/api/notifications?limit=0").status_code == 422
     assert _call("GET", f"/api/notifications?limit={routes.MAX_PAGE + 1}").status_code == 422
 
-
-# --- the Monday summary's switch and page (app/services/weekly_digest.py) -------------------------
 
 
 class _Digests:

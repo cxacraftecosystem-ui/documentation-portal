@@ -1,14 +1,3 @@
-"""Passwords and sessions, ported from the Design Prototype Workshop (2026-10-16).
-
-Password links (made by an administrator and copied, or e-mailed), their redemption, "Forgot your
-password?", changing a password, setting a first one, the forced change after a temporary password,
-"Sign out of every device", the access list's "with a password", and the two session checks every
-request now makes (the ``sessionsValidFrom`` watermark and the ``cred`` password fingerprint).
-
-Driven over HTTP through the real routers against ``access_roster_fakes`` (no database), like
-``test_two_factor.py``, so the assertions are about the bytes the web app and the handset receive.
-"""
-
 import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -93,8 +82,6 @@ def _admitted(*emails: str) -> list[dict[str, Any]]:
 
 
 def _session(user_id: str, *, minutes_ago: float = 0, user: Any = None) -> str:
-    """A session token as the sign-in mints it (with the password fingerprint when *user* is given),
-    optionally back-dated."""
     settings = get_settings()
     issued = datetime.now(UTC) - timedelta(minutes=minutes_ago)
     payload: dict[str, Any] = {"sub": user_id, "iat": int(issued.timestamp()), "exp": issued + timedelta(days=7)}
@@ -112,7 +99,6 @@ def _row(fake: FakeDb, email: str) -> Any:
 
 
 def _params(message: Any) -> dict[str, Any]:
-    """An outbox row's template parameters: the fake stores prisma's ``Json`` wrapper as written."""
     return getattr(message.params, "data", message.params)
 
 
@@ -128,8 +114,6 @@ def _google_proof(
     sub: str | None = "google-subject-1",
     verified: bool = True,
 ) -> dict[str, Any]:
-    """A Google sign-in run again ``seconds_ago``: what ``verify_google_token`` answers for it, and
-    the body fields a client sends with the first password."""
     issued = int(datetime.now(UTC).timestamp() - seconds_ago)
     claims: dict[str, Any] = {"email": email, "email_verified": verified, "iat": issued, "exp": issued + 3600}
     if sub is not None:
@@ -137,8 +121,6 @@ def _google_proof(
     monkeypatch.setattr(auth_routes, "verify_google_token", lambda token: dict(claims))
     return {"googleIdToken": "a-google-id-token"}
 
-
-# --- the user payload -------------------------------------------------------------------------------
 
 
 def test_the_account_says_whether_it_has_a_password_and_never_the_hash(monkeypatch) -> None:
@@ -154,7 +136,6 @@ def test_the_account_says_whether_it_has_a_password_and_never_the_hash(monkeypat
 
 
 def test_one_account_reads_as_its_list_row_and_only_for_the_list_s_readers(monkeypatch) -> None:
-    """``GET /users/{id}`` backs the read-only view of a person: the list's gate, the list's shape."""
     _fake(
         monkeypatch,
         [_account("prof@example.org", "PROFESSOR"), _account("r@example.org"), _account("v@example.org", "CROWDSOURCE_VOLUNTEER")],
@@ -168,11 +149,8 @@ def test_one_account_reads_as_its_list_row_and_only_for_the_list_s_readers(monke
     assert "passwordHash" not in one.json()
     assert _call("GET", "/api/users/no-such-id", token=prof).status_code == 404
     assert _call("GET", "/api/users/id-prof@example.org", token=_session("id-r@example.org")).status_code == 403
-    # "/directory" is still the directory, not an account called "directory".
     assert isinstance(_call("GET", "/api/users/directory", token=_session("id-v@example.org")).json(), list)
 
-
-# --- administrator password links ----------------------------------------------------------------
 
 
 def test_a_copied_link_sets_a_password_ends_every_session_and_signs_nobody_in(monkeypatch) -> None:
@@ -188,7 +166,6 @@ def test_a_copied_link_sets_a_password_ends_every_session_and_signs_nobody_in(mo
     assert issued.status_code == 201, issued.text
     body = issued.json()
     assert body["deliveredBy"] == "COPY_LINK" and "token" not in body
-    # Built from the configured origin, never from the request's Host.
     assert body["link"].startswith(f"{APP_URL}/set-password?token=")
     token = _token_of(body["link"])
 
@@ -197,7 +174,7 @@ def test_a_copied_link_sets_a_password_ends_every_session_and_signs_nobody_in(mo
 
     redeemed = _call("POST", "/api/auth/set-password", {"token": token, "password": NEW_PASSWORD})
     assert redeemed.status_code == 200 and redeemed.json() == {"ok": True}
-    assert "accessToken" not in redeemed.text  # no session from a link
+    assert "accessToken" not in redeemed.text
     account = _row(fake, "r@example.org")
     assert verify_password(NEW_PASSWORD, account.passwordHash)
     assert account.sessionsValidFrom is not None and account.passwordSetAt is not None
@@ -227,10 +204,10 @@ def test_a_link_never_skips_the_second_step(monkeypatch) -> None:
 @pytest.mark.parametrize(
     "actor,target,expected",
     [
-        ("admin@example.org", "admin@example.org", 403),  # your own account
-        ("admin@example.org", "peer@example.org", 403),  # a peer
-        ("prof@example.org", "r@example.org", 403),  # not an administrator
-        ("admin@example.org", "google@example.org", 422),  # nothing to reset
+        ("admin@example.org", "admin@example.org", 403),
+        ("admin@example.org", "peer@example.org", 403),
+        ("prof@example.org", "r@example.org", 403),
+        ("admin@example.org", "google@example.org", 422),
     ],
 )
 def test_who_may_issue_a_link(monkeypatch, actor, target, expected) -> None:
@@ -291,8 +268,6 @@ def test_a_promoted_account_cannot_use_a_link_its_issuer_can_no_longer_manage(mo
     assert check["valid"] is False and check["reason"] == "revoked"
 
 
-# --- the e-mail itself --------------------------------------------------------------------------
-
 
 def test_the_password_link_mail_says_who_asked_and_carries_the_link() -> None:
     expires = (datetime.now(UTC) + timedelta(hours=2)).isoformat()
@@ -318,8 +293,6 @@ def test_the_outbox_opens_the_seal_to_send_and_then_forgets_it(monkeypatch) -> N
     assert tally["sent"] == 1 and link in sent[0]
     assert fake.emailmessage.rows[0].sealed is None and fake.emailmessage.rows[0].status == "SENT"
 
-
-# --- "Forgot your password?" ------------------------------------------------------------------------
 
 
 def test_forgot_password_answers_every_address_identically(monkeypatch) -> None:
@@ -351,7 +324,6 @@ def test_forgot_password_answers_every_address_identically(monkeypatch) -> None:
         "google@example.org": password_reset.NO_PASSWORD,
         "barred@example.org": password_reset.NOT_ADMITTED,
     }
-    # One mail, to the one admitted password account, through the outbox, sealed.
     [message] = fake.emailmessage.rows
     assert message.toAddress == "r@example.org" and message.sealed
     assert _params(message)["requestedBy"] == "self"
@@ -409,8 +381,6 @@ def test_forgot_password_refuses_a_malformed_address(monkeypatch) -> None:
     assert fake.passwordresetrequest.rows == []
 
 
-# --- changing a password, and setting a first one ----------------------------------------------
-
 
 def test_changing_a_password_keeps_this_session_and_ends_the_others(monkeypatch) -> None:
     fake = _fake(monkeypatch, [_account("r@example.org")], _admitted("r@example.org"))
@@ -432,7 +402,6 @@ def test_changing_a_password_keeps_this_session_and_ends_the_others(monkeypatch)
 
 def test_a_provider_only_account_sets_a_first_password_with_its_provider_sign_in_run_again(monkeypatch) -> None:
     fake = _fake(monkeypatch, [_account("g@example.org", passwordHash=None, authProvider="GOOGLE")], _admitted("g@example.org"))
-    # A brand-new session is not enough on its own any more: the provider is asked again.
     bare = _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD}, _session("id-g@example.org"))
     assert bare.status_code == 400 and bare.headers["x-confirm-sign-in"] == "GOOGLE"
     assert "sign in with Google again" in bare.json()["detail"]
@@ -445,11 +414,9 @@ def test_a_provider_only_account_sets_a_first_password_with_its_provider_sign_in
     assert fresh.status_code == 200 and fresh.headers["x-session-token"]
     account = _row(fake, "g@example.org")
     assert verify_password(NEW_PASSWORD, account.passwordHash)
-    assert str(account.authProvider) == "GOOGLE"  # both ways in
+    assert str(account.authProvider) == "GOOGLE"
     assert _call("POST", "/api/auth/login", {"email": "g@example.org", "password": NEW_PASSWORD}).status_code == 200
 
-
-# --- the forced change after a temporary password -----------------------------------------------
 
 
 def test_a_temporary_password_holds_the_account_at_the_change_screen(monkeypatch) -> None:
@@ -468,7 +435,6 @@ def test_a_temporary_password_holds_the_account_at_the_change_screen(monkeypatch
 
     signed_in = _call("POST", "/api/auth/login", {"email": "r@example.org", "password": "temporary-1234"})
     assert signed_in.status_code == 200
-    # The fresh token may be minted in the same wall second as the watermark; move it back a second.
     account.sessionsValidFrom = datetime.now(UTC) - timedelta(seconds=5)
     clear_user_cache()
     session = signed_in.json()["accessToken"]
@@ -504,8 +470,6 @@ def test_every_allowed_route_is_a_route_this_api_publishes() -> None:
     assert PASSWORD_CHANGE_ALLOWED_ROUTES <= published, PASSWORD_CHANGE_ALLOWED_ROUTES - published
 
 
-# --- signing somebody out of every device -------------------------------------------------------
-
 
 def test_an_administrator_signs_somebody_out_of_every_device(monkeypatch) -> None:
     fake = _fake(
@@ -518,7 +482,6 @@ def test_an_administrator_signs_somebody_out_of_every_device(monkeypatch) -> Non
     done = _call("POST", "/api/users/id-r@example.org/sign-out-everywhere", token=admin)
     assert done.status_code == 200 and done.json()["id"] == "id-r@example.org"
     assert _call("GET", "/api/auth/me", token=theirs).status_code == 401
-    # The password and the second factor are untouched.
     assert verify_password(PASSWORD, _row(fake, "r@example.org").passwordHash)
     assert _call("POST", "/api/users/id-admin@example.org/sign-out-everywhere", token=admin).status_code == 403
     assert _call("POST", "/api/users/id-peer@example.org/sign-out-everywhere", token=admin).status_code == 403
@@ -535,8 +498,6 @@ def test_turning_off_two_step_also_ends_every_session(monkeypatch) -> None:
     assert _row(fake, "r@example.org").sessionsValidFrom is not None
     assert _call("GET", "/api/auth/me", token=theirs).status_code == 401
 
-
-# --- the access list, with a password ------------------------------------------------------------
 
 
 def test_the_access_list_can_create_the_account_with_a_password(monkeypatch) -> None:
@@ -574,8 +535,6 @@ def test_users_create_defaults_to_a_temporary_password(monkeypatch) -> None:
     assert _row(fake, "t@example.org").passwordSetAt is not None
 
 
-# --- the session checks themselves ---------------------------------------------------------------
-
 
 def test_a_token_without_the_fingerprint_still_works_and_a_forged_one_does_not(monkeypatch) -> None:
     _fake(monkeypatch, [_account("r@example.org")], _admitted("r@example.org"))
@@ -591,8 +550,6 @@ def test_a_sign_in_mints_a_bound_session_and_stamps_the_first_login(monkeypatch)
     assert claims[CREDENTIAL_CLAIM] == credential_links.credential_fingerprint(_row(fake, "r@example.org").passwordHash)
     assert _row(fake, "r@example.org").firstLoginAt is not None
 
-
-# --- adding a person in one step (section F) ------------------------------------------------------
 
 
 def _add(actor: str, body: dict[str, Any]) -> httpx.Response:
@@ -724,8 +681,6 @@ def test_this_repository_keeps_no_per_role_list() -> None:
 
     assert users_routes.ROLE_LISTS == {}
 
-
-# --- how long a link lasts: an account that never signed in gets the invitation ------------------
 
 
 def _issued_purpose(monkeypatch, **extra: Any) -> tuple[str, float]:

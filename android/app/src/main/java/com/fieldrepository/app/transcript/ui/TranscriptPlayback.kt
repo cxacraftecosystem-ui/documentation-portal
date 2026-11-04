@@ -2,6 +2,19 @@ package com.fieldrepository.app.transcript.ui
 
 import android.net.Uri
 import androidx.annotation.OptIn
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -20,11 +33,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.delay
 
-/**
- * What the viewer needs of a player: where it is, whether it plays, and a seek. Karaoke reads
- * [positionSeconds]; a timestamp, a word or a citation chip calls [seek]. The Compose tests drive a
- * [ManualPlayback] instead of real audio.
- */
 @Stable
 interface TranscriptPlayback {
     val available: Boolean
@@ -32,15 +40,11 @@ interface TranscriptPlayback {
     val positionSeconds: Double
     val durationSeconds: Double
     fun toggle()
-    /** Moves to [seconds] and, unless [play] is false (the scrubber), plays from there. */
     fun seek(seconds: Double, play: Boolean = true)
-    /** A speaker's sample is playing and will stop by itself. */
     val sampling: Boolean get() = false
-    /** Plays from [startSeconds] and stops at [endSeconds] by itself; called while sampling, stops. */
     fun playRange(startSeconds: Double, endSeconds: Double) = seek(startSeconds)
 }
 
-/** A playback the test (or a recording with no audio yet) moves by hand. */
 class ManualPlayback(available: Boolean = true, duration: Double = 0.0) : TranscriptPlayback {
     override var available by mutableStateOf(available)
     override var playing by mutableStateOf(false)
@@ -55,7 +59,7 @@ class ManualPlayback(available: Boolean = true, duration: Double = 0.0) : Transc
     }
 }
 
-private class ExoPlayback(private val player: ExoPlayer) : TranscriptPlayback {
+private class ExoPlayback(val player: ExoPlayer) : TranscriptPlayback {
     override val available = true
     override var playing by mutableStateOf(false)
     override var positionSeconds by mutableDoubleStateOf(0.0)
@@ -98,11 +102,6 @@ private class ExoPlayback(private val player: ExoPlayer) : TranscriptPlayback {
     }
 }
 
-/**
- * The recording's player, or a [ManualPlayback] that says "no audio" when there is no [uri].
- * Paused when the app leaves the screen, for the reason `ui/MediaPlayers.kt` gives (Android 17
- * silences a hidden app's audio).
- */
 @OptIn(UnstableApi::class)
 @Composable
 fun rememberTranscriptPlayback(uri: Uri?): TranscriptPlayback {
@@ -121,9 +120,38 @@ fun rememberTranscriptPlayback(uri: Uri?): TranscriptPlayback {
     LaunchedEffect(player) {
         while (true) {
             playback.tick()
-            // Fast enough that a word lights as it is said; a turn is several hundred ms a word.
             delay(80)
         }
     }
     return playback
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+fun TranscriptVideoSurface(playback: TranscriptPlayback, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+            .clip(shape)
+            .background(Color.Black)
+            .testTag("transcript.video")
+    ) {
+        val exo = playback as? ExoPlayback
+        if (exo != null) {
+            AndroidView(
+                factory = { context ->
+                    PlayerView(context).apply {
+                        useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        player = exo.player
+                    }
+                },
+                update = { view -> view.player = exo.player },
+                onRelease = { view -> view.player = null },
+                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+            )
+        }
+    }
 }

@@ -9,20 +9,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 
-/**
- * The top-bar scanner's one dispatcher: what a scanned or typed code is, and what pressing its
- * button does. IDENTICAL in both apps apart from the `package` line, and the twin of the web's
- * `lib/scanDispatch.ts` (same outcome names, order and copy). Both are held to the shared fixture
- * `scan-dispatch.json` (REQUIREMENTS_2026-10-20 §6).
- *
- * Order, fixed: DPW2 join card, Field Repository session, artisan card, DPW1, DPW3, refusal.
- *
- * It never navigates; an outcome names what was found and offers at most one action. A refusal
- * never echoes the input (an Aadhaar Secure QR, a payment QR or an authenticator link gets one fixed
- * sentence and none of its contents are kept or returned). A join card's secret travels only inside
- * the action, never in a title or a detail line.
- */
-
 enum class ScanPortal(val wire: String) { DESIGNER("designer"), FIELD("field") }
 
 enum class ScanOutcomeKind {
@@ -37,7 +23,6 @@ enum class ScanOutcomeKind {
     OFFLINE,
 }
 
-/** Every sentence the dispatcher says. Identical in both apps and on the web. */
 object ScanCopy {
     const val JOIN_CARD = "A workshop join card."
     const val REDEEM = "Redeem"
@@ -68,7 +53,6 @@ object ScanCopy {
     const val LOOK_UP = "Look up"
 }
 
-/** The heading word per record type (wire name), the web's `SCAN_RECORD_LABEL` verbatim. */
 val SCAN_RECORD_LABEL: Map<String, String> = mapOf(
     "artisan" to "Artisan",
     "craft" to "Craft",
@@ -82,7 +66,6 @@ val SCAN_RECORD_LABEL: Map<String, String> = mapOf(
     "prototype" to "Prototype",
 )
 
-/** The web's read-only record pages (`lib/recordView.ts`), by wire name. */
 private val RECORD_VIEW_BASE: Map<String, String> = mapOf(
     "artisan" to "/artisans",
     "craft" to "/crafts",
@@ -94,7 +77,6 @@ private val RECORD_VIEW_BASE: Map<String, String> = mapOf(
     "media" to "/media",
 )
 
-/** Where an action lands. [href] is the web route for the same place, so the fixture holds both clients. */
 sealed interface ScanTarget {
     val href: String
 
@@ -123,14 +105,12 @@ sealed interface ScanTarget {
     }
 }
 
-/** A Field Repository session QR: bare v1 JSON, or `FRS1:` + the same JSON (`JoinQr` in the field app). */
 data class ScanSessionQr(
     val clientKey: String,
     val questionnaireId: String,
     val workshopId: String?,
     val sessionDate: String,
     val participants: List<String>,
-    /** The payload as read, without any `FRS1:` prefix — what the field app's `JoinQr.decode` takes. */
     val json: String,
 )
 
@@ -155,7 +135,6 @@ data class ScanOutcome(
     val action: ScanAction? = null,
 )
 
-/** Designer-only decoders: the DPW grammars live only in the designer app. */
 interface ScanCodecs {
     fun decodeJoinCard(raw: String): ScanDecoded.JoinCard
     fun decodeRecordCode(raw: String): ScanDecoded.RecordCode
@@ -171,13 +150,11 @@ sealed interface ScanDecoded {
     data class Refused(val message: String) : JoinCard, RecordCode
 }
 
-/** How an artisan card reads, by the app's own `ArtisanCardCode`. */
 enum class ScanCardKind { VALID, MISTYPED, NONE }
 
 sealed interface ScanCardAnswer {
     data class Found(val artisanId: String, val name: String, val detail: String? = null) : ScanCardAnswer
     data class Replaced(val artisanId: String) : ScanCardAnswer
-    /** A card from the other portal with no linked artisan here. */
     data object Peer : ScanCardAnswer
     data class Refused(val message: String) : ScanCardAnswer
     data object Offline : ScanCardAnswer
@@ -185,7 +162,6 @@ sealed interface ScanCardAnswer {
 
 sealed interface ScanRecordAnswer {
     data class Found(val label: String, val detail: String? = null) : ScanRecordAnswer
-    /** [title]: a design workshop the reader cannot open yet, named for "Ask to join {title}" (D34). */
     data class Missing(val title: String? = null) : ScanRecordAnswer
     data object Offline : ScanRecordAnswer
 }
@@ -195,11 +171,9 @@ interface ScanServices {
     val codecs: ScanCodecs?
     fun cardKind(raw: String): ScanCardKind
     suspend fun resolveCard(raw: String): ScanCardAnswer
-    /** [code] is the canonical scanned code, which the design-workshop title lookup needs. */
     suspend fun lookUpRecord(recordType: String, id: String, code: String): ScanRecordAnswer
 }
 
-/** What the pure half decided: a final outcome, or the one lookup still owed. */
 sealed interface ScanStep {
     data class Final(val outcome: ScanOutcome) : ScanStep
     data class Card(val raw: String) : ScanStep
@@ -211,15 +185,12 @@ private fun refused(title: String): ScanStep = ScanStep.Final(ScanOutcome(ScanOu
 private val DPW = Regex("^DPW\\d*:")
 private val JOIN_CARD = Regex("^DPW\\d+:J:")
 private val FILE_CHECK = Regex("^DPW3:H:")
-/** Six letters or digits with at least one digit, so a six-letter word is never read as a session. */
 private val SESSION_CODE = Regex("^(?=[A-Z]*[0-9])[A-Z0-9]{6}$")
 private val lenientJson = Json { ignoreUnknownKeys = true; isLenient = false }
 
-/** A typed 6-character session code (at least one digit), normalised (upper case, no spaces or hyphens), or null. */
 fun normaliseSessionCode(raw: String): String? =
     raw.uppercase().filter { !it.isWhitespace() && it != '-' }.takeIf { SESSION_CODE.matches(it) }
 
-/** A session QR's payload, or null for anything else. A missing `v` reads as 1. */
 fun decodeSessionQr(raw: String): ScanSessionQr? {
     var text = raw.trim()
     if (text.uppercase().startsWith(SESSION_QR_PREFIX)) text = text.substring(SESSION_QR_PREFIX.length).trim()
@@ -242,13 +213,11 @@ fun decodeSessionQr(raw: String): ScanSessionQr? {
     )
 }
 
-/** The pure half: classify in the fixed order. No network, no storage. */
 fun classifyScan(raw: String, portal: ScanPortal, codecs: ScanCodecs?, cardKind: (String) -> ScanCardKind): ScanStep {
     val text = raw.trim()
     if (text.isEmpty()) return refused(ScanCopy.EMPTY)
     val upper = text.filterNot { it.isWhitespace() }.uppercase()
 
-    // 1. DPW2 join card.
     if (JOIN_CARD.containsMatchIn(upper)) {
         if (portal == ScanPortal.FIELD || codecs == null) return refused(ScanCopy.JOIN_CARD_ELSEWHERE)
         return when (val card = codecs.decodeJoinCard(text)) {
@@ -263,7 +232,6 @@ fun classifyScan(raw: String, portal: ScanPortal, codecs: ScanCodecs?, cardKind:
         }
     }
 
-    // 2. Field Repository session: the QR (bare or FRS1:) or a typed 6-character code with a digit.
     val qr = decodeSessionQr(text)
     val joinCode = if (qr == null) normaliseSessionCode(text) else null
     if (qr != null || joinCode != null) {
@@ -277,14 +245,12 @@ fun classifyScan(raw: String, portal: ScanPortal, codecs: ScanCodecs?, cardKind:
         )
     }
 
-    // 3. Artisan card, either portal's.
     when (cardKind(text)) {
         ScanCardKind.VALID -> return ScanStep.Card(text)
         ScanCardKind.MISTYPED -> return refused(ArtisanCardCode.CHECK_MESSAGE)
         ScanCardKind.NONE -> Unit
     }
 
-    // 5 before 4 only because the DPW1 decoder would read DPW3 as "a newer format".
     if (FILE_CHECK.containsMatchIn(upper)) {
         if (portal == ScanPortal.FIELD) return refused(ScanCopy.DESIGNER_CODE)
         return ScanStep.Final(
@@ -296,7 +262,6 @@ fun classifyScan(raw: String, portal: ScanPortal, codecs: ScanCodecs?, cardKind:
         )
     }
 
-    // 4. DPW1 record codes.
     if (DPW.containsMatchIn(upper)) {
         if (portal == ScanPortal.FIELD || codecs == null) return refused(ScanCopy.DESIGNER_CODE)
         return when (val ref = codecs.decodeRecordCode(text)) {
@@ -316,11 +281,9 @@ fun classifyScan(raw: String, portal: ScanPortal, codecs: ScanCodecs?, cardKind:
         }
     }
 
-    // 6. Anything else: an Aadhaar Secure QR, otpauth://, upi://, a URL. One sentence, nothing kept.
     return refused(ScanCopy.UNKNOWN)
 }
 
-/** Classify, then run the one lookup the code owes. A result for every input; never a throw. */
 suspend fun dispatchScan(raw: String, services: ScanServices): ScanOutcome {
     when (val step = classifyScan(raw, services.portal, services.codecs, services::cardKind)) {
         is ScanStep.Final -> return step.outcome
@@ -370,8 +333,6 @@ suspend fun dispatchScan(raw: String, services: ScanServices): ScanOutcome {
                 ScanRecordAnswer.Offline -> ScanOutcome(ScanOutcomeKind.OFFLINE, ScanCopy.OFFLINE)
                 is ScanRecordAnswer.Missing ->
                     if (step.recordType == "designWorkshop") {
-                        // The workshop's title when the server names it for this code (owner
-                        // decision, D34); "this workshop" when it cannot (offline, deleted, older server).
                         val name = answer.title?.trim().orEmpty()
                         ScanOutcome(
                             ScanOutcomeKind.JOIN_WORKSHOP,
@@ -395,7 +356,6 @@ suspend fun dispatchScan(raw: String, services: ScanServices): ScanOutcome {
     }
 }
 
-/** JavaScript's `encodeURIComponent`, so a target's [ScanTarget.href] matches the web's byte for byte. */
 internal fun uriComponent(value: String): String {
     val keep = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()"
     val out = StringBuilder()

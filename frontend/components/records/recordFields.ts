@@ -3,22 +3,6 @@ import type { RecordViewType } from "@/lib/recordView";
 import { workshopDisplayTitle, type WorkshopTitleFields } from "@/lib/workshopTitle";
 import { languageName, phoneOf, traditionLabel } from "@/lib/standardValues";
 
-/**
- * WHAT A RECORD'S READ-ONLY VIEW PRINTS, as plain label/value rows.
- *
- * Pure, so `e2e/record-view-unit.spec.ts` can hold the one rule that matters most here without a
- * browser: **a view never prints a regulated identity number.** `GET /artisans/{id}` returns the
- * Aadhaar number IN FULL (the edit form needs it to correct it), and the lists never print it at
- * all. A view is a browsing surface — it is opened by clicking a row, on a shared field laptop — so
- * it answers only "is a card on file?", exactly as the list's Pehchan chip does. The number itself
- * stays behind "Update", where it always was.
- *
- * The rows follow the handset's `ViewDataDetail` (`android/.../MainActivity.kt`) for the fields both
- * clients show, so a researcher reading one record on a phone and a laptop reads the same thing. A
- * value that is missing prints as "Not recorded" rather than disappearing: a view that silently
- * drops an empty field is indistinguishable from one that never had the field.
- */
-
 export type RecordFieldRow = { label: string; value: string };
 
 export const NOT_RECORDED = "Not recorded";
@@ -33,7 +17,6 @@ function text(value: unknown): string {
   return trimmed ? trimmed : NOT_RECORDED;
 }
 
-/** A Prisma Decimal arrives as a string; print it as typed, or "Not recorded". */
 function decimal(value: unknown, unit = ""): string {
   if (value === null || value === undefined || value === "") return NOT_RECORDED;
   const n = Number(value);
@@ -74,7 +57,6 @@ function dateRange(record: Loose): string {
   return formatDate(start ?? end);
 }
 
-/** The rows for one record. Status is not here: the view draws it as a badge beside the title. */
 export function recordFieldRows(type: RecordViewType, record: Loose): RecordFieldRow[] {
   switch (type) {
     case "artisan":
@@ -87,10 +69,8 @@ export function recordFieldRows(type: RecordViewType, record: Loose): RecordFiel
         { label: "Email", value: text(record.email) },
         { label: "Address", value: text(record.address) },
         { label: "Experience", value: experience(record) },
-        // On file or not — never the digits. See the header.
         {
           label: "Aadhaar card",
-          // C18: the explicit outcome reads as itself, so the follow-up is visible on the record.
           value: record.aadhaarNumber ? "On file" : record.aadhaarNotShared ? "Not shared by artisan — follow up" : NOT_RECORDED
         },
         { label: "Pehchan card", value: record.pehchanCardAvailable || record.pehchanCardNumber ? "On file" : "No" },
@@ -138,8 +118,6 @@ export function recordFieldRows(type: RecordViewType, record: Loose): RecordFiel
         { label: "Workshop", value: workshopTitle(record) }
       ];
     case "craft":
-      // The master list's attributes (REQUIREMENTS_2026-10-20 §2.6); the server writes `category` as
-      // the category's name and may hydrate `subCategory`.
       return [
         { label: "Local name", value: text(record.localName) },
         { label: "Category", value: text(record.category) },
@@ -148,7 +126,6 @@ export function recordFieldRows(type: RecordViewType, record: Loose): RecordFiel
         { label: "GI status", value: record.giStatus === "GI" ? "GI" : record.giStatus === "NON_GI" ? "Non GI" : NOT_RECORDED },
         { label: "State of origin", value: list((record.stateOfOrigin as unknown[] | undefined) ?? []) },
         { label: "State of practice", value: list((record.stateOfPractice as unknown[] | undefined) ?? []) },
-        // The form stopped asking for a place on 2026-10-20; an older record that holds one still shows it.
         ...(text(record.place) !== NOT_RECORDED ? [{ label: "Place", value: text(record.place) }] : []),
         { label: "Description", value: text(record.description) },
         { label: "Workshop", value: workshopTitle(record) }
@@ -204,7 +181,6 @@ function experience(record: Loose): string {
   return parts.length ? parts.join(" ") : NOT_RECORDED;
 }
 
-/** The record's display title, for the page heading. */
 export function recordTitle(type: RecordViewType, record: Loose): string {
   const pick = (value: unknown, fallback: string) => (typeof value === "string" && value.trim() ? value.trim() : fallback);
   switch (type) {
@@ -225,7 +201,6 @@ export function recordTitle(type: RecordViewType, record: Loose): string {
   }
 }
 
-/** The singular noun each view is about, for headings and sentences. */
 export const RECORD_VIEW_NOUN: Record<RecordViewType, string> = {
   artisan: "artisan",
   product: "product",
@@ -236,7 +211,6 @@ export const RECORD_VIEW_NOUN: Record<RecordViewType, string> = {
   questionnaire: "interview"
 };
 
-/** Where the record is read from. The linked-media type is the same word as the view type for all seven. */
 export const RECORD_VIEW_ENDPOINT: Record<RecordViewType, string> = {
   artisan: "/artisans",
   product: "/products",

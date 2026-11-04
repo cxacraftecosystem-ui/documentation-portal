@@ -43,11 +43,6 @@ import com.fieldrepository.app.transcript.data.TranscriptMarkdown
 import com.fieldrepository.app.transcript.data.TranscriptTurn
 import com.fieldrepository.app.ui.field
 
-/**
- * A turn's original words: the word being said lit (karaoke), the words Scribe doubted faintly
- * underlined with a dashed rule, and a tap on any word seeking the audio to it (DESIGN §4.3, §10.1).
- * The lit word is also the node's state description, so a screen reader and the Compose tests read it.
- */
 @Composable
 fun KaraokeText(
     turn: TranscriptTurn,
@@ -90,7 +85,6 @@ fun KaraokeText(
     )
 }
 
-/** Calls [draw] with each line's stretch of [start, end) just under the text. */
 private inline fun underline(layout: TextLayoutResult, start: Int, end: Int, draw: (Offset, Offset) -> Unit) {
     val first = layout.getLineForOffset(start)
     val last = layout.getLineForOffset((end - 1).coerceAtLeast(start))
@@ -102,7 +96,6 @@ private inline fun underline(layout: TextLayoutResult, start: Int, end: Int, dra
     }
 }
 
-/** [TranscriptMarkdown.Inline] as styled text. */
 fun TranscriptMarkdown.Inline.annotated(code: Color): AnnotatedString = buildAnnotatedString {
     append(text)
     for (s in spans) {
@@ -115,10 +108,6 @@ fun TranscriptMarkdown.Inline.annotated(code: Color): AnnotatedString = buildAnn
     }
 }
 
-/**
- * Markdown drawn with Compose text, block by block — never a WebView, never HTML. Headings, the
- * header's one-row table, quote blocks and paragraphs (see [TranscriptMarkdown]).
- */
 @Composable
 fun TranscriptMarkdownText(markdown: String, modifier: Modifier = Modifier) {
     val blocks = remember(markdown) { TranscriptMarkdown.parse(markdown) }

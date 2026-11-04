@@ -1,11 +1,3 @@
-"""The questionnaire tables are the same in both portals (UNIFY_2026-10-21.md, U3).
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal. ``shared/questionnaire.prisma``
-holds every questionnaire ``enum`` and ``model`` block both schemas must carry word for word, and,
-for the tables still converging (designer-portal's forms and global instrument become one table in
-U5), the fields each must carry with the same base type. No database: it reads text.
-"""
-
 from __future__ import annotations
 
 import re

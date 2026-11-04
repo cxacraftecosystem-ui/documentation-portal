@@ -4,15 +4,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * THE LONG LISTS ARE LAZY, AND THE PICKERS ASK THE SERVER — held at the source (DC-A34, DC-A09).
- *
- * Both defects were invisible in a review of one screen: an eager `forEach` inside the page column and
- * a twenty-page walk at start-up each read as ordinary code, and each only costs anything on a
- * deployment with thousands of rows. So the shape is pinned here: the long-list screens lay out the
- * page's ONE LazyColumn (`ui/LazyPage.kt`) and never paint their rows into the scrolling column, and
- * no picker walks the lookup budget any more.
- */
 class LazyPagesSourceTest {
 
     private val main = repoSource(
@@ -49,13 +40,10 @@ class LazyPagesSourceTest {
     @Test
     fun `the host keeps the header, the clearance and the Back restore for lazy pages`() {
         assertTrue(main.contains("val lazyPage = screen is Screen.MyActivity || screen is Screen.Browse"))
-        // The quick-return header hooks the LIST's scroll on a lazy page.
         assertTrue(main.contains("rememberQuickReturnHeader(pageList, pinned = searchOpen)"))
         assertTrue(main.contains("connection = quickReturn.connection"))
-        // The island bar and banners are cleared by the END of the list, as by the column.
         assertTrue(main.contains("bottomPadding = pageReserve"))
         assertTrue(main.contains("topPadding = pageTop"))
-        // Back from a record puts the list back on the item it was showing.
         assertTrue(main.contains("lazyScrollMemory[shownScreen] = LazyScrollMark("))
         assertTrue(main.contains("pageList.scrollToItem(mark.index, mark.offset)"))
     }

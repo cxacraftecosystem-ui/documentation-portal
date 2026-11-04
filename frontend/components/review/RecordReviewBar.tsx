@@ -24,16 +24,6 @@ import {
 
 type Panel = "revise" | "reject" | null;
 
-/**
- * Approve, send back or reject a PENDING record from its own read-only page (A13).
- *
- * A reviewer who opened a record to read it all used to have to go back to the queue and find the
- * row again to decide. The bar is drawn only when the server says this reader may review this record
- * (`canReview` on `GET /review/{type}/{id}/latest`), so it never offers a decision the API refuses.
- *
- * Approving also approves the record's files that are still pending; with any, Approve asks first
- * and says how many (`approvesWith`, from `GET /review/{type}/{id}/media`).
- */
 export function RecordReviewBar({
   recordType,
   recordId,
@@ -49,7 +39,6 @@ export function RecordReviewBar({
 }) {
   const confirm = useConfirm();
   const { user } = useAuth();
-  // Only an account with review access asks: anyone else would be refused (403) on every view.
   const reviewer = mayReview(user);
   const [canReview, setCanReview] = useState(false);
   const [late, setLate] = useState(false);
@@ -108,7 +97,6 @@ export function RecordReviewBar({
     setBusy(true);
     setError(null);
     try {
-      // A reason on "Send for revision" is optional and only a fixable one is offered.
       const sent = action === "approve" ? null : action === "revise" ? (reason?.fixable ? reason : null) : reason;
       const body = decisionBody(notes, sent);
       const answer = await apiFetch<{ mediaApproved?: number }>(

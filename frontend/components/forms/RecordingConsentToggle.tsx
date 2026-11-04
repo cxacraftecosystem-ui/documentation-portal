@@ -1,16 +1,5 @@
 "use client";
 
-/**
- * The artisan's agreement that their recordings may be sent for transcription. Consent is assumed by
- * default and can be revoked (owner decision, 19 Oct 2026), so the switch is ON unless a refusal is on
- * record; switching it off records the refusal and stops every outside send. Recordings made before
- * 18 Oct 2026 carry consent by the owner's attestation (`source: "owner attestation"`), which the
- * status line names.
- *
- * ONE CONSENT STORE (19 Oct 2026): this reads and writes the artisan's row in the consent ledger
- * through `/artisans/{id}/consent`, the same record the questionnaire's consent question answers, so
- * the two can never disagree.
- */
 import { useEffect, useState } from "react";
 
 import { Toggle } from "@/components/ui/Toggle";

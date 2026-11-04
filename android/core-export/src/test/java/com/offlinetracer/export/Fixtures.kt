@@ -10,17 +10,11 @@ import com.offlinetracer.vector.VecSeg
 import com.offlinetracer.vector.VecShape
 import com.offlinetracer.vector.VecStyle
 
-/**
- * Shared test geometry. Deliberately small and hand-checkable: every expectation in the format
- * tests is derived from these numbers rather than from a golden file, so a change in behaviour
- * shows up as a failing assertion instead of a diff nobody can read.
- */
 internal object Fixtures {
 
     const val DOC_W = 100f
     const val DOC_H = 50f
 
-    /** Number of drawable shapes in [document]. */
     const val SHAPE_COUNT = 3
 
     fun closedRect(x: Float, y: Float, w: Float, h: Float): VecPath = VecPath(
@@ -39,10 +33,6 @@ internal object Fixtures {
         closed = false,
     )
 
-    /**
-     * Two layers whose names both need sanitising for DXF (a space, punctuation, lowercase),
-     * one stroked open path, one stroked closed path and one filled closed path.
-     */
     fun document(): VecDocument = VecDocument(
         width = DOC_W,
         height = DOC_H,
@@ -68,13 +58,8 @@ internal object Fixtures {
         ),
     )
 
-    /** A document with no geometry at all — the degenerate case every writer must survive. */
     fun emptyDocument(): VecDocument = VecDocument(DOC_W, DOC_H, emptyList())
 
-    /**
-     * A deterministic image with every channel varying independently, including partial alpha,
-     * so a channel swap or a dropped alpha byte cannot pass a round-trip test by coincidence.
-     */
     fun image(w: Int, h: Int): RgbaImage {
         val px = IntArray(w * h)
         var i = 0
@@ -91,7 +76,6 @@ internal object Fixtures {
         return RgbaImage(w, h, px)
     }
 
-    /** Greyscale ramp with a couple of out-of-range values to prove clamping, not wrapping. */
     fun gray(w: Int, h: Int): GrayF {
         val data = FloatArray(w * h)
         var i = 0

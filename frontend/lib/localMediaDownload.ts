@@ -1,30 +1,6 @@
-/**
- * Save a piece of media the person is uploading — or has queued to upload — to their own device.
- *
- * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────────────────
- *
- * A voice note recorded in a village, or a photograph picked on a laptop, sits in this page's
- * memory (or in the offline outbox's IndexedDB store) for as long as the upload takes, and on a bad
- * connection that is minutes. Until the upload finishes, that in-browser copy is the ONLY copy. The
- * Download button on every upload/queue row hands it to the browser's own download machinery so the
- * researcher can keep their file without waiting for the network.
- *
- * ── WHAT IT MUST NEVER DO ──────────────────────────────────────────────────────────────────────
- *
- * Touch the upload. Everything here reads the same in-memory `Blob` the transfer is streaming from,
- * through an object URL; nothing aborts, pauses, re-reads into a new buffer, or awaits anything the
- * upload is waiting on. The object URL is released on a later task by `saveBlobToDevice` (see the
- * header of `lib/saveToDevice.ts` for why it cannot be released on the next line).
- *
- * The filename rules are pure and shared, word for word, with the Android `saveToDownloads` helper
- * (`ui/MediaDownloads.kt`); `e2e/local-media-download-unit.spec.ts` and `MediaDownloadsTest.kt`
- * drive the same table.
- */
-
 import { saveBlobToDevice, saveUrlToDevice } from "@/lib/saveToDevice";
 import { recordingFilename } from "@/lib/naming";
 
-/** Exact MIME → extension pairs. Anything not listed falls back to the subtype (see below). */
 const EXTENSION_BY_MIME: Record<string, string> = {
   "audio/webm": "webm",
   "audio/ogg": "ogg",
@@ -67,14 +43,6 @@ const EXTENSION_BY_MIME: Record<string, string> = {
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx"
 };
 
-/**
- * File extension for a MIME type, without the dot.
- *
- * Parameters (`audio/webm;codecs=opus`) are dropped before the lookup — that is the exact string a
- * Chrome `MediaRecorder` reports. An unlisted type uses its subtype when it is a plain word
- * (`image/x-icon` → `x-icon`), and anything else — blank, malformed, or a `+suffix` structured type —
- * is `bin`, because a made-up extension is worse than an honest generic one.
- */
 export function extensionForMimeType(mimeType: string | null | undefined): string {
   const base = (mimeType ?? "").split(";")[0].trim().toLowerCase();
   if (!base) return "bin";
@@ -89,7 +57,6 @@ function pad(value: number): string {
   return String(value).padStart(2, "0");
 }
 
-/** `YYYY-MM-DD-HHmmss` in local time — sortable, and legal in every filesystem's names. */
 export function fileStamp(date: Date): string {
   return (
     `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}-` +
@@ -97,18 +64,8 @@ export function fileStamp(date: Date): string {
   );
 }
 
-/** Characters no Windows, macOS or Android filesystem accepts in a name. */
 const ILLEGAL_NAME_CHARS = /[\\/:*?"<>|\u0000-\u001f]/g;
 
-/**
- * The name the saved file gets.
- *
- * - The ORIGINAL name, whenever there is one — it is the person's own file, and the name is how
- *   they will find it again. Path separators and other illegal characters become `_`.
- * - An original name with no extension gets one from the MIME type, so the saved file opens in
- *   the right app.
- * - No name at all: the NAMING 2.1 `<Portal>_<IST date>_<HHMM>_<What>.<ext>`.
- */
 export function localMediaFileName(name: string | null | undefined, mimeType: string | null | undefined, now: Date): string {
   const cleaned = (name ?? "").replace(ILLEGAL_NAME_CHARS, "_").trim().replace(/^\.+/, "");
   const extension = extensionForMimeType(mimeType);
@@ -117,19 +74,11 @@ export function localMediaFileName(name: string | null | undefined, mimeType: st
     const hasExtension = dot > 0 && dot < cleaned.length - 1;
     return hasExtension || extension === "bin" ? cleaned : `${cleaned}.${extension}`;
   }
-  // NAMING 2.1: FieldRepository_2026-03-07_0905_Recording.webm, dated and timed in IST.
   const base = (mimeType ?? "").trim().toLowerCase();
   const what = base.startsWith("audio/") ? "Recording" : base.startsWith("video/") ? "Video" : base.startsWith("image/") ? "Photo" : "File";
   return recordingFilename(null, extension, { capturedAt: now, what });
 }
 
-/**
- * Save the in-memory copy of a file the page is uploading (or has queued) to the device.
- *
- * Synchronous on purpose: no await stands between the click and the download, so the browser still
- * treats it as user-initiated, and nothing here can stall the upload running beside it. Returns the
- * name the file was saved under.
- */
 export function downloadLocalMedia(source: Blob, name?: string | null, now: Date = new Date()): string {
   const fallbackName = typeof File !== "undefined" && source instanceof File ? source.name : null;
   const fileName = localMediaFileName(name ?? fallbackName, source.type, now);
@@ -137,12 +86,6 @@ export function downloadLocalMedia(source: Blob, name?: string | null, now: Date
   return fileName;
 }
 
-/**
- * Save a file that has finished uploading, from the server URL the API returned for it.
- *
- * Fetched as a blob so the browser saves rather than navigates (a cross-origin URL ignores the
- * anchor's `download` hint); if CORS blocks the fetch, the anchor falls back to opening the URL.
- */
 export async function downloadUploadedMedia(url: string, name: string | null | undefined, mimeType?: string | null): Promise<void> {
   const fileName = localMediaFileName(name, mimeType, new Date());
   try {

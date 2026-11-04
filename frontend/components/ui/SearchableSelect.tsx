@@ -1,37 +1,5 @@
 "use client";
 
-/**
- * `SearchableSelect` / `SearchableMultiSelect` — the app's one list-picking control.
- *
- * Reported by the user: "make the single select and multi-select drop downs searchable... if they
- * press enter then the first value gets chosen, in multi-select everywhere, also give the option
- * select all."
- *
- * Four decisions carry this file, and none of them are obvious from the code alone.
- *
- * **1. Search is decided by option count, not by the call site.** There are forty-odd selects in
- * this app and asking each one to opt in guarantees the long ones get missed. `SEARCH_THRESHOLD`
- * splits them instead, and the split is real rather than tuned: see the constant.
- *
- * **2. The highlight is derived, never stored raw.** A stored index goes stale the instant the
- * filter changes, and a stale index means Enter commits a row that is not on screen — the exact
- * data-entry bug a searchable select is supposed to prevent. `safeHighlight` re-derives a valid,
- * enabled, rendered index on every render, so there is no window in which the highlight is a lie.
- *
- * **3. "Select all" follows the filter.** With a query active the button acts on the matches and
- * says so ("Select 6 matching"), never on the 74 rows the reader cannot see. Choosing the whole
- * corpus by accident is far more expensive to undo than clearing the box and clicking again.
- *
- * **4. The panel floats.** It is `AnchoredPopover`, the positioner written for the date picker
- * after the same user reported that opening the calendar "pushes the rest down". A dropdown has
- * the identical problem plus a worse one: these lists live inside dialogs and `overflow-hidden`
- * filter panels, where an absolutely positioned menu is sheared off rather than merely misplaced.
- *
- * Focus is deliberately NOT trapped. Tab walks the panel's own controls and then leaves for the
- * next field in the form; Escape closes and puts focus back on the trigger. A picker that swallows
- * the keyboard is worse than the native `<select>` it replaces.
- */
-
 import { Check, ChevronDown, Search, X } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
@@ -41,50 +9,23 @@ import { cn } from "@/lib/utils";
 
 export type SelectOption = { value: string; label: string; disabled?: boolean };
 
-/**
- * At or above this many options the panel grows a search box.
- *
- * The number is not a guess — it is where this app's lists actually divide. Every fixed vocabulary
- * tops out at seven: Yes/No (2), access level (3), gender (4), tradition (4), status (4-5), market
- * demand (5), product type (6), maker (7). Every list backed by records starts at nine: crafts (9),
- * artisans (16), products (18), users (20), tools (74), country dial codes (252). So a single
- * threshold separates a closed vocabulary the reader takes in at a glance from a corpus they have
- * to hunt through, and a four-option enum keeps the plain list it deserves.
- */
 const SEARCH_THRESHOLD = 8;
 
-/**
- * Past this many matches the list is VIRTUALISED: every row stays reachable by scrolling and by the
- * keyboard, but only the rows in view (plus `OVERSCAN` either side) are in the DOM. Below it every
- * row is drawn. (Owner, 2026-10-17: "works for long lists". The earlier answer was an 80-row cap
- * with a "keep typing" footer, which left rows 81+ reachable only by typing.)
- */
 const VIRTUALIZE_AT = 200;
 
-/** Rows drawn beyond each edge of the visible window, so a fast flick does not show a gap. */
 const OVERSCAN = 8;
 
-/** A row's height before one has been measured: `py-2` + a 20px `text-sm` line. */
 const ROW_HEIGHT_GUESS = 36;
 
-/** Selected labels read out in full before the summary switches to a count. */
 const SUMMARY_NAMES = 6;
 
 const TRIGGER_CLASS =
   "flex w-full items-center justify-between gap-2 rounded-md border border-line-200 bg-card px-3.5 py-2.5 text-left text-sm text-ink-900 outline-hidden transition hover:border-purple-300 focus:border-purple-600 focus:ring-4 focus:ring-purple-600/15 disabled:cursor-not-allowed disabled:opacity-60";
 
-/**
- * `!` because `cn` is a plain join, not tailwind-merge: `overflow-y-auto` and `p-3` from
- * AnchoredPopover's own class list would otherwise win on CSS source order regardless of what is
- * appended here. The panel must not scroll as a whole — the search box and the footer stay put
- * while only the list moves — so the override has to actually take.
- */
 const PANEL_CLASS = "overflow-hidden! p-0! flex flex-col";
 
-/** Widest a panel gets, so a full-width field on a laptop does not produce a 1200px list. */
 const PANEL_MAX_WIDTH = 520;
 
-/** Diacritics folded so "Jodhpur" is reachable by typing "jodhpur" and "Ahmedābād" by "ahmedabad". */
 function fold(text: string) {
   return text
     .normalize("NFD")
@@ -92,14 +33,6 @@ function fold(text: string) {
     .toLowerCase();
 }
 
-/**
- * Matches, ordered so that Enter picks what the reader meant.
- *
- * Plain substring order is not good enough: typing "co" into the tool list would put "Bamboo comb"
- * above "Cotton hank" purely because it was entered first, and Enter would then take the wrong one.
- * Ranking label-prefix above word-prefix above mid-word puts the obvious answer on top, and the
- * sort is stable so equally-good matches keep the caller's ordering.
- */
 function filterOptions(options: SelectOption[], query: string): SelectOption[] {
   const needle = fold(query.trim());
   if (!needle) return options;
@@ -115,14 +48,6 @@ function filterOptions(options: SelectOption[], query: string): SelectOption[] {
   return ranked.map((entry) => entry.option);
 }
 
-/**
- * Rolling type-ahead buffer (~700ms window, like the native <select>).
- *
- * Only ever used by a list too short to have earned a filter box. Losing it there would be a real
- * regression for the way these forms are actually filled: focus Gender, press "f", get Female,
- * without the control ever opening. A list WITH a filter box has a better answer already, and
- * running both would mean two different things happening for one keystroke.
- */
 function useTypeahead() {
   const state = useRef({ text: "", at: 0 });
   return useCallback((char: string) => {
@@ -134,7 +59,6 @@ function useTypeahead() {
   }, []);
 }
 
-/** Next enabled index walking `delta` (+1/-1) from `current`, wrapping around. */
 function stepHighlight(options: SelectOption[], current: number, delta: number) {
   const n = options.length;
   if (!n) return -1;
@@ -146,7 +70,6 @@ function stepHighlight(options: SelectOption[], current: number, delta: number) 
   return -1;
 }
 
-/** A character key rather than a chord or a named key — Space excluded, it toggles the panel. */
 function isPrintable(event: React.KeyboardEvent) {
   return event.key.length === 1 && event.key !== " " && !event.ctrlKey && !event.metaKey && !event.altKey;
 }
@@ -155,13 +78,6 @@ function firstEnabled(options: SelectOption[]) {
   return options.findIndex((option) => !option.disabled);
 }
 
-/**
- * The purple ramp is brand colour and deliberately does NOT invert with the theme, so purple-50 is
- * near-white in both modes — as a highlight it painted a white bar across a dark menu, and
- * purple-700 text on it went to near-black on near-black once the bar was darkened. The dark
- * counterparts are the ones ui/calendar uses for its day cells, so a menu and a calendar highlight
- * the thing under the cursor identically.
- */
 function optionClass(option: SelectOption, highlighted: boolean, active: boolean) {
   return cn(
     "flex items-center gap-2 px-3.5 py-2 text-sm",
@@ -171,12 +87,6 @@ function optionClass(option: SelectOption, highlighted: boolean, active: boolean
   );
 }
 
-/**
- * Keeps the highlighted row on screen.
- *
- * `block: "nearest"` rather than "center" so arrowing down a long list scrolls by one row instead
- * of jumping the viewport around under the reader.
- */
 function useScrollHighlightIntoView(
   open: boolean,
   highlight: number,
@@ -186,7 +96,6 @@ function useScrollHighlightIntoView(
 ) {
   useEffect(() => {
     if (!open || highlight < 0) return;
-    // A virtualised row may not be in the DOM yet, so the list is scrolled by arithmetic instead.
     if (virtual) scrollToIndex(highlight);
     else document.getElementById(`${baseId}-opt-${highlight}`)?.scrollIntoView({ block: "nearest" });
   }, [open, highlight, baseId, virtual, scrollToIndex]);
@@ -203,12 +112,6 @@ type VirtualWindow = {
   scrollToIndex: (index: number) => void;
 };
 
-/**
- * The visible slice of a long list. Rows are one fixed height (measured from the first drawn row,
- * so the larger-text mode's taller rows are honoured), the slice is padded above and below so the
- * scrollbar is the true length, and `scrollToIndex` keeps the keyboard highlight on screen with
- * `nearest` semantics (scroll by one row, never re-centre).
- */
 function useVirtualWindow(count: number): VirtualWindow {
   const virtual = count > VIRTUALIZE_AT;
   const [node, setNode] = useState<HTMLUListElement | null>(null);
@@ -223,8 +126,6 @@ function useVirtualWindow(count: number): VirtualWindow {
     if (row && row.offsetHeight > 0) setRowHeight(row.offsetHeight);
   }, [node, virtual, count]);
 
-  // The node twice over: in state so the measuring effect re-runs when the list mounts, and in a ref
-  // so `scrollToIndex` (an effect-time call) may write its scrollTop without mutating state.
   const nodeRef = useRef<HTMLUListElement | null>(null);
   const listRef = useCallback((next: HTMLUListElement | null) => {
     nodeRef.current = next;
@@ -262,41 +163,14 @@ function useVirtualWindow(count: number): VirtualWindow {
   };
 }
 
-/**
- * Everything the panel needs, derived rather than stored.
- *
- * The one piece of raw state is `highlight`, and even that is passed through `safeHighlight` before
- * anything reads it — see the file header on why a stored index is not trustworthy here.
- */
 function useSelectList(options: SelectOption[], query: string, searchable: boolean) {
   const filtered = useMemo(
     () => (searchable ? filterOptions(options, query) : options),
     [options, query, searchable]
   );
-  // Every match is a row. A long list is virtualised (useVirtualWindow), never capped, so a value
-  // the reader already picked — India, ~100th of 246 dial codes — is always there with its tick.
   return { filtered, rendered: filtered };
 }
 
-/**
- * Keeps the panel's own keystrokes inside the panel, and why that is not paranoia.
- *
- * A React portal moves the panel out of the DOM but NOT out of the React tree, so synthetic events
- * still bubble to whatever component rendered the select. Every record form in this app is
- * `<form onInput={markDirty} onKeyDown={handleFormEnter}>`, and both would have picked up the
- * filter box:
- *
- * - Typing three letters to find a craft, changing nothing, would arm the unsaved-changes prompt,
- *   so a reader who searched, picked nothing and pressed Escape could not leave the page.
- * - Enter to take the highlighted match would ALSO reach `handleFormEnter`, which sees a plain text
- *   input and advances focus. Worse, `focusNextField` scopes itself with `closest("form")` — null
- *   for a node portalled to `<body>` — so it would fall back to the whole document and throw focus
- *   at an unrelated field on the other side of the page.
- *
- * Nothing outside the panel has any business knowing what was typed into a filter, so the whole
- * class of problem is cut off here rather than patched per form. Escape is unaffected: AnchoredPopover
- * takes it on a window-CAPTURE listener, which runs before any of this.
- */
 function containEvents(onKeyDown: (event: React.KeyboardEvent) => void) {
   return {
     onKeyDown: (event: React.KeyboardEvent) => {
@@ -308,7 +182,6 @@ function containEvents(onKeyDown: (event: React.KeyboardEvent) => void) {
   };
 }
 
-/** Shared search row so the single- and multi-select boxes are the same box. */
 function SearchRow({
   inputRef,
   inputId,
@@ -360,15 +233,6 @@ function SearchRow({
   );
 }
 
-/**
- * Tab out of either end of the panel.
- *
- * NOT a focus trap: the point is to leave, just to leave somewhere useful. Tab past the last
- * control commits and moves to the next field in the form (the panel is portalled to the end of
- * `<body>`, so the browser's own answer would be the URL bar); Shift+Tab off the first control
- * puts focus back on the trigger, where the reader's previous Shift+Tab will behave normally.
- * Everything between the two ends is left entirely to the browser.
- */
 function useEdgeTab(
   panelRef: React.RefObject<HTMLDivElement | null>,
   onTabForward: () => void,
@@ -396,34 +260,10 @@ function useEdgeTab(
   );
 }
 
-/**
- * Focus the filter box as it mounts — but only if the keyboard is still where opening left it.
- *
- * Two things make this less trivial than an effect keyed on `open`. The panel is portalled and only
- * mounts once AnchoredPopover has resolved its host, a render later than `open` flipping, so an
- * effect fires before the box exists; attaching the focus to the ref callback is the one moment
- * guaranteed to be after it.
- *
- * The second is the reason for the guard, and it was caught on a real page rather than reasoned
- * about. Options that arrive over the network are not there when the panel opens: on /tools the
- * craft list took 1.8s, so the select opened with zero options, sat BELOW the search threshold, and
- * rendered no filter box at all — then grew one when the response landed. An unconditional focus
- * there yanks the keyboard out of whatever the reader moved on to, seconds after they opened the
- * menu, which on the rural connections this app is built for is the normal case and not the edge
- * one. So the box claims focus only from the trigger it belongs to (or from nothing at all), and
- * otherwise lets the reader be.
- */
 function useFilterBoxFocus(triggerRef: React.RefObject<HTMLButtonElement | null>) {
   return useCallback(
     (node: HTMLInputElement | null) => {
       if (!node) return;
-      // Deferred a frame rather than focused inline, and this one is load-bearing. Refs attach
-      // bottom-up, so at the moment this callback runs AnchoredPopover's own panel ref — held on an
-      // ANCESTOR of this input — is still null. Its focus-out guard asks
-      // `panelRef.current.contains(target)` to decide whether focus went somewhere legitimate, and
-      // against a null panel an in-panel focus is indistinguishable from a click-away: the country
-      // picker closed itself in the same tick it opened, every time. A frame later every ref is in
-      // place and the guard can answer correctly.
       requestAnimationFrame(() => {
         if (!node.isConnected) return;
         const active = document.activeElement;
@@ -444,53 +284,12 @@ export type SearchableSelectProps = {
   disabled?: boolean;
   className?: string;
   ariaLabel?: string;
-  /**
-   * `undefined` lets `SEARCH_THRESHOLD` decide, which is what almost every call site should do.
-   * Force it on for a list that is short today and long next month, off for one that is a fixed
-   * vocabulary however many entries it grows.
-   */
   searchable?: boolean;
-  /**
-   * After a value is picked, close and move focus to the next field. On by default: these forms are
-   * filled top-to-bottom in one pass, and leaving focus parked on the trigger makes the next Tab
-   * land somewhere the researcher did not expect. Set false for a dropdown that FILTERS the screen
-   * it sits on (a list funnel, a taxonomy switcher) rather than filling in a form field — there,
-   * jumping focus away from the control you are adjusting is wrong.
-   */
   advanceOnSelect?: boolean;
-  /**
-   * WHAT IS IN THE FILTER BOX, REPORTED OUT — for the one caller whose options are not all here yet.
-   *
-   * Search in this control is LOCAL: `filterOptions` narrows the array it was handed, which is the
-   * right and complete answer whenever the caller holds every row. It stops being complete when the
-   * caller holds ONE PAGE of a longer list — every list route in this API clamps `pageSize` to 100
-   * (`components/data/cappedList`) — because then the rows the reader is typing to find may simply
-   * not be in the array, and the box silently answers "No matches" about the repository.
-   *
-   * `components/forms/RecordSwitcher.tsx` is that caller: it mirrors this query, debounces it, and
-   * re-asks the server with `search=` when — and only when — its list is actually cut. Nothing here
-   * changes: the local filter still runs over whatever options are present, and a wider set simply
-   * arrives as a new `options` array a moment later.
-   *
-   * IT FIRES ON EVERY RESET AS WELL AS EVERY KEYSTROKE, and that is deliberate rather than
-   * incidental. Opening the panel and closing it both blank the query, and a listener that learned
-   * about the typing but not about the blanking would leave its caller holding a stale term — still
-   * filtering a list the reader can plainly see is unfiltered. So this reports the box's value,
-   * always, not the box's keystrokes.
-   *
-   * Everything else in the app leaves this undefined and gets the behaviour it has always had.
-   */
   onSearch?: (query: string) => void;
-  /**
-   * Draw a "Clear" (x) button beside the chevron while a value is chosen; clearing calls
-   * `onChange("")`. Off by default, because a REQUIRED field has nothing honest to clear to.
-   */
   clearable?: boolean;
-  /** The clear button's accessible name. */
   clearLabel?: string;
-  /** The trigger's id, so a sibling `<label htmlFor>` names it. */
   id?: string;
-  /** Ids of hint text describing the field. */
   describedBy?: string;
 };
 
@@ -523,11 +322,8 @@ export function SearchableSelect({
 
   const withSearch = searchable ?? options.length >= SEARCH_THRESHOLD;
   const { filtered, rendered } = useSelectList(options, query, withSearch);
-  // Destructured, never held as one object: the object carries the list's callback ref, and the
-  // React compiler then treats every field read from it as a ref read during render.
   const { virtual, start, end, padTop, padBottom, listRef, onScroll, scrollToIndex } = useVirtualWindow(rendered.length);
 
-  // Derived, not stored — the stored index is only ever a hint. See the file header.
   const safeHighlight =
     highlight >= 0 && highlight < rendered.length && !rendered[highlight].disabled
       ? highlight
@@ -537,26 +333,11 @@ export function SearchableSelect({
 
   const selected = options.find((option) => option.value === value);
 
-  /**
-   * `onSearch` read through a ref — the same discipline `useEditDeepLink` follows for its callbacks,
-   * and for the same reason. Every caller passes an inline closure over its own state, which is a
-   * new identity on every render; as a dependency of `applyQuery` it would rebuild `close`, and with
-   * it `closeAndMoveOn` and `onTabForward`, on each of those renders. Written in an effect with no
-   * dependency array rather than during render, so a render that concurrent React discards cannot
-   * leave a stale callback installed.
-   */
   const searchRef = useRef(onSearch);
   useEffect(() => {
     searchRef.current = onSearch;
   });
 
-  /**
-   * The ONLY writer of `query`, so the reported value and the rendered value cannot come apart.
-   *
-   * Three call sites set the filter box: typing in it, opening the panel (which blanks it) and
-   * closing the panel (which blanks it too). A listener told about the first and not the other two
-   * would hold a term the reader can see is gone — see the `onSearch` prop's own note.
-   */
   const applyQuery = useCallback((next: string) => {
     setQuery(next);
     searchRef.current?.(next);
@@ -567,12 +348,9 @@ export function SearchableSelect({
     applyQuery("");
   }, [applyQuery]);
 
-  /** Close, then hand the keyboard on. `advanceOnSelect` decides whether "on" means the next field. */
   const closeAndMoveOn = useCallback(
     (advance: boolean) => {
       close();
-      // After the state flush, so the panel has unmounted and the walker sees the settled DOM;
-      // otherwise the still-open listbox can swallow the focus we are trying to move on.
       requestAnimationFrame(() => {
         if (advance && focusNextField(wrapperRef.current)) return;
         triggerRef.current?.focus({ preventScroll: true });
@@ -591,22 +369,16 @@ export function SearchableSelect({
   function openPanel() {
     applyQuery("");
     setOpen(true);
-    // Indexed against `rendered`, which is what the highlight means everywhere else. Against the
-    // raw options array a pinned selection past the cap would highlight whatever happened to sit at
-    // that index instead.
     const at = rendered.findIndex((option) => option.value === value);
     setHighlight(at >= 0 && !rendered[at].disabled ? at : firstEnabled(rendered));
   }
 
-  /** Typing in the box always re-aims Enter at the top match. */
   function onQueryChange(next: string) {
     applyQuery(next);
     setHighlight(0);
   }
 
   const onTabForward = useCallback(() => {
-    // Type three letters, Tab, carry on: the highlight is what the reader is looking at, so
-    // leaving without it would silently discard the choice they had already made visually.
     if (safeHighlight >= 0 && rendered[safeHighlight]) onChange(rendered[safeHighlight].value);
     closeAndMoveOn(true);
   }, [safeHighlight, rendered, onChange, closeAndMoveOn]);
@@ -614,7 +386,6 @@ export function SearchableSelect({
   const onTabBackward = useCallback(() => closeAndMoveOn(false), [closeAndMoveOn]);
   const onPanelKeyDown = useEdgeTab(panelRef, onTabForward, onTabBackward);
 
-  /** Arrow/Enter/Home/End, shared by the trigger (short lists) and the search box (long ones). */
   function navigate(event: React.KeyboardEvent) {
     switch (event.key) {
       case "ArrowDown":
@@ -640,7 +411,6 @@ export function SearchableSelect({
       case "Enter":
         if (!open) return false;
         event.preventDefault();
-        // Guarded on the DERIVED index, so Enter can only ever take a row that is on screen.
         if (safeHighlight >= 0) choose(safeHighlight);
         return true;
       default:
@@ -658,7 +428,6 @@ export function SearchableSelect({
       return;
     }
     if (event.key === "Tab" && open) close();
-    // Native-<select> type-ahead, and only where there is no filter box to do the job properly.
     if (!withSearch && isPrintable(event)) {
       event.preventDefault();
       const query = typeahead(event.key);
@@ -667,8 +436,6 @@ export function SearchableSelect({
       if (open) setHighlight(match);
       else onChange(options[match].value);
     }
-    // Escape is not handled here: AnchoredPopover takes it on a window-capture listener, closes the
-    // topmost panel and restores focus to `restoreFocusRef`, which is this trigger.
   }
 
   const inputRef = useFilterBoxFocus(triggerRef);
@@ -678,11 +445,6 @@ export function SearchableSelect({
     : `${options.length} options`;
 
   return (
-    // `min-w-0` is load-bearing, not tidying. A grid or flex item defaults to `min-width: auto`,
-    // which refuses to shrink below its content's intrinsic width — so a long option label widened
-    // this wrapper past its column and the trigger overlapped the field beside it. The `truncate`
-    // on the label inside cannot prevent that on its own: it clips text within a box that has
-    // already been allowed to grow. The box has to be allowed to shrink first.
     <div ref={wrapperRef} className={cn("relative min-w-0", className)}>
       <button
         ref={triggerRef}
@@ -694,13 +456,9 @@ export function SearchableSelect({
         aria-label={ariaLabel}
         aria-describedby={describedBy}
         aria-controls={open ? listboxId : undefined}
-        // Only when the trigger itself owns the keyboard; with a search box the input does.
         aria-activedescendant={open && !withSearch ? activeId : undefined}
         onClick={() => (open ? close() : openPanel())}
         onKeyDown={onTriggerKeyDown}
-        // Marks the trigger as a form field for lib/formNav: without it the walker cannot locate
-        // this control, focusNextField() bails, and picking a value leaves focus parked here
-        // instead of moving on to the next field.
         data-form-field=""
         data-searchable-select=""
         className={cn(TRIGGER_CLASS, clearable && selected && !disabled && "pr-11")}
@@ -714,8 +472,6 @@ export function SearchableSelect({
         />
       </button>
       {clearable && selected && !disabled ? (
-        // A sibling of the trigger, never inside it (a button may not contain a button). It sits
-        // over the trigger's right padding, left of the chevron.
         <button
           type="button"
           aria-label={clearLabel ?? (ariaLabel ? `Clear ${ariaLabel}` : "Clear selection")}
@@ -783,8 +539,6 @@ export function SearchableSelect({
                   onMouseEnter={() => {
                     if (!option.disabled) setHighlight(index);
                   }}
-                  // Keeps focus in the search box so the reader can keep typing after a mis-click,
-                  // and stops the browser hunting for a focus target as the row is removed.
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => choose(index)}
                   className={optionClass(option, index === safeHighlight, active)}
@@ -814,36 +568,13 @@ export type SearchableMultiSelectProps = {
   className?: string;
   ariaLabel?: string;
   searchable?: boolean;
-  /**
-   * Show a Confirm button in the panel once at least one option is ticked; confirming closes and
-   * moves to the next field.
-   *
-   * A multi-select cannot advance on click the way a single-select does — picking one option is
-   * usually not the end of the answer — so without an explicit "done" the researcher has to know to
-   * click away, and the form gives no signal that the answer was registered. Set false where the
-   * control filters a list in place rather than answering a form field.
-   */
   confirmOnSelect?: boolean;
   confirmLabel?: string;
-  /**
-   * The chosen options as removable chips under the trigger (default on). Each chip's x removes that
-   * one value. Past `CHIP_LIMIT` the rest are summarised as "+N more" — the trigger and the panel
-   * still hold the full set. Turn off where the selection is already shown as a list beside it.
-   */
   showChips?: boolean;
-  /**
-   * Draw "Select all" / "Clear all" (default on). PASS `false` ON A FILTER: there a choice of nothing
-   * already means everything, and "all" over a server's first page is not all.
-   */
   bulk?: boolean;
-  /**
-   * Called with every keystroke in the filter box (and "" when the panel closes), for a caller that
-   * asks the server for the matching options instead of holding the whole list.
-   */
   onSearch?: (query: string) => void;
 };
 
-/** Chips drawn before the rest are summarised as "+N more". */
 const CHIP_LIMIT = 12;
 
 export function SearchableMultiSelect({
@@ -875,8 +606,6 @@ export function SearchableMultiSelect({
   const withSearch = searchable ?? options.length >= SEARCH_THRESHOLD;
   const chosen = useMemo(() => new Set(values), [values]);
   const { filtered, rendered } = useSelectList(options, query, withSearch);
-  // Destructured, never held as one object: the object carries the list's callback ref, and the
-  // React compiler then treats every field read from it as a ref read during render.
   const { virtual, start, end, padTop, padBottom, listRef, onScroll, scrollToIndex } = useVirtualWindow(rendered.length);
 
   const safeHighlight =
@@ -910,16 +639,6 @@ export function SearchableMultiSelect({
     else onChange([...values, option.value]);
   }
 
-  /**
-   * What "select all" acts on, and why it is the filtered set rather than every option.
-   *
-   * The reader typed to narrow the list; acting on the rows they deliberately filtered OUT would
-   * be the one outcome they cannot see coming. So the button scopes itself to the matches, says
-   * which it did ("Select 6 matching" vs "Select all 74"), and leaves any selection made outside
-   * the current filter completely alone — clearing 6 matches never quietly drops a 7th pick that
-   * the query happens to hide. The cap on rendered rows is NOT applied here: the label promises
-   * every match, so every match is what it takes.
-   */
   const bulk = useMemo(() => filtered.filter((option) => !option.disabled), [filtered]);
   const allChosen = bulk.length > 0 && bulk.every((option) => chosen.has(option.value));
   const filtering = withSearch && query.trim().length > 0;
@@ -937,7 +656,6 @@ export function SearchableMultiSelect({
       onChange(values.filter((v) => !drop.has(v)));
       return;
     }
-    // Appended rather than rebuilt, so the order the reader picked things in survives.
     const have = new Set(values);
     onChange([...values, ...bulk.map((option) => option.value).filter((v) => !have.has(v))]);
   }
@@ -983,7 +701,6 @@ export function SearchableMultiSelect({
       case "Enter":
         if (!open) return false;
         event.preventDefault();
-        // Ticks and STAYS OPEN — picking one option is rarely the end of a multi-select answer.
         if (safeHighlight >= 0) toggle(safeHighlight);
         return true;
       default:
@@ -1001,8 +718,6 @@ export function SearchableMultiSelect({
       return;
     }
     if (event.key === "Tab" && open) close();
-    // Type-ahead only MOVES the highlight here — a multi-select must never tick a box from a
-    // keystroke aimed at finding one.
     if (!withSearch && isPrintable(event)) {
       event.preventDefault();
       const query = typeahead(event.key);
@@ -1015,13 +730,11 @@ export function SearchableMultiSelect({
 
   const inputRef = useFilterBoxFocus(triggerRef);
 
-  // In the order they were picked, so a chip row reads like the reader's own list.
   const chosenOptions = useMemo(() => {
     const byValue = new Map(options.map((option) => [option.value, option]));
     return values.map((v) => byValue.get(v)).filter((option): option is SelectOption => Boolean(option));
   }, [options, values]);
   const chosenLabels = useMemo(() => chosenOptions.map((option) => option.label), [chosenOptions]);
-  /** The selected set as prose, so a screen reader gets the names and not just "3 selected". */
   const selectionSummary = chosenLabels.length
     ? chosenLabels.length <= SUMMARY_NAMES
       ? `${chosenLabels.length} selected: ${chosenLabels.join(", ")}`
@@ -1031,13 +744,6 @@ export function SearchableMultiSelect({
     filtering ? `${filtered.length} of ${options.length} options match ${query.trim()}` : `${options.length} options`
   }. ${selectionSummary}.`;
 
-  /**
-   * Reached with the mouse, and by Tab — it is the next control after the filter box, so a keyboard
-   * reader finds it by walking rather than by knowing. An earlier draft also bound Ctrl/Cmd+A as a
-   * shortcut; it was dropped because inside a text box that chord already means "select the text I
-   * just typed", and quietly redefining it to "tick 74 rows" is exactly the kind of surprise this
-   * control is supposed to avoid.
-   */
   const bulkButton =
     bulkOn && bulk.length > 0 ? (
       <button
@@ -1051,7 +757,6 @@ export function SearchableMultiSelect({
     ) : null;
 
   return (
-    // The chips sit OUTSIDE the anchored wrapper, so the panel still opens right under the trigger.
     <div className={cn("min-w-0", className)}>
     <div ref={wrapperRef} className="relative min-w-0">
       <button
@@ -1072,7 +777,6 @@ export function SearchableMultiSelect({
         <span className={cn("min-w-0 truncate", !values.length && "text-ink-500")}>
           {values.length ? `${values.length} selected` : placeholder}
         </span>
-        {/* Without an ariaLabel the button's accessible name is its content, so the names go here. */}
         {ariaLabel ? null : <span className="sr-only">{selectionSummary}</span>}
         <ChevronDown
           className={cn("h-4 w-4 shrink-0 text-ink-500 transition-transform", open && "rotate-180")}
@@ -1106,8 +810,6 @@ export function SearchableMultiSelect({
               trailing={bulkButton}
             />
           ) : bulkButton ? (
-            // No search box on a short list, but "select all" still earns its place — four crafts
-            // is four clicks otherwise.
             <div className="flex shrink-0 justify-end border-b border-line-200 p-2">{bulkButton}</div>
           ) : null}
           <ul

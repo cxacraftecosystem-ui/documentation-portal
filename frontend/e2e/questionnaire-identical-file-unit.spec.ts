@@ -7,8 +7,6 @@ import { expect, test } from "@playwright/test";
 import { sha256Hex } from "@/lib/hashFile";
 import { prompts } from "@/lib/questionnairePrompts";
 
-/** DESIGN test 39: an identical picked file is caught before upload (P5) and nothing is sent. */
-
 test("the streaming sha256 matches a whole-file digest across slice boundaries", async () => {
   const bytes = new Uint8Array(9 * 1024 * 1024 + 123).map((_, i) => i % 251);
   const expected = createHash("sha256").update(bytes).digest("hex");

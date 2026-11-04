@@ -5,15 +5,6 @@ import { expect, test } from "@playwright/test";
 
 import { alsoApprovesLine, approvedReceipt, bulkReceipt, fileRefusalLabel, type ReviewReason } from "@/lib/review";
 
-/**
- * FILES APPROVED WITH THEIR RECORD (owner decision 2026-10-18).
- *
- * Approving a record approves its files that are still pending, so every approval says how many go
- * with it, and every file card on a record's page keeps its own Reject — also after the record was
- * approved. The words are pinned here; the wiring is read off the components, because a confirmation
- * that forgot the count would pass every other test.
- */
-
 const read = (...parts: string[]) => readFileSync(join(__dirname, "..", ...parts), "utf8").replace(/\r\n/g, "\n");
 
 const MISSING: ReviewReason = { code: "MISSING_DETAILS", label: "Missing details", fixable: true, needsNote: false };
@@ -59,7 +50,6 @@ test.describe("one file's Reject", () => {
     const view = read("components", "records", "RecordView.tsx");
     expect(view).toContain("<MediaReviewProvider");
     expect(view).toContain("rejectable: new Set(mediaReview.rejectable)");
-    // Drawn for the files the server lists — pending, or approved with their record — never a guess.
     expect(read("components", "review", "MediaReview.tsx")).toContain("review?.rejectable.has(mediaId)");
   });
 });

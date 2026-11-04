@@ -61,7 +61,7 @@ async def fill(client: Any, rows: list[dict[str, Any]], *, fetch: Any, discard: 
                 row["id"], checksum,
             )
             written += 1
-        except Exception as exc:  # noqa: BLE001 - one unreadable object must not stop the run
+        except Exception as exc:  # noqa: BLE001
             failed += 1
             print(f"  {row['id']}: could not hash ({type(exc).__name__})")
         finally:

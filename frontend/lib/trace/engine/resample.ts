@@ -1,26 +1,5 @@
 import { GrayF, Mask, RgbaImage, Px } from './buffers';
 
-/**
- * Resampling. See ALGORITHMS.md §2.
- *
- * Downscaling averages over the **exact source rectangle** of each destination pixel rather than
- * point-sampling. Point-sampling a 12 MP photo down to 2048 px aliases high-frequency texture into
- * something that looks exactly like an edge, and the edge detector then faithfully traces the alias.
- * This is the single most important quality decision in the preprocessing chain.
- *
- * The two axes carry **independent** tap tables. A 2-D box filter is exactly separable, so this is
- * the same answer as the 2-D integral rather than an approximation, and it means one axis can
- * box-average down while the other interpolates up — which is what a resize to a square proxy does
- * to a portrait image, and where a single "is this an upscale?" test silently picks the wrong filter.
- */
-
-/**
- * Per-destination-index tap list for one axis: `count[i]` taps starting at source index `start[i]`,
- * with the weights at `w[i * stride .. i * stride + count[i] - 1]`.
- *
- * Flat arrays rather than an array of arrays because the table is read once per destination pixel per
- * row, and the extra indirection shows up in the profile at working resolution.
- */
 interface Kernel1D {
   readonly stride: number;
   readonly start: Int32Array;
@@ -56,9 +35,6 @@ function boxKernel(srcN: number, dstN: number, scale: number): Kernel1D {
       wts[off + c] = ov;
       sum += ov;
     }
-    // Renormalise per destination pixel. The last pixel's source rectangle can end a rounding step
-    // past the image, and leaving that row summing to less than 1 shows up as a one-pixel dark seam
-    // along the right and bottom edges of every downscale.
     if (sum > 0) {
       const inv = 1 / sum;
       for (let t = 0; t < c; t++) wts[off + t] *= inv;
@@ -77,9 +53,6 @@ function linearKernel(srcN: number, dstN: number, scale: number): Kernel1D {
   const count = new Int32Array(dstN);
   const wts = new Float32Array(dstN * 2);
   for (let i = 0; i < dstN; i++) {
-    // Pixel-centre mapping. The naive `i * scale` shifts the image by half a destination pixel,
-    // which is invisible on a photograph and very visible as a drift when a mask and its grey source
-    // are resized separately and then compared.
     const pos = (i + 0.5) * scale - 0.5;
     let j0 = Math.floor(pos);
     let t = pos - j0;
@@ -106,14 +79,6 @@ function linearKernel(srcN: number, dstN: number, scale: number): Kernel1D {
   return { stride: 2, start, count, w: wts };
 }
 
-/**
- * Resize a grey image: exact box-area average on any axis that shrinks, linear interpolation on any
- * axis that grows.
- *
- * @returns a new GrayF of exactly `max(1, w)` x `max(1, h)`; `src.copy()` when the size already
- *          matches. Non-positive requests are coerced to 1 rather than throwing — a zero-sized
- *          preview request is a race in the UI, not a programming error.
- */
 export function resizeGray(src: GrayF, w: number, h: number): GrayF {
   const dw = Math.max(1, w | 0);
   const dh = Math.max(1, h | 0);
@@ -125,9 +90,6 @@ export function resizeGray(src: GrayF, w: number, h: number): GrayF {
   const vk = buildKernel(src.height, dh);
   const out = new Float32Array(dw * dh);
 
-  // Horizontally-resampled source rows are cached in a ring exactly as wide as the vertical kernel.
-  // A full intermediate image would be src.height * dw floats — ~100 MB for a 12 MP input — and
-  // destination rows only ever walk forward, so a ring is both smaller and enough.
   const ringSize = vk.stride;
   const ring = new Float32Array(ringSize * dw);
   const ringRow = new Int32Array(ringSize).fill(-1);
@@ -160,14 +122,6 @@ export function resizeGray(src: GrayF, w: number, h: number): GrayF {
   return new GrayF(dw, dh, out);
 }
 
-/**
- * Resize a packed ARGB image, all four channels averaged independently (non-premultiplied).
- *
- * The pipeline resizes the source before any matte exists, so there is no alpha to premultiply
- * against, and doing it anyway would darken every edge of a straight-alpha PNG.
- *
- * @returns a new RgbaImage of exactly `max(1, w)` x `max(1, h)`.
- */
 export function resizeRgba(src: RgbaImage, w: number, h: number): RgbaImage {
   const dw = Math.max(1, w | 0);
   const dh = Math.max(1, h | 0);
@@ -236,13 +190,6 @@ export function resizeRgba(src: RgbaImage, w: number, h: number): RgbaImage {
   return new RgbaImage(dw, dh, out);
 }
 
-/**
- * Nearest neighbour, always. Averaging is deliberately not offered: a mask that comes back with
- * intermediate values is no longer a mask, and every consumer downstream (morphology, thinning,
- * contour tracing) would have to invent its own re-threshold.
- *
- * @returns a new Mask of exactly `max(1, w)` x `max(1, h)`.
- */
 export function resizeMask(src: Mask, w: number, h: number): Mask {
   const dw = Math.max(1, w | 0);
   const dh = Math.max(1, h | 0);
@@ -265,7 +212,6 @@ export function resizeMask(src: Mask, w: number, h: number): Mask {
   return new Mask(dw, dh, out);
 }
 
-/** Dispatcher mirroring Kotlin's three `Resample.resize` overloads. */
 export function resize(src: GrayF, w: number, h: number): GrayF;
 export function resize(src: RgbaImage, w: number, h: number): RgbaImage;
 export function resize(src: Mask, w: number, h: number): Mask;
@@ -279,13 +225,6 @@ export function resize(
   return resizeMask(src, w, h);
 }
 
-/**
- * Aspect-preserving fit. **Never upscales** — asking for a 4096 px long edge from a 600 px scan
- * returns 600, because inventing pixels before edge detection invents edges too.
- *
- * @param maxLongEdge non-positive means "no limit".
- * @returns `[newW, newH]`, both >= 1.
- */
 export function fitWithin(w: number, h: number, maxLongEdge: number): Int32Array {
   const sw = Math.max(1, w | 0);
   const sh = Math.max(1, h | 0);
@@ -298,19 +237,11 @@ export function fitWithin(w: number, h: number, maxLongEdge: number): Int32Array
   return new Int32Array([Math.max(1, Math.round((sw * maxLongEdge) / sh)), maxLongEdge]);
 }
 
-/** @returns `src` scaled so its long edge is at most `maxLongEdge`; a copy when already small enough. */
 export function scaleToLongEdge(src: RgbaImage, maxLongEdge: number): RgbaImage {
   const wh = fitWithin(src.width, src.height, maxLongEdge);
   return resizeRgba(src, wh[0], wh[1]);
 }
 
-/**
- * Sub-rectangle of `src`.
- *
- * The rectangle is clamped into the image rather than validated: a crop that runs off the edge is a
- * user gesture near the border, not a programming error, and throwing there loses the whole
- * operation. The result is always at least 1x1.
- */
 export function cropRgba(src: RgbaImage, x: number, y: number, w: number, h: number): RgbaImage {
   const x0 = Px.clamp(x | 0, 0, src.width - 1);
   const y0 = Px.clamp(y | 0, 0, src.height - 1);
@@ -324,7 +255,6 @@ export function cropRgba(src: RgbaImage, x: number, y: number, w: number, h: num
   return new RgbaImage(cw, ch, out);
 }
 
-/** @see cropRgba */
 export function cropGray(src: GrayF, x: number, y: number, w: number, h: number): GrayF {
   const x0 = Px.clamp(x | 0, 0, src.width - 1);
   const y0 = Px.clamp(y | 0, 0, src.height - 1);
@@ -338,7 +268,6 @@ export function cropGray(src: GrayF, x: number, y: number, w: number, h: number)
   return new GrayF(cw, ch, out);
 }
 
-/** Dispatcher mirroring Kotlin's two `Resample.crop` overloads. */
 export function crop(src: GrayF, x: number, y: number, w: number, h: number): GrayF;
 export function crop(src: RgbaImage, x: number, y: number, w: number, h: number): RgbaImage;
 export function crop(
@@ -352,13 +281,6 @@ export function crop(
   return cropRgba(src, x, y, w, h);
 }
 
-/**
- * Pad with a constant. Negative pad amounts are treated as zero — padding gives a filter room to
- * work, and a caller that computes a negative margin wants no padding on that side, not a silent
- * crop.
- *
- * @returns a new GrayF of `left + src.width + right` by `top + src.height + bottom`.
- */
 export function pad(
   src: GrayF,
   left: number,

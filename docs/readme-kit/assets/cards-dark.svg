@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="460" viewBox="0 0 1200 460" role="img" aria-label="What the Field Repository does: capture, offline, interviews, transcripts, review and the dataset">
+<title>What the Field Repository does: capture, offline, interviews, transcripts, review and the dataset</title>
+<defs>
+<style>.d{font-family:'Plus Jakarta Sans','Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}.s{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}.m{font-family:'JetBrains Mono',ui-monospace,'SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace}.rise{animation:rise .9s cubic-bezier(.2,.7,.2,1) both}@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}.shine{animation:shine 5.6s cubic-bezier(.5,0,.3,1) infinite}@keyframes shine{0%{transform:translateX(0)}45%,100%{transform:translateX(562.7px)}}.r0{animation-delay:0.1s}.r1{animation-delay:0.2s}.r2{animation-delay:0.3s}.r3{animation-delay:0.5s}.r4{animation-delay:0.6s}.r5{animation-delay:0.7s}@media (prefers-reduced-motion:reduce){*{animation:none!important}.smil{display:none}.sweep{fill:url(#still)}}</style>
+<radialGradient id="halo"><stop offset="0" stop-color="#AA69E9" stop-opacity=".16"/><stop offset="1" stop-color="#AA69E9" stop-opacity="0"/></radialGradient>
+<linearGradient id="glint" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#C090F5" stop-opacity="0"/><stop offset=".5" stop-color="#C090F5"/><stop offset="1" stop-color="#E0AF43" stop-opacity="0"/></linearGradient>
+<clipPath id="k0"><rect x="6" y="6" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k1"><rect x="408.7" y="6" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k2"><rect x="811.3" y="6" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k3"><rect x="6" y="240" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k4"><rect x="408.7" y="240" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k5"><rect x="811.3" y="240" width="382.7" height="214" rx="18"/></clipPath>
+</defs>
+<g class="rise r0">
+<rect x="6" y="6" width="382.7" height="214" rx="18" fill="#1A1725" stroke="#342E47"/>
+<g clip-path="url(#k0)"><circle cx="358.7" cy="26" r="120" fill="url(#halo)"/><rect x="6" y="6" width="382.7" height="3" fill="#5F1C93"/><rect class="shine" style="animation-delay:0s" x="-174" y="6" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="30" y="30" width="48" height="48" rx="14" fill="#2F0D4B" stroke="#5F1C93"/>
+<g transform="translate(42 42) scale(1)" fill="none" stroke="#D6B6FB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></g>
+<text x="364.7" y="52" class="m" fill="#9E98B2" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">CAPTURE</text>
+<text x="30" y="116" class="d" fill="#F2F0F9" font-size="20" font-weight="700" letter-spacing="-.3">Eight linked record types</text>
+<text x="30" y="146" class="s" fill="#9E98B2" font-size="15">Artisans, crafts, workshops, products,</text><text x="30" y="169" class="s" fill="#9E98B2" font-size="15">tools, processes, interviews and media,</text><text x="30" y="192" class="s" fill="#9E98B2" font-size="15">linked from the moment they are saved.</text>
+</g>
+<g class="rise r1">
+<rect x="408.7" y="6" width="382.7" height="214" rx="18" fill="#1A1725" stroke="#342E47"/>
+<g clip-path="url(#k1)"><circle cx="761.3" cy="26" r="120" fill="url(#halo)"/><rect x="408.7" y="6" width="382.7" height="3" fill="#5F1C93"/><rect class="shine" style="animation-delay:0.7s" x="228.7" y="6" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="432.7" y="30" width="48" height="48" rx="14" fill="#2F0D4B" stroke="#5F1C93"/>
+<g transform="translate(444.7 42) scale(1)" fill="none" stroke="#D6B6FB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/></g>
+<text x="767.3" y="52" class="m" fill="#9E98B2" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">OFFLINE</text>
+<text x="432.7" y="116" class="d" fill="#F2F0F9" font-size="20" font-weight="700" letter-spacing="-.3">Works without signal</text>
+<text x="432.7" y="146" class="s" fill="#9E98B2" font-size="15">The Android app saves to an outbox,</text><text x="432.7" y="169" class="s" fill="#9E98B2" font-size="15">keeps takes on the phone and syncs with</text><text x="432.7" y="192" class="s" fill="#9E98B2" font-size="15">idempotency keys when a network returns.</text>
+</g>
+<g class="rise r2">
+<rect x="811.3" y="6" width="382.7" height="214" rx="18" fill="#1A1725" stroke="#342E47"/>
+<g clip-path="url(#k2)"><circle cx="1164" cy="26" r="120" fill="url(#halo)"/><rect x="811.3" y="6" width="382.7" height="3" fill="#5F1C93"/><rect class="shine" style="animation-delay:1.4s" x="631.3" y="6" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="835.3" y="30" width="48" height="48" rx="14" fill="#2F0D4B" stroke="#5F1C93"/>
+<g transform="translate(847.3 42) scale(1)" fill="none" stroke="#D6B6FB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/></g>
+<text x="1170" y="52" class="m" fill="#9E98B2" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">INTERVIEWS</text>
+<text x="835.3" y="116" class="d" fill="#F2F0F9" font-size="20" font-weight="700" letter-spacing="-.3">One questionnaire engine</text>
+<text x="835.3" y="146" class="s" fill="#9E98B2" font-size="15">Sessions, takes, coverage and canonical</text><text x="835.3" y="169" class="s" fill="#9E98B2" font-size="15">answers from one shared engine, with</text><text x="835.3" y="192" class="s" fill="#9E98B2" font-size="15">chips and filters on every recording.</text>
+</g>
+<g class="rise r3">
+<rect x="6" y="240" width="382.7" height="214" rx="18" fill="#1A1725" stroke="#342E47"/>
+<g clip-path="url(#k3)"><circle cx="358.7" cy="260" r="120" fill="url(#halo)"/><rect x="6" y="240" width="382.7" height="3" fill="#5F1C93"/><rect class="shine" style="animation-delay:2.1s" x="-174" y="240" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="30" y="264" width="48" height="48" rx="14" fill="#2F0D4B" stroke="#5F1C93"/>
+<g transform="translate(42 276) scale(1)" fill="none" stroke="#D6B6FB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></g>
+<text x="364.7" y="286" class="m" fill="#9E98B2" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">TRANSCRIPTS</text>
+<text x="30" y="350" class="d" fill="#F2F0F9" font-size="20" font-weight="700" letter-spacing="-.3">Every voice in English</text>
+<text x="30" y="380" class="s" fill="#9E98B2" font-size="15">Scribe v2 hears the words, Gemini 3.8</text><text x="30" y="403" class="s" fill="#9E98B2" font-size="15">Flash translates each turn, and the</text><text x="30" y="426" class="s" fill="#9E98B2" font-size="15">viewer follows the audio word by word.</text>
+</g>
+<g class="rise r4">
+<rect x="408.7" y="240" width="382.7" height="214" rx="18" fill="#1A1725" stroke="#342E47"/>
+<g clip-path="url(#k4)"><circle cx="761.3" cy="260" r="120" fill="url(#halo)"/><rect x="408.7" y="240" width="382.7" height="3" fill="#5F1C93"/><rect class="shine" style="animation-delay:2.8s" x="228.7" y="240" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="432.7" y="264" width="48" height="48" rx="14" fill="#2F0D4B" stroke="#5F1C93"/>
+<g transform="translate(444.7 276) scale(1)" fill="none" stroke="#D6B6FB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></g>
+<text x="767.3" y="286" class="m" fill="#9E98B2" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">REVIEW</text>
+<text x="432.7" y="350" class="d" fill="#F2F0F9" font-size="20" font-weight="700" letter-spacing="-.3">Six-tier ladder</text>
+<text x="432.7" y="380" class="s" fill="#9E98B2" font-size="15">Each tier reviews the one below:</text><text x="432.7" y="403" class="s" fill="#9E98B2" font-size="15">approve, reject or send back, and every</text><text x="432.7" y="426" class="s" fill="#9E98B2" font-size="15">decision is kept.</text>
+</g>
+<g class="rise r5">
+<rect x="811.3" y="240" width="382.7" height="214" rx="18" fill="#1A1725" stroke="#342E47"/>
+<g clip-path="url(#k5)"><circle cx="1164" cy="260" r="120" fill="url(#halo)"/><rect x="811.3" y="240" width="382.7" height="3" fill="#5F1C93"/><rect class="shine" style="animation-delay:3.5s" x="631.3" y="240" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="835.3" y="264" width="48" height="48" rx="14" fill="#2F0D4B" stroke="#5F1C93"/>
+<g transform="translate(847.3 276) scale(1)" fill="none" stroke="#D6B6FB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></g>
+<text x="1170" y="286" class="m" fill="#9E98B2" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">DATASET</text>
+<text x="835.3" y="350" class="d" fill="#F2F0F9" font-size="20" font-weight="700" letter-spacing="-.3">Browse it, export it</text>
+<text x="835.3" y="380" class="s" fill="#9E98B2" font-size="15">A data browser laid out as folders,</text><text x="835.3" y="403" class="s" fill="#9E98B2" font-size="15">report workbooks, transcripts in every</text><text x="835.3" y="426" class="s" fill="#9E98B2" font-size="15">export, and a streaming dataset API.</text>
+</g>
+</svg>

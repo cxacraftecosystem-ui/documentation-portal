@@ -7,11 +7,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * DESIGN §9 test 57: after an upgrade, entries the old build queued drain through the shim endpoints
- * (the legacy outbox's own replay) BEFORE the v2 queue starts. A legacy entry the server refused
- * waits for a person and does not hold the new queue.
- */
 class LegacyOutboxDrainTest {
     private fun legacy(type: String, failure: String? = null) = PendingEntry(
         id = "e-$type-${failure ?: "ok"}", type = type, payloadJson = "{}", label = "Interview", createdAt = "2026-10-17T10:00:00Z", failure = failure
@@ -34,7 +29,7 @@ class LegacyOutboxDrainTest {
     fun `the v2 queue waits while an old interview is still waiting for a signal`() = runBlocking {
         var ran = false
         val outcome = QuestionnaireSync.pass(
-            legacyDrain = { /* no signal: nothing drained */ },
+            legacyDrain = { },
             legacyQuestionnaireWaiting = { com.fieldrepository.app.questionnaire.portal.QuestionnairePortal.legacyQuestionnaireEntries(listOf(legacy("questionnaire"))) },
             v2 = { ran = true; SessionOutbox.PassResult(0, 0, 0) }
         )

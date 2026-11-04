@@ -1,7 +1,7 @@
 # Kubernetes
 
-**Nothing in `infra/k8s/` is running. Production is one EC2 t3.micro behind nginx behind
-CloudFront, deployed by `.github/workflows/deploy-backend.yml`, and this directory changes none of
+**Nothing in `infra/k8s/` is running. Production is one EC2 t3.small (2 GiB, Ubuntu 26.04, a
+blue/green pair of API ports) behind nginx behind CloudFront, deployed by `.github/workflows/deploy-backend.yml`, and this directory changes none of
 that.** These manifests exist so that the move is a reviewable decision rather than a weekend of
 guessing. They are written to be applied as-is; they have never been applied.
 
@@ -498,3 +498,13 @@ kubectl v1.36.1 (bundled Kustomize v5.8.1); kubeconform v0.7.0
 - [docs/SECURITY.md](SECURITY.md) — the trust boundaries these manifests inherit.
 - [backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) — the EC2/S3/CloudFront deployment in use today.
 - [docs/CI.md](CI.md) — the GitHub Actions pipeline that deploys it.
+
+## How this document is kept true
+
+| Claim class | Kept true by |
+|---|---|
+| That nothing here runs | `infra/k8s/` is applied by no workflow; `grep -rn kubectl .github/workflows` finds nothing |
+| The connection ceiling | the Supabase pooler's limits and `DATABASE_CONNECTION_LIMIT` in [ENVIRONMENT.md](ENVIRONMENT.md) |
+| The manifests | reviewed together with this page; they have never been applied |
+
+**Review triggers:** a change under `infra/k8s/`, a pooler plan change, or a decision to move off EC2.

@@ -4,12 +4,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** Source classification (ALGORITHMS §12). */
 class ClassifyTest {
 
     private fun opaque(r: Int, g: Int, b: Int): Int = RgbaImage.argb(255, r, g, b)
 
-    /** Black strokes on white paper: two hard modes at the ends of the range. */
     private fun penDrawing(): RgbaImage {
         val img = RgbaImage(128, 128).fill(opaque(255, 255, 255))
         for (y in 20..100) for (x in 30..33) img[x, y] = opaque(0, 0, 0)
@@ -18,7 +16,6 @@ class ClassifyTest {
         return img
     }
 
-    /** Deterministic high-frequency texture, the "textile or foliage" case. */
     private fun texture(): RgbaImage {
         val img = RgbaImage(128, 128)
         for (y in 0 until 128) for (x in 0 until 128) {
@@ -121,11 +118,6 @@ class ClassifyTest {
         assertEquals(0f, p.edgeDensity, 1e-5f)
     }
 
-    // -------------------------------------------------------------------------------------------
-    // The added statistics, and the confidence that decides whether acting on them is defensible
-    // -------------------------------------------------------------------------------------------
-
-    /** Two flat colours on a flat ground: bimodal, palette-flat, and not a stroke anywhere. */
     private fun flatGraphic(): RgbaImage {
         val img = RgbaImage(200, 200).fill(opaque(250, 248, 240))
         for (y in 30..170) for (x in 30..100) img[x, y] = opaque(20, 60, 160)
@@ -133,7 +125,6 @@ class ClassifyTest {
         return img
     }
 
-    /** A shaded object on a clean pale sweep — the case background separation exists for. */
     private fun objectOnCleanGround(): RgbaImage {
         val img = RgbaImage(240, 300).fill(opaque(238, 236, 232))
         for (y in 60 until 250) {
@@ -178,7 +169,6 @@ class ClassifyTest {
         val p = Classify.profile(penDrawing())
         assertEquals(Classify.SourceKind.LINE_ART, p.kind)
         assertTrue(p.confidence > 0.55f, "confidence was ${p.confidence}, too low to act on")
-        // A pen has one nib, and that is what separates a drawing from a photograph of dark shapes.
         assertTrue(
             p.strokeWidthConsistency > 0.7f,
             "a uniform-width drawing must read as consistent: ${p.strokeWidthConsistency}",
@@ -188,8 +178,6 @@ class ClassifyTest {
     @Test
     fun aTwoColourGraphicIsNotLineArtBecauseItsStrokesHaveNoSingleWidth() {
         val p = Classify.profile(flatGraphic())
-        // It is as bimodal as the pen drawing and both modes sit at the ends of the range, which is
-        // exactly the family §12's own test cannot separate. The stroke-width term is what does.
         assertTrue(p.bimodality > 0.75f, "the fixture must be bimodal to be a real test: ${p.bimodality}")
         assertTrue(
             p.strokeWidthConsistency < 0.6f,
@@ -226,8 +214,6 @@ class ClassifyTest {
 
     @Test
     fun textureEnergyMeasuresAreaAndNotEdgeStrength() {
-        // The whole reason this statistic is an *area*: a hard-edged drawing and a woven surface both
-        // saturate a mean-|Laplacian| measure, and only one of them is textured.
         val drawing = Classify.profile(penDrawing()).textureEnergy
         val woven = Classify.profile(texture()).textureEnergy
         assertTrue(
@@ -236,10 +222,6 @@ class ClassifyTest {
         )
     }
 
-    // -------------------------------------------------------------------------------------------
-    // figureGround — the two ring statistics, not a segmentation
-    // -------------------------------------------------------------------------------------------
-
     @Test
     fun figureGroundMeasuresACleanBackgroundAndTheSubjectOnIt() {
         val img = RgbaImage(200, 200).fill(opaque(252, 252, 250))
@@ -247,7 +229,6 @@ class ClassifyTest {
         val fg = Classify.figureGround(img)
 
         assertTrue(fg.backgroundUniformity > 0.95f, "uniformity ${fg.backgroundUniformity}")
-        // 81x81 of 200x200 is 16.4%, and the measurement has no segmentation in it to blur that.
         assertEquals(0.164f, fg.coverage, 0.02f)
     }
 
@@ -276,14 +257,10 @@ class ClassifyTest {
 
     @Test
     fun aTransparentRegionIsBackgroundWhateverItsColourChannelsSay() {
-        // An already cut-out PNG carries whatever the encoder left in the RGB of its erased pixels,
-        // and that colour is meaningless. Two identically-red regions here, one opaque and one fully
-        // transparent: only the opaque one counts towards coverage.
         val img = RgbaImage(120, 120).fill(opaque(250, 250, 250))
         for (y in 20..50) for (x in 20..50) img[x, y] = opaque(220, 30, 30)
         for (y in 70..100) for (x in 70..100) img[x, y] = RgbaImage.argb(0, 220, 30, 30)
         val fg = Classify.figureGround(img)
-        // One 31x31 square of 120x120 is 6.7%; counting both would report 13.3%.
         assertEquals(0.067f, fg.coverage, 0.01f)
     }
 
@@ -299,15 +276,12 @@ class ClassifyTest {
         assertEquals(Classify.SourceKind.FLAT_GRAPHIC, Classify.kindOf(flags(flat = true)))
         assertEquals(Classify.SourceKind.TEXTURED, Classify.kindOf(flags(texture = true)))
         assertEquals(Classify.SourceKind.PHOTOGRAPH, Classify.kindOf(flags()))
-        // Line art wins the ladder, because edge-detecting existing strokes doubles every line.
         assertEquals(
             Classify.SourceKind.LINE_ART,
             Classify.kindOf(flags(line = true, flat = true, texture = true)),
         )
-        // An explicit kind is never second-guessed by the flags.
         val measured = flags(line = true).copy(kind = Classify.SourceKind.TEXTURED)
         assertEquals(Classify.SourceKind.TEXTURED, Classify.kindOf(measured))
-        // And a profile nobody measured carries no confidence, which is what makes a caller refuse.
         assertEquals(0f, flags(line = true).confidence)
     }
 

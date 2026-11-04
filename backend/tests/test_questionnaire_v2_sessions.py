@@ -1,5 +1,3 @@
-"""Sessions are dated events (DESIGN 3.7, 3.12; tests 1, 2, 17 and 35a). Real Postgres."""
-
 from __future__ import annotations
 
 import pytest
@@ -133,8 +131,6 @@ def test_join_code_merge_continue_and_the_delete_and_participant_refusals(monkey
             await sessions.join("ZZZZZZ", ids.other)
         assert _code(unknown) == "JOIN_CODE_UNKNOWN"
         await record_take(client, ids, b["id"], ids.other, targets=[{"sectionId": ids.sections["D"]}], at=t(1))
-        # A session with recordings is soft-deleted and restorable (owner decision 3, 21 Oct 2026),
-        # no longer refused with HAS_RECORDINGS.
         await sessions.delete_session(b["id"], ids.admin)
         with pytest.raises(HTTPException) as hidden:
             await sessions.session_payload(client, b["id"])
@@ -143,8 +139,6 @@ def test_join_code_merge_continue_and_the_delete_and_participant_refusals(monkey
         with pytest.raises(HTTPException) as takes:
             await sessions.remove_participant(b["id"], ids.artisans[1], False, ids.other)
         assert _code(takes) == "PARTICIPANT_HAS_TAKES" and takes.value.detail["count"] == 1
-        # Merging and deleting are content admins' acts since 2026-10-20; the session's own
-        # researcher is refused both.
         with pytest.raises(HTTPException) as refused:
             await sessions.merge_into(b["id"], a["id"], ids.other)
         assert refused.value.status_code == 403
@@ -189,8 +183,6 @@ def test_a_volunteer_cannot_start_a_session_but_records_into_one_they_are_on(mon
 
 
 def test_a_scanned_qr_never_takes_the_session_from_its_lead(monkeypatch) -> None:
-    """Audit 2026-10-20: a scanner's create (Android's offline join) used to become the session, and
-    the lead's own create then returned it without adding the lead, so every queued edit was a 403."""
     from app.questionnaire import sessions
 
     async def go() -> None:
@@ -199,22 +191,18 @@ def test_a_scanned_qr_never_takes_the_session_from_its_lead(monkeypatch) -> None
         no_outside_calls(monkeypatch)
         ids = await seed(client)
         key = "qr-key-" + ids.tag
-        # The web scanner joins by key and creates nothing while the lead is offline.
         with pytest.raises(HTTPException) as not_synced:
             await sessions.join_by_key(key, ids.other)
         assert _code(not_synced) == "SESSION_UNKNOWN" and "synced" in not_synced.value.detail["message"]
-        # A handset scanner's offline join makes a stand-in with no LEAD.
         stand_in, created = await sessions.create_session(
             session_create(ids, ids.artisans[:1], key=key, researchers=[{"userId": ids.other.id, "role": "CONTRIBUTOR"}]), ids.other
         )
         assert created and [r["role"] for r in stand_in["researchers"]] == ["CONTRIBUTOR"]
-        # A volunteer's offline join before anything synced is told to wait, not that they can't start one.
         with pytest.raises(HTTPException) as volunteer:
             await sessions.create_session(
                 session_create(ids, ids.artisans[:1], key="vol-" + ids.tag, researchers=[{"userId": ids.vol.id, "role": "VOLUNTEER"}]), ids.vol
             )
         assert _code(volunteer) == "SESSION_UNKNOWN"
-        # The lead's own create arrives: the lead takes the session over with what they entered.
         lead, created = await sessions.create_session(
             session_create(ids, ids.artisans[:2], key=key, place="Bagru, Jaipur", note="Courtyard", purpose="FOLLOW_UP",
                            researchers=[{"userId": ids.prof.id, "role": "CONTRIBUTOR"}]),
@@ -227,7 +215,6 @@ def test_a_scanned_qr_never_takes_the_session_from_its_lead(monkeypatch) -> None
         assert lead["participantCount"] == 2
         row = await sessions.require_session(client, lead["id"])
         assert str(row["createdById"]) == ids.lead.id and await sessions.can_work_in(client, ids.lead, row)
-        # A replay by the lead changes nothing; a later scanner is added, not promoted.
         again, _ = await sessions.create_session(session_create(ids, ids.artisans[:1], key=key, place="Elsewhere"), ids.lead)
         assert again["place"] == "Bagru, Jaipur" and again["participantCount"] == 2
         joined = await sessions.join_by_key(key, ids.vol)

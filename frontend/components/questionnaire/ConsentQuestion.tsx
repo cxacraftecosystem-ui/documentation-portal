@@ -7,12 +7,6 @@ import { shortName } from "@/lib/questionnaire/coverageCache";
 import { mintKey, questionnaireApi, type ConsentRecord } from "@/lib/questionnaire/api";
 import { qs } from "@/lib/questionnaire/qs";
 
-/**
- * The consent notice (DESIGN §3.11), inline under the start sheet's artisan field, on the artisan
- * record and on a refused take. Consent is assumed by default and can be revoked (owner decision,
- * 19 Oct 2026): with no answer on record it says recordings may be sent, with Switch off beside OK;
- * after a refusal it says so, with Switch back on. It never blocks recording. Every answer is a new row.
- */
 export function ConsentQuestion({
   artisanId,
   name,

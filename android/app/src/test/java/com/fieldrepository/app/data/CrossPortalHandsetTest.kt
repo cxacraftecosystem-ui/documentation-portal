@@ -8,9 +8,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/**
- * C27 and C28 on the handset: the wire shapes decode, the pure rules hold, and the words are the web's.
- */
 class CrossPortalHandsetTest {
     private val json = Json { ignoreUnknownKeys = true }
 

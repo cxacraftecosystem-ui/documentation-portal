@@ -30,24 +30,6 @@ import com.fieldrepository.app.questionnaire.data.QChips
 import com.fieldrepository.app.questionnaire.data.QuestionnaireFilters
 import com.fieldrepository.app.ui.field
 
-/**
- * A recording's chips (owner, 31 Oct 2026): section or question, form, who answered (+N, present
- * marked), dates (estimated), workshop, language and duration, in the order and wording of
- * `shared/questionnaire-chips.json`. Compact: one FlowRow of small chips that wraps.
- *
- * REUSABLE ANYWHERE A TAKE IS SHOWN, the transcript viewer's header included: it needs only the
- * server's `chips` object, and draws nothing for null.
- *
- * @param chips the take's (or session's) `chips` from the server; null draws nothing.
- * @param modifier applied to the row.
- * @param filters the filters in force, so a chip already applied reads as selected; null when the
- *   screen has none.
- * @param onChip called with a chip's filter (and its label) when it is tapped. Duration, "+N", a
- *   guest and "Whole session" are never tappable; "+N" opens to show the names it hides. Null makes
- *   every chip a plain label. [QuestionnaireV2Nav.openRecordings] is the usual target from a screen
- *   that has no list of its own: it opens the Recordings list filtered by the chip.
- * @param session draws a session's chips (no "Whole session" target).
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RecordingChips(

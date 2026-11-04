@@ -1,5 +1,3 @@
-"""Shared helpers for questionnaire v2: the error shape, time, and reading raw rows."""
-
 from __future__ import annotations
 
 import json
@@ -8,7 +6,7 @@ from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any, NoReturn
 
 IST = timezone(timedelta(hours=5, minutes=30), name="IST")
-JOIN_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I/L: read aloud across a courtyard
+JOIN_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 JOIN_CODE_LENGTH = 6
 
 MESSAGES = {
@@ -28,11 +26,8 @@ MESSAGES = {
     "CONSENT_REFUSED": "Consent to send this recording outside was refused.",
     "CONSENT_NOT_RECORDED": "Waiting for consent to transcribe.",
     "APPROVE_BLOCKED": "This session can't be approved yet.",
-    # Joined the frozen list with the first client that shows them (Field Repository web, U3).
     "FORM_DELETED": "This questionnaire was deleted.",
     "BUNDLE_VERSION": "This bundle was made by a newer version of the app.",
-    # Joined the frozen list once every client showed them (22 Oct 2026: DR web and Android, FR web
-    # and Android): the answer lock (U9, P15) and a respondent who still has answers or takes.
     "ANSWER_LOCKED": "Only the person who answered, a lead or an admin can change this answer.",
     "RESPONDENT_HAS_ROWS": "This respondent has answers or takes.",
 }
@@ -45,18 +40,11 @@ STATUS = {
     "FORM_DELETED": 410, "BUNDLE_VERSION": 422, "ANSWER_LOCKED": 409, "RESPONDENT_HAS_ROWS": 409,
 }
 
-#: The unification's codes (UNIFY section 2.2), served now and NOT YET in the frozen contract's closed
-#: list (``shared/questionnaire-contract.json``), which every client checks itself against: each one
-#: joins that list in the stream that teaches the clients to show it (U1-U4), and moves up into
-#: MESSAGES/STATUS then. ``shared/questionnaire-enums.json`` lists them as ``pendingErrorCodes``.
 UNIFY_MESSAGES: dict[str, str] = {}
 UNIFY_STATUS: dict[str, int] = {}
 
 
 def fail(code: str, message: str | None = None, **extra: Any) -> NoReturn:
-    """Raise the contract's error: ``{"detail": {"code", "message", ...}}``."""
-    # Imported here, not at the top: the queue worker imports this module (the nightly session close)
-    # and would otherwise load FastAPI for an exception it never raises (tests/test_import_footprint.py).
     from app.questionnaire.errors import http_error
 
     status = STATUS.get(code) or UNIFY_STATUS[code]
@@ -72,7 +60,6 @@ def today_ist() -> date:
 
 
 def aware(value: Any) -> datetime | None:
-    """A UTC-aware datetime from a Prisma value, an ISO string or None."""
     if value is None or value == "":
         return None
     if isinstance(value, datetime):
@@ -95,7 +82,6 @@ def as_date(value: Any) -> date | None:
 
 
 def naive_utc(value: datetime | None) -> str | None:
-    """A ``timestamp(3)`` literal for raw SQL parameters."""
     if value is None:
         return None
     return value.astimezone(UTC).replace(tzinfo=None).isoformat(timespec="milliseconds")
@@ -119,11 +105,6 @@ def get(row: Any, key: str, default: Any = None) -> Any:
 
 
 def new_join_code() -> str:
-    """A six-character join code with at least one digit.
-
-    The top-bar scanner reads a typed six-character word as a session code only when it holds a
-    digit (owner, 2026-10-20), so an all-letter word such as a name is never mistaken for one.
-    """
     while True:
         code = "".join(secrets.choice(JOIN_ALPHABET) for _ in range(JOIN_CODE_LENGTH))
         if any(character.isdigit() for character in code):
@@ -131,7 +112,6 @@ def new_join_code() -> str:
 
 
 def jsonable(value: Any) -> Any:
-    """A value Prisma's Json wrapper will take (datetimes as ISO strings)."""
     return json.loads(json.dumps(value, default=lambda v: iso(v) if isinstance(v, (datetime, date)) else str(v)))
 
 

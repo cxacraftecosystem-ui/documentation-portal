@@ -1,12 +1,3 @@
-"""A form's sections and questions as the session screens read them (UNIFY 4.2): one read per table.
-
-``GET /questionnaire/forms/{id}/structure`` in both portals. Every question carries its lineage (what
-an answer and a take target), its frozen ``displayCode``, whether it is required (A19: Finish reports
-the unanswered ones, never blocks), its help text and the artisan field it may prefill from (B24).
-Retired and superseded questions are left out unless ``include_retired``: a session never offers
-them, and the record shows them only where they carry an answer.
-"""
-
 from __future__ import annotations
 
 from typing import Any

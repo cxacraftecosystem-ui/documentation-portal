@@ -1,12 +1,3 @@
-/**
- * SHA-256 of a Blob without holding the whole file in memory (DESIGN §6.2), fed 4 MiB at a time.
- * Used before upload so an identical file is caught by P5 and never sent.
- *
- * A small incremental SHA-256 (FIPS 180-4) rather than a WebAssembly package: both portals carry this
- * file byte for byte, and neither has to add a dependency for it. `crypto.subtle.digest` takes the
- * whole buffer at once, which a forty-minute WAV cannot afford on a phone browser.
- */
-
 const SLICE = 4 * 1024 * 1024;
 
 const K = new Uint32Array([
@@ -20,7 +11,6 @@ const K = new Uint32Array([
   0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ]);
 
-/** An incremental SHA-256: `update` any number of times, then `hex`. */
 export class Sha256 {
   private h = new Uint32Array([0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]);
   private w = new Uint32Array(64);
@@ -55,7 +45,7 @@ export class Sha256 {
     const view = new DataView(pad.buffer);
     view.setUint32(pad.length - 8, Math.floor(bits / 0x100000000));
     view.setUint32(pad.length - 4, bits >>> 0);
-    this.length -= pad.length; // padding is not message
+    this.length -= pad.length;
     this.update(pad);
     return Array.from(this.h, (word) => word.toString(16).padStart(8, "0")).join("");
   }

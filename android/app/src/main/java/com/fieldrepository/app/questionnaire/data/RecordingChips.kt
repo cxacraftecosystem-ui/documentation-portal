@@ -5,13 +5,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import java.time.LocalDate
 
-/**
- * Recording chips (owner, 31 Oct 2026): the few facts that make a take findable again. The server
- * sends them as `chips` on every recording and session (`backend/app/questionnaire/chips.py`), as
- * `chips` on inbox rows and as `questionnaireChips` on a media row. [ChipRules.display] turns them into
- * the chips a screen draws, with exactly the labels, order and filters of
- * `shared/questionnaire-chips.json` (the web draws the same from the same vectors).
- */
 @Serializable
 data class QChipSession(val id: String = "", val title: String = "")
 
@@ -53,10 +46,8 @@ data class QChips(
     val source: String = "APP"
 )
 
-/** What tapping a chip filters on: a filter key, or `date` (one day, both ends of the range). */
 data class ChipFilter(val key: String, val value: String)
 
-/** One chip as drawn. A null [filter] is not tappable (duration, "+N", a guest, "Whole session"). */
 data class DisplayChip(val kind: String, val label: String, val filter: ChipFilter?, val title: String? = null)
 
 object ChipRules {
@@ -65,11 +56,9 @@ object ChipRules {
     const val DATE = "date"
     private val MONTHS = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
-    /** `chips` (or `questionnaireChips`) from a JSON row; null when absent or unreadable. */
     fun parse(element: JsonElement?): QChips? =
         (element as? JsonObject)?.let { runCatching { outboxJson.decodeFromJsonElement(QChips.serializer(), it) }.getOrNull() }
 
-    /** "7 Jul 2026": English month names on every phone, as on the web. */
     fun dayLabel(iso: String): String = runCatching {
         val d = LocalDate.parse(iso.take(10))
         "${d.dayOfMonth} ${MONTHS[d.monthValue - 1]} ${d.year}"
@@ -86,7 +75,6 @@ object ChipRules {
     private fun targetFilter(t: QChipTarget): ChipFilter? = if (t.kind == "QUESTION") t.questionLineageId?.let { ChipFilter("questionLineageId", it) }
         else t.sectionId?.let { ChipFilter("sectionId", it) }
 
-    /** The chips of one recording (or session), in the shared order. */
     fun display(chips: QChips?): List<DisplayChip> {
         if (chips == null) return emptyList()
         val out = mutableListOf<DisplayChip>()
@@ -119,22 +107,13 @@ object ChipRules {
         return out
     }
 
-    /** A session's chips: its form, people, date, workshop and language (no target, no duration). */
     fun displaySession(chips: QChips?): List<DisplayChip> = display(chips).filterNot { it.kind == "target" && it.filter == null }
 
-    /** The label a filter value is shown with in the active pills, from the chip it came from. */
     fun labels(chips: QChips?): Map<String, String> = display(chips).mapNotNull { c -> c.filter?.let { it.value to c.label } }.toMap()
 }
 
-/** A take found by the app's search: what its row says, its chips, and the list a tap opens. */
 data class RecordingHit(val id: String, val title: String, val subtitle: String?, val chips: QChips?, val filters: QuestionnaireFilters)
 
-/**
- * The app search's Recordings group (owner, 31 Oct 2026), from `GET /questionnaire/recordings?q=`:
- * each take reads as what it answers ("A · Materials", "F1 · Tools", "Whole session") over its
- * session's title, with its chips; a tap opens the recordings list searched for the same words, on
- * the take's form, where the take is.
- */
 object RecordingSearch {
     fun hits(takes: List<QRecording>, query: String): List<RecordingHit> = takes.map { r ->
         val c = r.chips

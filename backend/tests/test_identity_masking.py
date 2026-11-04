@@ -1,26 +1,3 @@
-"""Both regulated identity numbers, masked on the way out and never written back as their mask.
-
-An artisan carries two of them: the Aadhaar number (the dedup key) and the Artisan Pehchan Card
-number (the PM Vishwakarma ID). ``services/records`` masks BOTH on every API response, and this file
-holds the two places that used to disagree with it about the card number:
-
-  READ — ``services/record_fields`` is the one registry behind every SHARED surface: the data
-  browser's info card and record table, every ``details.txt`` in the grantable ``/export/dataset``
-  zip, the artisan sheet of the ``/data/report`` workbook and the CSV exports. It masked the Aadhaar
-  and printed the card number in full, so a complete PM Vishwakarma ID reached every grantee,
-  dataset downloader and reviewer.
-
-  WRITE — the artisan edit form is fed by those same masked responses. A caller who is not entitled
-  to the raw values sees ``XXXX XXXX 1234`` in the card-number box and posts it straight back on
-  save. ``normalize_pehchan("XXXX XXXX 1234")`` is ``"XXXXXXXX1234"`` — twelve alphanumerics, inside
-  the 4-32 window, with no checksum to fail — so the mask validated cleanly and REPLACED the real
-  number. 200 OK, revision recorded, identifier gone. The Aadhaar was safe only because its
-  validator happens to reject letters.
-
-NOTHING HERE TOUCHES A DATABASE: the registry tests read a plain object, and the route tests drive
-the real router with ``db`` replaced by delegates that record what they were asked to write.
-"""
-
 import asyncio
 import sys
 from types import SimpleNamespace
@@ -42,7 +19,6 @@ PEHCHAN_MASK = "XXXX XXXX 5678"
 
 
 def _valid_aadhaar() -> str:
-    """A number the app's own Verhoeff routine accepts, rather than a literal that would rot."""
     for last in "0123456789":
         candidate = f"22345678901{last}"
         if verhoeff_ok(candidate):
@@ -55,7 +31,6 @@ AADHAAR_MASK = f"XXXX XXXX {AADHAAR[-4:]}"
 
 
 def _artisan(**overrides: Any) -> SimpleNamespace:
-    """One artisan, with every attribute the ARTISAN spec and the update route read."""
     row = {
         "id": "a1",
         "name": "Kalu Ram",
@@ -68,7 +43,6 @@ def _artisan(**overrides: Any) -> SimpleNamespace:
         "address": "By the dyeing tanks",
         "phone": "9876543210",
         "email": None,
-        # As the register holds it since the legacy column's drop: the fingerprint and the last four.
         "aadhaarFingerprint": "ab" * 32,
         "aadhaarLast4": AADHAAR[-4:],
         "pehchanCardAvailable": True,
@@ -87,10 +61,6 @@ def _artisan(**overrides: Any) -> SimpleNamespace:
     return SimpleNamespace(**row)
 
 
-# --------------------------------------------------------------------------------------------
-# READ: the registry behind every shared surface.
-# --------------------------------------------------------------------------------------------
-
 
 def test_the_registry_masks_both_identity_numbers() -> None:
     panel = record_fields.info_panel("artisan", _artisan())
@@ -98,14 +68,11 @@ def test_the_registry_masks_both_identity_numbers() -> None:
 
     assert values["Aadhaar number"] == AADHAAR_MASK
     assert values["Pehchan card number"] == PEHCHAN_MASK
-    # The masked form still identifies the person to a researcher holding the card.
     assert values["Artisan Pehchan Card"] == "Yes"
 
 
 @pytest.mark.parametrize("number", [AADHAAR, PEHCHAN])
 def test_no_surface_built_from_the_registry_prints_a_full_number(number: str) -> None:
-    """One assertion for all four consumers: the info card, the generated details.txt, the in-folder
-    table and every .xlsx / .csv row are all rendered from these two functions."""
     artisan = _artisan()
 
     rendered = record_fields.info_text(record_fields.info_panel("artisan", artisan))
@@ -116,9 +83,6 @@ def test_no_surface_built_from_the_registry_prints_a_full_number(number: str) ->
 
 
 def test_the_registry_and_the_api_mask_the_card_number_identically() -> None:
-    """One artisan must read the same wherever they appear. The API's rule is
-    ``records.mask_identity_number``; the registry has to produce the same string, not a second
-    spelling of the same idea."""
     panel = record_fields.info_panel("artisan", _artisan())
     values = {field["label"]: field["value"] for field in panel["fields"]}
 
@@ -127,27 +91,18 @@ def test_the_registry_and_the_api_mask_the_card_number_identically() -> None:
 
 
 def test_an_artisan_with_no_card_shows_no_card_row() -> None:
-    """Masking must not invent a value: an empty column stays empty rather than becoming XXXX."""
     panel = record_fields.info_panel("artisan", _artisan(pehchanCardNumber=None, pehchanCardAvailable=False))
     labels = {field["label"] for field in panel["fields"]}
 
     assert "Pehchan card number" not in labels
 
 
-# --------------------------------------------------------------------------------------------
-# WRITE: the mask coming back in.
-# --------------------------------------------------------------------------------------------
-
 
 def test_the_card_number_validator_would_have_accepted_its_own_mask() -> None:
-    """WHY the drop below is load-bearing. Left to validation, the mask is a perfectly good card
-    number — this is the exact call that overwrote a real one."""
     assert validate_pehchan(PEHCHAN_MASK) == "XXXXXXXX5678"
 
 
 def test_the_update_schema_hands_a_masked_number_on_untouched() -> None:
-    """Validating it would 422 a caller who edited an unrelated field; normalising it would launder
-    the mask into something that looks like a real value. It passes through, and the route drops it."""
     parsed = ArtisanUpdate(aadhaarNumber=AADHAAR_MASK, pehchanCardNumber=PEHCHAN_MASK)
 
     assert parsed.aadhaarNumber == AADHAAR_MASK
@@ -165,10 +120,6 @@ def test_both_masked_numbers_are_dropped_and_real_ones_are_kept() -> None:
     assert dropped == {"notes": "Met again"}
     assert kept == {"aadhaarNumber": AADHAAR, "pehchanCardNumber": PEHCHAN, "notes": "Met again"}
 
-
-# --------------------------------------------------------------------------------------------
-# WRITE, through the real route: the save that used to destroy the number.
-# --------------------------------------------------------------------------------------------
 
 _CURRENT: dict[str, Any] = {"user": None}
 
@@ -213,12 +164,6 @@ class _Creating:
 
 @pytest.fixture
 def route(monkeypatch: pytest.MonkeyPatch):
-    """The real PATCH /artisans/{id}, wired to delegates that record what they are asked to write.
-
-    The caller is a researcher who is NOT the artisan's creator and holds an EDIT-tier data-access
-    grant from the owner — the exact person the masking exists for: entitled to edit the record,
-    not entitled to read the raw numbers.
-    """
     artisans = _ArtisanDelegate(_artisan())
     revisions = _Creating()
     grant = SimpleNamespace(status="GRANTED", tier="EDIT", allData=True, scopeItems=[])
@@ -254,8 +199,6 @@ def route(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_saving_the_form_with_both_numbers_masked_writes_neither(route) -> None:
-    """THE BUG. The editor never saw the real values, so the save must leave both columns alone —
-    and must not record a revision claiming they changed."""
     response = route.patch(
         {"aadhaarNumber": AADHAAR_MASK, "pehchanCardNumber": PEHCHAN_MASK, "notes": "Met again at the fair."}
     )
@@ -271,7 +214,6 @@ def test_saving_the_form_with_both_numbers_masked_writes_neither(route) -> None:
 
 
 def test_the_response_shows_that_editor_masks_in_the_first_place(route) -> None:
-    """The other end of the same loop: this is where the mask the form posts back comes from."""
     response = route.patch({"notes": "Nothing to do with identity."})
 
     body = response.json()
@@ -280,7 +222,6 @@ def test_the_response_shows_that_editor_masks_in_the_first_place(route) -> None:
 
 
 def test_a_real_new_card_number_still_saves(route) -> None:
-    """The drop is not allowed to be a blanket refusal: correcting a card number has to work."""
     response = route.patch({"pehchanCardNumber": "PMVY99998888"})
 
     assert response.status_code == 200, response.text

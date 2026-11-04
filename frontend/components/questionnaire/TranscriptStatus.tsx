@@ -11,11 +11,6 @@ const TONE: Record<string, string> = {
   error: "text-error-600"
 };
 
-/**
- * A take's transcript state (DESIGN §3.14). Paused reads calmly in the neutral style, never as an
- * error, and the Retry control is disabled with the reason; a take refused for consent offers
- * "Change consent" inline. No control here can start a transcription while the pause is on.
- */
 export function TranscriptStatus({
   recording,
   paused,

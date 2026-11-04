@@ -5,10 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listMemoryFromSearch, listMemoryToSearch, readScroll, restoreScroll as restoreListScroll, watchScroll, writeScroll } from "@/components/hooks/useListMemory";
 import { rememberListReturn, takeListReturn, type ListReturn } from "@/lib/listReturn";
 
-/** What a list is showing right now, handed in every render so the address bar can follow it. */
 export type ListPlace = Omit<ListReturn, "savedAt" | "scrollY">;
 
-/** A note built from the list parameters in the URL (`useListMemory`'s names), or null. */
 function noteFromUrl(): ListReturn | null {
   const memory = listMemoryFromSearch(window.location.search);
   if (!memory) return null;
@@ -23,21 +21,6 @@ function noteFromUrl(): ListReturn | null {
   };
 }
 
-/**
- * The list half of "Back returns to the same place" (owner, 1 Nov 2026: the exact page, filters
- * and scroll, never the first record of page 1).
- *
- * - THE URL FIRST. Once the rows are drawn, the list's search, page, funnel and completeness filter
- *   are written into the address bar (`useListMemory`'s parameter names, merged with every other
- *   parameter), so the history entry Back returns to says what it showed. On arrival a URL that
- *   carries them wins; a bare URL falls back to the note `remember` left in this tab.
- * - THE SCROLL is stored under the list's full URL as the reader scrolls, and put back once the rows
- *   are on screen (`restoreScroll(ready)`): scrolling earlier scrolls a page one "Loading…" line tall.
- * - `restored` arrives in an EFFECT, never during render (the server renders the defaults).
- * - `restoredFunnel()` is read by `FunnelFilters` after its own lists load, so the filter comes back
- *   as it was instead of jumping to the newest workshop.
- * - `remember(state)` is called by a row the moment it opens a record.
- */
 export function useListReturn(key: string, current?: ListPlace, ready = false) {
   const [restored, setRestored] = useState<ListReturn | null>(null);
   const funnelRef = useRef<ListReturn["funnel"]>(null);
@@ -57,7 +40,6 @@ export function useListReturn(key: string, current?: ListPlace, ready = false) {
     setRestored(note);
   }, [key]);
 
-  // From the first drawn rows on, the address bar and the tab's note follow the list.
   useEffect(() => {
     latest.current = current;
     if (ready) tracking.current = true;
@@ -69,8 +51,6 @@ export function useListReturn(key: string, current?: ListPlace, ready = false) {
     if (search !== window.location.search) window.history.replaceState(null, "", `${window.location.pathname}${search}${window.location.hash}`);
   });
 
-  // As the reader scrolls, and at every press (`watchScroll`): never a position the browser clamped
-  // the window to while the next page laid out, nor one from before the rows were drawn.
   useEffect(
     () =>
       watchScroll(
@@ -103,7 +83,6 @@ export function useListReturn(key: string, current?: ListPlace, ready = false) {
     if (!rowsReady || scrollPending.current === null) return;
     const target = scrollPending.current;
     scrollPending.current = null;
-    // Held while the page finishes laying out, let go when the reader takes over (`restoreScroll`).
     restoreListScroll(target);
   }, []);
 

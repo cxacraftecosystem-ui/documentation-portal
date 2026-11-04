@@ -1,6 +1,5 @@
 package com.fieldrepository.app.transcript.data
 
-/** `copyTrack`: what a copy carries. */
 enum class CopyTrack(val wire: String) {
     ORIGINAL("original"), ENGLISH("english"), BOTH("both");
 
@@ -9,32 +8,13 @@ enum class CopyTrack(val wire: String) {
     }
 }
 
-/**
- * THE TEXT EVERY COPY CARRIES, BUILT ON THE PHONE (DESIGN §3, "Markdown shape").
- *
- * The contract allows a client to copy locally only if it reproduces `fixtures.copy` byte for byte,
- * and `TranscriptFormatTest` holds this file to every fixture in `shared/transcript-contract.json`.
- * Built here, not asked of `POST /copy`, so Copy works with no connection on a cached transcript.
- * The rules, from the contract:
- *
- * - Copy all: the header, a blank line, then each turn; turns are separated by a blank line.
- * - Copy selected: the chosen turns only, in transcript order, with no header.
- * - A turn's own copy: its text only, with no speaker line.
- * - "Both" puts the English under the original as a quote, every line with `> `; a turn that is
- *   ALREADY_ENGLISH prints once, and a turn with no English text prints nothing under it.
- * - "English" of a turn with no English text prints its original. STALE English still prints.
- * - Turn text is never escaped (it is what was said); speaker names lose `*`, `` ` `` and `|`.
- * - Line ends are `\n` and there is no trailing newline.
- */
 object TranscriptFormat {
 
-    /** `HH:MM:SS`, floored to the second, always two-digit hours. */
     fun timestamp(ms: Long): String {
         val s = ms.coerceAtLeast(0) / 1000
         return "%02d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60)
     }
 
-    /** `M:SS` under an hour, `H:MM:SS` from an hour. */
     fun length(ms: Long): String {
         val s = ms.coerceAtLeast(0) / 1000
         val h = s / 3600
@@ -43,7 +23,6 @@ object TranscriptFormat {
 
     fun cleanSpeaker(name: String): String = name.filterNot { it == '*' || it == '`' || it == '|' }.trim()
 
-    /** The English a turn shows and copies, or null when there is none to show. */
     fun englishOf(turn: TranscriptTurn): String? = when {
         turn.translation.status == TranslationStatus.ALREADY_ENGLISH -> turn.text
         turn.translation.text.isNullOrEmpty() -> null
@@ -61,7 +40,6 @@ object TranscriptFormat {
         return "# ${view.title}\n| ${cells.joinToString(" | ")} |"
     }
 
-    /** One turn's text for [track], with no speaker line: the per-turn copy. */
     fun body(turn: TranscriptTurn, track: CopyTrack): String {
         val english = englishOf(turn)
         return when (track) {
@@ -77,14 +55,8 @@ object TranscriptFormat {
         if (!timestamps) "**${cleanSpeaker(turn.speakerName)}**\n" + body(turn, track)
         else "**${cleanSpeaker(turn.speakerName)}** · `${timestamp(turn.startMs)}`\n" + body(turn, track)
 
-    /** The heading pasted whole-transcript English sits under in a "both" copy (fixtures.manualEnglish). */
     const val ENGLISH_HEADING = "## English"
 
-    /**
-     * Copy all. [timestamps] false keeps only the speaker on each turn (0.0.5). With
-     * [Transcript.manualEnglish] (English pasted whole, contract 3) "english" is the header and that
-     * text, and "both" prints it under [ENGLISH_HEADING] after the turns.
-     */
     fun all(view: Transcript, track: CopyTrack, timestamps: Boolean = true): String {
         val manual = view.manualEnglish?.trim().orEmpty()
         if (manual.isNotEmpty() && track == CopyTrack.ENGLISH) return header(view) + "\n\n" + manual
@@ -93,10 +65,6 @@ object TranscriptFormat {
         return withManual.joinToString("\n\n")
     }
 
-    /**
-     * What a paste becomes before it is sent (the server's `add_english` rule): blank-line paragraphs
-     * line up with the turns when there is one per turn that needs English, or one per turn.
-     */
     data class EnglishPlan(val paragraphs: Int, val turns: Int, val aligned: Boolean)
 
     fun englishPlan(turns: List<TranscriptTurn>, text: String): EnglishPlan {
@@ -105,17 +73,13 @@ object TranscriptFormat {
         return EnglishPlan(paragraphs, needing, paragraphs > 0 && (paragraphs == needing || paragraphs == turns.size))
     }
 
-    /** The pasted English's paragraphs, for drawing (blank lines between them dropped). */
     fun paragraphs(text: String): List<String> =
         text.replace("\r\n", "\n").split(Regex("\n\\s*\n")).map { it.trim() }.filter { it.isNotEmpty() }
 
-    /** Copy selected: no header, transcript order whatever order the turns were ticked in. */
     fun selected(view: Transcript, turnIds: Collection<String>, track: CopyTrack): String {
         val wanted = turnIds.toSet()
         return view.turns.filter { it.id in wanted }.sortedBy { it.index }.joinToString("\n\n") { block(it, track) }
     }
-
-    // ── Subtitles (original or English), for sharing a cached transcript with no connection ───
 
     private fun cue(ms: Long, separator: Char): String {
         val v = ms.coerceAtLeast(0)
@@ -135,7 +99,6 @@ object TranscriptFormat {
             "${i + 1}\n${cue(t.startMs, '.')} --> ${cue(t.endMs, '.')}\n<v ${cleanSpeaker(t.speakerName)}>${subtitleText(t, track)}"
         }.joinToString("\n\n")
 
-    /** A speaker's label as the server builds it: the name, with "(researcher)" for a researcher. */
     fun speakerLabel(name: String?, role: String?, number: Int): String {
         val n = name?.trim()?.ifBlank { null } ?: return TranscriptStrings.speakerDefault(number)
         return if (role == SpeakerRole.RESEARCHER) TranscriptStrings.speakerResearcherSuffix(n) else n

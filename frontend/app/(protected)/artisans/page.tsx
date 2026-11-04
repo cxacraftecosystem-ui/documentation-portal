@@ -46,26 +46,15 @@ export default function ArtisansPage() {
   const [completeness, setCompleteness] = useState<CompletenessValue>("");
   const [collabId, setCollabId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** C18: only the artisans who did not share an Aadhaar — the follow-up list. */
   const [followUp, setFollowUp] = useState(false);
-  // Rows ticked for "Print cards". Kept across pages and searches, so a workshop's people can be
-  // gathered from several pages into one sheet.
   const cardsEnabled = useArtisanCardsEnabled();
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const skipFirstDebounce = useRef(true);
-  /**
-   * Which fetch is the current one. Search is debounced and the funnel and pager fire the same
-   * effect, so several requests are routinely in flight at once — and without this the answer to an
-   * abandoned question could land last and win, showing results for a filter the researcher had
-   * already moved on from. Counted rather than aborted because `listResource` takes no signal, and
-   * ignoring a late answer is the part that matters.
-   */
   const currentLoad = useRef(0);
 
   async function load() {
     const generation = (currentLoad.current += 1);
     try {
-      // /artisans supports craftId but not workshopId — the workshop filter narrows rows client-side below.
       const result = await listResource<Artisan>("/artisans", {
         search: applied || undefined,
         craftId: funnel.craftId || undefined,
@@ -84,14 +73,12 @@ export default function ArtisansPage() {
     }
   }
 
-  // Waits for the funnel's initial onChange (default = most recent workshop) before the first fetch.
   useEffect(() => {
     if (!funnelReady) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [funnelReady, page, applied, funnel, statusChoice, followUp, completeness]);
 
-  // Live search: debounce typing by 350ms; Enter applies immediately via onSubmit.
   useEffect(() => {
     if (skipFirstDebounce.current) {
       skipFirstDebounce.current = false;
@@ -104,13 +91,6 @@ export default function ArtisansPage() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  /*
-   * BACK FROM A RECORD PUTS THE LIST BACK AS IT WAS. A row click now opens the artisan's view, so the
-   * search, the page, the funnel and the scroll position are written down as it opens
-   * (`rememberPlace`) and restored here on the way back — see `lib/listReturn.ts`. The funnel comes
-   * back through `FunnelFilters`' own `restore`, and its first `onChange` keeps the restored page
-   * instead of resetting to page one.
-   */
   const listReturn = useListReturn("artisans", { query: applied, page, funnel, completeness }, Boolean(data));
   const restoredPage = useRef<number | null>(null);
   useEffect(() => {
@@ -154,8 +134,6 @@ export default function ArtisansPage() {
     }
   }
 
-  // The workshop filter is applied client-side (no workshopId param on /artisans): keep only the
-  // artisans linked to the selected workshop when that link data is available.
   const workshopArtisanIds = funnelWorkshop?.artisans?.length
     ? new Set(funnelWorkshop.artisans.map((link) => link.artisan.id))
     : null;
@@ -176,9 +154,6 @@ export default function ArtisansPage() {
         title="Artisans"
         description="Artisan profiles."
         icon={<Users className="h-5 w-5" aria-hidden />}
-        // Gated, not merely locked: an ungated "New …" invited every tier to press a button that
-        // lands on the route guard's refusal. Below researcher the honest UI is no button, matching
-        // `require_record_creator` on the server.
         actions={
           canCreateRecords(user) ? (
             <Link className="field-button" href="/artisans/new">
@@ -290,9 +265,6 @@ export default function ArtisansPage() {
                         <RecordTitleLink href={recordViewHref("artisan", artisan.id)!} onOpen={rememberPlace}>
                           {artisan.name}
                         </RecordTitleLink>
-                        {/* Identity numbers are regulated data and never printed in a list: the chip
-                            only answers "is this artisan's card on file?", which is what a
-                            researcher scanning for gaps actually needs to know. */}
                         {artisan.pehchanCardNumber ? (
                           <span
                             className="rounded-full bg-field-200 px-2 py-0.5 text-xs font-semibold text-field-700 dark:text-purple-300"

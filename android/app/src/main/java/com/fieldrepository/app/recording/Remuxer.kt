@@ -9,10 +9,6 @@ import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 
-/**
- * ADTS → `.m4a` with [MediaMuxer]: the AAC frames are copied, never re-encoded (DESIGN §6.1.2).
- * Works on a stream cut short by a kill, because ADTS frames are self-delimiting.
- */
 object Remuxer {
     data class Result(val file: File, val durationMs: Long, val sizeBytes: Long, val sha256: String)
 
@@ -46,7 +42,6 @@ object Remuxer {
         return Result(m4a, lastUs / 1000, m4a.length(), sha256(m4a))
     }
 
-    /** Streaming sha256, hex; the whole file is never in memory. */
     fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         FileInputStream(file).use { input ->

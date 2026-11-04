@@ -16,16 +16,11 @@ const label: Record<string, string> = {
   NEEDS_REVISION: "Needs revision"
 };
 
-/** Fallback for statuses without a curated label: SOME_STATUS -> "Some status". */
 function humanize(status: string): string {
   const words = status.replace(/_/g, " ").toLowerCase();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/**
- * The reader's word for a status — the badge's own label, so a Status dropdown cannot print
- * `NEEDS_REVISION` while every badge beside it says "Needs revision" (UX audit DC-16).
- */
 export function statusLabel(status: RecordStatus | string): string {
   return label[status] ?? humanize(String(status));
 }

@@ -1,14 +1,5 @@
 "use client";
 
-/**
- * The artisan's QR card: a preview of the printed face, then Print card (ID-1), Print A6 and Reissue.
- *
- * Draws nothing until `GET /artisan-cards/status` says cards are on. The QR is the server's own SVG
- * (`qrSvg`, the symbol the PDF prints), shown through an `<img>` so no markup from the wire is put
- * into the page. The QR holds an opaque signed token, never the record id; the face prints the last
- * four Aadhaar digits only. Reissue revokes the live card (the old one then reads "replaced") and
- * asks why first. The server decides who may reissue; its refusal is shown as it says it.
- */
 import { useEffect, useState } from "react";
 
 import { FieldDialog } from "@/components/dialogs/FieldDialog";

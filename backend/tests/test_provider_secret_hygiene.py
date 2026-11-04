@@ -1,21 +1,3 @@
-"""No API key leaves this machine in a URL, and no provider's own words reach a caller.
-
-THE BUG THESE PIN. ``_post_gemini_measurement`` authenticated with ``params={"key": key}``, so the
-key was part of the prepared URL — and ``requests`` builds every exception message out of the
-prepared request. ``analyze_measurement_image_bytes`` then returned ``str(exc)`` verbatim as
-``message``, which travelled to exactly two places:
-
-  1. the JSON body of ``POST /api/media/analyze-measurement``, whose only gate is
-     ``get_current_user`` — a crowdsource volunteer with a broken image got the Gemini key back;
-  2. ``MediaFile.extraMetadata.measurementProcessing``, written by the queue and served with the
-     media row from then on.
-
-Both halves are tested here: the request no longer carries a credential in its URL, and no result
-this module returns repeats a provider's exception text. The first test walks EVERY provider call in
-the module rather than the one that was wrong, because the shape is what matters and the next
-integration is written by someone who has not read this file.
-"""
-
 import asyncio
 import json
 from types import SimpleNamespace
@@ -25,8 +7,6 @@ import requests
 
 from app.services import ai, media_queue
 
-# Stands in for a real key everywhere below. Distinctive enough that finding it in a URL, a message
-# or a database column is unambiguous, and shaped like the Google keys that were actually at risk.
 SECRET = "AIzaSyLEAKED-if-you-can-read-this"
 
 
@@ -59,8 +39,6 @@ class _Recorder:
 
 @pytest.fixture
 def transport(monkeypatch: pytest.MonkeyPatch):
-    """Replace the network with a recorder, and make every provider key the same sentinel."""
-
     def install(response) -> _Recorder:
         recorder = _Recorder(response)
         monkeypatch.setattr(ai.requests, "post", recorder)
@@ -81,14 +59,13 @@ def _settings(**overrides) -> SimpleNamespace:
         "elevenlabs_stt_model": "scribe_v2",
         "deepgram_stt_model": "nova-3",
         "openai_transcription_model": "whisper-1",
-        "openai_chat_model": "gpt-4o-mini",
+        "openai_chat_model": "gpt-6-luna",
         "gemini_measurement_model": "gemini-2.5-flash-lite",
     }
     base.update(overrides)
     return SimpleNamespace(**base)
 
 
-# (name, callable taking the recorder-backed settings, the canned success body)
 PROVIDER_CALLS = (
     (
         "whisper",
@@ -120,8 +97,6 @@ PROVIDER_CALLS = (
 
 @pytest.mark.parametrize("name,call,payload", PROVIDER_CALLS)
 def test_no_provider_call_carries_its_key_in_the_url(transport, name: str, call, payload: dict) -> None:
-    """A key in the query string is a key in every exception message, proxy log and access log the
-    request passes through. Every provider here supports a header; every provider here uses one."""
     recorder = transport(_Response(payload=payload))
 
     call(_settings())
@@ -129,7 +104,6 @@ def test_no_provider_call_carries_its_key_in_the_url(transport, name: str, call,
     sent = recorder.calls[0]
     assert SECRET not in sent["url"], name
     assert SECRET not in json.dumps(sent.get("params") or {}), name
-    # ...and it did travel, in the one place a credential belongs.
     assert SECRET in json.dumps(sent.get("headers") or {}), name
 
 
@@ -146,12 +120,6 @@ def test_gemini_authenticates_with_the_header_google_documents(transport) -> Non
     assert sent["url"].endswith("/models/gemini-2.5-flash-lite:generateContent")
 
 
-# --------------------------------------------------------------------------------------------
-# The second half: what a caller is told when a provider fails.
-# --------------------------------------------------------------------------------------------
-
-# What `requests` actually raises when a connection to a query-authenticated endpoint dies: the
-# message is built from the prepared URL, credential included.
 LEAKY_TRANSPORT_ERROR = requests.ConnectionError(
     "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded "
     f"with url: /v1beta/models/gemini-2.5-flash-lite:generateContent?key={SECRET} "
@@ -169,13 +137,10 @@ def test_a_failed_measurement_tells_the_researcher_what_to_do_and_nothing_else(t
     assert SECRET not in message
     assert "key=" not in message
     assert "generativelanguage.googleapis.com" not in message
-    # Actionable rather than merely redacted: the researcher can finish the record by hand.
     assert "manually" in message
 
 
 def test_the_measurement_column_the_queue_writes_holds_no_credential(transport) -> None:
-    """The result is stored as ``extraMetadata.measurementProcessing`` and served with the media row
-    forever after, so the leak outlives the request that caused it."""
     transport(LEAKY_TRANSPORT_ERROR)
 
     result = asyncio.run(ai.analyze_measurement_image_bytes(b"image", "m.jpg", "image/jpeg", _settings()))
@@ -197,15 +162,11 @@ def test_a_failed_transcription_names_the_fault_not_the_providers_words(transpor
     assert result["status"] == "FAILED"
     message = result["message"]
     assert SECRET not in message
-    # Each provider is still accounted for by name and by how it failed — that is what an admin
-    # reading transcriptError needs, and it is all they get.
     assert "ElevenLabs couldn't be reached" in message
     assert "Deepgram" in message and "Whisper" in message
 
 
 def test_a_refused_gemini_key_reports_the_status_without_the_body(transport) -> None:
-    """A rotate-worthy status used to be re-raised with ``response.text[:200]`` glued on, so the
-    provider's raw body reached the caller and the column alongside it."""
     transport(_Response(429, text=f'{{"error":{{"message":"quota for key {SECRET} exhausted"}}}}'))
 
     result = asyncio.run(ai.analyze_measurement_image_bytes(b"image", "m.jpg", "image/jpeg", _settings()))
@@ -229,10 +190,6 @@ def test_a_failed_refinement_leaves_the_transcript_and_says_so(transport, monkey
     assert SECRET not in result["message"]
     assert "unchanged" in result["message"]
 
-
-# --------------------------------------------------------------------------------------------
-# The backstop, for the failure paths this module does not own.
-# --------------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -259,8 +216,6 @@ def test_redact_secrets_leaves_ordinary_text_alone() -> None:
 
 
 def test_a_job_failure_is_redacted_before_it_reaches_the_error_column(monkeypatch) -> None:
-    """``_handle_job_failure`` stores whatever the job raised. Everything ``services/ai`` returns is
-    already clean; this is the guard for the libraries in between (S3, the driver, a future SDK)."""
     written: dict[str, object] = {}
 
     async def find_unique(where: dict, **_: object):

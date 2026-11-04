@@ -12,11 +12,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Owner amendment 2 (22 Oct 2026): typed or recorded, either counts, recording preferred (● recorded,
- * ✎ typed only, "Add a recording?"), and the admin's section override keeps three states (Marked
- * complete, Needs review, Needs redo), which win on the grid while the takes stay listed.
- */
 class CoverageMarksTest {
     private val instrument = Instrument(
         "f", "Craft survey", listOf(
@@ -37,11 +32,9 @@ class CoverageMarksTest {
         assertTrue("typed counts as covered", a.cells[1].covered)
         assertTrue(a.cells[1].addRecording)
         assertFalse(a.cells[0].addRecording)
-        // Partly typed: "✎ 1/2", not yet covered.
         val partly = CoverageGridModel.rows(instrument, listOf("a3"), emptyList(), emptyList(), typed = setOf("a3" to "l1")).first().cells.single()
         assertEquals("✎ 1/2", partly.glyph)
         assertFalse(partly.covered)
-        // A question recorded and one typed: both count towards the section, the recording shown.
         val mixed = CoverageGridModel.rows(instrument, listOf("a4"), listOf(take("a4", "Q:l1")), emptyList(), typed = setOf("a4" to "l2")).first().cells.single()
         assertEquals("◐ 2/2", mixed.glyph)
         assertEquals(QuestionnaireCopy.s("mark.addRecording"), "Add a recording?")

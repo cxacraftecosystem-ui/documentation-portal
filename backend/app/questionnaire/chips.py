@@ -1,19 +1,3 @@
-"""Recording chips: the few facts that make a take findable again (owner, 31 Oct 2026).
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal (shared/questionnaire.sha256).
-
-Every recording the server hands out carries ``chips``: the section (code and title) or question
-(display code) it answers, the questionnaire, who answered and who was only present, the session's
-date (and the capture day when that differs, and whether either is estimated), the workshop (a
-field workshop or a design workshop), the language and the duration. Clients draw them in one order
-and make every chip but the duration a filter (``shared/questionnaire-chips.json`` holds both
-clients to the same labels and the same filter per chip).
-
-Nothing here is read per recording: :func:`session_meta` is one statement for every session in the
-list (plus one for design workshops, only when one is named), and :func:`for_rows` reuses the
-target and subject rows the caller already read when it has them.
-"""
-
 from __future__ import annotations
 
 from collections import defaultdict
@@ -22,7 +6,6 @@ from typing import Any
 from app.questionnaire.common import IST, as_date, aware, enum_text
 from app.shared_vocab import ESTIMATED_CAPTURED_AT_SOURCES
 
-#: The day a take was captured is read in India time, as every other day in the questionnaire.
 ESTIMATED = frozenset(ESTIMATED_CAPTURED_AT_SOURCES)
 
 _META_SQL = (
@@ -42,11 +25,6 @@ def capture_day(captured_at: Any) -> str | None:
 
 
 async def session_meta(client: Any, session_ids: list[str]) -> dict[str, dict[str, Any]]:
-    """The session half of every chip, for many sessions in one read (two with design workshops).
-
-    A design workshop's title is read only for sessions that name one and no field workshop: that
-    table exists in designer-portal only, and documentation-portal's sessions never name one.
-    """
     sids = sorted({str(s) for s in session_ids if s})
     if not sids:
         return {}
@@ -78,7 +56,6 @@ async def session_meta(client: Any, session_ids: list[str]) -> dict[str, dict[st
 
 
 def target_chip(t: dict[str, Any]) -> dict[str, Any]:
-    """One target row (``QuestionnaireRecordingTarget`` joined to its section and question)."""
     if t.get("questionLineageId"):
         return {
             "kind": "QUESTION",
@@ -100,12 +77,6 @@ def target_chip(t: dict[str, Any]) -> dict[str, Any]:
 def build(*, meta: dict[str, Any] | None, targets: list[dict[str, Any]], subjects: list[dict[str, Any]],
           respondents: list[dict[str, Any]], captured_at: Any, captured_at_source: str | None,
           language_code: str | None, duration_ms: int | None, recorded_by: dict[str, Any] | None) -> dict[str, Any]:
-    """The ``chips`` object of one recording. Pure: everything it needs is passed in.
-
-    ``subjects`` are ``{artisanId, name, role}``; ``respondents`` are ``{respondentId, name, role}``.
-    Who answered comes before who was only present, each group by name, so the "+N" a client shows
-    hides the same people on every screen.
-    """
     meta = meta or {}
     session_day = meta.get("sessionDate")
     captured = capture_day(captured_at)
@@ -136,7 +107,6 @@ def build(*, meta: dict[str, Any] | None, targets: list[dict[str, Any]], subject
     }
 
 
-#: Targets with what a chip names: the section's code and title, the question's display code.
 TARGETS_SQL = (
     'SELECT t.*, q."displayCode", q."prompt", q."sectionCode" AS qsec, q."sectionTitle" AS qstitle, q."sectionId" AS qsecid, '
     's."code" AS scode, s."title" AS stitle FROM "QuestionnaireRecordingTarget" t '
@@ -144,7 +114,6 @@ TARGETS_SQL = (
     'LEFT JOIN "QuestionnaireSection" s ON s."id" = t."sectionId" WHERE t."recordingId" = ANY($1::text[]) ORDER BY t."targetKey"'
 )
 
-#: Artisan subjects (with their names) and guest respondents in one read.
 SUBJECTS_SQL = (
     'SELECT x.* FROM (SELECT s."recordingId", s."artisanId", NULL::text AS "respondentId", a."name" AS name, '
     's."role"::text AS role, s."named", s."repeatReason"::text AS reason, s."flag"::text AS flag '
@@ -157,8 +126,6 @@ SUBJECTS_SQL = (
 
 async def for_rows(client: Any, rows: list[dict[str, Any]], *, targets: list[dict[str, Any]] | None = None,
                    subjects: list[dict[str, Any]] | None = None) -> dict[str, dict[str, Any]]:
-    """``{recordingId: chips}`` for ``recording_rows`` output. ``targets``/``subjects`` are the
-    :data:`TARGETS_SQL`/:data:`SUBJECTS_SQL` rows when the caller already read them."""
     if not rows:
         return {}
     rids = [str(r["id"]) for r in rows]
@@ -188,9 +155,6 @@ async def for_rows(client: Any, rows: list[dict[str, Any]], *, targets: list[dic
 
 
 async def for_media(client: Any, media_ids: list[str]) -> dict[str, dict[str, Any]]:
-    """``{mediaFileId: chips}`` for media rows a portal lists (the media library, a workshop's media,
-    search). A take gets its full chips; a clip linked to a session but not filed yet gets the
-    session's (no target, no artisans). Media that is not a questionnaire clip gets nothing."""
     from app.questionnaire import recordings
 
     mids = sorted({str(m) for m in media_ids if m})

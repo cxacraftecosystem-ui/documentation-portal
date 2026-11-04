@@ -25,45 +25,6 @@ import { writeDxf } from "@/lib/trace/engine/dxfWriter";
 import { writeEps } from "@/lib/trace/engine/epsWriter";
 import { writePdf } from "@/lib/trace/engine/pdfWriter";
 
-/**
- * THE EXPORT FORMATS — one table, every surface, and no writer left unreachable.
- *
- * ── THE FAILURE THIS FILE EXISTS TO MAKE LOUD ─────────────────────────────────────────────────
- *
- * `engine/exportFormats.ts` can write ten formats. A panel that hard-codes two buttons beside a table
- * that lists five, over an engine that can write ten, produces exactly the situation this port
- * inherited upstream: three finished writers sitting in the engine with nothing on screen able to
- * reach them, and nothing anywhere saying whether that was a decision or an oversight. It read as an
- * oversight to the audit that found it, because there was no way to tell.
- *
- * So the accounting is asserted in BOTH directions and it is over FORMATS rather than over buttons:
- *
- *   · every member of `ExportFormat` is either in {@link EXPORT_FORMATS} or in {@link NOT_OFFERED}
- *     with a written reason — a writer added to the engine cannot go unexposed silently, because
- *     somebody has to wire it up or write down why not;
- *   · every row in the table produces real bytes through the engine's own writer;
- *   · the `mime` and `extension` on every row are the engine's own answers rather than a second
- *     register of the same fact.
- *
- * ── AND THE HALF THE AUDIT MISSED ─────────────────────────────────────────────────────────────
- *
- * "Adding them is a table entry each plus a button" is true and is the cheap half. `exportDocument`
- * takes a `VecDocument` and the worker deliberately never sends one — the geometry crosses as six flat
- * typed arrays, because a 50,000-path trace is a million allocations to structured-clone on every
- * preview frame. `geometryToDocument.ts` is the missing half, and the cases below drive the three real
- * writers through it so a change to `trace.worker.serializeGeometry` fails here rather than producing
- * a PDF full of `NaN` that opens blank and reports nothing.
- *
- * WHY NOT THE PNG. `exportPngFile` needs a 2D canvas context and `canvas.toBlob`, neither of which
- * exists in the Node process these specs run in. Its two testable claims — the `PNG_MAX_EDGE_PX` cap
- * and the naming — are asserted through the table and through `derivedFileName`
- * (`e2e/trace-options-unit.spec.ts`) instead of by faking a browser.
- */
-
-/* ────────────────────────────────────────────────────────────────────────────
- * A drawing to write
- * ──────────────────────────────────────────────────────────────────────────── */
-
 const INK: GeometryStyle = {
   stroke: 0xff101010,
   strokeWidth: 1.5,
@@ -75,13 +36,10 @@ const INK: GeometryStyle = {
   opacity: 1
 };
 
-/** Two shapes: one three-segment polyline and one cubic, so a flattener and a curve writer both run. */
 function drawing(): SvgInput {
   const geometry: FlatGeometry = {
     coords: new Float32Array([
-      // shape 0 — M 10,10 L 90,10 L 90,90 L 10,90
       10, 10, 90, 10, 90, 90, 10, 90,
-      // shape 1 — M 20,50 C 40,20 60,80 80,50
       20, 50, 40, 20, 60, 80, 80, 50
     ]),
     verbs: new Uint8Array([VERB_LINE, VERB_LINE, VERB_LINE, VERB_CUBIC]),
@@ -93,10 +51,6 @@ function drawing(): SvgInput {
   };
   return { geometry, width: 100, height: 100, background: null };
 }
-
-/* ────────────────────────────────────────────────────────────────────────────
- * The accounting, in both directions
- * ──────────────────────────────────────────────────────────────────────────── */
 
 test.describe("every format the engine can write is accounted for", () => {
   test("offered or explained — a writer cannot go unexposed in silence", () => {
@@ -124,8 +78,6 @@ test.describe("every format the engine can write is accounted for", () => {
   });
 
   test("every absence carries a REASON, not an apology and not a blank", () => {
-    // A list of absences is a strange thing to ship and that is the point of this one. A reason nobody
-    // wrote is indistinguishable from an oversight, which is the state this whole table exists to end.
     for (const entry of NOT_OFFERED) {
       expect(entry.reason.length, `${entry.format} has no reason`).toBeGreaterThan(60);
     }
@@ -155,16 +107,11 @@ test.describe("the table is the one register of each format's own facts", () => 
   test("every row carries the words on its button and the sentence under it", () => {
     for (const entry of EXPORT_FORMATS) {
       expect(entry.download.length, `${entry.id} has no button text`).toBeGreaterThan(10);
-      // The audience is a researcher, not a developer: nobody should have to know what a `.dxf` is
-      // before pressing a button that makes one.
       expect(entry.hint.length, `${entry.id} has no hint`).toBeGreaterThan(40);
     }
   });
 
   test("the PNG hint quotes the cap that exportPngFile actually enforces", () => {
-    // A cap written out in copy is a second copy that goes stale, so the sentence interpolates the
-    // constant. This is what keeps the number a researcher reads and the number the code enforces one
-    // number.
     const png = EXPORT_FORMATS.find((entry) => entry.id === "png");
     expect(png?.hint).toContain(String(PNG_MAX_EDGE_PX));
   });
@@ -179,34 +126,20 @@ test.describe("what may be FILED and what is take-away only", () => {
 
   test("exactly SVG and PNG, and the two attachable rows come first", () => {
     expect(ATTACHABLE_FORMATS.map((e) => e.id)).toEqual(["svg", "png"]);
-    // So the "Attach as" chooser and the download row below it list them in the same order.
     expect(EXPORT_FORMATS.slice(0, 2).map((e) => e.id)).toEqual(["svg", "png"]);
   });
 
   test("THE REASON DXF IS NOT ATTACHABLE, checked rather than asserted in prose", () => {
-    // `lib/media.inferMediaType` types a file by its MIME prefix, so `image/vnd.dxf` arrives in the
-    // archive typed IMAGE — and `MediaLightbox` renders anything typed IMAGE through an `<img>`. A
-    // `.dxf` filed on a record is therefore a media tile showing a broken picture, for a file no
-    // browser has ever been able to decode. If that ever stops being true, this case is where the
-    // header's claim is caught.
     const dxf = EXPORT_FORMATS.find((entry) => entry.id === "dxf");
     expect(dxf?.mime.startsWith("image/")).toBe(true);
     expect(dxf?.attachable).toBe(false);
   });
 
   test("the two suffixes that must differ, differ; the two that must match, match", () => {
-    // A raster of the drawing and the drawing itself would otherwise both be `photo-line-art.png` in a
-    // downloads folder, where the record's own provenance is not there to tell them apart.
     expect(RENDER_SUFFIX).not.toBe(TRACE_SUFFIX);
-    // The downloaded SVG is byte-for-byte the file the host receives, so giving the copy on the
-    // researcher's laptop a different name would invite the belief that it is a different drawing.
     expect(TRACE_SUFFIX).toBe(ATTACH_SUFFIX);
   });
 });
-
-/* ────────────────────────────────────────────────────────────────────────────
- * The adapter, and the three writers it feeds
- * ──────────────────────────────────────────────────────────────────────────── */
 
 test.describe("geometryToDocument is the inverse of the worker's serializeGeometry", () => {
   test("every shape comes back, with its verbs and its closed flag", () => {
@@ -228,9 +161,6 @@ test.describe("geometryToDocument is the inverse of the worker's serializeGeomet
   });
 
   test("the worker's plain-string style enums are MAPPED, never cast", () => {
-    // `GeometryStyle` declares cap/join/fillRule as plain `string` on purpose, so a cast would hand an
-    // unrecognised value straight through to a writer that switches on it. Mapping means an unknown
-    // value lands on a documented default.
     const style = documentFrom(drawing()).document.layers[0].shapes[0].style;
     expect(style.cap).toBe(LineCap.ROUND);
     expect(style.join).toBe(LineJoin.ROUND);
@@ -239,10 +169,6 @@ test.describe("geometryToDocument is the inverse of the worker's serializeGeomet
   });
 
   test("an unknown cap falls back to the SVG WRITER's default, not the painter's", () => {
-    // The two already disagree — `geometryToSvg.capName` falls back to butt/miter and
-    // `traceExport.paintGeometry` to round/round — in a branch the worker cannot reach. This copy
-    // follows the SVG writer, because the SVG is the reference artefact: it is the file the host
-    // receives, and a PDF that disagreed with it would disagree about a drawing already approved.
     const input = drawing();
     const odd: SvgInput = {
       ...input,
@@ -265,8 +191,6 @@ test.describe("geometryToDocument is the inverse of the worker's serializeGeomet
   });
 
   test("a run that cannot supply what its verbs claim is truncated, never read past", () => {
-    // Reading past the end would not throw — a `Float32Array` answers `undefined` out of range — it
-    // would put NaN coordinates into a PDF, which is the silent-blank-export failure no viewer reports.
     const truncated: SvgInput = {
       width: 100,
       height: 100,
@@ -289,17 +213,12 @@ test.describe("geometryToDocument is the inverse of the worker's serializeGeomet
   });
 
   test("a non-finite document size becomes a page a viewer can open", () => {
-    // The engine's writers guard with `Math.max(1, doc.width)`, and `Math.max(1, NaN)` is `NaN` — so a
-    // document whose size never became a number reaches a PDF's `/MediaBox` as `0.0` and the file
-    // opens empty. `sanitizeDimension` is the one rule both writers share.
     const built = documentFrom({ ...drawing(), width: Number.NaN, height: 0 });
     expect(built.document.width).toBe(1);
     expect(built.document.height).toBe(1);
   });
 
   test("THE CAP IS THE SVG'S CAP, and it is reported with the SVG's own sentence", () => {
-    // A researcher who exports one drawing twice — once as an SVG and once as a PDF — must get one
-    // drawing, and must be told once, in one wording, when it was cut short.
     const built = documentFrom(drawing(), 1);
     expect(built.shapesWritten).toBe(1);
     expect(built.truncationNote).toContain("paths saved");
@@ -328,23 +247,17 @@ test.describe("the three writers the adapter exists for produce real files", () 
   });
 
   test("a DXF, which has NOWHERE to carry it — the gap the panel states out loud", () => {
-    // `writeDxf` takes no metadata argument at all, because DXF R12 has no channel for one. That is
-    // skipped work, so the panel says so beside the button rather than quietly tolerating it. This case
-    // is what makes the claim checkable: the only thing that reaches the file is geometry.
     expect(writeDxf.length).toBeLessThanOrEqual(2);
     const built = documentFrom(drawing());
     const text = new TextDecoder().decode(writeDxf(built.document));
     expect(text).toContain("SECTION");
     expect(text).toContain("ENTITIES");
-    // `dxfWriter.dxfName` upper-cases and replaces spaces, so "Line art" arrives as a name that says
-    // what the entities are rather than as the fallback `LAYER0`.
     expect(text).toContain("LINE_ART");
     expect(text).not.toContain("LAYER0");
     expect(text).not.toContain("NaN");
   });
 
   test("the same geometry through all three writers agrees about how many paths there are", () => {
-    // One drawing, three files. The point of the shared adapter is that the three cannot disagree.
     const built = documentFrom(drawing());
     expect(built.shapesWritten).toBe(2);
     for (const bytes of [

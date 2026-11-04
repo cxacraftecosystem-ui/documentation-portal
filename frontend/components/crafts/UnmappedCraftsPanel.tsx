@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * C26 — "Crafts without a shared code": an administrator maps each one to the shared craft code
- * both portals carry (`GET /craft-codes/unmapped`, `PUT /craft-codes/crafts/{id}`). Draws nothing
- * for anyone else, and nothing when every craft is mapped. Every mapping is written to the craft's
- * history on the server. Twin of the designer portal's panel of the same name.
- */
 import { useEffect, useState } from "react";
 
 import { SearchableSelect, type SelectOption } from "@/components/ui/SearchableSelect";
@@ -24,7 +18,6 @@ function detail(error: unknown, fallback: string): string {
   return fallback;
 }
 
-/** "Bandhani · bandhani" — the name a reader recognises, then the code it maps to. */
 export function codeOptions(entries: CodeEntry[]): SelectOption[] {
   return [...entries]
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -55,7 +48,6 @@ export function UnmappedCraftsPanel({ onMapped }: { onMapped?: () => void }) {
         setCodes(codeOptions(catalogue.items));
       })
       .catch(() => {
-        /* Not an admin, or an older server: draw nothing. */
       });
     return () => {
       cancelled = true;

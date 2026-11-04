@@ -12,15 +12,6 @@ import { resolveColorKey, SPEAKER_TEXT, speakerStyle } from "@/lib/transcript/sp
 import { ManualEnglish } from "./EnglishNotice";
 import { Actions, SECONDARY } from "./parts";
 
-/**
- * TRANSCRIPTS IN "VIEW DATA" AND "DOWNLOAD DATA" (0.0.6; transcript contract `dataBrowser`), the same
- * panel in both portals. One page of recordings at a time from `GET /data/transcripts`, each with its
- * speakers (mapped names, their colours), its turns with times and English, its summary, quotes,
- * glossary terms and chips; filters by the recording fields; and the streamed downloads (every
- * matching row, not just this page). A recording whose consent was refused shows no words at all,
- * and cost and model names appear only when the server sends them (administrators).
- */
-
 export type DataTurn = {
   index: number;
   speakerKey: string | null;
@@ -47,7 +38,6 @@ export type DataRecording = {
   turns: DataTurn[];
   timed: boolean;
   summary: string[];
-  /** Contract 3: the whole transcript's English a person pasted, while its turns lack their own. */
   english?: string | null;
   quotes: { speaker: string | null; original: string; english: string | null }[];
   glossary: { term: string; gloss: string | null; craft: string | null }[];
@@ -81,7 +71,6 @@ const DOWNLOADS = [
   { kind: "recordings", fmt: "ndjson", label: "Everything (.ndjson)" }
 ] as const;
 
-/** The query the page and the downloads share: empty filters are left out. */
 export function transcriptDataQuery(filters: Filters, extra: Record<string, string | number | null | undefined> = {}): string {
   return buildQuery({
     q: filters.q.trim() || undefined,
@@ -104,7 +93,6 @@ const clockOf = (ms: number | null) => {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 };
 
-/** Closed until asked for: the data browser stays the page, and nothing is fetched before then. */
 export function TranscriptDataPanel({ languages = [] }: { languages?: { code: string; label: string }[] }) {
   const [shown, setShown] = useState(false);
   return (
@@ -149,7 +137,6 @@ function TranscriptData({ languages }: { languages: { code: string; label: strin
     void load(applied, null);
   }, [applied, load]);
 
-  // A change settles for a moment before it asks, so typing sends one request, not one per key.
   useEffect(() => {
     const timer = window.setTimeout(() => setApplied(filters), 350);
     return () => window.clearTimeout(timer);

@@ -1,26 +1,14 @@
-/**
- * WHAT /users OFFERS ON EACH ACCOUNT — "help them back in" — decided in one pure place.
- *
- * Ported in shape from the Design Prototype Workshop's file of the same name. The server holds every
- * rule (an administrator, over an account ranked below them, never their own); this file only keeps
- * the screen from drawing a button the server would refuse. Pure, so `e2e/account-password-unit.spec.ts`
- * calls it directly.
- */
-
 import { ROLE_RANK, ROLES_BY_RANK, canManageUser, isAdmin, roleRank } from "@/lib/permissions";
 import type { CreatedAccount, NewPasswordAccount, PasswordMode } from "@/lib/signIn";
 import type { User, UserRole } from "@/lib/types";
 
-/** Has the account a password of its own? The server's `hasPassword`, else `passwordSetAt`. */
 export function hasPassword(user: User): boolean {
   if (typeof user.hasPassword === "boolean") return user.hasPassword;
   return user.passwordSetAt != null;
 }
 
 export type RowOffers = {
-  /** "Email them a password link" — only where the deployment sends e-mail. */
   emailLink: boolean;
-  /** "Make a password link" — copied and handed over by phone or WhatsApp. */
   copyLink: boolean;
   temporaryPassword: boolean;
   requireChange: boolean;
@@ -37,11 +25,6 @@ export const NO_OFFERS: RowOffers = {
   turnOffTwoStep: false
 };
 
-/**
- * A password link resets a password or sets a first one on an account made for one; an account that
- * signs in ONLY with Google, Microsoft or Yahoo is refused one by the server (there is nothing to
- * reset), so it is offered a temporary password instead.
- */
 export function linkOffered(target: User): boolean {
   return hasPassword(target) || (target.authProvider ?? "LOCAL").toUpperCase() === "LOCAL";
 }
@@ -64,7 +47,6 @@ export function rowOffers(
   };
 }
 
-/** A password typed for somebody else, exactly as typed — never trimmed. */
 export function passwordFrom(form: FormData, key = "password"): string {
   const value = form.get(key);
   return typeof value === "string" ? value : "";
@@ -74,12 +56,6 @@ export function passwordHasEdgeSpace(password: string): boolean {
   return password.length > 0 && password !== password.trim();
 }
 
-/** What the "Sign-in" column says about an account. */
-/**
- * Whether the viewer sees Update on a person — their row action and their view's button. The server's
- * rule for a role change (`assert_can_manage_target`): somebody ranked below the viewer, and never the
- * master admin. A viewer who may not change anything about them reads the view with no Update at all.
- */
 export function mayUpdateUser(viewer: User | null | undefined, user: User): boolean {
   return canManageUser(viewer, user) && user.role !== "MASTER_ADMIN";
 }
@@ -94,14 +70,8 @@ export function signInSummary(user: User): string {
   return "No password yet";
 }
 
-/** Shown for an account in use from before first sign-ins were recorded. */
 export const FIRST_SIGN_IN_UNRECORDED = "Yes, date not recorded";
 
-/**
- * Whether `firstLoginAt` is a real first sign-in. For accounts that predate the column the server
- * filled it with the account's creation time, to mark them as in use; a real sign-in is always later
- * than the account it signs in to, so a value equal to `createdAt` is that marker, not a date.
- */
 export function firstSignInRecorded(user: Pick<User, "firstLoginAt" | "createdAt">): boolean {
   if (!user.firstLoginAt) return false;
   const first = Date.parse(user.firstLoginAt);
@@ -109,12 +79,6 @@ export function firstSignInRecorded(user: Pick<User, "firstLoginAt" | "createdAt
   return !(Number.isFinite(first) && Number.isFinite(created) && first === created);
 }
 
-/* ── "Add a person" — one step: the account, the access roster, and how they sign in ─────────── */
-
-/**
- * The roles this viewer may give a NEW account: strictly below their own rank. So only the master
- * admin is offered Admin, and nobody is offered Master Admin. The server holds the same rule.
- */
 export function creatableRoles(viewer: User | null | undefined): UserRole[] {
   if (!viewer) return [];
   const own = roleRank(viewer);
@@ -133,11 +97,6 @@ export type NewAccountForm = {
   canDownloadDataset: boolean;
 };
 
-/**
- * What `POST /api/users` is sent. Only what the chosen way of signing in uses travels: a password
- * (exactly as typed) and its must-change choice for SET; nothing for GENERATE (the server makes one
- * and always requires a change); the link choice for NONE, and only where e-mail can carry it.
- */
 export function newAccountBody(form: NewAccountForm, { mailAvailable }: { mailAvailable: boolean }): NewPasswordAccount {
   const body: NewPasswordAccount = {
     name: form.name.trim(),
@@ -155,7 +114,6 @@ export function newAccountBody(form: NewAccountForm, { mailAvailable }: { mailAv
   return body;
 }
 
-/** What the screen says once the person is added. The temporary password itself is shown apart. */
 export function createdSentence(created: CreatedAccount, mode: PasswordMode): string {
   const who = `${created.name || created.email} (${created.email})`;
   if (mode === "GENERATE") {

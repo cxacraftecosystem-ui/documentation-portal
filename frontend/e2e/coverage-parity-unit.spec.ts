@@ -6,13 +6,6 @@ import { expect, test } from "@playwright/test";
 import { binOf, polygonFills, quantileBreaks } from "@/components/map/coverage/coverageMath";
 import type { CoverageLevel, CoverageMetric, CoverageUnit } from "@/components/map/coverage/coverageTypes";
 
-/*
-  ONE CHOROPLETH ON FOUR SURFACES. `e2e/fixtures/coverage-parity.json` is byte-identical in both
-  portals and in both apps' `src/test/resources`: the designer portal's web spec, this one and both
-  apps' `CoverageMathTest` read the same rows, so the breaks, the bins and which polygon carries which value
-  cannot drift between the web and a phone, or between the two portals.
-*/
-
 type Fixture = {
   quantile: Array<{ name: string; values: number[]; breaks: number[]; bins: number[] }>;
   fills: Array<{

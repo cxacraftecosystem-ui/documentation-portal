@@ -1,11 +1,3 @@
-"""The entry points a portal's ``services/ai.py`` calls: build the rungs, run them, and turn the
-outcome into the result dictionary every caller and client already reads.
-
-The dictionary shape is unchanged from before the package existed (``available``, ``status``,
-``text``, ``formattedTranscript``, ``message``, ``retryAfter``, ``provider``), so no client changes.
-What each portal SAYS about a failure stays the portal's own copy, passed in as :class:`Messages`.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -19,8 +11,6 @@ from app.transcription.providers import ADAPTERS, DISPLAY_NAMES, KEY_NAMES
 
 @dataclass(frozen=True)
 class Messages:
-    """A portal's sentences for each way a chain can end. ``name`` is the provider's display name."""
-
     key_rejected: Callable[[str], str]
     failed: Callable[[str, int | None], str]
     unreachable: Callable[[str], str]
@@ -30,12 +20,10 @@ class Messages:
     over_budget: Callable[[str], str]
     all_failed: Callable[[list[str]], str]
     unavailable: str
-    #: Said when every provider's budget is used up and the job waits for the next window.
     budget_deferred: str
 
 
 def build_slots(order: list[str], key_value: Callable[[str], str]) -> list[Slot]:
-    """One rung per known provider in *order*; unknown ids are dropped, a missing key is a None key."""
     slots: list[Slot] = []
     for provider in order:
         if provider not in ADAPTERS or any(slot.provider == provider for slot in slots):
@@ -49,7 +37,6 @@ def build_slots(order: list[str], key_value: Callable[[str], str]) -> list[Slot]
 def configured(
     order: list[str], key_value: Callable[[str], str], disabled: set[str] | frozenset[str]
 ) -> list[str]:
-    """Providers that would actually be tried: known, switched on, and holding a key."""
     return [
         slot.provider
         for slot in build_slots(order, key_value)
@@ -58,8 +45,6 @@ def configured(
 
 
 def sanitise_order(stored: list[str] | None) -> list[str]:
-    """The stored ranking against the known set; anything it omits is appended in default order,
-    so a ranking saved before Muse existed demotes Muse instead of disabling it."""
     ordered: list[str] = []
     for provider in stored or []:
         if provider in PROVIDER_IDS and provider not in ordered:

@@ -50,7 +50,6 @@ import {
 } from "@/lib/permissions";
 import { SentBackCard } from "@/components/review/SentBackCard";
 
-/** The five record counters plus the pending backlog — the shape both halves of "At a glance" share. */
 type StatTotals = {
   totalArtisans: number;
   totalWorkshops: number;
@@ -58,7 +57,6 @@ type StatTotals = {
   totalToolRecords: number;
   totalMediaFiles: number;
   pendingSubmissions: number;
-  /** This account's records a reviewer sent back, and the rejected ones its own edit reopens. */
   sentBack?: number;
   rejected?: number;
 };
@@ -71,14 +69,8 @@ type DashboardStats = StatTotals & {
     place?: string;
     status: string;
     createdAt: string;
-    /** Whose record this is. Absent on an API that predates the repository-wide recent list. */
     createdByName?: string | null;
   }>;
-  /**
-   * This account's own contribution. Optional because a deployed API may not send it yet, in which
-   * case the second row of tiles is simply not drawn — never rendered as a row of zeroes, which
-   * would read as "you have contributed nothing".
-   */
   mine?: StatTotals;
 };
 
@@ -87,31 +79,15 @@ type Tile = {
   icon: LucideIcon;
   newHref: string;
   updateHref?: string;
-  /**
-   * The primary button's wording. Defaults to "New"; the exceptions are copied verbatim from
-   * Android's `EntryMode.createButtonLabel()` so the same tile says the same word in both apps.
-   */
   newLabel?: string;
-  /**
-   * Whether this tile is offered at all. Every tile leads with a "New …" action, so the predicate
-   * is the CREATE entitlement for that record type — the same one DynamicIslandNav's NAV_ITEMS use,
-   * so the dashboard and the menu can never disagree about what a user may do.
-   */
   visible?: boolean;
 };
 
-/**
- * Where a "recent submission" row goes when it is clicked: the record's READ-ONLY view
- * (`lib/recordView.ts`). It used to go straight into the edit form, so glancing at a record somebody
- * had just added put a form under the reader's hands; the view carries the Update button for the
- * reader who does mean to change it. Media, and any type with no view, stay plain text.
- */
 function recordHref(type: string, id: string): string | null {
   return recordViewHref(type, id);
 }
 
 export default function DashboardPage() {
-  // ToastProvider lives in app/layout.tsx — see the note in `ui/Toast`.
   return <DashboardView />;
 }
 
@@ -128,34 +104,17 @@ function DashboardView() {
       .catch((err) => setError(err instanceof Error ? err.message : "Unable to load dashboard"));
   }, []);
 
-  // The four core record types share one entitlement (require_record_creator): Researcher and
-  // above. A field contributor or volunteer answers existing interviews and adds media instead, so
-  // offering them a "New artisan" button would only produce a 403 — the tile is not shown. The
-  // Questionnaire and Media tiles below stay for everyone; those are how the lower tiers contribute.
   const creator = canCreateRecords(user);
-  /**
-   * Admin-tier chrome, matching DynamicIslandNav's `adminSurface`: capability holders below admin
-   * (professors, grantees) keep the tile permanently, while an admin — who owns the toggle — sees it
-   * only while admin view is ON. The entitlement is checked first, so the toggle can never widen it.
-   */
   const adminSurface = (allowed: boolean) => allowed && (!isAdmin(user) || adminMode);
 
-  // Android EntryMode parity: same tiles, same order, same labels.
   const tiles: Tile[] = [
     { label: "Artisan", icon: UserIcon, newHref: "/artisans/new", updateHref: "/artisans", visible: creator },
     { label: "Product", icon: Package, newHref: "/products/new", updateHref: "/products", visible: creator },
     { label: "Process", icon: GitBranch, newHref: "/processes?new=1", updateHref: "/processes", visible: creator },
     { label: "Tool", icon: Wrench, newHref: "/tools/new", updateHref: "/tools", visible: creator },
-    // Answering an interview and uploading media are open to every signed-in user — they are how a
-    // volunteer contributes.
     { label: "Questionnaire", icon: ClipboardList, newHref: "/questionnaire?new=1", updateHref: "/questionnaire", newLabel: "New" },
     { label: "Miscellaneous Media", icon: Images, newHref: "/media", newLabel: "Upload" },
-    // Reading is never gated: without dataset access the tile leads to Search instead.
     { label: "View Data", icon: Eye, newHref: canDownloadDataset(user) ? "/data" : "/search", newLabel: "Open" },
-    // The two web-only reading surfaces, which had no entry point anywhere and were reachable only
-    // by typing the URL. They sit here, after View Data, because all three answer "show me what is
-    // already in the repository" — and a feature a researcher cannot find is a feature that was not
-    // built. Both are open to any signed-in user; the map filters its pins per viewer on the server.
     { label: "Map", icon: MapPinned, newHref: "/map", newLabel: "Open" },
     {
       label: "Consolidated questionnaire",
@@ -163,13 +122,8 @@ function DashboardView() {
       newHref: "/questionnaire/consolidated",
       newLabel: "Open"
     },
-    // Tasks and Workshop access are dashboard tiles on Android and were menu-only here, which is
-    // the difference between a new researcher finding "how do I get into this workshop" and not.
     { label: "Tasks", icon: ListTodo, newHref: "/tasks", newLabel: "Open" },
     { label: "Sharing", icon: Share2, newHref: "/sharing" },
-    // Ungated, and now honestly so: the destination forks on the role, opening the admin console
-    // only for an admin in admin view and the account's own request page for everyone else. It used
-    // to point straight at the console, so this tile — shown to all — was a padlock for most of them.
     { label: "Workshop access", icon: LockOpen, newHref: "/workshop-access", newLabel: "Open" },
     { label: "Users", icon: UserCog, newHref: "/users", visible: adminSurface(canManageUsers(user)), newLabel: "Manage" },
     { label: "Settings", icon: Settings, newHref: "/admin", visible: adminSurface(isAdmin(user)), newLabel: "Open" },
@@ -183,27 +137,10 @@ function DashboardView() {
     }
   ];
 
-  /**
-   * Every total is a question ("which 74 tools?"), and a number you cannot click is a dead end.
-   * Each card opens the search view already filtered to that record type — `?type=` is read by
-   * app/(protected)/search — so the count and the list behind it can never disagree.
-   *
-   * Pending review is the exception: it opens the review queue, and only for someone who may
-   * actually act on it. A researcher who cannot review still SEES the backlog (it tells them
-   * their own submissions are waiting) but the card does not pretend to be a door they can open.
-   *
-   * THESE ARE THE REPOSITORY'S TOTALS, and saying so out loud is the point. They used to be the
-   * signed-in researcher's own upload counts wearing these labels, because the API filtered every
-   * total by ownership — so two people standing side by side read different numbers off the word
-   * "Artisans", and somebody who had not uploaded yet read six zeroes and concluded the repository
-   * was empty. Reading is open now; the caller's own contribution is the second row below, asked for
-   * explicitly and labelled as theirs.
-   */
   const statCards = stats
     ? [
         { label: "Artisans", value: stats.totalArtisans, icon: Users, href: "/search?type=artisans" },
         { label: "Workshops", value: stats.totalWorkshops, icon: MapPinned, href: "/search?type=workshops" },
-        // The craft master list's live count: ACTIVE crafts only (REQUIREMENTS_2026-10-20 §2.7).
         ...(craftCatalogue.catalogue
           ? [{ label: "Crafts", value: craftCatalogue.catalogue.crafts.length, icon: Brush, href: "/crafts" }]
           : []),
@@ -219,14 +156,6 @@ function DashboardView() {
       ]
     : [];
 
-  /**
-   * The same six counters for THIS account's own work, and every one of them opens My Activity —
-   * which now asks the API for `createdBy=<me>` rather than sifting page one of the repository, so
-   * the number and the list behind it agree again.
-   *
-   * Drawn only when the API actually sent a `mine` block. A row of zeroes synthesised from a missing
-   * field would be a lie in exactly the direction this whole change exists to fix.
-   */
   const mineCards =
     stats?.mine
       ? [
@@ -241,19 +170,13 @@ function DashboardView() {
 
   return (
     <>
-      {/* The dashboard is the navigation root — it never shows a back button. */}
       <PageHeader title="What would you like to do?" back={false} />
       {error ? (
         <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div>
       ) : null}
-      {/* "SENT BACK TO YOU (N)" (A2) — a card above the grid rather than a tile in it, so the
-          tile parity register with Android is untouched; Android draws the same card on its home. */}
       {stats?.mine && (stats.mine.sentBack ?? 0) + (stats.mine.rejected ?? 0) > 0 ? (
         <SentBackCard sentBack={stats.mine.sentBack ?? 0} rejected={stats.mine.rejected ?? 0} />
       ) : null}
-      {/* The tiles are glass, and glass on a flat canvas refracts nothing you can see — these
-          two soft orbs are what their rims bend. Purple only: `grad-mesh` carries a faint amber
-          orb, and gold belongs to the marketing surfaces, never to a data screen. */}
       <div className="relative">
         <div aria-hidden className="pointer-events-none absolute -inset-x-6 -inset-y-8 overflow-hidden">
           <div className="absolute -left-12 -top-4 h-72 w-72 rounded-full bg-purple-300/25 blur-3xl" />
@@ -275,8 +198,6 @@ function DashboardView() {
         </div>
       </div>
 
-      {/* A short grid is otherwise unexplained: say WHY the record tiles are missing and where the
-          tier comes from, rather than leaving a volunteer to assume the app is broken. */}
       {!creator ? (
         <p className="mt-4 rounded-md border border-line-200 bg-surface-50 px-4 py-3 text-sm leading-6 text-ink-500">
           As <span className="font-medium text-ink-700">{roleLabel(user?.role)}</span> you can add to existing records
@@ -332,9 +253,6 @@ function DashboardView() {
         )}
       </section>
 
-      {/* The caller's own contribution, in the SAME six counters and the same order, so the two rows
-          read as one comparison rather than as two unrelated grids. Denser than the row above on
-          purpose: it is the secondary question, and every tile leads to the same place. */}
       {mineCards ? (
         <section className="mt-6">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -386,8 +304,6 @@ function DashboardView() {
                   <th className="px-4 py-3">Title</th>
                   <th className="px-4 py-3">Type</th>
                   <th className="px-4 py-3">Place</th>
-                  {/* The list is the whole repository now, so an unattributed row is a row nobody
-                      can follow up on. */}
                   <th className="px-4 py-3">Recorded by</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Created</th>
@@ -397,8 +313,6 @@ function DashboardView() {
                 {stats.recentSubmissions.map((item) => (
                   <RecentRow key={`${item.type}-${item.id}`} href={recordHref(item.type, item.id)}>
                     <td className="px-4 py-3 font-medium text-ink-900">
-                      {/* The whole row opens the record's view; the title is the real link for the
-                          keyboard (`OpenableRow`). */}
                       {recordHref(item.type, item.id) ? (
                         <RecordTitleLink href={recordHref(item.type, item.id)!}>{item.title}</RecordTitleLink>
                       ) : (
@@ -423,7 +337,6 @@ function DashboardView() {
   );
 }
 
-/** A recent-submission row: openable when its type has a view, a plain row when it has none. */
 function RecentRow({ href, children }: { href: string | null; children: React.ReactNode }) {
   if (!href) return <tr>{children}</tr>;
   return <OpenableRow href={href}>{children}</OpenableRow>;

@@ -8,8 +8,6 @@ import type { CoverageCheckResponse, CoverageTake } from "@/lib/questionnaireApi
 import { alreadyRecorded } from "@/lib/questionnairePrompts";
 import { CONTRACT } from "./questionnaire-contract-fixture";
 
-/** DESIGN tests 37, 38 and the offline P2 (54, web half): copy, preselected reason, More options, hierarchy rule. */
-
 const take = (over: Partial<CoverageTake> = {}): CoverageTake => ({
   recordingId: "r9",
   position: 1,
@@ -29,7 +27,6 @@ const WS = readFileSync(join(__dirname, "..", "components", "questionnaire", "Se
 
 test("@qf:B11 the contract's check response renders P2 for a group: summary, rows, first-take line", () => {
   const base = CONTRACT.examples.CoverageCheckResponse as CoverageCheckResponse;
-  // The contract's answer for Giriraj, with Meena on her first take beside him.
   const check: CoverageCheckResponse = {
     ...base,
     targets: [{ ...base.targets[0], perArtisan: [...base.targets[0].perArtisan, { artisanId: "a2", state: "NOT_RECORDED", viaSection: false, takes: [] }] }]
@@ -66,11 +63,8 @@ test("More options: part 2 only when its rule holds, replace only for your own t
   expect(ids(false, false)).toEqual(["different"]);
   expect(ids(true, false)).toEqual(["part2", "different"]);
   expect(ids(true, true)).toEqual(["part2", "replace", "different"]);
-  // "Use a different question" refiles BEFORE recording: it re-runs the check on the new target.
   expect(WS).toContain("void begin({ ...current.pending, targets, label: labelOf(choice.targetValue)");
-  // Cancel records nothing.
   expect(WS).toContain('if (!current || choice.kind === "cancel") return;');
-  // P2 is asked before the recorder opens: the recorder is set only after the check.
   expect(WS.indexOf("const answer = await check(pending, sha);")).toBeLessThan(WS.indexOf("setRecording({"));
 });
 

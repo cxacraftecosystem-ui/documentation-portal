@@ -21,15 +21,6 @@ import com.fieldrepository.app.questionnaire.data.JoinQr
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * A live camera preview that reads the join QR as soon as it is in frame (DESIGN §3.7). Works with no
- * signal: the payload carries the session itself. [onRead] fires once, with the decoded text; the
- * camera is released when the composable leaves. The caller holds the camera permission.
- *
- * The app's one live QR reader. The top-bar scanner (`ui/FieldScan.kt`) uses it too, with [accept]
- * taking any QR (what a code means is `data/ScanDispatch.kt`'s to decide) and [once] off, so the
- * camera keeps reading; the caller then ignores a code it has already been handed.
- */
 @Composable
 fun LiveQrScanner(
     onRead: (String) -> Unit,
@@ -48,9 +39,6 @@ fun LiveQrScanner(
     DisposableEffect(lifecycle) {
         val future = ProcessCameraProvider.getInstance(context)
         var provider: ProcessCameraProvider? = null
-        // Set on dispose. A cold CameraX can finish starting AFTER the scanner has gone; binding then
-        // would hold the camera for the rest of the screen's life, and the next scanner (or app)
-        // would find it in use. So a listener that arrives late does nothing.
         var disposed = false
         future.addListener({
             if (disposed) return@addListener

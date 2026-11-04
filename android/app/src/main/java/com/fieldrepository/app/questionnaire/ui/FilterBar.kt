@@ -52,7 +52,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 
-/** The searchable filters a screen offers (some screens fix one, e.g. a form's sessions fix the form). */
 enum class FilterField(val key: String, val facet: String?, val labelKey: String) {
     QUESTIONNAIRE("questionnaireId", "questionnaires", "filterQuestionnaire"),
     SECTION("sectionId", "sections", "filterSection"),
@@ -67,14 +66,11 @@ enum class FilterField(val key: String, val facet: String?, val labelKey: String
 
     companion object {
         val ALL = entries.toList()
-        /** The forms library: a form's own fields, and who and where its sessions were. */
         val FORMS = listOf(ARTISANS, RESEARCHER, WORKSHOP, DATES, KIND, SOURCE, TRANSCRIPT, LANGUAGE)
-        /** A media list: everything but the dates, which on a media list are the upload day (its own). */
         val MEDIA = ALL - DATES
     }
 }
 
-/** How a filter value reads in an active pill. */
 internal fun pillLabel(filters: QuestionnaireFilters, key: String, value: String): String = when (key) {
     "kind" -> if (value == "NONE") QuestionnaireCopy.t("kindNotStated") else value.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
     "source" -> sourceLabel(value)
@@ -96,7 +92,6 @@ internal fun transcriptLabel(v: String) = when (v) {
     else -> QuestionnaireCopy.t("transcriptPending")
 }
 
-/** Every value set, as (key, value) pairs in the shared key order; a date range is one pill. */
 internal fun activePills(filters: QuestionnaireFilters, fixed: Set<String>): List<Pair<String, String>> =
     QuestionnaireFilters.KEYS.filter { it != "q" && it != "dateTo" && it !in fixed }.flatMap { key ->
         if (key == "dateFrom") {
@@ -108,17 +103,6 @@ internal fun activePills(filters: QuestionnaireFilters, fixed: Set<String>): Lis
         } else filters[key].map { key to it }
     }
 
-/**
- * The search box and the filters of every questionnaire list (sessions, forms, a form's sessions,
- * recordings, media): a search field, "Filters (n)" opening a sheet of proper controls (searchable
- * selects, a date range calendar, pills), and the active filters as pills that remove themselves.
- *
- * @param options reads one filter's values from the server (`GET /questionnaire/filters`), given the
- *   facet name, the typed text and the forms chosen; null with no signal.
- * @param fixed filter keys this screen sets itself and does not show (a form's sessions fix its form).
- * @param offline shows "Offline: filtering what is on this device." under the bar.
- * @param showSearch false where the host keeps its own search box (the media lists).
- */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun FilterBar(
@@ -256,7 +240,6 @@ private fun FieldRow(label: String, value: String, onClick: () -> Unit) {
     }
 }
 
-/** A searchable select over the server's values for one filter; several may be ticked (one for researcher). */
 @Composable
 private fun OptionPicker(
     field: FilterField,

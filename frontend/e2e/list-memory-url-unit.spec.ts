@@ -2,12 +2,6 @@ import { expect, test } from "@playwright/test";
 
 import { LIST_PARAMS, listMemoryFromSearch, listMemoryToSearch } from "@/components/hooks/useListMemory";
 
-/**
- * BACK FROM A RECORD RESTORES THE LIST (owner, 1 Nov 2026), the pure half: a list's page, search,
- * funnel and filters written into its URL and read back. Identical in both portals. The browser
- * half is `list-back-nav.spec.ts`.
- */
-
 test.describe("list state in the URL", () => {
   test("round-trips page, search, funnel and filters", () => {
     const search = listMemoryToSearch({
@@ -45,7 +39,6 @@ test.describe("list state in the URL", () => {
   });
 
   test("never claims a questionnaire filter's name", () => {
-    // `q`, `workshopId` and `artisanId` belong to the shared questionnaire filters on the same URLs.
     expect(Object.values(LIST_PARAMS)).not.toContain("q");
     expect(listMemoryFromSearch("?q=indigo&workshopId=w1&artisanId=a1")).toBeNull();
   });

@@ -1,14 +1,3 @@
-"""Queue every record for the search index again, or every record of one type (docs/SEARCH.md).
-
-Nothing is built here: the rows go into ``SearchIndexQueue`` and the queue worker drains them in
-small batches while UNIFIED_SEARCH_ENABLED is on. Use it after a builder changes what a document
-holds, or to rebuild one type.
-
-    cd backend && .venv/Scripts/python.exe -m scripts.search_reindex            # everything
-    cd backend && .venv/Scripts/python.exe -m scripts.search_reindex --type media
-    cd backend && .venv/Scripts/python.exe -m scripts.search_reindex --drain    # also build now
-"""
-
 from __future__ import annotations
 
 import argparse

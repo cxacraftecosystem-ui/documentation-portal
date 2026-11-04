@@ -1,14 +1,5 @@
 "use client";
 
-/**
- * `/questionnaires` — the forms library (UNIFY 4.2): tabs Mine · Shared · Workshop, and Deleted for
- * content admins; pills New form · Upload workbook · Download pro-forma · Open bundle for form
- * authors (questionnaire managers). Forms are grouped by kind. The Workshop tab picks a workshop and
- * offers its annexure. Admins set each workshop type's default form here.
- *
- * Everything that writes needs a connection and says so on the button (UNIFY 4.3).
- */
-
 import { FilterBar } from "@/components/questionnaire/FilterBar";
 import { useListMemory } from "@/components/hooks/useListMemory";
 import { useUrlFilters } from "@/components/questionnaire/useUrlFilters";
@@ -80,11 +71,8 @@ export default function QuestionnairesLibraryPage() {
   const [reload, setReload] = useState(0);
   const [saved, setSaved] = useState<string | null>(null);
   const tab = scope ?? defaultTab(user);
-  // The shared filters (owner, 31 Oct 2026): forms by their words, sections and questions, and by
-  // the sessions held on them (artisans, workshops, dates …), kept in the URL.
   const { filters: sharedFilters, setFilters: setSharedFilters, ready: filtersReady } = useUrlFilters();
 
-  /** The tab, kind and workshop in the URL, and the scroll, so Back from a form lands where the reader was. */
   const memory = useListMemory("questionnaires", { filters: { tab: scope ?? "", kind, workshop: workshopId } }, forms !== null);
   useEffect(() => {
     const remembered = memory.recall()?.filters ?? {};
@@ -92,7 +80,6 @@ export default function QuestionnairesLibraryPage() {
     if (wanted) setScope(wanted.id as FormScope);
     if (remembered.kind) setKind(remembered.kind);
     if (remembered.workshop) setWorkshopId(remembered.workshop);
-    // Once, on arrival.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -109,7 +96,6 @@ export default function QuestionnairesLibraryPage() {
     };
   }, [user]);
 
-  // A late answer for an earlier tab or filter is dropped by the `cancelled` flag.
   useEffect(() => {
     if (!user || !filtersReady) return;
     let cancelled = false;
@@ -126,7 +112,6 @@ export default function QuestionnairesLibraryPage() {
       })
       .catch((err) => {
         if (cancelled) return;
-        // Offline (A16): the copy this account last read, never another account's.
         const held = isOffline(err) ? readFormsCache(user.id) : null;
         if (held?.lists[key]) {
           setForms(held.lists[key]);
@@ -144,8 +129,6 @@ export default function QuestionnairesLibraryPage() {
 
   const load = () => setReload((n) => n + 1);
 
-  // Forms written offline on this device (A15): listed under Mine, and sent once there is a
-  // connection, oldest first; each lands as a form of its own and leaves the device.
   const [draftRevision, setDraftRevision] = useState(0);
   const drafts = user ? listDrafts(user.id) : [];
   void draftRevision;

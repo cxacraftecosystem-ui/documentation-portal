@@ -10,10 +10,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.io.File
 
-/**
- * Audit Low (21 Oct 2026): the start sheet's language list was hard-coded with no parity test. It is
- * `shared/languages.json`, code for code and label for label, in the table's order.
- */
 class SessionLanguagesParityTest {
     private fun repoFile(path: String): File =
         generateSequence(File(".").absoluteFile) { it.parentFile }.map { File(it, path) }.firstOrNull { it.isFile }

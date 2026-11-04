@@ -7,8 +7,6 @@ import type { Session } from "@/lib/questionnaireApi";
 import { coverageCell, modeLabel, sessionMatches } from "@/lib/questionnaireView";
 import { CONTRACT } from "./questionnaire-contract-fixture";
 
-/** DESIGN test 45: names, mode, instrument and coverage counts; search over legacyTitle; no "0 answers". */
-
 const session = CONTRACT.examples.Session as Session;
 const LIST = readFileSync(join(__dirname, "..", "components", "questionnaire", "SessionsList.tsx"), "utf8").replace(/\/\*\*[\s\S]*?\*\//g, "");
 

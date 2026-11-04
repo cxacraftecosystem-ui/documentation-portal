@@ -1,13 +1,3 @@
-"""When queued transcription may run: the pause switch first, then the nightly window.
-
-THE PAUSE WINS OVER EVERYTHING. ``transcriptionPaused`` ships TRUE in both portals (owner hold,
-18 Oct 2026): while it is set, the queue, "Transcribe now", server dictation, subtitles and every
-retry tool hold. Jobs stay QUEUED and untouched. A missing settings row reads as paused.
-
-The idle-load bypass the portals used to have is gone: on swap-bound t3 boxes a low load average
-says nothing about spare provider credit.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -29,7 +19,6 @@ def _get(row: Any, name: str, default: Any) -> Any:
 
 
 def is_paused(row: Any) -> bool:
-    """True unless a settings row exists and says otherwise. Fails closed."""
     if row is None:
         return True
     value = _get(row, "transcriptionPaused", True)
@@ -57,8 +46,6 @@ def _zone(name: str | None) -> Any:
 
 
 def within_window(row: Any, now: datetime | None = None) -> bool:
-    """Inside [start, end) in the row's timezone, wrapping past midnight. Always True when the
-    window is switched off."""
     if row is None or not _get(row, "batchWindowEnabled", False):
         return True
     tz = _zone(_get(row, "batchTimezone", None))
@@ -73,7 +60,6 @@ def within_window(row: Any, now: datetime | None = None) -> bool:
 
 
 def next_window_start(row: Any, now: datetime) -> datetime:
-    """The next moment the window opens (now, when it is open or switched off)."""
     if within_window(row, now):
         return now
     tz = _zone(_get(row, "batchTimezone", None))
@@ -88,7 +74,7 @@ def next_window_start(row: Any, now: datetime) -> datetime:
 @dataclass(frozen=True)
 class QueueGate:
     may_run: bool
-    reason: str | None  # "paused" | "window" | None
+    reason: str | None
 
 
 def queue_gate(row: Any, now: datetime | None = None) -> QueueGate:

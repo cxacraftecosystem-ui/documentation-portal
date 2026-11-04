@@ -1,10 +1,3 @@
-"""``shared/transcript-contract.json`` is what the server does: routes, shapes, and copy fixtures.
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal (``shared/transcription.sha256``).
-The web and Android clients load the same fixtures and must reproduce them byte for byte when they
-copy locally; this test proves the server's renderer does. No database.
-"""
-
 from __future__ import annotations
 
 import json
@@ -134,8 +127,6 @@ def test_the_strings_are_complete_sentences_with_no_gap_admissions() -> None:
         assert "not built" not in lowered and "coming soon" not in lowered and "no endpoint" not in lowered, key
 
 
-# --- 0.0.6: speaker colours and list previews (contractVersion 2) ----------------------------
-
 
 @pytest.mark.parametrize(("key", "label", "expected"), [tuple(case) for case in FIX["speakerColor"]["cases"]])
 def test_speaker_colours(key: str | None, label: str | None, expected: str) -> None:
@@ -193,8 +184,6 @@ def test_a_legacy_preview_has_no_transcript_prefix_or_markdown() -> None:
         "lines": [{"speaker": "Speaker 1", "speakerKey": None, "colorKey": "s0", "text": "Wow! It is lovely."}],
     }
 
-
-# --- 0.0.9 (D38): English a person adds, and the notice when Gemini declined (contractVersion 3) ----
 
 
 def test_the_pasted_english_fixtures_byte_for_byte() -> None:

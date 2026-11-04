@@ -1,5 +1,12 @@
 # Scalability: what breaks first, and what it costs to fix
 
+> **Dated analysis.** The measurements and bounds below were taken when production was a 1 GiB
+> t3.micro with its database in another region. Since 13 Sep 2026 the database sits in ap-south-1
+> beside the box, and since 10 Oct 2026 the box is a 2 GiB t3.small on Ubuntu 26.04 that releases
+> blue/green (since 19 Oct), with the API at 211 MB and the worker at 130 MB PSS
+> (measured 4 Nov 2026). Every bound written for 1 GiB still holds on 2 GiB and now leaves room for the idle
+> port a release starts; read "1 GiB" below as the design ceiling, not the box.
+
 What this system runs into as it grows, ranked by *when* each thing starts to hurt rather than by
 how interesting it is. Every entry carries the evidence it rests on, the scale at which it begins
 to bite, the fix, and — because this deployment is a 1 GiB EC2 box and must stay one — what the fix
@@ -46,10 +53,11 @@ The database is in a different AWS region from the web box. That single fact dom
 performance property of this system, and it does so in a way that is exactly, boringly linear.
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart LR
   browser["Browser / Android"]
   cf["CloudFront"]
-  nginx["nginx :80<br/>EC2 t3.micro"]
+  nginx["nginx :80<br/>EC2 t3.small"]
   uvicorn["uvicorn<br/>1 worker"]
   engine["Prisma query engine"]
   pooler["Supabase pooler :6543<br/>DIFFERENT REGION"]
@@ -73,15 +81,15 @@ Fitting latency against the number of database queries a route issues **one afte
 The three anchor points that make it trustworthy are the ones where the code leaves no room for
 interpretation:
 
-- `GET /health` (`backend/app/main.py:412`) touches no database at all → **101 ms MEASURED**. That
+- `GET /health` (`backend/app/main.py:282`) touches no database at all → **101 ms MEASURED**. That
   is the network, TLS and CloudFront floor.
-- `GET /reference/address` (`backend/app/api/routes/reference.py:23`) has a docstring that says
+- `GET /reference/address` (`backend/app/api/routes/reference.py:5`) has a docstring that says
   *"The payload is a pure constant — no database read"* — and it takes **789 ms MEASURED**. All
   688 ms of the difference is the `db.user.find_unique` inside `get_current_user`
-  (`backend/app/core/deps.py:127`). An endpoint that reads nothing costs one round trip because
+  (`backend/app/core/deps.py:76`). An endpoint that reads nothing costs one round trip because
   authentication reads something.
-- `GET /review/pending` (`backend/app/api/routes/review.py:139`) loops over six record types issuing
-  one `find_many` each (`review.py:141-147`). It returns **22 bytes** — the queue is empty — and takes
+- `GET /review/pending` (`backend/app/api/routes/review.py:118`) loops over six record types issuing
+  one `find_many` each (`review.py:118-122`). It returns **22 bytes** — the queue is empty — and takes
   **4,958 ms MEASURED**. That is 7.00 implied round trips against a model that predicted 7.
 
 ### 1.2 The measured table
@@ -165,16 +173,16 @@ Ranked by *when* it bites, not by size of eventual win.
 | # | Bottleneck | Evidence | Starts to hurt at | Fix | Cost to the 1 GiB pilot |
 |---|---|---|---|---|---|
 | 1 | **Sequential round trips per request** | §1.1–1.3, MEASURED | **Now**, at 16 artisans | Gather independent reads; batch relations; delete queries outright | None — strictly faster, no new memory |
-| 2 | **One auth read on every request** | `deps.py:127`; `/reference/address` = 789 ms MEASURED | **Now**, every call | In-process TTL cache of the user row | ~200 KB RAM; role changes lag by the TTL |
-| 3 | **Whole media objects read into RAM** | `s3.py:243`; largest live object **668 MiB** MEASURED | **Now** — that file already exists | Stream to a temp file; cap by free memory, not a constant | Disk instead of RAM; a few lines |
-| 4 | **Write-path N+1** | `questionnaire.py:216-258` = 3 queries per answer | **Now**, at ~14 answers in one save | `db.batch_()` / `create_many` — one round trip | None; strictly fewer queries |
+| 2 | **One auth read on every request** | `deps.py:76`; `/reference/address` = 789 ms MEASURED | **Now**, every call | In-process TTL cache of the user row | ~200 KB RAM; role changes lag by the TTL |
+| 3 | **Whole media objects read into RAM** | `s3.py:156`; largest live object **668 MiB** MEASURED | **Now** — that file already exists | Stream to a temp file; cap by free memory, not a constant | Disk instead of RAM; a few lines |
+| 4 | **Write-path N+1** | `questionnaire.py:178-193` = 3 queries per answer | **Now**, at ~14 answers in one save | `db.batch_()` / `create_many` — one round trip | None; strictly fewer queries |
 | 5 | **Connection pool under burst** | Knee at 8 concurrent, MEASURED §6 | **Now**, at ~8 simultaneous users | Remove queries (see 1, 2); make the pool a knob | None |
 | 6 | **Reports and manifests built entirely in RAM** | 284 B/cell MEASURED; caps allow 2.1 M cells | ~10–20× today's records | `write_only` workbook to a temp file; stream rows | Column widths become fixed, not content-fitted |
 | 7 | **Queue throughput: one worker, serial batch** | `media_queue.py:194-213`; `main.py:31` | ~5–10× today's audio | Concurrency as a setting (default 1); DB lease instead of `flock` | None at default |
-| 8 | **Unbounded aggregate responses** | `review.py:139` (no paging), `data_browser.py:132,143` | ~200 pending per type | Paginate; stream the manifest | None |
-| 9 | **Multi-column `ILIKE '%term%'`** | `records.py:231-244`, 57 call sites | ~100–150 k rows in a searched table, MODELLED | `pg_trgm` GIN indexes — inside Postgres, no new service | Index build + write amplification; kilobytes today |
+| 8 | **Unbounded aggregate responses** | `review.py:118` (no paging), `data_browser.py:132,143` | ~200 pending per type | Paginate; stream the manifest | None |
+| 9 | **Multi-column `ILIKE '%term%'`** | `records.py:104-106`, 57 call sites | ~100–150 k rows in a searched table, MODELLED | `pg_trgm` GIN indexes — inside Postgres, no new service | Index build + write amplification; kilobytes today |
 | 10 | **OFFSET pagination depth** | `pagination.py:10` | ~100 k rows **and** deep paging, MODELLED | Cursor alongside page numbers, not instead | None; additive field |
-| 11 | **Exact `COUNT(*)` per list response** | `records.py:451-454` | ~1 M rows, MODELLED | Fetch `pageSize + 1`; report `hasMore` above a threshold | None until the threshold |
+| 11 | **Exact `COUNT(*)` per list response** | `records.py:197` | ~1 M rows, MODELLED | Fetch `pageSize + 1`; report `hasMore` above a threshold | None until the threshold |
 
 Items 9, 10 and 11 are the three the brief asked about most pointedly, and they rank **last**. That
 is the finding, not an oversight; §7 shows the arithmetic.
@@ -188,7 +196,7 @@ is the finding, not an oversight; §7 shows the arithmetic.
 `GET /review/pending` returning 22 bytes in 4,958 ms is the cleanest example in the codebase:
 
 ```python
-# backend/app/api/routes/review.py:140-147
+# backend/app/api/routes/review.py:117-122
 for record_type, delegate, label_fields in _PENDING_SOURCES:   # six record types
     rows = await delegate.find_many(...)                       # one round trip each, in series
 ```
@@ -202,6 +210,7 @@ query — 12.98 trips MEASURED. `/data/report` does it nineteen times — 19.01 
 ### The fix, and why it is the right shape
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TB
   subgraph before["Sequential: 7 x 694 ms = 4.86 s"]
     direction LR
@@ -215,7 +224,7 @@ flowchart TB
 
 `backend/app/services/concurrency.py::gather_reads` already implements exactly this, bounded by the
 Prisma pool so one request cannot drain it. Routes still to convert, from the measurements above:
-`review.py:139` (7 → 2 trips), `export.py:153` (13 → 3), `media.py` list (`count` then `find_many`
+`review.py:118` (7 → 2 trips), `export.py:153` (13 → 3), `media.py` list (`count` then `find_many`
 then `_interview_labels`, still sequential at `media.py` list route), and the nineteen queries behind
 `/data/report`.
 
@@ -231,7 +240,7 @@ of one. On a pool of ten that is fine for one request and interesting for three.
 
 The fixes that improve throughput as well as latency are the ones that **delete** queries: caching
 the auth read (§4), the `group_by` that replaced four count pairs in `dashboard.py:59-82`, and
-`hydrate_relations`' one-query-per-relation batching in `records.py:392`.
+`hydrate_relations`' one-query-per-relation batching in `records.py:173`.
 
 ---
 
@@ -240,7 +249,7 @@ the auth read (§4), the `group_by` that replaced four count pairs in `dashboard
 ### The evidence
 
 ```python
-# backend/app/core/deps.py:127
+# backend/app/core/deps.py:76
 user = await db.user.find_unique(where={"id": user_id})
 ```
 
@@ -296,7 +305,7 @@ without querying — which is why the measurements in §1.2, taken as an admin, 
 Every transcription reads the whole object into the process heap:
 
 ```python
-# backend/app/services/s3.py:243-249
+# backend/app/services/s3.py:156-161
 def get_object_bytes(object_key: str) -> bytes:
     response = _client().get_object(...)
     return response["Body"].read()          # the entire object
@@ -411,15 +420,15 @@ worth naming rather than hiding, because the workbook styling in `xlsx_report.py
 
 ### What is configured
 
-- `DATABASE_CONNECTION_LIMIT = 10` per process (`config.py:94`), cut from 40 after a documented
+- `DATABASE_CONNECTION_LIMIT = 10` per process (`config.py:51`), cut from 40 after a documented
   pooler-exhaustion incident.
 - Runtime traffic goes through the Supabase **transaction** pooler on :6543 with `pgbouncer=true`
   (`db.py:15-65`). Session mode pinned one of a small number of server connections per client and
   crash-looped the service; transaction mode returns the connection after each statement.
 - One web process (uvicorn, single worker) plus one separate queue process
   (`backend/app/worker.py`), so **20 client connections** in steady state.
-- `pool_timeout` is unset, so Prisma's default 10 s applies (`config.py:96`).
-- The pooler's ceilings quoted in `config.py:88-93` and `db.py:20-28` are **200 client connections**
+- `pool_timeout` is unset, so Prisma's default 10 s applies (`config.py:50`).
+- The pooler's ceilings quoted in `config.py:48-51` and `db.py:20-28` are **200 client connections**
   multiplexed over **~15 server connections**. Those are the comments' numbers; I did not
   independently verify them against the Supabase project.
 
@@ -450,7 +459,7 @@ connections) lands exactly on the configured pool of 10, which is decent corrobo
 model.
 
 Past saturation the failure mode is not graceful: requests queue inside the engine for up to the
-10 s `pool_timeout` and then raise `P2024`. The watchdog in `main.py:90-93` correctly recognises
+10 s `pool_timeout` and then raise `P2024`. The watchdog in `main.py:57-58` correctly recognises
 `P2024` as "saturated by load, not broken" and refuses to reconnect — that guard is load-bearing and
 must survive any pool change.
 
@@ -465,7 +474,7 @@ must survive any pool change.
 3. **Do not raise `connection_limit` to fix a burst.** The pooler multiplexes over ~15 server
    connections; more client connections past that point buy queueing, not concurrency — and this is
    precisely the mistake the 40 → 10 cut was reverting.
-4. **`gather_reads` is bounded by `pool_width()`** (`concurrency.py:25-32`), which means one request
+4. **`gather_reads` is bounded by `pool_width()`** (`concurrency.py:8-9`), which means one request
    may legitimately ask for the entire pool. That is safe at one concurrent dashboard request and
    self-throttling at several. Worth keeping the bound at the pool size and never above it.
 
@@ -509,6 +518,7 @@ So OFFSET becomes the dominant term only when a single table is in the hundreds 
 **The fix that keeps page numbers.** Yes — and the answer is *additive*, not a replacement:
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart LR
   ui["UI pager"]
   next["Next / Previous<br/>the 95% case"]
@@ -527,7 +537,7 @@ sequentially, so this captures nearly all of the benefit with **zero contract br
 app and the web app keep working unchanged, and neither has to be released in lockstep.
 
 One correctness note for whoever implements it: every list orders by `createdAt desc`
-(`records.py:250` and siblings), and `createdAt` is **not unique**. A stable cursor must be the
+(`records.py:106` and siblings), and `createdAt` is **not unique**. A stable cursor must be the
 compound `(createdAt, id)`, and the supporting index should be `(createdAt DESC, id DESC)` rather
 than the bare `createdAt` the index migration adds. Otherwise two records saved in the same
 millisecond will duplicate or skip across a page boundary.
@@ -536,7 +546,7 @@ millisecond will duplicate or skip across a page boundary.
 
 ### 7.2 Exact `COUNT(*)` on every list response (rank 11)
 
-`count_and_page` (`records.py:451-454`) issues `delegate.count(where=where)` alongside the page —
+`count_and_page` (`records.py:197`) issues `delegate.count(where=where)` alongside the page —
 and, importantly, *concurrently* with it in the tree version. Two consequences:
 
 - While the count is faster than the page query, it costs **zero wall-clock time**. On the deployed
@@ -565,7 +575,7 @@ path. That is the whole point of expressing it as a threshold rather than a mode
 **What the code does today**, confirmed:
 
 ```python
-# backend/app/services/records.py:231-244
+# backend/app/services/records.py:104-106
 def contains(value: str) -> dict[str, Any]:
     return {"contains": value.translate(_UNSEARCHABLE), "mode": "insensitive"}
 ```
@@ -632,7 +642,7 @@ index cannot help a search term shorter than three characters, which will still 
 ### 8.1 The questionnaire save — three round trips per answer
 
 ```python
-# backend/app/api/routes/questionnaire.py:216-258
+# backend/app/api/routes/questionnaire.py:178-193
 for response in responses:
     await require_record(db.questionnairequestion, response.questionId)   # trip 1
     existing = await db.questionnaireresponse.find_unique(...)            # trip 2
@@ -662,7 +672,7 @@ The question bank holds **284 questions across 24 sections** (MEASURED, counted 
    case. **Neither appears anywhere in `backend/` today** — that is the single largest unused lever
    in the codebase.
 
-The same shape, smaller, at `questionnaire.py:201` and `:210`, `tools.py:203` and `:215`,
+The same shape, smaller, at `questionnaire.py:165` and `:210`, `tools.py:203` and `:215`,
 `workshops.py:135`, `:141`, `:348`, `:582`, `:594`, and `data_access.py:129`: join rows created one
 at a time in a loop. Every one of them is a `create_many` or a `batch_`.
 
@@ -673,10 +683,10 @@ transaction, which is arguably *more* correct than a partially-applied loop.
 
 | Site | What it loads | What it needs |
 |---|---|---|
-| `review.py:139` | up to 200 rows × 6 tables, no pagination; `total = len(items)` | one page of a merged queue |
+| `review.py:118` | up to 200 rows × 6 tables, no pagination; `total = len(items)` | one page of a merged queue |
 | `export.py:153-225` | 6 tables (≤5,000 each, with includes) + ≤20,000 media | a streamed list of paths |
 | `data_browser.py:132` `TAKE = 500` | 500 rows per folder query | one screen of a tree |
-| `records.py:262` | every grant row for the user, then `{"in": [ids]}` | a predicate |
+| `records.py:106` | every grant row for the user, then `{"in": [ids]}` | a predicate |
 | `app_settings.py:25` | the singleton settings row, on **every** queue tick (5 s) and several routes | a cached value |
 
 `/review/pending` is the one to fix first: it has no `page`/`pageSize` at all, so the response grows
@@ -747,7 +757,7 @@ what `memory_cache.set` already does (`memory_cache.py:67-85`).
 
 Redis, if configured, and only then. It buys one thing: a cache shared across processes, which
 matters when there is more than one web process — and there is deliberately exactly one today
-(`backend/app/worker.py:7-15` explains why, and it is a good reason). So the honest statement is:
+(`backend/app/worker.py:1` explains why, and it is a good reason). So the honest statement is:
 **Redis is worth configuring at the point where you add a second web box, and not before.** Until
 then it is a service to operate for no benefit. The generation-counter scheme in `keys.py` works
 identically in both backends, which is what makes the switch a configuration change rather than a
@@ -760,6 +770,7 @@ rewrite.
 ### What the ceiling actually is
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TB
   election["flock on /tmp/fieldrepo-media-queue.lock<br/>main.py:31 — one worker per HOST"]
   poll["poll every 5 s<br/>MEDIA_QUEUE_INTERVAL_SECONDS"]
@@ -777,7 +788,7 @@ flowchart TB
 Three structural limits, all readable straight from the source:
 
 1. **Concurrency is exactly one.** The batch loop at `media_queue.py:194-213` awaits each job in
-   turn, and the election at `main.py:31-47` guarantees one worker per host. Batch size 3 controls
+   turn, and the election at `main.py:31-39` guarantees one worker per host. Batch size 3 controls
    how many jobs are *claimed*, not how many run at once.
 2. **A single 429 stops everything.** `except RateLimited: … break` (`media_queue.py:204-209`) exits
    the batch and enters a process-global cooldown of 30 s doubling to 900 s
@@ -813,7 +824,7 @@ durable half is already right — `_defer_rate_limited_job` writes `runAfter` on
 - Move the rate-limit cooldown into the same lease row (or into a settings row) so it coordinates
   across workers instead of relying on there being only one.
 - Split the cooldown **per provider**. The chain is ElevenLabs → Deepgram → Whisper
-  (`config.py:166-175`); a 429 from one should not idle the other two.
+  (`config.py:68-72`); a 429 from one should not idle the other two.
 
 **Cost to the pilot:** none at the defaults — one worker, one lease, identical behaviour. The lease
 row adds one write per renewal interval.
@@ -825,7 +836,7 @@ row adds one write per renewal interval.
 Worth recording, because the temptation in a scale review is to touch everything.
 
 - **Media bytes never pass through the API.** Uploads are presigned PUTs and presigned multipart
-  parts (`s3.py:136, 192, 209`); the browser and the phone talk to S3 directly. Downloads redirect
+  parts (`s3.py:86, 192, 209`); the browser and the phone talk to S3 directly. Downloads redirect
   (`data_browser.py:2994`). The 6.66 GiB in the bucket has never touched the t3.micro's network
   budget, and the ZIP is assembled client-side (`export.py:39-51`). This is the single best scaling
   decision in the system.
@@ -833,11 +844,11 @@ Worth recording, because the temptation in a scale review is to touch everything
   indexes matching real query shapes and drops 34 that no query can reach, with EXPLAIN evidence on a
   100× copy for each. Adding `(createdAt DESC, id DESC)` for keyset (§7.1) is the only amendment
   I would make.
-- **`hydrate_relations`** (`records.py:392`) is the correct answer to the relation cost in §1.3: one
+- **`hydrate_relations`** (`records.py:173`) is the correct answer to the relation cost in §1.3: one
   batched query per relation, all issued together, three waits per page regardless of relation count.
-- **`/health` deliberately does not touch the database** (`main.py:412-424`), so a recovering pooler
+- **`/health` deliberately does not touch the database** (`main.py:282-290`), so a recovering pooler
   cannot cost the box its CloudFront origin health. Do not "improve" this into a real check.
-- **The `P2024` guard in the watchdog** (`main.py:90-93`) prevents a saturated pool from being
+- **The `P2024` guard in the watchdog** (`main.py:57-58`) prevents a saturated pool from being
   mistaken for a broken connection and torn down. Any pool change must keep it.
 
 ---
@@ -903,6 +914,7 @@ size distribution (§5.1) is every row of `GET /api/media?pageSize=100` paged to
 ## 14. The order to do them in
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TB
   s1["1. Deploy the gather work already in the tree<br/>dashboard 10.5 s -> ~1.0 s, search 8.6 s -> ~1.4 s"]
   s2["2. Cache the auth user row<br/>-688 ms on EVERY request, at both ends of scale"]
@@ -922,3 +934,13 @@ Steps 1 to 7 make the **pilot** faster and lighter, today, with no new infrastru
 dependency. Steps 8 to 10 are the ones that only matter later, and each is written so that the
 small deployment never takes the expensive path. That ordering is not a compromise between the two
 cases — it is what happens when you rank by evidence instead of by which problem sounds biggest.
+
+## How this document is kept true
+
+| Claim class | Kept true by |
+|---|---|
+| Each bottleneck's evidence | the measurement or citation beside it, dated; line citations are counted by `node docs/tools/check-docs.mjs`, which warns as they accumulate |
+| The scaling layer's switches | `backend/app/scale/README.md` and `backend/app/core/config.py` |
+| The production box | `infra/terraform/main.tf`; the note at the top says what changed since the analysis |
+
+**Review triggers:** a resize, a new optional backend in `backend/app/scale/`, or a measured regression.

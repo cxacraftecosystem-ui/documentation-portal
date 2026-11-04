@@ -11,23 +11,8 @@ import { cn } from "@/lib/utils";
 
 const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/**
- * The history entry the open sheet stands on, so the browser's Back closes it — Android's
- * `BackHandler`. Next's own state is copied in beside it, so the router reads the entry as the same page.
- */
 export const ISLAND_MORE_HISTORY_KEY = "islandMoreSheet";
 
-/**
- * The destinations that did not fit on the bar, in the bar's order — Android's `IslandMoreSheet`.
- *
- * A loose destination is one row; a group is its heading and then one row per entry, so nothing
- * hidden is more than one tap away. The row for the screen the reader is on is lit. A modal sheet:
- * focus moves in and is trapped, Escape, Back or the scrim closes it, and focus returns to "More".
- * Opening pushes one history entry; closing other than by Back takes it off again, and a row replaces
- * it with the page it opens, so the sheet never leaves an extra step behind.
- *
- * Shared byte-identical by the designer portal and the documentation portal.
- */
 export function IslandMoreSheet({
   open,
   slots,
@@ -49,7 +34,6 @@ export function IslandMoreSheet({
   useEffect(() => {
     closeRef.current = onClose;
   });
-  // Set by a row just before the sheet closes: that row's link replaces the sheet's history entry.
   const leavingByLink = useRef(false);
 
   useEffect(() => {
@@ -58,7 +42,6 @@ export function IslandMoreSheet({
     let popped = false;
     window.history.pushState({ ...(window.history.state ?? {}), [ISLAND_MORE_HISTORY_KEY]: true }, "");
     const onPopState = (event: PopStateEvent) => {
-      // A pop that lands on a sheet entry (a re-run effect's) is not a Back out of this one.
       if ((event.state as Record<string, unknown> | null)?.[ISLAND_MORE_HISTORY_KEY]) return;
       popped = true;
       closeRef.current();

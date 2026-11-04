@@ -14,7 +14,6 @@ import retrofit2.http.Query
 import retrofit2.http.QueryMap
 import retrofit2.http.Streaming
 
-/** The routes of `shared/transcript-contract.json`, under the apps' `/api/` base. */
 interface TranscriptApi {
     @GET("transcripts/{mediaId}")
     suspend fun get(@Path("mediaId") mediaId: String): Transcript
@@ -37,7 +36,6 @@ interface TranscriptApi {
     @POST("transcripts/{mediaId}/turns/{turnId}/retranslate")
     suspend fun retranslate(@Path("mediaId") mediaId: String, @Path("turnId") turnId: String): TranscriptTurn
 
-    /** Contract 3: English typed or pasted for the whole transcript. */
     @POST("transcripts/{mediaId}/english")
     suspend fun addEnglish(@Path("mediaId") mediaId: String, @Body body: EnglishBody): Transcript
 
@@ -48,12 +46,20 @@ interface TranscriptApi {
     suspend fun transcribeNow(@Path("mediaId") mediaId: String): Transcript
 
     @Streaming
-    /** Settings → API keys (0.0.5): the Voice Isolator switch rides the transcription settings. */
     @GET("settings/transcription")
     suspend fun transcriptionSettings(): AudioIsolationEnvelope
 
     @PUT("settings/transcription")
     suspend fun setAudioIsolation(@Body body: AudioIsolationBody): AudioIsolationEnvelope
+
+    @PUT("settings/transcription")
+    suspend fun setTranscriptionSwitches(@Body body: TranscriptionSwitchBody): AudioIsolationEnvelope
+
+    @GET("settings/transcription/upload-policy")
+    suspend fun uploadPolicy(): UploadPolicy
+
+    @GET("settings/transcription/backfill")
+    suspend fun backfill(): BackfillView
 
     @GET("transcripts/{mediaId}/download")
     suspend fun download(
@@ -83,7 +89,6 @@ interface TranscriptApi {
     @GET("transcripts/budget")
     suspend fun budget(): BudgetMeter
 
-    /** View data (0.0.6): one page of recordings with everything the pipeline added. */
     @GET("data/transcripts")
     suspend fun dataTranscripts(
         @QueryMap filters: Map<String, String>,
@@ -91,7 +96,6 @@ interface TranscriptApi {
         @Query("limit") limit: Int = 20,
     ): DataTranscriptPage
 
-    /** Download data (0.0.6): every matching row, streamed; `kind` recordings|turns|glossary, `fmt` csv|ndjson. */
     @Streaming
     @GET("data/transcripts/{kind}.{fmt}")
     suspend fun dataTranscriptsFile(
@@ -101,10 +105,6 @@ interface TranscriptApi {
     ): Response<ResponseBody>
 }
 
-/**
- * Everything the viewer asks of a server, as one seam: [RetrofitTranscriptBackend] in the app, a
- * fake in the JVM and Compose tests (no test ever reaches a real transcription or model provider).
- */
 interface TranscriptBackend {
     suspend fun get(mediaId: String): Transcript
     suspend fun batch(ids: List<String>): List<TranscriptSummary>
@@ -114,13 +114,10 @@ interface TranscriptBackend {
     suspend fun turnHistory(mediaId: String, turnId: String): List<TurnHistoryEntry>
     suspend fun retranslate(mediaId: String, turnId: String): TranscriptTurn
     suspend fun retry(mediaId: String): Transcript
-    /** Contract 3: English for the whole transcript; laid on the turns when the paragraphs line up. */
     suspend fun addEnglish(mediaId: String, body: EnglishBody): Transcript =
         throw UnsupportedOperationException("no English here")
     suspend fun transcribeNow(mediaId: String): Transcript
-    /** The file; `srt`/`vtt` take `original` or `english` only. */
     suspend fun download(mediaId: String, format: String, track: CopyTrack): DownloadedFile
-    /** The same file without a timestamp on any turn (`md` and `docx`; 0.0.5). */
     suspend fun download(mediaId: String, format: String, track: CopyTrack, timestamps: Boolean): DownloadedFile =
         download(mediaId, format, track)
     suspend fun ask(mediaId: String, question: String): AskAnswer
@@ -128,12 +125,13 @@ interface TranscriptBackend {
     suspend fun quoteCard(mediaId: String, turnIds: List<String>): QuoteCard
     suspend fun glossary(craftId: String?, q: String?): List<GlossaryTerm>
     suspend fun budget(): BudgetMeter
-    /** ElevenLabs Voice Isolator on new recordings (0.0.5): null when this reader may not see it. */
     suspend fun audioIsolation(): AudioIsolationSetting? = null
     suspend fun setAudioIsolation(on: Boolean): AudioIsolationSetting? = null
-    /** View data (0.0.6): a page of recordings matching [filters]. */
+    suspend fun uploadPolicy(): UploadPolicy = UploadPolicy()
+    suspend fun transcriptionSwitches(): TranscriptionSwitches? = null
+    suspend fun setTranscriptionSwitches(body: TranscriptionSwitchBody): TranscriptionSwitches? = null
+    suspend fun backfill(): BackfillView? = null
     suspend fun dataPage(filters: Map<String, String>, cursor: String?): DataTranscriptPage = DataTranscriptPage()
-    /** Download data (0.0.6): one streamed dataset, written to [sink]; the server's file name, if sent. */
     suspend fun dataFile(kind: String, fmt: String, filters: Map<String, String>, sink: java.io.File): String? =
         throw UnsupportedOperationException("no dataset downloads here")
 }
@@ -164,27 +162,30 @@ class RetrofitTranscriptBackend(private val api: TranscriptApi) : TranscriptBack
     override suspend fun budget() = api.budget()
     override suspend fun audioIsolation() = api.transcriptionSettings().audioIsolation
     override suspend fun setAudioIsolation(on: Boolean) = api.setAudioIsolation(AudioIsolationBody(on)).audioIsolation
+    override suspend fun uploadPolicy() = api.uploadPolicy()
+    override suspend fun transcriptionSwitches() = api.transcriptionSettings().switches()
+    override suspend fun setTranscriptionSwitches(body: TranscriptionSwitchBody) = api.setTranscriptionSwitches(body).switches()
+    override suspend fun backfill() = api.backfill()
     override suspend fun dataPage(filters: Map<String, String>, cursor: String?) = api.dataTranscripts(filters, cursor)
     override suspend fun dataFile(kind: String, fmt: String, filters: Map<String, String>, sink: java.io.File): String? {
         val response = api.dataTranscriptsFile(kind, fmt, filters)
         val body = response.body()
         if (!response.isSuccessful || body == null) throw HttpException(response)
-        // Streamed to disk, never held whole: a dataset can be every turn of every recording.
         body.use { b -> b.byteStream().use { input -> sink.outputStream().use { input.copyTo(it) } } }
         return contentDispositionName(response.headers()["Content-Disposition"])
     }
 }
 
-/** The `{detail: {code, message}}` of a refusal, or null when the body is something else. */
+fun AudioIsolationEnvelope.switches(): TranscriptionSwitches =
+    TranscriptionSwitches(autoTranscribe ?: AutoTranscribeSetting(), backfill ?: BackfillProgress())
+
 fun HttpException.transcriptError(json: Json): TranscriptErrorDetail? = runCatching {
     val body = response()?.errorBody()?.string() ?: return null
     json.decodeFromString(TranscriptError.serializer(), body).detail.takeIf { it.code.isNotBlank() }
 }.getOrNull()
 
-/** A downloaded file: the server's name for it (naming skill), when it sent one, and its bytes. */
 class DownloadedFile(val name: String?, val bytes: ByteArray)
 
-/** The ASCII `filename=` of a Content-Disposition header (the naming convention keeps it ASCII). */
 fun contentDispositionName(header: String?): String? {
     if (header.isNullOrBlank()) return null
     val match = Regex("""filename\s*=\s*"?([^";]+)"?""", RegexOption.IGNORE_CASE).find(header) ?: return null

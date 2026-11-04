@@ -29,14 +29,6 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 
-/**
- * THE HANDSET'S PORT OF THE RECORD COMPLETENESS METER (2026-10-18), against the one shared table.
- *
- * `shared/record-completeness.json` is byte-identical in both portals and read unmodified by the
- * server's `test_record_completeness.py` and the web's `record-completeness-unit.spec.ts`. This proves
- * the Kotlin evaluator gives the same answer on the shared vectors, that the APK's bundled copy is the
- * shared file, that a newer table wins over an older one, and what a missing-field chip does.
- */
 class RecordCompletenessTest {
 
     private fun shared(): File {
@@ -178,7 +170,6 @@ class RecordCompletenessTest {
         assertNull(CompletenessKind.forMode("PROCESS"))
     }
 
-    /** A real Retrofit client whose calls never leave the process: the URL it built is what is tested. */
     private fun wire(): Pair<FieldRepositoryApi, MutableList<HttpUrl>> {
         val sent = mutableListOf<HttpUrl>()
         val client = OkHttpClient.Builder()
@@ -216,8 +207,6 @@ class RecordCompletenessTest {
 
     @Test
     fun `the rules route is one the offline cache keeps`() {
-        // FR Android revalidates the rules through the OkHttp disk cache (ETag), so the path must not
-        // be on the never-cached list.
         assertTrue(OfflineReadCache.isCacheablePath("/api/records/completeness-rules"))
     }
 }

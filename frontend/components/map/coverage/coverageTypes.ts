@@ -1,13 +1,5 @@
-/**
- * The coverage map's wire shapes — `GET /map/coverage` and its sub-routes, exactly as
- * `backend/app/services/coverage.py` builds them. The designer portal reads the same contract (with
- * the two design-workshop counts and the peer block this portal never sends), so field names here
- * are the contract's and are not renamed for taste.
- */
-
 export type CoverageLevel = "STATE" | "DISTRICT";
 
-/** How a unit's outline is drawn: its own polygon, the parent district's, or its state's. */
 export type PolygonSource = "OWN" | "PARENT" | "STATE";
 
 export type CoverageCounts = {
@@ -17,7 +9,6 @@ export type CoverageCounts = {
   products: number;
   tools: number;
   media: number;
-  /** Designer portal only. */
   designWorkshops?: number;
   plannedWorkshops?: number;
 };
@@ -111,10 +102,8 @@ export type UnitRecordsResponse = {
 
 export type UnmatchedResponse = { items: UnmatchedItem[]; total: number };
 
-/** What the choropleth colours by. */
 export type CoverageMetric = "workshops" | "artisans" | "all";
 
-/** The filters the view keeps in the URL. */
 export type CoverageQuery = {
   level: CoverageLevel;
   craftCode: string[];

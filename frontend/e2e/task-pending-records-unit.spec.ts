@@ -1,8 +1,3 @@
-/**
- * The pending-records aside on every task card is read through one batched request per page,
- * not one request per card (`lib/taskPendingRecords.ts`).
- */
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 

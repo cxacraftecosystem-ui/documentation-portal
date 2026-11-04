@@ -53,13 +53,6 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/**
- * "Notifications" — the in-app activity list (C25), kept on this phone so it opens with no signal.
- * The web's /notifications, the same list from the same routes.
- *
- * The alerts switch for Android 13+ is asked for HERE, in context — the one screen where a person
- * is thinking about being told things — and never at launch.
- */
 @Composable
 fun NotificationsScreen(
     api: NotificationApi,
@@ -189,7 +182,6 @@ private fun NotificationRow(item: AppNotificationDto, onOpen: () -> Unit) {
     }
 }
 
-/** "Just now", "5 min ago", "3 h ago", "Yesterday", then the date — the web's `whenWords`. */
 internal fun notificationWhen(createdAt: String, now: Instant = Instant.now()): String {
     val moment = notificationInstant(createdAt) ?: return ""
     val seconds = Duration.between(moment, now).seconds

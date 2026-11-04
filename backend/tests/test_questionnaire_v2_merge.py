@@ -1,5 +1,3 @@
-"""Session merge and artisan merge carry every v2 row (DESIGN 3.7, 3.8; tests 24 and 25)."""
-
 from __future__ import annotations
 
 from qv2_fixtures import connect, needs_db, no_outside_calls, patch_db, record_take, run, seed, session_create, t

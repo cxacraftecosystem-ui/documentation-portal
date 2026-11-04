@@ -13,7 +13,7 @@ in that order, and every secret it needs. Sister documents:
 
 ## 1. The pipeline
 
-**Eleven workflow files, in eight groups that do not talk to each other.** Only the first group is a
+**The workflow files fall into groups that do not talk to each other.** Only the first group is a
 chain; the rest are named here rather than counted, because a count is the one fact a new file
 falsifies silently.
 
@@ -33,8 +33,16 @@ falsifies silently.
    API, database and web build on one runner, seeds one admin and runs the signed-in Playwright
    specs (default: `e2e/scan-session-join.spec.ts`). Gates nothing.
 8. **Code scanning** — `codeql.yml`.
+9. **Google sign-in on devices** — `google-signin-devices.yml`, on a push that touches the sign-in
+   code, or by hand. Drives the Google button in emulated phones and tablets. Gates nothing.
+10. **The README check** — `readme-check.yml` (0.0.10), on any change to `README.md`, a Markdown file
+    under `docs/` or `.claude/skills/`, or the README kit. Rebuilds the kit's SVGs and fails on drift,
+    checks every SVG and image reference, renders every mermaid block in mermaid-cli and the Markdown
+    through `gh api markdown`, and uploads a `readme-preview` artifact with light, dark and
+    reduced-motion screenshots. The rules are in [readme-kit/README_STYLE.md](readme-kit/README_STYLE.md).
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart LR
     PR([pull request]) --> C["<b>checks.yml</b><br/>Checks"]
     P([push to main]) --> C
@@ -63,10 +71,11 @@ under "it runs; it does not gate", for what this still does not cover.
 
 | # | Workflow | File | Trigger | What it does |
 |---|---|---|---|---|
-| 1 | Deploy backend to EC2 | `.github/workflows/deploy-backend.yml` | `push` to `main` | `wait-for-checks` → the pinned CPython (3.14.8, the release CI tests, from a checksummed python-build-standalone build under `/opt/cpython`) on the box if it is missing, and the venv built from `backend/requirements.lock` **beside** the live one (2026-10-09) → rsync → write `.env` → install the project and generate the Prisma client into the new venv → `prisma migrate deploy` → **point `backend/.venv` at the new venv** → restart `fieldrepo` + `fieldrepo-queue` → poll `/health`. [backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §9 has the layout on the box and the rollback. |
+| 1 | Deploy backend to EC2 | `.github/workflows/deploy-backend.yml` | `push` to `main` | `wait-for-checks` → **the release venv built on the runner** (CPython 3.15.2 from a checksummed python-build-standalone build, the lock, the Prisma client generated from this schema, `pip check` and the app's own imports; named after interpreter, lock and schema, so a code-only release ships none, 2026-10-19) → open port 22 for this runner's /32 → the pinned CPython under `/opt/cpython` if the box lacks it → rsync into the **idle** blue/green port's tree → write and pin `.env` (database URL, CORS, origin secret, provider keys, two-step keys, proxy hops) → `backend/deploy/blue_green.sh release`: migrate through `python -m app.prisma_cli` with the live port still serving, start the idle port, wait for `/health`, reload nginx onto it, stop the old port → ask the transcript providers from the box (status codes only) → close port 22. [backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) has the layout and `blue_green.sh rollback`. |
 | 2 | Deploy frontend to Vercel | `.github/workflows/deploy-frontend.yml` | `workflow_run` on **1** completing | gate → `wait-for-checks` (2026-10-09) → `vercel pull` → **refuse any project but `field-repository`** → **assert the pulled env carries what the app needs** (every `NEXT_PUBLIC_*`, `[SENSITIVE]` placeholders included), and *warn* when the project's Node.js Version is not `engines.node` → `vercel build --prod` → print the Node runtime the functions were stamped with → **assert those values actually reached the bundle** → `vercel deploy --prebuilt --prod` → **prove the production domain resolves to the new deployment, and `vercel promote` it when a rollback has turned auto-assignment off** (2026-10-09) → smoke-check the alias → **assert the bundle the CDN serves is the one that was verified**, starting with which deployment it is |
 | 3 | Android build | `.github/workflows/android-build.yml` | `workflow_run` on **2** completing, plus `pull_request` filtered to `android/**` | JDK 25 → `compileDebugKotlin` → `testDebugUnitTest` plus the four core modules' `test` (ParityTest among them, since 2026-10-09) → `lintDebug` (a gate since 2026-10-09) → `assembleDebug` → upload APK. **Debug variants only.** Nothing it produces can install over a release build, and nothing it produces reaches a phone. |
-| 4 | Checks | `.github/workflows/checks.yml` | `pull_request`, `push` to `main`, manual | Three independent jobs: the backend suite, the web typecheck/lint/unit specs, the documentation check. **No `paths:` filter.** See **The checks** below.  |
+| 4 | Checks | `.github/workflows/checks.yml` | `pull_request`, `push` to `main`, manual | Independent jobs; the three that gate a deploy are the backend suite, the web typecheck/lint/unit specs and the documentation check, and the rest are listed under **The checks** below (browser specs, database tests, questionnaire parity, the deploy scripts, the comment stripper). **No `paths:` filter.** |
+| 11 | README check | `.github/workflows/readme-check.yml` | `push` and `pull_request` touching `README.md`, `docs/**/*.md`, `.claude/skills/**` or the kit; manual | Kit assets match `kit.json`, SVG rules and xmllint, image references and budgets, every mermaid block renders, GitHub renders the Markdown; a `readme-preview` artifact. |
 | 5 | Publish Android release | `.github/workflows/publish-android.yml` | `push` of a `v*` **tag**, plus a manual dry run | Builds and **signs** the release APK on the runner, proves the signer against `ANDROID_RELEASE_CERT_SHA256`, uploads it, and `POST`s `/api/app/release` so the in-app updater offers it. See [RELEASING.md](RELEASING.md). |
 | 6 | Keep Supabase active | `.github/workflows/keep-supabase-active.yml` | nightly cron | Pings Postgres so Supabase does not pause the free-tier project. |
 | 7 | Back up the database | `.github/workflows/backup-db.yml` | scheduled | `pg_dump` to S3. |
@@ -144,7 +153,7 @@ next section and, at length, in the header of the workflow itself.
 
 **On a pull request, only rows 3 and 4 are reachable at all** — the deploys fire on `push`/
 `workflow_run`, so nothing in columns 1 and 2 runs before a merge. And row 3 is path-filtered
-(`android-build.yml:31-33`), so a pull request that touches only `backend/` or `frontend/` gets
+(`android-build.yml:8-10`), so a pull request that touches only `backend/` or `frontend/` gets
 exactly one workflow: this one.
 
 ### The three assertions stage 2 makes about the environment
@@ -189,9 +198,22 @@ Three jobs, deliberately independent, so one red does not hide another's answer:
 
 | Job (the name branch protection needs) | Where it runs | What it runs |
 |---|---|---|
-| **Backend tests** | `backend/` | Python 3.14.8, the release the EC2 box runs (`backend/tests/test_interpreter_pin.py` holds the two together) → `pip install -r requirements.lock` → `pip install --no-deps -e .` → `pip check` → `python -m prisma generate` → `python -m pytest -rf --durations=15` |
-| **Web typecheck, lint and unit specs** | `frontend/` | Node 24, read from `engines.node` in `frontend/package.json` → npm 12 (*npm 12 and the install-script policy* below) → `npm ci` → `npx tsc --noEmit` (TypeScript 7) → `npx tsc6 --noEmit` (TypeScript 6, what `next build` runs; *The web app's two TypeScripts* below) → `npm run lint` → `npm run test:unit` |
-| **Docs check** | repository root | Node 24 (the same field) → `node docs/tools/check-docs.mjs` |
+| **Backend tests** | `backend/` | Python 3.15.2, the release the EC2 box runs (`backend/tests/test_interpreter_pin.py` holds the two together) → `pip install -r requirements.lock` → `pip install --no-deps -e .` → `pip check` → `python -m prisma generate` → `python -m pytest -rf --durations=15` |
+| **Web typecheck, lint and unit specs** | `frontend/` | Node 26, read from `engines.node` in `frontend/package.json` → npm 12 (*npm 12 and the install-script policy* below) → `npm ci` → `npx tsc --noEmit` (TypeScript 7) → `npx tsc6 --noEmit` (TypeScript 6, what `next build` runs; *The web app's two TypeScripts* below) → `npm run lint` → `npm run test:unit` |
+| **Docs check** | repository root | Node 26 (the same field) → `node docs/tools/check-docs.mjs` |
+
+The other jobs in the same file run beside those three and are just as red when they fail; they are
+not named in `GATING_JOBS`, so a deploy does not wait on them:
+
+| Job | What it runs |
+|---|---|
+| **Backend database tests** | the suites that need a migrated Postgres, against a service container |
+| **Map coverage view in a browser**, **Questionnaire screens in a browser**, **Transcript viewer in a browser**, **Back to the list in a browser** | Playwright specs for that screen in Chromium |
+| **Web outbox against a real stack** | the web outbox replaying against a real API and database on the runner |
+| **Questionnaire unify backfill** | the questionnaire backfill before and after the U0 migration, then the deferred migrations, on an empty Postgres |
+| **Questionnaire parity (both portals)** | the shared manifests, the schema fragment and `shared/questionnaire-features.json`, checked against a checkout of designer-portal |
+| **Deploy scripts** | shellcheck, `backend/deploy/test_blue_green.sh` (the release logic against stubs) and `scripts/ci/test_backup_freshness.sh` (the backup verdict against fixed clocks) |
+| **Comment stripper** | `scripts/tools/strip_comments.py`: its self-test, a stripped copy that still parses (Python, TypeScript, shell), then `--check`, which fails when any comment is left in code (0.0.10) |
 
 Measured on the tree the workflow landed with (2026-09-14, on a laptop — a runner will differ):
 pytest 1019 passed in 54 s, `tsc` clean, `eslint` clean, 104 unit specs in 8 s, check-docs in about a
@@ -204,7 +226,7 @@ having is that *every* pull request runs it.
 
 **No secrets.** The backend job exports six obviously-fake placeholder values because
 `app.core.config.Settings` refuses to build without `DATABASE_URL`, `JWT_SECRET`, the three `AWS_*`
-values and `MASTER_ADMIN_EMAIL` (`backend/app/core/config.py:78`, `:101`, `:167-171`, `:187`) and
+values and `MASTER_ADMIN_EMAIL` (`backend/app/core/config.py:47`, `:54`, `:80-83`, `:112`) and
 `backend/.env` is gitignored, so on a runner there is nothing else for them to come from. Without
 them a plain `pytest` does not fail a few tests, it fails to **collect**. The DSN names `ci.invalid`
 — a hostname RFC 2606 guarantees can never resolve — and the whole suite passes against it, which is
@@ -242,7 +264,7 @@ defend.** It began at four, and both pairs were fixed and their lines deleted on
 |---|---|
 | `test_public_census.py::test_the_census_is_mounted_at_the_public_path_the_cdn_rule_would_be_scoped_to` | Read `api_router.routes` expecting flattened route objects. Since FastAPI 0.137 that list holds one `_IncludedRouter` per `include_router`, with no `.path`. The tests now ask FastAPI's public `iter_route_contexts`, added in 0.137.2 for exactly this. |
 | `test_public_census.py::test_the_census_asks_for_no_token` | Same cause, same fix; the effective route it finds carries router-level dependencies, which is what the test inspects. |
-| `test_manifest_stream.py::test_the_declared_size_refuses_before_a_byte_moves` | On Python 3.13+ `import pydub` failed (PEP 594 removed `audioop`), so `backend/app/api/routes/data_browser.py:3059` answered 503 before the 413 check. `audioop-lts` is now a dependency (marker `python_version >= '3.13'`), and the job runs 3.14 like production. |
+| `test_manifest_stream.py::test_the_declared_size_refuses_before_a_byte_moves` | On Python 3.13+ `import pydub` failed (PEP 594 removed `audioop`), so `backend/app/api/routes/data_browser.py:2735` answered 503 before the 413 check. `audioop-lts` is now a dependency (marker `python_version >= '3.13'`), and the job runs 3.14 like production. |
 | `test_manifest_stream.py::test_the_real_length_refuses_what_the_column_lied_about` | Same cause, same fix. |
 
 The census pair is worth reading twice, because it was not a code change: **it was a dependency
@@ -282,8 +304,8 @@ one is the thing to argue about in review.
 - **No Android job.** `android-build.yml` already compiles Kotlin and runs `:app:testDebugUnitTest`
   on a pull request, and a second Gradle job would spend five more minutes to learn the same thing.
   **What is missing is two lines in that file, not a job here:** its `pull_request` trigger is
-  filtered to `android/**` (`android-build.yml:31-33`), and the Android suite reads the *web* tree —
-  `android/app/src/test/java/com/fieldrepository/app/ui/WalkthroughStepsTest.kt:293` names
+  filtered to `android/**` (`android-build.yml:8-10`), and the Android suite reads the *web* tree —
+  `android/app/src/test/java/com/fieldrepository/app/ui/WalkthroughStepsTest.kt:222` names
   `frontend/components/guide/steps.ts` and asserts the Kotlin and web walkthroughs declare the same
   steps in the same order; `RecordPickersTest.kt` and `AccessRosterTest.kt` name their own web twins
   the same way. So a frontend-only pull request can break an Android test that nothing will run.
@@ -419,8 +441,7 @@ Since 2026-10-10 the two jobs that install `frontend/` replace setup-node's npm 
 installing anything: `checks.yml`'s web job, and `deploy-frontend.yml`'s deploy job, whose
 `vercel build` runs `frontend/vercel.json`'s `npm ci` with the npm on PATH. The step is
 `npm install --global npm@12`, so every run takes the newest 12.x, the way `check-latest` takes the
-newest 24.x. No Node release bundles npm 12 yet (Node 24 ships npm 11), so the step stays until the
-Node in `engines.node` ships it, and then goes.
+newest 26.x. The step stays until the Node in `engines.node` bundles npm 12, and then goes.
 
 **What npm 12 changes here.** It runs a dependency's install script only when the `allowScripts`
 field of `frontend/package.json` approves that package, and skips every other one with a warning that
@@ -635,8 +656,8 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
   moved CI and the box to Python 3.14 and rebuilt the box's venv from the lock, which retired the
   June-vintage versions production had been running.
 - **The Android tests cannot see the change that breaks them.** `android-build.yml`'s `pull_request`
-  trigger is filtered to `android/**` (`android-build.yml:31-33`), and the Kotlin suite reads the web
-  tree: `WalkthroughStepsTest.kt:293` names `frontend/components/guide/steps.ts` and asserts both
+  trigger is filtered to `android/**` (`android-build.yml:8-10`), and the Kotlin suite reads the web
+  tree: `WalkthroughStepsTest.kt:222` names `frontend/components/guide/steps.ts` and asserts both
   walkthroughs declare the same steps in the same order, and `RecordPickersTest.kt` and
   `AccessRosterTest.kt` name their own web twins. Add `frontend/**` to that filter — a two-line
   change in a file `checks.yml` deliberately does not duplicate.
@@ -716,8 +737,8 @@ it becomes a warning, and **not** in the workflow's licensed list.
 likelihood. **(1) The dependency set.** CI installs exactly `backend/requirements.lock`; a venv built
 any other way holds whatever the index offered when it was built, which is how two
 `test_public_census` tests once went red with no commit behind them. Reinstall from the lock (§4).
-**(2) The interpreter.** CI runs CPython 3.14.8, the exact release the EC2 box runs; an older local
-Python is not supported (`requires-python = ">=3.14"`). **(3) Cross-module pollution.** The job runs
+**(2) The interpreter.** CI runs CPython 3.15.2, the exact release the EC2 box runs. `requires-python`
+says `>=3.14` only so Dependabot's pip scan runs (0.0.8); test on 3.15. **(3) Cross-module pollution.** The job runs
 the whole suite; run the named module by itself before you believe the attribution, and believe the
 verdict either way.
 
@@ -887,6 +908,32 @@ bad `BACKEND_ENV` value and Supabase pooler connection exhaustion — both cover
 Note the path: **`/health`, not `/api/health`.** The health routes are declared on the app rather
 than on the API router, so they sit outside the `/api` prefix and `/api/health` 404s. Any monitor
 pointed at the `/api` form is measuring a 404, not the service.
+
+---
+
+## 7. Invariants the workflow files used to explain in comments
+
+The workflows carry no comments since 0.0.10. These are the reasons that were written in them and
+that a change must not undo. Each names the file it governs.
+
+| Rule | Why | File |
+|---|---|---|
+| Editing `deploy-backend.yml` redeploys the backend | `changes` counts the workflow itself as a backend change, so even a cosmetic edit restarts the API. Batch cosmetic edits with a real backend change. | `deploy-backend.yml` |
+| No `paths:` filter on the deploy chain | `workflow_run` fires only when the upstream workflow runs; a paths filter would leave a frontend-only push with no backend run and so no frontend deploy. The `changes` job filters instead, and a skipped `deploy` still ends the run green. | `deploy-backend.yml` |
+| `cancel-in-progress` is off for the deploy | Overlapping runs queue. Cancelling mid-release can land in the one fallback that stops the live API; queueing is slow and safe. | `deploy-backend.yml` |
+| "Deployed" means the `deploy` **job** concluded `success` | A run whose `deploy` was skipped still concludes `success`. Using it as the baseline would put the baseline on a commit the box never saw. The current run is excluded by id, so a re-run cannot diff against itself. | `deploy-backend.yml`, `changes` |
+| The push range and the last-deployed range are **unioned**, never substituted | Adding files can only turn an area from false to true, so the union can never skip a deploy. A baseline missing from the checkout (a force-push, history rewritten) means "deploy". | `deploy-backend.yml`, `changes` |
+| Herestrings, not pipes, into `grep -q` | `grep -q` exits at its first match; the writer then dies of SIGPIPE, `pipefail` makes the pipeline fail, and an area that changed reads as unchanged. The sister repository fixed the same line. | `deploy-backend.yml`, `deploy-frontend.yml` |
+| `checks.yml` is looked up by file name | A display-name lookup breaks silently the day somebody renames the workflow: an empty answer looks like "not started yet". | both `wait-for-checks` |
+| `actions: read` is required | Without it the run and job lookups get a 404 that looks exactly like "nothing has run yet": the wait sits out its budget and fails. | both deploy workflows |
+| Secrets travel on ssh's stdin, never as arguments | An argument is visible in `ps` on the box and lands in the runner's shell history. A `bash -s` heredoc already owns stdin, so a secret goes first to a mode-600 file the script deletes, even on failure. | `deploy-backend.yml` |
+| `DATABASE_URL`, CORS, the mail sender and the sign-in ids are pinned authoritatively | `BACKEND_ENV` is a write-only secret that can only be replaced whole. The first deploy after the 13 Sep 2026 database move would have restored the old Tokyo DSN with every check green. The pin deletes the inherited line and writes the one source of truth, which is also what `backup-db.yml` dumps. | `deploy-backend.yml` |
+| `TRUSTED_PROXY_HOPS=2` only when the origin lock holds | With two hops the rate limits key on the viewer CloudFront saw, which is safe only if nobody can reach nginx directly. The runner tries ports 80 and 443 on the box itself; anything but refused, timed out or 403 pins 1 and warns. | `deploy-backend.yml` |
+| No two-step key that was in use may go missing | The current key comes from the Actions secret, else `BACKEND_ENV`, else the box's old `.env`; every other key seen is carried into the previous-keys list. A key id seen with two different keys fails the deploy, and a dry run of `scripts.reencrypt_two_factor_secrets` after the switch fails it if any secret cannot be opened. | `deploy-backend.yml` |
+| `AADHAAR_FINGERPRINT_KEY` must equal the box's | Every stored fingerprint, and duplicate matching with the designer portal, depends on it. A different non-empty secret fails the deploy; an empty one keeps the box's key. | `deploy-backend.yml` |
+| A release venv is never moved | pip writes its absolute path into every script's shebang, and the Prisma generator runs one. The venv is built at its final path and reached through the `.venv` symlink. | `deploy-backend.yml`, `blue_green.sh` |
+| Port 22 closes whatever happened | The close step is `if: always()`; a /32 left open would belong to whoever gets that runner address next. | `deploy-backend.yml` |
+| ElevenLabs is asked from the box, never from CI | Each portal's key is IP-locked to its own server. The deploy runs curl over ssh with the key in a header file and prints status codes only. | `deploy-backend.yml` |
 
 ---
 

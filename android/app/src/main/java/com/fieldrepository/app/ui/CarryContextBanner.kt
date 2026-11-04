@@ -31,30 +31,6 @@ import com.fieldrepository.app.data.CarryContext
 import com.fieldrepository.app.data.CarryContextStore
 import com.fieldrepository.app.data.CarryNode
 
-/**
- * "Continuing with Giriraj Prasad Chhipa · Bagru Block Printing" — the visible half of
- * [CarryContextStore].
- *
- * THE RULE THIS EXISTS TO ENFORCE: a prefill the researcher does not notice is how a product ends
- * up attached to the wrong artisan, and in a research corpus that is a falsified row, not an
- * inconvenience. So a carried context is never quietly poured into the fields. Whenever something
- * was prefilled, this sits at the top of the form naming EVERY record it brought — each one labelled
- * by what it is — where they came from and how old they are, with one control that clears the lot.
- *
- * Naming every record is what makes the ladder in [CarryContextStore] safe to have. The bag implies
- * parents: pick up a product and its artisan and craft come with it. An implication nobody can see
- * is indistinguishable from a guess, so the chain is printed in full and the provenance line says
- * out loud which record was chosen and which ones tagged along.
- *
- * That is also why there is no "dismiss" that keeps the values. Hiding the banner while leaving the
- * fields filled would recreate the exact hazard it was put there to remove. It goes away on one
- * event only — the researcher picking a record themselves, at which point the values are their
- * choice rather than our guess.
- *
- * Word-for-word parity with the web's `components/forms/CarryContextBanner.tsx`.
- */
-
-/** Where an offer came from: a tap straight off the save screen, or a form opened cold. */
 enum class CarryOfferSource { HANDOFF, RESUMED }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -62,23 +38,18 @@ enum class CarryOfferSource { HANDOFF, RESUMED }
 fun CarryContextBanner(
     context: CarryContext,
     source: CarryOfferSource,
-    /** Epoch ms the context was recorded; "now" for a handoff. */
     savedAt: Long,
     onChange: () -> Unit,
     modifier: Modifier = Modifier,
-    /** The record the context was last built around — what the provenance sentence is about. */
     origin: CarryNode? = null,
     changeLabel: String = "Change"
 ) {
-    // The headline names the subject the researcher thinks in — the person — and falls back down
-    // the ladder only when there is no artisan to name.
     val headline = context.artisanName ?: context.productName ?: context.toolName ?: context.craftName ?: "the last record"
     val chain = remember(context) { CarryContextStore.describeCarryChain(context) }
     val implied = remember(context, origin) { CarryContextStore.describeCarryImplied(context, origin) }
     val originLabel = origin?.label ?: "record"
     val provenance = when (source) {
         CarryOfferSource.HANDOFF -> "Carried from the $originLabel you just saved."
-        // Recomputed per composition on purpose: the phrase ages while the form is open.
         CarryOfferSource.RESUMED -> "From the $originLabel you documented ${CarryContextStore.describeCarryAge(savedAt)}."
     }
 

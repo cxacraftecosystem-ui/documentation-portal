@@ -1,11 +1,5 @@
 import SHARED from "./strings.json";
 
-/**
- * The viewer's words. `strings.json` is a byte-identical copy of `shared/strings/transcript.json`
- * (the backend stream's file; Android copies the same keys), held equal by
- * `e2e/transcript-contract-unit.spec.ts`. `WEB` holds the few words only a web page needs (a menu
- * button's spoken name, a reload, a disclosure); a key here never shadows a shared one.
- */
 const WEB = {
   transcript: "Transcript",
   tabsLabel: "Transcript view",

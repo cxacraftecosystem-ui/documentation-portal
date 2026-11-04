@@ -107,34 +107,16 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 
-/** A pending Record request, held while P2 or P3 is on screen. */
 private data class RecordRequest(val target: QTargetRef?, val label: String, val code: String, val pickedFile: PickedFile? = null)
 
 private data class PickedFile(val path: String, val sha256: String, val size: Long, val mime: String, val ext: String, val metadataTime: Instant?, val durationMs: Long)
 
-/** P8 waiting for the researcher: the answer to save, once they confirm the recorded one is replaced. */
 private data class PendingAnswer(val question: InstrumentQuestion, val text: String, val forIds: Set<String>, val replacing: String, val note: String?, val richText: String?)
 
-/** A tray Discard waiting for its confirmation. */
 private data class PendingDiscard(val row: TrayRow)
 
-/** History (B21) of one answer: its id and what the dialog's title names. */
 private data class HistoryOf(val answerId: String, val heading: String)
 
-/**
- * The session workspace (DESIGN §4.3): header, section strip, coverage grid, the open section with
- * a Record control per question, the recorder, the take sheet and the fix tray. Works offline from
- * the session outbox and the coverage snapshot; online it adds the server's session and its takes.
- *
- * The designer portal's additions (UNIFY §1): guests who are not artisans (U6, A17, A18) sit in the
- * roster like anyone else; answers carry a note (A20), read locked when someone else wrote them (U9,
- * P15) and open their History (B21); Finish reports the required questions left (A19); the grid marks
- * ● recorded and ✎ typed and shows the admin overrides (D1, D4); Add researcher (B6), the read view
- * (B27) and a take's History (B40) are in the menus; a delete is soft and content admins restore it.
- *
- * EVERY OUTBOX CALL GOES THROUGH [withUnit] (audit C2, 21 Oct 2026): a unit that is missing is put
- * back from the copy this screen holds, and any other failure is said, never a crash.
- */
 @Composable
 fun SessionWorkspace(
     v2: QuestionnaireV2,
@@ -143,11 +125,9 @@ fun SessionWorkspace(
     artisans: List<QArtisanOption>,
     meId: String?,
     canMakePrimary: Boolean = false,
-    /** A content admin: changes an answer someone else wrote (U9). */
     isAdmin: Boolean = false,
     onBack: () -> Unit,
     onOpenSession: (QSession) -> Unit = {},
-    /** The read view and review (B27) of the session once it is on the server. */
     onOpenReadView: (sessionId: String) -> Unit = {},
     onError: (String) -> Unit
 ) {
@@ -191,7 +171,6 @@ fun SessionWorkspace(
     var discard by remember { mutableStateOf<PendingDiscard?>(null) }
     var historyOf by remember { mutableStateOf<HistoryOf?>(null) }
     var takeHistory by remember { mutableStateOf<String?>(null) }
-    // The session's removed takes, from the server ("Show removed", B40) and from this visit.
     val removed = remember { mutableStateListOf<QRecording>() }
     val lastAnswered = remember { mutableStateMapOf<String, Set<String>>() }
     val recorderState by RecordingService.state.collectAsState()
@@ -219,11 +198,6 @@ fun SessionWorkspace(
         overlay = CoverageCache.overlayFrom(v2.outbox.units(), qid)
     }
 
-    /**
-     * Runs an outbox change for this session (audit C2). A unit that is gone is put back from the
-     * copy this screen holds ([SessionOutbox.reopen]) and the change runs again; anything else is
-     * said in plain words instead of ending the app. Then the next sync is asked for.
-     */
     fun withUnit(work: suspend (key: String) -> Unit) {
         scope.launch {
             val ok = try {
@@ -242,7 +216,6 @@ fun SessionWorkspace(
         }
     }
 
-    /** An online-only change: a signal is needed, a refusal is said in the server's words. */
     fun online(work: suspend () -> Unit) {
         scope.launch {
             runCatching { work() }.onFailure { onError(it.userSentence()) }
@@ -259,7 +232,6 @@ fun SessionWorkspace(
     LaunchedEffect(recorderState) {
         val state = recorderState
         if (state is RecordingService.State.Finished && state.draft.sessionKey == clientKey) {
-            // Never silent (audit M23 and C2): a recorder that could not start, a take that could not queue.
             when (state.reason) {
                 RecordingService.REASON_START_FAILED -> { onError(QuestionnaireCopy.s("error.recorderStart")); RecordingService.clearFinished() }
                 RecordingService.REASON_QUEUE_FAILED -> { onError(QuestionnaireCopy.s("error.queueTake")); RecordingService.clearFinished() }
@@ -267,12 +239,10 @@ fun SessionWorkspace(
         }
         if (state is RecordingService.State.Finished) { delay(600); reload() }
     }
-    // Leaving the workspace (Back, dispose) finalises a running take; it is never dropped.
     DisposableEffect(clientKey) {
         onDispose {
             val s = RecordingService.state.value
             if (s is RecordingService.State.Recording && s.draft.sessionKey == clientKey) RecordingService.stop(context, "leave")
-            // A group take waits for its "Answered by" chips before it uploads; leaving sends it as it is.
             v2.requestSync()
         }
     }
@@ -280,7 +250,6 @@ fun SessionWorkspace(
     val frozen = remember(unit) {
         unit?.steps?.firstOrNull { it.kind == StepKind.SESSION }?.bodyJson?.let { runCatching { outboxJson.decodeFromString(QSessionCreate.serializer(), it) }.getOrNull() }
     }
-    // Guests typed on this phone (local or landed) and the server's: subject id -> name.
     val guestNames: Map<String, String> = remember(unit, detail) {
         unit?.let { v2.outbox.guestsOf(it) }.orEmpty().toMap() +
             detail?.respondents.orEmpty().filter { it.artisanId == null }.associate { it.subjectId to it.name }
@@ -311,7 +280,6 @@ fun SessionWorkspace(
     val serverGrid: QGrid? = remember(detail) {
         detail?.grid?.let { runCatching { QuestionnairePortal.json.decodeFromJsonElement(QGrid.serializer(), it) }.getOrNull() }
     }
-    // U9: a session LEAD or an admin changes any answer; everyone else only their own.
     val leadOrAdmin = isAdmin || detail?.researchers.orEmpty().any { it.userId == meId && it.role == "LEAD" }
     val title = detail?.title?.ifBlank { null } ?: frozen?.let { f ->
         Naming.sessionTitle(Naming.SessionFields(
@@ -323,7 +291,6 @@ fun SessionWorkspace(
     val joinQr = detail?.joinQr ?: unit?.let { u ->
         frozen?.let { f -> JoinQr.encode(JoinQrPayload(clientKey = u.clientKey, questionnaireId = u.questionnaireId, workshopId = u.workshopId, sessionDate = f.sessionDate, participants = QSubjects.artisans(participantIds))) }
     }
-    // Uploading means queued and not refused; a refused take waits in the tray (audit H20).
     val pendingCount = unit?.uploadingClips?.size ?: 0
     val trayRows = unit?.let { u -> OutboxTrayModel.rows(u, participantName) { lineage -> instrument?.question(lineage)?.displayCode ?: lineage } }.orEmpty()
     val serverSessionId = unit?.sessionId ?: detail?.id
@@ -334,7 +301,6 @@ fun SessionWorkspace(
         val key = SessionOutbox.newKey()
         val picked = req.pickedFile
         if (picked != null) {
-            // A picked file: its metadata time, else the session date at 12:00 IST (§3.9).
             val sessionNoon = (frozen?.sessionDate ?: detail?.sessionDate)?.let { runCatching { LocalDate.parse(it.take(10)).atTime(12, 0).atZone(Naming.IST).toInstant() }.getOrNull() }
             val draft = RecordingDraft(
                 clientClipKey = key, sessionKey = u.clientKey, questionnaireId = u.questionnaireId, adtsPath = picked.path,
@@ -359,13 +325,11 @@ fun SessionWorkspace(
                 capturedAtSource = ClientClock.captureSource(), targets = listOfNotNull(req.target), subjects = subjects,
                 label = req.label, continuationOfId = continuationOf, replacesRecordingId = replaces, ackedRecordingIds = acked
             )
-            // Written BEFORE the recorder starts, so a kill mid-take still knows what it was (§6.1.2).
             RecordingDrafts.write(v2.filesDir, draft)
             RecordingService.start(context, draft)
         }
     }
 
-    /** P5 names the session that already holds the file (audit M23: it named this one, today). */
     suspend fun p5Body(identicalSessionId: String?, sha: String?): String {
         val elsewhere = identicalSessionId?.let { id -> runCatching { v2.api.sessionSummary(id) }.getOrNull() }
         if (elsewhere != null) {
@@ -373,7 +337,6 @@ fun SessionWorkspace(
             val day = elsewhere.sessionDate?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() } ?: LocalDate.now(Naming.IST)
             return QuestionnaireCopy.p5Body(QuestionnaireCopy.firstName(name), day)
         }
-        // On this phone: the queued session the identical file waits in.
         val owner = sha?.let { s -> v2.outbox.units().firstOrNull { un -> un.steps.any { it.clip?.contentSha256 == s } } }
         val body = owner?.steps?.firstOrNull { it.kind == StepKind.SESSION }?.bodyJson?.let { runCatching { outboxJson.decodeFromString(QSessionCreate.serializer(), it) }.getOrNull() }
         val name = body?.participants?.firstOrNull()?.artisanId?.let { names[owner?.resolve(it) ?: it] ?: names[it] } ?: roster.firstOrNull()?.name.orEmpty()
@@ -385,7 +348,6 @@ fun SessionWorkspace(
         val running = RecordingService.state.value
         if (running is RecordingService.State.Recording && req.pickedFile == null) { p3 = req; return }
         val u = unit ?: return
-        // P2 asks about artisans' earlier takes; a guest has no history to ask about.
         val ids = QSubjects.artisans(roster.map { it.artisanId })
         if (req.target == null || ids.isEmpty()) { startRecording(req, emptyMap(), emptyList()); return }
         scope.launch {
@@ -400,7 +362,6 @@ fun SessionWorkspace(
                     labels = instrument?.labels.orEmpty()
                 )
             )
-            // P5: the identical file is already uploaded (or queued), so nothing is sent.
             val identical = response.identical
             val queuedHere = req.pickedFile != null && v2.outbox.units().any { un -> un.pendingClips.any { it.clip?.contentSha256 == req.pickedFile.sha256 } }
             if (identical != null || queuedHere) {
@@ -416,7 +377,6 @@ fun SessionWorkspace(
         }
     }
 
-    /** H19: save an answer with the version it replaces; P8 first when that answer came from a recording. */
     fun saveAnswer(question: InstrumentQuestion, text: String, forIds: Set<String>, note: String?, richText: String?, confirmed: Boolean = false) {
         if (!confirmed) {
             AnswerModel.replacesRecordedAnswer(answers, forIds, question.lineageId)?.let { current ->
@@ -458,7 +418,6 @@ fun SessionWorkspace(
                         DropdownMenuItem(text = { Text(QuestionnaireCopy.s("session.continue")) }, onClick = { menu = false; continuing = true })
                     }
                     if (!locked && participantIds.size > 1) DropdownMenuItem(text = { Text(QuestionnaireCopy.s("session.removeArtisan")) }, onClick = { menu = false; removingArtisan = true })
-                    // Merging and deleting a session are content admins' acts (owner, 2026-10-21).
                     if (mayDelete && serverSessionId != null) {
                         DropdownMenuItem(text = { Text(QuestionnaireCopy.s("session.merge")) }, onClick = { menu = false; merging = true })
                         DropdownMenuItem(text = { Text(QuestionnaireCopy.s("session.delete")) }, onClick = { menu = false; deleting = true })
@@ -471,7 +430,6 @@ fun SessionWorkspace(
             participants = headerParticipants, locked = locked,
             onTogglePresent = { id, isPresent ->
                 present[id] = isPresent
-                // Present and Away are the artisans' (`leftAt`); a guest's chip only leaves the roster here.
                 if (!QSubjects.isGuest(id)) withUnit { key -> v2.outbox.addParticipantChange(key, ParticipantChange(id, if (isPresent) ParticipantChange.JOIN else ParticipantChange.LEAVE, Instant.now().toString())) }
             },
             onAddArtisan = { addingArtisan = true },
@@ -486,7 +444,6 @@ fun SessionWorkspace(
             onDiscard = { row -> discard = PendingDiscard(row) },
             onKeepTheirs = { row -> row.conflict?.let { c -> withUnit { key -> v2.outbox.resolveConflict(key, row.stepId, c.artisanId, c.questionLineageId, keepMine = false) } } },
             onKeepMine = { row -> row.conflict?.let { c -> withUnit { key -> v2.outbox.resolveConflict(key, row.stepId, c.artisanId, c.questionLineageId, keepMine = true) } } },
-            // DR audit H4: the answers that landed stay landed; only the refused ones are let go.
             onSendWithoutConflicts = { stepId -> withUnit { key -> v2.outbox.dropConflicts(key, stepId) } }
         )
         (recorderState as? RecordingService.State.Recording)?.takeIf { it.draft.sessionKey == clientKey }?.let { RecorderControl(it) }
@@ -495,7 +452,6 @@ fun SessionWorkspace(
             AnsweredByChips(roster, lastAnswered[sectionKey].orEmpty()) { chosen ->
                 lastAnswered[sectionKey] = chosen
                 scope.launch {
-                    // Saved whatever stage the take is at: its draft, the outbox, or refiled online.
                     if (v2.setAnsweredBy(clientKey, done.draft.clientClipKey, chosen) == QuestionnaireV2.AnsweredOutcome.FAILED) onError(QuestionnaireCopy.s("upload.waiting"))
                     RecordingService.clearFinished()
                     v2.requestSync()
@@ -548,8 +504,6 @@ fun SessionWorkspace(
         }
     }
 
-    // ── Sheets and prompts ──────────────────────────────────────────────────────────────────
-
     p2?.let { (req, model) ->
         AlreadyRecordedSheet(model, onDismiss = { p2 = null; req.pickedFile?.let { File(it.path).delete() } }) { choice ->
             p2 = null
@@ -559,9 +513,6 @@ fun SessionWorkspace(
                     startRecording(req, reasons, model.ackedRecordingIds)
                 }
                 P2Choice.PartTwo -> startRecording(req, emptyMap(), model.ackedRecordingIds, continuationOf = model.latestRecordingId)
-                // P7 first when the earlier take will be removed (audit M23: not wired). Removing a take
-                // is a content admin's act: for anyone else the server keeps both and marks the new
-                // one as the redo, so there is nothing to confirm.
                 P2Choice.Replace -> {
                     if (replaceRemovesEarlier(mayDelete)) {
                         p7 = req to model
@@ -648,7 +599,6 @@ fun SessionWorkspace(
         TakeSheet(
             heading = listOfNotNull("Section ${section?.code.orEmpty()}", artisanId?.let { QuestionnaireCopy.firstName(participantName(it)) }).joinToString(" · "),
             takes = rows, locked = locked, playing = playing,
-            // A typed-only cell asks gently for a recording (owner, amendment 2 point 4); it never blocks.
             note = if (rows.none { !it.removed } && (missing ?: 0) > 0) QuestionnaireCopy.s("mark.addRecording") else null,
             onPlay = { row ->
                 scope.launch {
@@ -734,9 +684,6 @@ fun SessionWorkspace(
     transcriptOf?.let { row ->
         val mediaId = row.mediaFileId ?: return@let
         TranscriptDialog(mediaId, audio = null, onDismiss = { transcriptOf = null }, acceptDraft = { draft, text ->
-            // A drafted answer goes in like an accepted proposal: through the outbox, as the
-            // recording's, for the artisans on the take (the server already skipped locked and
-            // recording-preferred questions).
             val rec = detail?.recordings?.firstOrNull { it.id == row.recordingId }
             val onTake = rec?.allSubjects?.map { it.artisanId }?.filter { id -> roster.any { it.artisanId == id } }.orEmpty().toSet()
             val ids = onTake.ifEmpty { roster.map { it.artisanId }.toSet() }
@@ -786,7 +733,6 @@ fun SessionWorkspace(
         val respondent = detail?.respondents?.firstOrNull { it.subjectId == subjectId }
         var mode by remember(subjectId) { mutableStateOf("menu") }
         when {
-            // A guest still only on this phone is edited once it has reached the server (A17 is online).
             respondent == null -> LaunchedEffect(subjectId) { editingGuest = null; onError(QuestionnaireCopy.s("error.needsSignal")) }
             mode == "edit" -> GuestDialog(
                 title = QuestionnaireCopy.s("guest.edit"), initialName = respondent.name, initialNotes = respondent.notes.orEmpty(),
@@ -794,7 +740,6 @@ fun SessionWorkspace(
             ) { name, notes ->
                 editingGuest = null
                 val sid = serverSessionId
-                // A17: an empty name retracts it ("Respondent"); empty notes clear them.
                 if (sid != null) online { v2.api.patchRespondent(sid, respondent.id, QRespondentPatch(name = name.trim(), notes = notes.trim())) }
             }
             mode == "register" -> RegisterGuestDialog(respondent.name, artisans, onDismiss = { editingGuest = null }) { artisanId ->
@@ -876,7 +821,6 @@ fun SessionWorkspace(
         }
     }
     if (deleting && serverSessionId != null) {
-        // A soft delete, content admins only (owner decision 3): restorable from Deleted, recordings and all.
         QuestionnairePrompt(
             title = QuestionnaireCopy.s("session.deleteTitle"),
             body = QuestionnaireCopy.s("session.softDeleteBody"),
@@ -910,7 +854,6 @@ fun SessionWorkspace(
                     discard = null
                     val c = row.conflict
                     withUnit { key ->
-                        // One conflicted answer goes alone; anything else is the whole step.
                         if (c != null) v2.outbox.resolveConflict(key, row.stepId, c.artisanId, c.questionLineageId, keepMine = false)
                         else v2.outbox.discardStep(key, row.stepId)
                     }
@@ -927,7 +870,6 @@ fun SessionWorkspace(
     }
     if (finishing) {
         val sections = known.filter { it.sessionId == unit?.sessionId || it.sessionId == clientKey }.map { it.targetKey }.distinct().count { it.startsWith("S:") }
-        // A19: the required questions nobody here has answered yet. Said, never blocking.
         val required = instrument?.requiredUnanswered(participantIds) { subject, lineage -> (subject to lineage) in typed || known.any { it.artisanId == subject && it.targetKey == "Q:$lineage" } } ?: 0
         FinishSessionPrompt(sections, participantIds.size, pendingCount, required = required, onDismiss = { finishing = false }) {
             finishing = false
@@ -939,11 +881,6 @@ fun SessionWorkspace(
     }
 }
 
-/**
- * P10 (audit §1, "remove participant" was missing): before the session reaches the server, the
- * frozen create loses the artisan; after, `DELETE …/participants/{id}`, detaching their takes when
- * P10 was confirmed.
- */
 private fun removeParticipant(
     v2: QuestionnaireV2, clientKey: String, sessionId: String?, artisanId: String, detach: Boolean,
     withUnit: (suspend (String) -> Unit) -> Unit, online: (suspend () -> Unit) -> Unit
@@ -955,15 +892,10 @@ private fun removeParticipant(
     online { v2.api.removeParticipant(sessionId, artisanId, detach = if (detach) true else null) }
 }
 
-/** The contract code of a refusal, when it sent one. */
 private fun retrofit2.HttpException.errorCode(): String? = runCatching {
     QuestionnairePortal.json.decodeFromString(QErrorBody.serializer(), response()?.errorBody()?.string().orEmpty()).detail?.code
 }.getOrNull()
 
-/**
- * The fix tray (audit H20): everything this phone could not send, with Send again and Discard, and
- * P9 (Keep theirs · Keep mine) for an answer changed on another device.
- */
 @Composable
 internal fun OutboxTray(
     rows: List<TrayRow>,
@@ -995,7 +927,6 @@ internal fun OutboxTray(
                 }
                 HorizontalDivider(color = MaterialTheme.field.hairline)
             }
-            // One choice per refused answers step: send what can go and let the conflicting ones go.
             OutboxTrayModel.conflictSteps(rows).forEach { stepId ->
                 PromptButtons(listOf(PromptButton(QuestionnaireCopy.s("tray.sendWithout")) { onSendWithoutConflicts(stepId) }))
             }
@@ -1014,19 +945,15 @@ internal fun QuestionBlock(
     typeAnswers: Boolean,
     answerLines: List<AnswerLine>,
     currentText: (Set<String>) -> String,
-    /** P15's line when the chosen subjects' answer is someone else's (U9); null when it is editable. */
     lockedFor: (Set<String>) -> String?,
     nameOf: (String) -> String,
     onRecord: () -> Unit,
     onOpenTakes: () -> Unit,
     onSaveAnswer: (text: String, forArtisanIds: Set<String>, note: String?, richText: String?) -> Unit,
     onHistory: (AnswerLine) -> Unit,
-    /** B24: fill from the artisans' profiles (a question mapped to an artisan field). */
     onPrefill: (Set<String>) -> Unit = {}
 ) {
     var answerFor by remember(question.lineageId) { mutableStateOf(ALL_ARTISANS) }
-    // The box opens on the answer it would replace (audit H19: a saved answer used to vanish).
-    // The box holds the portal's stored form (rich when formatted); the plain words are read off it.
     var answer by remember(question.lineageId, answerFor) { mutableStateOf(currentText(answerForIds(roster, answerFor))) }
     var note by remember(question.lineageId, answerFor) { mutableStateOf("") }
     var noting by remember(question.lineageId) { mutableStateOf(false) }
@@ -1064,10 +991,8 @@ internal fun QuestionBlock(
             val ids = answerForIds(roster, answerFor)
             val lockedLine = lockedFor(ids)
             if (lockedLine != null) {
-                // P15: read-only to this researcher; the author, a lead or an admin changes it.
                 Text(lockedLine, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
             } else {
-                // C8: the portal's rich answer box, stored in its text format.
                 QuestionnairePortal.AnswerField(label = null, value = answer, onValueChange = { answer = it }, modifier = Modifier.fillMaxWidth())
                 if (noting) OutlinedTextField(
                     value = note, onValueChange = { note = it.take(2000) },
@@ -1084,7 +1009,6 @@ internal fun QuestionBlock(
 
 private const val ALL_ARTISANS = "*"
 
-/** "All N" first, then each person by name. */
 internal fun answerForOptions(roster: List<HeaderParticipant>): List<SelectOption> =
     listOf(SelectOption(ALL_ARTISANS, QuestionnaireCopy.t("answerForAll", "count" to roster.size))) +
         roster.map { SelectOption(it.artisanId, it.name) }
@@ -1106,7 +1030,6 @@ private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, 
     return TakeRow(
         t.recordingId, t.position, first, second,
         rec?.let { TranscriptStatus.line(it, paused) }, local = false,
-        // Removing a take is a delete: content admins only (owner's ruling, 2026-10-20).
         removable = mayRemove,
         targetKey = t.targetKey,
         chips = rec?.chips,
@@ -1116,7 +1039,6 @@ private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, 
     )
 }
 
-/** Copy a picked file into private storage, hashing it on the way (§6.1.4). */
 private fun copyPicked(context: Context, uri: Uri, target: File): PickedFile {
     val mime = context.contentResolver.getType(uri) ?: "audio/mp4"
     val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "m4a"
@@ -1147,7 +1069,6 @@ private fun copyPicked(context: Context, uri: Uri, target: File): PickedFile {
     return PickedFile(file.absolutePath, digest.digest().joinToString("") { "%02x".format(it) }, size, mime, ext, metadata, duration)
 }
 
-/** `20260701T125400.000Z` (the form MediaMetadataRetriever reports). */
 internal fun parseMetadataDate(raw: String): Instant? = runCatching {
     val d = raw.trim()
     val date = LocalDate.of(d.substring(0, 4).toInt(), d.substring(4, 6).toInt(), d.substring(6, 8).toInt())
@@ -1156,7 +1077,6 @@ internal fun parseMetadataDate(raw: String): Instant? = runCatching {
     date.atTime(time).toInstant(ZoneOffset.UTC)
 }.getOrNull()
 
-/** A prompt whose body is a control rather than a sentence. */
 @Composable
 fun QuestionnairePromptContent(title: String, onDismiss: () -> Unit, content: @Composable () -> Unit, buttons: List<PromptButton>) {
     androidx.compose.material3.AlertDialog(

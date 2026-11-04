@@ -108,19 +108,11 @@ import kotlinx.coroutines.launch
 
 enum class TranscriptTab { ORIGINAL, ENGLISH, SIDE_BY_SIDE }
 
-/**
- * What the viewer asks of whoever mounts it. [TranscriptScreen] implements it over the repository,
- * the clipboard and the share sheet; the Compose tests over plain lists. Every member has a quiet
- * default so a test overrides only what it watches.
- */
 open class TranscriptHost {
-    /** Puts [text] on the clipboard; the viewer then says "Copied". */
     open fun copy(text: String) {}
     open fun download(format: String, track: CopyTrack) {}
-    /** The same, without a timestamp on any turn (`md` and `docx`; 0.0.5). */
     open fun download(format: String, track: CopyTrack, timestamps: Boolean) = download(format, track)
     open fun statusAction() {}
-    /** Contract 3: the whole transcript's English, typed or pasted. Null when saved, else the sentence to show. */
     open suspend fun addEnglish(text: String): String? = null
     open fun editTurn(turn: TranscriptTurn, text: String?, english: String?) {}
     open fun retranslate(turn: TranscriptTurn) {}
@@ -129,7 +121,6 @@ open class TranscriptHost {
     open suspend fun history(turn: TranscriptTurn): List<TurnHistoryEntry> = emptyList()
     open suspend fun ask(question: String): AskAnswer = AskAnswer()
     open suspend fun autodraft(): AutoDraftResult = AutoDraftResult()
-    /** Accept (or accept edited) one drafted answer into the questionnaire; null when this mount has none. */
     open val acceptDraft: ((AutoDraft, String) -> Unit)? = null
     open suspend fun glossary(): List<GlossaryTerm> = emptyList()
     open suspend fun quoteCard(turnIds: List<String>): QuoteCard = QuoteCard()
@@ -138,15 +129,6 @@ open class TranscriptHost {
 
 private enum class Sheet { NONE, SPEAKERS, ASK, FILL, GLOSSARY }
 
-/**
- * THE TRANSCRIPT VIEWER (DESIGN §3, §4, §10), the same on both portals.
- *
- * Header with badges and the status's one action; tabs Original · English · Side by side (stacked
- * pairs on a phone, two columns from 600 dp); per turn the speaker, a timestamp that plays from
- * there, the copy menu and the edit menu; Copy all, Select turns → Copy selected, downloads through
- * the share sheet; karaoke while the audio plays. Every sheet the turns open lives in
- * `TranscriptSheets.kt`.
- */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TranscriptViewer(
@@ -157,9 +139,7 @@ fun TranscriptViewer(
     offline: Boolean = false,
     waitingEdits: Int = 0,
     failures: List<String> = emptyList(),
-    /** The mount's own chips for the recording (a take's RecordingChips), drawn under the badges. */
     headerExtra: (@Composable () -> Unit)? = null,
-    /** Voice Isolator (0.0.5): the recording as made is playing instead of the cleaned copy. */
     playingOriginal: Boolean = false,
     onPlayOriginal: ((Boolean) -> Unit)? = null,
 ) {
@@ -176,11 +156,8 @@ fun TranscriptViewer(
     val marks = rememberTimelineMarks(view.mediaId)
     var sampleKey by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
-    // Reading mode (0.0.6): one long transcript, no timestamps, a speaker's run one paragraph.
     var reading by rememberSaveable { mutableStateOf(false) }
     val paragraphs = remember(turns) { TranscriptReading.paragraphs(turns) }
-    // Auto-follow (0.0.6): on until the reader touches, holds or drags the transcript; the
-    // "Follow along" pill, or pressing play, turns it back on.
     var following by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(listState) {
         listState.interactionSource.interactions.collect { if (it is DragInteraction.Start) following = false }
@@ -200,8 +177,6 @@ fun TranscriptViewer(
     val karaoke = if (playback.available && (playback.playing || positionMs > 0)) TranscriptKaraoke.at(turns, positionMs) else TranscriptKaraoke.Position(-1, -1)
     val activeParagraph = if (karaoke.turn >= 0) TranscriptReading.paragraphOf(paragraphs, turns.getOrNull(karaoke.turn)?.id) else -1
     val followItem = (if (reading) activeParagraph else karaoke.turn).let { if (it >= 0) it + HEADER_ITEMS else -1 }
-    // Follow the voice: while it plays and the reader has not taken over, the line being said is
-    // kept wholly on screen.
     LaunchedEffect(followItem, playback.playing, following) {
         if (playback.playing && following && followItem >= 0) {
             if (!TranscriptFollow.fullyVisible(listState.layoutInfo, followItem)) listState.animateScrollToItem(followItem)
@@ -211,12 +186,14 @@ fun TranscriptViewer(
     BoxWithConstraints(modifier.fillMaxSize().testTag("transcript.viewer")) {
         val wide = maxWidth >= 600.dp
         Column(Modifier.fillMaxSize()) {
+          if (view.audio.video && playback.available) {
+              TranscriptVideoSurface(playback, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+          }
           Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 Modifier
                     .fillMaxSize()
                     .testTag("transcript.list")
-                    // Any touch or hold on the transcript hands it to the reader (observed, never consumed).
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -290,7 +267,6 @@ fun TranscriptViewer(
                             canEdit = view.permissions.edit,
                             canName = view.permissions.mapSpeakers,
                             onToggle = { if (turn.id in selected) selected.remove(turn.id) else selected.add(turn.id) },
-                            // A turn the reader chose to play from is followed again from there.
                             onSeek = { ms -> following = true; playback.seek(ms / 1000.0) },
                             onCopy = { track -> copied(TranscriptFormat.body(turn, track)) },
                             onEdit = { editing = turn },
@@ -302,13 +278,11 @@ fun TranscriptViewer(
                         )
                     }
                 }
-                // Contract 3: English pasted whole, under the turns, wherever English is shown.
                 val manual = view.manualEnglish?.trim().orEmpty()
                 if (manual.isNotEmpty() && tab != TranscriptTab.ORIGINAL && turns.isNotEmpty()) {
                     item(key = "manualEnglish") { ManualEnglishBlock(manual) }
                 }
             }
-            // Shown once the reader has taken over while it plays: one tap and it follows again.
             if (playback.playing && !following && followItem >= 0) {
                 AssistChip(
                     onClick = {
@@ -365,7 +339,6 @@ fun TranscriptViewer(
     quoteFor?.let { ids -> QuoteCardDialog(ids, host, onDismiss = { quoteFor = null; selecting = false; selected.clear() }) }
 }
 
-/** The header and the toolbar come before the turns in the list. */
 private const val HEADER_ITEMS = 2
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -392,11 +365,9 @@ private fun TranscriptHeader(
         }
         extra?.invoke()
         TranscriptUiText.statusLine(view)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted) }
-        // Read-only for this reader: said once, and no edit, speaker or re-translate control is drawn.
         view.readOnly?.message?.takeIf { it.isNotBlank() }?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted, modifier = Modifier.testTag("transcript.readOnly"))
         }
-        // Contract 3: Gemini declined, and no English stands in yet (null: nothing drawn).
         EnglishNoticeCard(view, host)
         if (waitingEdits > 0) Text(TranscriptUiText.waiting(waitingEdits), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
         failures.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
@@ -405,7 +376,6 @@ private fun TranscriptHeader(
             view.status == PipelineStatus.NEEDS_ATTENTION && view.permissions.retry -> TranscriptStrings.actionRetry
             else -> null
         }
-        // One action, centred (the design bar's single-button rule).
         if (action != null) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Button(onClick = onAction, modifier = Modifier.testTag("transcript.statusAction")) { Text(action) }
         }
@@ -469,13 +439,11 @@ private fun Toolbar(
     reading: Boolean = false,
     readingTrack: CopyTrack = CopyTrack.ORIGINAL,
     onReading: (Boolean) -> Unit = {},
-    /** Null when there is no audio to mark; else whether every turn is marked. */
     allMarked: Boolean? = null,
     onAllMarks: (Boolean) -> Unit = {},
 ) {
     var copyMenu by remember { mutableStateOf(false) }
     var downloadMenu by remember { mutableStateOf(false) }
-    // Many actions: pills that wrap (the design bar's rule for more than two).
     FlowRow(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -487,7 +455,6 @@ private fun Toolbar(
             label = { Text(TranscriptUiText.readingMode) },
             modifier = Modifier.testTag("transcript.reading")
         )
-        // Reading mode copies and downloads exactly what it shows: no timestamps, its own track.
         if (reading) {
             AssistChip(
                 onClick = { onCopyAll(readingTrack, false) },
@@ -651,7 +618,6 @@ private fun TurnRow(
                     Box(Modifier.weight(1f)) { english() }
                 }
             } else {
-                // A phone stacks the pair: the original, then its English in a tinted block.
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     original()
                     Box(Modifier.fillMaxWidth().background(MaterialTheme.field.surface100, RoundedCornerShape(10.dp)).padding(10.dp)) { english() }
@@ -662,7 +628,6 @@ private fun TurnRow(
     HorizontalDivider(color = MaterialTheme.field.hairline, modifier = Modifier.padding(start = 20.dp))
 }
 
-/** One paragraph of reading mode: the speaker's label in their colour, then what they said. */
 @Composable
 private fun ReadingRow(paragraph: TranscriptReading.Paragraph, tab: TranscriptTab, wide: Boolean, active: Boolean) {
     val lit = MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)
@@ -704,7 +669,6 @@ private fun ReadingRow(paragraph: TranscriptReading.Paragraph, tab: TranscriptTa
     }
 }
 
-/** The track a tab copies and downloads in reading mode. */
 private val TranscriptTab.track: CopyTrack get() = when (this) {
     TranscriptTab.ORIGINAL -> CopyTrack.ORIGINAL
     TranscriptTab.ENGLISH -> CopyTrack.ENGLISH
@@ -811,17 +775,12 @@ private fun SelectionBar(count: Int, canQuote: Boolean, onCopy: (CopyTrack) -> U
 
 private data class DownloadChoice(val format: String, val track: CopyTrack, val label: String, val timestamps: Boolean)
 
-/**
- * The turns a reader marked as points on this recording's timeline: none until ticked, kept on this
- * phone per recording (a reading aid, not part of the transcript).
- */
 private class TimelineMarks(private val prefs: android.content.SharedPreferences, private val key: String) {
     val ids = mutableStateListOf<String>().apply { addAll(prefs.getStringSet(key, emptySet()).orEmpty()) }
     fun set(turnId: String, on: Boolean) {
         if (on) { if (turnId !in ids) ids.add(turnId) } else ids.remove(turnId)
         prefs.edit().putStringSet(key, ids.toSet()).apply()
     }
-    /** Every turn on, or none (0.0.6's single toggle beside the per-turn boxes). */
     fun setAll(turnIds: List<String>, on: Boolean) {
         ids.clear()
         if (on) ids.addAll(turnIds)
@@ -878,15 +837,9 @@ private fun PlayerBar(
     }
 }
 
-/** The thumb's width, fixed so the marks can sit exactly on the track it runs along. */
 private val THUMB = DpSize(4.dp, 40.dp)
 private val MARK = 16.dp
 
-/**
- * The seek bar with the marked turns on it (0.0.6): each mark is centred on the track, in its
- * speaker's colour; a tap plays from it, touch-and-hold (or keyboard focus) shows a bubble with who
- * spoke and what they said, and a screen reader hears the same words as the mark's description.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TimelineSeekBar(playback: TranscriptPlayback, duration: Double, marked: List<TranscriptTurn>, modifier: Modifier = Modifier) {
@@ -902,7 +855,6 @@ private fun TimelineSeekBar(playback: TranscriptPlayback, duration: Double, mark
             modifier = Modifier.fillMaxWidth().testTag("transcript.seek")
         )
         if (duration > 0) {
-            // The track runs between the thumb's two resting centres, half a thumb in from each edge.
             val track = maxWidth - THUMB.width
             marked.forEach { turn ->
                 val fraction = (turn.startMs / 1000.0 / duration).toFloat().coerceIn(0f, 1f)
@@ -935,7 +887,6 @@ private fun TimelineSeekBar(playback: TranscriptPlayback, duration: Double, mark
     }
 }
 
-/** The chat bubble over a held mark: the speaker and time, the words, and their English. */
 @Composable
 private fun MarkBubble(turn: TranscriptTurn, speaker: String, time: String, tint: androidx.compose.ui.graphics.Color) {
     val gap = with(androidx.compose.ui.platform.LocalDensity.current) { 8.dp.roundToPx() }
@@ -962,7 +913,6 @@ private fun MarkBubble(turn: TranscriptTurn, speaker: String, time: String, tint
     }
 }
 
-/** Centred over its anchor, [gap] above it, kept inside the window. */
 private class AboveAnchor(private val gap: Int) : PopupPositionProvider {
     override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
         val x = (anchorBounds.center.x - popupContentSize.width / 2).coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
@@ -972,7 +922,6 @@ private class AboveAnchor(private val gap: Int) : PopupPositionProvider {
     }
 }
 
-/** Auto-follow's one question of the list, kept apart so a unit test can ask it. */
 internal object TranscriptFollow {
     fun fullyVisible(layout: androidx.compose.foundation.lazy.LazyListLayoutInfo, index: Int): Boolean {
         val item = layout.visibleItemsInfo.firstOrNull { it.index == index } ?: return false

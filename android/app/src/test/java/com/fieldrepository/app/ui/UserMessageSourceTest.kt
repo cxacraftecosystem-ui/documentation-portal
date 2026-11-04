@@ -4,26 +4,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/**
- * The CI half of UX audit 2026-10-16, DC-A02: no screen may hand a throwable's own text to a reader.
- *
- * `it.message ?: "Unable to …"` put "HTTP 404" and "Unable to resolve host …" on about seventy
- * screens. The one mapper is `Throwable.userMessage` (data/UserMessage.kt); this test refuses the old
- * shape in MainActivity.kt and everything under ui/, so a new screen cannot go back to it.
- *
- * ALLOWED holds the lines that read `.message` from something that is not a throwable shown as-is:
- * a DTO's own server-written `message` field, or an exception type this app throws with a clause it
- * wrote for people. Each is listed by a fragment of its own line, so a move does not break it and a
- * new site is refused until somebody decides.
- */
 class UserMessageSourceTest {
 
     private val root = File("src/main/java/com/fieldrepository/app")
 
     private val allowed = listOf(
-        // A response DTO's `message`, written by the server for people.
         "resp.message ?:",
-        // A queued save's own sentence ("Saved on this device…"), thrown by createOrKeep for people.
         "onError(error.message!!)",
     )
 

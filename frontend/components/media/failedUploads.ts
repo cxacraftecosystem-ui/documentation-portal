@@ -1,8 +1,5 @@
-/** B7 — which picked files a batch reported failed, pure so it is tested without a browser. */
-
 export type FailedUpload = { name: string; error?: string };
 
-/** The picked files a batch reported as failed, matched by name with multiplicity, in pick order. */
 export function failedFilesOf(files: readonly File[], failed: readonly FailedUpload[]): File[] {
   const remaining = new Map<string, number>();
   for (const entry of failed) remaining.set(entry.name, (remaining.get(entry.name) ?? 0) + 1);

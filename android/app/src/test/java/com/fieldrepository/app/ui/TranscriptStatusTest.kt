@@ -12,7 +12,6 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Paused, waiting for consent, refused; Retry disabled while paused (owner correction d). */
 class TranscriptStatusTest {
     private fun rec(status: String?, verdict: String?, paused: Boolean = true) =
         QRecording(id = "r", transcript = status?.let { QTranscript(it, paused) }, consent = verdict?.let { QConsentVerdict(it) })
@@ -44,11 +43,6 @@ class TranscriptStatusTest {
         assertEquals("Transcription paused", line!!.text)
     }
 
-    /**
-     * The take sheet's Retry (audit M23, 21 Oct 2026: it was never wired) is the ONE control that asks
-     * for a transcription, and only through [TranscriptStatus]'s line, whose Retry is disabled while
-     * transcription is paused (above). Any other caller is a control that could start one.
-     */
     @QFeature("B34")
     @Test
     fun `only the take's Retry can ask for a transcription, and never while paused`() {

@@ -12,11 +12,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
-/**
- * Verifies the PNG bytes by decoding them: the chunk CRCs are recomputed, the IDAT stream is
- * inflated and the scanline filters are undone. A test that only checks the signature would pass
- * for a file no decoder can read.
- */
 class PngEncoderTest {
 
     @Test
@@ -82,7 +77,6 @@ class PngEncoderTest {
                 )
             }
         }
-        // The out-of-range samples the fixture plants must clamp, not wrap.
         assertEquals(0, raw.bytes[0].toInt() and 0xFF)
         assertEquals(255, raw.bytes[raw.bytes.size - 1].toInt() and 0xFF)
     }
@@ -115,17 +109,12 @@ class PngEncoderTest {
 
     @Test
     fun filterSelectionShrinksFlatArtwork() {
-        // A solid image compresses to almost nothing once Up is chosen for every row after the
-        // first. This is the property the adaptive filter exists for; asserting it stops a
-        // regression to "always filter 0" from passing silently.
         val flat = RgbaImage(256, 256).fill(0xFF204080.toInt())
         assertTrue(
             PngEncoder.encode(flat).size < 4096,
             "a solid 256x256 image should compress to well under 4 KiB",
         )
     }
-
-    // ------------------------------------------------------------------ decoding
 
     private class Chunk(val type: String, val data: ByteArray)
 
@@ -151,7 +140,6 @@ class PngEncoderTest {
         return chunks
     }
 
-    /** Inflates the IDAT stream and undoes the per-scanline filters. */
     private fun decode(png: ByteArray, bpp: Int): Raw {
         val chunks = parse(png)
         val ihdr = chunks.first { it.type == "IHDR" }.data

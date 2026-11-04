@@ -1,19 +1,3 @@
-"""Scribe's words as speaker turns: the unit every view, copy, subtitle and translation works on.
-
-A TURN is one uninterrupted stretch of one voice, split further only where a long monologue pauses
-(so a ten-minute answer is not one block nobody can seek inside). Each turn keeps:
-
-* its speaker key (the provider's own id, ``speaker_0``), start and end in milliseconds;
-* its language, from the script its letters are written in (code-switching happens turn by turn
-  far more than word by word in these interviews), falling back to what the provider detected;
-* its text, and every word with its timing and its code-point offset into that text (karaoke);
-* the spans Scribe was unsure of (``logprob`` under :data:`LOW_CONFIDENCE_LOGPROB`), as
-  ``[start, end)`` code-point offsets, so a reviewer knows where to listen.
-
-A provider that returns no words (Deepgram through the cache, Whisper) still gives turns: one per
-segment, with no words and no low-confidence spans.
-"""
-
 from __future__ import annotations
 
 import math
@@ -23,16 +7,12 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
-#: A word under this log-probability (about 37 % confidence) is marked for a listen.
 LOW_CONFIDENCE_LOGPROB = -1.0
-#: A pause this long inside a turn that has already run this long starts a new turn.
 SPLIT_PAUSE_MS = 2_500
 SPLIT_AFTER_MS = 30_000
-#: A turn this long is split at the next sentence end even without a pause.
 SPLIT_HARD_MS = 120_000
 _SENTENCE_END = ("।", "॥", ".", "?", "!", "؟", "|")
 
-#: ISO 639-3 (what Scribe reports) to the short codes both portals store (shared/languages.json).
 ISO3_TO_SHORT = {
     "asm": "as",
     "ben": "bn",
@@ -89,7 +69,6 @@ LANGUAGE_LABELS = {
     "ur": "Urdu",
 }
 
-#: Unicode blocks to the language a turn in that script is most likely in.
 _SCRIPTS: tuple[tuple[int, int, str], ...] = (
     (0x0900, 0x097F, "Devanagari"),
     (0x0980, 0x09FF, "Bengali"),
@@ -104,7 +83,6 @@ _SCRIPTS: tuple[tuple[int, int, str], ...] = (
     (0x1C50, 0x1C7F, "OlChiki"),
     (0xA8E0, 0xA8FF, "Devanagari"),
 )
-#: A script and the languages that are written in it; the first is the default.
 SCRIPT_LANGUAGES = {
     "Devanagari": ("hi", "mr", "ne", "raj", "bho", "mai", "kok", "doi", "sat"),
     "Bengali": ("bn", "as", "mni"),
@@ -122,7 +100,6 @@ SCRIPT_LANGUAGES = {
 
 
 def short_language(code: Any) -> str | None:
-    """A provider's language code as the short code, or None. ``hin`` -> ``hi``, ``en-IN`` -> ``en``."""
     if not isinstance(code, str) or not code.strip():
         return None
     value = code.strip().lower().replace("_", "-").split("-", 1)[0]
@@ -162,8 +139,6 @@ def dominant_script(text: str) -> str | None:
 
 
 def turn_language(text: str, detected: str | None) -> str:
-    """The language of one turn: the detected language when the turn's script fits it, else the
-    script's default language. A turn with no letters at all takes the detected language."""
     script = dominant_script(text)
     detected = detected or None
     if script is None:
@@ -220,7 +195,6 @@ def _logprob(value: Any) -> float | None:
 
 
 def _spans(words: list[Word], text: str) -> list[list[int]]:
-    """Low-confidence words merged into spans; two unsure words with only a space between are one."""
     spans: list[list[int]] = []
     for word in words:
         if word.logprob is None or word.logprob >= LOW_CONFIDENCE_LOGPROB:
@@ -251,7 +225,6 @@ class _Building:
 
 
 def turns_from_scribe(payload: dict[str, Any], *, detected: str | None = None) -> list[Turn]:
-    """Turns from a Scribe (v1 or v2) response: ``{language_code, words: [...]}``."""
     detected = short_language(detected or payload.get("language_code"))
     tokens = [w for w in (payload.get("words") or []) if isinstance(w, dict)]
     has_spacing = any(t.get("type") == "spacing" for t in tokens)
@@ -299,7 +272,6 @@ def turns_from_scribe(payload: dict[str, Any], *, detected: str | None = None) -
 
 
 def turns_from_segments(segments: list[dict[str, Any]], *, detected: str | None = None) -> list[Turn]:
-    """Turns from stored segments (``[{startMs, endMs, speaker, text}]``): no words, no spans."""
     detected = short_language(detected)
     turns: list[Turn] = []
     for segment in segments or []:
@@ -325,8 +297,6 @@ def turns_from_segments(segments: list[dict[str, Any]], *, detected: str | None 
 
 
 def turns_from_text(text: str, *, detected: str | None = None, duration_ms: int | None = None) -> list[Turn]:
-    """One turn per paragraph of an untimed transcript (Whisper, or an old transcript). Every turn
-    starts at 0 so no timestamp claims a moment nobody measured."""
     detected = short_language(detected)
     turns: list[Turn] = []
     for paragraph in str(text or "").split("\n\n"):
@@ -335,7 +305,7 @@ def turns_from_text(text: str, *, detected: str | None = None, duration_ms: int 
             continue
         speaker = None
         label = _LABEL.match(body)
-        if label:  # the diarized markdown both portals store: **Speaker 1:** ...
+        if label:
             speaker, body = label.group(1).strip(), body[label.end() :].strip()
             if not body:
                 continue
@@ -349,7 +319,6 @@ _LABEL = re.compile(r"^\*\*([^*]{1,60}?):\*\*\s*")
 
 
 def languages_by_share(turns: list[Any]) -> list[str]:
-    """Languages in order of how much was said in each (characters), most first."""
     share: Counter[str] = Counter()
     for turn in turns:
         language = getattr(turn, "language", None) or (turn.get("language") if isinstance(turn, dict) else None)
@@ -360,7 +329,6 @@ def languages_by_share(turns: list[Any]) -> list[str]:
 
 
 def speaker_order(turns: list[Any]) -> list[str]:
-    """Speaker keys in order of first appearance: what numbers "Speaker 1", "Speaker 2"."""
     order: list[str] = []
     for turn in turns:
         key = getattr(turn, "speaker_key", None)

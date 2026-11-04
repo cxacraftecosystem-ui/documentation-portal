@@ -5,10 +5,6 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * A server in memory for the outbox tests: it records every call in order, keys sessions on
- * `clientKey` like the real `POST /sessions`, and can be told to drop a connection.
- */
 class FakeSessionTransport : SessionTransport {
     val calls = mutableListOf<String>()
     val idempotencyKeys = mutableMapOf<String, MutableList<String>>()
@@ -19,9 +15,7 @@ class FakeSessionTransport : SessionTransport {
     var inFlight = AtomicInteger(0)
     var maxInFlight = 0
     var putDelayMs = 0L
-    /** Clip keys whose complete is refused for good. */
     val refuseComplete = mutableSetOf<String>()
-    /** Throw an IOException on the Nth part PUT (1-based), once. */
     var dropOnPart: Int? = null
     private var partCounter = 0
     private val uploads = mutableMapOf<String, QUploadState>()
@@ -43,7 +37,6 @@ class FakeSessionTransport : SessionTransport {
         return sessionsByClientKey.getOrPut(body.clientKey) {
             QSession(
                 id = "s-${nextId++}", clientKey = body.clientKey, participants = body.participants.map { QParticipant(it.artisanId) },
-                // The server lists its guests in an order of its own: reversed here, so a match by name is proven.
                 respondents = body.respondents.map { QRespondent(id = "g-${nextId++}", name = SessionOutbox.tidyName(it.name), kind = it.kind) }.reversed()
             )
         }
@@ -115,7 +108,6 @@ class FakeSessionTransport : SessionTransport {
     }
 }
 
-/** A clip of [size] bytes on disk, queued as one take of [targetKey] for [subjects]. */
 fun testClip(dir: File, key: String, size: Int, capturedAt: String, subjects: List<String>, sectionId: String = "secD"): ClipPayload {
     val file = File(dir, "$key.m4a").apply { writeBytes(ByteArray(size) { (it % 251).toByte() }) }
     return ClipPayload(

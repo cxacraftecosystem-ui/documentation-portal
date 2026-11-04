@@ -18,14 +18,6 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.time.Instant
 
-/**
- * DESIGN §9 test 51: the app is killed mid-take and the take is offered back on the next launch.
- *
- * Two runs with the process killed in between, so `android/scripts/recording-device-tests.sh` drives
- * it: `-e killPhase 1` starts a take and leaves it recording, the script force-stops the app, then
- * `-e killPhase 2` (a fresh process) finds the draft the service wrote before it started recording,
- * checks the recovery scanner offers it, and remuxes the partial file into a playable take.
- */
 @RunWith(AndroidJUnit4::class)
 class RecordingKillDeviceTest {
     @get:Rule
@@ -52,7 +44,6 @@ class RecordingKillDeviceTest {
         assertTrue(RecordingService.state.value is RecordingService.State.Recording)
         Thread.sleep(4_000)
         assertTrue("audio is being written", File(draft.adtsPath).length() > 0)
-        // Left recording on purpose: the script kills the process now.
     }
 
     @Test fun phase2_theKilledTakeIsOfferedBackAndPlays() {

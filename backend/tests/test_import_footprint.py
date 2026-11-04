@@ -1,22 +1,3 @@
-"""What the API and the queue worker load at start-up, pinned (2026-10-19).
-
-Measured that day on the t3.small: the API held ~840 MB and the queue worker ~780 MB, nearly all of it
-in swap, at idle, with an almost empty database. Nearly all of that was one import: the generated
-``prisma/types.py`` (28 MB, 84,774 TypedDicts), which ``import prisma`` used to execute in full.
-app/prisma_lazy_types.py now defers it until something reads it, and nothing at run time does. The
-rest was libraries the processes hold without using: the worker loaded FastAPI, the tasks router,
-boto3 and the request dependencies; the API loaded reportlab, segno and google-auth at start-up for
-features that are switched off or used on one rare request.
-
-Measured the same way before and after, in a python:3.14 container on the lock (RSS once idle, as
-the units start them): API 841 MB -> 167 MB, worker 796 MB -> 111 MB, and each ready in seconds
-instead of twelve minutes (backend/DEPLOY_AWS.md, section 14).
-
-These tests fail when any of that creeps back: a module-level import of a heavy library in a module
-the worker or the API start-up imports, or anything that reads ``prisma.types`` on the way.
-They run each process's import in a fresh interpreter, because this one has imported half the app.
-"""
-
 from __future__ import annotations
 
 import json
@@ -31,8 +12,6 @@ import pytest
 
 BACKEND = Path(__file__).resolve().parents[1]
 
-#: Never in the queue worker's import graph. The web framework and the request layer, and every
-#: library the worker either never uses or reaches only inside the function that needs it.
 WORKER_FORBIDDEN = (
     "fastapi",
     "uvicorn",
@@ -57,9 +36,6 @@ WORKER_FORBIDDEN = (
     "pandas",
 )
 
-#: Not loaded by the API's start-up: features switched off by default (Claude, the Redis cache), and
-#: features that load their library on the request that uses it (the artisan card PDF, the two-step
-#: QR, Google sign-in, S3).
 API_STARTUP_FORBIDDEN = (
     "reportlab",
     "segno",
@@ -75,8 +51,6 @@ API_STARTUP_FORBIDDEN = (
     "pandas",
 )
 
-#: Feature switches that must be OFF for the "switched off costs nothing" check: removed from the
-#: child's environment so it runs on the defaults in app/core/config.py.
 _SWITCHES = (
     "AI_ANSWER_DRAFTS_ENABLED",
     "UNIFIED_SEARCH_ENABLED",
@@ -161,8 +135,6 @@ def test_the_api_starts_without_loading_switched_off_or_on_demand_features():
 
 @needs_client
 def test_queries_build_and_run_without_loading_the_generated_types():
-    """The client's own query paths (find, count, include, order, update, delete) through a stand-in
-    engine: none of them reads ``prisma.types``."""
     script = textwrap.dedent(
         """
         import asyncio, json
@@ -205,14 +177,9 @@ def test_queries_build_and_run_without_loading_the_generated_types():
     assert report == {"queries": 7, "types_loaded": False}
 
 
-# --- The lazy module itself, on a small stand-in for the generated package -----------------------
-
 
 @pytest.fixture
 def fake_client(tmp_path, monkeypatch):
-    """A package shaped like the generated client: ``__init__`` imports names from ``.types`` and
-    binds ``types``; ``types.py`` aliases ``_types`` names, defines TypedDicts, counts its own runs and
-    ends by importing itself back, as the generated file does."""
     name = f"fakeprisma_{uuid.uuid4().hex[:8]}"
     pkg = tmp_path / name
     pkg.mkdir()
@@ -269,7 +236,6 @@ def test_the_package_imports_without_running_the_types_body(fake_client):
     assert builtins.FAKE_TYPES_RUNS == 0
     assert isinstance(package.types, lazy.LazyPrismaTypes)
     assert not lazy.is_loaded(fake_client)
-    # The start-up names are the very objects the generated file would alias.
     assert package.DatasourceOverride is private.DatasourceOverride
     assert package.types.SortOrder is private.SortOrder
     assert builtins.FAKE_TYPES_RUNS == 0
@@ -289,11 +255,11 @@ def test_any_other_name_runs_the_real_body_once_into_the_same_module(fake_client
     assert builtins.FAKE_TYPES_RUNS == 1
     assert lazy.is_loaded(fake_client)
     assert sys.modules[f"{fake_client}.types"] is types_module
-    assert types_module.types is types_module  # the generated file's own `from . import types`
+    assert types_module.types is types_module
     assert types_module.SortOrder is importlib.import_module(f"{fake_client}._types").SortOrder
     assert "UserWhereInput" in dir(types_module)
     with pytest.raises(AttributeError):
-        types_module.NoSuchType  # noqa: B018 - the attribute read is the test
+        types_module.NoSuchType  # noqa: B018
     assert builtins.FAKE_TYPES_RUNS == 1
 
 
@@ -302,7 +268,7 @@ def test_it_leaves_an_imported_or_ungenerated_package_alone(fake_client, monkeyp
 
     from app import prisma_lazy_types as lazy
 
-    importlib.import_module(fake_client)  # imported the eager way first
+    importlib.import_module(fake_client)
     assert lazy.install(fake_client) is False
     assert lazy.is_loaded(fake_client)
     assert lazy.install(f"no_such_package_{uuid.uuid4().hex[:8]}") is False

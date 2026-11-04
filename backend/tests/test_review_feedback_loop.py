@@ -1,10 +1,3 @@
-"""The review feedback loop (A1, A2, B9, C19, C21): reasons, the reopen, the uploader's own list,
-the latest decision on a record, bulk approval, and media that inherits its record's approval.
-
-NOTHING HERE TOUCHES A DATABASE: the review module's ``db`` is an in-memory stand-in and the e-mail
-calls are recorded instead of queued.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -37,7 +30,7 @@ def _matches(row: Any, where: dict[str, Any]) -> bool:
             if not any(_matches(row, clause) for clause in expected):
                 return False
             continue
-        if key == "AND":  # live_media_where composes its removedAt clause under AND (M19)
+        if key == "AND":
             if not all(_matches(row, clause) for clause in expected):
                 return False
             continue
@@ -221,7 +214,7 @@ def test_bulk_approval_reports_each_record_and_mails_once(world: Any) -> None:
     assert failed[0]["id"] == "late" and "outside its workshop" in failed[0]["detail"]
     (items,) = world.bulk
     assert [item["id"] for item in items] == ["a1", "a2"]
-    assert world.notices == []  # one grouped e-mail, never one per record
+    assert world.notices == []
 
 
 def test_bulk_approval_needs_at_least_one_record(world: Any) -> None:
@@ -238,7 +231,7 @@ def test_the_uploader_sees_what_was_sent_back_with_the_note(world: Any) -> None:
     _CURRENT["user"] = world.creator
     body = _call("GET", "/mine").json()
     assert body["counts"] == {"NEEDS_REVISION": 1, "REJECTED": 1}
-    assert [item["id"] for item in body["items"]] == ["a2", "a1"]  # newest decision first
+    assert [item["id"] for item in body["items"]] == ["a2", "a1"]
     sent_back = body["items"][1]
     assert sent_back["reviewNotes"] == "Add the village." and sent_back["reviewerName"] == "Professor prof"
     assert sent_back["reasonLabel"] == "Missing details"
@@ -282,8 +275,6 @@ def test_the_creators_edit_reopens_a_rejected_record_and_stamps_when() -> None:
 
 
 def test_a_file_approved_with_its_record_obeys_the_ladder_and_is_logged(world: Any) -> None:
-    # m4: an admin's photograph on a researcher's record. A professor approving the record may not
-    # approve a file of somebody ranked above them; it stays pending for an admin.
     world.db.mediafile.rows.append(
         SimpleNamespace(id="m4", status="PENDING", linkedRecordType="artisan", linkedRecordId="a1", artisanId="a1",
                         extraMetadata={}, uploadedBy=world.admin)

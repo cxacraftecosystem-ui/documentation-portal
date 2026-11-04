@@ -14,10 +14,6 @@ import type {
   TranscriptTurn
 } from "./contract";
 
-/**
- * Every transcript route the web calls (`shared/transcript-contract.json`, "routes"), as `apiFetch`
- * takes them: without the `/api` prefix.
- */
 const base = (mediaId: string) => `/transcripts/${encodeURIComponent(mediaId)}`;
 
 export const TRANSCRIPT_ROUTES = {
@@ -39,7 +35,6 @@ export const TRANSCRIPT_ROUTES = {
   budget: "/transcripts/budget"
 } as const;
 
-/** The contract's error code (`{detail: {code, message}}`), when the server sent one. */
 export function errorCode(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null;
   const detail = (error.payload as { detail?: { code?: unknown } } | null)?.detail;
@@ -52,7 +47,6 @@ const json = (method: string, body: unknown): RequestInit => ({
   body: JSON.stringify(body)
 });
 
-/** The current version, or null while the pipeline is off for this recording (404 NOT_FOUND). */
 export async function fetchTranscript(mediaId: string): Promise<Transcript | null> {
   try {
     return await apiFetch<Transcript>(TRANSCRIPT_ROUTES.view(mediaId));
@@ -73,14 +67,9 @@ export const mapSpeakers = (mediaId: string, baseRevision: number, mappings: Spe
 
 export const speakerSuggestions = (mediaId: string) => apiFetch<{ items: SpeakerSuggestion[] }>(TRANSCRIPT_ROUTES.suggestions(mediaId));
 
-/** English typed or pasted for the whole transcript (contract 3): laid on the turns when the paragraphs line up. */
 export const addEnglish = (mediaId: string, baseRevision: number, text: string) =>
   apiFetch<Transcript>(TRANSCRIPT_ROUTES.english(mediaId), json("POST", { baseRevision, text }));
 
-/**
- * What a paste becomes, before it is sent (the server's rule in `add_english`): blank-line paragraphs
- * line up with the turns when there is one per turn that needs English, or one per turn.
- */
 export function englishPlan(turns: { translation: { status: string } }[], text: string): { paragraphs: number; turns: number; aligned: boolean } {
   const paragraphs = text.replace(/\r\n/g, "\n").split(/\n\s*\n/).filter((part) => part.trim() !== "").length;
   const needing = turns.filter((turn) => turn.translation.status !== "ALREADY_ENGLISH").length;
@@ -102,7 +91,6 @@ export const fetchGlossary = (craftId: string, cursor?: string | null) =>
 
 export const fetchBudget = () => apiFetch<BudgetMeter>(TRANSCRIPT_ROUTES.budget);
 
-/** GET a file the API builds (a download, a clip); same-origin, so the session cookie goes with it. */
 export async function fetchTranscriptFile(path: string, fallbackName: string): Promise<{ blob: Blob; fileName: string }> {
   const url = /^https?:/i.test(path) || path.startsWith("/api/") ? path : `${API_BASE}/api${path}`;
   const response = await fetch(url, { cache: "no-store" });
@@ -118,7 +106,6 @@ export async function fetchTranscriptFile(path: string, fallbackName: string): P
   return { blob: await response.blob(), fileName: encoded ? decodeURIComponent(encoded) : plain ?? fallbackName };
 }
 
-/** Hand a blob to the browser as a download. The URL is released a minute later, not at once (Safari). */
 export function saveBlob(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");

@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-/**
- * The field-repo-frontend skill's "shared core" for the five form primitives (§11.11) must be
- * byte-identical in documentation-portal and designer-portal. This diffs the block between the
- * `shared:form-primitives` markers in this repo against the sibling repo's copy.
- *
- *   node scripts/check-skill-shared-block.mjs [path/to/designer-portal]
- *
- * The sibling defaults to $SIBLING_REPO, then ../designer-portal next to this checkout, then
- * C:/dev/IIT/designer-portal. Exit 0 = identical; 1 = they differ or a block is missing; 2 = no
- * sibling checkout found (nothing to compare — CI has only one repo).
- */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

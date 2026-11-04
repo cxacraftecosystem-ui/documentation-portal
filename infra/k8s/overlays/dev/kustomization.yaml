@@ -1,11 +1,3 @@
-# ---------------------------------------------------------------------------------------------
-# DEV. The environment where breaking things is the job.
-#
-# What makes dev dev, in one list: docs are exposed, there is exactly one replica and the autoscaler
-# is pinned so it stays that way, resource requests are small enough to share a node with everything
-# else, and the per-pod database connection limit is HALVED. That last one is not a dev-is-smaller
-# reflex — see the note on DATABASE_CONNECTION_LIMIT below.
-# ---------------------------------------------------------------------------------------------
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -25,7 +17,6 @@ images:
     newTag: dev
 
 patches:
-  # --- Configuration -----------------------------------------------------------------------------
   - target:
       kind: ConfigMap
       name: fieldrepo-config
@@ -61,7 +52,6 @@ patches:
         NEXT_PUBLIC_APP_URL: "https://dev.REPLACE_DOMAIN"
         MASTER_ADMIN_EMAIL: "REPLACE_admin@example.org"
 
-  # --- API sizing --------------------------------------------------------------------------------
   - target:
       kind: Deployment
       name: fieldrepo-api
@@ -84,9 +74,6 @@ patches:
                     cpu: 500m
                     memory: 512Mi
 
-  # --- Queue sizing ------------------------------------------------------------------------------
-  # Still exactly one pod — that is a correctness constraint, not an environment setting, and no
-  # overlay may relax it. Only the sizing changes.
   - target:
       kind: Deployment
       name: fieldrepo-queue
@@ -108,7 +95,6 @@ patches:
                     cpu: "1"
                     memory: 1Gi
 
-  # --- Autoscaling: none -------------------------------------------------------------------------
   - target:
       kind: HorizontalPodAutoscaler
       name: fieldrepo-api
@@ -127,7 +113,6 @@ patches:
         #   (1 max + 1 surge + 1 queue) x 5 = 15 client connections, worst case.
         maxReplicas: 1
 
-  # --- Ingress -----------------------------------------------------------------------------------
   - target:
       kind: Ingress
       name: fieldrepo-api
@@ -150,9 +135,6 @@ patches:
                         name: http
 
 replacements:
-  # One string — FIELDREPO_ENV above — becomes the environment segment of every remote secret path
-  # in base/externalsecret.yaml. Without this each overlay would carry its own copy of all eleven
-  # entries, and the day a twelfth key is added, two of the three copies get it.
   - source:
       kind: ConfigMap
       name: fieldrepo-config
@@ -164,20 +146,13 @@ replacements:
         fieldPaths:
           - spec.data.*.remoteRef.key
         options:
-          # "fieldrepo/ENVIRONMENT/DATABASE_URL" split on "/" -> segment 1 is the placeholder.
           delimiter: /
           index: 1
 
-  # The migration Job's name inherits the image tag it will run, so every release produces a
-  # distinctly named Job. Two consequences, both wanted: `kubectl apply -k` twice in a row is a
-  # no-op instead of an error about the immutable Job template, and two releases can never end up
-  # sharing one Job object where the second silently does nothing because the first is Complete.
   - source:
       kind: Job
       fieldPath: spec.template.spec.containers.[name=migrate].image
       options:
-        # "registry/fieldrepo-migrate:dev" -> "dev". Tags only; a @sha256 digest has no ":" segment
-        # here and would produce a nonsense name.
         delimiter: ":"
         index: 1
     targets:
@@ -186,6 +161,5 @@ replacements:
         fieldPaths:
           - metadata.name
         options:
-          # "fieldrepo-migrate-REPLACEME" split on "-" -> segment 2 is the placeholder.
           delimiter: "-"
           index: 2

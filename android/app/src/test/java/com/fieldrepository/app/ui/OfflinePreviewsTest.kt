@@ -5,7 +5,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/** The offline preview wiring that does not need a device: the size cap and the keep-once rule. */
 class OfflinePreviewsTest {
     @Test
     fun `a preview is scaled so its longest side is 480, keeping its shape`() {
@@ -51,7 +50,7 @@ class OfflinePreviewsTest {
     fun `the write goes to the account signed in when the image loaded`() {
         val h = Harness()
         h.offer()
-        h.ticket = PreviewCache.Ticket("user-b", 4) // a quick sign-out and sign-in before the encode
+        h.ticket = PreviewCache.Ticket("user-b", 4)
         h.runPending()
         assertEquals("user-a", h.stored.single().first.account)
     }

@@ -1,27 +1,3 @@
-"""The documentation portal's half of C27: answer the designer portal, and record each artisan's consent.
-
-Two kinds of caller, kept apart by path:
-
-* ``/cross-portal/peer/...`` is the DESIGNER PORTAL'S SERVER, authenticated by the shared bearer
-  token and answered with a signed body (``services/cross_portal``). No user session is read or
-  accepted there — a signed-in researcher's token is not the peer token and is refused.
-* ``/cross-portal/status`` and ``/cross-portal/artisans/{id}/consent`` are this portal's own signed-in
-  users: whether the feature is on, and the artisan's sharing consent, which only somebody who may
-  edit the artisan may record or withdraw.
-
-Every route here answers 404 while the feature is not active on this server, exactly as if it did
-not exist. This portal is the source of truth for the identity fields and never writes to the other.
-
-Every peer request is written to ``CrossPortalAccessLog`` (which designer-portal account asked, what
-for, and which artisan it reached, or that it reached none) — never the number or the code it asked
-with. Every consent change is a ``RecordRevision`` on the artisan, so a withdrawal leaves a trace.
-
-MERGED RECORDS (services/artisan_merge.py). An artisan merged here keeps answering under its old id:
-the refresh, link and unlink routes resolve a merged id to the record it now lives on, and the
-refresh answers with the CURRENT id, which is how a merge (or its undo) reaches the designer portal
-without this server ever calling it.
-"""
-
 import logging
 from datetime import UTC, datetime, time
 from types import SimpleNamespace
@@ -57,8 +33,6 @@ def _active_or_404() -> Any:
     return settings
 
 
-# The peer admission and the answer signature live in ``services/cross_portal_peer``, which both
-# portals carry byte for byte (the search routes in ``routes/cross_portal_search`` use it too).
 require_peer = cross_portal_peer.require_peer
 _signed = cross_portal_peer.signed
 
@@ -70,14 +44,11 @@ ACTION_UNLINK = "UNLINK"
 ACTION_COVERAGE = "COVERAGE"
 ACTION_SCAN = "SCAN"
 
-#: The designer portal's daily duplicate scan: at most this many items per call, and this many
-#: calls per UTC day. Its nightly job sends every unlinked artisan holding a key, 100 at a time.
 MATCH_BATCH_LIMIT = 100
 MATCH_CALLS_PER_DAY = 50
 ACTION_CARD_RESOLVE = "CARD_RESOLVE"
 ACTION_CARD_UPDATE = "CARD_UPDATE"
 
-#: A card code as both portals print it: 10 Crockford characters (services/artisan_card.py).
 CARD_CODE_PATTERN = "^[0-9A-HJKMNP-TV-Z]{10}$"
 
 
@@ -90,8 +61,6 @@ async def _log_access(
     remote_artisan_id: str | None = None,
     matched_by: str | None = None,
 ) -> None:
-    """One row per peer request: who asked (the designer-portal account id), what, and what it
-    reached. Never the Pehchan number or the Aadhaar code."""
     await db.crossportalaccesslog.create(
         data=_access_row(
             request, action, outcome, artisan_id=artisan_id, remote_artisan_id=remote_artisan_id, matched_by=matched_by
@@ -108,7 +77,6 @@ def _access_row(
     remote_artisan_id: str | None = None,
     matched_by: str | None = None,
 ) -> dict[str, Any]:
-    """The ``CrossPortalAccessLog`` row :func:`_log_access` writes, for writing several at once."""
     asked_by = (request.headers.get(cross_portal.REQUESTED_BY_HEADER) or "").strip()[:64] or None
     return {
         "action": action,
@@ -132,7 +100,6 @@ class PeerLink(BaseModel):
 
     remoteArtisanId: str = Field(min_length=1, max_length=64)
     matchedBy: str = Field(pattern="^(PEHCHAN|AADHAAR|CARD)$")
-    # The designer portal's live card code for its record, so its card opens this artisan here.
     remoteCardCode: str | None = Field(default=None, pattern=CARD_CODE_PATTERN)
 
 
@@ -172,7 +139,6 @@ class ConsentIn(BaseModel):
 
 
 async def _consenting(artisan_id: str) -> Any | None:
-    """The artisan, when their consent is recorded as granted; ``None`` otherwise."""
     consent = await db.artisansharingconsent.find_unique(where={"artisanId": artisan_id})
     if consent is None or not consent.granted:
         return None
@@ -204,7 +170,6 @@ def _answer(artisan: Any, matched_by: str) -> dict[str, Any]:
 
 
 async def _card_code(artisan_id: str, settings: Any) -> str | None:
-    """This portal's live card code for the artisan, issuing one if cards are on; else ``None``."""
     if not artisan_card.active(settings):
         return None
     try:
@@ -212,14 +177,12 @@ async def _card_code(artisan_id: str, settings: Any) -> str | None:
             db, artisan_id, settings=settings, user_id=None, source="PEER"
         )
     except Exception:
-        # The link stands without it; the next refresh carries the code.
         logger.warning("cross-portal: card code left off this answer", exc_info=True)
         return None
     return card.code
 
 
 async def _hold_remote_card_code(link_id: str | None, code: str | None) -> None:
-    """Free ``code`` from any other link before it is written (the column is unique)."""
     if not code:
         return
     where: dict[str, Any] = {"remoteCardCode": code}
@@ -232,11 +195,6 @@ async def _hold_remote_card_code(link_id: str | None, code: str | None) -> None:
 async def peer_lookup(
     payload: PeerLookup, request: Request, settings: Any = Depends(require_peer)
 ) -> Response:
-    """One artisan by Pehchan number or by the Aadhaar code, if their consent is recorded here.
-
-    "No such artisan" and "no consent" are the SAME answer, on purpose: telling the other portal that
-    somebody is on file here without their agreement would itself be a disclosure.
-    """
     pehchan = normalize_pehchan(payload.pehchanCardNumber)
     if pehchan:
         row = await db.artisan.find_first(where={"pehchanCardNumber": pehchan})
@@ -254,9 +212,6 @@ async def peer_lookup(
                     settings, request, {"match": _answer(artisan, cross_portal.MATCHED_BY_PEHCHAN)}
                 )
     if payload.aadhaarCode:
-        # Only artisans who agreed are compared at all: the set is small, and an artisan without
-        # consent is never even looked at. Each row's code is its stored aadhaarFingerprint (the
-        # same key and formula), or the legacy number's code before the backfill reaches it.
         consents = await db.artisansharingconsent.find_many(where={"granted": True})
         ids = [c.artisanId for c in consents]
         rows = await db.artisan.find_many(where={"id": {"in": ids}}) if ids else []
@@ -288,15 +243,6 @@ async def peer_lookup(
 async def peer_match(
     payload: PeerMatch, request: Request, settings: Any = Depends(require_peer)
 ) -> Response:
-    """Which of these designer-portal artisans this register holds, by exact key only. IDS ONLY.
-
-    Each item names a designer-portal artisan (``ref``) by its Pehchan number or its Aadhaar
-    fingerprint. The answer lists, for the items that match a CONSENTING artisan here whose status
-    is not REJECTED, this register's id and which key matched — nothing else about the record. "Not
-    on file" and "no consent" stay the same answer, exactly as ``peer_lookup``. Every match is one
-    ``CrossPortalAccessLog`` row (``SCAN``/``MATCH``), and each call one summary row, so the day's
-    budget (:data:`MATCH_CALLS_PER_DAY`, then 429) is counted from the log itself.
-    """
     day_start = datetime.combine(datetime.now(UTC).date(), time.min, tzinfo=UTC)
     calls_today = await db.crossportalaccesslog.count(
         where={"action": ACTION_SCAN, "outcome": "SUMMARY", "createdAt": {"gte": day_start}}
@@ -354,9 +300,6 @@ async def peer_match(
                     matched_by=matched_by,
                 )
             )
-    # Every MATCH row in one insert rather than one round trip each, then the summary row last.
-    # The rows of one create_many share their createdAt, so their order (and the answer's) comes
-    # from walking the candidates in id order above; a reader of the log orders by createdAt, then id.
     if logged:
         await db.crossportalaccesslog.create_many(data=logged)
     await _log_access(request, ACTION_SCAN, "SUMMARY")
@@ -364,11 +307,6 @@ async def peer_match(
 
 
 async def _linked_record(artisan_id: str, remote_artisan_id: str) -> Any | None:
-    """The link the designer portal's record holds here, reached through ``artisan_id`` — the id it
-    knows, which a merge here may have retired.
-
-    Found by ``remoteArtisanId`` alone, then accepted when its ``artisanId`` is the path id, the
-    record the path id was merged into, or a record whose merge (or undone merge) joins the two."""
     links = await db.crossportalartisanlink.find_many(where={"remoteArtisanId": remote_artisan_id})
     if not links:
         return None
@@ -398,10 +336,6 @@ async def peer_refresh(
     request: Request,
     settings: Any = Depends(require_peer),
 ) -> Response:
-    """The identity fields again, for a record the designer portal has LINKED. 404 otherwise.
-
-    Answers with the record's CURRENT id: after a merge (or an undo) here it differs from the path
-    id, and the designer portal moves its link to it."""
     link = await _linked_record(artisan_id, remoteArtisanId)
     artisan = await _consenting(link.artisanId) if link is not None else None
     if artisan is None:
@@ -426,7 +360,6 @@ async def peer_refresh(
 async def peer_link(
     artisan_id: str, payload: PeerLink, request: Request, settings: Any = Depends(require_peer)
 ) -> Response:
-    """Record the designer portal's link. Refused (409) once consent is not granted."""
     artisan_id = await artisan_merge.survivor_of(artisan_id) or artisan_id
     if await _consenting(artisan_id) is None:
         await _log_access(
@@ -471,7 +404,6 @@ async def peer_update_card(
     request: Request,
     settings: Any = Depends(require_peer),
 ) -> Response:
-    """The designer portal reissued its card: its new code replaces the one on the link."""
     link = await db.crossportalartisanlink.find_first(
         where={"artisanId": artisan_id, "remoteArtisanId": remote_artisan_id}
     )
@@ -499,11 +431,6 @@ async def peer_update_card(
 async def peer_resolve_card(
     payload: PeerCardResolve, request: Request, settings: Any = Depends(require_peer)
 ) -> Response:
-    """The artisan behind one of THIS portal's cards, if their sharing consent is recorded here.
-
-    Answers only for a live card with a valid tag (when one is sent), an artisan who is not
-    REJECTED, and a granted consent. Every other case is the same ``match: null``.
-    """
     match = None
     card = None
     if artisan_card.active(settings):
@@ -571,7 +498,6 @@ async def require_coverage_peer(
     authorization: str | None = Header(default=None),
     x_cross_portal_nonce: str | None = Header(default=None),
 ) -> Any:
-    """The designer portal's server, for the coverage feed. Its own flag; the same token and nonce."""
     settings = get_settings()
     if not coverage.peer_coverage_active(settings):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
@@ -592,11 +518,6 @@ async def peer_coverage(
     scheme: list[str] | None = Query(None),
     settings: Any = Depends(require_coverage_peer),
 ) -> Response:
-    """Per-district AGGREGATE counts for the designer portal's coverage map. No ids, names or stubs.
-
-    ``scheme`` is accepted and ignored: the designer portal's schemes are not this portal's workshop
-    types, and that portal says so beside the figures.
-    """
     del scheme
     filters = coverage.Filters(
         craft_codes=tuple(coverage.resolve_craft_codes(craftCode)),
@@ -607,17 +528,11 @@ async def peer_coverage(
     return _signed(settings, request, coverage.peer_payload(fold, filters))
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# This portal's own users
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 @router.get("/status")
 async def cross_portal_status(_: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Whether the clients should draw the sharing switch at all, and what it shares."""
     return {
         "enabled": cross_portal.active(get_settings()),
-        # The consent copy's list, from the one list the lookup answer is built from.
         "sharedFields": cross_portal.consent_fields_phrase(),
     }
 
@@ -646,11 +561,6 @@ async def get_consent(artisan_id: str, _: Any = Depends(get_current_user)) -> di
 async def set_consent(
     artisan_id: str, payload: ConsentIn, current_user: Any = Depends(get_current_user)
 ) -> dict[str, Any]:
-    """Record, or withdraw, the artisan's agreement to share with the designer portal.
-
-    Withdrawing also removes this portal's link rows, so a later refresh from the designer portal is
-    refused; the designer portal's own copy of what it already filled in is that portal's record.
-    """
     _active_or_404()
     artisan = await db.artisan.find_unique(where={"id": artisan_id})
     if artisan is None:
@@ -667,8 +577,6 @@ async def set_consent(
         "recordedAt": datetime.now(UTC),
     }
     before = await db.artisansharingconsent.find_unique(where={"artisanId": artisan_id})
-    # THE AUDIT LEDGER, as for any change to the artisan: who granted or withdrew, from what, when.
-    # The upsert below keeps only the latest state; this row is what keeps the history.
     await record_revision(
         SimpleNamespace(id=artisan_id, sharingConsent=getattr(before, "granted", None)),
         current_user,

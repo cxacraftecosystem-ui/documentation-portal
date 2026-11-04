@@ -4,8 +4,8 @@ Containers for local development: the two application images, and the profile-ga
 stack that runs them next to PostgreSQL 17, an S3-compatible store (Silo, the maintained fork of
 MinIO, still reached as the `minio` service) and (optionally) Redis 8.
 
-Production does **not** use any of this. The API runs from a systemd unit on a single EC2
-t3.micro behind nginx behind CloudFront (`docs/ARCHITECTURE.md`), and the web app is built by
+Production does **not** use any of this. The API runs from two systemd units (a blue/green pair of
+ports) on a single EC2 t3.small behind nginx behind CloudFront (`docs/ARCHITECTURE.md`), and the web app is built by
 Vercel's own pipeline (`docs/DEPLOYMENT_VERCEL.md`). These images exist so the whole stack can be
 brought up on one machine, and so there is a tested answer ready the day either of those two
 hosts has to change.
@@ -137,7 +137,7 @@ convention as PostgreSQL's `55432` — offset so it cannot collide with a Redis 
 
 The container holds no volume. A cache with a volume invites being treated as a store of record.
 It is capped at 128 MB with `allkeys-lru`, and RDB/AOF persistence is switched off: the
-fork-to-snapshot briefly doubles the resident set, which is the one behaviour a 1 GiB production
+fork-to-snapshot briefly doubles the resident set, which is the one behaviour a small production
 box cannot absorb, so it is not rehearsed here either.
 
 ---
@@ -355,7 +355,8 @@ brought the stack up with, or `--profile full`, which stops everything.
 
 ### Matching the production memory ceiling
 
-Production is a 1 GiB box. Nothing here enforces that, because an OOM kill mid-debug is a bad
+Production is a 2 GiB box (a t3.small; 1 GiB until 10 Oct 2026), and a release briefly runs two API
+ports on it. Nothing here enforces that, because an OOM kill mid-debug is a bad
 trade for a dev machine — but when you want to reproduce one:
 
 ```bash
@@ -401,3 +402,13 @@ Rebuild without cache.
 
 **The API container is `unhealthy` but the app responds** — check the probe path is `/health`.
 `/api/health` returns 404 and would keep it unhealthy forever.
+
+## How this document is kept true
+
+| Claim class | Kept true by |
+|---|---|
+| Services, ports and images | `docker-compose.yml`, `backend/Dockerfile` and `frontend/Dockerfile`; this page follows them |
+| That production does not use these images | `.github/workflows/deploy-backend.yml` deploys a venv to EC2 and `deploy-frontend.yml` deploys to Vercel; neither builds an image |
+| Memory figures for production | dated where they appear; re-measure after a resize |
+
+**Review triggers:** a change to any Dockerfile or `docker-compose.yml`, or a Postgres major upgrade.

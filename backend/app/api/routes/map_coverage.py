@@ -1,15 +1,3 @@
-"""The coverage map's routes, on the ``/map`` router beside ``map_points``.
-
-``GET /map/coverage`` folds every record the caller may read into LGD units, with the gaps (shared
-crafts nobody has documented, districts and states with no workshop). ``GET /map/coverage/units/...``
-pages the records behind one unit. The unmatched report and the alias routes are an administrator's:
-they turn a free-text place spelling the register cannot place into an LGD code, once, for every row
-written that way. Each alias write is a ``RecordRevision`` (``recordType`` ``geoalias``).
-
-Reading coverage is open to any signed-in account, the same rule as ``/map``. See
-``services/coverage`` for how the fold keeps the visibility rule in ``record_filters``.
-"""
-
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -142,8 +130,6 @@ async def create_alias(payload: AliasIn, current_user: Any = Depends(require_con
             "createdById": getattr(current_user, "id", None),
         }
     )
-    # THE AUDIT LEDGER: an alias moves every row written this way onto a district, so who mapped
-    # what to what is kept like any other edit.
     await record_revision(
         SimpleNamespace(id=row.id, rawStateKey=None, rawDistrictKey=None, stateLgd=None, districtLgd=None),
         current_user,

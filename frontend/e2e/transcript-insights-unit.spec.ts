@@ -1,8 +1,3 @@
-/**
- * Interview summaries, key quotes and translations — the pure half of `lib/transcriptInsights.ts`
- * plus source assertions for what lives in JSX (there is no React renderer in devDependencies).
- */
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -45,7 +40,7 @@ function view(mediaId: string, patch: Partial<TranscriptInsightView> = {}): Tran
       translation: { status: "COMPLETED", text: null, note: null },
       provenance: {
         provider: "openai",
-        modelId: "gpt-4o-mini",
+        modelId: "gpt-6-luna",
         modelVersion: null,
         promptVersion: "transcript-insights/1",
         generatedAt: "2026-10-30T10:00:00Z"
@@ -110,7 +105,7 @@ test("a 404 hides the section and an id left out of the batch is hidden too", as
   expect(await failed).toBe("error");
 });
 
-test("the edit form keeps at most five summary lines", () => {
+test("@qf:H1 the edit form keeps at most five summary lines", () => {
   expect(cleanSummaryLines(["1", " ", "2", "3", "4", "5", "6"])).toEqual(["1", "2", "3", "4", "5"]);
   expect(cleanSummaryLines(["x".repeat(500)])[0]).toHaveLength(400);
   expect(editRows(["a", "b"])).toEqual(["a", "b", "", "", ""]);
@@ -120,7 +115,7 @@ test("the edit form keeps at most five summary lines", () => {
   ]);
 });
 
-test("the confirm dialog shows only for edited insights", () => {
+test("@qf:H1 the confirm dialog shows only for edited insights", () => {
   expect(needsRegenerateConfirm(view("a"))).toBe(false);
   const edited = view("b");
   edited.insight!.edited = { at: "2026-10-30T11:00:00Z" };
@@ -189,7 +184,6 @@ function fakeTimers() {
     },
     clear: (handle) => void pending.delete(handle as number)
   };
-  /** Moves the clock forward, firing every timer that falls due on the way. */
   async function advance(ms: number) {
     const until = now + ms;
     for (;;) {

@@ -14,11 +14,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.data.OidcProviderId
 
-/**
- * The Microsoft and Yahoo marks, drawn from the same geometry as the web's inline SVGs
- * (`frontend/app/login/page.tsx`), so no drawable resource is needed and the two clients cannot
- * drift apart. Decorative: the button's label names the provider.
- */
 @Composable
 fun OidcProviderMark(provider: OidcProviderId, size: Dp = 20.dp) {
     when (provider) {
@@ -27,7 +22,6 @@ fun OidcProviderMark(provider: OidcProviderId, size: Dp = 20.dp) {
     }
 }
 
-/** Four squares in a 21x21 box, exactly as the web's `MicrosoftMark` lays them out. */
 @Composable
 private fun MicrosoftMark(size: Dp) {
     Canvas(modifier = Modifier.size(size)) {
@@ -41,7 +35,6 @@ private fun MicrosoftMark(size: Dp) {
     }
 }
 
-/** The web's `YahooMark` path data, verbatim, parsed once. */
 private const val YAHOO_PATH =
     "M0 6.71h4.62l2.69 6.88 2.72-6.88h4.5L7.76 22.5H3.23l1.86-4.32L0 6.71zm17.62 5.05h-5.03L17.06 " +
         "1.5h5.02l-4.46 10.26zm-3.03 1.4c1.55 0 2.8 1.26 2.8 2.81a2.8 2.8 0 1 1-5.61 0c0-1.55 " +

@@ -10,30 +10,12 @@ import java.io.IOException
 import java.time.Instant
 import java.util.UUID
 
-/**
- * OFFLINE FORM AUTHORING WITH TEMPORARY IDS (UNIFY A15, 4.3; DR audit M12).
- *
- * A form, its sections and its questions written with no signal get LOCAL ids (`local-form-…`,
- * `local-section-…`, `local-question-…`). Each create is one step with its body frozen and its
- * Idempotency-Key minted when it is queued; the steps run in the outbox's first three places
- * (`form` → `section` → `question`), before any session, and each landing writes local → server into
- * [FormQueue.ids]. A child names its parent by whichever id it had then; [FormQueue.resolve] turns a
- * landed local id into the server's, and a child whose parent has not landed waits for it.
- *
- * The session outbox asks [resolveFormId] before sending a session create on a form written here, so
- * a session started on a phone-only form lands on the right form once the form does.
- *
- * Reuse (A5) and a received bundle (A10, `.frwq`/`.dpwq`) are queued through the same steps, so both
- * work with no connection. A bundle is added once: its `bundleId` is remembered.
- */
-/** A step's state: waiting, landed, or refused for good (the fix tray). */
 object StepState {
     const val PENDING = "PENDING"
     const val DONE = "DONE"
     const val FAILED = "FAILED"
 }
 
-/** A refusal no retry will change (4xx other than 408 and 429). */
 class PermanentStepFailure(message: String) : Exception(message)
 
 data class FormPassResult(val sent: Int, val failed: Int, val remaining: Int)
@@ -53,7 +35,6 @@ data class FormStep(
     val id: String,
     val kind: String,
     val localId: String,
-    /** The form a section joins, or the section a question joins: local or server. */
     val parentId: String? = null,
     val idempotencyKey: String,
     val bodyJson: String,
@@ -67,12 +48,9 @@ data class FormStep(
 data class FormQueue(
     val ownerUserId: String? = null,
     val steps: List<FormStep> = emptyList(),
-    /** Local id → server id, written as each create lands. */
     val ids: Map<String, String> = emptyMap(),
-    /** Bundles already added on this phone (A10: import is idempotent on the bundle id). */
     val bundleIds: Set<String> = emptySet()
 ) {
-    /** A server id stays itself; a landed local id becomes the server's; an unlanded one is null. */
     fun resolve(id: String): String? = ids[id] ?: id.takeUnless { isLocal(it) }
 
     fun ordered(): List<FormStep> = steps.sortedWith(compareBy<FormStep> { FormStepKind.rank(it.kind) }.thenBy { it.createdAt }.thenBy { it.id })
@@ -85,7 +63,6 @@ data class FormQueue(
     }
 }
 
-/** The three creates the queue drives; [QuestionnaireFormsApi] implements them for real. */
 interface FormTransport {
     suspend fun createForm(idempotencyKey: String, body: QFormCreate): String
     suspend fun createSection(idempotencyKey: String, body: QSectionCreate): String
@@ -123,7 +100,6 @@ class FormAuthoringOutbox(private val store: FormQueueStore, private val clock: 
 
     suspend fun resolveFormId(id: String): String? = queue().resolve(id)
 
-    /** The owner whose phone queued these; another account's sync never sends them. */
     suspend fun claim(ownerUserId: String?) = change { q -> if (q.ownerUserId == null && q.steps.isEmpty()) q.copy(ownerUserId = ownerUserId) else q }
 
     suspend fun queueForm(body: QFormCreate, ownerUserId: String?): String {
@@ -137,7 +113,6 @@ class FormAuthoringOutbox(private val store: FormQueueStore, private val clock: 
         return localId
     }
 
-    /** [formId] is the form's local id or its server id. */
     suspend fun queueSection(formId: String, code: String, title: String, sortOrder: Int?): String {
         val localId = "local-section-" + newKey()
         val body = QSectionCreate(questionnaireId = formId, code = code.trim(), title = title.trim(), sortOrder = sortOrder)
@@ -152,10 +127,6 @@ class FormAuthoringOutbox(private val store: FormQueueStore, private val clock: 
         return localId
     }
 
-    /**
-     * A whole form from a bundle or a reuse: the form, then each section, then its questions, all
-     * local. Returns the form's local id, or null when [bundleId] was added before.
-     */
     suspend fun queueBundle(bundle: FormBundle, ownerUserId: String?, bundleId: String? = bundle.bundleId): String? {
         if (bundleId != null && bundleId in queue().bundleIds) return null
         val formId = queueForm(QFormCreate(title = bundle.form.title, description = bundle.form.description, kind = bundle.form.kind), ownerUserId)
@@ -170,10 +141,8 @@ class FormAuthoringOutbox(private val store: FormQueueStore, private val clock: 
         return formId
     }
 
-    /** "Send again": the failure clears, the key and body stay. */
     suspend fun retry(stepId: String) = change { q -> q.copy(steps = q.steps.map { if (it.id == stepId) it.copy(state = StepState.PENDING, failure = null, attempts = 0) else it }) }
 
-    /** "Discard": the step, and everything that hangs from its local id. */
     suspend fun discard(stepId: String) = change { q ->
         val gone = mutableSetOf(q.steps.firstOrNull { it.id == stepId }?.localId ?: return@change q)
         var grew = true
@@ -184,10 +153,6 @@ class FormAuthoringOutbox(private val store: FormQueueStore, private val clock: 
         q.copy(steps = q.steps.filterNot { it.localId in gone })
     }
 
-    /**
-     * One pass, in order. A refusal fails that step (and its children wait in the tray with it); a
-     * missing signal stops the pass so nothing is sent out of order.
-     */
     suspend fun sync(transport: FormTransport, ownerUserId: String?): FormPassResult {
         var sent = 0
         val start = queue()
@@ -197,7 +162,7 @@ class FormAuthoringOutbox(private val store: FormQueueStore, private val clock: 
             val current = q.steps.firstOrNull { it.id == step.id } ?: continue
             if (current.state != StepState.PENDING) continue
             val parent = current.parentId?.let { q.resolve(it) }
-            if (current.parentId != null && parent == null) continue // its parent has not landed
+            if (current.parentId != null && parent == null) continue
             val serverId = try {
                 when (current.kind) {
                     FormStepKind.FORM -> transport.createForm(current.idempotencyKey, formsJson.decodeFromString(QFormCreate.serializer(), current.bodyJson))
@@ -219,12 +184,10 @@ class FormAuthoringOutbox(private val store: FormQueueStore, private val clock: 
             sent++
         }
         val end = queue()
-        // Landed steps go; the id table stays, so a session queued on a local form still finds its form.
         change { x -> x.copy(steps = x.steps.filterNot { it.state == StepState.DONE }) }
         return FormPassResult(sent, end.failed.size, end.pending.size)
     }
 
-    /** Forms written on this phone that have not landed, drawn in the library as "On this phone". */
     suspend fun localForms(): List<QForm> {
         val q = queue()
         return q.steps.filter { it.kind == FormStepKind.FORM && q.ids[it.localId] == null }.map { step ->
@@ -238,7 +201,6 @@ class FormAuthoringOutbox(private val store: FormQueueStore, private val clock: 
         }
     }
 
-    /** Sections and questions queued under [formId] (local or server), to show beside the server's. */
     suspend fun pendingSectionsOf(formId: String): List<QFormSection> = localSections(queue(), formId)
 
     private fun localSections(q: FormQueue, formId: String): List<QFormSection> =
@@ -255,7 +217,6 @@ class FormAuthoringOutbox(private val store: FormQueueStore, private val clock: 
             }
 }
 
-/** The real transport over [QuestionnaireFormsApi], with the session outbox's refusal rule. */
 class ApiFormTransport(private val api: QuestionnaireFormsApi) : FormTransport {
     private suspend fun <T> call(block: suspend () -> T): T = try {
         block()
@@ -268,7 +229,6 @@ class ApiFormTransport(private val api: QuestionnaireFormsApi) : FormTransport {
     override suspend fun createForm(idempotencyKey: String, body: QFormCreate): String = try {
         call { api.createForm(idempotencyKey, body).id }
     } catch (refused: PermanentStepFailure) {
-        // A server that does not know form kinds yet refuses the field (422): the form still lands.
         if (body.kind == null) throw refused
         call { api.createForm("$idempotencyKey-k", body.copy(kind = null)).id }
     }
@@ -276,7 +236,6 @@ class ApiFormTransport(private val api: QuestionnaireFormsApi) : FormTransport {
     override suspend fun createQuestion(idempotencyKey: String, body: QQuestionCreate): String = call { api.createQuestion(idempotencyKey, body).id }
 }
 
-/** The server's sentence for a 4xx: `{detail: "…"}` or `{detail: {message}}`. */
 fun apiDetail(http: retrofit2.HttpException): String? = runCatching {
     val body = http.response()?.errorBody()?.string() ?: return null
     val detail = ApiClient.json.parseToJsonElement(body).let { (it as? kotlinx.serialization.json.JsonObject)?.get("detail") }

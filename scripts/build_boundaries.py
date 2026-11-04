@@ -109,8 +109,6 @@ DISTRICTS_URL = "https://www.kaggle.com/api/v1/datasets/download/adityaradha007/
 STATES_URL = "https://raw.githubusercontent.com/datameet/maps/master/docs/data/geojson/states.geojson"
 COUNTRY_URL = "https://raw.githubusercontent.com/datameet/maps/master/Country/india-osm.geojson"
 
-#: The states file predates two changes the register has. Mapped rather than aliased in
-#: ``services.address``, because these are this FILE's spellings and belong to this file.
 GEO_STATE_ALIASES = {
     "Andaman & Nicobar Island": "Andaman and Nicobar Islands",
     "Arunanchal Pradesh": "Arunachal Pradesh",
@@ -120,9 +118,6 @@ GEO_STATE_ALIASES = {
     "NCT of Delhi": "Delhi",
 }
 
-#: The depiction guard, identical to the seven points ``indiaGeometry.ts`` records. Re-run against the
-#: SIMPLIFIED output, because simplification is exactly what silently amputates a salient or drops an
-#: island group — which for Aksai Chin would be a legal problem, not a cosmetic one.
 DEPICTION = [
     ("Aksai Chin", 79.60, 35.20, True),
     ("Gilgit-Baltistan", 74.80, 35.90, True),
@@ -134,14 +129,10 @@ DEPICTION = [
 ]
 
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-SCALE = 1000  # three decimal places, matching the national outline's quantisation
+SCALE = 1000
 QUANT_MAX = 65535
-OUTLINE_MAGIC = 0x494E4431  # "IND1"
+OUTLINE_MAGIC = 0x494E4431
 
-
-# ---------------------------------------------------------------------------------------------
-# Sources
-# ---------------------------------------------------------------------------------------------
 
 
 def fetch(cache: pathlib.Path, fetch_now: bool) -> tuple[list, list, list]:
@@ -167,10 +158,6 @@ def fetch(cache: pathlib.Path, fetch_now: bool) -> tuple[list, list, list]:
     load = lambda p: json.loads(p.read_text(encoding="utf-8"))["features"]  # noqa: E731
     return load(districts), load(states), load(country)
 
-
-# ---------------------------------------------------------------------------------------------
-# Point-in-polygon, used only to attribute and to verify
-# ---------------------------------------------------------------------------------------------
 
 
 def polygons_of(geometry: dict) -> list:
@@ -212,10 +199,6 @@ def sampled(geometry: dict, per_ring: int = 25) -> list:
     return out or [[0.0, 0.0]]
 
 
-# ---------------------------------------------------------------------------------------------
-# Attribution: the register decides, geometry may veto
-# ---------------------------------------------------------------------------------------------
-
 
 def attribute(districts: list, states: list) -> tuple[dict, list, list, list]:
     by_state: dict[str, list] = collections.defaultdict(list)
@@ -232,8 +215,6 @@ def attribute(districts: list, states: list) -> tuple[dict, list, list, list]:
         points = sampled(geometry)
         cx = sum(p[0] for p in points) / len(points)
         cy = sum(p[1] for p in points) / len(points)
-        # Nudged 10% toward the centroid so a vertex sitting exactly ON the shared border, which is
-        # every vertex of a border segment, is judged by which side the district actually occupies.
         hits = sum(
             1
             for p in points
@@ -256,15 +237,6 @@ def attribute(districts: list, states: list) -> tuple[dict, list, list, list]:
         return winner
 
     resolved: dict[tuple[str, str], dict] = {}
-    # THE STATE OF *EVERY* POLYGON, whether or not the register has a district for it.
-    #
-    # These are two different questions and conflating them deleted real borders. The register join
-    # keys a district to app data and is allowed to fail; drawing a BORDER needs only to know which
-    # state each side of an edge belongs to, and must never fail. Dropping the three polygons the
-    # register cannot name — Delhi's Shahdara, and Mirpur and Muzaffarabad, which lie inside the
-    # national border but which the LGD register does not enumerate — left their shared edges counted
-    # ONCE instead of twice, so the classifier read them as coast and deleted them. The J&K/PoK
-    # internal borders vanished, silently, from a pass whose whole purpose is not to lose geometry.
     owner_state: list[tuple[dict, str]] = []
     vetoed, unresolved = [], []
     for feature in districts:
@@ -299,10 +271,6 @@ def attribute(districts: list, states: list) -> tuple[dict, list, list, list]:
     return resolved, owner_state, vetoed, unresolved
 
 
-# ---------------------------------------------------------------------------------------------
-# The decomposition: interior edges, classified and chained into polylines
-# ---------------------------------------------------------------------------------------------
-
 Point = tuple[float, float]
 
 
@@ -326,7 +294,6 @@ def classify_edges(owner_state: list) -> tuple[dict[tuple[Point, Point], set], i
                     owners[key].add(state)
                     counts[key] += 1
     frontier = sum(1 for key, n in counts.items() if n == 1)
-    # Edges used once are the coast or the international frontier. The national outline draws those.
     for key, n in list(counts.items()):
         if n == 1:
             owners.pop(key, None)
@@ -354,7 +321,6 @@ def chain(edges: set) -> list[list[Point]]:
             return True
         return False
 
-    # Start from junctions and dead ends first, so a chain is not cut arbitrarily mid-run.
     starts = [p for p, n in adjacency.items() if len(n) != 2] or list(adjacency)
     for start in starts + list(adjacency):
         for first in adjacency[start]:
@@ -411,10 +377,6 @@ def simplify(line: list[Point], tolerance: float) -> list[Point]:
     walk(0, len(line) - 1)
     return [line[i] for i in sorted(keep)]
 
-
-# ---------------------------------------------------------------------------------------------
-# Encoders
-# ---------------------------------------------------------------------------------------------
 
 
 def android_outline_bounds() -> tuple[float, float, float, float]:
@@ -475,29 +437,9 @@ def encode_android(lines: list[list[Point]], bounds: tuple[float, float, float, 
     return buf.getvalue()
 
 
-# ---------------------------------------------------------------------------------------------
-# --shapes: district POLYGONS for the coverage map's choropleth (web only)
-# ---------------------------------------------------------------------------------------------
-#
-# The Places view draws pins over borders and needs no polygons; the Coverage view fills districts,
-# so it needs each district's own ring. These are emitted SEPARATELY from the border files and only
-# by ``--shapes``, so the border assets above are never rewritten as a side effect.
-#
-# THE NATIONAL OUTLINE IS STILL NOT RE-EMITTED. The web draws ``indiaGeometry.ts`` as a neutral base
-# fill and clips every district fill to it, so a part of Jammu & Kashmir or Ladakh with no district
-# polygon still reads as India in the "no data" tone. The guard below holds the polygons to that
-# outline: no vertex more than ``SHAPES_OUTSIDE_TOLERANCE`` degrees outside it, and the three
-# depiction points either inside the right union territory's polygons or inside the base fill only.
-#
-# Polygons come from the same district source as the borders. Survey of India's free administrative
-# boundary download sits behind a registered login and could not be fetched by this script; when it
-# can, point ``DISTRICTS_URL`` at it and re-run — the manifest records the SHA-256 of whatever source
-# was used, so a reader can tell which one the committed file came from.
-
 SHAPES_TOLERANCE = 0.01
 SHAPES_OUTSIDE_TOLERANCE = 0.03
 SHAPES_DEPICTION = [
-    # (name, lon, lat, the state whose polygon may hold it — anything else must leave it to the base fill)
     ("Gilgit", 74.31, 35.92, "Ladakh"),
     ("Aksai Chin", 79.60, 35.20, "Ladakh"),
     ("Muzaffarabad", 73.47, 34.36, "Jammu and Kashmir"),
@@ -634,7 +576,6 @@ def _shape_ring(ring: list, tolerance: float) -> list[Point] | None:
         simplified.append(simplified[0])
     if len({(round(x * SCALE), round(y * SCALE)) for x, y in simplified}) >= 3:
         return simplified
-    # Narrower than the tolerance: keep its bounding box, the outline's own rule for such rings.
     xs, ys = [p[0] for p in points], [p[1] for p in points]
     if max(xs) - min(xs) < 1 / SCALE and max(ys) - min(ys) < 1 / SCALE:
         return None
@@ -755,7 +696,7 @@ def verify_shapes(shapes: list[dict]) -> list[str]:
 
 
 
-SHAPES_MAGIC = 0x44534831  # "DSH1"
+SHAPES_MAGIC = 0x44534831
 SHAPES_ANDROID = ROOT / "android" / "app" / "src" / "main" / "res" / "raw" / "district_shapes.bin"
 
 
@@ -838,8 +779,6 @@ def write_shapes(resolved: dict, source_sha256: str, tolerance: float) -> int:
     return write_shapes_bin()
 
 
-# ---------------------------------------------------------------------------------------------
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -872,8 +811,6 @@ def main() -> int:
 
     print("attributing districts (register decides, geometry vetoes)")
     if args.shapes:
-        # Attribution is the slow step (minutes) and depends only on the two source files, so the
-        # shapes pass reuses a previous run's answer for the same bytes.
         import hashlib
 
         cache_dir = pathlib.Path(args.cache)
@@ -954,15 +891,6 @@ def main() -> int:
         print("dry run — nothing written")
         return 0
 
-    # THE OUTLINE'S OWN BOUNDS, READ FROM THE OUTLINE, not retyped from `INDIA_BOUNDS`.
-    #
-    # Those two are not the same numbers: the TypeScript constant is the extent rounded to the three
-    # decimals the payload is quantised at, while the binary header carries the source's raw extent
-    # (68.2056009..97.395561 E). Android un-quantises every asset with the bounds in its OWN header and
-    # then projects into a world space derived from them, so writing the rounded pair here gave the
-    # borders a world space scaled ~7e-5 differently from the outline's — a fraction of a pixel, but a
-    # fraction of a pixel that a future reader would have to re-derive to be sure of. Reading the header
-    # makes the two spaces identical, so a pin, the coastline and a district border cannot drift at all.
     bounds = android_outline_bounds()
     web_out = ROOT / "frontend" / "public" / "boundaries"
     web_out.mkdir(parents=True, exist_ok=True)

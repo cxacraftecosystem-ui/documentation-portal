@@ -59,9 +59,7 @@ import { artisanFilter } from "@/lib/questionnairePortal";
 import type { Artisan } from "@/lib/types";
 
 type Target = { sectionId: string } | { questionLineageId: string };
-/** What a Record press or file pick is for; the roster is snapshotted at the press (DESIGN §3.4). */
 type Pending = { targets: Target[]; label: string; code: string; file?: File | null; roster: string[] };
-/** Everything a take carries from the press to the outbox. */
 type TakeContext = {
   pending: Pending;
   reasons: Record<string, RepeatReason>;
@@ -112,21 +110,13 @@ function gridFromSections(sections: InstrumentSection[], byId: Record<string, Gr
   return { sections: sections.map((s) => ({ id: s.id, code: s.code, title: s.title, questions: byId[s.id] })), cells: [] };
 }
 
-/** The clip keys already in the outbox: a draft whose take reached it needs no P13. */
 function queuedClipKeys(units: SessionUnit[]): Set<string> {
   return new Set(units.flatMap((u) => u.steps.filter((s): s is ClipStep => s.kind === "clip").map((s) => s.clientClipKey)));
 }
 
-/**
- * The capture workspace (DESIGN §4.3–4.5, §6.2): the session's coverage grid, the take sheet, the
- * recorder and every prompt. A session started offline lives in the outbox under its clientKey and
- * works the same way; its route swaps to the server id once it lands. A rebuilt session with no
- * clientKey is queued under its id (audit C4).
- */
 export function SessionWorkspace({ id }: { id: string }) {
   const router = useRouter();
   const { user } = useAuth();
-  // Removing a take, and merging sessions, are content admins' acts, admin view or not (owner, 2026-10-21).
   const { canDeleteRecords } = useAdminView();
   const config = useQuestionnaireConfig();
   const paused = config?.transcriptionPaused ?? true;
@@ -151,13 +141,9 @@ export function SessionWorkspace({ id }: { id: string }) {
   const [p7, setP7] = useState<{ run: () => void; position: number; target: string } | null>(null);
   const [p10, setP10] = useState<{ artisanId: string; name: string; count: number } | null>(null);
   const [adding, setAdding] = useState(false);
-  // The form's questions with their required marks (A19), and the transcripts offered as answers (B22).
   const [questions, setQuestions] = useState<Record<string, InstrumentQuestion[]>>({});
   const [proposals, setProposals] = useState<Record<string, AnswerProposal>>({});
   const [proposalNote, setProposalNote] = useState<string | null>(null);
-  // The question whose section opens on a take's proposals (B22). It is matched against the grid as
-  // it stands when the proposals arrive, or once the form's questions are read, never against the
-  // grid of the moment "Use as answer" was pressed.
   const [revealLineage, setRevealLineage] = useState<string | null>(null);
   useEffect(() => {
     if (!revealLineage || !grid) return;
@@ -172,9 +158,6 @@ export function SessionWorkspace({ id }: { id: string }) {
     unitsRef.current = queue.units;
   }, [queue.units]);
   const generation = useRef(0);
-  // The form's questions as last read. A re-read of the session (a restored take, a landed take, a
-  // merge) keeps them on the grid, so an open section never loses its questions while the form is
-  // read again, and a take's proposals still find their section in that window (B22).
   const knownQuestions = useRef<{ questionnaireId: string; byId: Record<string, InstrumentQuestion[]> } | null>(null);
 
   const load = useCallback(async () => {
@@ -235,8 +218,6 @@ export function SessionWorkspace({ id }: { id: string }) {
     };
   }, [detail, id, load, router]);
 
-  // The workshop's coverage snapshot, kept fresh while the workspace is open, so P2 asks the same
-  // question offline (audit M4). A failure keeps the held one.
   const questionnaireId = detail?.questionnaire.id ?? null;
   const workshopId = detail?.workshop?.id ?? null;
   useEffect(() => {
@@ -251,11 +232,6 @@ export function SessionWorkspace({ id }: { id: string }) {
 
   const sessionKey = detail ? sessionUnitKey(detail) : null;
 
-  /**
-   * P13: a take this browser started for this session and never handed to the outbox. A take that
-   * reached the outbox before the draft was cleared is cleared now; one being handed over in this tab
-   * is left alone (audit H17).
-   */
   const checkRecovery = useCallback(async () => {
     if (!sessionKey || activeRecording()) return;
     try {
@@ -264,7 +240,6 @@ export function SessionWorkspace({ id }: { id: string }) {
       for (const d of drafts) if (queued.has(d.clientClipKey)) void recorderStore.discard(d.takeKey).catch(() => undefined);
       setP13(recoverable(drafts.filter((d) => d.sessionKey === sessionKey && !takesInHand.has(d.takeKey) && !queued.has(d.clientClipKey)), chunks));
     } catch {
-      // No IndexedDB (a private window): nothing was kept to recover.
     }
   }, [sessionKey]);
 
@@ -272,8 +247,6 @@ export function SessionWorkspace({ id }: { id: string }) {
     void checkRecovery();
   }, [checkRecovery]);
 
-  // B24: questions mapped to an artisan column start with that artisan's value (origin PREFILL),
-  // written once per open by a researcher of the session; never over an answer somebody wrote.
   const prefilledFor = useRef<string | null>(null);
   const userId = user?.id ?? null;
   useEffect(() => {
@@ -297,13 +270,11 @@ export function SessionWorkspace({ id }: { id: string }) {
         await questionnaireApi.putAnswers(items);
         void load();
       } catch {
-        // Nothing is lost: the next open offers the same values again.
       }
     });
   }, [detail, questions, userId, load]);
 
   const pendingCount = queue.pendingClips.length;
-  // A take in progress, or waiting for "Answered by", is unsaved work too (audit, leave guard).
   const inHand = recording !== null || answering !== null ? 1 : 0;
   const guarded = pendingCount + inHand;
   useLeaveGuard(guarded > 0, () => setLeaveOpen(true));
@@ -316,14 +287,12 @@ export function SessionWorkspace({ id }: { id: string }) {
     return () => window.removeEventListener("beforeunload", warn);
   }, [guarded]);
 
-  // Overlay: takes still in the outbox show as uploading on the grid.
   const shownGrid = useMemo<Grid | null>(() => {
     if (!grid) return null;
     const cells = [...grid.cells];
     for (const step of queue.pendingClips as ClipStep[]) {
       for (const subject of step.recording.subjects) {
         if (subject.role !== "ANSWERED") continue;
-        // The grid column: the artisan's id, or `R:<id>` for a guest on the take.
         const column = subject.artisanId ?? (subject.respondentId ? `R:${subject.respondentId}` : null);
         if (!column) continue;
         for (const t of step.recording.targets) {
@@ -356,7 +325,6 @@ export function SessionWorkspace({ id }: { id: string }) {
   const session = detail;
   const unitSession = { id: session.id, clientKey: session.clientKey };
   const guests = (session.respondents ?? []).filter((r) => !r.artisanId);
-  // The people in the room at a press: present artisans, then guests (`R:<id>`, owner decision 1).
   const roster = [...session.participants.filter((p) => !p.leftAt).map((p) => p.artisanId), ...guests.map((g) => `R:${g.id}`)];
   const names: Record<string, string> = Object.fromEntries([
     ...session.participants.map((p) => [p.artisanId, p.name] as const),
@@ -364,7 +332,6 @@ export function SessionWorkspace({ id }: { id: string }) {
   ]);
   const subjects = sessionSubjects(session);
   const me = user?.id ?? null;
-  // A LEAD researcher of the session, or an admin, may change anyone's answer (the lock, U9).
   const mayOverride = Boolean(user && (canDeleteRecords || session.researchers.some((r) => r.userId === user.id && r.role === "LEAD")));
   const unanswered = requiredUnanswered(questions, detail.answers.map((a) => ({ ...a, text: a.text ?? "" })), subjects.map((s) => s.key), detail.recordings);
   const sectionOf = (lineageId: string) => shownGrid.sections.find((s) => s.questions?.some((q) => q.lineageId === lineageId))?.id ?? null;
@@ -383,17 +350,12 @@ export function SessionWorkspace({ id }: { id: string }) {
     return key;
   };
 
-  /**
-   * `coverage/check`, or — offline OR on any failure — the held workshop snapshot with this session's
-   * own takes and the outbox laid over it (audit M4). A failed check is never read as "not covered".
-   */
   async function check(pending: Pending, sha: string | null): Promise<CoverageCheckResponse> {
     const request = { questionnaireId: session.questionnaire.id, artisanIds: rosterArtisans(pending.roster), targets: pending.targets, sessionId: session.id, contentSha256: sha };
     if (navigator.onLine !== false) {
       try {
         return await questionnaireApi.checkCoverage(request);
       } catch {
-        // Fall through to what this browser holds.
       }
     }
     const held = readSnapshot(session.questionnaire.id, session.workshop?.id ?? null);
@@ -409,7 +371,6 @@ export function SessionWorkspace({ id }: { id: string }) {
     });
   }
 
-  /** P10: a participant with takes leaves only with `detach`; the server's count wins over ours. */
   async function dropParticipant(artisanId: string, detach: boolean) {
     try {
       await questionnaireApi.removeParticipant(session.id, artisanId, detach);
@@ -420,7 +381,6 @@ export function SessionWorkspace({ id }: { id: string }) {
     }
   }
 
-  /** "+ Add artisan" (audit M22): through the outbox, so it works offline and in order. */
   async function addArtisan(artisan: { id: string; name: string }) {
     setAdding(false);
     if (session.participants.some((p) => p.artisanId === artisan.id)) return;
@@ -432,10 +392,6 @@ export function SessionWorkspace({ id }: { id: string }) {
     });
   }
 
-  /**
-   * P5, from the session the identical file is on (audit M22): this session → add the artisans the
-   * take is missing; another session of the same sitting → merge (content admins); otherwise OK.
-   */
   async function identicalPrompt(other: NonNullable<CoverageCheckResponse["identical"]>, pending: Pending) {
     if (other.sameSession) {
       const take = session.recordings.find((r) => r.id === other.recordingId);
@@ -448,7 +404,6 @@ export function SessionWorkspace({ id }: { id: string }) {
           spec: prompts.p5({ ...base, case: "SAME_SESSION", addName: missing.map((a) => shortName(names[a] ?? "")).join(", ") }),
           act: async (choice) => {
             if (choice !== "add") return;
-            // Everyone already on the take stays as they were; the missing artisans join it as answering.
             const kept = take.subjects.map((s) => ({ artisanId: s.artisanId, role: missing.includes(s.artisanId) ? "ANSWERED" : s.role }));
             const added = missing.filter((a) => !take.subjects.some((s) => s.artisanId === a)).map((artisanId) => ({ artisanId, role: "ANSWERED" }));
             await questionnaireApi.patchRecording(take.id, { version: take.version, subjects: [...kept, ...added] });
@@ -525,7 +480,6 @@ export function SessionWorkspace({ id }: { id: string }) {
 
   function proceed(pending: Pending, reasons: Record<string, RepeatReason>, acked: string[], replaces: string | null, continuation: string | null, sha: string | null) {
     if (pending.file) {
-      // A picked file is dated the session day, never by its copy time; its type names a missing extension.
       const meta = pickedFileMeta(pending.file, session.sessionDate);
       finishTake(
         {
@@ -547,7 +501,6 @@ export function SessionWorkspace({ id }: { id: string }) {
     });
   }
 
-  /** After Stop or a pick: a group asks "Answered by" first (all ticked, the section's last choice kept). */
   function finishTake(take: FinishedTake, context: TakeContext) {
     if (context.pending.roster.length > 1) {
       const remembered = lastAnswered[sectionOfTargets(context.pending.targets)]?.filter((a) => context.pending.roster.includes(a));
@@ -557,10 +510,6 @@ export function SessionWorkspace({ id }: { id: string }) {
     void queueClip(take, context, new Set(context.pending.roster));
   }
 
-  /**
-   * Into the outbox. The recorder's draft is cleared only once the outbox holds the take (audit H17);
-   * if the write fails, the draft stays and P13 offers the take back at once.
-   */
   async function queueClip(take: FinishedTake, context: TakeContext, answered: ReadonlySet<string>) {
     setTakeError(null);
     try {
@@ -613,7 +562,6 @@ export function SessionWorkspace({ id }: { id: string }) {
     } else if (choice.kind === "part2") {
       proceed(current.pending, {}, acked, null, lastTake?.recordingId ?? null, null);
     } else if (choice.kind === "replace") {
-      // P7 first: the earlier take is removed (restorably) once this one uploads.
       setP7({
         position: lastTake?.position ?? 1,
         target: current.pending.label,
@@ -628,11 +576,6 @@ export function SessionWorkspace({ id }: { id: string }) {
 
   const press = (targets: Target[], label: string, code: string, file?: File) => void begin({ targets, label, code, file, roster });
 
-  /**
-   * "Use as answer" (B22, C2) and AI drafts (B23, C3): a take's transcript, and drafts where the
-   * switch is on, proposed per question. Offered in the answer box, never imposed; P8 still asks
-   * before a take-made answer is replaced. The server sends only what consent allows.
-   */
   async function offerAnswers(recording: Recording) {
     setProposalNote(null);
     try {
@@ -963,7 +906,6 @@ export function SessionWorkspace({ id }: { id: string }) {
               : undefined
           }
           onRecordConsent={(r) => {
-            // The artisan who refused, not simply the first one on the take (audit M22).
             const artisanId = consentSubject(r, session.participants);
             if (artisanId) setConsentFor({ artisanId, name: names[artisanId] ?? "" });
           }}
@@ -1083,11 +1025,6 @@ export function SessionWorkspace({ id }: { id: string }) {
   );
 }
 
-/**
- * P9 for an answer held in the outbox: "Changed on another device" when the server says who edited
- * it, "Giriraj already has an answer. Keep · Replace" when one simply exists, and a pinned answer's
- * refusal with OK (which drops the typed text).
- */
 export function conflictSpec(result: import("@/lib/questionnaire/api").AnswerResult, name: string, code: string): PromptSpec {
   const current = result.current;
   if (result.status === "FORBIDDEN") {
@@ -1115,13 +1052,11 @@ export function conflictSpec(result: import("@/lib/questionnaire/api").AnswerRes
   };
 }
 
-/** A19 on Finish: "3 required questions unanswered" under the summary, never blocking. */
 export function withRequired(spec: PromptSpec, unanswered: number): PromptSpec {
   if (unanswered <= 0) return spec;
   return { ...spec, body: `${spec.body} ${qs("requiredUnanswered", { count: unanswered })}`.trim() };
 }
 
-/** "+ Add artisan": artisans searched on the server (the session's workshop first), its own left out. */
 function AddArtisan({ exclude, scope, onPick }: { exclude: string[]; scope: string | null; onPick: (artisan: { id: string; name: string }) => void }) {
   const [search, setSearch] = useState("");
   const [artisans, setArtisans] = useState<Artisan[]>([]);

@@ -1,36 +1,3 @@
-"""One registry describing how every record type is presented, everywhere.
-
-Before this module the same field list was written out four separate times per record
-type — the browser's info panel, the browser's report sheet, export.py's ``details.txt``
-and csv_export.py's CSV columns — so adding a column meant editing four places and
-silently under-reporting in the three you forgot.
-
-ALL FOUR now derive from the ``RecordSpec`` entries below: the data browser's ``/data/tree``
-info panels and generated ``details.txt``, every sheet in the ``/data/report`` workbook, the
-``details.txt`` files inside the ``/export/dataset`` zip, and the ``/export/products.csv`` /
-``/export/tools.csv`` downloads. A column added here reaches every one of them, and — just as
-importantly — the masking applied here (an artisan's Aadhaar and Pehchan card numbers) can no
-longer be missed by a surface that built its own field list.
-
-Three presentations are built from one spec:
-
-- :func:`info_panel` — ``{title, fields:[{label,value}]}`` with empty values dropped.
-  Used for the data browser's record card and for generated ``details.txt`` bodies.
-- :func:`record_table` — a rectangular ``{columns, rows}`` grid that keeps every column
-  even when a cell is blank, so a folder can render its records as a real table.
-- :func:`sheet_columns` / :func:`sheet_row` — the same grid shaped for an .xlsx sheet,
-  with provenance (status / created by / created on) and the media columns appended.
-
-A spec's ``fields`` are the human-meaningful record fields. Provenance and media are
-added by the table/sheet builders rather than the spec, because the info panel
-deliberately omits them.
-
-Value coercion lives here too (:func:`num`, :func:`money`, :func:`dims`, :func:`date_str`,
-:func:`enum_label`). Prisma ``Decimal`` columns arrive as objects that stringify with
-trailing zeros, and Prisma enums stringify as ``MediaType.AUDIO``; both are normalised
-before they ever reach a cell.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -48,18 +15,12 @@ from app.services.standard_values import (
     tradition_label,
 )
 
-# ---------------------------------------------------------------------------
-# Value coercion
-# ---------------------------------------------------------------------------
-
 
 def ev(value: Any) -> Any:
-    """Prisma enum -> its plain string value (``MediaType.AUDIO`` -> ``AUDIO``)."""
     return getattr(value, "value", value)
 
 
 def num(value: Any) -> str | None:
-    """Decimal/number -> compact string without trailing zeros ("1500.00" -> "1500")."""
     if value is None:
         return None
     text = str(value)
@@ -89,8 +50,6 @@ def date_str(value: Any) -> str | None:
 
 
 def tradition_text(value: Any) -> str | None:
-    """A tool's tradition in the shared wording ("Transitional (Hybrid)"); a retired code reads as
-    its successor, and the unanswered default prints nothing, as ``enum_label`` does for it."""
     raw = str(ev(value) or "").strip()
     if not raw or raw == TRADITION_UNANSWERED:
         return None
@@ -98,8 +57,6 @@ def tradition_text(value: Any) -> str | None:
 
 
 def enum_label(value: Any) -> str | None:
-    """Enum -> "Local Blacksmith". The UNKNOWN/OTHER defaults carry no information, so
-    they are dropped rather than rendered as a meaningless cell."""
     raw = str(ev(value) or "").strip()
     if not raw or raw.upper() in ("UNKNOWN", "OTHER"):
         return None
@@ -114,22 +71,10 @@ def human_size(value: Any) -> str:
         if size < 1024 or unit == "TB":
             return f"{int(size)} {unit}" if unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
-    return ""  # pragma: no cover - the TB branch always returns
+    return ""  # pragma: no cover
 
 
 def flatten_rich_text(value: str) -> str | None:
-    """A rich-text answer stored as its document JSON -> the plain text a reader typed, else None.
-
-    The record forms on both clients store a formatted answer as ``{"blocks": [...]}`` (see
-    ``android/.../ui/RecordProseText.kt`` ``recordStoredFromDoc`` and the web's rich text field) and
-    plain typing as plain text. Exports used to print the JSON verbatim, so a formatted answer
-    reached a CSV as braces. This is the clients' ``toPlain`` line for line: paragraphs one per line,
-    ``1.`` / ``•`` for list items, a table one line per row with cells joined by `` | ``, and a
-    photograph contributes its caption only.
-
-    Anything that is not exactly that shape returns None and the caller keeps the original text, so
-    an answer that merely starts with a brace is never rewritten.
-    """
     text = value.strip()
     if not (text.startswith("{") and '"blocks"' in text):
         return None
@@ -174,10 +119,6 @@ def flatten_rich_text(value: str) -> str | None:
 
 
 def cell(value: Any) -> str:
-    """Any value -> a trimmed string safe to drop straight into a table cell.
-
-    A rich-text answer is flattened to its words (:func:`flatten_rich_text`) rather than printed as
-    its stored JSON."""
     if value is None:
         return ""
     text = str(value).strip()
@@ -189,7 +130,6 @@ def cell(value: Any) -> str:
 
 
 def _first_answer(*values: Any) -> Any:
-    """The first value that is not None. NOT `or`: 0 and "" are answers, not absences."""
     return next((v for v in values if v is not None), None)
 
 
@@ -199,7 +139,6 @@ def meta_of(record: Any) -> dict[str, Any]:
 
 
 def meta_val(meta: dict[str, Any], *keys: str) -> Any:
-    """First populated scalar stored under any of the given extraMetadata keys."""
     for key in keys:
         value = meta.get(key)
         if isinstance(value, (str, int, float)) and str(value).strip():
@@ -208,12 +147,10 @@ def meta_val(meta: dict[str, Any], *keys: str) -> Any:
 
 
 def _rel(record: Any, relation: str, attr: str) -> Any:
-    """``record.<relation>.<attr>`` when the relation was included, else None."""
     return getattr(getattr(record, relation, None), attr, None)
 
 
 def _workshop_titles(record: Any, relation: str = "workshops") -> str | None:
-    """Join the titles behind a many-to-many workshop link table."""
     titles = [
         getattr(getattr(link, "workshop", None), "title", None)
         for link in getattr(record, relation, None) or []
@@ -232,29 +169,12 @@ def artisan_names(interview: Any) -> list[str]:
 
 
 def interview_label(interview: Any) -> str:
-    """An interview is identified by the artisans it covers, not its internal title.
-
-    DISAMBIGUATED BY INSTRUMENT SINCE 2026-09-13, and that suffix is not decoration. Dropping the
-    global ``artisanSetKey`` unique made two interviews per artisan set legal — the same five
-    artisans sat once for the 2nd-workshop instrument and again for the 3rd — so a label built from
-    the artisans ALONE now returns the identical string for two different sittings. This label names
-    export-zip folders, data-browser tree nodes and report cells; only one of those call sites
-    de-duplicates, so two sittings would otherwise land in one folder and the second would overwrite
-    the first's details.txt.
-
-    The suffix is added only when the instrument is actually known and only as a parenthetical, so
-    every label for the single-instrument years reads exactly as it always did.
-    """
     names = artisan_names(interview)
     base = ", ".join(names) if names else (getattr(interview, "title", None) or "").strip()
     base = base or "Interview"
     instrument = getattr(getattr(interview, "questionnaire", None), "title", None)
     return f"{base} ({instrument})" if instrument else base
 
-
-# ---------------------------------------------------------------------------
-# Spec model
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -265,8 +185,6 @@ class FieldSpec:
 
 @dataclass(frozen=True)
 class RecordSpec:
-    """How one record type is titled, coloured and described."""
-
     kind: str
     """Stable slug: workshop, craft, artisan, product, process, tool, interview."""
     label: str
@@ -286,10 +204,6 @@ class RecordSpec:
 def _f(label: str, get: Callable[[Any], Any]) -> FieldSpec:
     return FieldSpec(label=label, get=get)
 
-
-# ---------------------------------------------------------------------------
-# The registry
-# ---------------------------------------------------------------------------
 
 WORKSHOP = RecordSpec(
     kind="workshop",
@@ -331,31 +245,11 @@ ARTISAN = RecordSpec(
         _f("Local name", lambda a: a.localName),
         _f("Workshop", lambda a: _workshop_titles(a)),
         _f("Craft", lambda a: _rel(a, "craft", "name")),
-        # The village named in the artisan's stated address, falling back to the free-text `place`
-        # box the researchers used instead while there was no column. That box holds compound
-        # answers — "Bagru, Jaipur, Rajasthan", "Jaipur, Sanganeri, Rajasthan" — precisely because
-        # it was carrying the village, the district and the state at once; it keeps printing
-        # verbatim rather than being split, since "Rudraprayag, Dehradun" names two districts of
-        # Uttarakhand and no parser can say which one the researcher meant.
         _f("Village/Place", lambda a: _rel(a, "location", "village") or a.place),
-        # Pointed at the real column by 20260727120000_location_stated_address. This label has been
-        # shipped and user-visible since this registry was written — the data browser's info card
-        # and record table, every details.txt in /export/dataset, the artisan sheet of the
-        # /data/report workbook — and it has been BLANK on every one of the sixteen artisans,
-        # because it read an extraMetadata key whose only writer was deleted from the artisan form
-        # and never replaced. The metadata fallback stays for the same reason State's does: it costs
-        # nothing and it is the only thing that would print for a record that predates the column.
         _f(
             "District",
             lambda a: _rel(a, "location", "district") or meta_val(meta_of(a), "district"),
         ),
-        # State and pincode became real columns on the shared Location model, but the artisans
-        # recorded before that kept their state as free text in extraMetadata. Reading the column
-        # first and falling back to the metadata is what lets both generations print in one sheet;
-        # dropping the fallback would blank the historical rows, and keeping only the fallback would
-        # blank every row entered from the new dropdown. ``_rel`` answers None when the location
-        # relation was not included, so a caller that loads artisans without it degrades to exactly
-        # the old behaviour rather than erroring.
         _f("State", lambda a: _rel(a, "location", "state") or meta_val(meta_of(a), "state")),
         _f("Address", lambda a: a.address),
         _f(
@@ -365,60 +259,21 @@ ARTISAN = RecordSpec(
         ),
         _f("Phone", phone_of),
         _f("Email", lambda a: a.email),
-        # Aadhaar and the Pehchan (PM Vishwakarma) card are regulated personal data and this spec
-        # feeds every SHARED surface — the data browser, the .xlsx workbook, generated details.txt,
-        # the details.txt inside a grantable /export/dataset zip. Only the last four characters go
-        # out, which is enough to confirm the right person and useless as an identifier. The full
-        # numbers stay readable through the artisan's own record for the people entitled to them.
-        #
-        # BOTH numbers, through the same function. The card number used to print verbatim here while
-        # the Aadhaar beside it was masked, so a full PM Vishwakarma ID reached every grantee,
-        # dataset downloader and reviewer — a rule that held on the API responses
-        # (``records.mask_identity_number``, which is this same ``mask_aadhaar``) and nowhere else.
-        # A registry that disagrees with the API about which numbers are secret is the whole reason
-        # this module exists.
         _f("Aadhaar number", aadhaar_fingerprint.stored_mask),
         _f(
             "Artisan Pehchan Card",
             lambda a: "Yes" if a.pehchanCardAvailable else "No",
         ),
         _f("Pehchan card number", lambda a: mask_aadhaar(a.pehchanCardNumber)),
-        # ── AGE AND EXPERIENCE NOW HAVE COLUMNS ────────────────────────────────────────────
-        #
-        # This block used to carry a long note explaining that both cells were empty because
-        # nothing filled them — they were read only from `extraMetadata` spellings that the record
-        # form stopped writing years ago — and naming the fix: an `experienceYears Int?` column read
-        # column-first with those keys as the fallback, plus a `dateOfBirth` rather than an `age`,
-        # "because an age drifts and a date of birth does not". That is what happened.
-        #
-        # The date is printed AND the age beside it, in that order, because they are two different
-        # kinds of statement: the date is what the artisan said and does not change, the age is a
-        # fact about today that this sheet works out each time it is drawn.
         _f("Date of birth", lambda a: getattr(a, "dateOfBirth", None)),
-        # `is not None` and NOT `or`: a derived 0 is a real answer and `or` would read it
-        # as absent and print a stale metadata value instead.
         _f("Age", lambda a: _first_answer(
             derive_age(getattr(a, "dateOfBirth", None)),
             meta_val(meta_of(a), "age"),
         )),
         _f("Gender", lambda a: a.gender),
-        # THE JOIN DATE IS PRINTED AND THE EXPERIENCE IS DERIVED BESIDE IT, in that order, for the
-        # same reason the date of birth and the age are printed that way a few lines up: they are two
-        # different kinds of statement. The date is what the artisan told a researcher and does not
-        # change; the number is a fact about today that this sheet works out each time it is drawn.
         _f("Practising since", lambda a: getattr(a, "craftStartDate", None)),
         _f(
             "Experience (years)",
-            # THREE SOURCES, IN ORDER — the value derived from the join date, then the stated column,
-            # then the legacy metadata. Written through `_first_answer` because this one lambda feeds
-            # the data browser's info card, the /data/report workbook, `details.txt` inside the
-            # dataset zip and the /export CSVs: four surfaces that would otherwise disagree about one
-            # artisan.
-            #
-            # `_first_answer` and NOT `or`: zero years is a real answer (a first-month apprentice) and
-            # `or` would read it as absent and print a staler value instead. The legacy branch is
-            # 20260816170000's deliberate refusal to guess at "30+" and "about 30", and those rows are
-            # the oldest and best documented — it must not be dropped.
             lambda a: _first_answer(
                 derive_experience_years(getattr(a, "craftStartDate", None)),
                 getattr(a, "experienceYears", None),
@@ -478,34 +333,6 @@ TOOL = RecordSpec(
         _f("Material type", lambda t: material_family_label(t.materialFamily)),
         _f("Years in use", lambda t: t.yearsInUse),
         _f("Dimensions (LxBxH in)", lambda t: dims(t.lengthInches, t.breadthInches, t.heightInches)),
-        # THIS CELL WAS "Dimensions (LxB in)" AND PRINTED TWO NUMBERS, because `ToolDocumentation`
-        # had no `heightInches` — while `GridMeasurement.tsx` was handing an INCHES reading to the
-        # unit-less `height` column beside it (see migration 20260913120100). The two-number cell was
-        # the visible half of that; the lost unit was the half that mattered.
-        #
-        # THE HEIGHT BELOW IS A DIFFERENT COLUMN FROM THE THIRD NUMBER IN THE CELL ABOVE, which is
-        # why both print and neither is redundant. IT IS THE SAME ROW THAT WAS ALREADY HERE, moved
-        # under the new comment rather than added — a second `Height` entry would ship a duplicate
-        # column into a public dataset header, because `sheet_columns` is a plain list with no dedupe
-        # and `datasets._csv_columns('tool')` is derived from it (so `test_dataset_api`'s
-        # advertised-columns assertion would agree with the duplicate rather than catch it).
-        #
-        # THE TWO LABELS NOW DECLARE THEIR UNIT, AND THAT IS A CHANGE OF FACT AND NOT OF WORDING.
-        # What stood here said `height` "declares no unit" and that "nothing in the database can say
-        # what unit those are in" — true of every row saved before 2026-09-15, and no longer true of
-        # anything saved after it. `height` is now the CENTIMETRE partner of `heightInches` and
-        # `width` the centimetre partner of `breadthInches`: all four clients label them "Height (cm)"
-        # and "Width (cm)", and typing in either box of a pair fills the other at 2.54 cm to the inch.
-        #
-        # THE OLD ROWS ARE STILL UNIT-LESS AND NOTHING HERE PRETENDS OTHERWISE. A tool recorded before
-        # the pairing can hold two numbers in `height` and `heightInches` that are not the same
-        # measurement at all, and no migration invented a unit for them — see 20260913120100 for why
-        # copying one into the other would have been irreversible. So the cells stay SEPARATE, the
-        # inches triple keeps its own cell above, and a reader comparing the two on an old row is
-        # seeing a genuine disagreement rather than a rounding error.
-        #
-        # THE COLUMN NAMES ON THE WIRE AND IN THE DATABASE ARE UNCHANGED: `height` and `width`. Only
-        # what a person reads moved. Re-check with `grep -n "\"height\"" backend/app/api/routes/tools.py`.
         _f("Height (cm)", lambda t: num(t.height)),
         _f("Width (cm)", lambda t: num(t.width)),
         _f("Thickness", lambda t: num(t.thickness)),
@@ -546,12 +373,6 @@ INTERVIEW = RecordSpec(
     title=interview_label,
     fields=(
         _f("Artisans", lambda i: ", ".join(artisan_names(i)) or None),
-        # WHICH INSTRUMENT. This module is the single registry behind the data-browser info panel,
-        # the /data/report workbook, the /export/dataset zip's details.txt and the CSV downloads
-        # (see this file's banner), so a column added here reaches all of them at once. Without it
-        # every exported description of an interview omits which questionnaire it was taken on —
-        # which was a question nobody could ask while there was only one, and is unanswerable from
-        # the export the moment there are two.
         _f(
             "Questionnaire",
             lambda i: getattr(getattr(i, "questionnaire", None), "title", None),
@@ -567,7 +388,6 @@ SPECS: dict[str, RecordSpec] = {
     spec.kind: spec for spec in (WORKSHOP, CRAFT, ARTISAN, PRODUCT, TOOL, PROCESS, INTERVIEW)
 }
 
-# Colours for the sheets that are not a single record type.
 MEDIA_COLOR = "#334155"
 TRANSCRIPT_COLOR = "#334155"
 OVERVIEW_COLOR = "#5B21B6"
@@ -577,14 +397,8 @@ def spec_for(kind: str) -> RecordSpec | None:
     return SPECS.get(kind)
 
 
-# ---------------------------------------------------------------------------
-# Presentations
-# ---------------------------------------------------------------------------
-
 PROVENANCE_COLUMNS = ("Status", "Created by", "Created on")
 
-# Every sheet/table carries its record's media inline so a reader never has to cross-
-# reference the Media sheet to find out what was captured for a row.
 MEDIA_COLUMNS = ("Media count", "Media files", "Media URLs")
 
 
@@ -601,7 +415,6 @@ def provenance_row(record: Any) -> list[str]:
 
 
 def media_row(media: Iterable[Any]) -> list[str]:
-    """The three media cells for one record: how many, their names, their URLs."""
     items = list(media or [])
     if not items:
         return ["0", "", ""]
@@ -611,7 +424,6 @@ def media_row(media: Iterable[Any]) -> list[str]:
 
 
 def info_panel(kind: str, record: Any) -> dict[str, Any] | None:
-    """``{title, fields}`` with blank values dropped — the browser's record card."""
     spec = SPECS.get(kind)
     if spec is None:
         return None
@@ -624,7 +436,6 @@ def info_panel(kind: str, record: Any) -> dict[str, Any] | None:
 
 
 def info_text(info: dict[str, Any] | None) -> str:
-    """Render an info panel as ``details.txt`` content (title line + "Label: value")."""
     if not info:
         return ""
     lines = [str(info.get("title") or "").strip()]
@@ -633,7 +444,6 @@ def info_text(info: dict[str, Any] | None) -> str:
 
 
 def sheet_columns(kind: str) -> list[str]:
-    """Full column list for a record type's sheet or in-folder table."""
     spec = SPECS[kind]
     return [
         spec.label,
@@ -644,7 +454,6 @@ def sheet_columns(kind: str) -> list[str]:
 
 
 def sheet_row(kind: str, record: Any, media: Iterable[Any] = ()) -> list[str]:
-    """One rectangular row matching :func:`sheet_columns` exactly."""
     spec = SPECS[kind]
     return [
         cell(spec.title(record)),
@@ -659,11 +468,6 @@ def record_table(
     records: Iterable[Any],
     media_by_record: dict[str, list[Any]] | None = None,
 ) -> dict[str, Any]:
-    """A rectangular ``{kind, label, color, columns, rows}`` grid for a set of records.
-
-    Unlike :func:`info_panel` this keeps every column even when a cell is empty, so the
-    browser can render it as a real table rather than a definition list.
-    """
     spec = SPECS[kind]
     lookup = media_by_record or {}
     rows = [sheet_row(kind, record, lookup.get(record.id, [])) for record in records]

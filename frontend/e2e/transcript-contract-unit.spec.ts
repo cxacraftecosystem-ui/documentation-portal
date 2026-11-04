@@ -13,15 +13,6 @@ import { downloadWhat, nameForView, QUOTE_CARD_WHAT } from "../lib/transcript/na
 import { safeUrl } from "../lib/transcript/sanitize";
 import { statusAction, statusLabel } from "../lib/transcript/status";
 
-/**
- * THE WEB VIEWER AGAINST THE BACKEND'S CONTRACT (`shared/transcript-contract.json`, transcript-v1-api).
- *
- * The contract lets a client build copy text only if it reproduces `fixtures.copy` byte for byte;
- * these tests run the web's renderer over `examples.TranscriptView` and compare. They also hold the
- * strings copy to the shared file, the example to the viewer's types, the timestamp and length rules,
- * the status actions, karaoke's lookup and the sanitiser's link rule. Pure: no browser, no server.
- */
-
 const REPO = join(__dirname, "..", "..");
 const CONTRACT = JSON.parse(readFileSync(join(REPO, "shared", "transcript-contract.json"), "utf8"));
 const VIEW = CONTRACT.examples.TranscriptView as Transcript;
@@ -50,7 +41,6 @@ test("Copy all, in each track, is fixtures.copy exactly", () => {
   expect(copyAll(VIEW, "original")).toBe(COPY.all_original);
   expect(copyAll(VIEW, "english")).toBe(COPY.all_english);
   expect(copyAll(VIEW, "both")).toBe(COPY.all_both);
-  // Without timestamps: the same text, the speaker alone on each turn (0.0.5).
   expect(copyAll(VIEW, "both", false)).toBe(COPY.all_both_no_timestamps);
   expect(COPY.all_both_no_timestamps).not.toContain("`00:");
 });
@@ -98,9 +88,7 @@ test("karaoke finds the turn and the word being spoken", () => {
   expect(locate(VIEW.turns, 0)).toBeNull();
   expect(locate(VIEW.turns, 4100)).toEqual({ turnIndex: 0, wordIndex: 0 });
   expect(locate(VIEW.turns, 5200)).toEqual({ turnIndex: 0, wordIndex: 3 });
-  // Between two words: the turn stays lit, no word is.
   expect(locate(VIEW.turns, 4320)).toEqual({ turnIndex: 0, wordIndex: null });
-  // The pause after a turn keeps it until the next speaker starts.
   expect(locate(VIEW.turns, 8000)).toEqual({ turnIndex: 0, wordIndex: null });
   expect(locate(VIEW.turns, 9000)).toEqual({ turnIndex: 1, wordIndex: null });
 });
@@ -134,14 +122,12 @@ test("every file the viewer names is a golden naming row", () => {
     expect(row, what).toBeTruthy();
     expect(fileName(row!.input)).toBe(row!.name);
   }
-  // The quote card and its clip, named from the view as the Android viewer names them.
   for (const ext of ["png", "m4a"]) {
     const row = golden.fileNames.find((entry) => entry.input.what === QUOTE_CARD_WHAT && entry.input.ext === ext);
     expect(row, ext).toBeTruthy();
     expect(nameForView(VIEW.title, QUOTE_CARD_WHAT, ext)).toBe(fileName({ ...row!.input, portal: undefined, craft: undefined }));
   }
   expect(nameForView("Group interview · 6 artisans · 1 Jul 2026", "Transcript", "md")).toMatch(/_Group-Interview_2026-07-01_6-Artisans_Transcript\.md$/);
-  // Subtitles carry one language: "both" downloads the original's.
   expect(downloadWhat("srt", "both")).toBe("Subtitles-With-Speakers");
 });
 

@@ -11,15 +11,6 @@ import { ts } from "@/lib/transcript/strings";
 const BUBBLE_MAX = 288;
 const EDGE = 8;
 
-/**
- * The marked turns as points on the audio timeline (owner, 1 Nov 2026).
- *
- * Each mark sits on the bar's own vertical centre (the timeline is exactly the range input's height
- * and the mark is centred in it), is filled in its speaker's colour, and seeks there on a press.
- * Hovering it, or reaching it with the keyboard, opens a chat bubble with what was said at that
- * moment: the speaker, then the turn's words, and its English when there is a translation. The
- * bubble is kept inside the player row, so it never runs off a phone's edge.
- */
 export function TimelineMarks({
   turns,
   durationMs,
@@ -29,7 +20,6 @@ export function TimelineMarks({
   turns: TranscriptTurn[];
   durationMs: number;
   onSeek: (ms: number) => void;
-  /** The player row: the bubble's horizontal bounds. */
   rowRef: RefObject<HTMLElement | null>;
 }) {
   const [shown, setShown] = useState<{ turn: TranscriptTurn; left: number; width: number } | null>(null);

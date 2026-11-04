@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="460" viewBox="0 0 1200 460" role="img" aria-label="How the Field Repository is run: blue/green releases, backups, origin lock, two-step sign-in, RLS and comment-free code">
+<title>How the Field Repository is run: blue/green releases, backups, origin lock, two-step sign-in, RLS and comment-free code</title>
+<defs>
+<style>.d{font-family:'Plus Jakarta Sans','Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}.s{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}.m{font-family:'JetBrains Mono',ui-monospace,'SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace}.rise{animation:rise .9s cubic-bezier(.2,.7,.2,1) both}@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}.shine{animation:shine 5.6s cubic-bezier(.5,0,.3,1) infinite}@keyframes shine{0%{transform:translateX(0)}45%,100%{transform:translateX(562.7px)}}.r0{animation-delay:0.1s}.r1{animation-delay:0.2s}.r2{animation-delay:0.3s}.r3{animation-delay:0.5s}.r4{animation-delay:0.6s}.r5{animation-delay:0.7s}@media (prefers-reduced-motion:reduce){*{animation:none!important}.smil{display:none}.sweep{fill:url(#still)}}</style>
+<radialGradient id="halo"><stop offset="0" stop-color="#AA69E9" stop-opacity=".16"/><stop offset="1" stop-color="#AA69E9" stop-opacity="0"/></radialGradient>
+<linearGradient id="glint" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#762CB1" stop-opacity="0"/><stop offset=".5" stop-color="#762CB1"/><stop offset="1" stop-color="#CD9200" stop-opacity="0"/></linearGradient>
+<clipPath id="k0"><rect x="6" y="6" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k1"><rect x="408.7" y="6" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k2"><rect x="811.3" y="6" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k3"><rect x="6" y="240" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k4"><rect x="408.7" y="240" width="382.7" height="214" rx="18"/></clipPath>
+<clipPath id="k5"><rect x="811.3" y="240" width="382.7" height="214" rx="18"/></clipPath>
+</defs>
+<g class="rise r0">
+<rect x="6" y="6" width="382.7" height="214" rx="18" fill="#FFFFFF" stroke="#E4E2EF"/>
+<g clip-path="url(#k0)"><circle cx="358.7" cy="26" r="120" fill="url(#halo)"/><rect x="6" y="6" width="382.7" height="3" fill="#E7D5FE"/><rect class="shine" style="animation-delay:0s" x="-174" y="6" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="30" y="30" width="48" height="48" rx="14" fill="#F9F5FF" stroke="#E7D5FE"/>
+<g transform="translate(42 42) scale(1)" fill="none" stroke="#762CB1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></g>
+<text x="364.7" y="52" class="m" fill="#615D7A" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">RELEASES</text>
+<text x="30" y="116" class="d" fill="#1E1B2E" font-size="20" font-weight="700" letter-spacing="-.3">Blue / green</text>
+<text x="30" y="146" class="s" fill="#615D7A" font-size="15">Two loopback ports behind nginx. The</text><text x="30" y="169" class="s" fill="#615D7A" font-size="15">idle one starts, answers /health, and</text><text x="30" y="192" class="s" fill="#615D7A" font-size="15">only then takes traffic.</text>
+</g>
+<g class="rise r1">
+<rect x="408.7" y="6" width="382.7" height="214" rx="18" fill="#FFFFFF" stroke="#E4E2EF"/>
+<g clip-path="url(#k1)"><circle cx="761.3" cy="26" r="120" fill="url(#halo)"/><rect x="408.7" y="6" width="382.7" height="3" fill="#E7D5FE"/><rect class="shine" style="animation-delay:0.7s" x="228.7" y="6" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="432.7" y="30" width="48" height="48" rx="14" fill="#F9F5FF" stroke="#E7D5FE"/>
+<g transform="translate(444.7 42) scale(1)" fill="none" stroke="#762CB1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></g>
+<text x="767.3" y="52" class="m" fill="#615D7A" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">BACKUPS</text>
+<text x="432.7" y="116" class="d" fill="#1E1B2E" font-size="20" font-weight="700" letter-spacing="-.3">Nightly, checked</text>
+<text x="432.7" y="146" class="s" fill="#615D7A" font-size="15">pg_dump to S3 every night, a weekly copy</text><text x="432.7" y="169" class="s" fill="#615D7A" font-size="15">kept for a year, and a freshness check</text><text x="432.7" y="192" class="s" fill="#615D7A" font-size="15">that fails loudly.</text>
+</g>
+<g class="rise r2">
+<rect x="811.3" y="6" width="382.7" height="214" rx="18" fill="#FFFFFF" stroke="#E4E2EF"/>
+<g clip-path="url(#k2)"><circle cx="1164" cy="26" r="120" fill="url(#halo)"/><rect x="811.3" y="6" width="382.7" height="3" fill="#E7D5FE"/><rect class="shine" style="animation-delay:1.4s" x="631.3" y="6" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="835.3" y="30" width="48" height="48" rx="14" fill="#F9F5FF" stroke="#E7D5FE"/>
+<g transform="translate(847.3 42) scale(1)" fill="none" stroke="#762CB1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></g>
+<text x="1170" y="52" class="m" fill="#615D7A" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">ORIGIN</text>
+<text x="835.3" y="116" class="d" fill="#1E1B2E" font-size="20" font-weight="700" letter-spacing="-.3">CloudFront only</text>
+<text x="835.3" y="146" class="s" fill="#615D7A" font-size="15">The box answers CloudFront alone; SSH</text><text x="835.3" y="169" class="s" fill="#615D7A" font-size="15">opens for one runner during a deploy and</text><text x="835.3" y="192" class="s" fill="#615D7A" font-size="15">closes after.</text>
+</g>
+<g class="rise r3">
+<rect x="6" y="240" width="382.7" height="214" rx="18" fill="#FFFFFF" stroke="#E4E2EF"/>
+<g clip-path="url(#k3)"><circle cx="358.7" cy="260" r="120" fill="url(#halo)"/><rect x="6" y="240" width="382.7" height="3" fill="#E7D5FE"/><rect class="shine" style="animation-delay:2.1s" x="-174" y="240" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="30" y="264" width="48" height="48" rx="14" fill="#F9F5FF" stroke="#E7D5FE"/>
+<g transform="translate(42 276) scale(1)" fill="none" stroke="#762CB1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></g>
+<text x="364.7" y="286" class="m" fill="#615D7A" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">SIGN-IN</text>
+<text x="30" y="350" class="d" fill="#1E1B2E" font-size="20" font-weight="700" letter-spacing="-.3">Two-step, roster</text>
+<text x="30" y="380" class="s" fill="#615D7A" font-size="15">TOTP with recovery codes, an access</text><text x="30" y="403" class="s" fill="#615D7A" font-size="15">roster at the door, and six roles</text><text x="30" y="426" class="s" fill="#615D7A" font-size="15">enforced on the server.</text>
+</g>
+<g class="rise r4">
+<rect x="408.7" y="240" width="382.7" height="214" rx="18" fill="#FFFFFF" stroke="#E4E2EF"/>
+<g clip-path="url(#k4)"><circle cx="761.3" cy="260" r="120" fill="url(#halo)"/><rect x="408.7" y="240" width="382.7" height="3" fill="#E7D5FE"/><rect class="shine" style="animation-delay:2.8s" x="228.7" y="240" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="432.7" y="264" width="48" height="48" rx="14" fill="#F9F5FF" stroke="#E7D5FE"/>
+<g transform="translate(444.7 276) scale(1)" fill="none" stroke="#762CB1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></g>
+<text x="767.3" y="286" class="m" fill="#615D7A" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">DATA</text>
+<text x="432.7" y="350" class="d" fill="#1E1B2E" font-size="20" font-weight="700" letter-spacing="-.3">RLS everywhere</text>
+<text x="432.7" y="380" class="s" fill="#615D7A" font-size="15">Row Level Security on every table and</text><text x="432.7" y="403" class="s" fill="#615D7A" font-size="15">the anon role revoked; Aadhaar kept only</text><text x="432.7" y="426" class="s" fill="#615D7A" font-size="15">as a fingerprint.</text>
+</g>
+<g class="rise r5">
+<rect x="811.3" y="240" width="382.7" height="214" rx="18" fill="#FFFFFF" stroke="#E4E2EF"/>
+<g clip-path="url(#k5)"><circle cx="1164" cy="260" r="120" fill="url(#halo)"/><rect x="811.3" y="240" width="382.7" height="3" fill="#E7D5FE"/><rect class="shine" style="animation-delay:3.5s" x="631.3" y="240" width="180" height="3" fill="url(#glint)"/></g>
+<rect x="835.3" y="264" width="48" height="48" rx="14" fill="#F9F5FF" stroke="#E7D5FE"/>
+<g transform="translate(847.3 276) scale(1)" fill="none" stroke="#762CB1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></g>
+<text x="1170" y="286" class="m" fill="#615D7A" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">CODE</text>
+<text x="835.3" y="350" class="d" fill="#1E1B2E" font-size="20" font-weight="700" letter-spacing="-.3">No comments</text>
+<text x="835.3" y="380" class="s" fill="#615D7A" font-size="15">A CI job fails on any comment in code;</text><text x="835.3" y="403" class="s" fill="#615D7A" font-size="15">the reasons live in the docs, beside the</text><text x="835.3" y="426" class="s" fill="#615D7A" font-size="15">rules they explain.</text>
+</g>
+</svg>

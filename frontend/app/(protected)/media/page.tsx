@@ -48,11 +48,6 @@ import { UploadsProvider, useUploads } from "@/lib/uploads";
 import type { MediaFile, MediaType, PageResult } from "@/lib/types";
 import { workshopDisplayTitle } from "@/lib/workshopTitle";
 
-// ---------------------------------------------------------------------------
-// Android parity: mediaLinkModes — the EXACT list + labels of record types a
-// miscellaneous-media upload can be linked to (MainActivity `mediaLinkModes`).
-// ---------------------------------------------------------------------------
-
 const LINK_TYPES: Array<{ value: string; label: string }> = [
   { value: "artisan", label: "Artisan" },
   { value: "workshop", label: "Workshop" },
@@ -66,10 +61,6 @@ const LINK_TYPES: Array<{ value: string; label: string }> = [
 
 const LINK_TYPE_LABEL = new Map(LINK_TYPES.map((t) => [t.value, t.label]));
 
-/**
- * QUESTIONNAIRE V2 (DESIGN §4.1): interview audio enters only through the session workspace, so the
- * upload form stops offering "Questionnaire" as a link type. Existing rows keep their label above.
- */
 const V2_LINK_TYPES = LINK_TYPES.filter((t) => t.value !== "questionnaire");
 
 type ProcessListItem = {
@@ -79,7 +70,6 @@ type ProcessListItem = {
   createdAt?: string;
 };
 
-/** A11: each record type's list route, searched on the server when its first page is not all of it. */
 const LINK_ENDPOINT: Record<string, string> = {
   artisan: "/artisans",
   workshop: "/workshops",
@@ -93,7 +83,6 @@ const LINK_ENDPOINT: Record<string, string> = {
 
 type EntryRow = { id: string; createdAt?: string } & Record<string, unknown>;
 
-/** Android `loadViewEntries` parity: label each entry with its human name/title. */
 function entryLabel(type: string, row: EntryRow): string {
   const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
   switch (type) {
@@ -122,13 +111,6 @@ function entryLabel(type: string, row: EntryRow): string {
       return row.id;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Android parity: FieldRepository.mediaFilename — the uploaded object name is
-// `PREFIX_NamePart_TYPECODE_index_ddMMyyyyHHmmss.ext` built from the linked
-// record type and the "Media title / object name" (falling back to caption,
-// then the original filename).
-// ---------------------------------------------------------------------------
 
 function safeToken(value: string) {
   const cleaned = value.trim().replace(/\s+/g, "").replace(/[^A-Za-z0-9]/g, "").slice(0, 60);
@@ -163,11 +145,6 @@ function buildObjectName(
   return extension ? `${base}.${extension}` : base;
 }
 
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-
-/** Section id this page's batch publishes under, so the page-level tray can aggregate it. */
 const MEDIA_SECTION = "misc-media";
 const MEDIA_SECTION_LABEL = "Miscellaneous Media";
 
@@ -182,27 +159,6 @@ export default function MediaPage() {
   );
 }
 
-/**
- * ── DICTATION ON THE MEDIA FORM: WHICH BOXES HAVE A MICROPHONE, AND WHY THE REST DO NOT ───────
- *
- * DICTATED: Media title / object name · Caption · (and Village, inside the location card, which owns
- * its own decision).
- *
- * The title is the name of the object in the photograph — "Bagru indigo block, 4 inch" — spoken by
- * somebody holding both the phone and the object, which is the clearest case for a microphone
- * anywhere in the app. Neither box is title-cased: `mediaTitle` and `caption` are both absent from
- * the API's title-cased set (`backend/app/services/records.py:339-354`), so a "Will be saved as …"
- * hint would promise a normalisation that never happens.
- *
- * NOT DICTATED: **Capture media** (a file picker), **Linked record type** (a closed vocabulary behind
- * a themed dropdown) and **Linked entry** (a record picker).
- *
- * THIS FORM CLEARS ITSELF IN PLACE, which is why the two boxes are wired the way they are — see the
- * note beside `mediaTitle`/`resetNonce` below. It is the trap `DictatedTextInput`'s header is about.
- *
- * ONE SENTENCE FOR THE WHOLE FORM: both boxes pass `explainWhenUnavailable={false}` and
- * `DictationUnavailableNotice` sits once, above them.
- */
 function MediaPageBody() {
   const confirm = useConfirm();
   const { canDeleteRecords } = useAdminView();
@@ -211,18 +167,6 @@ function MediaPageBody() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
 
-  /*
-    ── THIS FORM CALLS `formElement.reset()`, AND THAT IS WHY THESE TWO EXIST ──────────────────
-    `reset()` rewrites the DOM nodes and tells React NOTHING. A box whose value React is holding —
-    which is every dictated box, because dictation writes from outside the keyboard — is therefore
-    re-painted with the PREVIOUS upload's text on the next render, and the researcher's second
-    photograph arrives carrying the first one's caption.
-
-    TWO MECHANISMS BECAUSE THE TWO COMPONENTS HAVE TWO CONTRACTS. `DictatedTextInput` is controlled
-    by its caller, so the title lives here and is cleared in the same block as `reset()`.
-    `DictatedTextArea` owns its value and re-seeds on remount, so the caption is keyed on a nonce
-    that the same block bumps.
-  */
   const [mediaTitle, setMediaTitle] = useState("");
   const [resetNonce, setResetNonce] = useState(0);
 
@@ -231,16 +175,10 @@ function MediaPageBody() {
   const questionnaireConfig = useQuestionnaireConfig();
   const linkTypes = questionnaireConfig?.v2Enabled ? V2_LINK_TYPES : LINK_TYPES;
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  /*
-    A9 — THE TARGET IS REMEMBERED. It opens on the record named in the link or the one the researcher
-    was last working in (`initialMediaTarget`), and it STAYS after a batch: the next photographs are
-    almost always for the same record.
-  */
   const [initialTarget] = useState(() => initialMediaTarget(searchParams, readCarryContext(user?.id ?? null)));
   const [linkedType, setLinkedType] = useState(initialTarget?.type ?? "");
   const [linkedEntryId, setLinkedEntryId] = useState(initialTarget?.id ?? "");
   const [notice, setNotice] = useState<string | null>(null);
-  // A11: one page of the chosen type, searched on the server when that page is not the whole list.
   const entryList = useServerSearchList<EntryRow>(linkedType && linkedType !== "craft" ? LINK_ENDPOINT[linkedType] ?? null : null, "entries");
   const offPageEntry = useRecordOffPage<EntryRow>(linkedType ? LINK_ENDPOINT[linkedType] ?? "/media" : "/media", linkedEntryId, entryList.items);
   const entryOptions = useMemo(() => {
@@ -254,7 +192,6 @@ function MediaPageBody() {
   const [error, setError] = useState<string | null>(null);
   const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
 
-  // The questionnaire filters (owner, 31 Oct 2026): a take by its form, section, artisans, workshop …
   const { filters: takeFilters, setFilters: setTakeFilters, ready: filtersReady } = useUrlFilters();
   const load = useCallback(
     async (pageToLoad: number, term: string, shared: Filters = {}) => {
@@ -270,10 +207,6 @@ function MediaPageBody() {
     []
   );
 
-  /**
-   * Search, page and scroll, in the URL, so Back from a file's read-only page lands on the same rows.
-   * Recalled once before the first fetch — `placeRestored` holds that fetch until it has been.
-   */
   const memory = useListMemory("media", { query: search, page }, data !== null);
   const [placeRestored, setPlaceRestored] = useState(false);
   useEffect(() => {
@@ -283,22 +216,15 @@ function MediaPageBody() {
       setPage(remembered.page ?? 1);
     }
     setPlaceRestored(true);
-    // Once, on arrival.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Live search: debounce keystrokes, reload most-recent-first from page 1.
   useEffect(() => {
     if (!placeRestored || !filtersReady) return;
     const timer = setTimeout(() => load(page, search, takeFilters), 300);
     return () => clearTimeout(timer);
   }, [page, search, load, placeRestored, filtersReady, takeFilters]);
 
-  /**
-   * Android parity: every uploaded object is renamed to `PREFIX_Name_TYPE_index_timestamp.ext`.
-   * Renaming the File itself (rather than keeping a parallel name) lets this page share the one
-   * resilient upload path in lib/media — per-byte progress, ETA, and a fresh presign per retry.
-   */
   function renameForUpload(form: FormData) {
     const title = textValue(form, "mediaTitle");
     const caption = textValue(form, "caption");
@@ -321,7 +247,6 @@ function MediaPageBody() {
     setUploading(true);
     setError(null);
     setNotice(null);
-    // React nulls event.currentTarget after the first await — capture it before any async work.
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     const renamed = renameForUpload(form);
@@ -332,16 +257,13 @@ function MediaPageBody() {
       caption: textValue(form, "caption") ?? undefined,
       location: locationFromForm(form)
     };
-    /** A batch that is done with: the files and the two dictated boxes go, the TARGET stays (A9). */
     const clearBatch = () => {
       formElement.reset();
-      // The two dictated boxes, which `reset()` alone cannot clear. See the note beside their state.
       setMediaTitle("");
       setResetNonce((nonce) => nonce + 1);
       setSelectedFiles([]);
     };
     const queue = async () => {
-      // A9: no connection — the files wait in this browser's outbox and upload when it returns.
       await queueMediaOnly({ label: `Media · ${renamed.length} file${renamed.length === 1 ? "" : "s"}`, media: [batch] });
       clearBatch();
       setNotice(`Saved on this device. ${renamed.length === 1 ? "It uploads" : "They upload"} when you reconnect.`);
@@ -353,12 +275,9 @@ function MediaPageBody() {
       }
       const { uploaded, failed } = await uploadMediaBatch({ ...batch, onProgress: setProgress });
       setProgress(null);
-      // The uploaded files surface twice: as chips under this form and in the page-level tray.
       addCompleted(MEDIA_SECTION, MEDIA_SECTION_LABEL, uploaded);
-      // Anything that got through is already in the repository, so refresh the table either way.
       load(page, search, takeFilters);
       if (failed.length) {
-        // A9: only the files that failed stay selected, so "Upload" retries exactly those.
         setSelectedFiles(failedOriginals(selectedFiles, renamed, failed.map((item) => item.name)));
         setError(`${failed.length} of ${renamed.length} didn’t upload: ${failed.map((item) => item.name).join(", ")}. Upload again to retry them.`);
         return;
@@ -370,7 +289,6 @@ function MediaPageBody() {
           await queue();
           return;
         } catch {
-          /* fall through to the message */
         }
       }
       setError(err instanceof Error ? err.message : "Unable to upload media");
@@ -384,8 +302,6 @@ function MediaPageBody() {
     const ok = await confirm({
       ...deleteConfirm(
         "Remove this media file?",
-        // Android's "Permanently delete recording?" says the same thing: the file leaves storage, so
-        // there is nothing left to re-link afterwards.
         "Deletes the file and its transcript. This can’t be undone.",
         undefined
       ),
@@ -410,7 +326,7 @@ function MediaPageBody() {
     <>
       <PageHeader
         title="Miscellaneous Media"
-        description="Photos, video, audio and files. Audio is transcribed."
+        description="Photos, video, audio and files."
         icon={<Images className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
@@ -425,14 +341,8 @@ function MediaPageBody() {
           files={selectedFiles}
           onFilesChange={setSelectedFiles}
           title="Capture media"
-          description="Photos, video, audio and files. Audio is transcribed."
+          description="Photos, video, audio and files."
         />
-        {/*
-          THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
-          Both dictated boxes below pass `explainWhenUnavailable={false}`, as does the location card's
-          village. ABOVE the controls it speaks for, like every other form: a sentence explaining why
-          something is missing is no use underneath the place it is missing from.
-        */}
         <DictationUnavailableNotice />
         <div className="grid gap-3 md:grid-cols-2">
           <DictatedTextInput
@@ -443,9 +353,6 @@ function MediaPageBody() {
             value={mediaTitle}
             onChange={setMediaTitle}
           />
-          {/* The asterisk leaves the label STRING and becomes `required`, so `RequiredMark` draws it.
-              Typed into the text it was the one required mark no shared primitive could reach, which
-              is exactly how a form ends up with two kinds of asterisk on it. */}
           <Field label="Linked record type" required>
             <Dropdown
               value={linkedType}
@@ -460,7 +367,6 @@ function MediaPageBody() {
           </Field>
         </div>
         {linkedType === "craft" ? (
-          // A craft is picked from the master list, like everywhere else.
           <FieldBlock label="Linked entry (optional)">
             <CraftSelect name="linkedRecordId" ariaLabel="Linked entry" value={linkedEntryId} onChange={(next) => setLinkedEntryId(next)} />
           </FieldBlock>
@@ -480,10 +386,6 @@ function MediaPageBody() {
             <CappedListNotice cuts={[entryList.cut]} />
           </Field>
         ) : null}
-        {/* KEYED ON THE RESET NONCE. `DictatedTextArea` owns its value and re-seeds only on remount,
-            and this form clears itself with `formElement.reset()` — which rewrites the DOM node and
-            tells React nothing. Without the key, the second photograph of the day arrives carrying
-            the first one's caption, on a real file, with nothing on screen saying so. */}
         <DictatedTextArea
           key={resetNonce}
           name="caption"
@@ -549,10 +451,6 @@ function MediaPageBody() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {data.items.map((item) => (
-                  // A file's read-only view IS its preview — the lightbox, with its Download button —
-                  // so a click anywhere on the row opens that, as the thumbnail always did. The
-                  // thumbnail's own button is the keyboard route; Delete and the transcript keep
-                  // their own clicks (`rowClickOpensRecord`).
                   <tr
                     key={item.id}
                     className={item.url ? "cursor-pointer transition hover:bg-field-100" : undefined}

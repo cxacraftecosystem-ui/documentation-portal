@@ -1,17 +1,3 @@
-/**
- * TWO-STEP VERIFICATION — the browser's half, pinned.
- *
- * Pure functions from `lib/twoFactor.ts`, plus source assertions for the judgements that live in JSX
- * (there is no React renderer in devDependencies):
- *
- *   1. A code's KIND is read from its shape exactly as the server's `code_kind` reads it.
- *   2. A sign-in that answers a challenge is recognised as one, and a session is not.
- *   3. Every first factor on /login goes through the one branch that can show the code form.
- *   4. The challenge form's "timed out" sentence is the server's, character for character.
- *
- * ⚠ Source assertions are line-ending agnostic: `\s` and `[\s\S]`, never `\n`.
- */
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 

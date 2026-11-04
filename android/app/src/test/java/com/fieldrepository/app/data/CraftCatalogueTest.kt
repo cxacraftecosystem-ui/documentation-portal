@@ -13,11 +13,6 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 
-/**
- * THE CRAFT LIST EVERY PICKER READS (REQUIREMENTS_2026-10-20 §2.3-§2.4), held against a mock of the
- * frozen `GET /crafts/catalogue` answer built from the master list — the same fixture the web's
- * `frontend/e2e/craft-catalogue-unit.spec.ts` reads, so the two clients rank and group alike.
- */
 class CraftCatalogueTest {
     private lateinit var dir: File
     private lateinit var target: File
@@ -88,11 +83,9 @@ class CraftCatalogueTest {
 
     @Test
     fun `in airplane mode the cached catalogue still finds Ajrakh`() = runBlocking {
-        // Online once: the list lands in the file with its tag.
         val fresh = CraftCatalogueCache.refresh(target) { CraftCatalogueCache.Fetch.Fresh(body, "\"v1\"") }
         assertEquals(455, fresh?.crafts?.size)
         assertTrue(target.exists())
-        // A cold start with no signal: memory is empty, the network throws, the file answers.
         CraftCatalogueCache.forget()
         var sentTag: String? = null
         val offline = CraftCatalogueCache.refresh(target) { etag ->

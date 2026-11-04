@@ -8,7 +8,6 @@ import { resolveColorKey, SPEAKER_TEXT, speakerStyle } from "@/lib/transcript/sp
 
 type Block = { key: string; speakerKey: string | null; speaker: string; colorKey?: string; turns: TranscriptTurn[] };
 
-/** Consecutive turns of one speaker, read as one paragraph of theirs. */
 export function readingBlocks(turns: readonly TranscriptTurn[]): Block[] {
   const blocks: Block[] = [];
   for (const turn of turns) {
@@ -19,13 +18,6 @@ export function readingBlocks(turns: readonly TranscriptTurn[]): Block[] {
   return blocks;
 }
 
-/**
- * READING MODE (owner, 1 Nov 2026): the conversation as one long transcript — speaker-labelled,
- * flowing paragraphs, no timestamps — in Original, English or Both. Both prints a speaker's words,
- * then their English beneath where there is a translation. The line being spoken is lit, and each
- * turn carries `data-follow-turn` so auto-follow can keep it in view. Turn text is what was said,
- * drawn as text and never parsed as markup.
- */
 export const ReadingView = memo(function ReadingView({ turns, track, activeTurnId }: { turns: TranscriptTurn[]; track: CopyTrack; activeTurnId: string | null }) {
   return (
     <div className="grid gap-5 rounded-lg border border-line-200 bg-card px-4 py-4 sm:px-6 sm:py-5" data-reading={track}>

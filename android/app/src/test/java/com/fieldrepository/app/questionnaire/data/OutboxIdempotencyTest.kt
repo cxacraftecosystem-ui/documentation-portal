@@ -11,16 +11,10 @@ import org.junit.rules.TemporaryFolder
 import java.io.IOException
 import java.time.Instant
 
-/**
- * Every create carries the SAME Idempotency-Key, `clientKey` and `clientClipKey` on every retry, and
- * the body sent is the one frozen when the step was queued. No request carries a title or a file name
- * (DESIGN §9 test 61).
- */
 @QFeature("B1")
 class OutboxIdempotencyTest {
     @get:Rule val tmp = TemporaryFolder()
 
-    /** Fails the first [failures] creates with no signal, then behaves. */
     private class Flaky(var failures: Int) : SessionTransport by FakeSessionTransport() {
         val inner = FakeSessionTransport()
         override suspend fun createSession(idempotencyKey: String, body: QSessionCreate): QSession {

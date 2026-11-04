@@ -6,10 +6,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/**
- * `res/raw/district_shapes.bin` loads, holds exactly the districts the boundary build joined (the web
- * manifest's `coverage.joined`), and nearly every label point falls inside its own polygon.
- */
 class DistrictShapesTest {
     private fun find(vararg relative: String): File {
         var dir: File? = File("").absoluteFile

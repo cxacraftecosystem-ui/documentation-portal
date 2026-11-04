@@ -6,32 +6,12 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * **THE SEAM THE WALKTHROUGH CARD CUTS A STEP AT** — the one piece of real logic in
- * `WalkthroughJourney.kt`.
- *
- * Ported from the designer portal's suite of the same name. [walkthroughFacets] is shared code, byte
- * for byte, so the parser's own guarantees are pinned exactly as they are there: a caution is found
- * by its WORDS and not its punctuation, its introduction is not left at the top of the bullet, and it
- * is not duplicated into the prose. This app's bodies are one short line, and their "why" and cautions
- * are fields of their own, so those guarantees are asserted against steps built for the purpose
- * rather than against the deck.
- *
- * What IS asserted against every deck is the shape the card is handed: a summary that is the whole
- * line, a "Why this step exists" and a "Watch out for" on every numbered step and on neither end, no
- * blank chips or bullets, and — for a card that opens the same screen in two decks — the same form
- * labels in both.
- */
 class WalkthroughFacetsTest {
 
     private fun step(body: String) = WalkStep(id = "probe", title = "Probe · Test", body = body)
 
-    // ── The parser, which is shared code ─────────────────────────────────────────────────────────
-
     @Test
     fun `a caution is found whatever punctuation it raises its voice with`() {
-        // THE DESIGNER PORTAL'S SHIPPED DEFECT: the seam was the literal "Watch out:", and two steps
-        // wrote "WATCH OUT, BECAUSE…" with a comma. The marker is the words, never the punctuation.
         listOf(
             "Record the thing you came for, in the order it happens. Watch out: the first caution here.",
             "Record the thing you came for, in the order it happens. WATCH OUT, BECAUSE THIS ONE MATTERS: a caution.",
@@ -65,12 +45,9 @@ class WalkthroughFacetsTest {
 
     @Test
     fun `a word that merely contains the seam is not a seam`() {
-        // `\b` on both ends, so "watchtower" or "outbox" cannot be mistaken for a caution.
         val facets = walkthroughFacets(step("Climb the watchtower and check the outbox for anything left."))
         assertEquals(emptyList<String>(), facets.watch)
     }
-
-    // ── The shape every deck's cards are handed ──────────────────────────────────────────────────
 
     @Test
     fun `a step's own why and cautions win over the body's seams`() {
@@ -90,9 +67,6 @@ class WalkthroughFacetsTest {
 
     @Test
     fun `every numbered step's summary is its whole line`() {
-        // One short line per step: the collapsed card shows all of it. A body the cutter split would
-        // mean the line had grown a second sentence — `WalkthroughStepsTest` forbids that, and this
-        // asserts the card agrees.
         WALKTHROUGH_DECKS.flatMap { it.journey }.forEach { step ->
             assertEquals(
                 "“${step.id}”'s summary is not its whole line",
@@ -104,9 +78,6 @@ class WalkthroughFacetsTest {
 
     @Test
     fun `every numbered step says why it exists and what to watch out for`() {
-        // THE OWNER'S REPORT, 2026-10-20: the handset's cards had neither section, where the designer
-        // portal's do. An empty `why` or `watch` draws no heading, so a step missing one is invisible
-        // on the card — this is the only place it shows.
         WALKTHROUGH_DECKS.flatMap { it.journey }.forEach { step ->
             val facets = walkthroughFacets(step)
             assertTrue("“${step.id}” draws no “Why this step exists”", facets.detail.isNotBlank())
@@ -116,7 +87,6 @@ class WalkthroughFacetsTest {
 
     @Test
     fun `the why and the cautions stay concise`() {
-        // Concise, premium copy: a why is at most two short sentences and a caution is one line.
         WALKTHROUGH_DECKS.flatMap { it.journey }.forEach { step ->
             val facets = walkthroughFacets(step)
             assertTrue(
@@ -137,7 +107,6 @@ class WalkthroughFacetsTest {
 
     @Test
     fun `the two ends of a deck draw no caution`() {
-        // The opening and closing cards are not features; a "Watch out for" over them would be noise.
         WALKTHROUGH_DECKS.forEach { deck ->
             listOf(deck.steps.first(), deck.steps.last()).forEach { step ->
                 assertEquals(
@@ -151,8 +120,6 @@ class WalkthroughFacetsTest {
 
     @Test
     fun `a card in another deck that reuses a researcher screen's words reuses them exactly`() {
-        // The interview, media, workshop, craft, data, offline and account cards of the other decks
-        // describe the researcher's screen in the researcher's words, by reference.
         val pairs = mapOf(
             "contributor-interview" to "questionnaire",
             "contributor-media" to "media",
@@ -182,8 +149,6 @@ class WalkthroughFacetsTest {
 
     @Test
     fun `no card would draw an empty chip`() {
-        // The card decides whether to draw the heading by asking whether the list is EMPTY, so a blank
-        // string survives every other assertion and renders as an empty bordered box.
         WALKTHROUGH_DECKS.flatMap { it.steps }.forEach { step ->
             walkthroughFacets(step).fields.forEach { field ->
                 assertTrue("“${step.id}” carries a blank entry in its field list", field.isNotBlank())
@@ -193,8 +158,6 @@ class WalkthroughFacetsTest {
 
     @Test
     fun `the steps that teach no screen list no fields at all`() {
-        // The two ends of every deck are not features, and the offline steps teach a behaviour rather
-        // than a form. An empty list, not a list holding one blank string.
         val screenless = WALKTHROUGH_DECKS.flatMap { deck ->
             listOf(deck.steps.first(), deck.steps.last()) + deck.journey.filter { it.destination == null }
         }
@@ -209,8 +172,6 @@ class WalkthroughFacetsTest {
 
     @Test
     fun `one screen is described one way, whichever deck the card is in`() {
-        // A contributor's or an admin's card that opens a screen the researcher's deck also teaches is
-        // handed THAT screen's list — the same object, not a second register typed again.
         val researcherFields = walkthroughJourney
             .filter { it.destination != null }
             .associate { it.destination to walkthroughFacets(it).fields }

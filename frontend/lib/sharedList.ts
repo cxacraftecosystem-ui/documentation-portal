@@ -1,10 +1,3 @@
-/**
- * `listResource` with in-flight de-duplication: callers asking for the SAME list (same path, same
- * query) while one request is out share its answer. Nothing is kept once it settles, so the data is
- * exactly as fresh as a plain `listResource` call. The record forms mount two artisan pickers in one
- * commit (`useServerSearchList` and `useCraftAndArtisanOptions`), which both read the same page.
- */
-
 import { buildQuery, listResource } from "@/lib/api";
 import type { PageResult } from "@/lib/types";
 

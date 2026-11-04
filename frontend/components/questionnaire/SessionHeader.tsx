@@ -8,11 +8,6 @@ import { modeLabel } from "@/lib/questionnaire/view";
 import { qs } from "@/lib/questionnaire/qs";
 import { encodeQr, qrSvgPath } from "@/lib/qrEncode";
 
-/**
- * Title (generated), note underneath, the participant strip with Present/Away per artisan, the join
- * code and its QR (DESIGN §4.3, §3.7). The code works online; the QR carries the session's
- * clientKey so a second device can join offline.
- */
 export function SessionHeader({
   session,
   pendingTakes,
@@ -25,12 +20,9 @@ export function SessionHeader({
   pendingTakes: number;
   onFinish?: () => void;
   onPresence?: (artisanId: string, present: boolean) => void;
-  /** Remove an artisan from the session; the caller asks P10 first when they have takes. */
   onRemove?: (artisanId: string) => void;
   onAddArtisan?: () => void;
 }) {
-  // The join QR, drawn as an SVG by the repository's own encoder (lib/qrEncode.ts, shared by both
-  // portals): no QR package, and nothing to wait for.
   const qr = useMemo(() => {
     if (!session.joinQr) return null;
     try {

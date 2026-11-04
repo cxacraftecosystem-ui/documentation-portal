@@ -1,11 +1,3 @@
-"""Recording chips and the shared filters, without a database (owner, 31 Oct 2026).
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal (shared/questionnaire.sha256).
-The chips object the server builds (``app/questionnaire/chips.py``), the filter parameters every
-list takes (``app/questionnaire/filters.py``), and ``shared/questionnaire-chips.json``, the
-vectors both clients draw their chips and encode their filters from.
-"""
-
 from __future__ import annotations
 
 import json
@@ -54,7 +46,6 @@ def test_who_answered_comes_before_who_was_present_and_a_question_names_its_sect
 
 
 def test_the_capture_day_is_shown_only_when_it_is_not_the_session_day_and_is_read_in_india_time() -> None:
-    # 20:00 UTC on the 22nd is 01:30 on the 23rd in India.
     late = _build(captured_at=datetime(2026, 10, 22, 20, 0, tzinfo=UTC))
     assert late["capturedOn"] == "2026-10-23"
     same = _build(captured_at=datetime(2026, 10, 22, 12, 0, tzinfo=UTC))

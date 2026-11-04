@@ -10,12 +10,6 @@ import { chipHref, useChipNavigator } from "@/components/questionnaire/useUrlFil
 import { questionnaireApi, type Recording } from "@/lib/questionnaire/api";
 import { qs } from "@/lib/questionnaire/qs";
 
-/**
- * A workshop's latest questionnaire takes with their chips (owner, 31 Oct 2026), and the way to all
- * of them on the recordings list, filtered to the workshop. `type` says which kind of workshop the
- * id names: a field workshop, or (designer-portal) a design workshop. Draws nothing while the
- * questionnaire is off or the workshop has no takes.
- */
 export function WorkshopRecordings({ workshopId, type = "FIELD", limit = 5 }: { workshopId: string; type?: "FIELD" | "DESIGN"; limit?: number }) {
   const on = Boolean(useQuestionnaireConfig()?.v2Enabled);
   const goChip = useChipNavigator();

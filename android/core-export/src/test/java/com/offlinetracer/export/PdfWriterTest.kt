@@ -5,11 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/**
- * The PDF is verified structurally: the cross-reference table is parsed and every offset in it is
- * followed to check that the object it claims really starts there. Acrobat silently rebuilds a
- * broken table, so a wrong xref passes a "does it open" check and then fails everywhere else.
- */
 class PdfWriterTest {
 
     private fun text(bytes: ByteArray) = String(bytes, Charsets.ISO_8859_1)
@@ -83,22 +78,18 @@ class PdfWriterTest {
     @Test
     fun mediaBoxIsInPointsAndHonoursDpi() {
         val doc = Fixtures.document()
-        // 100 x 50 document pixels at 300 dpi is 24 x 12 points.
         val at300 = mediaBox(PdfWriter.export(doc, ExportOptions(ExportFormat.PDF, dpi = 300)))
         assertEquals(24f, at300[0], 0.01f)
         assertEquals(12f, at300[1], 0.01f)
 
-        // At 72 dpi a document unit *is* a point, so the page is the document size.
         val at72 = mediaBox(PdfWriter.export(doc, ExportOptions(ExportFormat.PDF, dpi = 72)))
         assertEquals(100f, at72[0], 0.01f)
         assertEquals(50f, at72[1], 0.01f)
 
-        // Scale multiplies the page as well as the geometry.
         val scaled = mediaBox(PdfWriter.export(doc, ExportOptions(ExportFormat.PDF, dpi = 72, scale = 2f)))
         assertEquals(200f, scaled[0], 0.01f)
         assertEquals(100f, scaled[1], 0.01f)
 
-        // An explicit width with no height keeps the aspect ratio.
         val fixed = mediaBox(PdfWriter.export(doc, ExportOptions(ExportFormat.PDF, dpi = 72, width = 400)))
         assertEquals(400f, fixed[0], 0.01f)
         assertEquals(200f, fixed[1], 0.01f)

@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * The scan button at the leading edge of the mobile/tablet header (REQUIREMENTS_2026-10-20 §6.2).
- * Shown for every signed-in user, whether or not artisan cards are on. Frozen signature: the nav
- * streams render `<TopBarScanButton />` and nothing else about it.
- */
-
 import { useState } from "react";
 import { ScanLine } from "lucide-react";
 
@@ -21,7 +15,6 @@ export function TopBarScanButton({ className }: { className?: string }) {
         title="Scan a code"
         data-testid="top-bar-scan"
         onClick={(event) => {
-          // The header pill opens search on any press; the scan button is its own target.
           event.stopPropagation();
           setOpen(true);
         }}

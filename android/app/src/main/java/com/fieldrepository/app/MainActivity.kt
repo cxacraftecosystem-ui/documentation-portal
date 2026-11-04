@@ -1,5 +1,9 @@
 package com.fieldrepository.app
 
+import com.fieldrepository.app.transcript.data.TranscribeChoices
+import com.fieldrepository.app.transcript.data.UploadTranscribe
+import com.fieldrepository.app.transcript.ui.TranscribeChoiceItem
+import com.fieldrepository.app.transcript.ui.TranscribeChoiceRows
 import com.fieldrepository.app.data.workshopDisplayTitle
 import com.fieldrepository.app.data.AnswerDrafts
 import com.fieldrepository.app.ui.AnswerDraftsCard
@@ -377,10 +381,6 @@ import com.fieldrepository.app.ui.RecordSwitcherState
 import com.fieldrepository.app.ui.recordSwitcherTitle
 import com.fieldrepository.app.ui.rememberRecordSwitcher
 import com.fieldrepository.app.ui.WorkshopWindowState
-// The walkthrough: its surface, and the device-local flag that opens it exactly once. The step list
-// and the dialog live in `ui/` rather than here so a JVM unit test can read them without standing up
-// a composition — the deck they replace was private to this file, which is why its opening card
-// could say "Ten steps" over a counter reading 1/12 with nothing able to notice.
 import com.fieldrepository.app.ui.WalkthroughDialog
 import com.fieldrepository.app.ui.markWalkthroughSeen
 import com.fieldrepository.app.ui.walkthroughSeen
@@ -444,11 +444,7 @@ import com.fieldrepository.app.ui.ConsolidatedQuestionnaireScreen
 import com.fieldrepository.app.ui.DataBrowserScreen
 import com.fieldrepository.app.ui.FieldRepositoryTheme
 import com.fieldrepository.app.ui.MapScreen
-// The shared prose box behind every record form: an optional on-device microphone and an optional
-// rich-text editor, both defaulting to off. See `ui/RecordProseField.kt` and `ui/RecordProseText.kt`.
 import com.fieldrepository.app.ui.RecordProseField
-// The record forms do not decide dictation at the call site any more: they ask this table, which
-// `RecordProseTest` and `RecordDictationParityTest` both read. See `ui/RecordDictationFields.kt`.
 import com.fieldrepository.app.ui.RecordFormKind
 import com.fieldrepository.app.ui.recordDictationFor
 import com.fieldrepository.app.ui.WorkshopScopeSelect
@@ -613,18 +609,8 @@ import com.fieldrepository.app.data.ScanTarget
 import com.fieldrepository.app.data.dispatchScan
 
 class MainActivity : ComponentActivity() {
-    /**
-     * A set-password link tapped elsewhere (the manifest's `/set-password` filter), waiting for the
-     * sign-in root to open the redeem screen with it. Cleared once taken. See `takePasswordLink`.
-     */
     private val incomingPasswordLink = mutableStateOf<String?>(null)
 
-    /**
-     * Read the link off a VIEW intent — held to the same https host and path the manifest names,
-     * because the activity is exported and any app can address it explicitly with any data. The
-     * whole URI is kept, fragment included: `passwordLinkToken` reads the token from either place.
-     * Not on a restore, and not from history, so a relaunch never re-opens a link already handled.
-     */
     private fun takePasswordLink(intent: Intent?, restored: Boolean = false) {
         if (restored || intent == null) return
         if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
@@ -643,23 +629,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        /*
-         * EDGE-TO-EDGE ON EVERY API LEVEL, NOT ONLY WHERE ANDROID FORCES IT.
-         *
-         * Android 15 drew any app targeting 35 behind its status and navigation bars, and from
-         * targetSdk 36 there is no opt-out at all. Calling this makes the older handsets in the field
-         * (minSdk 26) lay out the same way, so there is ONE layout to get right and the API 37
-         * emulator run (.github/workflows/android-emulator.yml) speaks for all of them. The other
-         * half is at the root of `RepositoryApp`, which pads the whole app clear of the bars, the
-         * display cutout and the keyboard; the manifest's `adjustResize` is what delivers the
-         * keyboard's insets there. Bar colours and icon contrast are still `FieldRepositoryTheme`'s
-         * (ui/Theme.kt).
-         */
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         takePasswordLink(intent, restored = savedInstanceState != null)
         if (savedInstanceState == null) LocalAlerts.takeTap(intent)
-        // A form another phone sent (.frwq / .dpwq): the questionnaire screen asks P17.
         if (savedInstanceState == null) com.fieldrepository.app.forms.FormBundleInbox.take(applicationContext, intent)
         val tokenStore = TokenStore(applicationContext)
         val repository = FieldRepository(ApiClient.create(tokenStore, OutboxSyncWorker.readCacheDir(applicationContext)), tokenStore)
@@ -667,22 +640,13 @@ class MainActivity : ComponentActivity() {
             repository.cachedUser()?.id
         }
         val googleAuthClient = GoogleAuthClient(this)
-        // Microsoft and Yahoo. Created with the activity because AppAuth binds the browser's
-        // custom-tab service to it; the client disposes of that binding when the activity goes.
         val oidcAuthClient = OidcAuthClient(this)
-        // Appearance is read SYNCHRONOUSLY, before the first frame is composed. That is the whole
-        // point of the device-local copy: the account's row arrives over the network, and deciding
-        // the theme from it would flash a light app at somebody who chose Dark. The store outlives
-        // sign-out on purpose, so the look does not reset every time the session does.
         val preferencesStore = AppPreferencesStore(applicationContext)
         val storedPreferences = preferencesStore.read()
         setContent {
             var preferences by remember { mutableStateOf(storedPreferences) }
             FieldRepositoryTheme(darkTheme = resolveDarkTheme(preferences.theme, isSystemInDarkTheme())) {
-                // "Larger text" is applied here — ProvideAppPreferences scales the density every `sp`
-                // in the app resolves against, so type grows and the layout does not.
                 ProvideAppPreferences(preferences) {
-                    // The Password card runs a provider sign-in again before a first password.
                     CompositionLocalProvider(LocalProviderReauth provides ProviderReauth(googleAuthClient, oidcAuthClient)) {
                     RepositoryApp(
                         repository = repository,
@@ -690,8 +654,6 @@ class MainActivity : ComponentActivity() {
                         oidcAuthClient = oidcAuthClient,
                         preferences = preferences,
                         onPreferencesChanged = { next ->
-                            // Apply first, persist second: the switch must feel instant. The screen
-                            // itself owns the PUT; the device copy is ours.
                             preferences = next
                             preferencesStore.write(next)
                         },
@@ -709,11 +671,6 @@ private enum class EntryMode(
     val label: String,
     val actionTitle: String,
     val editable: Boolean = false,
-    /**
-     * False = the menu only, no dashboard tile. The web keeps Search and the Data Browser in the
-     * nav's "Browse" group and off the dashboard grid (its twelve tiles are the record types plus
-     * Users and Settings), so neither earns a tile here either.
-     */
     val onDashboard: Boolean = true
 ) {
     ARTISAN("Artisan", "Record artisan", editable = true),
@@ -723,122 +680,62 @@ private enum class EntryMode(
     QUESTIONNAIRE("Questionnaire", "Take interview", editable = true),
     MEDIA("Miscellaneous Media", "Upload media"),
     VIEW_DATA("View Data", "Browse records"),
-    // /search on the web. Its nav entry there is labelled "Browse records" — the phrase this app has
-    // long used for the View Data card — so the page's OWN title is used instead, rather than putting
-    // two identically-named entries in the menu.
     SEARCH("Search", "Search", onDashboard = false),
-    // /data on the web: the whole repository as a directory tree, gated on require_dataset_downloader.
-    // Named after the page's own title ("Data Browser") for the same reason as SEARCH above.
     DATA_BROWSER("Data Browser", "Data Browser", onDashboard = false),
-    // /map on the web, and a dashboard tile there too — the third way of reading the whole corpus
-    // (list, folder tree, place). Both strings are the web tile's own, which is why the label and the
-    // action title are the same word: the tile says "Map" and its button says "Open".
     MAP("Map", "Map"),
-    // /questionnaire/consolidated on the web. Reads one artisan's answers back out of every interview
-    // they sat in; writes nothing, which is why it is not next to QUESTIONNAIRE above.
     CONSOLIDATED_QUESTIONNAIRE("Consolidated questionnaire", "Consolidated questionnaire"),
-    // "Tasks" matches the web nav label exactly. The card is the ASSIGNEE's to-do list; assigning work
-    // is an admin action and lives in the admin hub.
     TASKS("Tasks", "My tasks"),
     SHARING("Sharing", "Share data access"),
-    // Workshop access is the other half of Sharing: Sharing is researcher-to-researcher over records,
-    // this is admin-to-researcher over a workshop. Kept as its own card so a new user can find "how do
-    // I get into this workshop" without reading the sharing screen first.
     WORKSHOP_ACCESS("Workshop access", "Request workshop access"),
     USERS("Users", "Manage users"),
-    // Craft and Workshop are the least frequently edited, so they sit last on the dashboard.
     CRAFT("Craft", "Add craft", editable = true),
     WORKSHOP("Workshop", "Record workshop", editable = true)
 }
 
-/** Where the user currently is. null-mode dashboard is replaced by this explicit machine. */
 private sealed interface Screen {
     data object Dashboard : Screen
     data class Create(
         val mode: EntryMode,
         val prefill: Prefill? = null,
-        /**
-         * SEARCH only, and only from a tapped dashboard total: the [SearchRecordTypes] bucket that
-         * figure counted. Carried on the destination alongside [prefill] because the search screen
-         * owns its own filter state and takes no initial record type.
-         */
         val searchFocus: String? = null,
-        /** Makes a re-opened form a NEW screen, so it starts empty — see `createNonce`. */
         val fresh: Int = 0
     ) : Screen
     data class Browse(val mode: EntryMode) : Screen
-    /**
-     * One record, READ-ONLY — where a tap on any record card or row lands (`ui/RecordOpen.kt`).
-     * [back] is the screen the tap came from, so Back returns there rather than to a guess.
-     */
     data class View(val mode: EntryMode, val recordId: String, val back: Screen = Dashboard) : Screen
-    /** The record's edit form, reached only through "Update". [back] null = the type's Update picker. */
-    /** [focus]: the completeness rule key a meter chip on the record's page asked the form to open at. */
     data class Edit(val mode: EntryMode, val recordId: String, val back: Screen? = null, val focus: String? = null) : Screen
-    // Hamburger-only screens (not on the dashboard).
     data object MyActivity : Screen
     data object ToolAssign : Screen
     data object Feedback : Screen
-    /** The in-app activity list (C25): `ui/NotificationsScreen.kt`. */
     data object Notifications : Screen
     data object Settings : Screen
-    /** This account's Appearance + Accessibility — /settings on the web. Open to every user. */
     data object Appearance : Screen
 
-    /** This account's OWN provider keys. Personal, not administrative — the
-     *  deployment's keys live behind the admin hub's API keys entry. */
     data object MyAiKeys : Screen
 
-    /** This account's two-step verification. Personal, open to every role; reached from Settings. */
     data object TwoStepVerification : Screen
-    /**
-     * The /data directory-tree browser. Its own Screen rather than a Create mode because it owns its
-     * whole viewport: it draws its own top bar and lays out with a LazyColumn, which must never be
-     * nested inside the scrolling Column the rest of the app renders into.
-     */
     data object DataBrowser : Screen
-    /**
-     * Admin hub, opened from the dashboard "Settings" card (admins only). [section] pre-opens one of
-     * its tools, which is how "Assignment board" on the Tasks screen lands straight on the board.
-     */
     data class AdminHub(val section: AdminHubEntry? = null) : Screen
-    /**
-     * One record from the other portal, read-only (docs/SEARCH.md), opened from a search result with
-     * a portal chip. [from] is where Back returns.
-     */
     data class RemoteRecord(val type: String, val id: String, val from: Screen? = null) : Screen
 }
 
-/** Context carried forward from a just-saved record into a follow-up record. */
 private data class Prefill(
     val artisanId: String? = null,
     val artisanName: String? = null,
     val place: String? = null,
     val craftId: String? = null,
     val craftName: String? = null,
-    /** The product just saved, so "Document how it's made" opens the process form on it (A8). */
     val productId: String? = null,
     val productName: String? = null
 )
 
-/** The sitting minus the record itself: what "add another" of the same type starts from. */
 private fun Prefill.forAnother(mode: EntryMode): Prefill = when (mode) {
     EntryMode.ARTISAN -> Prefill(craftId = craftId, craftName = craftName)
     EntryMode.CRAFT -> Prefill()
     else -> copy(productId = null, productName = null)
 }
 
-/** What was just created, for the dashboard's next-step panel (A8). */
 private data class NextStep(val saved: EntryMode, val name: String?, val prefill: Prefill)
 
-/**
- * The same handoff as a carry-context bag, so the in-memory route and the stored one describe the
- * sitting in one vocabulary and cannot drift apart.
- *
- * Nothing regulated crosses over: [CarryContext] has no Aadhaar or Pehchan field to put one in, and
- * neither does [Prefill]. That is deliberate on both — a shared field handset is the last place to
- * park a government identifier.
- */
 private fun Prefill.toCarryContext(): CarryContext = CarryContext(
     artisanId = artisanId,
     artisanName = artisanName,
@@ -849,14 +746,6 @@ private fun Prefill.toCarryContext(): CarryContext = CarryContext(
     productName = productName
 )
 
-/**
- * [rememberCarryPrefill] with the two things every record form would otherwise repeat: where the bag
- * lives, and whose it is.
- *
- * [handoff] is the [Prefill] a tap on [NextStepPanel] carried across in memory. It is seconds
- * old, so it beats anything in storage — and it is banked on arrival, which is what lets a
- * researcher who leaves via the dashboard and comes back an hour later still be offered it.
- */
 @Composable
 private fun rememberFormCarry(
     repository: FieldRepository,
@@ -868,8 +757,6 @@ private fun rememberFormCarry(
 ): CarryPrefillState {
     val appContext = LocalContext.current.applicationContext
     val store = remember(appContext) { CarryContextStore(appContext) }
-    // Read once: cachedUser() re-parses the stored account on every call, and a signed-in user can
-    // only change by tearing this whole tree down.
     val userId = remember(repository) { repository.cachedUser()?.id }
     return rememberCarryPrefill(
         store = store,
@@ -882,19 +769,8 @@ private fun rememberFormCarry(
     )
 }
 
-/**
- * A field as the unsaved-work guard should see it: blank for as long as it still holds exactly what
- * the carry prefill put there.
- *
- * A carried value is the app's suggestion, not the researcher's work, so a prefilled form nobody has
- * touched must not answer "save your changes?" on the way out. The web arrives at the same place
- * from the other side — its guard only latches on real input, so a programmatic prefill never
- * registers at all. Edit the value and it stops matching, and from then on it counts like anything
- * else they typed.
- */
 private fun String.exceptCarried(carried: String?): String = if (carried != null && this == carried) "" else this
 
-/** Pictorial icon for each record type, used on the dashboard cards and the drawer. */
 private fun EntryMode.icon(): ImageVector = when (this) {
     EntryMode.ARTISAN -> Icons.Filled.Person
     EntryMode.PRODUCT -> Icons.Filled.Inventory2
@@ -919,52 +795,23 @@ private fun EntryMode.icon(): ImageVector = when (this) {
 private fun RepositoryApp(
     repository: FieldRepository,
     googleAuthClient: GoogleAuthClient,
-    /** Microsoft and Yahoo sign-in; its `providers` is empty when this build configures neither. */
     oidcAuthClient: OidcAuthClient,
     preferences: AppPreferences,
     onPreferencesChanged: (AppPreferences) -> Unit,
-    /** An administrator's set-password link, tapped elsewhere. See `MainActivity.incomingPasswordLink`. */
     incomingPasswordLink: String? = null,
     onIncomingPasswordLinkConsumed: () -> Unit = {}
 ) {
-    // Debug builds on Android 17 only, and only when the API base is a local-network address — see
-    // ui/LocalNetworkAccess.kt. Renders nothing; in a release build it is a no-op.
     LocalNetworkAccessForDevelopmentBackend()
     val scope = rememberCoroutineScope()
-    /** For sign-out: it forgets this account's activity list on the device. */
     val signOutContext = LocalContext.current.applicationContext
     var user by remember { mutableStateOf(repository.cachedUser()) }
     var loading by remember { mutableStateOf(user == null && repository.hasToken()) }
     var error by remember { mutableStateOf<String?>(null) }
-    /**
-     * `ACCESS_PENDING` / `ACCESS_REJECTED` / `ACCESS_SUSPENDED` when the sign-in gate refused this
-     * attempt, null for every other failure (a wrong password, a 500, no signal).
-     *
-     * DELIBERATELY NOT FOLDED INTO [error]. The ruling this whole feature turns on is that "wrong
-     * password" and "awaiting approval" are DIFFERENT answers, and a person waiting on an
-     * administrator must not be left believing they mistyped something — what they will do about
-     * that belief is reset a password that was never wrong and telephone the wrong desk about it
-     * for a week. The code, and never the English prose, is what the screen branches on: matching
-     * the sentence would break the moment somebody improves the wording, and the thing that would
-     * break is the difference itself.
-     */
     var refusalCode by remember { mutableStateOf<String?>(null) }
-    /**
-     * The two-step challenge a first factor answered, when the account has two-step verification on.
-     * Nobody is signed in while this is set; the code form replaces the sign-in card until a code is
-     * accepted or the person goes back. Saveable, so a rotation does not throw the first factor away.
-     */
     var challenge by rememberSaveable { mutableStateOf<String?>(null) }
-    /**
-     * The password typed at the door this session, held ONLY for the first-password gate so the
-     * person is not asked for it twice, and forgotten the moment the gate is satisfied or anybody
-     * signs out. Never written anywhere. Blank on the Google, Microsoft and Yahoo paths.
-     */
     var doorPassword by remember { mutableStateOf("") }
-    /** The redeem screen for an administrator's link, drawn in place of the sign-in card. */
     var redeemingLink by remember { mutableStateOf(false) }
     var pastedLink by remember { mutableStateOf("") }
-    /** "Forgot your password?", drawn in place of the sign-in card. */
     var forgotPassword by remember { mutableStateOf(false) }
     fun take(outcome: SignInOutcome) {
         when (outcome) {
@@ -973,13 +820,6 @@ private fun RepositoryApp(
         }
     }
 
-    /*
-     * ── MICROSOFT AND YAHOO: THE ANSWER FROM THE BROWSER TAB ─────────────────────────────────────
-     *
-     * The provider and the RAW nonce of the sign-in in flight, as "PROVIDER|nonce". Saveable, so the
-     * activity being recreated while the tab is open does not lose the half the backend needs;
-     * AppAuth keeps the PKCE verifier on its own request for the same reason.
-     */
     var pendingOidc by rememberSaveable { mutableStateOf<String?>(null) }
     val oidcLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val started = pendingOidc?.split('|', limit = 2)
@@ -1009,8 +849,6 @@ private fun RepositoryApp(
                     )
                 }
                     .onSuccess { take(it) }
-                    // The roster's own sentence and code, as on the Google path — a person waiting
-                    // on an administrator must read that, not "sign-in failed".
                     .onFailure {
                         val failure = it.apiFailure(oidcCallbackErrorMessage(provider, null))
                         error = failure.message
@@ -1021,19 +859,11 @@ private fun RepositoryApp(
         }
     }
 
-    // Persistent login: start from the cached profile so minimise/resume never logs the user out.
-    // Refresh in the background and only clear the session if the token is genuinely rejected.
-    //
-    // ONE `GET /me` AND WHAT ITS ANSWER MEANS (`sessionVerdict`, pure and pinned by
-    // `PasswordChangeRequiredTest`), at launch and again whenever a request comes back gated or with a
-    // plain 401 to the token still held — a password changed elsewhere, or an administrator's "sign out
-    // of every device", retires this session, and this is how the phone hears of it.
     suspend fun refreshSession() {
         runCatching { repository.refreshUser() }
             .onSuccess { user = it }
             .onFailure { err ->
                 when (err.sessionVerdict()) {
-                    // A LIVE session that owes a new password: keep it and put the gate up.
                     SessionVerdict.CHOOSE_NEW_PASSWORD -> {
                         val held = repository.holdForPasswordChange()
                         if (held != null) {
@@ -1057,7 +887,6 @@ private fun RepositoryApp(
                         doorPassword = ""
                         error = SESSION_ENDED_SENTENCE
                     }
-                    // The network, never a reason to sign anybody out.
                     SessionVerdict.KEEP -> if (user == null) {
                         error = err.message ?: "Couldn't connect. Check your connection and try again."
                     }
@@ -1068,26 +897,18 @@ private fun RepositoryApp(
         if (repository.hasToken()) refreshSession()
         loading = false
     }
-    // A request came back gated: re-read the profile so the gate reaches the screen. Not while the
-    // gate is already up — its own requests are the allow-listed ones.
     LaunchedEffect(Unit) {
         PasswordChangeSignal.raises.collect { raised ->
             val current = user
             if (raised > 0L && current != null && !mustChangePasswordBlocks(current)) refreshSession()
         }
     }
-    // A plain 401 to the token still held: ask `GET /me` whether the session has ended, and sign out
-    // with a sentence that says why only if it has. Not while the gate is up: a 401 there is the
-    // gate's to read (`passwordGateAfterFailure`).
     LaunchedEffect(Unit) {
         SessionEndedSignal.raises.collect { raised ->
             val current = user
             if (raised > 0L && current != null && !mustChangePasswordBlocks(current)) refreshSession()
         }
     }
-    // A link tapped in a chat app opens the redeem screen — but only when nobody is signed in:
-    // redeeming signs out every device of that account, this one included, and doing that as a side
-    // effect of a tap mid-session would lose the person their place.
     val linkContext = LocalContext.current.applicationContext
     LaunchedEffect(incomingPasswordLink) {
         val link = incomingPasswordLink ?: return@LaunchedEffect
@@ -1101,10 +922,6 @@ private fun RepositoryApp(
         onIncomingPasswordLinkConsumed()
     }
 
-    // Appearance follows the ACCOUNT, not the handset: reconcile this device's copy with
-    // /preferences/me once per sign-in. A saved row wins; no row means this device seeds the account,
-    // so the look travels to the next device the researcher signs in on. Never throws — a failure
-    // simply leaves what the device already had on screen.
     val latestPreferences by rememberUpdatedState(preferences)
     val preferencesContext = LocalContext.current.applicationContext
     val questionnaireV2Context = LocalContext.current.applicationContext
@@ -1113,25 +930,15 @@ private fun RepositoryApp(
     }
     LaunchedEffect(user?.id) {
         if (user == null) return@LaunchedEffect
-        // With the store, so a change queued on this device while offline wins over an older row.
         onPreferencesChanged(syncAppPreferences(repository, latestPreferences, AppPreferencesStore(preferencesContext)))
     }
 
-    // Offline outbox auto-sync: drain queued entries on login/start, whenever the network returns, and
-    // on a periodic fallback. `pendingUploads` powers the "saved offline — uploading" banner.
     val appContext = LocalContext.current.applicationContext
     var pendingUploads by remember { mutableStateOf(0) }
-    // Whether the device has validated internet, for the "offline" line at the foot of the screen.
     var online by remember { mutableStateOf(repository.isOnline(appContext)) }
-    // The phone is online but the server has stopped answering (data/ServerReachability.kt).
     val serverUnreachable by com.fieldrepository.app.data.ServerReachability.unreachable.collectAsState()
-    // How tall the island bar currently is, reported up by HomeScreen; 0 where there is no bar.
     val islandClearance = remember { mutableStateOf(0.dp) }
-    // How tall the offline / outbox banner stack is, measured below and handed to every page so its
-    // last button scrolls clear of the banners too (ui/BannerClearance.kt).
     var bannerStackHeight by remember { mutableStateOf(0.dp) }
-    // Stood down while the keyboard is up: the window is short then, and two cards over the field
-    // being typed into would hide it. They are back the moment the keyboard closes.
     val rootImeOpen by com.fieldrepository.app.ui.rememberIslandImeVisible()
     val bannersShown = user != null && !rootImeOpen && (pendingUploads > 0 || !online || serverUnreachable)
     val bannerReserve = remember { mutableStateOf(0.dp) }
@@ -1139,18 +946,12 @@ private fun RepositoryApp(
     val rootDensity = LocalDensity.current
     LaunchedEffect(user) {
         if (user == null || mustChangePasswordBlocks(user)) return@LaunchedEffect
-        // The background half (data/OutboxSyncWorker.kt): carries on after the app is closed.
         OutboxSyncWorker.schedule(appContext)
-        // Capture files no draft refers to any more, from earlier runs. Nothing is open yet.
         runCatching { DraftStore.sweep(appContext) }
-        // The activity list's background half (C25): a periodic pass that posts the local alerts
-        // while the app is closed. KEEP, so signing in again does not reset its clock.
         NotificationSyncWorker.schedule(appContext)
         while (true) {
             runCatching { repository.syncOutbox(appContext) }
             pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
-            // The activity list (C25) rides the same loop: the device copy for offline, and a local
-            // alert for anything new. A failure keeps the copy it has.
             runCatching { repository.syncNotifications(appContext) }
             delay(if (pendingUploads > 0) 12_000L else 45_000L)
         }
@@ -1162,7 +963,6 @@ private fun RepositoryApp(
             override fun onAvailable(network: android.net.Network) {
                 scope.launch {
                     online = repository.isOnline(appContext)
-                    // An appearance change made offline is sent now, rather than at the next sign-in.
                     val preferencesStore = AppPreferencesStore(appContext)
                     if (preferencesStore.pendingSince() != null) {
                         runCatching { onPreferencesChanged(syncAppPreferences(repository, latestPreferences, preferencesStore)) }
@@ -1172,18 +972,12 @@ private fun RepositoryApp(
                 }
             }
 
-            // Read from the capabilities the callback HANDS us, not by asking ConnectivityManager
-            // again: inside these callbacks `activeNetwork` can still name the network being
-            // changed or lost, so the re-query answered "online" after the connection had gone and
-            // the offline line never appeared (release smoke test, 2026-10-16).
             override fun onCapabilitiesChanged(network: android.net.Network, caps: android.net.NetworkCapabilities) {
                 val usable = caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                     caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
                 scope.launch { online = usable }
             }
 
-            // The DEFAULT network went away. If another takes over, onAvailable and
-            // onCapabilitiesChanged for it follow and put this back.
             override fun onLost(network: android.net.Network) {
                 scope.launch { online = false }
             }
@@ -1195,12 +989,6 @@ private fun RepositoryApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            // The canvas is painted under the status and navigation bars (the window is edge-to-edge,
-            // see MainActivity.onCreate) and EVERYTHING ELSE is kept out from under them by the next
-            // line: the safe-drawing insets are the system bars, the display cutout and the open
-            // keyboard, consumed once, here, for every screen of the app. So no screen below pads for
-            // them again — Scaffold and TopAppBar see them already consumed and add nothing. Dialogs
-            // and bottom sheets are separate windows and inset themselves.
             .background(Canvas)
             .safeDrawingPadding()
             .padding(16.dp)
@@ -1217,9 +1005,6 @@ private fun RepositoryApp(
                 },
                 onCancel = { challenge = null; doorPassword = "" }
             )
-            // An administrator's link, pasted or tapped. In place of the sign-in card: somebody
-            // holding one cannot sign in. It opens no session — the person signs in afterwards, and
-            // meets their two-step code there if they have one.
             user == null && redeemingLink -> SetPasswordLinkScreen(
                 repository = repository,
                 initialLink = pastedLink,
@@ -1274,29 +1059,10 @@ private fun RepositoryApp(
                         refusalCode = null
                         runCatching { repository.login(email, password) }
                             .onSuccess {
-                                // Held only for a first-password gate that is about to use it.
                                 doorPassword = password
                                 take(it)
                                 if (it is SignInOutcome.SignedIn && !mustChangePasswordBlocks(it.user)) doorPassword = ""
                             }
-                            /*
-                             * `apiFailure`, NOT `it.message`. THIS LINE IS WHY THE SIGN-IN GATE IS
-                             * VISIBLE ON THIS CLIENT AT ALL.
-                             *
-                             * Retrofit collapses every non-2xx into an `HttpException` whose
-                             * `message` is the literal string "HTTP 403 Forbidden". The server's
-                             * refusal — "Your access request is awaiting approval by an
-                             * administrator. Your sign-in details are correct; there is nothing more
-                             * to do until an administrator approves this address." — travels in the
-                             * body, and reading `it.message` threw it away. A person waiting on an
-                             * admin was told "HTTP 403 Forbidden" and would reasonably conclude the
-                             * app was broken, which is worse than the wrong-password message this
-                             * feature exists to stop them from seeing.
-                             *
-                             * The same call also yields the machine-readable `code`, which is what
-                             * the screen branches on to draw waiting differently from wrong — see
-                             * `LoginScreen`. One call because reading the error body CONSUMES it.
-                             */
                             .onFailure {
                                 val failure = it.apiFailure("Login failed")
                                 error = failure.message
@@ -1315,10 +1081,6 @@ private fun RepositoryApp(
                             repository.loginWithGoogle(idToken)
                         }
                             .onSuccess { take(it) }
-                            // Google sign-in is allow-listed too now — a verified Google identity
-                            // that is not on the roster gets no account and no token, and reads the
-                            // same sentence the password path reads. Same unwrap for the same
-                            // reason; before it, that sentence was "HTTP 403 Forbidden" here.
                             .onFailure {
                                 val failure = it.apiFailure("Google sign-in failed")
                                 error = failure.message
@@ -1328,9 +1090,6 @@ private fun RepositoryApp(
                     }
                 }
             )
-            // The account owes a new password: between sign-in and the product, with "Sign out
-            // instead" as the only other way off it. See ui/PasswordGate.kt. The banners show here too,
-            // so the gate's last button scrolls clear of them like any page's.
             mustChangePasswordBlocks(user) -> CompositionLocalProvider(
                 LocalBannerClearance provides bannerReserve
             ) { PasswordGateScreen(
@@ -1370,7 +1129,6 @@ private fun RepositoryApp(
                 onPreferencesChanged = onPreferencesChanged,
                 onLogout = {
                     scope.launch {
-                        // Counted BEFORE the session goes: the count is this account's entries.
                         val waiting = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
                         runCatching { googleAuthClient.clear() }
                         repository.logout(signOutContext)
@@ -1391,11 +1149,7 @@ private fun RepositoryApp(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    // Above the island bar, never over it: offline, the bar is the only way around
-                    // the app, and this line used to sit on top of it (release smoke test 2026-10-16).
                     .padding(bottom = BANNER_STACK_GAP + islandClearance.value)
-                    // After the padding, so this is the banners alone: the page adds it to its own
-                    // bottom padding and lifts the message surface over it.
                     .onSizeChanged { bannerStackHeight = with(rootDensity) { it.height.toDp() } },
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -1417,7 +1171,6 @@ private fun RepositoryApp(
                             runCatching { repository.syncOutbox(appContext) }
                             pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
                         },
-                        // B1: Fix and send, Use existing artisan, and a confirmed Discard.
                         onFix = { entryId, body ->
                             val ok = repository.fixRefused(appContext, entryId, body)
                             if (ok) runCatching { repository.syncOutbox(appContext) }
@@ -1456,21 +1209,13 @@ private fun RepositoryApp(
 @Composable
 private fun LoginScreen(
     error: String?,
-    /**
-     * The gate's verdict, when the failure came from it: `ACCESS_PENDING`, `ACCESS_REJECTED` or
-     * `ACCESS_SUSPENDED`. Null for everything else. See the state's declaration for why this is a
-     * code and not a substring test.
-     */
     refusalCode: String?,
     busy: Boolean,
     onLogin: (String, String) -> Unit,
     onGoogleLogin: () -> Unit,
-    /** Microsoft and Yahoo, ONLY those this build is configured for — an empty list draws nothing. */
     oidcProviders: List<OidcProvider> = emptyList(),
     onOidcLogin: (OidcProvider) -> Unit = {},
-    /** "Forgot your password?" — the e-mailed link. */
     onForgotPassword: () -> Unit = {},
-    /** "I have a set-password link" — one an administrator made and passed on. */
     onOpenSetPasswordLink: () -> Unit = {}
 ) {
     var email by remember { mutableStateOf("") }
@@ -1503,27 +1248,6 @@ private fun LoginScreen(
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth()
                 )
-                /*
-                 * THE TWO REFUSALS, TOLD APART ON SCREEN.
-                 *
-                 * "Awaiting approval" is drawn as a WAITING state — the warning colour, a heading
-                 * that says what is happening — and "Invalid email or password" stays the red error
-                 * it has always been. That difference is not decoration, it is the ruling: somebody
-                 * turned away pending a decision must be able to tell, at a glance and without
-                 * reading carefully, that they have NOT got their password wrong.
-                 *
-                 * REJECTED and SUSPENDED take the red treatment, because for the person reading
-                 * them something genuinely is wrong and the only thing that changes it is talking to
-                 * a human. They still carry their own distinct sentence from the server; only the
-                 * colour is shared with the wrong-password case.
-                 *
-                 * THE SENTENCE IS THE SERVER'S, VERBATIM, in every branch. It is written once — in
-                 * `access_roster.ACCESS_PENDING_DETAIL` and its neighbours — and served to this
-                 * screen, to the web sign-in page and to the other application, so that somebody who
-                 * tries two of them is not told two different things about one decision. Nothing
-                 * here composes a replacement or adds to it: the refusal must not leak a name, a
-                 * role, whether a password was ever set, or anything about any other account.
-                 */
                 if (!error.isNullOrBlank()) {
                     if (refusalCode == "ACCESS_PENDING") {
                         Surface(
@@ -1590,7 +1314,6 @@ private fun LoginScreen(
                         Text(if (busy) "Please wait..." else "Sign in with Google")
                     }
                 }
-                // Microsoft and Yahoo, each only when configured.
                 for (provider in oidcProviders) {
                     OutlinedButton(
                         enabled = !busy,
@@ -1604,18 +1327,12 @@ private fun LoginScreen(
                         }
                     }
                 }
-                // Steer researchers to Google sign-in. Many were typing into the email/password fields
-                // (meant only for admin-issued password accounts) and getting locked out.
                 Text(
                     "Researchers: use Google above. Email and password are for admin-issued accounts only.",
                     color = Muted,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 2.dp)
                 )
-                // SAID BEFORE THE REFUSAL, NOT ONLY BY IT. Google sign-in used to create an account
-                // for any verified address on earth; it does not any more, and somebody whose first
-                // encounter with that fact is a refusal will read it as the app being broken. The
-                // web sign-in page carries the same sentence — change them together.
                 Text(
                     "Invitation only. Sign in once to request access.",
                     color = Muted,
@@ -1636,99 +1353,43 @@ private fun HomeScreen(
 ) {
     val scope = rememberCoroutineScope()
     var stats by remember { mutableStateOf<DashboardStats?>(null) }
-    // A failed totals load is a FAILURE with a retry, never "Loading..." left up for ever.
     var statsError by remember { mutableStateOf<String?>(null) }
     var sections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
     var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
     var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
-    // A tap on a posted activity alert (C25) opens the list it came from.
     val notificationOpenRequest by NotificationState.openRequests.collectAsState()
     LaunchedEffect(notificationOpenRequest) {
         if (notificationOpenRequest > 0L) screen = Screen.Notifications
     }
     val notificationInbox by NotificationState.inbox.collectAsState()
     val unreadNotifications = notificationInbox?.takeIf { it.userId == user.id }?.let { NotificationInboxRules.unread(it) } ?: 0
-    /*
-     * BACK FROM A RECORD RETURNS TO THE SAME PLACE IN THE LIST. A tap on a record now opens its
-     * read-only view, so the list it came from is left on every tap. Each screen's scroll position
-     * is written down as it is left ([scrollMemory]) and handed back only when Back returns to it from
-     * a record ([scrollRestoreFor]); opening a screen fresh from the menu still starts at the top.
-     */
     var scrollRestoreFor by remember { mutableStateOf<Screen?>(null) }
     val scrollMemory = remember { mutableMapOf<Screen, Int>() }
-    // The same memory for the pages whose list is their scroller (`ui/LazyPage.kt`): an item and its
-    // offset, because a lazy list has no pixel position for rows it has not measured.
     val lazyScrollMemory = remember { mutableMapOf<Screen, LazyScrollMark>() }
-    // What each list leaves behind besides its scroll — its rows, every page, its search and filters
-    // (owner, 1 Nov 2026) — handed back on the same Back that restores the scroll, and started over on
-    // any other way in. See questionnaire/ui/ScreenMemory.kt.
     val screenMemories = remember { ScreenMemories<Screen>() }
     var nextStep by remember { mutableStateOf<NextStep?>(null) }
-    // Bumped by every "Save and add another", so the same form opens again EMPTY: two equal
-    // Screen.Create values would otherwise keep the composition, and the form, of the first.
     var createNonce by remember { mutableIntStateOf(0) }
-    // "I can no longer see this record" and "there is no signal" are different answers, and the
-    // carry prefill treats them differently: only a list that actually arrived is entitled to
-    // disown a carried id. Held here because the two lookups below feed every create form.
     var lookupState by remember { mutableStateOf(CarryScopeState.PENDING) }
-    // THE TWO LOOKUPS' FIRST PAGES, envelope and all. Every craft and artisan picker opens on page 1
-    // of its table and reaches the rest through the server's own search and "Load more"
-    // (`ui/ServerSearch.kt`); handing the page in as a seed means a form costs no request until
-    // somebody types. One page each, not the twenty this used to walk at start-up.
     var craftSeed by remember { mutableStateOf<PageResponse<CraftDto>?>(null) }
     var artisanSeed by remember { mutableStateOf<PageResponse<ArtisanDto>?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
-    // The reduced-motion switch, which the menu now honours when it opens and closes.
     val reducedMotion = preferences.reducedMotion
-    // The search panel the page header opens. See AppSearch.kt.
     var searchOpen by remember { mutableStateOf(false) }
-    // The top-bar scanner the header's leading button and Browse → "Scan a code" open
-    // (ui/TopBarScanSheet.kt), for every signed-in user whether or not artisan cards are on.
     var scanOpen by remember { mutableStateOf(false) }
     val scanContext = LocalContext.current
-    // The designer portal's AppMessageState: `message = "…"` is a success, showMessage an error.
     val appMessage = remember { AppMessageState() }
-    // The offline / outbox banners' footprint, measured by the root (ui/BannerClearance.kt).
     val bannerClearanceState = LocalBannerClearance.current
     val bannerReserve = bannerClearanceState?.value ?: 0.dp
     var message by appMessage
-    // Every gate below mirrors one backend dependency (see the capability block near ROLE_RANK).
-    // Do not re-derive a rule inline here: this screen used to hard-code admin-only variants of half
-    // of them, which locked professors out of screens the API would happily have served.
     val isAdmin = user.isAdminUser()
     val isMasterAdmin = user.isMasterAdminUser()
-    // `require_questionnaire_manager`: Professor and above, or an explicit grant — NOT master-only.
     val isQuestionnaireManager = user.canManageTheQuestionnaire()
-    // `require_reviewer`: Field Contributor and above (everyone with someone beneath them on the
-    // ladder), or an explicit review grant. Which records they may act on is decided per record by
-    // the server's can_review_record.
     val canReview = user.canAccessReview()
-    // Provenance (created-by + per-field edit history) on the View Data screen: admins always, plus
-    // any user explicitly granted the "view provenance" privilege.
     val canViewProvenance = isAdmin || user.canViewProvenance
-    // `require_dataset_downloader`: Professor and above, or an explicit grant.
     val canDownloadDataset = user.canDownloadTheDataset()
-    /**
-     * Who is allowed the admin-view switch at all: ADMIN (50) and MASTER_ADMIN (60), nobody else.
-     *
-     * A PROFESSOR (40) is deliberately outside it. The switch does not grant anything — it only
-     * NARROWS an admin's own chrome — so on a professor it would be a control that changes nothing
-     * they can see, while flipping it would quietly subtract from screens (`adminChrome` below) that
-     * their role, not the toggle, is what entitles them to.
-     */
     val canToggleAdminView = isAdmin || com.fieldrepository.app.ui.FieldPermissions.isContentAdmin(user)
 
-    // Master admin lands in admin view; other admins opt in from the menu.
-    //
-    // Kept as a REQUEST and read through [adminView] just below, because the request outlives the
-    // entitlement in two ways. A role lowered underneath a live session leaves the flag latched on
-    // with no chip left to turn it off, and the "Turn admin view back on" card is reachable by a
-    // user who never had the switch in the first place. ANDing the gate in at every read means a
-    // stale ON simply cannot survive the gate failing, which a one-shot reset would not guarantee.
-    //
-    // Remembered per account across restarts and sign-ins (ui/AdminViewMemory.kt): every write goes
-    // through requestAdminView below, so a flip from the drawer and "Turn admin view back on" stick.
     val adminViewContext = LocalContext.current.applicationContext
     var adminViewRequested by remember(user.id) {
         mutableStateOf(restoredAdminView(readAdminView(adminViewContext, user.id), isMasterAdmin))
@@ -1739,44 +1400,9 @@ private fun HomeScreen(
     }
     val adminView = canToggleAdminView && adminViewRequested
 
-    /**
-     * Admin view is a NARROWING switch, exactly as on the web (`adminChromeVisible`): with it OFF an
-     * admin browses the repository as an ordinary user, and ADMIN CHROME disappears — the settings
-     * hub, user management, managed API keys, workshop-access administration and the task assignment
-     * board. It can never widen anything: every role/capability check below is still ANDed with it,
-     * and it is `true` for everyone who has no toggle at all (professors, capability grantees), who
-     * must not be narrowed by a control they do not own.
-     *
-     * What is deliberately NOT chrome, matching ADMIN_CHROME_ROUTES on the web: reviewing (a Field
-     * Contributor capability an admin merely also holds), being a task ASSIGNEE, the Data Browser and
-     * Search — an ordinary user reaches all of those, so "browse as an ordinary user" leaves them be.
-     */
     val adminChrome = !isAdmin || adminView
-    // Deletes are the content admins' alone (FieldPermissions.isContentAdmin; owner's ruling
-    // 2026-10-20), WHETHER OR NOT admin view is on (owner, 2026-10-21), exactly as the web's
-    // `canDeleteRecords`. Set, never rank.
     val canDelete = com.fieldrepository.app.ui.mayDelete(user)
 
-    /**
-     * How many people are waiting on an administrator to let them in — THE NOTIFICATION.
-     *
-     * The requirement asks that admins and master admins be notified when somebody is turned away.
-     * There is no email, no push and no websocket anywhere in this codebase and there never has
-     * been, so the notification is a number on the surfaces admins already open: the drawer's
-     * "Access roster" row and the admin hub's tile. This is that number.
-     *
-     * NULL IS NOT ZERO. Null means "we have not been told yet" and draws nothing; zero means the
-     * server said nobody is waiting and also draws nothing. The distinction matters upstream: a "0"
-     * rendered while the first request is still in flight would tell an admin the queue is empty at
-     * the exact moment it might not be, which is the one wrong answer this number can give.
-     *
-     * A minute between polls, and only while signed in as an admin. A pending request is not an
-     * incident — nobody is blocked by it except the applicant, who has already been told to wait —
-     * so a faster poll would buy nothing and multiply a query that runs forever on every screen.
-     * A failure is silent and leaves the previous count standing, for the same reason: this is a
-     * badge on somebody else's screen, and blanking a count that was true a minute ago reads as
-     * "the queue emptied".
-     */
     var pendingAccessRequests by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(isAdmin) {
         if (!isAdmin) {
@@ -1790,18 +1416,10 @@ private fun HomeScreen(
         }
     }
 
-    // Unsaved-changes guard: a record form on screen registers its dirty-state + save action here, and
-    // any attempt to leave (system Back / in-app back arrow) is intercepted to offer Save / Discard so
-    // an accidental Back never loses a record or its in-progress recordings. [pendingExit] holds the
-    // navigation to run once the user decides.
     val unsavedGuard = remember { UnsavedGuard() }
     var pendingExit by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     val context = LocalContext.current
-    // Over-the-air update: see if the master admin pushed a newer build than the one installed; if so,
-    // force a one-tap self-update. We check both on launch AND every time the app is resumed, so a
-    // freshly-pushed update is caught the next time the user foregrounds the app — not only on a cold
-    // start. `pushingUpdate` guards the publish action.
     var pendingUpdate by remember { mutableStateOf<AppReleaseDto?>(null) }
     var updateBusy by remember { mutableStateOf(false) }
     var updateError by remember { mutableStateOf<String?>(null) }
@@ -1814,10 +1432,6 @@ private fun HomeScreen(
             }
         }
     }
-    // Re-check on resume. The activity is the LifecycleOwner; cast defensively so a failure simply
-    // falls back to the launch-time check rather than crashing. An observer added to a resumed
-    // lifecycle is handed ON_RESUME at once, so with an owner that IS the launch check: running the
-    // launch effect as well asked twice on every cold start.
     val lifecycleOwner = context as? androidx.lifecycle.LifecycleOwner
     LaunchedEffect(Unit) { if (lifecycleOwner == null) checkForUpdate() }
     DisposableEffect(lifecycleOwner) {
@@ -1827,43 +1441,26 @@ private fun HomeScreen(
         lifecycleOwner?.lifecycle?.addObserver(observer)
         onDispose { lifecycleOwner?.lifecycle?.removeObserver(observer) }
     }
-    // First-run walkthrough: new sign-ups see it automatically; anyone can reopen it from the menu.
-    // Read in the remember initialiser rather than in an effect, so the decision is part of the
-    // first composition and the dashboard never paints for one frame underneath it.
     var showWalkthrough by remember { mutableStateOf(!walkthroughSeen(context)) }
-    // ONE EXIT, used by every way out of the walkthrough: Skip, Done, back, and a step's own "Open"
-    // button. Both halves always happen together, so a Skip can never forget the seen flag.
     fun finishWalkthrough() {
         showWalkthrough = false
         markWalkthroughSeen(context)
     }
 
-    // Surface a message, but swallow the noise from a coroutine being cancelled when a screen is
-    // left during navigation (e.g. "The coroutine scope left the composition") — that is expected,
-    // not a real error, and must not get stuck on screen.
-    // Every message goes through the shared surface (ui/StatusMessage.kt): ERROR by default because
-    // that is what most callers report, SUCCESS for a finished save, INFO for a progress note.
     fun showMessage(text: String?, tone: AppMessageTone = AppMessageTone.ERROR, onRetry: (() -> Unit)? = null) {
         if (text.isNullOrBlank()) return
         val lower = text.lowercase()
         if ("left the composition" in lower || "was cancelled" in lower || "job was cancelled" in lower) return
-        // Offline, the banner at the foot of the screen already says so; a second card would not.
-        // Only while a banner is DRAWN: with the keyboard up they stand down, and the error is all
-        // the reader would see.
         val bannerShowing = bannerDrawn(bannerClearanceState?.value ?: 0.dp)
         if (bannerAlreadySays(text, tone, bannerShowing)) return
         appMessage.show(text, tone, onRetry)
     }
 
-    // Opening a record READS it: every card and row lands on the read-only view, which carries the
-    // "Update" button. Back from the view returns to the screen the tap came from.
     fun openRecordView(mode: EntryMode, recordId: String) {
         message = null
         screen = Screen.View(mode, recordId, back = screen)
     }
 
-    // Where a search hit, a map pin and an app-search result go: one arm, so the three cannot drift.
-    // A type this app has no form for gets a sentence instead of the wrong screen.
     fun openSearchRecord(recordType: String, recordId: String) {
         val mode = searchRecordEntryMode(recordType)
         if (mode == null) {
@@ -1873,61 +1470,28 @@ private fun HomeScreen(
         }
     }
 
-    // Who may START a new entry of each kind, mirroring the backend dependency on the POST route.
-    // A volunteer is deliberately allowed to answer interviews, upload media, browse, use tasks and
-    // sharing, and request workshop access — everything `require_record_creator` does NOT cover.
     fun canCreate(mode: EntryMode): Boolean = when (mode) {
-        // require_craft_manager / require_workshop_manager: Professor+ by rank, no grant.
         EntryMode.CRAFT -> user.canManageTheCrafts()
         EntryMode.WORKSHOP -> user.canManageTheWorkshops()
-        // require_professor on GET/PATCH /users, AND admin chrome: /users is listed in the web's
-        // ADMIN_CHROME_ROUTES, so an admin with admin view off loses it while a professor — who has
-        // no toggle — keeps it. Role first, toggle second: the toggle can only ever subtract.
         EntryMode.USERS -> user.canManageUsers() && adminChrome
-        // require_record_creator: Researcher and above. Showing a field contributor or a volunteer
-        // these forms only bought them a 403 after filling one in.
         EntryMode.ARTISAN, EntryMode.PRODUCT, EntryMode.PROCESS, EntryMode.TOOL -> user.canCreateRecords()
-        // require_dataset_downloader: Professor and above, or an explicit grant — the same gate the
-        // dataset download already uses, because /data/tree serves the same archive.
         EntryMode.DATA_BROWSER -> canDownloadDataset
-        /*
-         * Open to every authenticated user, and QUESTIONNAIRE stays here on purpose even though the
-         * ladder moved. POST /questionnaire/interviews folds a post for an artisan set that has
-         * already been interviewed into the existing row and only calls `assert_can_create_records`
-         * on the branch that OPENS a new one — so a field contributor or a volunteer answering an
-         * interview somebody else started is doing the thing these two tiers exist for, on this
-         * screen. Gating the screen would take that away to save them a 403 on the rarer case.
-         *
-         * MAP and CONSOLIDATED_QUESTIONNAIRE are reading surfaces and belong here for the same reason
-         * SEARCH does: `GET /map/points` and `GET /questionnaire/artisans/{id}/consolidated` ask for
-         * nothing but a login, and both have already filtered what they return through the caller's
-         * own row visibility. Gating either would hide the repository from the tiers that populate it.
-         */
         EntryMode.QUESTIONNAIRE, EntryMode.MEDIA, EntryMode.VIEW_DATA, EntryMode.TASKS,
         EntryMode.SHARING, EntryMode.WORKSHOP_ACCESS, EntryMode.SEARCH, EntryMode.MAP,
         EntryMode.CONSOLIDATED_QUESTIONNAIRE -> true
     }
 
-    // Keyed on role and on the one grant that still widens a rank floor here. Crafts and workshops
-    // used to be in this list; they are rank-only now, so their columns cannot change the answer.
     val dashboardModes = remember(user.role, user.canManageQuestionnaire) {
         EntryMode.entries.filter { it != EntryMode.USERS || user.canManageUsers() }
     }
 
-    /**
-     * Where a menu entry / dashboard card actually goes. Almost everything is a Create mode; the
-     * screens that own their whole viewport get their own Screen instead (see [Screen.DataBrowser]).
-     */
     fun screenFor(mode: EntryMode): Screen =
         if (mode == EntryMode.DATA_BROWSER) Screen.DataBrowser else Screen.Create(mode)
 
-    // "Continue with Giriraj" / "Start session" on an artisan's questionnaire record opens the
-    // questionnaire screen with that artisan already chosen (questionnaire v2).
     val questionnaireV2Request by QuestionnaireV2Nav.pending.collectAsState()
     LaunchedEffect(questionnaireV2Request) {
         if (questionnaireV2Request != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
     }
-    // "Continue with…" on an artisan's record opened a session on the server: go to it.
     val receivedFormBundle by com.fieldrepository.app.forms.FormBundleInbox.pending.collectAsState()
     LaunchedEffect(receivedFormBundle) {
         if (receivedFormBundle != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
@@ -1936,8 +1500,6 @@ private fun HomeScreen(
     LaunchedEffect(questionnaireV2Session) {
         if (questionnaireV2Session != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
     }
-    // A take found by the search, or a chip tapped where there is no list: the questionnaire screen
-    // opens on the recordings list filtered by it.
     val recordingsRequest by QuestionnaireV2Nav.showRecordings.collectAsState()
     LaunchedEffect(recordingsRequest) {
         if (recordingsRequest != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
@@ -1954,15 +1516,9 @@ private fun HomeScreen(
         }
     }
 
-    // The craft list (REQUIREMENTS_2026-10-20 §2.4) is the lookups' craft source: revalidated with its
-    // ETag at sign-in and on app start, read from the device copy offline. A picker that opens online
-    // refreshes it too.
     val craftListContext = LocalContext.current.applicationContext
 
     suspend fun loadLookups() {
-        // The page-returning variants, so the cut can be reported. `.items` still feeds every screen
-        // exactly as before; the only thing that changed is that `total` stops being discarded. The
-        // crafts are the whole list, so a carried craft that left it is known to be gone.
         val gotCrafts = runCatching { repository.craftLookup(craftListContext) }
             .onSuccess {
                 crafts = it.items
@@ -1975,8 +1531,6 @@ private fun HomeScreen(
                 artisanSeed = it
             }
             .isSuccess
-        // A page that is not the whole list cannot say a carried record is gone — see
-        // `carryScopeStateFor`.
         lookupState = if (gotCrafts && gotArtisans) carryScopeStateFor(craftSeed, artisanSeed) else CarryScopeState.UNAVAILABLE
     }
 
@@ -1992,11 +1546,6 @@ private fun HomeScreen(
             .onFailure { showMessage(it.apiErrorMessage("Couldn't load the questionnaire sections.")) }
     }
 
-    // Leave the current screen, but if a form has unsaved work, route through the Save/Discard prompt
-    // first so an accidental Back can't silently drop a record or its in-progress recordings.
-    //
-    // Declared up here, above the routing functions, because they call it — a Kotlin local function is
-    // only in scope after its own declaration, and the guard is no use to a router that cannot see it.
     fun attemptExit(leave: () -> Unit) {
         if (unsavedGuard.dirty && unsavedGuard.onSave != null) {
             pendingExit = leave
@@ -2010,10 +1559,6 @@ private fun HomeScreen(
         screen = Screen.Dashboard
     }
 
-    /**
-     * Where a create lands (A8). "Save and add another" re-opens the same form, empty but for the
-     * sitting; a plain save goes to the dashboard with the next-step panel for what was just saved.
-     */
     fun afterCreate(mode: EntryMode, name: String?, prefill: Prefill, another: Boolean) {
         refresh()
         if (another) {
@@ -2026,22 +1571,10 @@ private fun HomeScreen(
         }
     }
 
-    /**
-     * The routing table behind the menu — the one place a [NavDestination] turns into a screen.
-     *
-     * Exhaustive with no `else` branch on purpose. The menu used to be a second, hand-written list of
-     * rows living next to the shared [FIELD_NAV_ITEMS] model, and the two silently drifted apart; a
-     * catch-all here would let that happen again by letting a new destination render as a row that
-     * does nothing when tapped. Without one, adding to the enum breaks the build instead.
-     *
-     * Deliberately raw: it changes the screen and asks nobody. Anything the USER taps must go through
-     * [navigate] instead, which puts the unsaved-changes guard in front of this.
-     */
     fun openDestination(destination: NavDestination) {
         message = null
         when (destination) {
             NavDestination.DASHBOARD -> goDashboard()
-            // A dialog rather than a screen: the walkthrough overlays wherever the user already was.
             NavDestination.WALKTHROUGH -> showWalkthrough = true
             NavDestination.RECORD_ARTISAN -> screen = screenFor(EntryMode.ARTISAN)
             NavDestination.RECORD_PRODUCT -> screen = screenFor(EntryMode.PRODUCT)
@@ -2053,58 +1586,32 @@ private fun HomeScreen(
             NavDestination.RECORD_WORKSHOP -> screen = screenFor(EntryMode.WORKSHOP)
             NavDestination.MY_ACTIVITY -> screen = Screen.MyActivity
             NavDestination.TASKS -> screen = screenFor(EntryMode.TASKS)
-            // The web's /search. [EntryMode.SEARCH] keeps the page's own title so the two entries that
-            // both want the words "Browse records" cannot collide in one menu.
             NavDestination.BROWSE_RECORDS -> screen = screenFor(EntryMode.SEARCH)
-            // A full-screen sheet over wherever the user already was, like the walkthrough.
             NavDestination.SCAN_CODE -> scanOpen = true
             NavDestination.MAP -> screen = screenFor(EntryMode.MAP)
-            // The web's /data directory tree, which owns its whole viewport (see [Screen.DataBrowser]).
             NavDestination.VIEW_DATA -> screen = screenFor(EntryMode.DATA_BROWSER)
             NavDestination.CONSOLIDATED_QUESTIONNAIRE -> screen = screenFor(EntryMode.CONSOLIDATED_QUESTIONNAIRE)
             NavDestination.SHARE_DATA_ACCESS -> screen = screenFor(EntryMode.SHARING)
             NavDestination.ASSIGN_TOOLS -> screen = Screen.ToolAssign
-            // Android has no standalone review queue: reviewing happens inside the record browser,
-            // which is the surface [EntryMode.VIEW_DATA] opens and where `canReview` is honoured.
             NavDestination.REVIEW -> screen = screenFor(EntryMode.VIEW_DATA)
             NavDestination.SETTINGS_HUB -> screen = Screen.AdminHub()
-            // The roster is an admin-hub tool like every other one, so the menu opens the hub
-            // already ON it rather than inventing a parallel Screen — which also means the hub's
-            // single header arrow pops back to the tool list exactly as it does everywhere else.
             NavDestination.ACCESS_ROSTER -> screen = Screen.AdminHub(AdminHubEntry.ACCESS_ROSTER)
             NavDestination.MANAGE_USERS -> screen = screenFor(EntryMode.USERS)
-            // "Settings" on the web is a two-column page whose global column is this app's admin hub;
-            // what is left for the person themselves is Appearance & accessibility.
             NavDestination.SETTINGS -> screen = Screen.Appearance
             NavDestination.GIVE_FEEDBACK -> screen = Screen.Feedback
             NavDestination.NOTIFICATIONS -> screen = Screen.Notifications
         }
     }
 
-    /**
-     * A menu tap: the unsaved-changes guard, and then [openDestination].
-     *
-     * The island bar and the drawer used to call the router directly. That made every chip in the new
-     * navigation a silent way out of a half-filled artisan form — taking the audio already recorded
-     * into it with no prompt — while the back arrow sitting beside them asked. The departure is the
-     * same departure whichever control starts it, so it now asks the same question.
-     */
     fun navigate(destination: NavDestination) {
-        // Closing the sheet is not the navigation and must not wait on the answer: a drawer left open
-        // behind the dialog is still open after "Keep editing", covering the form the user chose to
-        // stay on.
         scope.launch { drawerState.closeAppMenu(reducedMotion) }
         if (destination == NavDestination.WALKTHROUGH) {
-            // The one destination that is not a departure — it draws OVER the page you are already on
-            // (see the branch above), so there is nothing to save or discard, and prompting would
-            // offer to throw away a form that is not going anywhere.
             openDestination(destination)
         } else {
             attemptExit { openDestination(destination) }
         }
     }
 
-    // System back / in-app back: step to the logical previous screen instead of leaving the app.
     fun goBack() {
         message = null
         val leaving = screen
@@ -2122,33 +1629,18 @@ private fun HomeScreen(
             is Screen.MyAiKeys -> Screen.Appearance
             is Screen.TwoStepVerification -> Screen.Appearance
             is Screen.DataBrowser -> Screen.Dashboard
-            // One level at a time: from a tool back to the tool list, and only then out. This is
-            // what lets the single header arrow replace the in-page "All admin tools" button — the
-            // arrow, the system back gesture and the back gesture all route through here.
             is Screen.AdminHub -> if (s.section != null) Screen.AdminHub() else Screen.Dashboard
             is Screen.RemoteRecord -> s.from ?: Screen.Dashboard
             is Screen.Dashboard -> Screen.Dashboard
         }
-        // Back to a list from a record puts the list back where it was scrolled (see `pageScroll`).
         scrollRestoreFor = if (leaving is Screen.View || leaving is Screen.Edit || leaving is Screen.RemoteRecord) target else null
         screen = target
     }
 
-    // Null where the page has nothing of its own to announce, which is the Dashboard and only the
-    // Dashboard: it used to head itself "Field Repository" one line under the bar that already says
-    // so, and a name repeated a line apart names nothing.
-    //
-    // The identity line that used to sit under this — name, role and whether admin view was on — is
-    // gone too. It was three facts restated on every single screen, and all three are one tap away
-    // in the drawer, where the brand block carries "name · Role" and the admin-view row states the
-    // setting in words. A header that repeats what the menu already holds is a header spending the
-    // page's first line on itself.
     val headerTitle: String? = when (val s = screen) {
         is Screen.Dashboard -> null
         is Screen.Create -> s.mode.actionTitle
         is Screen.Browse -> "Update ${s.mode.label.lowercase()}"
-        // The read-only view says only what the record is; the edit screen says "Update", the word
-        // on the button that opened it. A media file has no edit form, so it never claims one.
         is Screen.View -> recordViewTitle(s.mode.label)
         is Screen.Edit -> if (s.mode.editable) recordUpdateTitle(s.mode.label) else s.mode.label
         is Screen.MyActivity -> "My Activity"
@@ -2161,8 +1653,6 @@ private fun HomeScreen(
         is Screen.TwoStepVerification -> null
         is Screen.DataBrowser -> "Data Browser"
         is Screen.RemoteRecord -> null
-        // A reviewer who is not an admin lands on the review tool alone (see the AdminHub branch
-        // below), so the header must not announce a hub of admin tools they were never given.
         is Screen.AdminHub -> if (s.section == AdminHubEntry.REVIEWS && !(isAdmin && adminChrome)) {
             AdminHubEntry.REVIEWS.label
         } else {
@@ -2170,14 +1660,6 @@ private fun HomeScreen(
         }
     }
 
-    /**
-     * Which menu row is the page you are on — the drawer's `aria-current`. The inverse of [navigate],
-     * so the two are read side by side and a row that opens one screen cannot light up on another.
-     *
-     * `null` where no row honestly matches. Update and edit screens are the case that matters: their
-     * record type DOES have a row, but that row starts a NEW record, so highlighting it would tell the
-     * user they are somewhere they are not.
-     */
     val currentDestination: NavDestination? = when (val s = screen) {
         is Screen.Dashboard -> NavDestination.DASHBOARD
         is Screen.MyActivity -> NavDestination.MY_ACTIVITY
@@ -2188,17 +1670,12 @@ private fun HomeScreen(
         is Screen.MyAiKeys -> NavDestination.SETTINGS
         is Screen.TwoStepVerification -> NavDestination.SETTINGS
         is Screen.DataBrowser -> NavDestination.VIEW_DATA
-        // The roster is the one hub tool with a menu entry of its own, so it must highlight ITS row
-        // rather than the hub's — a menu that says you are on "Settings hub" while the roster is on
-        // screen is telling a reader they are somewhere they can also see they are not.
         is Screen.AdminHub -> if (s.section == AdminHubEntry.ACCESS_ROSTER) {
             NavDestination.ACCESS_ROSTER
         } else {
             NavDestination.SETTINGS_HUB
         }
-        // The legacy app-settings screen, which no menu reaches.
         is Screen.Settings -> null
-        // Opened from the search header, which is not a menu row.
         is Screen.RemoteRecord -> null
         is Screen.Browse, is Screen.Edit, is Screen.View -> null
         is Screen.Create -> when (s.mode) {
@@ -2217,17 +1694,11 @@ private fun HomeScreen(
             EntryMode.SHARING -> NavDestination.SHARE_DATA_ACCESS
             EntryMode.VIEW_DATA -> NavDestination.REVIEW
             EntryMode.USERS -> NavDestination.MANAGE_USERS
-            // `screenFor` sends this one to [Screen.DataBrowser] instead, so it is unreachable here —
-            // mapped anyway rather than defaulted, so the pair stays a total function of EntryMode.
             EntryMode.DATA_BROWSER -> NavDestination.VIEW_DATA
-            // Reached from its dashboard tile; the web has no nav entry for it, so neither do we.
             EntryMode.WORKSHOP_ACCESS -> null
         }
     }
 
-    // The search panel's sources (ui/AppSearchSources.kt). Screens are this account's own menu,
-    // so a search offers nothing the menu would not; every opener goes through the same router,
-    // and the same unsaved-changes guard, as a menu tap.
     fun searchLocalItems(): List<AppSearchItem> =
         appSearchScreenItems(visibleNavItems(user, adminView), ::navigate) +
             appSearchSettingItems { target ->
@@ -2253,8 +1724,6 @@ private fun HomeScreen(
             }
         )
 
-    // `appMenuShowing` and not `isOpen`, which stays false for the whole opening slide: Back pressed
-    // while the menu is still arriving closes it instead of navigating the page underneath.
     BackHandler(enabled = drawerState.appMenuShowing) {
         scope.launch { drawerState.closeAppMenu(reducedMotion) }
     }
@@ -2263,34 +1732,19 @@ private fun HomeScreen(
     }
     AppMenuFocusEffect(drawerState)
 
-    // Right-anchored drawer: wrap in RTL so the sheet slides in from the right (web parity),
-    // then flip drawer + page content back to LTR so their own layout reads normally.
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         ModalNavigationDrawer(
             drawerState = drawerState,
-            // Through the root's 16dp padding, so the scrim and the sheet reach the screen edges.
             modifier = Modifier.appMenuBleed(16.dp),
-            // Swipe to CLOSE only. Swipe-to-open listened to the whole page and pulled the menu
-            // across canvases and sliders; the hamburger is the way in.
             gesturesEnabled = drawerState.appMenuShowing,
             drawerContent = {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    /*
-                     * The shared menu, the same model the island bar renders from. It filters itself
-                     * with `visibleNavItems`, so nothing here decides who sees what — passing
-                     * `adminView` through is the whole of this screen's say in it, and that switch can
-                     * only ever subtract the two admin-surface rows from somebody who is an admin.
-                     */
                     AppNavigationDrawerContent(
                         user = user,
                         adminMode = adminView,
                         currentDestination = currentDestination,
-                        // The notification. A map rather than a named parameter per destination so
-                        // the next surface that grows a count is one entry, not a new signature —
-                        // and so the drawer never has to know what an access request IS.
                         badges = buildMap {
                             pendingAccessRequests?.takeIf { it > 0 }?.let { put(NavDestination.ACCESS_ROSTER, it) }
-                            // The activity list's unread count (C25).
                             unreadNotifications.takeIf { it > 0 }?.let { put(NavDestination.NOTIFICATIONS, it) }
                         },
                         onNavigate = ::navigate,
@@ -2304,8 +1758,6 @@ private fun HomeScreen(
                                 scope.launch {
                                     runCatching { repository.publishAppUpdate(context) }
                                         .onSuccess { rel ->
-                                            // A transient toast (not a banner that lingers at the bottom of every page
-                                            // until the app is closed and reopened).
                                             Toast.makeText(
                                                 context,
                                                 "Update v${rel.versionName} published.",
@@ -2325,7 +1777,6 @@ private fun HomeScreen(
             }
         ) {
             val richMediaUrl = remember(repository) { richMediaUrlResolver(repository) }
-            // Read in composition, before the page's restore clears [scrollRestoreFor].
             val screenMemory = key(screen) {
                 val here = screen
                 remember { screenMemories.arrive(here, restoring = scrollRestoreFor == here) }
@@ -2338,10 +1789,6 @@ private fun HomeScreen(
                 com.fieldrepository.app.ui.LocalMayDelete provides canDelete,
                 com.fieldrepository.app.ui.richtext.LocalRichMediaUrl provides richMediaUrl
             ) {
-            // The page gets back the 16dp the drawer bleeds through, and leaves the accessibility
-            // tree while the menu is over it. See AppMenuDrawer.kt.
-            // The screens hosted outside the scrolling page own their whole viewport, so for them
-            // the banners' footprint comes off the bottom of that viewport instead.
             val ownsViewport = screen is Screen.DataBrowser || screen is Screen.Appearance ||
                 screen is Screen.TwoStepVerification || screen is Screen.MyAiKeys
             Box(
@@ -2350,17 +1797,9 @@ private fun HomeScreen(
                     .padding(bottom = if (ownsViewport) bannerReserve else 0.dp)
                     .appMenuHidesPage(drawerState.appMenuShowing)
             ) {
-                /*
-                 * Two hosting shapes. Almost everything renders into the scrolling Column below,
-                 * under the app's own header. The two screens branched off here own
-                 * their whole viewport instead — the Data Browser lays out with a LazyColumn, which
-                 * throws if it is measured inside a parent that scrolls the same way, and both draw
-                 * their own back control, so the shared chrome would only duplicate it.
-                 */
                 when (screen) {
                     is Screen.DataBrowser -> DataBrowserScreen(
                         repository = repository,
-                        // Back walks one folder up first; this fires only at the top of the tree.
                         onBack = { attemptExit { goBack() } },
                         onMessage = { showMessage(it, AppMessageTone.SUCCESS) }
                     )
@@ -2387,20 +1826,10 @@ private fun HomeScreen(
                     )
 
                     else -> {
-                // Keyed on the screen, because every destination in this branch renders through the one
-                // composition slot below and therefore shared one ScrollState: leaving a long form
-                // half-way down opened the NEXT screen already scrolled past its own first fields, with
-                // nothing on it to explain why. `key` throws the state away when the destination
-                // changes, so each page starts where a page starts.
                 val pageScroll = key(screen) { rememberScrollState() }
-                // THE LONG-LIST SCREENS ARE THEIR OWN SCROLLER (DC-A34). A LazyColumn cannot sit inside
-                // the page column's `verticalScroll`, so these screens are handed the page chrome and lay
-                // out one LazyColumn whose first item is the page header — see `ui/LazyPage.kt`.
                 val lazyPage = screen is Screen.MyActivity || screen is Screen.Browse ||
                     (screen as? Screen.Create)?.mode == EntryMode.CONSOLIDATED_QUESTIONNAIRE
                 val pageList = key(screen) { rememberLazyListState() }
-                // Where this page was scrolled when it was left, and — only when Back is returning to it
-                // from a record — scrolled back there once its rows have arrived (see `scrollMemory`).
                 val shownScreen = screen
                 DisposableEffect(shownScreen) {
                     onDispose {
@@ -2418,7 +1847,6 @@ private fun HomeScreen(
                     if (lazyPage) {
                         val mark = lazyScrollMemory[shownScreen] ?: return@LaunchedEffect
                         if (mark.index == 0 && mark.offset == 0) return@LaunchedEffect
-                        // The rows arrive after the screen does: wait until the list holds the item.
                         withTimeoutOrNull(4_000L) {
                             snapshotFlow { pageList.layoutInfo.totalItemsCount }.first { lazyRestoreReady(mark, it) }
                         }
@@ -2430,42 +1858,12 @@ private fun HomeScreen(
                     withTimeoutOrNull(4_000L) { snapshotFlow { pageScroll.maxValue }.first { it >= target } }
                     pageScroll.scrollTo(target.coerceAtMost(pageScroll.maxValue))
                 }
-                // The island floats over the BOTTOM of the page (see IslandBottomNav.kt), outside the
-                // scroller so it stays put while the page moves underneath it. The scaffold measures
-                // the bar and hands the page that height as bottom padding, so the last field or
-                // button of a long form scrolls clear of it instead of ending underneath it.
                 IslandScaffold(island = { islandModifier ->
-        /*
-         * The island bar, the web's DynamicIslandNav on the phone.
-         *
-         * Both this and the drawer are projections of ONE list — `visibleNavItems(user, adminView)`,
-         * the same entries, labels, order and permission predicates the web's NAV_ITEMS carries. That
-         * is deliberate and it is load-bearing. This block used to build its groups by hand out of
-         * `dashboardModes`, and the comment here claimed the two were built from the same filters;
-         * they were not, and the divergence was exactly what you would predict from two hand-kept
-         * lists. On the device the bar had no Admin group at all, so a master admin could reach
-         * Settings hub from the drawer and not from the bar; its Record dropdown carried twelve
-         * entries against the drawer's eight, including "Manage users" rendered with a "+" icon
-         * because every entry was hardcoded to Icons.Filled.Add; and it offered "Request workshop
-         * access", a destination that exists in neither the drawer nor the web.
-         *
-         * Deriving both from the shared model makes that class of drift impossible rather than
-         * merely fixed: an entry added to FIELD_NAV_ITEMS appears in both surfaces with its own icon
-         * and its own gate, and one can no longer offer what the other refuses.
-         */
         val navItems = visibleNavItems(user, adminView)
         FieldIslandNav(
             modifier = islandModifier,
-            // The drawer: the full menu, the admin-view switch (which left the bar when it moved to
-            // the bottom) and Logout.
             onOpenDrawer = { scope.launch { drawerState.openAppMenu(reducedMotion) } },
-            // Out of the way while the search panel is over the page.
             visible = !searchOpen,
-            // The bar highlights by label, so the label has to be looked up from the DESTINATION the
-            // user is on. This used to pass `headerTitle` — a page title, matched against nav labels
-            // that are written for a menu — so the Dashboard ("Field Repository" against "Dashboard")
-            // and most record forms lit nothing, while the handful whose two strings happened to
-            // coincide were the only ones that worked.
             currentLabel = navItems.firstOrNull { it.destination == currentDestination }?.label,
             roots = navItems.filter { it.group == null }
                 .map { entry -> IslandEntry(entry.label, entry.icon) { navigate(entry.destination) } },
@@ -2474,10 +1872,6 @@ private fun HomeScreen(
                     .map { entry -> IslandEntry(entry.label, entry.icon) { navigate(entry.destination) } }
                 IslandGroup(
                     group.label,
-                    // Folded into Account rather than appended as its own group, which would render
-                    // a second chip with the same label. Leaving the app is not a NavDestination and
-                    // cannot be one — a router has no screen to open for it — so the shared model has
-                    // no home for it, but the web app hands out this APK and this is the return leg.
                     if (group == NavGroup.ACCOUNT) {
                         entries + IslandEntry("Open the web portal", Icons.Filled.OpenInNew) { openWebPortal(context) }
                     } else {
@@ -2487,8 +1881,6 @@ private fun HomeScreen(
             }
         )
                 }) { islandReserve ->
-        // The header's quick-return state: the page's scroller reports to it, and the page is padded
-        // by the header's measured height so nothing sits under it at rest. See AppSearch.kt.
         val quickReturn = if (lazyPage) {
             rememberQuickReturnHeader(pageList, pinned = searchOpen)
         } else {
@@ -2496,14 +1888,9 @@ private fun HomeScreen(
         }
         val pageImeOpen by rememberIslandImeVisible()
         val clearance = LocalIslandClearance.current
-        // The bar AND the offline / outbox banners over it: the page's end clears both.
         val pageReserve = pageBottomReserve(islandReserve, bannerReserve)
         SideEffect { clearance?.value = islandReserve }
         DisposableEffect(clearance) { onDispose { clearance?.value = 0.dp } }
-        // The dashboard is the root of every path, so only the screens below it get a back arrow —
-        // and it is also the only screen with no title of its own, so on the dashboard this whole
-        // row is nothing and is not laid out at all. Rendering it empty would spend the parent's
-        // 16dp of spacing on a strip with nothing in it.
         val showBack = screen !is Screen.Dashboard
         val pageHeader: @Composable () -> Unit = {
         if (showBack || headerTitle != null) {
@@ -2536,7 +1923,6 @@ private fun HomeScreen(
                 state = pageList,
                 connection = quickReturn.connection,
                 topPadding = pageTop,
-                // The END of the list clears the bar and the banners, as the column's did.
                 bottomPadding = pageReserve,
                 header = pageHeader
             )
@@ -2544,8 +1930,6 @@ private fun HomeScreen(
                 is Screen.Browse -> RecordPickerScreen(
                     repository = repository,
                     mode = s.mode,
-                    // The dropdown's "Update" button and a card's own Update go to the form; a tap on a
-                    // card anywhere else opens the record read-only, as every other card does.
                     onPick = { recordId -> screen = Screen.Edit(s.mode, recordId) },
                     onView = { recordId -> openRecordView(s.mode, recordId) },
                     onError = { showMessage(it) },
@@ -2558,9 +1942,6 @@ private fun HomeScreen(
                     onError = { showMessage(it) },
                     chrome = chrome
                 )
-                // /questionnaire/consolidated on the web: the artisan picker, and the document behind
-                // it. Both halves live in the one screen because Android has no URL to give the
-                // document its own address.
                 else -> ConsolidatedQuestionnaireScreen(
                     repository = repository,
                     onError = { showMessage(it) },
@@ -2573,7 +1954,6 @@ private fun HomeScreen(
                 .nestedScroll(quickReturn.connection)
                 .verticalScroll(pageScroll)
                 .padding(top = pageTop)
-                // Inside the scroller, so it is the END of the page that clears the bar and banners.
                 .padding(bottom = pageReserve),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -2600,36 +1980,22 @@ private fun HomeScreen(
                     statsError = statsError,
                     onRetryStats = { refresh() },
                     recentArtisans = artisans,
-                    // Only the cards this user may actually START, exactly as the web dashboard
-                    // filters its tiles (`visible`) and as the drawer above already filters its
-                    // menu. A card that offered nothing but "Update" told a volunteer neither what
-                    // they could do nor why the rest was missing. `onDashboard` additionally keeps
-                    // the two menu-only destinations (Search, Data Browser) off the grid, as on web.
                     actions = dashboardModes.filter { canCreate(it) && it.onDashboard },
                     roleLabel = roleLabel(user.role),
                     canCreateRecords = user.canCreateRecords(),
-                    // `adminSurface(isAdmin(user))` on the web dashboard: the role decides, the
-                    // toggle can only take the tile away again.
                     showAdminHub = isAdmin && adminChrome,
                     onOpenAdminHub = { message = null; screen = Screen.AdminHub() },
                     onWalkthrough = { message = null; showWalkthrough = true },
                     onNew = { selected -> message = null; screen = Screen.Create(selected) },
                     onUpdateExisting = { selected -> message = null; screen = Screen.Browse(selected) },
-                    // A total is the size of a bucket search already reports, so tapping one lands
-                    // in search rather than in a second listing built only for the dashboard.
                     onOpenSearchFor = { recordType ->
                         message = null
                         screen = Screen.Create(EntryMode.SEARCH, searchFocus = recordType)
                     },
-                    // `require_reviewer`, not admin chrome (see canReview above): a Field Contributor
-                    // gets the way in, everyone else keeps the figure and loses only the tap.
                     onOpenReviews = if (canReview) {
                         ({ message = null; screen = Screen.AdminHub(AdminHubEntry.REVIEWS) })
                     } else null,
-                    // Every "Your contribution" figure counts this account's own rows, and My Activity
-                    // asks the API for exactly those — so the number and the list behind it agree.
                     onOpenMyActivity = { message = null; screen = Screen.MyActivity },
-                    // A tap READS the record; its view carries "Update" (`ui/RecordOpen.kt`).
                     onOpenRecord = { mode, recordId -> openRecordView(mode, recordId) },
                     onOpenArtisan = { artisanId -> openRecordView(EntryMode.ARTISAN, artisanId) },
                     sentBackSlot = {
@@ -2648,7 +2014,6 @@ private fun HomeScreen(
                 )
             }
 
-            // Hosted above as lazy pages, because the list is their scroller.
             is Screen.Browse, is Screen.MyActivity -> Unit
 
             is Screen.View -> RecordViewScreen(
@@ -2674,7 +2039,6 @@ private fun HomeScreen(
                 onError = { showMessage(it) }
             )
 
-            // Keyed on the screen itself, so a form re-opened by "Save and add another" starts empty.
             is Screen.Create -> key(s) { when (s.mode) {
                 EntryMode.CRAFT -> CraftForm(
                     repository = repository,
@@ -2739,12 +2103,7 @@ private fun HomeScreen(
                     onOpenRecord = { mode, recordId -> openRecordView(mode, recordId) },
                     onError = { showMessage(it) }
                 )
-                // /search on the web — open to every signed-in user. It renders into the shared
-                // chrome, which already draws the Back pill, so its own back control stays off.
                 EntryMode.SEARCH -> {
-                    // Opened from a dashboard total: the tap already said which bucket it wanted, so
-                    // the screen opens listing exactly that one. `initialRecordType` also implies the
-                    // listing itself — sitting on an empty form would make the researcher ask twice.
                     s.searchFocus?.let { focus ->
                         Text(
                             "All ${searchFocusLabel(focus)} records, newest first.",
@@ -2762,26 +2121,17 @@ private fun HomeScreen(
                         initialRecordType = s.searchFocus
                     )
                 }
-                // Routed as Screen.DataBrowser by `screenFor`, since the browser owns its whole
-                // viewport. This branch only exists so the `when` stays exhaustive — and, if anything
-                // ever does route here directly, it offers the way in rather than a blank screen.
                 EntryMode.DATA_BROWSER -> DataBrowserEntryCard(
                     onOpen = { message = null; screen = Screen.DataBrowser }
                 )
-                // /map on the web. Renders into the shared chrome like SEARCH above, so it draws no
-                // scaffold and no back control of its own.
                 EntryMode.MAP -> MapScreen(
                     repository = repository,
                     onError = { showMessage(it) },
-                    // A pin's records are the way out of the map. The map speaks the SINGULAR record
-                    // type — the same vocabulary [SearchRecordTypes] uses — so the search screen's own
-                    // mapper is reused rather than a second one written beside it that could drift.
                     onOpenRecord = { recordType, recordId ->
                         message = null
                         openSearchRecord(recordType, recordId)
                     }
                 )
-                // Hosted above as a lazy page — its artisan index is a long list.
                 EntryMode.CONSOLIDATED_QUESTIONNAIRE -> Unit
                 EntryMode.TOOL -> ToolForm(
                     repository = repository,
@@ -2809,13 +2159,8 @@ private fun HomeScreen(
                     onError = { showMessage(it) }
                 )
                 EntryMode.QUESTIONNAIRE -> {
-                // QUESTIONNAIRE V2 (docs/questionnaire/DESIGN_2026-10-18.md): sessions, the coverage grid
-                // and the recording service, once the server's `GET /questionnaire/config` says v2 is on.
-                // Until then, and for the builder (overflow menu), the screen below is unchanged.
                 val v2Context = LocalContext.current
                 val v2Config by remember { QuestionnaireV2.get(v2Context) }.config.collectAsState()
-                // UNIFY 4.2: the shared questionnaire home (designer-portal's shared tree, synced) with
-                // this app's forms library on its Forms tab, admin authoring included (owner decision 5).
                 if (v2Config?.v2Enabled == true) {
                     FieldQuestionnaireHome(
                         artisans = artisans,
@@ -2830,12 +2175,7 @@ private fun HomeScreen(
                     lookupState = lookupState,
                     prefill = s.prefill,
                     canManageQuestionnaire = isQuestionnaireManager,
-                    // Carries the admin-view state into the form's "Check completion" matrix, whose
-                    // override is `adminMode && isAdmin` on the web.
                     adminView = adminView,
-                    // THE INSTRUMENT COMES FROM THE FORM, because the form is where it is chosen.
-                    // `null` keeps the old meaning exactly -- let the server resolve it -- so the
-                    // startup load and every caller that names no instrument behave as before.
                     onRefreshSections = { instrumentId ->
                         runCatching { repository.questionnaireSections(instrumentId) }
                             .onSuccess { sections = it }
@@ -2858,9 +2198,6 @@ private fun HomeScreen(
                 }
                 EntryMode.TASKS -> MyTasksScreen(
                     repository = repository,
-                    // Being an assignee is never admin chrome; HANDING WORK OUT is (the web lists
-                    // /settings/tasks in ADMIN_CHROME_ROUTES), so the "Assigned by me" view and the
-                    // link to the board follow the toggle while the rest of the screen does not.
                     canAssign = isAdmin && adminChrome,
                     onOpenAssignmentBoard = { message = null; screen = Screen.AdminHub(AdminHubEntry.TASKS) },
                     onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
@@ -2877,9 +2214,6 @@ private fun HomeScreen(
                     onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
                     onError = { showMessage(it) }
                 )
-                // The card and the menu entry both disappear when admin view is off, but an admin who
-                // was already standing here when they flipped the switch has to be shown the same
-                // thing the web's AppShell shows: their own setting, not a permission they lack.
                 EntryMode.USERS -> if (adminChrome) {
                     UserManagementForm(
                         repository = repository,
@@ -2904,8 +2238,6 @@ private fun HomeScreen(
                     artisans = artisans,
                     canManageQuestionnaire = isQuestionnaireManager,
                     adminView = adminView,
-                    // Every record Delete on the web is `{canDeleteRecords ? … : null}`: the role grants
-                    // it, admin view or not (owner, 2026-10-21).
                     canDelete = canDelete,
                     onRefreshSections = { instrumentId ->
                         runCatching { repository.questionnaireSections(instrumentId) }
@@ -2924,14 +2256,9 @@ private fun HomeScreen(
                 craftSeed = craftSeed,
                 artisanSeed = artisanSeed,
                 adminView = adminView,
-                // Same rule as the interview loader above: the content-admin role gates Delete.
                 canDelete = canDelete,
                 onDone = { message = "${s.mode.label} updated"; refresh(); refreshLookups(); goDashboard() },
                 onError = { showMessage(it) },
-                // The SAME destination the Browse picker and My Activity already produce. Reassigning
-                // `screen` re-enters this branch with a new `recordId`, and every `remember(recordId)`
-                // inside `EditScreen` re-keys on it — so the form, its detail fetch and the picker's
-                // own "which workshop is this record in" all rebuild for the record just chosen.
                 onOpenRecord = { picked -> message = null; screen = Screen.Edit(s.mode, picked) }
             ) }
 
@@ -2945,15 +2272,11 @@ private fun HomeScreen(
                 onError = { showMessage(it) }
             )
 
-            // The activity list (C25). A notice's link is a web path; the ones a handset can open
-            // in place are tasks, the review queue and the account's own settings.
             is Screen.Notifications -> NotificationsScreen(
                 api = repository.notificationApi(),
                 userId = user.id,
                 onOpenLink = { link ->
                     when {
-                        // The Monday summary has no handset screen, on purpose: the notice's title
-                        // and body line are the whole summary here. Opening it does nothing.
                         link.startsWith("/digest/") -> Unit
                         else -> when (notificationTarget(link)) {
                             NotificationTarget.TASKS -> screen = screenFor(EntryMode.TASKS)
@@ -2972,8 +2295,6 @@ private fun HomeScreen(
                 onError = { showMessage(it) }
             )
 
-            // The whole hub is admin chrome (/admin heads the web's ADMIN_CHROME_ROUTES). The role
-            // check comes first and the toggle only subtracts from it.
             is Screen.AdminHub -> when {
                 isAdmin && adminChrome -> AdminHubScreen(
                     repository = repository,
@@ -2988,19 +2309,11 @@ private fun HomeScreen(
                     pendingAccessRequests = pendingAccessRequests,
                     onPendingCountChanged = { pendingAccessRequests = it }
                 )
-                // Reviewing is a Field Contributor capability an admin merely also holds, so the
-                // dashboard's Pending figure hands a non-admin reviewer the review tool ITSELF —
-                // never the hub around it, whose list is chrome and would offer them tools the API
-                // refuses.
                 s.section == AdminHubEntry.REVIEWS && canReview -> ReviewApprovalCard(
                     repository = repository,
                     onOpenRecord = { mode, recordId -> openRecordView(mode, recordId) },
                     onError = { showMessage(it) }
                 )
-                // Named after what the admin actually asked for. Arriving here from the menu's
-                // "Access roster" row and being told about a settings hub would read as the app
-                // having misheard — and hiding the roster hides a QUEUE other people are waiting in,
-                // which is worth saying out loud.
                 s.section == AdminHubEntry.ACCESS_ROSTER -> AdminViewHiddenCard(
                     label = "The access roster",
                     blurb = "Who may sign in, and pending requests.",
@@ -3015,14 +2328,10 @@ private fun HomeScreen(
                 )
             }
 
-            // Hosted above, outside this scrolling Column, because they own their whole viewport.
             is Screen.Appearance, is Screen.MyAiKeys, is Screen.TwoStepVerification, is Screen.DataBrowser -> Unit
         }
 
                 }
-                // The logo-and-name header, as a quick-return overlay on the top of the page: it hides
-                // on the way down and comes back on any move up. Hidden while the keyboard is up for a
-                // field on the page, never while the search field is open. AppSearch.kt.
                 QuickReturnHeader(quickReturn, hidden = pageImeOpen && !searchOpen) { elevated ->
                     AppSearchHeader(
                         appName = APP_SEARCH_NAME,
@@ -3039,14 +2348,12 @@ private fun HomeScreen(
                         onAction = { action ->
                             runFieldScanAction(scanContext, action, user.id) { target ->
                                 scanOpen = false
-                                // Leaving the page asks first, as search and Back do: a half-filled form is not lost.
                                 when (target) {
                                     is ScanTarget.Record -> attemptExit { openRecordView(EntryMode.ARTISAN, target.id) }
                                     is ScanTarget.Session -> attemptExit {
                                         QuestionnaireV2Nav.openSession.value = target.id
                                         screen = screenFor(EntryMode.QUESTIONNAIRE)
                                     }
-                                    // Designer Repository places; the dispatcher refuses their codes here.
                                     else -> showMessage(ScanCopy.DESIGNER_CODE)
                                 }
                             }
@@ -3055,7 +2362,6 @@ private fun HomeScreen(
                         scanner = { enabled, onText, onRefusal -> FieldScanControls(enabled, onText, onRefusal) }
                     )
                 }
-                // Over the page, under nothing: the page keeps its scroll and any half-filled form.
                 if (searchOpen) {
                     AppSearchPanel(
                         appName = APP_SEARCH_NAME,
@@ -3066,10 +2372,6 @@ private fun HomeScreen(
                         onError = { showMessage(it) }
                     )
                 }
-        // The shared message surface floats over the bottom of the viewport, just above the island,
-        // so a save confirmation or a failure is on screen wherever the reader has scrolled to —
-        // and over the search panel too, so a failure raised from it is seen.
-        // Above the offline / outbox banners, never under them: they are drawn later, by the root.
         AppMessageBanner(
             state = appMessage,
             modifier = Modifier
@@ -3081,23 +2383,11 @@ private fun HomeScreen(
                 }
                 }
 
-                /*
-                 * The dialogs sit OUTSIDE the layout branch above. They are their own windows, so
-                 * where they live in the tree changes nothing visually — but a REQUIRED update prompt
-                 * that only existed on the scrolling branch would never reach a user sitting in the
-                 * Data Browser or their appearance settings when the resume check fires.
-                 */
-
-                // The walkthrough never sits on top of a required-update prompt (that must be handled first).
                 if (showWalkthrough && pendingUpdate == null) {
                     WalkthroughDialog(
-                        // Which deck OPENS, and nothing else: `walkthroughDeckFor` reads the role. It is a
-                        // default and not a gate — the opening card still offers every other deck.
                         user = user,
                         onFinish = { finishWalkthrough() },
                         onOpen = { destination ->
-                            // Following a step's own button counts as having seen the walkthrough, and
-                            // it leaves through `navigate`, so a half-filled form is still asked about.
                             finishWalkthrough()
                             navigate(destination)
                         },
@@ -3105,11 +2395,8 @@ private fun HomeScreen(
                 }
 
                 pendingUpdate?.let { release ->
-                    // A required update. The dialog is non-dismissable — there is no "Later" and tapping
-                    // outside / pressing back does nothing — so the user must install before they can proceed.
-                    // (Installing the new APK relaunches the app at the higher version, which clears this check.)
                     AlertDialog(
-                        onDismissRequest = { /* required update: cannot be dismissed */ },
+                        onDismissRequest = { },
                         title = { Text("Update required") },
                         text = {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -3137,8 +2424,6 @@ private fun HomeScreen(
                                             val apk = repository.downloadApk(context, release.url!!, release.versionCode)
                                             launchApkInstaller(context, apk)
                                         }.onFailure { updateError = it.apiErrorMessage("Update didn't download. Check your connection.") }
-                                        // Keep `pendingUpdate` set: if the user backs out of the installer the
-                                        // dialog must stay until the new version is actually installed.
                                         updateBusy = false
                                     }
                                 }
@@ -3147,9 +2432,6 @@ private fun HomeScreen(
                     )
                 }
 
-                // Unsaved-changes prompt: shown when the user tries to leave a form that still has unsaved
-                // work. "Save" runs the form's own validated save (a missing required field keeps them on the
-                // form, highlighted); "Discard" leaves and drops the in-progress data; "Keep editing" stays.
                 pendingExit?.let { exit ->
                     AlertDialog(
                         onDismissRequest = { pendingExit = null },
@@ -3159,8 +2441,6 @@ private fun HomeScreen(
                                 "You have unsaved changes, including new recordings or media. Save or discard?"
                             )
                         },
-                        // Three actions, so one ActionRow in the confirm slot: stacked on a phone, one
-                        // row on a wider window, Discard last — the web's FieldDialog does the same.
                         confirmButton = {
                             ActionRow(
                                 modifier = Modifier.fillMaxWidth(),
@@ -3174,8 +2454,6 @@ private fun HomeScreen(
                             ) {
                                 TextButton(onClick = {
                                     pendingExit = null
-                                    // The form validates and, on success, saves and navigates itself. On a
-                                    // missing required field it stays put with the field highlighted.
                                     unsavedGuard.onSave?.invoke()
                                 }) { Text("Save") }
                                 TextButton(onClick = { pendingExit = null }) { Text("Keep editing") }
@@ -3189,11 +2467,9 @@ private fun HomeScreen(
     }
 }
 
-/** True when the OS will let us install an APK (always pre-O; needs the per-app grant on O+). */
 private fun canInstallUpdates(context: Context): Boolean =
     Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()
 
-/** Open the system screen where the user grants this app permission to install updates. */
 private fun requestInstallPermission(context: Context) {
     runCatching {
         context.startActivity(
@@ -3203,7 +2479,6 @@ private fun requestInstallPermission(context: Context) {
     }
 }
 
-/** Hand a downloaded APK to the system package installer (the user taps Install to confirm). */
 private fun launchApkInstaller(context: Context, apk: File) {
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
     context.startActivity(
@@ -3214,10 +2489,6 @@ private fun launchApkInstaller(context: Context, apk: File) {
     )
 }
 
-/**
- * Open the web portal in the user's browser. The web app hands out this APK; this is the return leg
- * of the same trip, for the bulk work a phone is the wrong shape for.
- */
 private fun openWebPortal(context: Context) {
     runCatching {
         context.startActivity(
@@ -3229,7 +2500,6 @@ private fun openWebPortal(context: Context) {
     }
 }
 
-/** A tapped dashboard total, in the plural the tile itself uses rather than the API's singular. */
 private fun searchFocusLabel(recordType: String): String = when (recordType) {
     SearchRecordTypes.ARTISAN -> "artisans"
     SearchRecordTypes.WORKSHOP -> "workshops"
@@ -3239,15 +2509,6 @@ private fun searchFocusLabel(recordType: String): String = when (recordType) {
     else -> "records"
 }
 
-/**
- * Which form a search hit, a map pin or an app-search result opens — or null when this app has none.
- *
- * Ported from the designer portal on 2026-10-16. It used to end `else -> EntryMode.ARTISAN`, so a
- * record type it did not know opened the ARTISAN editor on that record's id — a form whose Save
- * writes an artisan. Crafts, processes and interviews now have their own arms (the app-wide search
- * panel finds all three), and anything else is null, which the caller turns into a sentence rather
- * than a wrong screen. `SearchRecordRoutingTest` holds both halves.
- */
 private fun searchRecordEntryMode(recordType: String): EntryMode? = when (recordType) {
     SearchRecordTypes.ARTISAN -> EntryMode.ARTISAN
     SearchRecordTypes.WORKSHOP -> EntryMode.WORKSHOP
@@ -3260,23 +2521,9 @@ private fun searchRecordEntryMode(recordType: String): EntryMode? = when (record
     else -> null
 }
 
-/** What a person is told when a tapped result has nowhere to go on this handset. */
 internal fun unroutableRecordLine(recordType: String): String =
     "Update the app to open this record, or open it in the web portal."
 
-/**
- * What an admin sees in place of admin chrome they switched off themselves.
- *
- * Deliberately NOT the permission copy a genuine non-admin gets: this is self-inflicted and one tap
- * from being undone, so telling an admin they lack access they in fact hold would be the worse of
- * the two errors. Wording follows the web's `AdminViewHidden` panel.
- *
- * [canToggle] is why this card takes a flag rather than assuming its reader is an admin. A reviewer
- * below admin reaches the review tool from the dashboard's Pending figure, and stepping BACK from it
- * lands on the hub they were never given — where this card used to blame their own admin-view
- * setting and offer them a switch that is not theirs to hold. With no switch, the card says the
- * plain thing instead: the tools are not part of their role.
- */
 @Composable
 private fun AdminViewHiddenCard(
     label: String,
@@ -3308,7 +2555,6 @@ private fun AdminViewHiddenCard(
     }
 }
 
-/** The way in to the /data directory-tree browser, offered wherever the dataset itself is offered. */
 @Composable
 private fun DataBrowserEntryCard(onOpen: () -> Unit) {
     RecordCard(title = "Data Browser", icon = Icons.Filled.Storage) {
@@ -3325,12 +2571,6 @@ private fun DataBrowserEntryCard(onOpen: () -> Unit) {
     }
 }
 
-/** Right-side navigation drawer mirroring the web slide-out menu. */
-// ===========================================================================
-// Settings — master-admin global configuration (transcription mode + off-peak
-// processing window). More options will live here over time.
-// ===========================================================================
-
 @Composable
 private fun SettingsScreen(
     repository: FieldRepository,
@@ -3344,11 +2584,6 @@ private fun SettingsScreen(
     var windowEnabled by remember { mutableStateOf(false) }
     var startTime by remember { mutableStateOf("02:00") }
     var endTime by remember { mutableStateOf("05:00") }
-    /*
-     * THE SERVER'S SETTINGS, OR NOTHING. The four values above are placeholders until a load
-     * succeeds; after a failed load they used to be drawn as if real, with Save live, so one tap
-     * wrote the defaults over whatever the server actually held. Save now stays off until [loaded].
-     */
     var loaded by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
@@ -3381,7 +2616,6 @@ private fun SettingsScreen(
         }
         val failure = loadError
         if (!loaded && failure != null) {
-            // No form at all: a form of defaults would read as the server's settings.
             LoadFailedCard(message = failure, onRetry = { attempt += 1 })
             return@RecordCard
         }
@@ -3441,7 +2675,6 @@ private fun SettingsScreen(
     }
 }
 
-/** A labelled radio option row (title + helper line) used by [SettingsScreen]. */
 @Composable
 private fun SettingsRadioRow(title: String, subtitle: String, selected: Boolean, onSelect: () -> Unit) {
     Row(
@@ -3457,7 +2690,6 @@ private fun SettingsRadioRow(title: String, subtitle: String, selected: Boolean,
     }
 }
 
-/** A button showing a HH:mm time that opens a 24-hour time picker dialog to change it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TimePickerField(label: String, value: String, onChange: (String) -> Unit) {
@@ -3484,10 +2716,6 @@ private fun TimePickerField(label: String, value: String, onChange: (String) -> 
     }
 }
 
-/**
- * The next-step panel (A8): after any create, the forms a researcher usually opens next, each
- * pre-filled with the sitting — artisan, craft, place, and the product itself for a process.
- */
 @Composable
 private fun NextStepPanel(
     repository: FieldRepository,
@@ -3497,10 +2725,6 @@ private fun NextStepPanel(
     onDismiss: () -> Unit
 ) {
     val appContext = LocalContext.current.applicationContext
-    // These shortcuts hand the sitting on in memory, which only survives a tap made from this panel
-    // — and the panel dies on dismissal, on navigating away, and whenever Android reclaims a
-    // backgrounded app. Banking the same bag covers the route researchers actually take: out via the
-    // dashboard, back into a product form later. Web parity — CarryForwardCards remembers on mount.
     LaunchedEffect(step) {
         CarryContextStore(appContext).remember(repository.cachedUser()?.id, step.prefill.toCarryContext())
     }
@@ -3538,35 +2762,22 @@ private fun NextStepPanel(
 @Composable
 private fun DashboardScreen(
     stats: DashboardStats?,
-    /** Set when the totals failed to load; the cards then say so and offer Try again. */
     statsError: String?,
     onRetryStats: () -> Unit,
     recentArtisans: List<ArtisanDto>,
-    /** Already filtered to what this user may start — every card here leads with its "New …". */
     actions: List<EntryMode>,
-    /** This user's tier, spelled the way the app spells it, for the short-grid explanation. */
     roleLabel: String,
-    /** require_record_creator: Researcher and above. False = the four record cards are gone. */
     canCreateRecords: Boolean,
     showAdminHub: Boolean = false,
     onOpenAdminHub: () -> Unit = {},
     onWalkthrough: () -> Unit = {},
     onNew: (EntryMode) -> Unit,
     onUpdateExisting: (EntryMode) -> Unit,
-    /** A tapped total opens search for the [SearchRecordTypes] bucket it counted. */
     onOpenSearchFor: (String) -> Unit,
-    /** null = this user cannot review, so "Pending review" stays a figure they read but cannot open. */
     onOpenReviews: (() -> Unit)?,
-    /**
-     * Where every "Your contribution" figure leads. All six count THIS account's own rows, and My
-     * Activity is the one screen that lists exactly those — so the figure and the list behind it
-     * cannot disagree, which is the whole reason that block is separate from the repository totals.
-     */
     onOpenMyActivity: () -> Unit,
-    /** A recent-submission row opens the record it names. Types with no route are not tappable. */
     onOpenRecord: (EntryMode, String) -> Unit,
     onOpenArtisan: (String) -> Unit,
-    /** "Sent back to you (N)" (A2), drawn under the heading; empty on a server that sends no count. */
     sentBackSlot: @Composable () -> Unit = {}
 ) {
     val configuration = LocalConfiguration.current
@@ -3575,9 +2786,6 @@ private fun DashboardScreen(
         configuration.screenWidthDp >= 600 -> 3
         else -> 2
     }
-    // One list for the whole grid. The admin "Settings" card used to be emitted as its own Row below
-    // the grid with `columns - 1` spacers after it, which is exactly why it never lined up with the
-    // cards above: a second Row measures independently of the first. It is a tile like any other.
     val tiles = buildList {
         actions.forEach { entry ->
             add(
@@ -3609,11 +2817,6 @@ private fun DashboardScreen(
         tiles.chunked(columns).forEach { rowItems ->
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                // Height equalisation, the Compose equivalent of the web grid's default
-                // `align-items: stretch`. Without it a Row sizes each child to its own content, so a
-                // card whose label wraps to two lines — or one with no "Update" button — was shorter
-                // than its neighbours and its buttons sat at a different height. IntrinsicSize.Min
-                // measures the row to the tallest card; `fillMaxHeight` then stretches the rest to it.
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(IntrinsicSize.Min)
@@ -3629,9 +2832,6 @@ private fun DashboardScreen(
                 repeat(columns - rowItems.size) { Spacer(modifier = Modifier.weight(1f)) }
             }
         }
-        // A short grid is otherwise unexplained: say WHY the record cards are missing and where the
-        // tier comes from, rather than leaving a volunteer to assume the app is broken. Web parity
-        // with the dashboard's `!creator` note.
         if (!canCreateRecords) {
             ElevatedCard(
                 colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
@@ -3657,8 +2857,6 @@ private fun DashboardScreen(
             onOpenSearchFor = onOpenSearchFor,
             onOpenReviews = onOpenReviews
         )
-        // The caller's own contribution, in the SAME six counters and the same order, so the two blocks
-        // read as one comparison rather than as two unrelated grids. Drawn only when the API sent it.
         MyContributionCard(mine = stats?.mine, onOpenMyActivity = onOpenMyActivity)
         RecentSubmissionsCard(stats = stats, statsError = statsError, onOpenRecord = onOpenRecord)
         if (recentArtisans.isNotEmpty()) {
@@ -3668,9 +2866,6 @@ private fun DashboardScreen(
                 val pressed by interaction.collectIsPressedAsState()
                 ElevatedCard(
                     colors = CardDefaults.elevatedCardColors(
-                        // Purple is the action colour, so a press reads as "this is a way in" rather
-                        // than as a selected row. Composited over the card's own surface instead of
-                        // being a second token, so it follows SurfaceCard into either theme.
                         containerColor = if (pressed) {
                             MaterialTheme.colorScheme.primary.copy(alpha = 0.12f).compositeOver(SurfaceCard)
                         } else {
@@ -3680,8 +2875,6 @@ private fun DashboardScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        // The click sits INSIDE the card, not on it: the card clips its own shape, so
-                        // the ripple stops at the rounded corner instead of flashing a square.
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable(
@@ -3712,19 +2905,10 @@ private fun EntryMode.createButtonLabel(): String = when (this) {
     EntryMode.TASKS -> "Open"
     EntryMode.WORKSHOP_ACCESS -> "Open"
     EntryMode.SEARCH, EntryMode.DATA_BROWSER -> "Open"
-    // Both are read-only surfaces, and both web tiles say "Open" — "New" would offer to create a map.
     EntryMode.MAP, EntryMode.CONSOLIDATED_QUESTIONNAIRE -> "Open"
     else -> "New"
 }
 
-/**
- * One dashboard tile's content: the icon, the display label, the filled primary action and — where
- * the record type can be edited — the outlined "Update" action.
- *
- * Modelled as data rather than as a second card composable so the admin "Settings" card is laid out
- * by the SAME code path (and the same grid) as every record card. Two near-identical card composables
- * emitted from two different Rows was how the two drifted out of alignment in the first place.
- */
 private class DashboardTile(
     val label: String,
     val icon: ImageVector,
@@ -3734,23 +2918,6 @@ private class DashboardTile(
     val onUpdate: (() -> Unit)? = null
 )
 
-/**
- * Web parity with `components/DashboardCard.tsx`: a card, a small dark icon tile, the display label,
- * then the filled primary action and the outlined "Update" where editing exists.
- *
- * Two rules make a row of these line up, and both live here rather than in padding tweaks:
- * the caller stretches every card to the row's height (see [DashboardScreen]), and the label carries
- * `weight(1f)` so it — not the buttons — absorbs the slack. That is the web card's `mt-auto`: the
- * action row is pinned to the bottom edge, so it sits at one height across the whole row no matter
- * how many lines each label needs.
- *
- * THE WHOLE CARD IS THE PRIMARY ACTION (owner ruling, 2026-10-16): a tap anywhere on it does what
- * the filled button says — New, Open, Upload, Manage — and the outlined "Update" is the only way to
- * the update screen. The click sits on the card's content, inside the card's own clip, so the ripple
- * follows the rounded corner; both buttons are children with their own pointer handling, so a tap on
- * "Update" never also fires the card. The web card does the same with one stretched link
- * (`components/DashboardCard.tsx`).
- */
 @Composable
 private fun DashboardActionCard(tile: DashboardTile, modifier: Modifier = Modifier) {
     ElevatedCard(
@@ -3765,8 +2932,6 @@ private fun DashboardActionCard(tile: DashboardTile, modifier: Modifier = Modifi
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Web parity: a small dark-purple tile (bg-purple-800) carrying a light icon. `brandTile`
-            // is the theme's slot for exactly this pairing, so it follows light/dark on its own.
             Box(
                 modifier = Modifier
                     .size(38.dp)
@@ -3788,8 +2953,6 @@ private fun DashboardActionCard(tile: DashboardTile, modifier: Modifier = Modifi
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
             )
-            // The card is only offered when its primary action is allowed (DashboardScreen filters),
-            // so this action is unconditional — a card that could only "Update" explained nothing.
             Button(
                 onClick = tile.onPrimary,
                 modifier = Modifier.fillMaxWidth(),
@@ -3806,37 +2969,19 @@ private fun DashboardActionCard(tile: DashboardTile, modifier: Modifier = Modifi
     }
 }
 
-/** Icon + label for the narrow dashboard cards. */
 @Composable
 private fun CardButtonLabel(icon: ImageVector, text: String) {
     Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
     Spacer(Modifier.width(6.dp))
-    // TWO LINES, never an ellipsis: the cards are two-to-a-row on a phone, "New interview" is wider
-    // than the button at 360dp, and "New intervi…" was what a researcher read. The row's
-    // IntrinsicSize.Min keeps the neighbouring card's buttons level with a wrapped one.
     Text(text, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
 }
 
-/**
- * THE REPOSITORY'S TOTALS, and saying so out loud is the point.
- *
- * These used to be the signed-in researcher's own upload counts wearing these labels, because the API
- * filtered every total by ownership — so two people standing side by side read different numbers off
- * the word "Artisans", and somebody who had not uploaded yet read six zeroes and concluded the
- * repository was empty. Reading is open now, so these are the true totals; the caller's own
- * contribution is [MyContributionCard], asked for explicitly and labelled as theirs. Never render one
- * under the other's label.
- *
- * Heading, subtitle and all six labels are the web dashboard's, byte for byte.
- */
 @Composable
 private fun StatsCard(
     stats: DashboardStats?,
     statsError: String?,
     onRetry: () -> Unit,
-    /** Every figure but Pending review counts a search bucket, so every one of those opens one. */
     onOpenSearchFor: (String) -> Unit,
-    /** null = this user cannot review; Pending review is then a figure, not a door. */
     onOpenReviews: (() -> Unit)?
 ) {
     Card(
@@ -3862,8 +3007,6 @@ private fun StatsCard(
             } else if (stats == null) {
                 Text("Loading…", color = MaterialTheme.field.onBrandTileMuted)
             } else {
-                // Same height equalisation as the action grid: a stat whose label wraps must not make
-                // its tile taller than the two beside it.
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
@@ -3900,9 +3043,6 @@ private fun StatsCard(
                         openDescription = "Opens a search of the media"
                     )
                     Stat(
-                        // The one figure that is not a bucket of records but a queue of work, so it
-                        // leads to the queue — and only for whoever may act on it. It still SHOWS for
-                        // everyone: a researcher has to be able to see their own backlog.
                         "Pending review", stats.pendingSubmissions, Modifier.weight(1f).fillMaxHeight(),
                         onOpen = onOpenReviews,
                         openDescription = "Opens reviews and approvals"
@@ -3913,19 +3053,6 @@ private fun StatsCard(
     }
 }
 
-/**
- * THIS ACCOUNT'S OWN WORK, in the same six counters and the same order as [StatsCard] above, so the
- * two read as one comparison rather than as two unrelated grids. Denser on purpose: it is the
- * secondary question, and every tile leads to the same place.
- *
- * DRAWN ONLY WHEN THE API ACTUALLY SENT A `mine` BLOCK. A device can be talking to an API deployed
- * before that block existed, and a row of zeroes synthesised from a missing field would be a lie in
- * exactly the direction this whole change exists to fix — it would tell somebody their work is gone.
- * Absent means "this server does not answer that question", and the honest render of that is nothing.
- *
- * "Awaiting review" rather than "Pending review": on this row the figure is the reader's own backlog,
- * not the repository's queue, and the two are different numbers under one word otherwise.
- */
 @Composable
 private fun MyContributionCard(mine: DashboardStatsMine?, onOpenMyActivity: () -> Unit) {
     if (mine == null) return
@@ -3980,7 +3107,6 @@ private fun MyContributionCard(mine: DashboardStatsMine?, onOpenMyActivity: () -
     }
 }
 
-/** One "Your contribution" figure. Smaller than [Stat] because it answers the smaller question. */
 @Composable
 private fun MineStat(
     label: String,
@@ -4004,8 +3130,6 @@ private fun MineStat(
                 indication = LocalIndication.current,
                 onClickLabel = "Opens My Activity"
             ) { onOpen() }
-            // Merged, so TalkBack reads one figure and where it leads instead of an icon, a word and a
-            // bare number as three separate stops.
             .semantics(mergeDescendants = true) {
                 contentDescription = "Your ${label.lowercase()}: $value. Opens My Activity."
             }
@@ -4042,14 +3166,6 @@ private fun MineStat(
     }
 }
 
-/**
- * The newest entries in the repository, whoever filed them — the web dashboard's "Recent submissions"
- * table, in the shape a phone can read.
- *
- * `createdByName` is on every row and is not optional dressing: this list could once only hold the
- * reader's own rows, so attribution went unsaid. Now that it is the whole repository's, a title with
- * nobody's name against it is a record nobody can follow up on.
- */
 @Composable
 private fun RecentSubmissionsCard(stats: DashboardStats?, statsError: String?, onOpenRecord: (EntryMode, String) -> Unit) {
     ElevatedCard(
@@ -4108,8 +3224,6 @@ private fun RecentSubmissionRow(
     val typeLabel = item.type.replaceFirstChar { it.uppercase() }
     val title = item.title?.takeIf { it.isNotBlank() }
         ?: "Untitled ${item.type.ifBlank { "record" }}"
-    // The whole row is the way in, and it opens the record READ-ONLY — the same view the web's row
-    // opens. Changing it is the view's "Update" button, never a tap on the row.
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -4126,8 +3240,6 @@ private fun RecentSubmissionRow(
             display = true,
             fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.bodyMedium,
-            // Purple is the only action colour, so an openable title carries it and a dead one does
-            // not — which is the only signal on the row that says which is which.
             color = if (mode == null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
@@ -4148,13 +3260,6 @@ private fun RecentSubmissionRow(
     }
 }
 
-/**
- * Where a recent-submission row goes, mirroring the web's `recordHref`.
- *
- * Null means THERE IS NO ROUTE and the row is drawn as plain, untappable text. [searchRecordEntryMode]
- * is deliberately not reused here: it falls back to ARTISAN for anything it does not recognise, which
- * on this list would open the artisan editor on a process id and report the record as missing.
- */
 private fun recentSubmissionEntryMode(type: String): EntryMode? = when (type.lowercase()) {
     "artisan" -> EntryMode.ARTISAN
     "product" -> EntryMode.PRODUCT
@@ -4162,24 +3267,17 @@ private fun recentSubmissionEntryMode(type: String): EntryMode? = when (type.low
     "tool" -> EntryMode.TOOL
     "workshop" -> EntryMode.WORKSHOP
     "craft" -> EntryMode.CRAFT
-    // The API names an interview either way depending on the route that produced the row.
     "questionnaire", "interview" -> EntryMode.QUESTIONNAIRE
-    // No edit form on either client; [EditScreen] shows the file with its transcript instead.
     "media" -> EntryMode.MEDIA
     else -> null
 }
 
-/**
- * One figure on the totals tile. [onOpen] is what turns it from a readout into a way in; null leaves
- * the figure exactly as legible and nothing about it invites a tap it would not answer.
- */
 @Composable
 private fun Stat(
     label: String,
     value: Int,
     modifier: Modifier = Modifier,
     onOpen: (() -> Unit)? = null,
-    /** Where the tap leads, for TalkBack — a bare number cannot say. */
     openDescription: String? = null
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -4187,11 +3285,7 @@ private fun Stat(
     val shape = MaterialTheme.shapes.medium
     Column(
         modifier = modifier
-            // Clipped before the fill so a tap's ripple stops at the chip's own rounded edge.
             .clip(shape)
-            // A chip sitting ON the brand tile: a translucent step of the same purple family rather
-            // than a fixed near-black, so it stays one shade off its parent in either theme. The
-            // press deepens that same step, because a ripple alone barely registers on it.
             .background(color = MaterialTheme.field.accentOnBrandTile.copy(alpha = if (pressed) 0.34f else 0.18f))
             .then(
                 if (onOpen == null) Modifier else Modifier
@@ -4216,16 +3310,11 @@ private val marketDemandOptions = listOf("LOW", "MEDIUM", "HIGH", "SEASONAL", "U
 private val makerOptions = listOf("ARTISAN", "LOCAL_BLACKSMITH", "CARPENTER", "WORKSHOP", "FACTORY", "UNKNOWN", "OTHER")
 private val statusOptions = listOf("DRAFT", "PENDING", "APPROVED", "REJECTED")
 
-/** The word a person reads for a record status: the badges say "Approved", so the picker does too. */
 private fun recordStatusWord(status: String): String = when (status) {
     "NEEDS_REVISION" -> "Needs revision"
     else -> status.lowercase().replaceFirstChar { it.uppercase() }
 }
 
-// Role hierarchy, mirroring the backend ROLE_RANK ladder. The record-status control is gated at
-// PROFESSOR+ (rank >= 40): they pick any status and default to APPROVED on create; everyone below sees
-// a locked "Pending" chip and their new records are forced to PENDING (the backend also silently drops
-// any status a below-professor user tries to send).
 private val ROLE_RANK = mapOf(
     "CROWDSOURCE_VOLUNTEER" to 10,
     "FIELD_CONTRIBUTOR" to 20,
@@ -4239,7 +3328,6 @@ private const val RANK_RESEARCHER = 30
 private const val RANK_PROFESSOR = 40
 private const val RANK_ADMIN = 50
 
-/** Human labels for the ladder, byte-for-byte the server's `ROLE_LABELS` (and the web's). */
 private val ROLE_LABELS = mapOf(
     "CROWDSOURCE_VOLUNTEER" to "Crowdsource Volunteer",
     "FIELD_CONTRIBUTOR" to "Field Contributor",
@@ -4253,75 +3341,30 @@ private fun roleLabel(role: String?): String = ROLE_LABELS[role] ?: role.orEmpty
 private fun roleRank(role: String?): Int = ROLE_RANK[role] ?: 0
 private fun canSetRecordStatus(role: String?): Boolean = roleRank(role) >= RANK_PROFESSOR
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Capability rules — the Kotlin mirror of `backend/app/core/deps.py`.
- *
- * These MUST agree with the server, in both directions. A rule that is stricter than the backend
- * silently removes a screen from someone entitled to it (a professor with no questionnaire builder);
- * a rule that is looser lets a user fill in a whole form and then eat a 403 on save. Both were
- * present before this block existed, which is why every rule now lives in exactly one place, named
- * after the backend dependency it mirrors.
- * ──────────────────────────────────────────────────────────────────────────── */
-
-/** `is_admin` — admin and master admin. */
 private fun UserDto.isAdminUser(): Boolean = roleRank(role) >= RANK_ADMIN
 
-/** `is_master_admin`. */
 private fun UserDto.isMasterAdminUser(): Boolean = role == "MASTER_ADMIN"
 
-/**
- * `can_create_records` / `require_record_creator` — OPENING an artisan, product, process, tool or
- * interview. Researcher and above.
- *
- * The two tiers below POPULATE records rather than open them: attaching media to an existing
- * artisan, answering an existing interview, commenting. None of those three passes through here, so
- * hiding a "New …" card from a field contributor never hides a contribution path — it removes a form
- * that ended in a 403 after they had filled it in.
- */
 private fun UserDto.canCreateRecords(): Boolean = roleRank(role) >= RANK_RESEARCHER
 
-/** `can_access_review` / `require_reviewer` — Field Contributor and above, or an explicit grant. */
 private fun UserDto.canAccessReview(): Boolean = roleRank(role) >= RANK_FIELD_CONTRIBUTOR || canReview
 
-/** `can_download_dataset` / `require_dataset_downloader` — Professor and above, or a grant. */
 private fun UserDto.canDownloadTheDataset(): Boolean = roleRank(role) >= RANK_PROFESSOR || canDownloadDataset
 
-/** `can_manage_questionnaire` / `require_questionnaire_manager` — Professor and above, or a grant. */
 private fun UserDto.canManageTheQuestionnaire(): Boolean =
     roleRank(role) >= RANK_PROFESSOR || canManageQuestionnaire
 
-/**
- * `can_manage_crafts` / `require_craft_manager` — Professor and above, RANK ALONE.
- *
- * The `canManageCrafts` grant is deliberately not consulted. The server stopped reading it (deps.py)
- * because a per-user grant that lifted a researcher over the taxonomy was invisible in the role
- * column, and a client that kept ORing it in offers the Add-craft form to someone the API will
- * refuse. Promote the person instead; deleting a craft is stricter still (admin).
- */
 private fun UserDto.canManageTheCrafts(): Boolean = roleRank(role) >= RANK_PROFESSOR
 
-/** `can_manage_workshops` / `require_workshop_manager` — Professor+, rank alone; see above. */
 private fun UserDto.canManageTheWorkshops(): Boolean = roleRank(role) >= RANK_PROFESSOR
 
-/** `require_professor` on GET/PATCH /users — the user table opens for Professor and above. */
 private fun UserDto.canManageUsers(): Boolean = roleRank(role) >= RANK_PROFESSOR
 
-/** The status a NEW record defaults to for the given role: APPROVED for professor+, PENDING below. */
 private fun defaultCreateStatus(role: String?): String = if (canSetRecordStatus(role)) "APPROVED" else "PENDING"
-/** The shared gender list (StandardValues; the same in both portals and on the web). */
 private val genderOptions = StandardValues.GENDER_LABELS
 
-/**
- * App-level controller that lets a record form tell the back navigation "I have unsaved work, and
- * here's how to save it". The shell consults this before leaving a Create/Edit screen so an accidental
- * Back (or the in-app back arrow) shows a Save / Discard prompt instead of silently dropping the
- * record and its in-progress recordings. Exactly one form registers at a time (see
- * [RegisterUnsavedGuard]); it clears itself when the form leaves composition.
- */
 private class UnsavedGuard {
-    /** Whether the active form currently has unsaved changes worth prompting about. */
     var dirty by mutableStateOf(false)
-    /** Runs the active form's own validated save (same as its Save button) — null when no form is shown. */
     var onSave: (() -> Unit)? = null
 
     fun clear() {
@@ -4332,12 +3375,6 @@ private class UnsavedGuard {
 
 private val LocalUnsavedGuard = staticCompositionLocalOf<UnsavedGuard?> { null }
 
-/**
- * Register the current form with the app-level [UnsavedGuard] so the Back navigation can offer to save
- * it. [dirty] should be true whenever there is unsaved content (changed fields, or attached/recorded
- * media not yet persisted); [onSave] must perform the SAME validated save the form's Save button does
- * (validation failures keep the user on the form with the offending field highlighted).
- */
 @Composable
 private fun RegisterUnsavedGuard(dirty: Boolean, onSave: () -> Unit) {
     val guard = LocalUnsavedGuard.current ?: return
@@ -4349,27 +3386,22 @@ private fun RegisterUnsavedGuard(dirty: Boolean, onSave: () -> Unit) {
     }
 }
 
-/** Shared holder for media attachments, captured GPS, and an optional measurement-grid image. */
 private class MediaCaptureState {
     var uris by mutableStateOf<List<Uri>>(emptyList())
     var location by mutableStateOf<LocationRequest?>(null)
     var measurementUri by mutableStateOf<Uri?>(null)
 
-    // Eager-upload bookkeeping. `stagedDeferred` is the in-flight pre-upload per uri; `staged`
-    // mirrors the completed results for UI status; `stagedProgress` is 0..1 per uri for the progress
-    // bar; `stagedFailed` marks uris whose eager upload errored (retried at save). Managed by
-    // MediaCaptureSection.
     val stagedDeferred = mutableMapOf<Uri, Deferred<StagedMedia?>>()
     var staged by mutableStateOf<Map<Uri, StagedMedia>>(emptyMap())
     var stagedProgress by mutableStateOf<Map<Uri, Float>>(emptyMap())
     var stagedFailed by mutableStateOf<Set<Uri>>(emptySet())
 
-    /** Forget all eager-upload state for one uri (used when the user discards a single attachment). */
     fun forget(uri: Uri) {
         stagedDeferred.remove(uri)
         staged = staged - uri
         stagedProgress = stagedProgress - uri
         stagedFailed = stagedFailed - uri
+        TranscribeChoices.forget(uri.toString())
     }
 
     fun reset() {
@@ -4386,14 +3418,6 @@ private class MediaCaptureState {
 @Composable
 private fun rememberMediaCaptureState(): MediaCaptureState = remember { MediaCaptureState() }
 
-/**
- * Start (or restart) the eager pre-upload of ONE attachment to object storage, keeping the shared
- * [MediaCaptureState] progress/staged/failed bookkeeping in sync. This is the single source of truth
- * for "stream a captured file as soon as it is attached" — used both by the capture effects (for every
- * newly-added uri) and by the per-file "Retry" button when an eager upload failed. [uiScope] is a
- * composition-scoped scope used only to fold the result back into UI state; the transfer itself runs
- * on the process-lifetime [AppScope] so it survives recomposition.
- */
 private fun startEagerUpload(
     repository: FieldRepository,
     context: Context,
@@ -4401,7 +3425,6 @@ private fun startEagerUpload(
     uri: Uri,
     uiScope: CoroutineScope
 ) {
-    // Reset any prior bookkeeping for this uri so a retry re-runs from a clean slate.
     media.stagedDeferred.remove(uri)
     media.staged = media.staged - uri
     media.stagedFailed = media.stagedFailed - uri
@@ -4410,7 +3433,6 @@ private fun startEagerUpload(
         var lastPct = -1
         runCatching {
             repository.preuploadObject(context, uri) { sent, total ->
-                // Throttle to whole-percent changes so a big file doesn't thrash recomposition.
                 val pct = if (total > 0L) ((sent * 100) / total).toInt() else 0
                 if (pct != lastPct) {
                     lastPct = pct
@@ -4435,7 +3457,6 @@ private fun startEagerUpload(
 private fun LocalDate.toIsoInstant(): String =
     atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
 
-/** Parse an ISO datetime/date string (as returned by the API) into a LocalDate, best-effort. */
 private fun parseIsoToLocalDate(value: String?): LocalDate? {
     if (value.isNullOrBlank()) return null
     return runCatching { java.time.OffsetDateTime.parse(value).toLocalDate() }.getOrNull()
@@ -4443,32 +3464,18 @@ private fun parseIsoToLocalDate(value: String?): LocalDate? {
         ?: runCatching { LocalDate.parse(value.take(10)) }.getOrNull()
 }
 
-/** Format an ISO datetime string (as returned by the API) into a short readable date, best-effort. */
 private fun formatIsoDate(value: String?): String? {
     val date = parseIsoToLocalDate(value) ?: return null
     return runCatching {
-        // en-IN, pinned, NOT the handset's locale — `MMM` is textual, so an unpinned formatter puts
-        // the phone's language into an English sentence and makes one build print different text on
-        // different machines. Same reasoning, and same locale, as WORKSHOP_DAY_FORMAT in
-        // ui/WorkshopOptions.kt; the web says en-IN too (frontend/lib/format.ts:3).
         date.format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy", java.util.Locale("en", "IN")))
     }.getOrNull()
 }
 
-/**
- * One day from an ISO stamp, for a caption. [daysBefore] steps back, which is what turns an EXCLUSIVE
- * window bound into the last day the window actually covers — printing the bound raw would name a day the
- * window does not include, i.e. a caption that contradicts the rule it is explaining.
- *
- * An unparseable value is echoed rather than rendered blank: a caption is not worth losing to a stamp
- * shape this build has not seen.
- */
 private fun formatIsoDay(value: String?, daysBefore: Long = 0): String {
     val date = parseIsoToLocalDate(value) ?: return value.orEmpty()
     return formatIsoDate(date.minusDays(daysBefore).toString()) ?: value.orEmpty()
 }
 
-/** Render a numeric value into an editable string without a trailing ".0" for whole numbers. */
 private fun numToText(value: String?): String {
     val raw = value?.trim().orEmpty()
     if (raw.isEmpty()) return ""
@@ -4481,27 +3488,14 @@ private fun numToText(value: Double?): String {
     return if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
 }
 
-/**
- * On edit, only send a location when it actually changed. The backend creates a fresh Location row
- * and re-checks per-field ownership for any present field, so resending the unchanged coordinates
- * would both duplicate rows and falsely lock out non-owner contributors.
- */
 private fun locationForBody(isEdit: Boolean, current: LocationRequest?, original: LocationDto?): LocationRequest? {
     if (!isEdit) return current
     if (current == null) return null
     if (original != null &&
         kotlin.math.abs(current.latitude - original.latitude) < 1e-6 &&
         kotlin.math.abs(current.longitude - original.longitude) < 1e-6 &&
-        // The postal half counts as a change too. Comparing only the coordinate meant a researcher
-        // could add the state and pincode to a legacy location, save, and watch both answers vanish.
         current.state == original.state &&
         current.pincode == original.pincode &&
-        // And so does the rest of the stated half — district, village, the subject's pin. Same
-        // reasoning one rung down: a researcher who opens a legacy record purely to say which
-        // district it is in would otherwise watch the answer disappear on save, because the
-        // coordinate did not move. Compared as COLUMNS rather than trusting the metadata mirror
-        // beneath them: the mirror is written for older phones, and a comparison that can only see
-        // it would go blind the day it is finally retired.
         current.district == original.district &&
         current.village == original.village &&
         current.subjectLatitude == original.subjectLatitude &&
@@ -4513,31 +3507,12 @@ private fun locationForBody(isEdit: Boolean, current: LocationRequest?, original
     return current
 }
 
-/**
- * The reason this form may not open a NEW record yet, or null when it may.
- *
- * The server refuses a create that carries no location, and refuses one whose location does not say
- * which state and district the SUBJECT is in (`require_location`, backend/app/schemas/common.py).
- * Both dropdowns are filled from `GET /reference/address`, which is a pure constant the phone caches
- * for good, so this is answerable in a workshop with no signal — and answering it here rather than
- * at the server is what stops an offline save from sitting in the outbox being retried against a
- * body that can never be accepted, discovered days later a long way from the artisan.
- *
- * NOTHING IS ASKED OF AN EDIT, matching `forbid_clearing_location` exactly. The records written
- * before those columns existed carry no stated address at all, and a researcher who opened one to
- * correct a phone number must be able to save it without inventing a district from a desk. The card
- * flags the gap and invites them to close it; refusing the save would close it by guesswork.
- */
 private fun newRecordLocationError(
     isEdit: Boolean,
     current: LocationRequest?,
     heading: String = ARTISAN_LOCATION_HEADING
 ): String? = if (isEdit) null else artisanLocationRequirementError(current, heading)
 
-/**
- * C17: the picked artisan's stated address, for a NEW child record's location card. Null on an edit
- * (a saved record keeps what it says) and when the artisan's record carries no address.
- */
 private fun ArtisanDto?.inheritedPlace(isEdit: Boolean): InheritedPlace? {
     val artisan = this ?: return null
     if (isEdit) return null
@@ -4554,15 +3529,6 @@ private fun ArtisanDto?.inheritedPlace(isEdit: Boolean): InheritedPlace? {
     )
 }
 
-/**
- * Convert a read-model location into the request payload used by create/update calls.
- *
- * EVERY STATED FIELD HAS TO BE HERE. `attach_location` builds a BRAND NEW Location row out of this
- * body on update — it does not patch the stored one — and `forbid_clearing_location` deliberately
- * lets an update through without a stated address, so anything this function forgets is not
- * rejected, it is erased. That is how district, village and the subject pin came to be silently
- * nulled by a phone opening a web-entered record to correct a phone number.
- */
 private fun LocationDto.toRequest(): LocationRequest =
     LocationRequest(
         latitude = latitude,
@@ -4578,49 +3544,23 @@ private fun LocationDto.toRequest(): LocationRequest =
         subjectLatitude = subjectLatitude,
         subjectLongitude = subjectLongitude,
         capturedAt = capturedAt,
-        // The pre-column shape of the same four answers, carried through untouched so a record that
-        // only has them keeps them (see the note atop ui/LocationFields.kt).
         extraMetadata = extraMetadata
     )
 
-// ---------------------------------------------------------------------------
-// The postal half of an address: state (closed list) and pincode (6 digits).
-// ---------------------------------------------------------------------------
-
-/** Indian PIN codes are six digits and never begin with 0 — the first digit is the postal zone. */
 internal const val PINCODE_LENGTH = 6
 
-/**
- * The reason [value] is not a usable pincode, or null when it is fine (blank included — the field is
- * optional). Same three checks, in the same order and with the same sentences, as `pincode_error` in
- * backend/app/services/address.py, so the researcher reads one message whether it was caught here or
- * by the API — and reads it before the round trip rather than as a 422 after it.
- */
 internal fun pincodeValidationError(value: String?): String? {
     val digits = value?.trim().orEmpty()
     if (digits.isEmpty()) return null
-    // ASCII digits only, for the same reason as the Aadhaar validator: Char.isDigit() admits the
-    // Devanagari and fullwidth digits an Indic IME produces, and those would be stored verbatim,
-    // giving one village two pincodes no query could ever match to each other.
     if (!digits.all { it in '0'..'9' }) return "Pincode must be 6 digits."
     if (digits.length != PINCODE_LENGTH) return "Pincode must be 6 digits (has ${digits.length})."
     if (digits[0] == '0') return "Pincodes don't start with 0."
     return null
 }
 
-/** A state name reduced to its comparison key, exactly as `_fold` in services/address.py does it. */
 private fun foldStateName(value: String): String =
     value.lowercase().replace("&", "and").filter { it in 'a'..'z' || it in '0'..'9' }
 
-/**
- * The entry of [states] that [text] names, or "" when nothing on the list matches.
- *
- * The geocoder's wording is not the register's ("NCT of Delhi", "Daman and Diu"), so an exact fold is
- * tried first and a containment match second — long enough on either side that a short name like Goa
- * cannot be swallowed by an unrelated word. Returning "" rather than the raw text is deliberate: the
- * list is closed, so a name the API would reject is worse than no suggestion at all, and a value the
- * dropdown cannot show is a value the researcher cannot see, let alone correct.
- */
 internal fun matchIndianState(text: String, states: List<String>): String {
     val wanted = foldStateName(text)
     if (wanted.isEmpty()) return ""
@@ -4631,29 +3571,10 @@ internal fun matchIndianState(text: String, states: List<String>): String {
     }.orEmpty()
 }
 
-/**
- * The record's location, in the two halves it actually has: what the researcher says about the
- * artisan, and what this device says about itself.
- *
- * A thin wrapper now. Everything below the name lives in ui/LocationFields.kt — the two groups, the
- * offline-cached state and district dropdowns, the accuracy gate on the geocoder, and the rule that
- * a point with no address CLEARS the last point's guess instead of leaving it behind. The name is
- * kept because three forms call it and the concurrency of this file is not worth spending on a
- * rename.
- *
- * WHAT THE OLD BODY GOT WRONG, kept here as the reason not to put it back. It offered the geocoder
- * a state and a pincode for every fix regardless of its accuracy radius, and it read a geocoder
- * that answered "nothing" as "leave what is there" — so a pin corrected from Bagru to Dehradun
- * kept Bagru's pincode, silently, on a record that now said Uttarakhand. It also had no field in
- * which a researcher could say where the ARTISAN was, which is why fifteen live records carry a
- * Kharagpur coordinate under a Rajasthani place name typed into a free-text box.
- */
 @Composable
 private fun LocationAddressEditor(
     repository: FieldRepository,
     value: LocationRequest?,
-    // Retained so the three call sites need no edit. LocationCaptureCard drives its own permission
-    // flow and its own live fix, so nothing has needed a caller-supplied one-shot read since.
     @Suppress("UNUSED_PARAMETER") onUseGps: () -> LocationRequest?,
     onChange: (LocationRequest?) -> Unit,
     onMessage: (String) -> Unit = {},
@@ -4676,7 +3597,6 @@ private fun LocationAddressEditor(
     )
 }
 
-/** Two coordinates the researcher would call the same place (the editor re-emits on every keystroke). */
 internal fun sameCoordinate(next: LocationRequest, previous: LocationRequest?): Boolean =
     previous != null &&
         kotlin.math.abs(next.latitude - previous.latitude) < 1e-6 &&
@@ -4692,13 +3612,9 @@ private suspend fun uploadAttachments(
     caption: String?,
     customSegment: String? = null
 ) {
-    // Resilient: attempt every attachment so one bad file never blocks the rest; the saved record
-    // already persisted before this runs, so partial uploads are kept and only the failures surface.
     val failures = mutableListOf<String>()
     val failedUris = mutableListOf<Pair<Int, Uri>>()
     media.uris.forEachIndexed { index, uri ->
-        // Prefer the eagerly pre-uploaded object (awaiting any still-in-flight transfer); only fall
-        // back to a fresh upload if pre-upload never started or failed.
         val staged = media.stagedDeferred[uri]?.let { runCatching { it.await() }.getOrNull() } ?: media.staged[uri]
         val result = runCatching {
             if (staged != null) {
@@ -4710,7 +3626,8 @@ private suspend fun uploadAttachments(
                     caption = caption,
                     location = media.location,
                     batchIndex = index + 1,
-                    customSegment = customSegment
+                    customSegment = customSegment,
+                    processingRequests = TranscribeChoices.processingFor(uri.toString(), staged.mediaType)
                 )
             } else {
                 repository.uploadMedia(
@@ -4733,9 +3650,6 @@ private suspend fun uploadAttachments(
             failedUris.add(index to uri)
         }
     }
-    // The record IS saved. Files that did not make it (the connection dropped part-way, usually) are
-    // copied into the outbox and attached to it when the connection returns, instead of being held
-    // only by a form the researcher is about to leave.
     if (failedUris.isNotEmpty() && queueFailedAttachments(
             repository, context, recordType, recordId, titleHint,
             failedUris.map { (index, uri) ->
@@ -4748,7 +3662,6 @@ private suspend fun uploadAttachments(
     ) return
     if (failures.isNotEmpty()) {
         val allFailed = failures.size == media.uris.size
-        // H21: the files that did reach the record leave the batch, so Save again sends only the failures.
         val failed = failedUris.map { it.second }.toSet()
         media.uris.filterNot { it in failed }.forEach { media.forget(it) }
         media.uris = media.uris.filter { it in failed }
@@ -4759,10 +3672,6 @@ private suspend fun uploadAttachments(
     }
 }
 
-/**
- * Copy files that could not reach the saved record [recordId] into the outbox, to attach when the
- * connection returns, and say so. False when even that failed; the caller then reports the failure.
- */
 private suspend fun queueFailedAttachments(
     repository: FieldRepository,
     context: Context,
@@ -4785,14 +3694,6 @@ private suspend fun queueFailedAttachments(
     return queued
 }
 
-/**
- * Keep a small write (a comment, feedback, a task's progress) on the device when it cannot be sent,
- * and send it from the outbox when the connection returns. True when it was queued.
- *
- * [failure] null means "check before trying": queue only when there is no connection. Otherwise it is
- * the error the online attempt threw, and a transport failure queues only when [idempotent]: a POST
- * whose answer was lost may already have landed, and replaying it would post it twice.
- */
 private suspend fun queueSmallWrite(
     repository: FieldRepository,
     context: Context,
@@ -4830,24 +3731,11 @@ private suspend fun uploadMeasurement(
     )
 }
 
-/**
- * "Document using grid": pick which dimensions to capture (length / breadth / height); each enabled
- * dimension gets its own grid-photo capture. On capture the photo is sent to the vision model for
- * that one dimension and the returned inches auto-fill the matching field; the photo is ALSO pushed
- * into the shared [media] attach-media batch so it is eager-uploaded, shown in the upload progress
- * list, and saved as media for this record (no separate, invisible grid-upload path).
- */
 @Composable
 private fun GridMeasurementSection(
     repository: FieldRepository,
     media: MediaCaptureState,
     includeHeight: Boolean = true,
-    /**
-     * The server's own method marker rides with the numbers, and the host passes it STRAIGHT to
-     * `markers.accept(...)`. Nullable because a server predating the marker, and every failure path,
-     * sends none — `visionMarker` keeps its bare `{"method": "VISION_MODEL"}` fallback for exactly
-     * that, so a missing marker still records that a MODEL produced the number.
-     */
     onLengthBreadth: (length: Double?, breadth: Double?, marker: JsonObject?) -> Unit,
     onHeight: (value: Double, marker: JsonObject?) -> Unit
 ) {
@@ -4859,10 +3747,7 @@ private fun GridMeasurementSection(
     var pendingGroup by remember { mutableStateOf<String?>(null) }
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
 
-    // group keys: "lengthBreadth" (one photo → both length & breadth) and "height" (one photo).
     fun analyze(group: String, uri: Uri) {
-        // Re-capturing a dimension replaces its previous photo: drop the old uri from the shared
-        // media batch (and delete its staged object) so the record never keeps a stale grid image.
         capturedUris[group]?.let { previous ->
             if (previous != uri) {
                 val deferred = media.stagedDeferred[previous]
@@ -4872,8 +3757,6 @@ private fun GridMeasurementSection(
             }
         }
         capturedUris = capturedUris + (group to uri)
-        // Route the grid photo into the shared attach-media batch — this is what makes it visible in
-        // the upload progress list and persisted as media on save (in addition to auto-filling dims).
         if (uri !in media.uris) media.uris = media.uris + uri
         status = status + (group to "Analyzing…")
         scope.launch {
@@ -4882,8 +3765,6 @@ private fun GridMeasurementSection(
                     .onSuccess { reading ->
                         val length = reading.lengthInches
                         val breadth = reading.breadthInches
-                        // The server's marker, RELAYED rather than rebuilt — see visionMarker's KDoc.
-                        // Rebuilding it here would lose the confidence, the only number on the stamp.
                         onLengthBreadth(length, breadth, reading.marker)
                         val parts = buildList {
                             if (length != null && length > 0) add("L ${"%.2f".format(length)}\"")
@@ -4909,11 +3790,6 @@ private fun GridMeasurementSection(
         }
     }
 
-    // Discard a grid dimension's photo via the same ✕ cross used elsewhere. This is the *grid-side*
-    // removal, so per the required behaviour it ALSO drops the photo from the shared attach-media
-    // batch (and deletes its staged object) — a full discard. (The reverse is not coupled: removing
-    // the file from the uploaded-media list leaves this grid capture untouched, since that list and
-    // capturedUris are independent state.)
     fun discardGroup(group: String) {
         val uri = capturedUris[group] ?: return
         val deferred = media.stagedDeferred[uri]
@@ -4929,7 +3805,6 @@ private fun GridMeasurementSection(
         if (uri != null && g != null) analyze(g, uri)
         pendingGroup = null
     }
-    // No onError here: a refusal is written against the group the camera was asked for.
     val permissionGate = rememberPermissionGate(onRefused = { refusal ->
         pendingGroup?.let { g -> status = status + (g to refusal) }
         pendingGroup = null
@@ -4991,12 +3866,6 @@ private fun GridMeasurementSection(
     }
 }
 
-/**
- * Every one-of-many field in the record forms. Now a thin adapter over [SearchableSelectField],
- * which keeps this anchored menu for short lists and opens the searchable sheet once the list is
- * long enough to scroll — so the artisan, tool, craft and state pickers all gained a search box
- * without any of the thirty-odd call sites below changing.
- */
 @Composable
 private fun DropdownField(
     label: String,
@@ -5005,7 +3874,6 @@ private fun DropdownField(
     placeholder: String = "Select",
     includeNone: Boolean = true,
     enabled: Boolean = true,
-    /** Rows the server searches and pages (`ui/ServerSearch.kt`); [options] then only name the chosen one. */
     server: ServerSearch? = null,
     onSelect: (String) -> Unit
 ) {
@@ -5032,11 +3900,6 @@ private fun StatusDropdown(value: String, onSelect: (String) -> Unit) {
     )
 }
 
-/**
- * Record-status control honouring the create policy. PROFESSOR+ ([canSetStatus]) get the full status
- * picker (defaulting APPROVED on create); everyone below sees a non-editable "Pending" chip — their
- * records are forced to PENDING and the backend drops any status they try to change.
- */
 @Composable
 private fun StatusControl(canSetStatus: Boolean, value: String, onSelect: (String) -> Unit) {
     if (canSetStatus) {
@@ -5059,153 +3922,48 @@ private fun StatusControl(canSetStatus: Boolean, value: String, onSelect: (Strin
     }
 }
 
-// ---------------------------------------------------------------------------
-// Workshop linkage. Field work happens at a workshop, so the workshop is the
-// primary context for every record: each form opens with the same picker, above
-// the craft / artisan / product (secondary, tertiary) selects. The loading and
-// defaulting rules live here once, in [rememberWorkshopPicker], rather than
-// being re-typed on each form.
-// ---------------------------------------------------------------------------
-
-/**
- * The workshops offered by a record form's picker plus the one currently linked.
- *
- * [baselineId] is what the form treats as "no unsaved change": it moves together with the
- * create-time auto-default (so the default alone never marks a pristine form dirty) but stays put
- * when the user picks a workshop themselves, which is exactly the change the unsaved-work guard
- * should catch.
- *
- * It also owns the SUBMISSION PRE-FLIGHT (`GET /workshops/{id}/submission-check`, web parity with
- * `useWorkshopSelection`). The workshop decides two things the researcher has to learn BEFORE they
- * save rather than after:
- *
- * 1. **Assignment** — a curated workshop 403s a submission from anybody not on its roster.
- * 2. **The window** — a record filed after the workshop ended is accepted, but pinned to PENDING and
- *    flagged, after which only an admin can approve it. [confirmSubmission] surfaces that as a
- *    confirmation and the save proceeds only if the researcher says yes.
- *
- * Both answers are advisory. When the pre-flight cannot be reached the state degrades to a local
- * "this workshop looks like it ended" hint and NEVER blocks the save: a researcher in the field must
- * not lose work to a flaky courtesy request.
- */
-/** How far down the occurrence order the create-time default walks looking for a submittable workshop. */
 internal const val DEFAULT_PROBE_LIMIT = 5
 
-/*
- * ── `internal`, NOT `private`, AND THAT IS THE WHOLE OF THE CHANGE ─────────────────────────────
- *
- * This class and [rememberWorkshopPicker] below were file-private while `MainActivity.kt` was the
- * only thing that mounted a workshop dropdown. `ui/RecordSwitcher.kt` now mounts one too — the
- * primary dropdown of the record picker on the edit screen — and it needs THIS state object rather
- * than a second one, because the rule the requirement turns on is [applyMostRecentSubmittable]: the
- * default is the most recent workshop the account may ACTUALLY submit to, found by walking down the
- * occurrence order past the workshops that are somebody else's. A second implementation of that walk
- * is a second answer to "which workshop am I in", and the two would drift the first time either was
- * touched — which is the defect this file has the most history with.
- *
- * `internal` is module-wide in Kotlin, so one keyword reaches across the package boundary and
- * nothing outside the app can see it. The web made the same call by exporting `useWorkshopSelection`
- * for `forms/RecordSwitcher.tsx` to reuse.
- */
 internal class WorkshopPickerState(
     private val repository: FieldRepository,
     initialId: String,
-    /**
-     * Is a create-time default walk still going to move [selectedId]? True only on a create form that
-     * opened with no workshop on it — see [settled].
-     */
     defaultWalkPending: Boolean = false
 ) {
     var workshops by mutableStateOf<List<WorkshopDetailDto>>(emptyList())
     var selectedId by mutableStateOf(initialId)
     var baselineId by mutableStateOf(initialId)
 
-    /**
-     * HAS THIS PICKER FINISHED CHOOSING FOR ITSELF? Hold any request that depends on the selection
-     * until it is true.
-     *
-     * ── THE FLAG THIS REPLACES, AND WHY THAT ONE COULD NOT WORK ─────────────────────────────────
-     *
-     * The questionnaire form's artisan effect used to hold on `workshop.workshops.isNotEmpty()`, and
-     * its own KDoc described that as preventing exactly what it failed to prevent. [rememberWorkshopPicker]
-     * publishes `state.workshops = list` and only THEN awaits [applyMostRecentSubmittable], which walks
-     * up to [DEFAULT_PROBE_LIMIT] sequential `GET /workshops/{id}/submission-check` round trips before
-     * it sets [selectedId]. So "the workshops are known" flipped true several seconds before "the
-     * workshop is known", the guard fell open, and the artisan request went out with a BLANK workshop
-     * — which is the wire spelling of "every artisan in the deployment". The researcher was then
-     * offered the whole repository under a workshop field that filled itself in a moment later.
-     *
-     * A flag that answers the question the caller is actually asking cannot fail that way, which is
-     * why this one is set where the walk ENDS rather than inferred from something the walk happens to
-     * touch on its way past.
-     *
-     * TRUE FROM CONSTRUCTION when there is no walk to wait for: an edit form (which must never move
-     * off the workshop the record was saved at) and a create form that was handed one. And it is set
-     * true even when `GET /workshops` FAILS or answers an empty list — there is then nothing to wait
-     * for either, and a guard that never released would hold the artisan list hostage for the whole
-     * session on a deployment with no workshops in it. That is the bug the old flag also had, in its
-     * other direction, and its own comment called it "the correct outcome".
-     *
-     * Web parity: `workshopScopeSettling` in `frontend/components/questionnaires/interviewArtisans.ts`,
-     * which answers the same question about `useWorkshopSelection`'s identical probe; and
-     * `ui/WorkshopScope.WorkshopScopeState.settled`, which is this flag for the list screens' scope.
-     */
     var settled by mutableStateOf(!defaultWalkPending)
         private set
 
-    /**
-     * The walk is over (or there was never one, or it could not be run). Call exactly once, after
-     * [applyMostRecentSubmittable] has returned — never before it, which is the whole point.
-     */
     internal fun markSettled() {
         settled = true
     }
 
-    /** Pre-flight answer for the CURRENT selection; null while it loads or when it is unavailable. */
     var check by mutableStateOf<WorkshopSubmissionCheckDto?>(null)
         private set
 
-    /** The answer the open late-submission confirmation is about; null when no dialog is up. */
     var pendingConfirm by mutableStateOf<WorkshopSubmissionCheckDto?>(null)
         private set
 
     private var awaitingConfirm: CompletableDeferred<Boolean>? = null
 
-    // Successful answers only. A failure is deliberately NOT cached, so a blip retries on the next
-    // selection or at submit time instead of disabling the gate for the rest of the session.
     private val answers = mutableMapOf<String, WorkshopSubmissionCheckDto>()
 
-    /** The value to put in a create/update body — null when the record is deliberately unlinked. */
     fun value(): String? = selectedId.ifBlank { null }
 
-    /** True once the user has changed the workshop away from the loaded/auto-defaulted one. */
     fun isDirty(): Boolean = selectedId != baselineId
 
-    /** Pre-select a workshop without counting as an edit (create-time default only). */
     fun applyDefault(id: String) {
         selectedId = id
         baselineId = id
     }
 
-    /**
-     * The create-time default: the most recent workshop this user may ACTUALLY submit to.
-     *
-     * Web parity with `useWorkshopSelection`'s probe. Taking the head of the list outright landed a
-     * researcher on a workshop they are not assigned to whenever the newest one was somebody else's —
-     * a form that opens already refusing to save. This walks down the occurrence order instead, and
-     * only when every recent workshop is out of reach does it settle on the most recent anyway, so
-     * the inline warning has something to explain rather than the field being silently empty.
-     */
     suspend fun applyMostRecentSubmittable(list: List<WorkshopDetailDto>, runningOnly: Boolean = false) {
         if (list.isEmpty()) return
         for (workshop in list.take(DEFAULT_PROBE_LIMIT)) {
             val answer = answerFor(workshop.id)
-            // The user may have picked one themselves while the probe was in flight; their choice wins.
             if (selectedId.isNotBlank()) return
-            // A CREATE form takes only a workshop RUNNING TODAY (the web's DC-11 rule): a blank form
-            // must not open on an ended workshop and greet the researcher with a late-submission
-            // warning they did nothing to cause. With no pre-flight answer the workshop's own dates
-            // decide, exactly as `workshopWindowState` reads them for the warning itself.
             val running = !runningOnly ||
                 workshopWindowState(answer, workshop) == WorkshopWindowState.IN_WINDOW
             if ((answer == null || answer.canSubmit) && running) {
@@ -5213,15 +3971,9 @@ internal class WorkshopPickerState(
                 return
             }
         }
-        // A list filter falls back to the newest workshop; a create form stays empty and asks.
         if (selectedId.isBlank() && !runningOnly) applyDefault(list.first().id)
     }
 
-    /**
-     * Treat the current selection as saved. Used by forms that stay on screen after a save (the
-     * questionnaire) so the workshop carries over to the next record without still reading as an
-     * unsaved change.
-     */
     fun markSaved() {
         baselineId = selectedId
     }
@@ -5232,24 +3984,14 @@ internal class WorkshopPickerState(
         return repository.workshopSubmissionCheck(workshopId)?.also { answers[workshopId] = it }
     }
 
-    /** Bring [check] in step with the current selection. Cache hits cost no request. */
     suspend fun refreshCheck() {
         val asked = selectedId
         check = null
         if (asked.isBlank()) return
         val answer = answerFor(asked)
-        // The user may have moved on while the request was in flight; a stale answer must not be
-        // shown against a different workshop.
         if (selectedId == asked) check = answer
     }
 
-    /**
-     * Call FIRST inside a form's save coroutine, before it sets `saving`. Returns true when the save
-     * may go ahead, false only when the researcher backed out of a late submission.
-     *
-     * No workshop, no answer (offline / endpoint missing), or a workshop still running all return
-     * true immediately — the gate exists to inform, never to block.
-     */
     suspend fun confirmSubmission(): Boolean {
         val asked = selectedId
         if (asked.isBlank()) return true
@@ -5261,7 +4003,6 @@ internal class WorkshopPickerState(
         return gate.await()
     }
 
-    /** Close the confirmation and release the waiting save coroutine with the user's answer. */
     fun settleConfirm(confirmed: Boolean) {
         pendingConfirm = null
         awaitingConfirm?.complete(confirmed)
@@ -5269,85 +4010,43 @@ internal class WorkshopPickerState(
     }
 }
 
-/**
- * Loads the workshops this user may submit to, most recent date of occurrence first, and — on
- * CREATE only — pre-selects the most recent one.
- *
- * [initialId] is the workshop already stored on the record being edited; it is never overwritten,
- * so opening an existing record leaves its linkage exactly as saved (and a record deliberately left
- * unlinked stays unlinked, because [isEdit] blocks the default outright). [resetKey] should be the
- * `editing` record so switching records rebuilds the state.
- */
 @Composable
 internal fun rememberWorkshopPicker(
     repository: FieldRepository,
     isEdit: Boolean,
     initialId: String?,
     resetKey: Any? = null,
-    /** True on a record's create form: preselect only a workshop running today, else nothing. */
     runningOnly: Boolean = false
 ): WorkshopPickerState {
     val state = remember(resetKey) {
         WorkshopPickerState(
             repository = repository,
             initialId = initialId.orEmpty(),
-            // The walk below runs on exactly this condition, so the flag is seeded from exactly this
-            // condition. An edit form, or a create form handed a workshop, has nothing to wait for and
-            // starts settled.
             defaultWalkPending = !isEdit && initialId.isNullOrBlank()
         )
     }
     LaunchedEffect(resetKey) {
-        // A failure here is non-fatal: the dropdown simply stays empty and the record saves unlinked,
-        // which is better than blocking a field capture on a list request.
         runCatching { repository.workshopsByOccurrence() }
             .onSuccess { list ->
                 state.workshops = list
-                // The list is ordered most-recent-occurrence-first; the default is the most recent one
-                // this user may actually submit to (see applyMostRecentSubmittable). THIS SUSPENDS — it
-                // walks up to DEFAULT_PROBE_LIMIT submission-check requests — which is why nothing may
-                // read `settled` as true until it has returned.
                 if (!isEdit && state.selectedId.isBlank()) {
                     state.applyMostRecentSubmittable(list, runningOnly)
                 }
             }
             .onFailure {
-                // Re-keying cancels the load, and `runCatching` catches that like anything else.
-                // Rethrowing skips `markSettled` below, and must: the composition that cancelled this
-                // is gone, and a state object nobody reads has no first request to release. Any OTHER
-                // failure falls through and DOES settle — a picker that could not load its options
-                // must not also hold every list that depends on it for the rest of the session.
                 if (it is kotlinx.coroutines.CancellationException) throw it
             }
-        // The walk is over, however it ended. See WorkshopPickerState.settled for what reads this and
-        // for the defect that existed while nothing did.
         state.markSettled()
     }
-    // Keep the pre-flight answer in step with whatever is selected, including the auto-default, so
-    // the warning is already on screen by the time the researcher reaches the save button.
     LaunchedEffect(state, state.selectedId) { state.refreshCheck() }
     return state
 }
 
-/**
- * The workshop field every record form mounts as its FIRST field: the picker itself, plus whatever
- * the submission pre-flight has to say about the current pick, plus the late-submission confirmation
- * that [WorkshopPickerState.confirmSubmission] opens. Web parity with `<WorkshopSelect>`.
- *
- * The two warnings are mutually exclusive by design: "you are not assigned" is the harder problem
- * and stating both at once would only bury it.
- */
 @Composable
 private fun WorkshopField(state: WorkshopPickerState, saving: Boolean = false) {
     val selected = state.workshops.firstOrNull { it.id == state.selectedId }
     val check = state.check
     val blocked = check != null && !check.canSubmit
-    // THREE states, not two. The old expression here was `check.outOfWindow || check.isOver`, which
-    // collapsed a TWO-SIDED flag to one bit and then printed the after-the-end half of it for both
-    // halves — so a workshop that had not STARTED was announced as ENDED, which is the sentence a
-    // researcher read at 00:55 IST on a workshop's opening morning. The rules, the strings and the
-    // whole argument now live in ui/WorkshopOptions.kt, where WorkshopWindowTest can hold them at a
-    // named instant; the web twin is frontend/components/forms/WorkshopSelect.tsx.
     val windowState = if (state.selectedId.isBlank()) {
         WorkshopWindowState.IN_WINDOW
     } else {
@@ -5355,11 +4054,8 @@ private fun WorkshopField(state: WorkshopPickerState, saving: Boolean = false) {
     }
     val notice = workshopWindowNotice(
         state = windowState,
-        // The pre-flight carries no startDate — keeping the wire stable was the point — so the start
-        // day comes from the loaded workshop row, and stays null when that row is not in the list.
         startLabel = formatWorkshopDay(selected?.startDate ?: selected?.date),
         endLabel = formatWorkshopDay(check?.endDate ?: selected?.endDate ?: selected?.date),
-        // No answer means we cannot promise the submission escapes review, so we do not.
         needsAdminApproval = check?.needsAdminApproval ?: true
     )
 
@@ -5367,8 +4063,6 @@ private fun WorkshopField(state: WorkshopPickerState, saving: Boolean = false) {
         WorkshopDropdown(
             workshops = state.workshops,
             selectedValue = state.selectedId,
-            // A create form preselects only a workshop running today; when none is, the empty box
-            // says what it wants (the web's wording) instead of the bare "Unlinked".
             placeholder = "Choose a workshop"
         ) { state.selectedId = it }
         if (blocked) {
@@ -5394,18 +4088,6 @@ private fun WorkshopField(state: WorkshopPickerState, saving: Boolean = false) {
     }
 }
 
-/**
- * Confirmation shown when a record is about to be saved into a workshop that has already ended.
- *
- * The backend ACCEPTS a late submission but pins it to PENDING and stamps
- * `extraMetadata.workshopSubmission.needsAdminApproval`, after which only an admin or master admin
- * may approve it. That is a real consequence for the researcher — the professor who normally reviews
- * their work cannot clear this one — so it is stated up front instead of discovered in the review
- * queue. Wording is the web's `<LateSubmissionDialog>`, word for word.
- *
- * Admins are the approval authority, so their own late submission is never flagged: they get the
- * shorter sentence and no promise of somebody else's approval.
- */
 @Composable
 private fun LateSubmissionDialog(
     workshopTitle: String?,
@@ -5448,19 +4130,6 @@ private fun LateSubmissionDialog(
     )
 }
 
-// `workshopEndedLocally` used to live here. It answered only TWO of the three states a record form
-// has to tell apart, and it counted its days in `ZoneId.systemDefault()` — a phone left on airport
-// time would have been told its workshop ended a day early. Both rulings moved to
-// `ui/WorkshopOptions.kt::workshopWindowState`, where `WorkshopWindowTest` can hold them at a named
-// instant and where the web's `workshopWindowState` is a line-for-line twin. Do not reintroduce a
-// second copy of this judgement: two surfaces answering one question about one workshop differently
-// is this product family's most repeated defect class.
-
-/**
- * The workshop dropdown itself. Styling and behaviour are [DropdownField]'s; only the option labels
- * are workshop-specific. Record forms mount [WorkshopField] rather than this, so they get the
- * pre-flight warnings with it.
- */
 @Composable
 private fun WorkshopDropdown(
     workshops: List<WorkshopDetailDto>,
@@ -5480,45 +4149,17 @@ private fun WorkshopDropdown(
     )
 }
 
-/** "Chanderi weaving · 2026-07-12" — the date it took place separates repeat visits to one place. */
 private fun workshopOptionLabel(workshop: WorkshopDetailDto): String {
-    // A blank title reads as its generated default (NAMING 2.4), which already carries the day.
     if (workshop.title.isBlank()) return workshopDisplayTitle(null, date = workshop.occurrenceDate(), place = workshop.place)
     val title = workshop.title
     val day = workshop.occurrenceDate().take(10)
     return if (day.isBlank()) title else "$title · $day"
 }
 
-/**
- * The shape an email address has to have, character for character the web form's `EMAIL_RE`
- * (`/^[^\s@]+@[^\s@]+\.[^\s@]+$/` in components/forms/ArtisanForm.tsx): something, an @, something,
- * a dot, something — no spaces anywhere.
- *
- * Deliberately the WEB's rule rather than `Patterns.EMAIL_ADDRESS` or a stricter RFC pattern: the two
- * clients write into one column, and the same artisan must not be accepted on the phone and refused
- * in the browser. "a@b" fails here exactly as it fails there.
- */
 private val EMAIL_RE = Regex("""[^\s@]+@[^\s@]+\.[^\s@]+""")
-
-// ---------------------------------------------------------------------------
-// Artisan identity: Aadhaar number and Artisan Pehchan (PM Vishwakarma) card.
-//
-// The Aadhaar number is the repository's DEDUPLICATION key — the same person documented at two
-// workshops by two researchers has to resolve to one artisan, and a unique index on the column is
-// what enforces that. A mistyped number is worse than a blank one: it collides with nobody, so it
-// silently creates exactly the duplicate the field exists to prevent. Hence the rules below are a
-// faithful port of backend/app/services/artisan_identity.py — same three checks, same wording —
-// rather than a looser client-side approximation. Mirroring the server also means a researcher on a
-// dead connection learns the number is wrong while the card is still in their hand, instead of after
-// a round trip that may not even complete.
-// ---------------------------------------------------------------------------
 
 private const val AADHAAR_LENGTH = 12
 
-// Verhoeff tables: `D` is the dihedral-group multiplication table, `P` the position permutation
-// applied to each digit by its distance from the right. UIDAI computes this checksum over the first
-// 11 digits because it catches every single-digit error and every adjacent transposition — the two
-// ways a 12-digit number gets misread off a card.
 private val VERHOEFF_D = arrayOf(
     intArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
     intArrayOf(1, 2, 3, 4, 0, 6, 7, 8, 9, 5),
@@ -5543,7 +4184,6 @@ private val VERHOEFF_P = arrayOf(
     intArrayOf(7, 0, 4, 6, 9, 1, 3, 2, 5, 8)
 )
 
-/** True when [digits] satisfies the Verhoeff checksum (the 12th digit checks the first 11). */
 private fun verhoeffOk(digits: String): Boolean {
     var checksum = 0
     digits.reversed().forEachIndexed { index, char ->
@@ -5552,20 +4192,9 @@ private fun verhoeffOk(digits: String): Boolean {
     return checksum == 0
 }
 
-/**
- * The reason [value] is not a usable Aadhaar number, or null when it is fine (blank included — the
- * field is optional). Each message names the specific problem, because "invalid Aadhaar number"
- * gives a field researcher nothing to act on. Wording matches the API's, so the inline error a
- * researcher sees offline is the same sentence the server would have sent back.
- */
 private fun aadhaarValidationError(value: String?): String? {
     val digits = value?.trim().orEmpty()
     if (digits.isEmpty()) return null
-    // ASCII digits only, NOT Char.isDigit(): that returns true for Devanagari "१", fullwidth "２" and
-    // every other decimal script, and `char - '0'` on one of those indexes far off the end of the
-    // Verhoeff tables — an ArrayIndexOutOfBoundsException thrown straight out of a Compose callback.
-    // The server rejects the same characters (they would otherwise be stored verbatim and defeat the
-    // unique index), so rejecting them here keeps both sides answering the same sentence.
     if (!digits.all { it in '0'..'9' }) return "Aadhaar must be 12 digits."
     if (digits.length != AADHAAR_LENGTH) return "Aadhaar must be 12 digits (has ${digits.length})."
     if (digits[0] == '0' || digits[0] == '1') return "Aadhaar numbers don't start with 0 or 1."
@@ -5575,14 +4204,6 @@ private fun aadhaarValidationError(value: String?): String? {
     return null
 }
 
-/**
- * "123456789012" -> "XXXX XXXX 9012", the form every surface EXCEPT the edit form uses.
- *
- * Aadhaar is regulated personal data, so a browse screen shows only the last four digits — enough to
- * confirm this is the right person, not enough to be a usable identifier. Mirrors the API's own
- * masking (which the data browser, the .xlsx report and exports already get), including its refusal
- * to partially reveal a malformed short value.
- */
 private fun maskAadhaar(value: String?): String? {
     val digits = value?.trim().orEmpty()
     if (digits.isEmpty()) return null
@@ -5590,21 +4211,11 @@ private fun maskAadhaar(value: String?): String? {
     return "XXXX XXXX ${digits.takeLast(4)}"
 }
 
-/**
- * Displays the stored bare digits as the "1234 5678 9012" grouping printed on the card, so a
- * researcher can check what they typed against it at a glance.
- *
- * The grouping is presentation only: the state behind the field stays 12 bare digits, which is what
- * gets submitted and what the unique index compares. Doing this with a transformation rather than by
- * rewriting the state is also what keeps the cursor sane — inserting spaces into the value itself
- * jumps the caret every fourth keystroke.
- */
 private object AadhaarGroupingTransformation : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
         val digits = text.text
         val grouped = digits.chunked(4).joinToString(" ")
         val mapping = object : OffsetMapping {
-            // Two spaces are inserted, after digit 4 and digit 8; each shifts every later offset by one.
             override fun originalToTransformed(offset: Int): Int =
                 (offset + ((offset - 1) / 4).coerceIn(0, 2)).coerceIn(0, grouped.length)
 
@@ -5615,18 +4226,6 @@ private object AadhaarGroupingTransformation : VisualTransformation {
     }
 }
 
-/**
- * The Aadhaar entry field: digits only, capped at 12, shown grouped and submitted bare.
- *
- * [error] is the (blocking) validation failure; [warning] is the non-blocking duplicate notice naming
- * an artisan already recorded with this number — a warning rather than a block, because the
- * researcher in front of the person is better placed than the app to decide what that means.
- *
- * [required] drives the asterisk AND the sentence under the box, and the sentence is the part that
- * matters. A researcher is about to ask a stranger for a government ID number; being able to say why
- * — it is the key that stops the same person becoming two records — is the difference between a
- * reasonable request and an intrusive one.
- */
 @Composable
 private fun ArtisanAadhaarField(
     value: String,
@@ -5640,9 +4239,6 @@ private fun ArtisanAadhaarField(
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         OutlinedTextField(
             value = value,
-            // Paste is the common way a wrong character arrives, so filter rather than trust the
-            // keyboard — and filter on the ASCII range, because Char.isDigit() would ADMIT the
-            // Devanagari and fullwidth digits an Indic IME can produce (see aadhaarValidationError).
             onValueChange = { input -> onValueChange(input.filter { it in '0'..'9' }.take(AADHAAR_LENGTH)) },
             label = { Text(if (required) "Aadhaar number *" else "Aadhaar number") },
             placeholder = { Text("1234 5678 9012") },
@@ -5665,9 +4261,6 @@ private fun ArtisanAadhaarField(
                 }
             },
             singleLine = true,
-            // NumberPassword, not Number: it gives the same digit pad while telling the keyboard this is
-            // a secret — IMEs neither learn from nor suggest text typed into a password field, which is
-            // the right handling for a regulated identifier.
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             visualTransformation = AadhaarGroupingTransformation,
             modifier = Modifier
@@ -5678,23 +4271,6 @@ private fun ArtisanAadhaarField(
     }
 }
 
-/**
- * Generic many-of-many over (id, label) options. Now a thin adapter over
- * [SearchableMultiSelectField], which trades the wall of checkboxes this used to paint into the
- * form for a summary trigger, the chosen rows as chips, and a searchable sheet with Select all.
- *
- * The sheet hands back a whole set; the callers HERE own a `Set<String>` in snapshot state and change
- * it one id at a time, so the difference is replayed as toggles. Safe to do in a loop: a snapshot
- * write is visible to the next read on the same thread, so each `onToggle` sees the effect of the one
- * before it rather than all of them racing against one stale set.
- *
- * SAFE FOR THESE CALLERS AND NOT IN GENERAL — the replay lives on this overload only, and the
- * [SelectOption] overload below deliberately does not have it. Every `onToggle` passed to this one is
- * pure set arithmetic on the id it is handed (`if (id in selected) selected - id else selected + id`),
- * so replaying a change as N toggles reaches the same set as applying it at once. A handler whose
- * answer depends on the WHOLE new selection — the tool form's, which asks which artisan links a craft
- * deselection must delete — does not have that property, and its defect is written up below.
- */
 @Composable
 private fun CheckboxMultiSelectField(
     label: String,
@@ -5717,35 +4293,6 @@ private fun CheckboxMultiSelectField(
     )
 }
 
-/**
- * The same control over rows that carry a HINT — the second line of context under a row's name.
- *
- * The `Pair` overload above cannot express one, and the tool form's artisan picker needs it: its rows
- * are ordered by craft and the craft is what tells two artisans of the same name apart. `SelectOption`
- * has no GROUP on either client (`ui/SearchableSelect.kt`), so there are no headings to hang the craft
- * on — but `SelectOption.matches` searches the hint as well as the label, so typing a craft name
- * filters the sheet to that craft, which is the half of a heading that actually does work.
- *
- * [placeholder] and [enabled] are exposed here and not on the `Pair` overload because this is the one
- * with a GATED caller: the artisan picker stays disabled, and says why in its own placeholder, until
- * a craft has been ticked.
- *
- * ── IT HANDS BACK THE WHOLE SELECTION, AND THE TOGGLE REPLAY ABOVE IS DELIBERATELY NOT HERE ──────
- *
- * The `Pair` overload fans the sheet's answer out into one `onToggle` per changed id, because its
- * callers own a `Set<String>` and change it an id at a time. That replay is a REAL DIFFERENCE and not
- * a spelling, wherever a handler's answer depends on more than the id it was handed: the tool form's
- * craft box asks `craftsChangeClearsArtisans` which artisans a deselection must drop, and replaying
- * "Clear all" over [A, B] asked that question about [B] and then about [], so the intermediate state
- * — a craft list nobody ever selected — decided which artisan links were deleted, and the answer
- * depended on the order the ticks came back in. `craftName` was written from those intermediates too.
- *
- * So this overload passes [onSelectedChange] straight through. Its caller owns an ORDERED
- * `List<String>` (the tool form — `craftIds` order is the wire contract) and reconciles the set
- * against that list itself, once, which is also where the tick order is preserved. `Set.minus` and
- * the sheet's own `LinkedHashSet` draft mean the set arrives in tick order, which is what makes that
- * reconciliation possible at all.
- */
 @Composable
 private fun CheckboxMultiSelectField(
     label: String,
@@ -5771,13 +4318,11 @@ private fun CheckboxMultiSelectField(
 
 private enum class RecPhase { IDLE, RECORDING, PAUSED, RECORDED }
 
-/** Transient outcome of an action button: drives a 5-second green/red flash. */
 private enum class ActionStatus { IDLE, SUCCESS, ERROR }
 
 private val SuccessGreen: Color get() = com.fieldrepository.app.ui.SuccessInk
 private val FailureRed: Color get() = com.fieldrepository.app.ui.ErrorInk
 
-/** Auto-reset a SUCCESS/ERROR status back to IDLE after 5 seconds. */
 @Composable
 private fun AutoResetStatus(status: ActionStatus, onReset: () -> Unit) {
     LaunchedEffect(status) {
@@ -5788,12 +4333,6 @@ private fun AutoResetStatus(status: ActionStatus, onReset: () -> Unit) {
     }
 }
 
-/**
- * Self-contained audio recorder with the questionnaire control flow:
- * Record → (Pause / Stop) → once stopped, three stacked choices: Re-record (discard current and
- * start afresh), Record another (keep current and start a new clip), or Discard (drop the current
- * clip). Clips accumulate in the caller via [onAddClip]; [onRemoveLast] drops the most recent one.
- */
 @Composable
 private fun AudioClipRecorder(
     clips: List<Uri>,
@@ -5807,15 +4346,10 @@ private fun AudioClipRecorder(
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
     val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
-    // Alternative to recording live: attach one or more existing audio files from the device, so the
-    // user gets both facilities. Each picked file is added to this target's clips just like a recording
-    // and is uploaded together with them on save.
     val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         uris.forEach { onAddClip(it) }
     }
 
-    // The take lives in [LegacyTake], held up by a microphone foreground service, so a locked screen,
-    // an app switch or a collapsed section never drops it (H21).
     val addClip by rememberUpdatedState(onAddClip)
 
     fun startNew() {
@@ -5830,7 +4364,6 @@ private fun AudioClipRecorder(
         }.onFailure { onError(it.apiErrorMessage("Unable to start recording")); phase = RecPhase.IDLE }
     }
 
-    /** Stop the take and attach it. Also the dispose path: a collapse or Back keeps the take. */
     fun finaliseTake(): Boolean {
         if (recorder == null) return false
         val file = com.fieldrepository.app.legacyrecording.LegacyTake.finalise()
@@ -5905,8 +4438,6 @@ private fun AudioClipRecorder(
                 }
             }
         }
-        // Pick an existing audio file as an alternative to recording. Shown only when not mid-capture
-        // (i.e. right under the "Record"/"Record another" control), so both options sit together.
         if (phase != RecPhase.RECORDING && phase != RecPhase.PAUSED) {
             OutlinedButton(
                 onClick = { pickAudio.launch("audio/*") },
@@ -5917,8 +4448,6 @@ private fun AudioClipRecorder(
                 Spacer(Modifier.width(6.dp))
                 Text("Add audio file", maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge)
             }
-            // After picking a file the recorder sits in IDLE (no Discard button), so offer a way to
-            // undo a mistaken pick by dropping the most recent clip.
             if (phase == RecPhase.IDLE && clips.isNotEmpty()) {
                 TextButton(
                     onClick = onRemoveLast,
@@ -5931,9 +4460,6 @@ private fun AudioClipRecorder(
                 }
             }
         }
-        // One indicator, kept mounted across RECORDING<->PAUSED, so its timer survives a pause and
-        // resumes from where it stopped (rather than restarting at 00:00); it also renders the
-        // slow-blinking "Paused" cue. A fresh clip (RECORDED -> RECORDING) remounts it from 00:00.
         if (phase == RecPhase.RECORDING || phase == RecPhase.PAUSED) {
             RecordingIndicator(
                 getAmplitude = { runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0) },
@@ -5944,16 +4470,6 @@ private fun AudioClipRecorder(
     }
 }
 
-/**
- * Reusable capture surface embedded inside every record form. Mirrors the web MediaCaptureField:
- * pick files, take photo/video, record audio, tag GPS, and (optionally) attach a measurement grid.
- */
-/**
- * Start a take of [file] held up by the microphone foreground service (the legacy recorder's
- * [com.fieldrepository.app.legacyrecording.LegacyTake]): a locked screen, an app switch or the system
- * reclaiming memory no longer kills it or leaves an unplayable file. Returns the recorder for the
- * level meter only; Pause, Stop and every exit go through [stopHeldTake].
- */
 private fun startHeldTake(context: Context, file: File): MediaRecorder {
     val started = createAudioRecorder(context, file).also { it.start() }
     com.fieldrepository.app.legacyrecording.LegacyTake.begin(com.fieldrepository.app.legacyrecording.LegacyTake.Media(started), file)
@@ -5961,14 +4477,12 @@ private fun startHeldTake(context: Context, file: File): MediaRecorder {
     return started
 }
 
-/** Stop the held take and release the service: the file to attach, or null when it held no audio. */
 private fun stopHeldTake(context: Context): File? {
     val file = com.fieldrepository.app.legacyrecording.LegacyTake.finalise()
     com.fieldrepository.app.legacyrecording.LegacyRecordingService.stop(context)
     return file
 }
 
-/** A small red square used as the universal "stop recording" affordance. */
 @Composable
 private fun StopSquareLabel(text: String = "Stop") {
     Box(
@@ -5986,17 +4500,9 @@ private fun MediaCaptureSection(
     media: MediaCaptureState,
     enableMeasurement: Boolean = false,
     emphasizeVideo: Boolean = false,
-    // Optional content rendered between the media controls and the location editor (used by process
-    // steps for the "record additional information" notes box).
     beforeLocation: (@Composable () -> Unit)? = null,
-    /** The location card's heading: "Craft location" on a craft, "Workshop location" on a workshop. */
     locationHeading: String = ARTISAN_LOCATION_HEADING,
-    /** C17: the artisan's address, offered into the card's empty boxes. */
     inheritPlace: InheritedPlace? = null,
-    /**
-     * A10: draw the device-wide "Keep the camera open" switch here. A process form draws it once, on
-     * its pre-process section, never again under each step — eleven identical switches is clutter.
-     */
     showKeepShootingToggle: Boolean = true,
     onMessage: (String) -> Unit,
     onError: (String) -> Unit
@@ -6009,10 +4515,6 @@ private fun MediaCaptureSection(
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
     var pendingMeasurement by remember { mutableStateOf(false) }
 
-    // Eager upload: as soon as a file is attached, start streaming it to object storage — every file,
-    // any size (no client-side splitting) — so the slow transfer overlaps the time the user spends
-    // filling the form and is (usually) finished by the time they tap save. Per-file byte progress
-    // drives the progress bar; a failed eager upload is retried by the save path.
     LaunchedEffect(media.uris) {
         media.uris.forEach { uri ->
             if (!media.stagedDeferred.containsKey(uri)) {
@@ -6020,8 +4522,6 @@ private fun MediaCaptureSection(
             }
         }
     }
-    // Leaving with a take running keeps it: it is finalised and attached, never dropped (it records
-    // under the microphone foreground service, so the OS cannot kill it either).
     DisposableEffect(Unit) {
         onDispose {
             if (recording) {
@@ -6031,7 +4531,6 @@ private fun MediaCaptureSection(
             }
         }
     }
-    // If the user leaves without saving, delete any staged-but-unsaved objects from storage.
     DisposableEffect(Unit) {
         onDispose {
             if (media.uris.isNotEmpty()) {
@@ -6043,9 +4542,7 @@ private fun MediaCaptureSection(
         }
     }
 
-    // Each capture asks for its own permission when pressed and waits for the answer (ui/PermissionGate.kt).
     val permissionGate = rememberPermissionGate(onRefused = onError)
-    // Location is asked as the pair, when "Use GPS" is pressed and only if neither is held.
     val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) media.uris = media.uris + uris
@@ -6058,8 +4555,6 @@ private fun MediaCaptureSection(
         pendingCaptureUri = null
         pendingMeasurement = false
     }
-    // The attachments camera keeps shooting (A10); the grid camera above stays one shot, since a
-    // record has one grid image.
     val camera = rememberKeepShootingCamera(
         newUri = { createAppFileUri(context, "field-photo-", ".jpg") },
         onShot = { uri -> media.uris = media.uris + uri },
@@ -6078,7 +4573,7 @@ private fun MediaCaptureSection(
         HorizontalDivider()
         Text("Attach media", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
-            "Audio is transcribed after upload.",
+            "Tick Transcribe and translate on a recording or video to get its text.",
             color = Muted,
             style = MaterialTheme.typography.bodySmall
         )
@@ -6124,7 +4619,6 @@ private fun MediaCaptureSection(
             OutlinedButton(
                 onClick = {
                     if (!recording && !permissionGate.holds(MICROPHONE_PERMISSION)) {
-                        // Ask first and record nothing yet: the press that grants it is not a press to record.
                         permissionGate.ask(MICROPHONE_PERMISSION, MICROPHONE_REFUSED_SENTENCE)
                     } else if (!recording) {
                         runCatching {
@@ -6150,38 +4644,9 @@ private fun MediaCaptureSection(
         if (recording) {
             RecordingIndicator(getAmplitude = { runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0) })
         }
-        /*
-         * THE OFFLINE TRACER, on the most recently attached photograph.
-         *
-         * ONE PANEL, ON THE LAST IMAGE — not one panel per image, which is what a literal reading of
-         * "offer it for the images" would build. A record with five photographs would then show five
-         * identical collapsed panels stacked down the screen, and the researcher's next press is a
-         * choice between things that look the same. The web client decides this the same way and in
-         * one place (`components/trace/TraceFromCapture.tsx`, which argues it), so the two clients
-         * offer the same thing on the same record rather than disagreeing about how many tracers a
-         * form has.
-         *
-         * Re-tracing an older attachment is not lost — that is reached from the record's existing
-         * media, where the image already has a URL. This mount is the just-captured case.
-         *
-         * ATTACHING IS ONE LINE, AND THAT IS THE POINT. `media.uris` IS the ordinary upload door:
-         * `stagedDeferred` gives eager pre-upload, `stagedFailed` gives retry at save, and
-         * `uploadAttachments` drains it. So a traced SVG added here gets queueing, retry and the
-         * offline store for free, because it is not a special kind of file. A panel that uploaded
-         * its own output would be a second upload path to keep working offline, in an app whose
-         * whole point is working offline.
-         */
         TracePanel(
-            // ⚠ NOT `?.let { }`. This mount hid the card behind the presence of a photograph until
-            // 2026-09-14, so a tool or product form that had not been photographed yet showed no
-            // tracer at all — and it was reported, correctly, as the feature missing from those
-            // pages. The card is how somebody LEARNS the tool exists, which is most useful before
-            // the photograph is taken, not after. `photograph` is nullable for exactly this and the
-            // panel has an empty state that names the picker above; see its KDoc.
             photograph = media.uris
                 .lastOrNull { context.contentResolver.getType(it)?.startsWith("image/") == true },
-            // The panel prints one sentence from this and claims nothing else. Null: the derived
-            // file is ADDED to the attachments and replaces nothing.
             currentFileName = null,
             enabled = true,
             onAttach = { derived -> if (derived !in media.uris) media.uris = media.uris + derived },
@@ -6244,10 +4709,8 @@ private fun MediaCaptureSection(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text("${countNoun(media.uris.size, "file")} attached", color = MaterialTheme.field.onBrandTile, fontWeight = FontWeight.SemiBold)
-                // Overall upload progress across the whole batch (staged files count as 100%).
                 val overall = media.uris.map { (media.stagedProgress[it] ?: 0f).coerceIn(0f, 1f) }.average().toFloat()
                 val allDone = media.staged.size >= media.uris.size
-                // Nothing still moving: a failed file is not "Uploading… 0%" (smoke test 2026-10-16).
                 val failedCount = media.uris.count { it in media.stagedFailed }
                 val stalled = !allDone && media.staged.size + failedCount >= media.uris.size
                 if (!allDone && !stalled) {
@@ -6280,7 +4743,6 @@ private fun MediaCaptureSection(
                         downloadable = true,
                         onTile = true,
                         onRemove = {
-                            // Drop just this file from the batch and clean up its staged object (if any).
                             val deferred = media.stagedDeferred[uri]
                             media.forget(uri)
                             media.uris = media.uris.filterNot { it == uri }
@@ -6290,9 +4752,6 @@ private fun MediaCaptureSection(
                         }
                     )
                 }
-                // On the purple tile every action is drawn in the tile's own ink, as on the "files
-                // ready" card: the theme's primary is purple too, and "Clear attachments" vanished
-                // into it in light mode (release smoke 2026-10-17, doc-final/34).
                 val tileInk = MaterialTheme.field.onBrandTile
                 if (media.uris.size > attachmentsCap) {
                     ActionRow {
@@ -6322,17 +4781,31 @@ private fun MediaCaptureSection(
                     ) { Text("Clear attachments", color = tileInk, fontWeight = FontWeight.SemiBold) }
                 }
             }
+            UriTranscribeChoices(media.uris)
         }
     }
 }
 
-/**
- * Eager-upload driver, extracted so any form (not just [MediaCaptureSection]) can stream its attached
- * files to object storage the moment they are added — overlapping the slow transfer with form-filling
- * — and shows live per-file progress. Mirrors the behaviour inside [MediaCaptureSection]: every new
- * uri is pre-uploaded once; byte progress feeds [MediaCaptureState.stagedProgress]; a failed transfer
- * is marked for retry at save. On leaving without saving, staged-but-unsaved objects are deleted.
- */
+@Composable
+private fun UriTranscribeChoices(uris: List<Uri>, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val items = remember(uris) {
+        uris.map { uri ->
+            val name = runCatching {
+                context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+            }.getOrNull()
+            TranscribeChoiceItem(
+                key = uri.toString(),
+                name = name ?: uri.lastPathSegment ?: "File",
+                typeOrMime = context.contentResolver.getType(uri),
+            )
+        }
+    }
+    TranscribeChoiceRows(items, modifier)
+}
+
 @Composable
 private fun MediaStagingEffect(repository: FieldRepository, media: MediaCaptureState) {
     val context = LocalContext.current
@@ -6356,12 +4829,6 @@ private fun MediaStagingEffect(repository: FieldRepository, media: MediaCaptureS
     }
 }
 
-/**
- * The "N files attached / uploading…/all uploaded ✓ — ready to save" progress card — the same
- * dark card [MediaCaptureSection] shows for general attachments, reused for the questionnaire's
- * recorded audio clips so they upload as you go with a visible progress bar. [label] names the items
- * (e.g. "recording"); [onRemove] drops a single file (kept in sync with the caller's own state).
- */
 @Composable
 private fun AttachedUploadsCard(
     context: Context,
@@ -6373,8 +4840,6 @@ private fun AttachedUploadsCard(
 ) {
     if (uris.isEmpty()) return
     val scope = rememberCoroutineScope()
-    // Status is computed over just the passed-in subset, so a per-section card reflects only that
-    // section's clips while still reading live progress/staged/failed state from the shared batch.
     val doneCount = uris.count { media.staged.containsKey(it) }
     val allDone = doneCount >= uris.size
     Column(
@@ -6434,11 +4899,6 @@ private fun AttachedUploadsCard(
     }
 }
 
-/**
- * Placeholder while a record's detail is being fetched — or, when [error] is set, the failure with
- * Try again. A failed load used to leave "Fetching the latest
- * saved values…" on screen for ever.
- */
 @Composable
 private fun LoadingCard(mode: EntryMode, error: String? = null, onRetry: () -> Unit = {}) {
     if (error != null) {
@@ -6450,59 +4910,28 @@ private fun LoadingCard(mode: EntryMode, error: String? = null, onRetry: () -> U
     }
 }
 
-/** Dropdown-driven picker for choosing an existing record to edit. */
 @Composable
 private fun RecordPickerScreen(
     repository: FieldRepository,
     mode: EntryMode,
-    /** Open the record's edit form — the dropdown's button and each card's own "Update". */
     onPick: (String) -> Unit,
-    /** Open the record read-only — a tap anywhere else on a card (`ui/RecordOpen.kt`). */
     onView: (String) -> Unit,
     onError: (String) -> Unit,
-    /** The page's own scroller: this screen IS the list (`ui/LazyPage.kt`). */
     chrome: LazyPageChrome
 ) {
     var selected by rememberKept("picker.${mode.name}.selected") { "" }
 
-    /*
-     * WHICH WORKSHOP'S INTERVIEWS THIS PICKER OFFERS — defect (2), on the screen the owner was
-     * looking at.
-     *
-     * "In the android, the questionnaire from the previous workshop are showing up even in the third
-     * workshop". The shared control fixes it with the SAME default (the most recent workshop), the
-     * SAME three states and the SAME wire format as the completion matrix, the consolidated
-     * questionnaire and the map — see `ui/WorkshopScope.kt`.
-     *
-     * Declared for every mode and shown for one: the list below reads `settled` and `requestKey`, and
-     * a `remember` inside `if (mode == QUESTIONNAIRE)` could not be read from outside it. The scope
-     * joins the list's key ONLY in the mode that sends it, so the other modes never wait for it.
-     */
     val workshopScope = rememberWorkshopScope(repository = repository, onError = onError)
     val isInterviews = mode == EntryMode.QUESTIONNAIRE
     val scopeSettled = !isInterviews || workshopScope.settled
     val scopeKey = if (isInterviews) workshopScope.requestKey else ""
 
-    /*
-     * THE RECORDS, ONE PAGE AT A TIME AND SEARCHED BY THE SERVER (DC-A09). This screen used to walk
-     * twenty pages (2,000 rows) of the type before it drew anything and filter that copy on the
-     * device. Now the dropdown types into the list route's own `search`, the cards below are the
-     * plain list, and both reach the rest with "Load more" — see `ui/ServerSearch.kt`.
-     */
-    /*
-     * ALL · INCOMPLETE · MISSING REQUIRED (record completeness, 2026-10-18), for the five kinds the
-     * rules cover, remembered per kind on this phone. It joins the list's key so a new choice is a new
-     * list, asked of the server as `completeness=`.
-     */
     val context = LocalContext.current
     RefreshCompletenessRules(repository)
     val completenessKind = CompletenessKind.forMode(mode.name)
     var completenessFilter by remember(mode) {
         mutableStateOf(if (completenessKind != null) CompletenessFilterMemory.read(context, mode.name) else CompletenessFilter.ALL)
     }
-    // The media list's questionnaire filters (owner, 31 Oct 2026): form, section or question,
-    // artisans, researcher, workshop, kind, source, transcript, language, kept for this account. Its
-    // own search box and upload days are left as they are.
     val mediaV2 = remember { com.fieldrepository.app.questionnaire.data.QuestionnaireV2.get(context) }
     val (mediaFilters, setMediaFilters) = com.fieldrepository.app.questionnaire.ui.rememberKeptFilters(mediaV2, com.fieldrepository.app.questionnaire.data.FilterStore.MEDIA)
     val mediaParams = if (mode == EntryMode.MEDIA) mediaFilters.mediaParams() else emptyMap()
@@ -6514,7 +4943,6 @@ private fun RecordPickerScreen(
         enabled = scopeSettled,
         completeness = completenessFilter.wire,
         mediaFilters = mediaParams,
-        // Kept for Back from a record: every page loaded, the search and its results (owner, 1 Nov 2026).
         keepAs = "picker.${mode.name}.rows"
     )
     val completenessById = remember(rows.browse) { rows.browse.associate { it.id to it.completeness } }
@@ -6526,17 +4954,7 @@ private fun RecordPickerScreen(
     val cards = recordRowOptions(mode, rows.browse)
     val browseHasMore = rows.browseLoaded && rows.browse.size < rows.browseTotal
 
-    /*
-     * THE WORKSHOP-FIRST PICKER, ON THE SCREEN THAT IS ACTUALLY CALLED "UPDATE EXISTING".
-     *
-     * `RecordSwitcher` and `rememberRecordSwitcher` are reused verbatim, so this screen and the edit
-     * screen cannot drift about the default workshop, the debounce, when a search reaches the server,
-     * or what an empty or unreachable list says. The plain list below it stays: it is the only route
-     * to a record whose `workshopId` is null, which the workshop filter has no spelling for.
-     */
     val switchKind = recordSwitchKindFor(mode)
-    // Remembered HERE, above the list, and not inside its item: a lazy item that scrolls away is
-    // disposed, and the switcher would reload its workshop and its records every time it came back.
     val switch = if (switchKind != null) rememberUpdatePickerSwitch(repository, switchKind) else null
 
     PageLazyColumn(chrome) {
@@ -6547,7 +4965,6 @@ private fun RecordPickerScreen(
                         kind = switchKind,
                         workshop = switch.first,
                         switcher = switch.second,
-                        // No record is open on this screen: nothing to exclude, no shortcut to offer.
                         currentId = "",
                         onPick = onPick,
                         currentWorkshopId = null
@@ -6560,8 +4977,6 @@ private fun RecordPickerScreen(
             RecordCard(title = "Update existing ${mode.label.lowercase()}") {
                 Text("Pick a record to update, or tap a recent one to read it.", color = Muted, style = MaterialTheme.typography.bodySmall)
                 if (isInterviews) {
-                    // ABOVE the list, because it changes what the list IS — the same placement the
-                    // completion matrix and the consolidated index give it, for the same reason.
                     WorkshopScopeSelect(scope = workshopScope, label = "Workshops in this list")
                 }
                 if (completenessKind != null) {
@@ -6581,8 +4996,6 @@ private fun RecordPickerScreen(
                         message = "Couldn't load the ${mode.label.lowercase()} records.",
                         onRetry = { rows.retry() }
                     )
-                    // AN EMPTY SCOPED LIST IS NOT AN EMPTY REPOSITORY, and saying only the second sends
-                    // a researcher looking for a record that is sitting one tap away under "All records".
                     rows.browseTotal == 0 && isInterviews && !workshopScope.isAllRecords ->
                         Text("No interviews in these workshops yet.", color = Muted)
                     rows.browseTotal == 0 && rows.browseLoaded ->
@@ -6608,8 +5021,6 @@ private fun RecordPickerScreen(
             }
         }
 
-        // THE RECORDS AS CARDS — lazily: only the rows on screen are composed, so a long table costs
-        // what one screenful costs, and "Load more" at the end pages the rest in.
         if (cards.isNotEmpty()) {
             item(key = "cards-label", contentType = "note") {
                 Text("Or tap a recent record to read it", color = Muted, style = MaterialTheme.typography.bodySmall)
@@ -6618,9 +5029,6 @@ private fun RecordPickerScreen(
         items(cards, key = { "record:${it.value}" }, contentType = { "recordCard" }) { option ->
             val id = option.value
             val label = option.label
-            // THE WHOLE CARD READS THE RECORD; only its Update button edits it. The click sits inside
-            // the card so the ripple stops at the rounded corner, and the button is a child with its
-            // own pointer handling, so a tap on it never also opens the view.
             ElevatedCard(
                 colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
                 modifier = Modifier.fillMaxWidth()
@@ -6635,9 +5043,7 @@ private fun RecordPickerScreen(
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text(label, color = Body, style = MaterialTheme.typography.bodyMedium)
-                        // What was said (0.0.6): the server's preview, two lines, speakers as labels.
                         previewById[id]?.let { com.fieldrepository.app.transcript.ui.TranscriptPreviewText(it, maxLines = 2) }
-                        // A take's chips; a tap narrows this list by it (a day is the upload day here, so not a filter).
                         com.fieldrepository.app.questionnaire.ui.RecordingChips(chipsById[id], filters = mediaFilters, onChip = { f, l ->
                             if (mediaFilters.appliesToMedia(f)) setMediaFilters(mediaFilters.applyChip(f, l))
                         })
@@ -6668,11 +5074,6 @@ private fun RecordPickerScreen(
     }
 }
 
-/**
- * The Update picker's workshop-first switcher, remembered by the screen rather than by a lazy item.
- * `isEdit = true` only to skip the most-recent-workshop default: the switcher opens on
- * "All workshops" (ui/RecordSwitcher.kt, ALL_WORKSHOPS_LABEL).
- */
 @Composable
 private fun rememberUpdatePickerSwitch(
     repository: FieldRepository,
@@ -6682,7 +5083,6 @@ private fun rememberUpdatePickerSwitch(
     return switchWorkshop to rememberRecordSwitcher(repository, kind, switchWorkshop)
 }
 
-/** The "Load more" row at the end of a paged lazy list: one centred button. */
 @Composable
 private fun LoadMoreRow(loading: Boolean, onLoadMore: () -> Unit) {
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -6693,7 +5093,6 @@ private fun LoadMoreRow(loading: Boolean, onLoadMore: () -> Unit) {
 }
 
 
-/** Maps a record type to its admin delete call. */
 private suspend fun deleteByMode(repository: FieldRepository, mode: EntryMode, id: String) {
     when (mode) {
         EntryMode.ARTISAN -> repository.deleteArtisan(id)
@@ -6708,17 +5107,14 @@ private suspend fun deleteByMode(repository: FieldRepository, mode: EntryMode, i
     }
 }
 
-/** The record kinds a content admin can delete from the record's own page. */
 private val DELETABLE_MODES = setOf(
     EntryMode.ARTISAN, EntryMode.PRODUCT, EntryMode.PROCESS, EntryMode.TOOL, EntryMode.WORKSHOP,
     EntryMode.CRAFT, EntryMode.QUESTIONNAIRE, EntryMode.MEDIA,
 )
 
-/** "media file" for a media record, the kind's own name otherwise. */
 private fun deleteNoun(mode: EntryMode): String =
     if (mode == EntryMode.MEDIA) "media file" else mode.label.lowercase()
 
-/** The "Danger zone" card (ui/RecordDangerZone.kt) for one record, wired to its delete route. */
 @Composable
 private fun DeleteRecordSection(
     repository: FieldRepository,
@@ -6735,17 +5131,6 @@ private fun DeleteRecordSection(
     )
 }
 
-/**
- * The [RecordSwitchKind] an [EntryMode] switches as, or null for the modes that have no such picker.
- *
- * NULL IS THE INTERESTING HALF and it is deliberately exhaustive rather than an `else -> null` over a
- * guessed set. WORKSHOP is null because a workshop IS the picker's first dropdown and filtering
- * workshops by workshop asks one question twice; MEDIA because it has no edit form to open (this
- * screen routes it to `ViewDataDetail`); QUESTIONNAIRE because an interview is identified by its
- * artisan SET rather than by a name, and the existing picker has to group and elect a representative
- * before it can label one. The web's `RECORD_KINDS` names the same five and the two are asserted
- * equal — see `ui/RecordSwitcher.kt`.
- */
 private fun recordSwitchKindFor(mode: EntryMode): RecordSwitchKind? = when (mode) {
     EntryMode.ARTISAN -> RecordSwitchKind.ARTISAN
     EntryMode.CRAFT -> RecordSwitchKind.CRAFT
@@ -6755,7 +5140,6 @@ private fun recordSwitchKindFor(mode: EntryMode): RecordSwitchKind? = when (mode
     else -> null
 }
 
-/** Fetches the chosen record's full detail, then renders the matching form in edit mode. */
 @Composable
 private fun EditScreen(
     repository: FieldRepository,
@@ -6763,49 +5147,20 @@ private fun EditScreen(
     recordId: String,
     crafts: List<CraftDto>,
     artisans: List<ArtisanDto>,
-    // Page 1 of each lookup, envelope and all: the pickers start from it and search the server for
-    // the rest (`ui/ServerSearch.kt`).
     craftSeed: PageResponse<CraftDto>? = null,
     artisanSeed: PageResponse<ArtisanDto>? = null,
     adminView: Boolean,
     canDelete: Boolean,
     onDone: () -> Unit,
     onError: (String) -> Unit,
-    /**
-     * Open a DIFFERENT record of the same kind, chosen from the picker this screen now carries.
-     *
-     * The caller turns it into `Screen.Edit(mode, recordId)` — the identical destination every other
-     * route into editing produces (Browse, My Activity, Search, the dashboard's recent rows). That is
-     * the whole of the picker's authority: it names an id, and the loads and refusals below are the
-     * ones that were always there. See `ui/RecordSwitcher.kt`'s header.
-     */
     onOpenRecord: (String) -> Unit = {}
 ) {
-    /**
-     * WHICH WORKSHOP THE RECORD ON SCREEN IS FILED UNDER, as each branch below learns it.
-     *
-     * Only the "show this record's own workshop" shortcut reads it, and null simply withholds that
-     * shortcut — so a branch that never sets it degrades to a picker with one fewer button rather
-     * than to a wrong answer. Keyed on [recordId] so opening a second record does not leave the
-     * first one's workshop behind, which would offer a shortcut to somewhere the record is not.
-     */
     var currentWorkshopId by remember(recordId) { mutableStateOf<String?>(null) }
-    /** The record's review status as its branch loaded it: the note banner asks only when it is returned. */
     var currentStatus by remember(recordId) { mutableStateOf<String?>(null) }
-    /** The record's load failed: drawn as a failure with Try again, which bumps [loadAttempt]. */
     var loadError by remember(recordId) { mutableStateOf<String?>(null) }
     var loadAttempt by remember(recordId) { mutableIntStateOf(0) }
     val retryLoad = { loadError = null; loadAttempt += 1 }
 
-    /*
-     * THE PICKER, ABOVE THE FORM AND ONLY FOR THE KINDS THAT HAVE ONE.
-     *
-     * `isEdit = true` suppresses the most-recent-workshop default walk. That default pre-selected a
-     * workshop the open record had nothing to do with and announced "No artisans in this workshop"
-     * (release smoke test 2026-10-17, doc/70). The switcher now opens on "All workshops" and moves to
-     * the record's own workshop as soon as the record has loaded — see `recordSwitchWorkshopFor`.
-     * This picker writes nothing, so there is no stored link for the flag to protect here.
-     */
     val switchKind = recordSwitchKindFor(mode)
     if (switchKind != null) {
         val switchWorkshop = rememberWorkshopPicker(repository, isEdit = true, initialId = null)
@@ -6822,7 +5177,6 @@ private fun EditScreen(
         }
     }
 
-    // The reviewer's note, when this record was sent back or not accepted (A1).
     ReviewFeedbackCopy.recordTypeFor(mode.name)?.let { type ->
         ReviewNoteBanner(repository = repository, recordType = type, recordId = recordId, knownStatus = currentStatus)
     }
@@ -6946,9 +5300,6 @@ private fun EditScreen(
                 onError = onError
             )
         }
-        // A media file has no edit form — the web's search results open the object itself. Search is
-        // the only route that lands here, so show the file with its transcript rather than the
-        // "cannot be edited" dead end it used to hit.
         EntryMode.MEDIA -> ViewDataDetail(
             repository = repository,
             mode = EntryMode.MEDIA,
@@ -6962,7 +5313,6 @@ private fun EditScreen(
     }
 }
 
-/** Loads an existing interview, then renders the questionnaire form seeded for partial editing. */
 @Composable
 private fun InterviewEditLoader(
     repository: FieldRepository,
@@ -6972,46 +5322,12 @@ private fun InterviewEditLoader(
     canManageQuestionnaire: Boolean,
     adminView: Boolean,
     canDelete: Boolean,
-    /** Forwarded to the form, which is what names the instrument. See [QuestionnaireForm]. */
     onRefreshSections: suspend (String?) -> Unit,
     onError: (String) -> Unit,
     onDone: () -> Unit
 ) {
     var detail by remember(recordId) { mutableStateOf<QuestionnaireInterviewDetailDto?>(null) }
-    /**
-     * WHETHER [sections] DESCRIBE THIS RECORD'S OWN INSTRUMENT YET — the whole point of this loader.
-     *
-     * THE DEFECT THIS CLOSES, reported as *"on the edit page, the sections of the 2nd workshop are
-     * rendering even though the 3rd is selected in the dropdown"*.
-     *
-     * `sections` arrives as a PARAMETER, hoisted to the screen and filled by the startup
-     * `questionnaireSections()` call — which names no instrument, so the server resolves it by the
-     * three-step rule and lands on the DEFAULT. The default is still the 2nd workshop's instrument.
-     * Nothing then moved it: this loader never asked for the record's own sections, and the effect
-     * inside [QuestionnaireForm] that would normally follow the instrument is guarded by
-     * `if (isEdit || instrumentTouched) return` — deliberately, because on an edit the picker must
-     * not chase the workshop's binding. So the form drew the picker from the RECORD
-     * (`editing?.questionnaireId`, correctly the 3rd) and the questions from the SCREEN (the 2nd).
-     * One form, two instruments, and the section codes collide completely, so nothing looked wrong.
-     *
-     * WHAT THE RESEARCHER ACTUALLY SAW, which is worse than a mislabelled heading. `answers` is
-     * seeded by matching `editing.responses` against the id of each rendered question; the record's
-     * answers carry the 3rd instrument's question ids and the rendered questions were the 2nd's, so
-     * NOTHING matched and every box came up blank. Their answers were not lost — they were simply
-     * not on screen. Typing into those boxes and saving then sent the 2nd instrument's question ids
-     * for a 3rd-instrument sitting, which `upsert_responses` refuses with a 422 telling them to
-     * "reload the questionnaire and try again" — a thing this screen gave them no way to do. The
-     * backend guard is what kept it from corrupting anything; it is not a reason to leave the
-     * client sending the wrong ids.
-     *
-     * HELD, NOT PATCHED AFTERWARDS. The form is not composed until this is true, so the wrong
-     * instrument's questions are never rendered even for one frame — a form that draws 24 blank
-     * boxes and then swaps them for 22 different ones underneath a researcher who has begun typing
-     * is its own defect. `remember(recordId)` so opening a second interview re-arms the wait rather
-     * than inheriting the first record's answer.
-     */
     var sectionsReady by remember(recordId) { mutableStateOf(false) }
-    /** Set when the instrument's sections could not be fetched, so the wait can end in a sentence. */
     var sectionsError by remember(recordId) { mutableStateOf<String?>(null) }
     var loadError by remember(recordId) { mutableStateOf<String?>(null) }
     var loadAttempt by remember(recordId) { mutableIntStateOf(0) }
@@ -7019,18 +5335,9 @@ private fun InterviewEditLoader(
         runCatching { repository.interview(recordId) }
             .onSuccess { loaded ->
                 detail = loaded
-                /*
-                  THE RECORD'S OWN INSTRUMENT, NAMED. `questionnaireId` is NOT NULL server-side and
-                  never changes, so this is the id the sitting's answers are keyed to. Passing null
-                  when the column is somehow absent preserves the old behaviour exactly — the server
-                  resolves it — rather than inventing an instrument for a record that does not name
-                  one.
-                */
                 runCatching { onRefreshSections(loaded.questionnaireId) }
                     .onSuccess { sectionsReady = true }
                     .onFailure {
-                        // SAID OUT LOUD AND NOT SWALLOWED. The alternative to a sentence here is a
-                        // form drawing another instrument's questions, which is the defect itself.
                         sectionsError = it.apiErrorMessage("Couldn't load this interview's questionnaire.")
                     }
             }
@@ -7054,18 +5361,6 @@ private fun InterviewEditLoader(
             editing = d,
             adminView = adminView,
             onRefreshSections = onRefreshSections,
-            /*
-              UNREACHABLE ON THIS PATH, AND DELIBERATELY NOT A CREATE. [QuestionnaireForm] branches
-              on `editing != null` and calls `repository.updateQuestionnaireInterview` instead, so
-              this lambda is never invoked while a record is open for editing.
-
-              It raises rather than POSTing because of what the previous line would do if that
-              branch were ever edited: silently file a SECOND sitting for the artisan set instead of
-              correcting the one on screen. That is precisely the defect the web page shipped with
-              for months, and the one nobody noticed because it answered 201. `QuestionnaireForm`
-              wraps the save in `runCatching`, so this surfaces through `onError` as a sentence
-              rather than as a crash — loud, recoverable, and impossible to mistake for success.
-            */
             onSubmit = { _, _ -> error("An open edit must PATCH the interview, never create a second one.") },
             onError = onError,
             onSaved = onDone
@@ -7081,21 +5376,17 @@ private fun CraftForm(
     repository: FieldRepository,
     editing: CraftDto? = null,
     adminView: Boolean = false,
-    /** A create landed: the sitting, the record's name, and whether "Save and add another" was pressed. */
     onCreated: ((Prefill, String?, Boolean) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
     val draft = rememberFormDraft(repository, "craft", editing?.id)
     val media = rememberMediaCaptureState()
     val isEdit = editing != null
     var name by remember(editing) { mutableStateOf(editing?.name ?: "") }.drafted(draft, "name")
     var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }.drafted(draft, "localName")
-    // Category → Sub-category from the master list (`data/CraftCatalogueCache.kt`); a craft always
-    // sits in one sub-category. Management of the taxonomy itself is web only.
     val craftCatalogue by CraftCatalogueCache.catalogue.collectAsState()
     val craftListContext = LocalContext.current.applicationContext
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { CraftCatalogueCache.cached(craftListContext) } }
@@ -7114,7 +5405,6 @@ private fun CraftForm(
     var nameError by remember { mutableStateOf<String?>(null) }
     val nameFocus = remember { FocusRequester() }
     var another by remember { mutableStateOf(false) }
-    /** Where a finished save goes: the next-step panel or another form for a create, else [onDone]. */
     fun finish(craftId: String?, queued: Boolean) {
         val created = onCreated
         if (isEdit || created == null || (queued && !another)) { onDone(); return }
@@ -7127,8 +5417,6 @@ private fun CraftForm(
                 RequiredCheck(subCategoryId.isBlank(), { subCategoryError = it }, subCategoryFocus)
             ))) { onError("Fill in the highlighted field."); return }
         scope.launch {
-            // Late-submission gate: if the chosen workshop has ended, say what that means and save
-            // only if the researcher confirms. Returns true immediately when there is nothing to say.
             if (!workshop.confirmSubmission()) return@launch
             saving = true
             val body = CraftCreateRequest(
@@ -7138,8 +5426,6 @@ private fun CraftForm(
                 stateOfOrigin = CraftCatalogueCache.STATE_OPTIONS.filter { it in stateOfOrigin },
                 stateOfPractice = CraftCatalogueCache.STATE_OPTIONS.filter { it in stateOfPractice },
                 giStatus = giStatus,
-                // No Place box since 2026-10-20 (the designer portal's form has none); an edit sends
-                // back what the record already holds, so an older craft keeps its place.
                 place = editing?.place,
                 description = description.blankToNull(),
                 workshopId = workshop.value(),
@@ -7178,9 +5464,6 @@ private fun CraftForm(
             workshop.isDirty() || media.uris.isNotEmpty() || media.measurementUri != null
     )
 
-    // Which boxes on this form carry a microphone is DATA, not a pattern — see
-    // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
-    // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.CRAFT)
     RecordCard(title = if (isEdit) recordUpdateTitle("craft") else "Add craft") {
         DraftOfferCard(draft)
@@ -7235,11 +5518,6 @@ private fun CraftForm(
             options = listOf(SelectOption("GI", "GI"), SelectOption("NON_GI", "Non GI")),
             selectedValue = giStatus
         ) { giStatus = it }
-        // `Craft.description` is the craft's narrative — the paragraph a reader of the repository
-        // actually reads — so it takes both controls. The four boxes above now take the microphone
-        // too (2026-09-13) and still take no editor: that is the formatting half of the user's
-        // "only the larger text boxes" rule, which is the half that survived. `ui/RecordProseText.kt`
-        // carries the enumeration; `ui/RecordDictationFields.kt` carries the microphone table.
         TextInput("Description", description, minLines = 3, dictate = dictates("description"), rich = true) { description = it }
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "craft", recordId = editing!!.id, onError = onError)
@@ -7258,29 +5536,23 @@ private fun CraftForm(
 private fun ArtisanForm(
     repository: FieldRepository,
     crafts: List<CraftDto>,
-    /** Whether [crafts] arrived, could not be reached, or is still coming — see [rememberFormCarry]. */
     lookupState: CarryScopeState = CarryScopeState.PENDING,
-    /** Page 1 of [crafts] with its envelope — see [ProductForm]'s parameter of this name. */
     craftSeed: PageResponse<CraftDto>? = null,
     editing: ArtisanDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
-    /** A create landed: the sitting, and whether "Save and add another" was pressed (A8). */
     onArtisanCreated: ((Prefill, Boolean) -> Unit)? = null,
-    /** C18: the lookup found this artisan already recorded; open them instead of a second record. */
     onOpenExisting: ((String) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
     val draft = rememberFormDraft(repository, "artisan", editing?.id, prefill.draftParentId(), prefill.draftParentLabel())
     val media = rememberMediaCaptureState()
     val isEdit = editing != null
     var name by remember(editing) { mutableStateOf(editing?.name ?: prefill?.artisanName ?: "") }.drafted(draft, "name")
     var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }.drafted(draft, "localName")
-    // Unset until somebody answers: a box nobody touched must not save a claim about a person.
     var gender by remember(editing) { mutableStateOf(editing?.gender?.takeIf { it.isNotBlank() } ?: "") }.drafted(draft, "gender")
     var phone by remember(editing) {
         mutableStateOf(StandardValues.phoneForEditing(editing?.phoneCountryCode, editing?.phone))
@@ -7289,46 +5561,21 @@ private fun ArtisanForm(
     var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }.drafted(draft, "place")
     var address by remember(editing) { mutableStateOf(editing?.address ?: "") }.drafted(draft, "address")
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }.drafted(draft, "notes")
-    // Identity. `aadhaar` holds BARE digits — the 4-4-4 grouping is a visual transformation on the
-    // field, never part of the value. The Pehchan card defaults to "available", matching the API's
-    // default and the common case, which is why its number is effectively required on create.
-    //
-    // THE SERVER SENDS THE MASK, NEVER THE NUMBER (2026-10-17): the register keeps a fingerprint and the
-    // last four digits. So an edit starts with the box EMPTY and the mask shown beside it, and an empty
-    // box on an edit means "keep the number on record" — the field is then left out of the body. Only
-    // a server older than that change sends digits, and those still load into the box as before.
     val storedAadhaarMask = editing?.aadhaarNumber?.takeIf { it.isNotBlank() }
     var aadhaar by remember(editing) {
         mutableStateOf(editing?.aadhaarNumber?.takeIf { aadhaarValidationError(it) == null }.orEmpty())
     }.drafted(draft, "aadhaar")
-    // C18: a NEW artisan's Pehchan card starts UNANSWERED. "Yes" used to be pre-answered, which made
-    // the card number silently required for somebody nobody had asked.
     var pehchanAvailable by remember(editing) { mutableStateOf<Boolean?>(editing?.pehchanCardAvailable) }.drafted(draft, "pehchanAvailable")
-    // C18: "Not shared by artisan" — saves without an Aadhaar, flagged for follow-up.
     var aadhaarNotShared by remember(editing) { mutableStateOf(editing?.aadhaarNotShared ?: false) }.drafted(draft, "aadhaarNotShared")
-    // Offered only while no number is on file: the switch records a refusal, never retracts a stored Aadhaar.
     val notSharedOffered = aadhaarNotSharedOffered(editing?.aadhaarNumber)
     val notSharedHonoured = aadhaarNotShared && notSharedOffered
-    // C18: a new artisan opens on the lookup, until it is answered or a draft says it already was.
     var lookupSettled by remember(editing) { mutableStateOf(editing != null) }.drafted(draft, "lookupSettled")
     var pehchanNumber by remember(editing) { mutableStateOf(editing?.pehchanCardNumber.orEmpty()) }.drafted(draft, "pehchanNumber")
-    /*
-     * ── THE TWO FACTS THE DESIGN WORKSHOP ASKS OF EVERY ARTISAN ─────────────────────────────
-     *
-     * Both were read only from legacy metadata this app stopped writing years ago, so the artisan
-     * record sheet printed two empty cells and nothing could record either fact. A DATE and not an
-     * age: the sheet shows an age and the server derives it, so it is still right next year.
-     */
-    // Explicit type argument: `parseFieldDate` returns a nullable LocalDate and the chain through
-    // `?.let` gives the compiler nothing to infer `T` from.
     var dateOfBirth by remember(editing) {
         mutableStateOf<java.time.LocalDate?>(
             editing?.dateOfBirth?.take(10)?.let { parseFieldDate(it) }
         )
     }.drafted(draft, "dateOfBirth")
-    // THE DAY THE ARTISAN TOOK UP THE CRAFT, required with the birthday on every new save
-    // (2026-10-17): both portals draw one artisan form, on the web and here, and this box was the web's
-    // alone until then. The record sheet derives the experience figure from it in preference.
     var craftStartDate by remember(editing) {
         mutableStateOf<java.time.LocalDate?>(
             editing?.craftStartDate?.take(10)?.let { parseFieldDate(it) }
@@ -7337,44 +5584,26 @@ private fun ArtisanForm(
     var experienceYears by remember(editing) {
         mutableStateOf(editing?.experienceYears?.toString().orEmpty())
     }.drafted(draft, "experienceYears")
-    // The months on top of the years, 0..11 — a remainder. "" is "Not stated", never 0.
     var experienceMonths by remember(editing) {
         mutableStateOf(editing?.experienceMonths?.toString().orEmpty())
     }.drafted(draft, "experienceMonths")
     var dosItems by remember(editing) { mutableStateOf(splitNumbered(editing?.dos)) }.drafted(draft, "dosItems")
     var dontsItems by remember(editing) { mutableStateOf(splitNumbered(editing?.donts)) }.drafted(draft, "dontsItems")
     var craftId by remember(editing) { mutableStateOf(editing?.craftId ?: prefill?.craftId ?: "") }.drafted(draft, "craftId")
-    /** The master list (`data/CraftCatalogueCache.kt`): the only crafts this form can pick. */
     val craftCatalogue by CraftCatalogueCache.catalogue.collectAsState()
     val craftOptions = remember(craftCatalogue) { craftCatalogue?.crafts?.map { CraftDto(id = it.id, name = it.name) }.orEmpty() }
     val craftListState = if (craftCatalogue != null) CarryScopeState.LOADED else CarryScopeState.UNAVAILABLE
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing, runningOnly = true)
-    /**
-     * The craft and the workshop carry into a new artisan; the ARTISAN in the bag never does.
-     *
-     * This form's whole job is to create a person who is not yet in the bag, so offering the last
-     * one would be worse than useless — it is the "wrong artisan" hazard with the record itself as
-     * the casualty. Their place does not carry either: it belongs to that artisan, not to the
-     * sitting, and two artisans documented back to back are routinely from different villages. What
-     * genuinely transfers is the craft everyone at this workshop practises, and the workshop.
-     */
     val carry = rememberFormCarry(
         repository = repository,
         enabled = !isEdit,
         applies = CarryPrefillDefaults.ARTISAN_FORM,
-        // `craftOptions`, not the raw page — see its declaration above, and the web form's matching
-        // choice. Merging can only add, and the by-id lookup answers nothing for a deleted craft, so
-        // a craft that is genuinely gone stays prunable.
         scopes = listOf(carryScope(CarryNode.CRAFT, craftListState, craftOptions) { it.id }),
         handoff = prefill
     ) { carried ->
         carried.craftId?.let { craftId = it }
-        // Only while the picker still holds whatever it defaulted to itself: a workshop the
-        // researcher chose outranks one we remembered, and moving the baseline along with the value
-        // is what stops a prefill reading as an unsaved edit on the way out.
         carried.workshopId?.let { if (!workshop.isDirty()) workshop.applyDefault(it) }
     }
-    /** "Change": drop the carried craft so the researcher picks from scratch. */
     fun clearCarriedContext() {
         carry.change()
         craftId = ""
@@ -7391,29 +5620,12 @@ private fun ArtisanForm(
     var phoneError by remember { mutableStateOf<String?>(null) }
     var emailError by remember { mutableStateOf<String?>(null) }
     var aadhaarError by remember { mutableStateOf<String?>(null) }
-    // LIKELY DUPLICATES (`POST /artisan-duplicates/check`), creates only. [duplicateAcked] is what the
-    // researcher called "Different person"; every create sends it, `[]` when nothing was shown.
     var duplicateShown by remember(editing) { mutableStateOf<List<DuplicateCandidateDto>?>(null) }
     var duplicateAcked by remember(editing) { mutableStateOf<Set<String>>(emptySet()) }
     var pehchanError by remember { mutableStateOf<String?>(null) }
-    // The two required dates. A calendar field takes no focus requester, so the sentence goes under
-    // the box and into the banner.
     var dateOfBirthError by remember { mutableStateOf<String?>(null) }
     var craftStartDateError by remember { mutableStateOf<String?>(null) }
-    // Non-blocking: an artisan already recorded with the Aadhaar number being typed.
     var aadhaarDuplicate by remember(editing) { mutableStateOf<String?>(null) }
-    /*
-     * Aadhaar is what stops one artisan becoming two records, so a NEW artisan must come with one —
-     * `POST /artisans` answers 422 without it, and the form would simply be broken if it let the
-     * researcher reach that.
-     *
-     * On EDIT it is required only when the record already carries one. Thousands of artisans were
-     * documented before the column existed, and a researcher correcting a phone number on one of
-     * those must not be blocked behind a government ID they may have no way to obtain — the choice
-     * is between a corrected phone number and no correction at all, never between a phone number and
-     * an Aadhaar. Once a record HAS a number, clearing it is still refused: that is data loss rather
-     * than a legacy gap. Mirrors `aadhaarRequired` in components/forms/ArtisanForm.tsx.
-     */
     val keepsStoredAadhaar = isEdit && storedAadhaarMask != null && aadhaar.isBlank()
     val aadhaarRequired = (!isEdit || !editing?.aadhaarNumber.isNullOrBlank()) && !notSharedHonoured && !keepsStoredAadhaar
     val nameFocus = remember { FocusRequester() }
@@ -7430,17 +5642,11 @@ private fun ArtisanForm(
         if (existing != null && media.location == null) media.location = existing.toRequest()
     }
 
-    // Pre-flight duplicate check. The moment a complete, well-formed number is on screen, ask the
-    // server whether it already belongs to someone — so the researcher hears "you already have this
-    // person" while the form is still half empty, rather than as a 409 after filling all of it. The
-    // short delay keeps this to one request per number instead of one per keystroke, and a failed
-    // lookup is swallowed: this is a courtesy, and the unique index remains the real guarantee.
     LaunchedEffect(aadhaar, editing?.id, notSharedHonoured) {
         aadhaarDuplicate = null
         if (notSharedHonoured || aadhaar.isBlank() || aadhaarValidationError(aadhaar) != null) return@LaunchedEffect
         delay(400)
         val match = runCatching { repository.lookupArtisanByAadhaar(aadhaar) }.getOrNull()?.artisan
-        // Editing the very artisan who holds the number is not a duplicate.
         if (match == null || match.id == editing?.id) return@LaunchedEffect
         val where = listOfNotNull(
             match.place?.takeIf { it.isNotBlank() },
@@ -7455,10 +5661,6 @@ private fun ArtisanForm(
     }
 
     var another by remember { mutableStateOf(false) }
-    /**
-     * A save that went to the outbox. The artisan has no id yet, so there is nothing to carry on to a
-     * product; only "Save and add another" re-opens the form, keeping the craft.
-     */
     fun finishQueued() {
         val created = onArtisanCreated
         if (isEdit || created == null || !another) { onDone(); return }
@@ -7478,61 +5680,43 @@ private fun ArtisanForm(
                 RequiredCheck(dosText.isBlank(), { dosError = it }, dosFocus),
                 RequiredCheck(dontsText.isBlank(), { dontsError = it }, dontsFocus)
             ))) { onError("Fill in the highlighted field."); return }
-        // BOTH DATES ARE REQUIRED ON EVERY SAVE FROM THIS FORM (2026-10-17). An edit of a record saved
-        // before the rule asks for them here. The sentence is the server's refusal word for word.
         dateOfBirthError = if (dateOfBirth == null) "Enter the date of birth." else null
         craftStartDateError = if (craftStartDate == null) "Enter the craft start date." else null
         missingArtisanDatesSentence(dateOfBirth?.toString(), craftStartDate?.toString())?.let { sentence ->
             onError(sentence); return
         }
-        // Phone (optional) must be a valid number for its ISD code when present.
         artisanPhoneValidationError(phone)?.let { msg -> phoneError = msg; onError("Fix the phone number highlighted above."); return }
         phoneError = null
-        // Email (optional) must look like an address when present — the same shape the web form
-        // enforces (EMAIL_RE in components/forms/ArtisanForm.tsx). Accepting "a@b" here while the web
-        // refused it meant one artisan got two different verdicts depending on who typed them in.
         if (email.isNotBlank() && !EMAIL_RE.matches(email.trim())) {
             emailError = "Enter a valid email."
             runCatching { emailFocus.requestFocus() }
             onError("Fix the email highlighted above."); return
         }
         emailError = null
-        // Aadhaar. Presence first, then shape. Both are checked HERE rather than left to the API:
-        // this form saves offline, so a form that only learned the number was missing from a 422
-        // would let a researcher walk away from the artisan with an unsavable record in hand.
         if (aadhaarRequired && aadhaar.isBlank()) {
             aadhaarError = "Enter the 12-digit Aadhaar number."
             runCatching { aadhaarFocus.requestFocus() }
             onError("Aadhaar number required."); return
         }
-        // ...and it must be a genuine number when present — the same three checks the API runs,
-        // applied here so a bad digit is caught with the card still in hand.
         if (!notSharedHonoured) aadhaarValidationError(aadhaar)?.let { msg ->
             aadhaarError = msg
             runCatching { aadhaarFocus.requestFocus() }
             onError("Fix the Aadhaar number highlighted above."); return
         }
         aadhaarError = null
-        // C18: the card question has to be answered, one way or the other, on a new artisan.
         if (pehchanAvailable == null && !isEdit) {
             pehchanError = "Answer whether the artisan has a Pehchan card."
             runCatching { pehchanFocus.requestFocus() }
             onError("Answer the Pehchan card question."); return
         }
-        // "Card available = Yes" without a number is the one combination the API refuses outright.
         if (pehchanAvailable == true && pehchanNumber.isBlank()) {
             pehchanError = "Enter the Pehchan Card number, or set the card to 'No'."
             runCatching { pehchanFocus.requestFocus() }
             onError("Fix the Pehchan Card details."); return
         }
         pehchanError = null
-        // Last, because it is the one check whose answer is further down the form than the focus
-        // helpers reach. See newRecordLocationError for why an edit is never asked.
         newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
         scope.launch {
-            // ALREADY RECORDED? Asked online before a create, so a likely duplicate is shown while the
-            // artisan is still here. Offline the check is skipped and the server asks on sync. A failed
-            // check is not a refusal: the create's own hold is the guarantee.
             if (!isEdit && repository.isOnline(context)) {
                 saving = true
                 val found = repository.checkDuplicates(
@@ -7564,25 +5748,14 @@ private fun ArtisanForm(
                 name = name.trim(),
                 localName = localName.blankToNull(),
                 gender = gender.blankToNull(),
-                // The two columns the server stores: digits and the code beside them. A value the
-                // rule cannot read goes as typed, and the server says why.
                 phone = StandardValues.normalizePhone(null, phone).digits ?: phone.blankToNull(),
                 phoneCountryCode = StandardValues.normalizePhone(null, phone).code,
                 email = email.blankToNull(),
                 place = place.trim(),
                 address = address.blankToNull(),
                 notes = notes.blankToNull(),
-                // Sent even when empty. `explicitNulls = false` drops a null from the payload, and an
-                // omitted key means "leave it alone" to a PATCH — which would make a wrongly entered
-                // Aadhaar impossible to retract from the app. The API normalises "" to null, and the
-                // column is one it deliberately allows a client to clear. The one omission is an edit
-                // keeping the number on record (the box was left empty beside its mask).
                 aadhaarNumber = if (keepsStoredAadhaar) null else aadhaarForBody(aadhaar, aadhaarNotShared, editing?.aadhaarNumber),
-                // C18: sent only when it is the answer, or when it is being taken back on an edit.
-                // Never true for a record that already holds a number.
                 aadhaarNotShared = if (notSharedHonoured || editing?.aadhaarNotShared == true) notSharedHonoured else null,
-                // Always sent explicitly, both ways: the API clears a stale card number when this is
-                // false, and only an explicit true can move a record back off "No".
                 pehchanCardAvailable = pehchanAvailable,
                 pehchanCardNumber = if (pehchanAvailable == true) pehchanNumber.blankToNull() else null,
                 dateOfBirth = dateOfBirth?.toString(),
@@ -7597,13 +5770,9 @@ private fun ArtisanForm(
                 status = status,
                 recordedAt = if (isEdit) null else Instant.now().toString(),
                 location = locationForBody(isEdit, media.location, editing?.location),
-                // The server holds this save to both dates. In the body, so the outbox keeps it.
                 formContract = ARTISAN_FORM_CONTRACT,
-                // Every create says what it was shown; an edit never does. In the body, so a queued
-                // create carries `[]` and the server asks about duplicates when it syncs.
                 duplicateAcknowledged = if (isEdit) null else PossibleDuplicates.acknowledged(duplicateAcked)
             )
-            // No connection: save to the device and sync on reconnect, instead of failing the upload.
             val queuedOffline = runCatching {
                 trySaveOffline(repository, context, editing?.id, "artisan", offlineFormJson.encodeToString(body),
                     name.trim(), media, name.trim(), "Field media for ${name.trim()}")
@@ -7642,12 +5811,7 @@ private fun ArtisanForm(
                     onArtisanCreated?.invoke(prefillOut, another) ?: onDone()
                 }
             }.onFailure {
-                // A duplicate Aadhaar/Pehchan number comes back as a structured 409 whose message
-                // names the artisan already holding it — far more use than "HTTP 409 Conflict", which
-                // is all the exception itself says.
                 if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); finishQueued() } else {
-                    // Read ONCE: a 409 `artisan_possible_duplicate` names the likely duplicates, and the
-                    // same read gives the sentence for any other failure.
                     val failure = it.apiFailure("Unable to save artisan")
                     val held = if (isEdit) null else failure.possibleDuplicates()
                     if (held != null) {
@@ -7673,14 +5837,9 @@ private fun ArtisanForm(
             onCancel = { duplicateShown = null }
         )
     }
-    // Every value the form can change, in one string — the unsaved-work guard compares it against the
-    // value it had on open, so a new field must be listed here or editing it looks like no edit at all.
     fun formSignature(): String = listOf(
         name, localName, gender, phone, email, place, address, notes, aadhaar,
         pehchanAvailable.toString(), pehchanNumber, joinNumbered(dosItems), joinNumbered(dontsItems),
-        // The offer resolves a beat after the first composition, so until it does the handoff it was
-        // built from stands in — otherwise the baseline and the prefill would disagree for one frame
-        // and an untouched form would come out of it reading as edited.
         craftId.exceptCarried(carry.offer?.context?.craftId ?: prefill?.craftId), status
     ).joinToString(" ")
     val initialSig = remember(editing) { formSignature() }
@@ -7689,14 +5848,10 @@ private fun ArtisanForm(
             workshop.isDirty() || media.uris.isNotEmpty() || media.measurementUri != null
     )
 
-    // Which boxes on this form carry a microphone is DATA, not a pattern — see
-    // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
-    // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.ARTISAN)
     val artisanPhotos = rememberImageCount(media.uris)
     RecordCard(title = if (isEdit) recordUpdateTitle("artisan") else "Add artisan") {
         DraftOfferCard(draft)
-        // C18: find before typing. Nothing below is drawn until the lookup is answered.
         if (!lookupSettled) {
             ArtisanLookupCard(
                 repository = repository,
@@ -7710,7 +5865,6 @@ private fun ArtisanForm(
             )
             return@RecordCard
         }
-        // What this artisan still lacks, over the form as it stands — offline and for drafts alike.
         FormCompletenessLine(
             kind = CompletenessKind.ARTISAN,
             values = mapOf(
@@ -7731,13 +5885,11 @@ private fun ArtisanForm(
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
-        // Above the workshop picker, so what was filled in is read before any of the fields it filled.
         CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
         WorkshopField(state = workshop, saving = saving)
         RequiredInput("Name", name, nameError, nameFocus, titleCased = true, dictate = dictates("name")) { name = it }
         TextInput("Local name", localName, dictate = dictates("localName")) { localName = it }
         CompletenessAnchor("craft", craftFocus) {
-        // From the master list only (`ui/CraftPicker.kt`): there is no free-text craft any more.
         val craftListContext = LocalContext.current.applicationContext
         CraftPickerField(
             label = "Craft",
@@ -7751,7 +5903,6 @@ private fun ArtisanForm(
             onChange = { ids ->
                 craftId = ids.firstOrNull().orEmpty()
                 craftError = null
-                // An explicit pick replaces the remembered craft and retires the banner.
                 CraftCatalogueCache.catalogue.value?.craft(craftId)?.let {
                     carry.remember(CarryContext(craftId = it.id, craftName = it.name), explicit = true)
                 }
@@ -7766,18 +5917,11 @@ private fun ArtisanForm(
             placeholder = "Select…",
             includeNone = true
         ) { gender = it }
-        /*
-         * ONE ARTISAN FORM IN BOTH PORTALS, ON THE WEB AND HERE (owner decision, 2026-10-17): both
-         * dates required, "Craft start date", and experience as two boxes — "Experience (years)" and
-         * "Experience (months)", whose empty option is "Not stated". `shared/artisan-form-contract.json`
-         * holds both portals and both clients to it.
-         */
         CompletenessAnchor("dateOfBirth") {
             CalendarField(
                 label = "Date of birth *",
                 value = dateOfBirth,
                 onValueChange = { dateOfBirth = it; dateOfBirthError = null },
-                // Nobody is born tomorrow, and a future date would derive a negative age.
                 maximum = java.time.LocalDate.now(),
                 clearable = true,
                 supportingText = dateOfBirthError ?: "Shown as an age."
@@ -7788,7 +5932,6 @@ private fun ArtisanForm(
                 label = "Craft start date *",
                 value = craftStartDate,
                 onValueChange = { craftStartDate = it; craftStartDateError = null },
-                // Nobody took up a craft tomorrow either.
                 maximum = java.time.LocalDate.now(),
                 clearable = true,
                 supportingText = craftStartDateError ?: "Shown as years of experience."
@@ -7796,9 +5939,6 @@ private fun ArtisanForm(
         }
         OutlinedTextField(
             value = experienceYears,
-            // Digits only, and capped at two of them: 0..90 mirrors the stage registry's own bounds
-            // for `participant.experienceYears`, so this form cannot accept a number the workshop
-            // would then refuse on a row it filled in from this very record.
             onValueChange = { typed -> experienceYears = typed.filter { it.isDigit() }.take(2) },
             label = { Text("Experience (years)") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -7809,7 +5949,6 @@ private fun ArtisanForm(
             label = "Experience (months)",
             options = EXPERIENCE_MONTH_OPTIONS.map { it.toString() to experienceMonthsLabel(it) },
             selectedValue = experienceMonths,
-            // "Not stated" submits nothing, never 0 — 0 is a real answer.
             placeholder = EXPERIENCE_NOT_STATED,
             includeNone = true
         ) { experienceMonths = it }
@@ -7826,20 +5965,8 @@ private fun ArtisanForm(
                 .fillMaxWidth()
                 .focusRequester(emailFocus)
         )
-        /*
-         * ADDRESS GETS THE MICROPHONE AND NOT THE EDITOR, and the asymmetry is the rule working.
-         *
-         * It is multi-line, so it qualifies on size — but a postal address is not narrative. Nobody
-         * bolds a house number, the value is read back by the geocoder and printed on a label, and a
-         * bulleted address would be a novelty that costs a reader. Dictation, on the other hand, is
-         * exactly right for it: an address is the worst thing on a phone keyboard and the easiest
-         * thing to say out loud.
-         */
         TextInput("Address", address, minLines = 2, dictate = dictates("address")) { address = it }
         MultiNoteInput(value = notes, dictate = dictates("notes")) { notes = it }
-        // Identity — the same grouped block, in the same position (after notes, before Do's/Don'ts),
-        // as the web form's `role="group"` panel. The heading is what makes the dependency between
-        // "holds a card" and "card number" legible instead of reading as three unrelated boxes.
         Text("Identity", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
             "Stored securely; masked when shared or exported.",
@@ -7856,7 +5983,6 @@ private fun ArtisanForm(
                 onRecord = storedAadhaarMask?.takeIf { aadhaar.isBlank() }
             ) { aadhaar = it; aadhaarError = null }
         }
-        // C18: the explicit outcome, clearly labelled. Never inferred from an empty box.
         if (notSharedOffered) AppToggle(
             label = "Not shared by artisan",
             description = if (aadhaarNotShared) "Saved without an Aadhaar and flagged for follow-up." else "The artisan declined to give their Aadhaar.",
@@ -7876,14 +6002,10 @@ private fun ArtisanForm(
         ) { choice ->
             pehchanAvailable = choice == "yes"
             pehchanError = null
-            // Answering No retires the number with the answer, so a disabled box can never leave a
-            // card number stranded on a record that says the artisan holds no card.
             if (pehchanAvailable == false) pehchanNumber = ""
         }
         OutlinedTextField(
             value = pehchanNumber,
-            // The API stores card numbers upper-cased; showing that as it is typed keeps the box
-            // honest about what will actually be saved (web parity).
             onValueChange = { pehchanNumber = it.uppercase(); pehchanError = null },
             label = { Text(if (pehchanAvailable == true) "Artisan Pehchan Card number *" else "Artisan Pehchan Card number") },
             placeholder = { Text(if (pehchanAvailable == true) "As printed on the card" else "No card on record") },
@@ -7903,7 +6025,6 @@ private fun ArtisanForm(
                 .fillMaxWidth()
                 .focusRequester(pehchanFocus)
         )
-        // C27: the artisan's agreement to be looked up from the Designer Portal (drawn only while on).
         if (isEdit) RecordingConsentRow(artisanId = editing!!.id)
         if (isEdit) SharingConsentRow(artisanId = editing!!.id)
         CompletenessAnchor("dos", dosFocus) {
@@ -7928,7 +6049,6 @@ private fun ArtisanForm(
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "artisan", recordId = editing!!.id, onError = onError)
         }
-        // The photograph and the location fix are both taken here.
         CompletenessAnchor("photo") {
             CompletenessAnchor("location") {
                 MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
@@ -7947,7 +6067,6 @@ private fun ArtisanForm(
 private fun WorkshopForm(
     repository: FieldRepository,
     artisans: List<ArtisanDto>,
-    /** Page 1 of the artisan lookup, so the picker costs no request until somebody types. */
     artisanSeed: PageResponse<ArtisanDto>? = null,
     editing: WorkshopDetailDto? = null,
     prefill: Prefill? = null,
@@ -7957,7 +6076,6 @@ private fun WorkshopForm(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
     val draft = rememberFormDraft(repository, "workshop", editing?.id, prefill.draftParentId(), prefill.draftParentLabel())
     val media = rememberMediaCaptureState()
     val isEdit = editing != null
@@ -7976,8 +6094,6 @@ private fun WorkshopForm(
                 ?: emptySet()
         )
     }.drafted(draft, "selectedArtisans")
-    // Both pickers search the server and page (`ui/ServerSearch.kt`); the craft one asks for its own
-    // first page, the artisan one starts from the app-wide page it was handed.
     val artisanSearch = rememberServerSearch(
         key = Unit, cached = artisans, seed = artisanSeed, idOf = { it.id }, textOf = ::artisanSearchText
     ) { term, page -> repository.artisansSearchPage(term, page) }
@@ -8007,7 +6123,6 @@ private fun WorkshopForm(
             val end = (endDate ?: startDate ?: LocalDate.now()).toIsoInstant()
             val originalArtisans = editing?.artisans?.map { it.artisanId }?.toSet() ?: emptySet()
             val originalCrafts = editing?.crafts?.map { it.craftId }?.toSet() ?: emptySet()
-            // On edit, only send the relation when it changed (the backend replaces & re-checks it).
             val artisanIdsParam = if (!isEdit || selectedArtisans != originalArtisans) selectedArtisans.toList() else null
             val craftIdsParam = if (!isEdit || selectedCrafts != originalCrafts) selectedCrafts.toList() else null
             val body = WorkshopCreateRequest(
@@ -8060,17 +6175,10 @@ private fun WorkshopForm(
             media.uris.isNotEmpty() || media.measurementUri != null
     )
 
-    // WHY THIS SITS ON THE WORKSHOP SCREEN and not in Settings, matching the web's /workshops page: what it
-    // fixes is a workshop's own contents — "this workshop looks empty" — so whoever notices the symptom is
-    // already here. Create-mode only, so it does not push an edit form down the screen, and admin-only; the
-    // endpoints are gated the same way, so this predicate is not the security boundary.
     if (!isEdit && repository.cachedUser()?.isAdminUser() == true) {
         WorkshopMappingCard(repository = repository, onError = onError)
     }
 
-    // Which boxes on this form carry a microphone is DATA, not a pattern — see
-    // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
-    // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.WORKSHOP)
     val workshopPhotos = rememberImageCount(media.uris)
     RecordCard(title = if (isEdit) recordUpdateTitle("workshop") else "Add workshop") {
@@ -8089,10 +6197,6 @@ private fun WorkshopForm(
         }
         RequiredInput("Workshop title", title, titleError, titleFocus, titleCased = true, dictate = dictates("title")) { title = it }
         RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
-        // Web parity (components/forms/DateRangeField): the two dates are one answer — how long the
-        // workshop ran — and they are labelled as one before being split into start and end.
-        // CalendarField's range form (ui/DateTimeFields.FieldDateRangeField): typed dd/mm/yyyy boxes
-        // and one themed range calendar, never the platform DatePickerDialog (owner, 2026-10-17).
         CompletenessAnchor("startDate") {
             CompletenessAnchor("endDate") {
                 FieldDateRangeField(
@@ -8107,8 +6211,6 @@ private fun WorkshopForm(
             }
         }
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
-        // `Workshop.description` — the narrative of what happened at the workshop, and the field a
-        // reader of the record is actually looking for. Both controls.
         TextInput("Description", description, minLines = 3, dictate = dictates("description"), rich = true) { description = it }
         MultiNoteInput(value = notes, dictate = dictates("notes")) { notes = it }
         CompletenessAnchor("artisans") {
@@ -8123,7 +6225,6 @@ private fun WorkshopForm(
             }
         }
         CompletenessAnchor("crafts") {
-            // From the master list (`ui/CraftPicker.kt`).
             val craftListContext = LocalContext.current.applicationContext
             CraftPickerField(
                 label = "Crafts covered",
@@ -8151,27 +6252,18 @@ private fun ProductForm(
     repository: FieldRepository,
     crafts: List<CraftDto>,
     artisans: List<ArtisanDto>,
-    /** Whether the two lists above arrived, could not be reached, or are still coming. */
     lookupState: CarryScopeState = CarryScopeState.PENDING,
-    /**
-     * Page 1 of each list above WITH its envelope, so the pickers can start from it and search the
-     * server for the rest (`ui/ServerSearch.kt`) without a request of their own. Loaded once for the
-     * whole app and handed to every form, exactly as the lists are. Null makes each picker ask for its
-     * own first page.
-     */
     craftSeed: PageResponse<CraftDto>? = null,
     artisanSeed: PageResponse<ArtisanDto>? = null,
     editing: ProductDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
-    /** A create landed: the sitting, the record's name, and whether "Save and add another" was pressed. */
     onCreated: ((Prefill, String?, Boolean) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
     val draft = rememberFormDraft(repository, "product", editing?.id, prefill.draftParentId(), prefill.draftParentLabel())
     val media = rememberMediaCaptureState()
     val isEdit = editing != null
@@ -8182,29 +6274,9 @@ private fun ProductForm(
     var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }.drafted(draft, "place")
     var craftId by remember(editing) { mutableStateOf(editing?.craftId ?: prefill?.craftId ?: "") }.drafted(draft, "craftId")
     var artisanId by remember(editing) { mutableStateOf(editing?.artisanId ?: prefill?.artisanId ?: "") }.drafted(draft, "artisanId")
-    /**
-     * WHAT THE CRAFT AND ARTISAN DROPDOWNS ACTUALLY OFFER — see `ui/RecordPickers.kt`, which the web
-     * forms share word for word (`frontend/components/forms/recordPickers.ts`).
-     *
-     * `crafts` and `artisans` above are ONE 100-row page each, and 100 is the server's ceiling
-     * rather than a default. `craftOptions` adds this record's own craft when it sorts past that
-     * page; `picker` adds the chosen craft's real roster (fetched with `craftId`, which the endpoint
-     * has always accepted and no client had ever sent) and this record's own artisan when neither
-     * page holds them. Both are purely ADDITIVE — nothing that was offered stops being offered.
-     *
-     * DECLARED HERE, above `carry`, because `carryScope` is given these lists and not the raw pages.
-     * A carried record that is merely off page one is genuinely reachable — the by-id lookup FETCHED
-     * it, which is proof it exists — and scoring it against the raw page would prune a link the form
-     * is already showing. Merging can only ever add, so it cannot mask a record that is really gone:
-     * the lookup returns nothing for a deleted id. This is the same choice the web forms make, and
-     * the two must keep making it together.
-     */
-    /** The master list (`data/CraftCatalogueCache.kt`): the only crafts this form can pick. */
     val craftCatalogue by CraftCatalogueCache.catalogue.collectAsState()
     val craftOptions = remember(craftCatalogue) { craftCatalogue?.crafts?.map { CraftDto(id = it.id, name = it.name) }.orEmpty() }
     val craftListState = if (craftCatalogue != null) CarryScopeState.LOADED else CarryScopeState.UNAVAILABLE
-    // ARTISAN FIRST (B5): the picker searches every artisan, not one craft's roster, because the
-    // artisan is what sets the craft and the place. Craft-scoped only when typing a record by hand.
     var notOnRecord by remember(editing) {
         mutableStateOf(editing != null && editing.artisanId.isNullOrBlank() && editing.artisanName.isNotBlank())
     }.drafted(draft, "notOnRecord")
@@ -8217,15 +6289,6 @@ private fun ProductForm(
     var length by remember(editing) { mutableStateOf(numToText(editing?.lengthInches)) }.drafted(draft, "length")
     var breadth by remember(editing) { mutableStateOf(numToText(editing?.breadthInches)) }.drafted(draft, "breadth")
     var height by remember(editing) { mutableStateOf(numToText(editing?.heightInches)) }.drafted(draft, "height")
-    /*
-     * HOW THE THREE BOXES ABOVE WERE MEASURED, for the ones somebody accepted a proposal into.
-     *
-     * KEYED ON `editing` LIKE THE BOXES THEMSELVES, and that matters on the correction path: opening a
-     * different record reloads the numbers, and a ledger that outlived them would go on claiming a
-     * geometry for a value it has never seen. The stored dimensions it loads with are UNMARKED, which
-     * is right — this form cannot know how a number already in the database came to be, and the server
-     * reads an absent marker as UNRECORDED rather than as TYPED.
-     */
     val markers = remember(editing) { MeasurementMarkers() }
     var costOfMaking by remember(editing) { mutableStateOf(numToText(editing?.costOfMaking)) }.drafted(draft, "costOfMaking")
     var sellingPrice by remember(editing) { mutableStateOf(numToText(editing?.sellingPrice)) }.drafted(draft, "sellingPrice")
@@ -8236,21 +6299,10 @@ private fun ProductForm(
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
     var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }.drafted(draft, "status")
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing, runningOnly = true)
-    /**
-     * Offer the sitting this researcher was last working in, however they got here — the in-memory
-     * [Prefill] only survives a tap made straight off the save screen, and the route they actually
-     * take is out via the dashboard and back an hour later.
-     *
-     * The PRODUCT in the bag is this form's own subject and is never applied here; a tool or a
-     * process in it belongs to other forms and is left alone rather than dropped, so they still
-     * have it when the researcher gets there.
-     */
     val carry = rememberFormCarry(
         repository = repository,
         enabled = !isEdit,
         applies = CarryPrefillDefaults.PRODUCT_FORM,
-        // Both dropdowns are built from exactly these two lists, so "absent from the list" answers
-        // both "you can no longer reach it" and "this form could not have shown it" at once.
         scopes = listOf(
             carryScope(CarryNode.ARTISAN, lookupState, picker.options) { it.id },
             carryScope(CarryNode.CRAFT, craftListState, craftOptions) { it.id }
@@ -8264,7 +6316,6 @@ private fun ProductForm(
         carried.place?.let { place = it }
         carried.workshopId?.let { if (!workshop.isDirty()) workshop.applyDefault(it) }
     }
-    /** "Change": drop every carried value in one action so the researcher picks from scratch. */
     fun clearCarriedContext() {
         carry.change()
         craftId = ""
@@ -8284,7 +6335,6 @@ private fun ProductForm(
     val artisanNameFocus = remember { FocusRequester() }
     val placeFocus = remember { FocusRequester() }
     var another by remember { mutableStateOf(false) }
-    /** Where a finished save goes: the next-step panel or another form for a create, else [onDone]. */
     fun finish(productId: String?, queued: Boolean) {
         val created = onCreated
         if (isEdit || created == null || (queued && !another)) { onDone(); return }
@@ -8333,20 +6383,6 @@ private fun ProductForm(
                 lengthInches = length.toDoubleOrNull(),
                 breadthInches = breadth.toDoubleOrNull(),
                 heightInches = height.toDoubleOrNull(),
-                /*
-                 * HOW THOSE THREE WERE MEASURED — read from the boxes AS THEY STAND AT SAVE, which is
-                 * the whole anti-staleness rule and the reason this is computed here rather than kept
-                 * as a field somebody has to remember to clear. A dimension typed over since it was
-                 * accepted no longer matches the accepted text and is dropped; so is a cleared one, and
-                 * so is one the microphone dictated into. Null when nothing survives, and
-                 * `explicitNulls = false` then drops the key from the request entirely.
-                 *
-                 * AND THIS IS ALSO THE OFFLINE PATH. `body` is what `offlineFormJson.encodeToString`
-                 * serialises into the outbox below, and `syncOutbox` decodes the same type back out, so
-                 * a record saved in a courtyard keeps its provenance instead of arriving a fortnight
-                 * later indistinguishable from a hand-typed one. There is no second body to keep in
-                 * step — which is exactly why there must not be one.
-                 */
                 measurementMethods = markers.body(
                     mapOf("lengthInches" to length, "breadthInches" to breadth, "heightInches" to height)
                 ),
@@ -8364,8 +6400,6 @@ private fun ProductForm(
                 recordedAt = if (isEdit) null else Instant.now().toString(),
                 location = locationForBody(isEdit, media.location, editing?.location)
             )
-            // Bank the sitting the moment the record is accepted, so the next form opened from the
-            // dashboard already knows where the researcher is.
             val sitting = CarryContext(
                 artisanId = artisanId.ifBlank { null },
                 artisanName = artisanName.trim(),
@@ -8380,10 +6414,6 @@ private fun ProductForm(
                     productName.trim(), media, productName.trim(), "Field media for ${productName.trim()}")
             }.getOrElse { false }
             if (queuedOffline) {
-                // Offline is the normal case, but a queued product has no id yet, so no process form
-                // could link to it. Whatever product was in the bag is dropped rather than left to
-                // stand in for the one just recorded — an old product offered under a new one's name
-                // is a wrong link.
                 carry.prune(CarryNode.PRODUCT)
                 carry.remember(sitting)
                 media.reset()
@@ -8402,8 +6432,6 @@ private fun ProductForm(
                 uploadAttachments(repository, context, media, "product", productId, productName, "Field media for ${productName.trim()}")
                 productId
             }.onSuccess { productId ->
-                // The product itself now joins the bag: a process is documented against a product, so
-                // the process form should be offering this one rather than making them find it again.
                 carry.remember(sitting.copy(productId = productId, productName = productName.trim()))
                 media.reset()
                 draft.clear(); finish(productId, queued = false)
@@ -8412,9 +6440,6 @@ private fun ProductForm(
         }
     }
     val productSig: () -> String = {
-        // The offer resolves a beat after the first composition, so until it does the handoff it was
-        // built from stands in — otherwise the baseline and the prefill would disagree for one frame
-        // and an untouched form would come out of it reading as edited.
         val carried = carry.offer?.context ?: prefill?.toCarryContext()
         listOf(productName, localName, craftName.exceptCarried(carried?.craftName),
             artisanName.exceptCarried(carried?.artisanName), place.exceptCarried(carried?.place),
@@ -8427,9 +6452,6 @@ private fun ProductForm(
         productSig() != initialSig || workshop.isDirty() || media.uris.isNotEmpty() || media.measurementUri != null
     )
 
-    // Which boxes on this form carry a microphone is DATA, not a pattern — see
-    // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
-    // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.PRODUCT)
     val productPhotos = rememberImageCount(media.uris)
     RecordCard(title = if (isEdit) recordUpdateTitle("product") else "Add product") {
@@ -8456,19 +6478,11 @@ private fun ProductForm(
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
-        // Above the workshop picker, so what was filled in is read before any of the fields it filled.
         CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
         WorkshopField(state = workshop, saving = saving)
         RequiredInput("Product name", productName, productNameError, productNameFocus, titleCased = true, dictate = dictates("productName")) { productName = it }
         TextInput("Local name", localName, dictate = dictates("localName")) { localName = it }
         DropdownField("Product type", productTypeOptions.map { it to it }, productType, includeNone = false) { productType = it }
-        /*
-         * ARTISAN FIRST (B5, 2026-10-17). One searchable artisan picker sets the artisan, their craft
-         * and their place, and reads "Ramesh Chhipa · Block printing · Bagru". It used to be a craft
-         * dropdown first, then the artisan dropdown ("Select a linked craft first" was a dead stop),
-         * then three required boxes repeating both picks. The typed boxes are still here, behind
-         * "Artisan not on record", for the artisan who has no record yet.
-         */
         CompletenessAnchor("artisan") {
         DropdownField(
             label = "Artisan",
@@ -8485,8 +6499,6 @@ private fun ProductForm(
                 place = it.place
                 craftId = it.craftId.orEmpty()
                 craftName = it.craft?.name ?: craftOptions.firstOrNull { c -> c.id == it.craftId }?.name.orEmpty()
-                // An explicit pick replaces the remembered context and retires the banner: from here
-                // on the artisan on screen is the researcher's own choice, not a suggestion.
                 carry.remember(
                     CarryContext(
                         artisanId = it.id,
@@ -8501,8 +6513,6 @@ private fun ProductForm(
         }
         }
         artisanPickError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        // Or the artisan's card: links them, and their craft with them. Scanned with no signal and
-        // not in this phone's register, the card waits as a chip and links when the record syncs.
         if (!notOnRecord) {
             ArtisanCardPickerScan(
                 repository = repository,
@@ -8534,12 +6544,9 @@ private fun ProductForm(
                 if (on) artisanId = ""
             }
         )
-        // A picked artisan with no craft (or no place) on record still needs one named for this
-        // product. Read off the ARTISAN, never off the box, so the box does not vanish mid-typing.
         val pickedArtisan = picker.options.firstOrNull { it.id == artisanId }
         val needsCraft = notOnRecord || (pickedArtisan != null && pickedArtisan.craftId.isNullOrBlank()) || craftNameError != null
         if (needsCraft) {
-            // From the master list only (`ui/CraftPicker.kt`): the name follows the craft picked.
             val craftListContext = LocalContext.current.applicationContext
             CraftPickerField(
                 label = "Craft",
@@ -8555,8 +6562,6 @@ private fun ProductForm(
                     craftId = id
                     craftName = CraftCatalogueCache.catalogue.value?.craft(id)?.name.orEmpty()
                     craftNameError = null
-                    // Drop the artisan ONLY when this form actually knows they practise a different
-                    // craft — never merely because it cannot see them (`ui/RecordPickers.kt`).
                     if (notOnRecord && craftChangeClearsArtisan(id, artisanId, picker.options)) {
                         artisanId = ""
                     }
@@ -8573,15 +6578,6 @@ private fun ProductForm(
             TextInput("Time taken to complete", timeTaken, dictate = dictates("timeTakenToCompleteProduct")) { timeTaken = it }
         }
         TextInput("Size", size, dictate = dictates("size")) { size = it }
-        /*
-         * THE THREE DIMENSION BOXES, AND WHY EACH ONE FORGETS ITS MARKER AS IT IS TYPED IN.
-         *
-         * `markers.body(...)` at save already drops any marker whose column no longer holds the exact
-         * text the machine wrote, so a typed-over number loses its claim with no help from here. The
-         * `forget` call covers the ONE case that comparison cannot see: a researcher who deletes the
-         * accepted number and types the identical digits back by hand. That is a hand-typed number and
-         * must be recorded as one. See `data/MeasurementMarkers.kt`.
-         */
         CompletenessAnchor("dimensions") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal, dictate = dictates("lengthInches")) { length = it; markers.forget("lengthInches") } }
@@ -8589,20 +6585,6 @@ private fun ProductForm(
             }
             TextInput("Height (inches)", height, keyboardType = KeyboardType.Decimal, dictate = dictates("heightInches")) { height = it; markers.forget("heightInches") }
         }
-        /*
-         * THE TWO MEASUREMENT ROUTES, DELIBERATELY IN THIS ORDER.
-         *
-         * [RecordMeasureField] runs `PhotoMeasure` entirely on this handset. It costs nothing per use,
-         * works with the aircraft-mode switch on in the courtyard where the object actually is, and
-         * anybody can re-derive its answer later from the marks that produced it. [GridMeasurementSection]
-         * below posts the photograph to a vision model that ESTIMATES the number: it needs a network,
-         * it bills per call, and nobody can check it after the fact.
-         *
-         * Both are offered because they fail in different places — geometry needs a reference of a known
-         * length in the frame, the model does not. The geometric one is FIRST because it is the one that
-         * should be reached for first, and it draws nothing at all when the batch has no photograph in
-         * it, so a record with no images looks exactly as it did before.
-         */
         RecordMeasureField(
             dimensions = PRODUCT_MEASURE_DIMENSIONS,
             current = mapOf("lengthInches" to length, "breadthInches" to breadth, "heightInches" to height),
@@ -8614,8 +6596,6 @@ private fun ProductForm(
                     "breadthInches" -> breadth = text
                     "heightInches" -> height = text
                 }
-                // RECORDED WITH THE EXACT TEXT JUST WRITTEN, which is what lets `body()` tell later
-                // whether this number is still the one the panel proposed. See MeasurementMarkers.
                 markers.accept(column, text, geometryMarker(technique))
             },
         )
@@ -8623,19 +6603,7 @@ private fun ProductForm(
             repository = repository,
             media = media,
             includeHeight = true,
-            // EACH DIMENSION IS MARKED ONLY WHERE IT IS ACTUALLY WRITTEN — inside the same `if` that
-            // writes it. A model that read a length but not a breadth fills one box, and marking the
-            // other would claim a method for a number this request does not carry, which the server
-            // refuses BY NAME with a 422 and which the outbox will not queue.
-            //
-            // `visionMarker(null)` is the bare `{"method": "VISION_MODEL"}`: this client's repository
-            // returns a plain Double and has nowhere for the server's own marker to ride, so the
-            // provider, model id and confidence are OMITTED rather than invented. See
-            // `MeasurementMarkers.MeasurementReading` for the shape that would carry them.
             onLengthBreadth = { l, b, marker ->
-                // `visionMarker(marker)`, not `visionMarker(null)`: the server's marker carries
-                // provider, modelId AND selfReportedConfidence, and passing null threw all three
-                // away — so the handset stored a weaker record than the browser for the same act.
                 if (l != null && l > 0) { length = numToText(l); markers.accept("lengthInches", length, visionMarker(marker)) }
                 if (b != null && b > 0) { breadth = numToText(b); markers.accept("breadthInches", breadth, visionMarker(marker)) }
             },
@@ -8652,14 +6620,6 @@ private fun ProductForm(
         CompletenessAnchor("marketDemand") {
             DropdownField("Market demand", marketDemandOptions.map { it to it }, marketDemand, includeNone = false) { marketDemand = it }
         }
-        /*
-         * THE PRODUCT'S FOUR NARRATIVE COLUMNS, ALL FOUR WITH BOTH CONTROLS.
-         *
-         * Raw materials and main tools are the two that look borderline and are not: the web form's
-         * own help asks for them one per line, they are exported as prose, and a real answer runs to
-         * several materials with a note against each. That is a list — and a list is the formatting
-         * a researcher is most likely to want here and the one the browser will render back to them.
-         */
         TextInput("Raw materials used", rawMaterials, minLines = 2, dictate = dictates("rawMaterialsUsed"), rich = true) { rawMaterials = it }
         TextInput("Main tools used", mainTools, minLines = 2, dictate = dictates("mainToolsUsed"), rich = true) { mainTools = it }
         TextInput("Function or use", functionUse, minLines = 2, dictate = dictates("productFunctionUse"), rich = true) { functionUse = it }
@@ -8685,22 +6645,18 @@ private fun ToolForm(
     repository: FieldRepository,
     crafts: List<CraftDto>,
     artisans: List<ArtisanDto>,
-    /** Whether the two lists above arrived, could not be reached, or are still coming. */
     lookupState: CarryScopeState = CarryScopeState.PENDING,
-    /** See [ProductForm]'s pair of the same name — identical meaning, identical default. */
     craftSeed: PageResponse<CraftDto>? = null,
     artisanSeed: PageResponse<ArtisanDto>? = null,
     editing: ToolDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
-    /** A create landed: the sitting, the record's name, and whether "Save and add another" was pressed. */
     onCreated: ((Prefill, String?, Boolean) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
     val draft = rememberFormDraft(repository, "tool", editing?.id, prefill.draftParentId(), prefill.draftParentLabel())
     val media = rememberMediaCaptureState()
     val stages = rememberMediaCaptureState()
@@ -8708,82 +6664,12 @@ private fun ToolForm(
     var toolkitName by remember(editing) { mutableStateOf(editing?.toolkitName ?: "") }.drafted(draft, "toolkitName")
     var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }.drafted(draft, "localName")
     var englishName by remember(editing) { mutableStateOf(editing?.englishName ?: "") }.drafted(draft, "englishName")
-    /**
-     * IS THE ENGLISH NAME STILL FOLLOWING THE TOOLKIT NAME? — the "sticky divorce" flag.
-     *
-     * Typing in "Toolkit name" mirrors live into "English name" until the researcher edits the
-     * English box themselves, and then never again for this form session. ONE-WAY: nothing re-arms
-     * it, because somebody who has corrected the English name once does not want the next keystroke
-     * in the toolkit box to undo the correction.
-     *
-     * THE INITIAL STATE IS COMPUTED ONCE, HERE, AND NEVER IN AN EFFECT. A `LaunchedEffect(toolkitName)`
-     * fires on the FIRST composition with the loaded value, so opening an existing record whose
-     * `englishName` is empty would write the toolkit name into it before anybody had typed — making
-     * the form dirty and changing a saved record by merely looking at it.
-     *
-     * ARMED when the loaded English name is blank, or is EXACTLY the loaded toolkit name — raw, no
-     * trim and no case fold, because two values that differ by a space are two values a researcher
-     * chose. DIVORCED otherwise, and that arm is what protects saved data: a record whose two names
-     * genuinely disagree must never have the English one clobbered by a keystroke in the toolkit box.
-     * A create has no `editing`, so it lands ARMED. `remember(editing)` recomputes when this
-     * composition is re-keyed onto a different record, which is the session boundary.
-     *
-     * NOTHING PROGRAMMATIC DISARMS IT. The carry/prefill apply below and `clearCarriedContext` do not
-     * touch `englishName` at all, and the mirror's own write assigns the state directly rather than
-     * going through the box's `onValueChange` — so only a person editing that box sets this false.
-     */
     var mirrorArmed by remember(editing) {
         mutableStateOf((editing?.englishName ?: "").isBlank() || editing?.englishName == editing?.toolkitName)
     }.drafted(draft, "mirrorArmed")
     var craftName by remember(editing) { mutableStateOf(editing?.craftName ?: prefill?.craftName ?: "") }.drafted(draft, "craftName")
     var artisanName by remember(editing) { mutableStateOf(editing?.artisanName ?: prefill?.artisanName ?: "") }.drafted(draft, "artisanName")
     var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }.drafted(draft, "place")
-    /**
-     * THE CRAFTS AND ARTISANS THIS TOOL IS LINKED TO — plural since 2026-09-15, and ORDERED.
-     *
-     * `List<String>` and not the `Set<String>` every other multi-select on this screen holds, and the
-     * difference is the wire contract: the server writes `craftName` as the ticked craft names joined
-     * ", " IN THE ORDER THIS LIST GIVES, and derives `craftId`/`artisanId` from element 0. A set has
-     * no order to give, so the joined name would come out in whatever order a hash walk produced and
-     * could change between two saves of an untouched record.
-     *
-     * ── THE RECORD'S OWN `craftId`/`artisanId` IS THE HEAD OF THE SEED, AND THE LINKS FOLLOW ────────
-     *
-     * A UNION, scalar first, deduped — not "the links, or else the scalar". The rule that stood here
-     * was *"SEEDED FROM THE JOIN TABLES FIRST, THEN FROM THE SINGULAR COLUMNS"*, falling back to the
-     * scalar only when the link list was EMPTY, and on its own that reassigned tools. The server
-     * derives `artisanId := artisanIds[0]` and DELIBERATELY leaves the NOT NULL `artisanName`/`place`
-     * alone, so a head this form invented out of a link list that did not contain the record's own
-     * artisan stored one person's id under another person's name — from an edit about Remarks, under
-     * a 200, with the original artisan gone from the row and from the join table both.
-     *
-     * THE SERVER CLOSED THE SAME HOLE FROM ITS OWN SIDE IN THIS WAVE, AND THE TWO ARE NOT REDUNDANT.
-     * `20260916090000_tool_artisan_primary_backfill` gives every tool that names an artisan the link
-     * row it never had — `ToolArtisan` was created in June to serve the assignment endpoint and was
-     * never backfilled, unlike `ToolCraft`, which `20260915100000` did backfill — and
-     * `_order_artisan_links` pins the link `artisanId` names to the front of every read. Against a
-     * current server this union is therefore EQUAL to `artisanLinks` and costs nothing. What it still
-     * covers:
-     *
-     *  • A PRIMARY THAT IS UNASSIGNED AFTERWARDS. `DELETE /tools/{id}/artisans/{artisan_id}` deletes
-     *    one link row and touches no scalar, so a tool can hold `artisanId = X` beside links [Y] again
-     *    at any time. `_order_artisan_links` then has nothing to pin, and a links-only seed would hand
-     *    the record to Y on the next ordinary save.
-     *  • A FIELDED APK MEETING AN OLDER API. This handset is installed, not deployed, and meets
-     *    whatever backend the courtyard has. Against one that predates the backfill, a links-only seed
-     *    is the live defect for every tool recorded between 2026-06-18 and the multi-select.
-     *  • The head is then independent of the order the links arrive in — which is a SERVER promise
-     *    about a table with no ordinal column of its own, not a property of the data.
-     *
-     * With the scalar at the head, element 0 is the artisan the record says it is about, the scalar
-     * trio stays self-consistent through a save, and no assigned link is dropped: the links are
-     * appended, not discarded.
-     *
-     * `craftIds` gets the identical shape, defensively rather than for a live defect: `ToolCraft` IS
-     * backfilled, so the links already contain the scalar — but a row written by an older client
-     * through a single-craft PATCH would not, and the same reassignment would follow from the same
-     * seed. A tool recorded before the join table existed still opens with its one craft ticked.
-     */
     val seededCraftIds = remember(editing) {
         val own = (editing?.craftId ?: prefill?.craftId)?.ifBlank { null }
         (listOfNotNull(own) + editing?.craftLinks?.map { it.craftId }.orEmpty()).distinct()
@@ -8794,51 +6680,8 @@ private fun ToolForm(
     }
     var craftIds by remember(editing) { mutableStateOf(seededCraftIds) }.drafted(draft, "craftIds")
     var artisanIds by remember(editing) { mutableStateOf(seededArtisanIds) }.drafted(draft, "artisanIds")
-    /**
-     * THE FIRST OF EACH, DERIVED — not a second source of truth.
-     *
-     * `tool.craftId` and `tool.artisanId` keep holding the first selection, for backward compatibility
-     * with every filter, index, report and carry-forward that reads them, and these two vals are what
-     * the payload, the carry bag and the dirty signature go on using. They were `var`s until the
-     * pickers became multi-selects; deriving them is what stops the singular and the plural from ever
-     * disagreeing about which craft is first.
-     */
     val craftId = craftIds.firstOrNull().orEmpty()
     val artisanId = artisanIds.firstOrNull().orEmpty()
-    /**
-     * WHAT THE CRAFT AND ARTISAN PICKERS ACTUALLY OFFER — see `ui/RecordPickers.kt`, which the web
-     * forms share word for word (`frontend/components/forms/recordPickers.ts`).
-     *
-     * `crafts` and `artisans` above are ONE 100-row page each, and 100 is the server's ceiling
-     * rather than a default. `craftOptions` adds EVERY ticked craft that sorts past that page;
-     * `picker` adds the ticked crafts' real roster (fetched with `craftIds`, the plural the endpoint
-     * gained on 2026-09-15 beside the singular `craftId` it has always accepted) and every selected
-     * artisan neither page holds. Both are purely ADDITIVE — nothing that was offered stops being
-     * offered.
-     *
-     * THE BY-ID RESCUE IS NOT A NICETY NOW THAT THESE ARE MULTI-SELECTS. The picker sheet holds a
-     * DRAFT of the whole selection and its "Clear all" empties it outright, so an id that is selected
-     * but absent from the options is one the researcher cannot see, cannot untick deliberately, and
-     * can lose in a single tap. These two lists being supersets of the selection is what makes that
-     * impossible.
-     *
-     * DECLARED HERE, above `carry`, because `carryScope` is given these lists and not the raw pages.
-     * A carried record that is merely off page one is genuinely reachable — the by-id lookup FETCHED
-     * it, which is proof it exists — and scoring it against the raw page would prune a link the form
-     * is already showing. Merging can only ever add, so it cannot mask a record that is really gone:
-     * the lookup returns nothing for a deleted id. This is the same choice the web forms make, and
-     * the two must keep making it together.
-     *
-     * SEEDED WITH WHAT THE RECORD ALREADY CARRIES, so the common case costs no request at all.
-     * `GET /tools/{id}` hydrates each link row with its craft / artisan object, and this form was
-     * built from that response — they were parsed and then thrown away, and the by-id loops went and
-     * fetched them again, one serial request each, over exactly the field connection a researcher is
-     * on. A tool linked to three off-page crafts and six off-page artisans opened reading "0 selected"
-     * over crafts it genuinely holds while nine requests went out for rows already in memory, and any
-     * one of them that failed left its row missing for the life of the form. The loops stay as the
-     * fallback for an older server that sends a null nested object.
-     */
-    /** The master list (`data/CraftCatalogueCache.kt`), plus this tool's own linked crafts for their names. */
     val craftCatalogue by CraftCatalogueCache.catalogue.collectAsState()
     val craftOptions = remember(craftCatalogue, editing) {
         val listed = craftCatalogue?.crafts?.map { CraftDto(id = it.id, name = it.name) }.orEmpty()
@@ -8846,8 +6689,6 @@ private fun ToolForm(
         listed + linked
     }
     val craftListState = if (craftCatalogue != null) CarryScopeState.LOADED else CarryScopeState.UNAVAILABLE
-    // ARTISAN FIRST (B5): the artisan sheet searches every artisan, and picking one ticks their craft.
-    // Narrowed to the ticked crafts' roster only when the researcher is typing the record by hand.
     var notOnRecord by remember(editing) {
         mutableStateOf(editing != null && seededArtisanIds.isEmpty() && editing.artisanName.isNotBlank())
     }.drafted(draft, "notOnRecord")
@@ -8864,32 +6705,6 @@ private fun ToolForm(
     var material by remember(editing) { mutableStateOf(editing?.material ?: "") }.drafted(draft, "material")
     var materialFamily by remember(editing) { mutableStateOf(editing?.materialFamily.orEmpty()) }.drafted(draft, "materialFamily")
     var yearsInUse by remember(editing) { mutableStateOf(editing?.yearsInUse?.toString() ?: "") }.drafted(draft, "yearsInUse")
-    /*
-     * THE CENTIMETRE PAIR AND THE INCH TRIPLE — five boxes, and the rule that stops two of them from
-     * eating each other.
-     *
-     * Since 2026-09-15 `height` and `width` are the CENTIMETRE boxes, paired 1:1 with `heightInches`
-     * and `breadthInches`. `lengthInches` is standalone and gets no partner and no new column. Typing
-     * in either half of a pair converts into the other — `ui/DimensionUnits.kt`, 1 inch = 2.54 cm,
-     * rounded to two decimals because both columns are `Decimal(10,2)`.
-     *
-     * THE NOTE THAT STOOD HERE IS RETIRED WITH QUOTATION RATHER THAN DELETED, because it was the
-     * argument for the previous behaviour and its condition has changed. It read: *"The inches
-     * height, and a SEPARATE box from `height` above rather than a relabelling of it. `Tool.height`
-     * and `Tool.heightInches` are different columns: rows already hold values in `height` and nothing
-     * in the database can say what unit those are in… Showing one box for two columns would lose that
-     * distinction again on the first edit of an old row."* Every clause of that was true and the
-     * first two still are — they ARE two columns, and old rows DO hold unrelated numbers in them.
-     * What changed is the instruction: the repository owner has decided the cm box is a centimetre
-     * box, so from here the pair is one measurement in two units. They are still two columns and this
-     * form still draws two boxes.
-     *
-     * WHICH IS PRECISELY WHY NOTHING IS CONVERTED ON LOAD. Each box is seeded from its own column and
-     * from nothing else, right here, and a `remember(editing)` re-key re-seeds by the same rule. A
-     * load-time conversion would rewrite one half of every historic row whose two columns disagree,
-     * and the next save would store the rewrite. Conversion fires on USER INPUT ONLY — see the boxes
-     * themselves, and `propagateDimension`'s header for the whole rule.
-     */
     var height by remember(editing) { mutableStateOf(numToText(editing?.height)) }.drafted(draft, "height")
     var heightInches by remember(editing) { mutableStateOf(numToText(editing?.heightInches)) }.drafted(draft, "heightInches")
     var width by remember(editing) { mutableStateOf(numToText(editing?.width)) }.drafted(draft, "width")
@@ -8898,66 +6713,30 @@ private fun ToolForm(
     var thickness by remember(editing) { mutableStateOf(numToText(editing?.thickness)) }.drafted(draft, "thickness")
     var weight by remember(editing) { mutableStateOf(numToText(editing?.weight)) }.drafted(draft, "weight")
     var radius by remember(editing) { mutableStateOf(numToText(editing?.radius)) }.drafted(draft, "radius")
-    /*
-     * HOW `length` / `breadth` / `heightInches` WERE MEASURED, for the ones somebody accepted a
-     * proposal into — and NEVER `height`, `width`, `thickness`, `weight` or `radius`.
-     *
-     * `thickness`, `weight` and `radius` are ordinary typed boxes with no measurement route pointed at
-     * them. `height` and `width` ARE DIFFERENT SINCE THE CENTIMETRE PAIRING, and the distinction is
-     * the whole point of this paragraph: the measurement panels below now do fill them — as the
-     * converted partner of `heightInches` and `breadthInches` — and they still carry NO provenance of
-     * their own and must never be given one. A marker describes the reading a machine actually took,
-     * which is the INCH box; one naming a cm box would claim the panel measured a column it never
-     * looked at. The server refuses a marker naming `height` BY NAME rather than dropping it, and on
-     * this platform a refused save is a lost record. `MeasurementMarkers.accept` also drops any column
-     * outside the documented three, so the mistake cannot be made from here even if a future caller
-     * tries.
-     *
-     * KEYED ON `editing` LIKE THE BOXES THEMSELVES — see ProductForm for why.
-     */
     val markers = remember(editing) { MeasurementMarkers() }
     var maker by remember(editing) { mutableStateOf(editing?.maker ?: "UNKNOWN") }.drafted(draft, "maker")
-    // "" until answered: the dropdown offers the three shared answers, and a retired code an older
-    // row holds (MODERN, HYBRID) opens as its successor. Saved as UNKNOWN when left unanswered.
     var traditionType by remember(editing) { mutableStateOf(StandardValues.traditionChoice(editing?.traditionType)) }.drafted(draft, "traditionType")
     var replacementCost by remember(editing) { mutableStateOf(numToText(editing?.replacementCost)) }.drafted(draft, "replacementCost")
     var suggestions by remember(editing) { mutableStateOf(editing?.suggestionsForToolImprovement ?: "") }.drafted(draft, "suggestions")
     var remarks by remember(editing) { mutableStateOf(editing?.remarks ?: "") }.drafted(draft, "remarks")
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing, runningOnly = true)
-    /**
-     * Offer the sitting this researcher was last working in, however they got here.
-     *
-     * The TOOL in the bag is this form's own subject and is never applied here; a product or a
-     * process in it belongs to other forms and is left alone rather than dropped, so they still have
-     * it when the researcher gets there.
-     */
     val carry = rememberFormCarry(
         repository = repository,
         enabled = !isEdit,
         applies = CarryPrefillDefaults.TOOL_FORM,
-        // Both dropdowns are built from exactly these two lists, so "absent from the list" answers
-        // both "you can no longer reach it" and "this form could not have shown it" at once.
         scopes = listOf(
             carryScope(CarryNode.ARTISAN, lookupState, picker.options) { it.id },
             carryScope(CarryNode.CRAFT, craftListState, craftOptions) { it.id }
         ),
         handoff = prefill
     ) { carried ->
-        // A carried sitting names ONE craft and ONE artisan, so it REPLACES the selection rather than
-        // appending to it. Only ever reached on a create (`enabled = !isEdit`), where nothing has been
-        // ticked yet, so there is nothing of the researcher's to overwrite.
         carried.craftId?.let { id -> if (id.isNotBlank()) craftIds = listOf(id) }
         carried.craftName?.let { craftName = it }
         carried.artisanId?.let { id -> if (id.isNotBlank()) artisanIds = listOf(id) }
         carried.artisanName?.let { artisanName = it }
         carried.place?.let { place = it }
         carried.workshopId?.let { if (!workshop.isDirty()) workshop.applyDefault(it) }
-        // NOTHING HERE TOUCHES `englishName`, AND NOTHING MAY. A bag carries no English name to
-        // apply, and a programmatic write to that box must never count as the researcher editing it —
-        // see `mirrorArmed`. If a carry node ever gains a toolkit name, it must be applied through
-        // `applyToolkitName` below so the mirror still runs while it is armed.
     }
-    /** "Change": drop every carried value in one action so the researcher picks from scratch. */
     fun clearCarriedContext() {
         carry.change()
         craftIds = emptyList()
@@ -8965,93 +6744,20 @@ private fun ToolForm(
         artisanIds = emptyList()
         artisanName = ""
         place = ""
-        // `englishName` is deliberately absent, exactly as it was before the mirror existed: it is
-        // never carried, so there is nothing of the sitting's in it to drop. Clearing it here would
-        // also be a PROGRAMMATIC write to that box, which must not disarm the mirror.
     }
 
-    /**
-     * THE ONE WRITER OF `toolkitName`, so the mirror cannot be forgotten at a call site.
-     *
-     * Mirrors into `englishName` while [mirrorArmed] holds. AT THE WRITE SITE AND NEVER IN AN EFFECT
-     * — see `mirrorArmed`'s own note for what an effect would do to a saved record on load.
-     *
-     * IT COPIES THE RAW TYPED STRING AND NORMALISES NOTHING, which is not an omission. This app
-     * title-cases on the SERVER (`TITLE_CASE_FIELDS` in `backend/app/services/records.py`) and BOTH
-     * columns are in that set, so `titleCase(x) == titleCase(x)` and the two stored values are
-     * identical by construction. `titleCased = true` on the two boxes only draws the "Will be saved
-     * as …" hint; it does not transform the value, here or in the browser (`TitleCasedInput.tsx` is
-     * byte-identical between the two repositories and passes the event through unchanged). A
-     * client-side pre-normalisation would be a SECOND implementation of a server rule and could only
-     * drift from it.
-     *
-     * It does not move the dirty signature by itself — `toolSig` already lists `englishName`, so a
-     * mirrored keystroke is counted once, by the toolkit box it came from.
-     */
     fun applyToolkitName(next: String) {
         toolkitName = next
         if (mirrorArmed) englishName = next
     }
 
-    /**
-     * THE SITTING'S CRAFT NAME — the FIRST ticked craft's own name, never the joined string.
-     *
-     * `CarryContext.craftName` is singular and the carry banner prints it on six other forms, so a
-     * bag holding "Bandhani, Block Printing" would name one craft that does not exist. When nothing
-     * is ticked the typed `craftName` box is the answer, exactly as it was before the multi-select.
-     */
     fun carriedCraftName(): String? =
         craftIds.firstOrNull()?.let { cid -> craftOptions.firstOrNull { it.id == cid }?.name }
             ?: craftName.blankToNull()
 
-    /**
-     * The sheet's whole answer, reconciled against the ORDERED list this form keeps.
-     *
-     * Survivors hold their existing positions and newly ticked ids are appended in the order the sheet
-     * gives them, which is the order they were ticked: the sheet's draft is a `LinkedHashSet` seeded
-     * from the current selection, and `Set.minus`/`plus` preserve iteration order. That order is the
-     * wire contract — the server joins `craftName` in it and derives `craftId`/`artisanId` from
-     * element 0 — so it is reconstructed here rather than taken from a set's hash walk.
-     */
     fun reorderSelection(current: List<String>, next: Set<String>): List<String> =
         current.filter { it in next } + next.filterNot { it in current }
 
-    /**
-     * Keep `artisanName` and `place` describing the HEAD of `artisanIds`, and nothing else.
-     *
-     * Both are NOT NULL columns that the server does NOT re-derive — `_resolve_tool_links` sets
-     * `artisanId := artisanIds[0]` and deliberately leaves these two alone, because a researcher
-     * legitimately corrects "A. Khatri" to "Abdul Khatri" by hand. So this client is the only thing
-     * keeping the FK and the two prose columns describing one person, and every path that can move the
-     * head has to come through here: ticking, unticking, and a craft deselection that drops the artisan
-     * who was at the head.
-     *
-     * ONLY WHEN THE HEAD ACTUALLY CHANGES. Ticking a SECOND artisan does not move element 0, and
-     * rewriting the boxes anyway would throw away exactly the hand correction the server preserved.
-     *
-     * AN EMPTY LIST LEAVES BOTH BOXES EXACTLY AS LOADED, and that is the documented rule rather than
-     * an accident of a null check — the single-select's "Unlinked / type below" never cleared them
-     * either, and they are REQUIRED boxes, so blanking them would make an untick delete a mandatory
-     * answer. Spelling it as its own arm is also what stopped "Clear all" from writing them: the sheet
-     * used to replay N unticks, and the N-1th rewrote both from the LAST surviving artisan before the
-     * Nth returned — leaving a saved record with `artisanIds = []` and prose naming somebody the
-     * record was never about. The selection is applied once now, so there is no N-1th.
-     *
-     * THE HEAD IS RESOLVED FROM THE LINK ROWS WHEN THE PICKER CANNOT SEE IT. `picker.options` is a
-     * superset of the selection in the ordinary case, but not an unconditional one: a by-id rescue
-     * that has not landed yet, or whose request failed on a field connection, leaves the id out —
-     * and `RecordPickers` records an attempted id whether or not it answered, so one blip of signal
-     * used to keep an artisan out of the options for the whole form session. The record's own
-     * `artisanLinks` carry the hydrated artisan, so they answer without a request. Only when BOTH are
-     * silent is the write skipped — and then the two boxes still name the artisan the record loaded
-     * with, which is the honest state rather than a different person.
-     *
-     * THE BROWSER'S `syncArtisanColumns` (`frontend/components/forms/ToolForm.tsx`) is this function,
-     * head-change guard and all, EXCEPT for that second lookup: it gives up on `artisans.find(…)`
-     * alone. It has the same `initial.artisanLinks[].artisan` to fall back on and should gain the
-     * same arm; until it does, the handset is the safer of the two on this one path. Say so rather
-     * than letting the difference sit unrecorded.
-     */
     fun syncArtisanHead(previousHead: String?, next: List<String>) {
         val head = next.firstOrNull() ?: return
         if (head == previousHead) return
@@ -9060,8 +6766,6 @@ private fun ToolForm(
             ?: return
         artisanName = row.name
         place = row.place
-        // An explicit pick replaces the remembered context and retires the banner: from here on the
-        // artisan on screen is the researcher's own choice, not a suggestion.
         carry.remember(
             CarryContext(
                 artisanId = row.id,
@@ -9074,53 +6778,6 @@ private fun ToolForm(
         )
     }
 
-    /**
-     * Apply the craft sheet's WHOLE selection, keeping `craftName` and the artisan selection honest.
-     *
-     * ── ONE DECISION PER GESTURE, NOT ONE PER ID ───────────────────────────────────────────────────
-     *
-     * This used to be `onCraftToggled(id)`, and the control fanned a sheet selection out into one call
-     * per changed id. That was not a spelling of the same thing. "Clear all" over crafts [A, B] with
-     * artisans [a1 (of A), b1 (of B)] replayed untick-A and then untick-B: the first asked
-     * `craftsChangeClearsArtisans` about the craft list [B] — a state the researcher never selected —
-     * and dropped a1, and the second asked about []. One action deleted one artisan link and kept the
-     * other, decided by which craft happened to be ticked LAST, and `craftName` was rewritten to "B"
-     * from the same intermediate. Asking once, about the final selection, is the only shape in which
-     * the answer cannot depend on an order nobody chose.
-     *
-     * THE DESTRUCTIVE HALF is `ui/RecordPickers.kt`'s rule: drop exactly the artisans this form KNOWS
-     * practise a craft THIS GESTURE REMOVED and that is not ticked anywhere else. An artisan it
-     * cannot see, or whose own craft column is blank, is KEPT — "not on the loaded page" and "not of
-     * that craft" are different observations, and reading the first as the second is the silent link
-     * deletion `craftChangeClearsArtisan` exists to stop.
-     *
-     * ── THE REMOVED CRAFTS ARE COMPUTED HERE BECAUSE ONLY HERE KNOWS THEM ──────────────────────────
-     *
-     * The rule is handed the crafts that just went away and not merely the new selection, and that
-     * argument is the difference between "drop this craft's people" and "drop everyone whose craft is
-     * not ticked". A tool's artisans do not all arrive through this picker — "Assign tools to
-     * artisans" links anybody, of any craft, and this form draws every one of them ticked — so the
-     * second reading deleted a potter's assignment when a researcher unticked Block printing.
-     * `craftIds` is still the PREVIOUS selection at this point, so the difference is exact.
-     *
-     * `craftName` IS REWRITTEN ON EVERY CHANGE so the box always shows what will actually be stored.
-     * The cost is accepted and stated rather than worked around: a hand correction typed into the
-     * craft-name box is lost while crafts are ticked, because the server has to be able to re-derive
-     * `craftName` from `craftIds` alone — a body composed offline and replayed a fortnight later must
-     * still produce a name that agrees with its links. Untick every craft and the box is the
-     * researcher's own again.
-     *
-     * UNTICKING THE LAST CRAFT DOES NOT BLANK THE BOX, and that is the same rule the single-select
-     * had ("Unlinked / type below" never cleared the name). With no links the server stores whatever
-     * the body carries, so the box IS still showing what will be stored — and "Craft name" is a
-     * REQUIRED box, so emptying it would make an untick delete a mandatory answer and then refuse the
-     * save until it was retyped, over a craft nothing else on the form now records.
-     *
-     * A name this form has not loaded yet is simply left out of the joined string for as long as its
-     * off-page rescue is in flight, and that is cosmetic rather than lossy: the SERVER re-derives
-     * `craftName` from `craftIds` whenever the list is non-empty, so what is stored is the full
-     * joined name whatever this box happened to be showing when Save was pressed.
-     */
     fun onCraftsChanged(selection: Set<String>) {
         val next = reorderSelection(craftIds, selection)
         val removed = craftIds.filterNot { it in next }
@@ -9130,20 +6787,13 @@ private fun ToolForm(
         craftIds = next
         val joined = next.mapNotNull { cid -> craftOptions.firstOrNull { it.id == cid }?.name }.joinToString(", ")
         if (joined.isNotEmpty()) craftName = joined
-        // A craft deselection that drops the artisan who was at the head moves `artisanId` to somebody
-        // else, and the two prose columns have to follow it or the record names one person and points
-        // at another. Called AFTER `craftIds` is assigned so the re-banked sitting carries the new
-        // craft rather than the one just unticked.
         syncArtisanHead(previousArtisanHead, artisanIds)
     }
 
-    /** Apply the artisan sheet's whole selection; the FIRST one fills the artisan name and place. */
     fun onArtisansChanged(selection: Set<String>) {
         val previousHead = artisanIds.firstOrNull()
         val next = reorderSelection(artisanIds, selection)
         artisanIds = next
-        // Each newly picked artisan's craft is ticked for them, in pick order (B5). Never un-ticks:
-        // a craft the researcher chose stays chosen.
         val theirCrafts = next.mapNotNull { id -> picker.options.firstOrNull { it.id == id }?.craftId?.ifBlank { null } }
         val added = theirCrafts.filterNot { it in craftIds }.distinct()
         if (added.isNotEmpty()) {
@@ -9173,7 +6823,6 @@ private fun ToolForm(
     }
 
     var another by remember { mutableStateOf(false) }
-    /** Where a finished save goes: the next-step panel or another form for a create, else [onDone]. */
     fun finish(queued: Boolean) {
         val created = onCreated
         if (isEdit || created == null || (queued && !another)) { onDone(); return }
@@ -9219,21 +6868,6 @@ private fun ToolForm(
                 heightInches = heightInches.toDoubleOrNull(),
                 lengthInches = length.toDoubleOrNull(),
                 breadthInches = breadth.toDoubleOrNull(),
-                /*
-                 * HOW THOSE THREE WERE MEASURED — read from the boxes AS THEY STAND AT SAVE. See the
-                 * identical block in ProductForm for the whole argument; the short version is that a
-                 * dimension typed over, dictated over or cleared since it was accepted no longer
-                 * matches the accepted text and silently loses its claim, which is the only behaviour
-                 * that keeps the marker true. Null when nothing survives, and the key is then dropped
-                 * from the request entirely.
-                 *
-                 * `height` AND `width` ARE NOT IN THIS MAP and must never be. They are the
-                 * CENTIMETRE boxes now and the measurement panels do fill them — as the converted
-                 * partner of `heightInches` and `breadthInches` — but the reading a machine took is
-                 * the INCH one, and the server refuses a marker naming a column outside the
-                 * documented three BY NAME rather than dropping it. A refused save is a lost record
-                 * on this platform. The cm boxes carry no provenance and must not be given a fake one.
-                 */
                 measurementMethods = markers.body(
                     mapOf(
                         "lengthInches" to length,
@@ -9251,84 +6885,6 @@ private fun ToolForm(
                 remarks = remarks.blankToNull(),
                 artisanId = artisanId.ifBlank { null },
                 craftId = craftId.ifBlank { null },
-                /*
-                 * EVERY TICKED CRAFT AND ARTISAN, IN TICK ORDER — sent when this form CHANGED them,
-                 * and omitted entirely when it did not.
-                 *
-                 * `[]` is not the same as absent and the difference is the whole contract: absent
-                 * means "leave the stored links alone", `[]` means "there are none". A deliberate
-                 * clearing still travels as `[]` and is still checked; an untouched picker sends
-                 * neither key. A literal null would be a 422 and is unreachable — see
-                 * `ToolCreateRequest.craftIds`, and note that `explicitNulls = false` is what drops
-                 * the key rather than writing `null` into the body.
-                 *
-                 * ── WHY NOT UNCONDITIONALLY, WHICH IS WHAT THIS DID ────────────────────────────
-                 *
-                 * The paragraph here read: *"SENT ON EVERY SAVE, empty list included, because what is
-                 * on screen is what is stored… Sending the list unconditionally is what lets a
-                 * researcher actually unlink every craft."* The second clause is true and survives —
-                 * an unlink is a CHANGE, so it still sends. The first made the form unsavable for most
-                 * of the people who use it, because both keys are GATED on the server and both gates
-                 * fired on the key's PRESENCE rather than on whether the value differed:
-                 *
-                 *  • `artisanIds` goes through `_resolve_tool_links`, which refuses with 403 unless
-                 *    `_may_manage_tool_links` says yes. That gate kept its own three-clause copy of
-                 *    the edit rule — admin, owner, EDIT-grant — and left out the clause a professor's
-                 *    authority actually comes from, `may_edit_lower_ranked_record`. So a professor
-                 *    opening a student's tool from search, fixing Remarks and tapping Update sent
-                 *    `artisanIds = ["A"]`, byte-identical to what was stored, and could never save
-                 *    that record again.
-                 *  • Both lists then met `assert_can_contribute_relation`, which asked only whether
-                 *    the STORED relation was populated and never compared — so an ordinary
-                 *    contributor's identical re-send was refused as a replacement, over a `ToolCraft`
-                 *    relation the backfill had populated for nearly every tool.
-                 *
-                 * BOTH OF THOSE ARE NOW FIXED IN THE BACKEND, IN THIS SAME WAVE, and this condition
-                 * stays anyway. `_may_manage_tool_links` delegates to `record_edit_privilege` (so a
-                 * professor is privileged for the links exactly as they are for the row), and the
-                 * relation guard now asks `replaces_populated` — populated AND actually changing — so
-                 * an unchanged list is no longer a refusal. Sending only what changed is kept because:
-                 *
-                 *  • A FIELDED APK MEETS WHATEVER SERVER IS DEPLOYED. This handset is installed, not
-                 *    rolled out with the API; against a backend that predates those two fixes, sending
-                 *    both lists on every save is the 403 above, and the outbox will not queue a 4xx.
-                 *  • "Absent" is the honest description of a relation the researcher did not touch —
-                 *    the contract's own word for it — and it spares the server the two stored-link
-                 *    reads it now issues for every list a body carries.
-                 *  • It is exactly what `WorkshopForm` does with its own two rosters, a few hundred
-                 *    lines above, and for the same reason.
-                 *
-                 * THE BASELINE IS THE SEED AND NOT THE STORED LINKS, deliberately. `seededArtisanIds`
-                 * puts the record's own `artisanId` at the head of the links (see its own note), so for
-                 * a tool whose primary artisan has since been unassigned — or whose server predates the
-                 * backfill — the seed is a SUPERSET of what is stored. Comparing against the seed means
-                 * merely opening such a tool sends nothing and changes nothing; reconciling it is then
-                 * a deliberate act by somebody who touched the picker.
-                 *
-                 * AND THE COMPARISON IS A SEQUENCE ONE, where the browser's `sameIdSet` compares
-                 * MEMBERSHIP. Not an oversight and not a divergence in the stored result: `craftIds`
-                 * on this client only ever changes through `onCraftsChanged`, which keeps survivors in
-                 * place, so the two can differ in order only when somebody actually re-ordered the
-                 * selection — and the craft-name box on screen has already been rewritten to that new
-                 * order, so suppressing it would store a name other than the one being looked at. The
-                 * browser compares sets because its control hands back tick order against links that
-                 * arrive in the join table's, where an order difference really can be one nobody made.
-                 *
-                 * The server derives `craftId`/`craftName` and `artisanId` from element 0 of these
-                 * when they are present, overriding the two scalars above; the scalars are always
-                 * sent because a caller that ticks nothing needs them, because they are what an older
-                 * server would read, and because a save that omits both lists must still carry them.
-                 *
-                 * ── AND AN OLDER API REFUSES BOTH KEYS BY NAME ────────────────────────────────
-                 * `APIModel` is `ConfigDict(extra="forbid")`, so a body carrying a key the schema
-                 * does not declare is a 422 on the WHOLE save — and the outbox will not queue a 4xx,
-                 * so the researcher would lose the form rather than retry it. A fielded APK meets
-                 * whatever server is deployed, so this handset must not reach a courtyard ahead of
-                 * the API that declares these two. The browser's tool form carries the identical
-                 * warning for the identical reason; check with
-                 *
-                 *     grep -n "craftIds" backend/app/schemas/records.py
-                 */
                 craftIds = if (!isEdit || craftIds != seededCraftIds) craftIds else null,
                 artisanIds = if (!isEdit || artisanIds != seededArtisanIds) artisanIds else null,
                 workshopId = workshop.value(),
@@ -9336,14 +6892,11 @@ private fun ToolForm(
                 recordedAt = if (isEdit) null else Instant.now().toString(),
                 location = locationForBody(isEdit, media.location, editing?.location)
             )
-            // Bank the sitting the moment the record is accepted, so the next form opened from the
-            // dashboard already knows where the researcher is.
             val sitting = CarryContext(
                 artisanId = artisanId.ifBlank { null },
                 artisanName = artisanName.trim(),
                 place = place.trim(),
                 craftId = craftId.ifBlank { null },
-                // The FIRST craft's own name and never the joined string — see `carriedCraftName`.
                 craftName = carriedCraftName().orEmpty(),
                 workshopId = workshop.value(),
                 workshopName = workshop.workshops.firstOrNull { it.id == workshop.value() }?.title
@@ -9365,13 +6918,8 @@ private fun ToolForm(
                 }.isSuccess
                 if (ok) {
                     if (isEdit) {
-                        // An edited tool already has its id, so it can stay in the bag as itself.
                         carry.remember(sitting.copy(toolId = editing!!.id, toolName = toolkitName.trim()))
                     } else {
-                        // Offline is the normal case, but a queued tool has no id yet, so nothing can be
-                        // assigned to it. Whatever tool was in the bag is dropped rather than left to
-                        // stand in for the one just recorded — an old tool offered under a new one's
-                        // name is a wrong link.
                         carry.prune(CarryNode.TOOL)
                         carry.remember(sitting)
                     }
@@ -9389,9 +6937,6 @@ private fun ToolForm(
                         { toolOfflineItems() }) { key -> repository.createTool(body, key) }.id
                 }
                 uploadAttachments(repository, context, media, "tool", toolId, toolkitName, "Field media for ${toolkitName.trim()}")
-                // Each stage capture is uploaded as a numbered process step (STAGE_STEP_n). The tool is
-                // saved by now, so a capture that fails goes to the outbox rather than failing the
-                // save (which invited a second tap and a second tool).
                 val stagesLeft = mutableListOf<OfflineMediaSpec>()
                 stages.uris.forEachIndexed { index, uri ->
                     runCatching {
@@ -9423,8 +6968,6 @@ private fun ToolForm(
                 }
                 toolId
             }.onSuccess { toolId ->
-                // The tool itself now joins the bag, so assigning it to another artisan opens with
-                // the tool already picked instead of hunting it out of a dropdown of seventy.
                 carry.remember(sitting.copy(toolId = toolId, toolName = toolkitName.trim()))
                 media.reset()
                 stages.reset()
@@ -9434,19 +6977,12 @@ private fun ToolForm(
         }
     }
     val toolSig: () -> String = {
-        // The offer resolves a beat after the first composition, so until it does the handoff it was
-        // built from stands in — otherwise the baseline and the prefill would disagree for one frame
-        // and an untouched form would come out of it reading as edited.
         val carried = carry.offer?.context ?: prefill?.toCarryContext()
         listOf(toolkitName, localName, englishName, craftName.exceptCarried(carried?.craftName),
             artisanName.exceptCarried(carried?.artisanName), place.exceptCarried(carried?.place),
             processUsedIn, material,
             yearsInUse, height, width, length, breadth, thickness, weight, radius, maker, traditionType,
             replacementCost, suggestions, remarks, status,
-            // THE WHOLE TICK LIST, not just the head. Adding a second craft or a second artisan IS an
-            // edit, and a signature built from `craftId`/`artisanId` alone would call the form clean
-            // and let the researcher walk away from it. Joined in tick order, which is the order that
-            // actually gets stored.
             craftIds.joinToString(",").exceptCarried(carried?.craftId),
             artisanIds.joinToString(",").exceptCarried(carried?.artisanId)).joinToString("")
     }
@@ -9456,9 +6992,6 @@ private fun ToolForm(
             media.uris.isNotEmpty() || media.measurementUri != null || stages.uris.isNotEmpty()
     )
 
-    // Which boxes on this form carry a microphone is DATA, not a pattern — see
-    // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
-    // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.TOOL)
     val toolPhotos = rememberImageCount(media.uris) + rememberImageCount(stages.uris)
     RecordCard(title = if (isEdit) recordUpdateTitle("tool") else "Add tool") {
@@ -9487,60 +7020,24 @@ private fun ToolForm(
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
-        // Above the workshop picker, so what was filled in is read before any of the fields it filled.
         CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
         WorkshopField(state = workshop, saving = saving)
-        // EVERY WRITE OF `toolkitName` GOES THROUGH `applyToolkitName`, which is what mirrors it into
-        // the English name while the mirror is armed. Dictation lands in this same lambda —
-        // `ui/RecordProseField.kt` commits a spoken phrase through the CALLER's `onValueChange`, not
-        // through the text field's — so a spoken toolkit name mirrors exactly as a typed one does.
         RequiredInput("Toolkit name", toolkitName, toolkitNameError, toolkitNameFocus, titleCased = true, dictate = dictates("toolkitName")) { applyToolkitName(it) }
         CompletenessAnchor("localName") {
             TextInput("Local name", localName, dictate = dictates("localName")) { localName = it }
         }
-        // TOUCHING THIS BOX ENDS THE MIRROR, FOR GOOD — typing, pasting, dictating or CLEARING it.
-        // Clearing by hand is an explicit edit like any other: the box stays empty and the toolkit
-        // name stops writing into it. There is no re-arming gesture and there must not be one.
         TextInput("English name", englishName, titleCased = true, dictate = dictates("englishName")) { englishName = it; mirrorArmed = false }
-        /*
-         * ARTISAN FIRST (B5, 2026-10-17). The artisans come first and need no craft ticked: picking
-         * one fills the artisan name and place and ticks their craft. The craft sheet stays (a toolkit
-         * can serve several crafts), and the three typed boxes are behind "Artisan not on record".
-         */
-        // Task 6, now plural: the artisan picker is still gated on a linked craft, and lists the
-        // artisans of ALL the ticked crafts. Filtered from `picker.options` — the startup page PLUS
-        // those crafts' server-side roster PLUS every selected artisan — because filtering the
-        // startup page alone gives the intersection of those crafts with the newest hundred artisans
-        // overall, which is what made this control empty for crafts whose people were documented
-        // first.
-        //
-        // `|| it.id in artisanIds` IS NOT A CONVENIENCE. The sheet holds a DRAFT of the whole
-        // selection and its "Clear all" empties it outright, so an artisan who is selected but not
-        // offered is one the researcher cannot see, cannot untick deliberately, and can lose in a
-        // single tap. Keeping every selected id in the options is what makes that unreachable — and
-        // it is also how an artisan assigned from "Assign tools to artisans", who may practise a
-        // craft that is not ticked here, survives an ordinary edit of this form.
         val artisanOptionsForCraft = if (notOnRecord && craftIds.isNotEmpty()) {
             picker.options.filter { it.craftId in craftIds || it.id in artisanIds }
         } else {
             picker.options
         }
-        // ORDERED BY CRAFT NAME A→Z, THEN BY ARTISAN NAME A→Z, through the one comparison the browser
-        // uses too — `artisansByCraftThenName` in `ui/RecordPickers.kt`, where the collation rules and
-        // the list of forbidden comparators are written out.
-        //
-        // `SelectOption` carries no GROUP on either client, so there are no group headings to hang the
-        // craft on; it goes in the row's HINT instead and the grouping falls out of the order.
-        // `SelectOption.matches` searches the hint as well as the label, so typing a craft name
-        // filters the sheet to that craft, which is the half of a heading that actually does work.
         val selectedCrafts = craftOptions.filter { it.id in craftIds }
         fun toolArtisanRows(list: List<ArtisanDto>): List<SelectOption> =
             artisansByCraftThenName(list, selectedCrafts).map { artisan ->
                 SelectOption(
                     value = artisan.id,
                     label = artisan.name,
-                    // Blanks dropped rather than printed: an artisan whose craft this form cannot name
-                    // would otherwise read " · Bagru", which looks like a rendering fault.
                     hint = listOf(craftNameFor(artisan, selectedCrafts), artisan.place)
                         .filter { it.isNotBlank() }
                         .joinToString(" · ")
@@ -9556,19 +7053,10 @@ private fun ToolForm(
                 placeholder = "Search artisans",
                 emptyMessage = "No artisans recorded yet.",
                 enabled = !notOnRecord,
-                // The sheet lists the crafts' roster as the server pages and searches it, in the same
-                // craft-then-name order as the rows above.
                 server = picker.search.asServerSearchRows(countsRows = true) { toolArtisanRows(it) },
-                // The whole selection, once — see the craft picker above. "Clear all" here used to replay
-                // N unticks, and the N-1th rewrote `artisanName`/`place` from the last surviving artisan
-                // before the Nth returned.
                 onSelectedChange = { selection -> onArtisansChanged(selection) }
             )
         }
-        // A claim about the REPOSITORY, so it waits for the repository's answer about THESE crafts.
-        // Printed off a stale roster it said "no artisans are linked to this craft yet" over a craft
-        // with a dozen of them — which is why the picker records WHICH crafts the loaded rows belong
-        // to instead of holding a bare boolean, and why the test is `isLoadedFor` and not `!= null`.
         if (notOnRecord && craftIds.isNotEmpty() && picker.isLoadedFor(craftIds) && artisanOptionsForCraft.isEmpty()) {
             Text(
                 if (craftIds.size == 1) "No artisans are linked to this craft yet."
@@ -9578,8 +7066,6 @@ private fun ToolForm(
             )
         }
         artisanPickError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        // Or an artisan's card: adds them. A card scanned with no signal waits as a chip and links
-        // when the record syncs.
         if (!notOnRecord) {
             ArtisanCardPickerScan(
                 repository = repository,
@@ -9598,27 +7084,6 @@ private fun ToolForm(
                 if (on) artisanIds = emptyList()
             }
         )
-        // A MANY-OF-MANY SINCE 2026-09-15 — one documented toolkit can belong to several crafts.
-        // `CheckboxMultiSelectField`, never a wall of checkboxes painted straight into the form (the
-        // old `ArtisanMultiSelectField`, removed 2026-10-17 when the workshop form, its last caller,
-        // moved): a craft register runs to the hundreds. This one is a summary trigger, the
-        // chosen rows as chips, and a searchable sheet with Select all.
-        //
-        // `craftOptions`, not `crafts`: the page is 100 rows of a NAME-ordered list, so a craft whose
-        // name sorts past the cut is missing on every device on every day — `rememberCraftOptions`
-        // fetches every ticked craft that is not on the page so the sheet can draw it ticked rather
-        // than silently short.
-        //
-        // The old single-select's placeholder, "Unlinked / type below", has no home on a multi-select
-        // and is not missed: the trigger reads "Nothing selected" and the craft-name box below is
-        // still there to type into.
-        //
-        // IT TAKES THE WHOLE SELECTION AND NOT ONE ID AT A TIME, which is why these rows are built as
-        // `SelectOption`s: that overload passes the sheet's answer straight through, and the `Pair`
-        // one replays it as toggles. `onCraftsChanged` decides which artisan links a deselection
-        // deletes, and that question has no honest answer about a half-applied craft list.
-        // From the master list only (`ui/CraftPicker.kt`), in tick order; the server derives the
-        // craft name from these, so there is no craft-name box.
         val craftListContext = LocalContext.current.applicationContext
         CraftPickerField(
             label = "Linked crafts",
@@ -9634,7 +7099,6 @@ private fun ToolForm(
             craftNameError = null
             onCraftsChanged(next.toSet())
         }
-        // Read off the selection, never off the box, so a box does not vanish mid-typing.
         val headArtisan = picker.options.firstOrNull { it.id == artisanIds.firstOrNull() }
         if (notOnRecord || artisanNameError != null) {
             RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
@@ -9646,82 +7110,24 @@ private fun ToolForm(
         CompletenessAnchor("material") {
             TextInput("Material", material, dictate = dictates("material")) { material = it }
         }
-        // The material FAMILY from the shared list; the box above stays the free description.
         DropdownField("Material type", StandardValues.MATERIAL_FAMILY_OPTIONS, materialFamily, placeholder = "Select material type") { materialFamily = it }
         TextInput("Years in use", yearsInUse, keyboardType = KeyboardType.Number, dictate = dictates("yearsInUse")) { yearsInUse = it }
-        /*
-         * THE CENTIMETRE PAIR. The labels say "(cm)" as of 2026-09-15 and the LABELS ARE THE ONLY
-         * THING THAT CHANGED: the wire keys, the columns and `_CLEARABLE_COLUMNS` are still `height`
-         * and `width`. Renamed on all four clients in one commit — the browser's tool form, this
-         * form, and both of the sibling repository's — because a box a researcher moving between a
-         * laptop and a handset has to recognise cannot be called two things.
-         *
-         * EACH BOX WRITES ITS PARTNER AND NOTHING WRITES BACK. The propagation is `propagateDimension`
-         * called from inside THIS box's own change handler and from nowhere else; a
-         * `LaunchedEffect(height, heightInches)` would fire for both values and is exactly how 1 cm
-         * becomes 0.39 in becomes 0.99 cm. Compose state assignment does not re-invoke the target
-         * box's handler, so one-directional is the natural shape here and not a thing to be arranged.
-         *
-         * A partially typed decimal is a number, not a mistake: "1." parses and converts, so the
-         * partner tracks the keystrokes instead of blanking and refilling. Only a string that cannot
-         * be a number at all leaves the partner alone — and only an EMPTY box clears it, because empty
-         * is the one input that means "no value". The whole rule, with its worked examples, is in
-         * `ui/DimensionUnits.kt`.
-         *
-         * NO `markers.forget` HERE, DELIBERATELY, and this is the one asymmetry with the inch boxes
-         * below. `markers.body(...)` already drops a marker whose text no longer matches its box, so a
-         * machine's claim about `heightInches` survives a keystroke in this box EXACTLY WHEN the
-         * converted inches value is byte-identical to what the machine proposed — which is exactly
-         * when the claim is still true of the number on screen. `forget` exists for the one case that
-         * comparison cannot see, a researcher retyping the identical digits BY HAND INTO THE INCH BOX,
-         * and typing centimetres is not that. Calling it here would also have to be conditional on the
-         * partner actually being written, or a stray "abc" keystroke would delete a true claim about a
-         * number it did not touch.
-         */
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Box(modifier = Modifier.weight(1f)) { TextInput("Height (cm)", height, keyboardType = KeyboardType.Decimal, dictate = dictates("height")) { height = it; propagateDimension(it, ::inchesTextFromCm) { partner -> heightInches = partner } } }
             Box(modifier = Modifier.weight(1f)) { TextInput("Width (cm)", width, keyboardType = KeyboardType.Decimal, dictate = dictates("width")) { width = it; propagateDimension(it, ::inchesTextFromCm) { partner -> breadth = partner } } }
         }
-        /*
-         * THE INCH TRIPLE, AND WHY EACH BOX FORGETS ITS MARKER AS IT IS TYPED IN — see the same three
-         * boxes on ProductForm. `markers.body(...)` drops a marker whose text no longer matches; this
-         * covers the one case the comparison cannot see, a researcher retyping the identical digits by
-         * hand, which is a hand-typed number and must be recorded as one.
-         *
-         * TWO OF THE THREE ALSO WRITE A CENTIMETRE PARTNER — `breadthInches` fills "Width (cm)" and
-         * `heightInches` fills "Height (cm)" below. LENGTH IS STANDALONE: it has no cm partner and no
-         * new column, by the repository owner's decision, so its handler is unchanged.
-         */
         CompletenessAnchor("dimensions") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal, dictate = dictates("lengthInches")) { length = it; markers.forget("lengthInches") } }
                 Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal, dictate = dictates("breadthInches")) { breadth = it; markers.forget("breadthInches"); propagateDimension(it, ::cmTextFromInches) { partner -> width = partner } } }
             }
         }
-        // THE THIRD OF THE INCH TRIPLE, and the box whose absence silently cost the unit. The grid
-        // panel below proposes all three; until 2026-09-14 this client had nowhere to put the third,
-        // so `onHeight` wrote the measured INCHES into the `height` column above — which declared no
-        // unit at the time — and the reading arrived at the server looking like any hand-typed
-        // number. The browser's tool form has drawn this box since migration 20260913120100, and
-        // this client's own ProductForm has always had it; only ToolForm here was left behind.
-        //
-        // `height` DECLARES A UNIT NOW — it is the centimetre box — but that does NOT make it a
-        // destination for a measurement: the panel reports inches, the marker names the box it
-        // actually read, and the cm value is a conversion of that reading rather than a second one.
-        // Which is why this box writes `height` and never the other way round.
         TextInput("Height (inches)", heightInches, keyboardType = KeyboardType.Decimal, dictate = dictates("heightInches")) { heightInches = it; markers.forget("heightInches"); propagateDimension(it, ::cmTextFromInches) { partner -> height = partner } }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Box(modifier = Modifier.weight(1f)) { TextInput("Thickness", thickness, keyboardType = KeyboardType.Decimal, dictate = dictates("thickness")) { thickness = it } }
             Box(modifier = Modifier.weight(1f)) { TextInput("Weight", weight, keyboardType = KeyboardType.Decimal, dictate = dictates("weight")) { weight = it } }
         }
         TextInput("Radius", radius, keyboardType = KeyboardType.Decimal, dictate = dictates("radius")) { radius = it }
-        /*
-         * THE TWO MEASUREMENT ROUTES, DELIBERATELY IN THIS ORDER — the geometric one first, because it
-         * costs nothing per use, works with no signal in the courtyard where the tool actually is, and
-         * anybody can re-derive its answer later from the marks that produced it. The vision model
-         * below needs a network, bills per call, and cannot be checked after the fact. Both are offered
-         * because they fail in different places. See ProductForm for the longer form of this note.
-         */
         RecordMeasureField(
             dimensions = TOOL_MEASURE_DIMENSIONS,
             current = mapOf(
@@ -9734,22 +7140,9 @@ private fun ToolForm(
             onPropose = { column, text, technique ->
                 when (column) {
                     "lengthInches" -> length = text
-                    // AN ACCEPTED READING FILLS ITS CENTIMETRE PARTNER TOO, by the same conversion a
-                    // typed one goes through. Written with a bare assignment and NOT through the
-                    // box's own handler: the cm boxes are not in `MEASUREMENT_DIMENSIONS`, so routing
-                    // the write through anything provenance-shaped would advertise a relationship
-                    // that does not exist. `?.let` rather than an unconditional write because
-                    // `cmTextFromInches` is total — a proposal that is not a number writes nothing
-                    // rather than blanking a partner, exactly as rule 4 has it for typing.
                     "breadthInches" -> { breadth = text; cmTextFromInches(text)?.let { width = it } }
-                    // `heightInches`, NEVER `height`: the panel measures in inches and the marker has
-                    // to name the box the machine actually read. TOOL_MEASURE_DIMENSIONS does not
-                    // offer `height` at all, so this `when` has no branch for it and a proposal into
-                    // it cannot be constructed.
                     "heightInches" -> { heightInches = text; cmTextFromInches(text)?.let { height = it } }
                 }
-                // RECORDED WITH THE EXACT TEXT JUST WRITTEN, which is what lets `body()` tell later
-                // whether this number is still the one the panel proposed. See MeasurementMarkers.
                 markers.accept(column, text, geometryMarker(technique))
             },
         )
@@ -9757,27 +7150,10 @@ private fun ToolForm(
             repository = repository,
             media = media,
             includeHeight = true,
-            // EACH DIMENSION IS MARKED ONLY WHERE IT IS ACTUALLY WRITTEN — inside the same `if` that
-            // writes it. Marking one the request does not carry is a 422 the outbox will not queue.
-            // `visionMarker(null)` is the bare `{"method": "VISION_MODEL"}`: this client's repository
-            // returns a plain Double, so the provider, model id and confidence are OMITTED rather than
-            // invented.
             onLengthBreadth = { l, b, marker ->
-                // `visionMarker(marker)`, not `visionMarker(null)`: the server's marker carries
-                // provider, modelId AND selfReportedConfidence, and passing null threw all three
-                // away — so the handset stored a weaker record than the browser for the same act.
-                //
-                // THE CENTIMETRE PARTNER IS FILLED AFTER THE MARKER, AND ONLY FOR BREADTH. Length has
-                // no cm box. The marker is recorded against the INCH text and the cm write does not
-                // touch that text, so `body()`'s byte-for-byte comparison still passes and the
-                // provenance survives — which is the property the unit test pins.
                 if (l != null && l > 0) { length = numToText(l); markers.accept("lengthInches", length, visionMarker(marker)) }
                 if (b != null && b > 0) { breadth = numToText(b); markers.accept("breadthInches", breadth, visionMarker(marker)); cmTextFromInches(breadth)?.let { width = it } }
             },
-            // INTO `heightInches`, NOT `height`. The panel returns an inches reading, and the marker
-            // must name the box that reading went into; writing the reading itself into the cm box
-            // is the defect this whole block exists to close. The cm box is filled from it by
-            // CONVERSION, after the marker, and is given no provenance of its own.
             onHeight = { value, marker -> heightInches = numToText(value); markers.accept("heightInches", heightInches, visionMarker(marker)); cmTextFromInches(heightInches)?.let { height = it } }
         )
         CompletenessAnchor("maker") {
@@ -9789,12 +7165,6 @@ private fun ToolForm(
         CompletenessAnchor("replacementCost") {
             TextInput("Replacement cost", replacementCost, keyboardType = KeyboardType.Decimal, dictate = dictates("replacementCost")) { replacementCost = it }
         }
-        // The tool form's two narrative columns. `processUsedIn` above stays single-line and takes
-        // no editor — it is single-line on the web form too, and `components/forms/ToolForm.tsx`'s
-        // own test pins it that way — but it NOW TAKES THE MICROPHONE (2026-09-13), on both
-        // clients: the browser draws it as a dictated single-line input in the same wave. Widening
-        // it to a DOCUMENT on either client would still put the two platforms out of step over a
-        // field neither treats as prose, so the editor stays off it and only the microphone lands.
         TextInput("Suggestions for improvement", suggestions, minLines = 2, dictate = dictates("suggestionsForToolImprovement"), rich = true) { suggestions = it }
         TextInput("Remarks", remarks, minLines = 3, dictate = dictates("remarks"), rich = true) { remarks = it }
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
@@ -9814,7 +7184,6 @@ private fun ToolForm(
     }
 }
 
-/** Capture the making/using process of a tool as an ordered set of stage steps. */
 @Composable
 private fun ToolStagesSection(
     stages: MediaCaptureState,
@@ -9827,14 +7196,11 @@ private fun ToolStagesSection(
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
 
-    // Each capture asks for its own permission when pressed and waits for the answer (ui/PermissionGate.kt).
     val permissionGate = rememberPermissionGate(onRefused = onError)
-    // Location is asked as the pair, when "Use GPS" is pressed and only if neither is held.
     val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) stages.uris = stages.uris + uris
     }
-    // One photo per stage, shot after shot (A10): each photo is the next step in order.
     val camera = rememberKeepShootingCamera(
         newUri = { createAppFileUri(context, "stage-photo-", ".jpg") },
         onShot = { uri -> stages.uris = stages.uris + uri },
@@ -9874,7 +7240,6 @@ private fun ToolStagesSection(
             OutlinedButton(
                 onClick = {
                     if (!recording && !permissionGate.holds(MICROPHONE_PERMISSION)) {
-                        // Ask first and record nothing yet: the press that grants it is not a press to record.
                         permissionGate.ask(MICROPHONE_PERMISSION, MICROPHONE_REFUSED_SENTENCE)
                     } else if (!recording) {
                         runCatching {
@@ -9912,11 +7277,6 @@ private fun ToolStagesSection(
     }
 }
 
-// ===========================================================================
-// Process documentation
-// ===========================================================================
-
-/** Mutable UI holder for one process step: its name, fixed type, and its own media capture state. */
 private class ProcessStepUi(
     val key: String,
     serverId: String?,
@@ -9927,23 +7287,18 @@ private class ProcessStepUi(
 ) {
     var serverId by mutableStateOf(serverId)
     var name by mutableStateOf(name)
-    // Saved media already attached to this step; mutable so removing one updates the UI live.
     var existingMedia by mutableStateOf(existingMedia)
     var nameError by mutableStateOf<String?>(null)
     val nameFocus = FocusRequester()
     val media = MediaCaptureState()
-    // "Record additional information": free-text context for this step. Pre-checked when editing a
-    // step that already has notes so the existing text stays visible.
     var recordAdditional by mutableStateOf(!notes.isNullOrBlank())
     var notes by mutableStateOf(notes ?: "")
-    /** C22: the name was copied from another process ("from the craft's last process"), not typed. */
     var templateName by mutableStateOf<String?>(null)
 }
 
 private fun ProcessStepUi.stepTypeLabel(): String =
     if (stepType == "SEQUENTIAL") "Sequential" else "Group of activities"
 
-/** Per-file nomenclature segment for a step's media: 1A/1B… for sequential, 1-G1/1-G2… for groups. */
 private fun processStepSegment(stepNumber: Int, stepType: String, fileIndex: Int): String =
     if (stepType == "SEQUENTIAL") "STEP_${stepNumber}${'A' + (fileIndex % 26)}"
     else "STEP_${stepNumber}_G${fileIndex + 1}"
@@ -9953,24 +7308,19 @@ private fun ProcessForm(
     repository: FieldRepository,
     editing: ProcessDetailDto? = null,
     adminView: Boolean = false,
-    /** The sitting a next-step tap carried in — the product "Document how it's made" was pressed on. */
     prefill: Prefill? = null,
-    /** A create landed: the sitting, the record's name, and whether "Save and add another" was pressed. */
     onCreated: ((Prefill, String?, Boolean) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
     val draft = rememberFormDraft(repository, "process", editing?.id)
     val isEdit = editing != null
     val preMedia = rememberMediaCaptureState()
 
     var products by remember { mutableStateOf<List<ProductDetailDto>>(emptyList()) }
     var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
-    // "I can no longer see this artisan" and "there is no signal" are different answers, and the
-    // carry prefill treats them differently — see [rememberFormCarry].
     var artisanListState by remember { mutableStateOf(CarryScopeState.PENDING) }
     var name by remember(editing) { mutableStateOf(editing?.name ?: "") }.drafted(draft, "name")
     var artisanId by remember(editing) { mutableStateOf(editing?.product?.artisanId ?: "") }.drafted(draft, "artisanId")
@@ -9986,7 +7336,6 @@ private fun ProcessForm(
     var productError by remember { mutableStateOf<String?>(null) }
     var stepsError by remember { mutableStateOf<String?>(null) }
     var preMediaError by remember { mutableStateOf<String?>(null) }
-    // Saved pre-process media for this process; mutable so removing one reflects immediately.
     var existingPreMedia by remember(editing) { mutableStateOf(editing?.media ?: emptyList()) }
     val nameFocus = remember { FocusRequester() }
     var addMenu by remember { mutableStateOf(false) }
@@ -9998,8 +7347,6 @@ private fun ProcessForm(
         }
     }
 
-    // THIS FORM'S ARTISAN PAGE. Not narrowed by a craft, so it is page 1 of the whole table; the
-    // picker's search and "Load more" go to the server for the rest (`ui/ServerSearch.kt`).
     var artisanSeed by remember { mutableStateOf<PageResponse<ArtisanDto>?>(null) }
     LaunchedEffect(Unit) {
         runCatching { repository.products() }.onSuccess { products = it }
@@ -10012,40 +7359,15 @@ private fun ProcessForm(
         artisanListState = if (gotArtisans) carryScopeStateFor(artisanSeed) else CarryScopeState.UNAVAILABLE
     }
 
-    /**
-     * THE ARTISAN THIS PROCESS IS ALREADY FILED UNDER, whatever page they are on.
-     *
-     * `GET /artisans` orders `createdAt desc`, so an older process opened for editing points at an
-     * artisan the hundred-row page may not hold. The dropdown then could not draw its own current
-     * value: the form opened claiming NO artisan, offered no products (that list is fetched per
-     * artisan), and the only way forward on screen was to pick a DIFFERENT one. `craftId` is blank
-     * here on purpose — this form has no craft field, so the hook makes only the by-id request.
-     */
     val artisanPicker = rememberArtisanPicker(repository, artisans, "", artisanId, seed = artisanSeed)
     val artisanOptions = artisanPicker.options
 
-    /**
-     * The carried product, held until this artisan's product list arrives.
-     *
-     * A process is documented against a product, so "I just recorded a product, now let me record
-     * how it is made" is the most common journey into this form. The product cannot be applied on
-     * the spot the way the artisan can: the dropdown it belongs in is fetched per artisan, and that
-     * fetch only starts once the prefill has supplied the artisan. So it waits here for one round
-     * trip, and the effect below either seats it or drops it.
-     */
     val carriedProduct = remember { mutableStateOf<String?>(null) }
 
-    // Offer the sitting this researcher was last working in: the artisan, the workshop, and the
-    // product they documented last, which is what this record is about.
     val carry = rememberFormCarry(
         repository = repository,
         enabled = !isEdit,
         applies = CarryPrefillDefaults.PROCESS_FORM,
-        // No craft or tool field here, so neither is filled in nor claimed; both stay in the bag.
-        // `artisanOptions`, for the reason argued on ProductForm's declaration: a carried artisan who
-        // is merely off page one was FETCHED by id, which is proof they exist, and pruning them would
-        // drop a good link for the "absent from page one" reason this change set exists to stop
-        // conflating with "absent from the repository".
         scopes = listOf(carryScope(CarryNode.ARTISAN, artisanListState, artisanOptions) { it.id }),
         handoff = prefill
     ) { carried ->
@@ -10053,7 +7375,6 @@ private fun ProcessForm(
         carried.productId?.let { carriedProduct.value = it }
         carried.workshopId?.let { if (!workshop.isDirty()) workshop.applyDefault(it) }
     }
-    /** "Change": drop the carried artisan and product in one action. */
     fun clearCarriedContext() {
         carry.change()
         carriedProduct.value = null
@@ -10061,15 +7382,6 @@ private fun ProcessForm(
         productId = ""
     }
 
-    // Products belong to an artisan, so the product list is scoped to the chosen artisan. We re-key
-    // this effect on `artisans` and `products` as well as `artisanId`, so it also re-runs once those
-    // supporting lists finish loading — otherwise, in edit mode where artisanId is pre-set, the
-    // effect would fire once before `artisans` arrived (artisan name unknown → name match skipped)
-    // and never run again. On each run we fetch FRESH from the server filtered by artisanId AND the
-    // artisan's name (the server OR-matches FK-linked products plus FK-null products with that typed
-    // name), then union with any in-memory products whose artisan id/name matches as a fallback for
-    // an older server. Loading / empty / error states are surfaced so the dropdown is never silently
-    // empty when products actually exist.
     var artisanProducts by remember { mutableStateOf<List<ProductDetailDto>>(emptyList()) }
     var productsLoading by remember { mutableStateOf(false) }
     var productLoadError by remember { mutableStateOf<String?>(null) }
@@ -10094,15 +7406,10 @@ private fun ProcessForm(
         productsLoading = false
         result.onSuccess { fetched ->
             artisanProducts = fetched
-            // This list is both the dropdown's options and the only proof the carried product is
-            // still this artisan's and still reachable, so the deferred half of the prefill resolves
-            // here. Deleted, or not this artisan's after all: either way it is dropped from the bag
-            // and from the banner rather than offered as a link nobody can follow.
             carriedProduct.value?.let { carried ->
                 carriedProduct.value = null
                 if (fetched.any { it.id == carried }) productId = carried else carry.prune(CarryNode.PRODUCT)
             }
-            // Keep a valid selection: clear product if it is no longer offered for this artisan.
             if (productId.isNotBlank() && fetched.none { it.id == productId }) productId = ""
         }.onFailure {
             if (it is kotlinx.coroutines.CancellationException) throw it
@@ -10111,7 +7418,6 @@ private fun ProcessForm(
         }
     }
 
-    /** Where a finished save goes: the next-step panel or another form for a create, else [onDone]. */
     fun finishProcess(sitting: CarryContext, queued: Boolean) {
         val created = onCreated
         if (isEdit || created == null || (queued && !another)) { onDone(); return }
@@ -10140,8 +7446,6 @@ private fun ProcessForm(
             preMediaError = "Attach the pre-process media or uncheck the box"
         }
         if (steps.isEmpty()) stepsError = "Add at least one step"
-        // C22 (owner decision 2026-10-17): a step MAY save without a name. It is flagged on its card
-        // ("Unnamed step") instead of refused, so steps made from photographs can be named later.
         steps.forEach { step -> step.nameError = null }
         val blocked = nameError != null || productError != null || stepsError != null ||
             preMediaError != null || artisanError != null
@@ -10169,8 +7473,6 @@ private fun ProcessForm(
                 workshopId = workshop.value(),
                 recordedAt = if (isEdit) null else Instant.now().toString()
             )
-            // Bank the sitting the moment the record is accepted — queued counts, offline being the
-            // normal case — so the next form opened from the dashboard knows where the researcher is.
             val savedArtisan = artisanOptions.firstOrNull { it.id == artisanId }
             val sitting = CarryContext(
                 artisanId = artisanId.ifBlank { null },
@@ -10178,15 +7480,11 @@ private fun ProcessForm(
                 place = savedArtisan?.place,
                 craftId = savedArtisan?.craftId,
                 craftName = savedArtisan?.craft?.name,
-                // The product this process documents stays in the bag: a second process for the same
-                // product is the next thing a researcher does, and it should not need finding again.
                 productId = productId.ifBlank { null },
                 productName = artisanProducts.firstOrNull { it.id == productId }?.productName,
                 workshopId = workshop.value(),
                 workshopName = workshop.workshops.firstOrNull { it.id == workshop.value() }?.title
             )
-            // Offline: queue the process with its pre-process media (linked to the process) and each
-            // step's media (linked to that step on sync, by index), preserving the step nomenclature.
             fun processOfflineItems(): List<com.fieldrepository.app.data.OfflineMediaSpec> {
                 val items = mutableListOf<com.fieldrepository.app.data.OfflineMediaSpec>()
                 if (preProcessAvailable) {
@@ -10233,8 +7531,6 @@ private fun ProcessForm(
                 }
                 detail.steps.forEachIndexed { index, serverStep ->
                     val local = steps.getOrNull(index) ?: return@forEachIndexed
-                    // The process is saved by now: a step file that fails goes to the outbox, attached
-                    // to its step, instead of failing the save and inviting a second process.
                     val stepLeft = mutableListOf<OfflineMediaSpec>()
                     local.media.uris.forEachIndexed { fileIndex, uri ->
                         val segment = processStepSegment(index + 1, serverStep.stepType, fileIndex)
@@ -10248,7 +7544,8 @@ private fun ProcessForm(
                                 caption = "Process step ${serverStep.name.ifBlank { "${index + 1}" }}",
                                 location = local.media.location,
                                 batchIndex = fileIndex + 1,
-                                customSegment = segment
+                                customSegment = segment,
+                                processingRequests = TranscribeChoices.processingFor(uri.toString(), staged.mediaType)
                             )
                         } else {
                             repository.uploadMedia(
@@ -10288,9 +7585,6 @@ private fun ProcessForm(
         }
     }
     val procSig: () -> String = {
-        // A carried artisan or product is on the same footing as the workshop picker's automatic
-        // default: the researcher did not choose it, so an untouched form must not ask them to save
-        // it. Picking one themselves retires the offer, and the value starts counting from there.
         val carried = carry.offer?.context
         listOf(name, artisanId.exceptCarried(carried?.artisanId), productId.exceptCarried(carried?.productId),
             notes, status, preProcessAvailable.toString(),
@@ -10302,9 +7596,6 @@ private fun ProcessForm(
             preMedia.uris.isNotEmpty() || steps.any { it.media.uris.isNotEmpty() }
     )
 
-    // Which boxes on this form carry a microphone is DATA, not a pattern — see
-    // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
-    // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.PROCESS)
     RecordCard(title = if (isEdit) recordUpdateTitle("process") else "Document process") {
         DraftOfferCard(draft)
@@ -10321,15 +7612,11 @@ private fun ProcessForm(
             color = Muted,
             style = MaterialTheme.typography.bodySmall
         )
-        // Above the workshop picker, so what was filled in is read before any of the fields it filled.
         CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
         WorkshopField(state = workshop, saving = saving)
         RequiredInput("Name of the process", name, nameError, nameFocus, titleCased = true, dictate = dictates("name")) { name = it }
         DropdownField(
             label = "Artisan *",
-            // `artisanOptions`: the loaded page PLUS this record's own artisan when the page does not
-            // hold them — otherwise "Select the artisan" doubles as "filed under someone this control
-            // cannot draw", which is the same placeholder and a completely different fact.
             options = artisanOptions.map { it.id to "${it.name} · ${it.place}" },
             selectedValue = artisanId,
             placeholder = "Select the artisan",
@@ -10340,8 +7627,6 @@ private fun ProcessForm(
                 artisanId = picked
                 productId = ""
                 carriedProduct.value = null
-                // An explicit pick replaces the remembered context and retires the banner: from here
-                // on the artisan on screen is the researcher's own choice, not a suggestion.
                 artisanOptions.firstOrNull { it.id == picked }?.let {
                     carry.remember(
                         CarryContext(artisanId = it.id, artisanName = it.name, place = it.place),
@@ -10366,10 +7651,6 @@ private fun ProcessForm(
         ) { picked ->
             productId = picked
             artisanProducts.firstOrNull { it.id == picked }?.let { product ->
-                // Two calls, in this order, and the order is the point: pruning first drops the
-                // product the banner was offering — the researcher has just overruled it, so it must
-                // stop claiming it — and remembering then banks the one they chose. The artisan
-                // above is still our suggestion, so the banner stays up saying so.
                 carry.prune(CarryNode.PRODUCT)
                 val artisan = artisanOptions.firstOrNull { it.id == artisanId }
                 carry.remember(
@@ -10483,11 +7764,6 @@ private fun ProcessForm(
             }
         }
 
-        /*
-         * C22: FASTER STEPS. One step per photograph — picked, or shot one after another — in the
-         * order they were taken, unnamed until somebody names them; or the step NAMES of this craft's
-         * last process as a starting template. Nothing is named for the researcher without being shown.
-         */
         val stepsFromPhotos = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
             orderByCaptureTime(context, uris).forEach { uri ->
                 steps.add(ProcessStepUi(java.util.UUID.randomUUID().toString(), null, "", "SEQUENTIAL").also { it.media.uris = listOf(uri) })
@@ -10519,7 +7795,6 @@ private fun ProcessForm(
                                     if (last == null) {
                                         onError("No earlier process for this craft yet.")
                                     } else {
-                                        // Names only, never photos or notes: those belong to the other process.
                                         val unnamed = steps.filter { it.name.isBlank() && it.media.uris.isEmpty() && it.existingMedia.isEmpty() }
                                         steps.removeAll(unnamed)
                                         last.steps.sortedBy { it.sortOrder }.forEach { source ->
@@ -10558,8 +7833,6 @@ private fun ProcessForm(
 
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
 
-        // Statutory warning per the documentation guidelines.
-        // A themed info note, one short line: it was a brown box in cream 12sp that did not invert.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -10585,10 +7858,6 @@ private fun ProcessForm(
     }
 }
 
-// ===========================================================================
-// View Data — read-only browser for any record type, with transcripts
-// ===========================================================================
-
 private val viewDataModes = listOf(
     EntryMode.ARTISAN, EntryMode.PRODUCT, EntryMode.PROCESS, EntryMode.TOOL,
     EntryMode.QUESTIONNAIRE, EntryMode.WORKSHOP, EntryMode.CRAFT, EntryMode.MEDIA
@@ -10605,110 +7874,42 @@ private fun EntryMode.linkedRecordType(): String = when (this) {
     else -> name.lowercase()
 }
 
-/**
- * Key that collapses all interviews for the SAME set of artisan(s) into one logical record, so the
- * questionnaire dropdowns (browse AND update) are idempotent — multiple saved interview records for
- * the same artisan(s) show once. An interview with no linked artisans stays unique (keyed by its own
- * id) so unrelated artisan-less interviews never merge together.
- */
 private fun interviewGroupKey(iv: QuestionnaireInterviewDetailDto): String {
     val ids = iv.artisans.map { it.artisanId }.toSortedSet()
     return if (ids.isEmpty()) "iv:${iv.id}" else "set:${ids.joinToString(",")}"
 }
 
-/** The representative (most recently created) interview that a merged entry opens / edits. */
 private fun representativeInterview(group: List<QuestionnaireInterviewDetailDto>): QuestionnaireInterviewDetailDto =
     group.maxByOrNull { it.createdAt ?: "" } ?: group.first()
 
-/**
- * EVERY SAVE EVER MADE AGAINST THE SAME SET OF ARTISANS AS [of], [of] itself included — the sibling
- * group the detail view aggregates and the edit form shows recordings from.
- *
- * ── WHY IT ASKS FOR ONE ARTISAN'S INTERVIEWS AND NOT FOR ALL OF THEM ──────────────────────────
- *
- * Both call sites used to load `repository.interviews()` — the newest hundred interviews in the
- * WHOLE repository — and filter them in memory by [interviewGroupKey]. That works until the
- * repository outgrows one page, at which point a sibling that has sorted off page one is simply not
- * found: its answers stop appearing in the detail view and its recordings stop appearing in the edit
- * form, on the two screens whose stated purpose is that nothing recorded under a sibling save is
- * ever hidden. Silent, and it gets worse every week the fieldwork continues. One artisan's
- * interviews is a bounded question, answered by the `artisanId` filter the route has always had.
- *
- * ── THE ANCHOR IS THE LOWEST ARTISAN ID, AND IT HAS TO BE A RULE ──────────────────────────────
- *
- * Every interview in a group has the SAME artisan set by construction, so asking about ANY member
- * returns a superset of the group. The lowest id is chosen because it is the one member that does
- * not depend on the order the API happened to return the links in — the same reason
- * [interviewGroupKey] sorts before it joins. `artisans.first()` would have been an anchor that could
- * change between two loads of the same record, which is how a screen comes to show a different
- * number of sittings on a refresh with nothing about the data having changed.
- *
- * ── AND WHY THERE IS NO WORKSHOP SCOPE HERE ───────────────────────────────────────────────────
- *
- * The record is already chosen at both call sites. The group is a property of THAT record, not of
- * the list it was picked from, so narrowing it to whatever workshop the picker is currently showing
- * would drop exactly the sittings this function exists to gather — a sitting taken with the same
- * artisans at last month's workshop is still part of what they said. Scoping belongs on the LISTS
- * that offer a choice, never on the record that choice landed on.
- *
- * A failure is swallowed to [of] alone rather than surfaced: the record on screen is already loaded
- * and complete in itself, and a dropped connection must degrade to "this one sitting" rather than to
- * an error card over a record the reader can see.
- */
 private suspend fun interviewGroup(
     repository: FieldRepository,
     of: QuestionnaireInterviewDetailDto
 ): List<QuestionnaireInterviewDetailDto> {
-    // An interview with no linked artisans is keyed by its own id (see [interviewGroupKey]) and can
-    // therefore have no siblings at all. Returning early is not an optimisation: there is no artisan
-    // to anchor the request on, and a request with no `artisanId` is the repository-wide page this
-    // function was written to stop making.
     val anchor = of.artisans.map { it.artisanId }.minOrNull() ?: return listOf(of)
     val key = interviewGroupKey(of)
     val siblings = runCatching { repository.interviewsForArtisan(anchor) }.getOrDefault(emptyList())
     val group = siblings.filter { interviewGroupKey(it) == key }
-    // `of` is added back when the server's answer does not contain it — a record created seconds ago
-    // behind a stale read, or a sibling list that came back empty because the request failed. The
-    // group must never be missing the record the reader is actually looking at.
     return if (group.any { it.id == of.id }) group else group + of
 }
 
-/**
- * ONE ROW OF A RECORD-TYPE PICKER — the Update picker, View Data and the media form's linked entry.
- *
- * [text] is what an offline search matches; [interview] is kept for the questionnaire arm, whose
- * sittings are folded into one entry per artisan set after the rows arrive.
- */
 private data class RecordRow(
     val id: String,
     val label: String,
     val text: String,
     val interview: QuestionnaireInterviewDetailDto? = null,
-    /** The server's completeness block for the record (2026-10-18), drawn as the card's ring. */
     val completeness: CompletenessDto? = null,
-    /** A questionnaire take's chips, drawn on its card (owner, 31 Oct 2026). */
     val chips: com.fieldrepository.app.questionnaire.data.QChips? = null,
-    /** A recording's list preview (0.0.6): two lines, speakers as coloured labels. */
     val preview: com.fieldrepository.app.transcript.data.TranscriptPreviewDto? = null
 )
 
-/**
- * One page of one record type, SEARCHED BY THE SERVER (`ui/ServerSearch.kt`). [search] null is the
- * plain list. Each arm reads the list route's own `search`, so a match means what it means on the web.
- *
- * [workshopIds] defaults to EVERY workshop, deliberately: a list passes the scope that is actually on
- * screen and nothing else, and the media form's linked-entry picker has no workshop control — a file
- * may belong to a record filed anywhere.
- */
 private suspend fun recordRowsPage(
     repository: FieldRepository,
     mode: EntryMode,
     search: String?,
     page: Int,
     workshopIds: List<String>? = EVERY_WORKSHOP,
-    /** The record completeness filter's wire value (`incomplete` / `required`), or null for all. */
     completeness: String? = null,
-    /** A media list's questionnaire filters, encoded (`QuestionnaireFilters.mediaParams()`). */
     mediaFilters: Map<String, String> = emptyMap()
 ): PageResponse<RecordRow> {
     fun <T> PageResponse<T>.rows(row: (T) -> RecordRow) =
@@ -10746,10 +7947,6 @@ private suspend fun recordRowsPage(
     }
 }
 
-/**
- * The picker rows for a list of [RecordRow]s. Interviews fold into one entry per artisan set (open the
- * most recent; the label says how many sittings exist) — over the rows loaded so far.
- */
 private fun recordRowOptions(mode: EntryMode, rows: List<RecordRow>): List<SelectOption> =
     if (mode != EntryMode.QUESTIONNAIRE) {
         rows.map { SelectOption(it.id, it.label) }
@@ -10766,7 +7963,6 @@ private fun recordRowOptions(mode: EntryMode, rows: List<RecordRow>): List<Selec
         }.sortedBy { it.label.lowercase() }
     }
 
-/** A record-type list that searches the server and pages, for [mode]. */
 @Composable
 private fun rememberRecordRows(
     repository: FieldRepository,
@@ -10787,10 +7983,6 @@ private fun rememberRecordRows(
     keepAs = keepAs
 ) { term, page -> recordRowsPage(repository, mode ?: EntryMode.ARTISAN, term, page, workshopIds, completeness, mediaFilters) }
 
-// ===========================================================================
-// My Activity — every record the current user created, most recent first
-// ===========================================================================
-
 private data class ActivityItem(
     val mode: EntryMode,
     val id: String,
@@ -10799,23 +7991,13 @@ private data class ActivityItem(
     val createdAt: String?
 )
 
-/** The current user's own records across every type, newest first, plus what could not be read. */
 private data class MyActivityResult(val items: List<ActivityItem>, val failedTypes: List<String>, val truncated: Boolean)
 
-/**
- * Gather the current user's own records across every type, newest first (ISO timestamps sort
- * lexically). Asked of the SERVER with `createdBy` and paged — see [FieldRepository.myRecordsOf] —
- * and UNSCOPED BY WORKSHOP: the question is "everything YOU have recorded", and there is no workshop
- * control on this screen. A type that fails to load is NAMED, never folded into an empty list; when
- * every type fails the whole load throws, so the screen draws a failure rather than "You haven't
- * recorded anything yet".
- */
 private suspend fun loadMyActivity(repository: FieldRepository, userId: String): MyActivityResult {
     val items = mutableListOf<ActivityItem>()
     val failed = mutableListOf<String>()
     var truncated = false
     var firstFailure: Throwable? = null
-    // The seven types load side by side: one after another, a dead connection cost seven timeouts.
     fun <T> kotlinx.coroutines.CoroutineScope.collect(label: String, load: suspend () -> MyRecordsPage<T>, row: (T) -> ActivityItem) = launch {
         runCatching { load() }
             .onSuccess { page -> truncated = truncated || page.truncated; page.items.forEach { items.add(row(it)) } }
@@ -10841,8 +8023,6 @@ private suspend fun loadMyActivity(repository: FieldRepository, userId: String):
     }
     }
     if (failed.size == 7) throw firstFailure ?: IllegalStateException("Couldn't load your activity.")
-    // The server already filters; the createdBy check is not repeated because the DTOs a list
-    // returns are exactly the rows asked for.
     return MyActivityResult(items.sortedByDescending { it.createdAt ?: "" }, failed, truncated)
 }
 
@@ -10852,7 +8032,6 @@ private fun MyActivityScreen(
     userId: String,
     onOpen: (EntryMode, String) -> Unit,
     onError: (String) -> Unit,
-    /** The page's own scroller: this screen IS the list (`ui/LazyPage.kt`). */
     chrome: LazyPageChrome
 ) {
     var activity by rememberKept("myActivity.loaded") { null as MyActivityResult? }
@@ -10868,9 +8047,6 @@ private fun MyActivityScreen(
     }
     val current = activity
     val failure = loadError
-    // ONE LAZY LIST, NOT A COLUMN OF CARDS. A researcher's records run to thousands across seven
-    // types, and the page column composed every one of them before the first frame; this composes the
-    // screenful that is visible (DC-A34).
     PageLazyColumn(chrome, spacing = 12.dp) {
         item(key = "intro", contentType = "note") {
             Text("Your records, newest first.", color = Muted, style = MaterialTheme.typography.bodyMedium)
@@ -10907,7 +8083,6 @@ private fun MyActivityScreen(
             }
             else -> items(
                 current.items.distinctBy { "${it.mode.name}:${it.id}" },
-                // Keyed by type and id — two tables can hold the same cuid, and a key must be unique.
                 key = { "${it.mode.name}:${it.id}" },
                 contentType = { "activity" }
             ) { item -> ActivityCard(item = item, onOpen = onOpen) }
@@ -10915,7 +8090,6 @@ private fun MyActivityScreen(
     }
 }
 
-/** One of the researcher's own records. A tap READS it (`ui/RecordOpen.kt`); its view carries Update. */
 @Composable
 private fun ActivityCard(item: ActivityItem, onOpen: (EntryMode, String) -> Unit) {
     ElevatedCard(
@@ -10923,7 +8097,6 @@ private fun ActivityCard(item: ActivityItem, onOpen: (EntryMode, String) -> Unit
         shape = RoundedCornerShape(14.dp),
         modifier = Modifier
             .fillMaxWidth()
-            // Clipped to the card's own corners so the ripple does not paint past them.
             .clip(RoundedCornerShape(14.dp))
             .clickable(role = Role.Button, onClickLabel = "Open ${item.title}") { onOpen(item.mode, item.id) }
     ) {
@@ -10939,10 +8112,6 @@ private fun ActivityCard(item: ActivityItem, onOpen: (EntryMode, String) -> Unit
 }
 
 
-// ===========================================================================
-// Assign tools to artisans — map one documented tool to many artisans
-// ===========================================================================
-
 @Composable
 private fun ToolAssignScreen(
     repository: FieldRepository,
@@ -10956,8 +8125,6 @@ private fun ToolAssignScreen(
     var saving by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf<String?>(null) }
 
-    // All three pickers search the server and page (`ui/ServerSearch.kt`); the artisan one is scoped
-    // to the ticked crafts by the server, so a craft's whole roster is reachable.
     val toolSearch = rememberServerSearch(
         key = Unit, cached = emptyList<ToolDetailDto>(), seed = null, idOf = { it.id },
         textOf = { "${it.toolkitName} ${it.craftName}" }
@@ -10977,7 +8144,6 @@ private fun ToolAssignScreen(
     val artisansForCrafts = remember(artisans, craftIds) {
         artisans.filter { it.craftId != null && craftIds.contains(it.craftId) }
     }
-    // Keep the artisan selection within the chosen crafts.
     LaunchedEffect(artisansForCrafts) {
         artisanIds = artisanIds.filter { id -> artisansForCrafts.any { it.id == id } }.toSet()
     }
@@ -11066,11 +8232,9 @@ private fun DetailRow(label: String, value: String?) {
     }
 }
 
-/** A saved media row, its upload provenance, plus the transcript (or a live "transcribing" spinner). */
 @Composable
 private fun MediaWithTranscript(context: Context, media: MediaFileDto, repository: FieldRepository? = null) {
     AndroidSavedMediaPreview(context = context, media = media)
-    // Upload provenance: who added this media file and when.
     val uploader = media.uploadedBy?.name
     val uploadedWhen = formatIsoDate(media.createdAt)
     if (uploader != null || uploadedWhen != null) {
@@ -11080,22 +8244,17 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
             style = MaterialTheme.typography.bodySmall
         )
     }
-    // A questionnaire take's chips (owner, 31 Oct 2026); a tap opens the recordings list filtered by it.
     com.fieldrepository.app.questionnaire.ui.RecordingChips(media.questionnaireChips, onChip = QuestionnaireV2Nav::openRecordings)
-    // A reviewer's Reject on this one file, on a record's page only (see [LocalMediaReview]).
     MediaRejectAction(mediaId = media.id, label = media.caption?.takeIf { it.isNotBlank() } ?: media.originalFilename)
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     val isAudio = media.mediaType.equals("AUDIO", ignoreCase = true)
     val processing = setOf("QUEUED", "PROCESSING", "PENDING", "RUNNING")
     val done = setOf("COMPLETED", "EMPTY", "DONE")
-    // The transcript is hoisted into local state so that approving an AI-refined version (or a fresh
-    // "Transcribe now") replaces the shown transcript immediately.
     var transcriptText by remember(media.id) { mutableStateOf(media.transcriptText) }
     var liveStatus by remember(media.id) { mutableStateOf(media.transcriptStatus) }
     var transcribing by remember(media.id) { mutableStateOf(false) }
     val status = liveStatus?.uppercase()
-    // Admins/master admins can transcribe (or re-transcribe) on the spot, applying the settings-page mode.
     val isAdmin = repository?.cachedUser()?.role in setOf("ADMIN", "MASTER_ADMIN")
 
     fun transcribeNow() {
@@ -11114,8 +8273,7 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
     }
 
     val isVideo = media.mediaType.equals("VIDEO", ignoreCase = true)
-    // The transcript viewer (DESIGN_2026-10-31 §3) wherever the pipeline answers; the plain
-    // transcript below wherever it does not (the switch is off, or the file predates it).
+    val isTimed = isAudio || isVideo
     val legacyTranscript: @Composable () -> Unit = {
     when {
         !transcriptText.isNullOrBlank() -> {
@@ -11128,15 +8286,12 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Transcript", color = Muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    // Copy the transcript to the clipboard — available to everyone.
                     TextButton(onClick = { clipboard.setText(AnnotatedString(transcriptText!!)) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
                         Icon(Icons.Filled.ContentCopy, contentDescription = "Copy transcript", modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("Copy", style = MaterialTheme.typography.labelMedium)
                     }
                 }
-                // Render with the Markdown renderer so an approved (refined) transcript keeps its
-                // formatting/section breaks; a plain raw transcript is unaffected.
                 MarkdownText(markdown = transcriptText!!, color = Body)
             }
             if (repository != null) {
@@ -11144,13 +8299,10 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
                     mediaId = media.id,
                     load = { id -> repository.transcriptInsightBatched(id) },
                     loadFull = { id -> repository.transcriptInsight(id) },
-                    formatDate = ::formatIsoDate
+                    formatDate = ::formatIsoDate,
+                    actions = repository.transcriptInsightActions
                 )
             }
-            // AI refinement controls under the transcript (only where a repository is available, i.e.
-            // the record/update & view screens). Turns the raw transcript into a clean conversation,
-            // optionally translated to English. Both actions are billable, so they're gated behind a
-            // one-time cost confirmation. Approving a refined version saves it in place via onApplied.
             if (repository != null) {
                 TranscriptRefineControls(
                     context = context,
@@ -11159,24 +8311,28 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
                     onApplied = { newText -> transcriptText = newText }
                 )
             }
-            if (isAdmin && isAudio && repository != null) {
+            if (isAdmin && isTimed && repository != null) {
                 TranscribeNowButton(transcribing = transcribing, hasExisting = true) { transcribeNow() }
             }
         }
-        transcribing || (isAudio && (status == null || status in processing)) -> {
-            // Still processing — show a buffer icon; the transcript appears here once it's ready.
+        transcribing || (isTimed && (status in processing || (status == null && media.transcribeRequested == true))) -> {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                 Text(if (transcribing) "Transcribing now…" else "Transcribing audio…", color = Muted, style = MaterialTheme.typography.bodySmall)
             }
         }
-        isAudio && status in done -> {
+        isTimed && status in done -> {
             Text("Transcript complete — no speech detected.", color = Muted, style = MaterialTheme.typography.bodySmall)
             if (isAdmin && repository != null) {
                 TranscribeNowButton(transcribing = transcribing, hasExisting = false) { transcribeNow() }
             }
         }
-        isAudio -> {
+        isTimed && status == null -> {
+            if (isAdmin && repository != null) {
+                TranscribeNowButton(transcribing = transcribing, hasExisting = false) { transcribeNow() }
+            }
+        }
+        isTimed -> {
             Text(
                 "Transcript: ${liveStatus ?: "—"}" + (media.transcriptError?.let { " — $it" } ?: ""),
                 color = Muted,
@@ -11192,7 +8348,6 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
     if (isAudio || isVideo) TranscriptEntry(mediaId = media.id, audio = null, legacy = legacyTranscript) else legacyTranscript()
 }
 
-/** Admin "Transcribe now" / "Re-transcribe" action — runs transcription on the spot via the settings mode. */
 @Composable
 private fun TranscribeNowButton(transcribing: Boolean, hasExisting: Boolean, onClick: () -> Unit) {
     OutlinedButton(onClick = onClick, enabled = !transcribing) {
@@ -11202,21 +8357,14 @@ private fun TranscribeNowButton(transcribing: Boolean, hasExisting: Boolean, onC
     }
 }
 
-/**
- * Everything recorded against one artisan in the questionnaire: the answered Q&A, plus the recordings
- * and notes from every interview the artisan belongs to (alone, in a subset, or in a larger set). A
- * group recording therefore surfaces here for this artisan so it can be validated individually.
- */
 @Composable
 private fun ArtisanQuestionnaireData(repository: FieldRepository, artisanId: String) {
     val context = LocalContext.current
-    // Questionnaire v2: the artisan's record (summary, timeline, by question) replaces this panel.
     val v2 = remember { QuestionnaireV2.get(context) }
     val v2Config by v2.config.collectAsState()
     if (v2Config?.v2Enabled == true) {
         var artisanName by remember(artisanId) { mutableStateOf("") }
         LaunchedEffect(artisanId) { runCatching { repository.artisan(artisanId) }.onSuccess { artisanName = it.name } }
-        // "Continue with…" opened a session on the server: the questionnaire screen opens it.
         FieldArtisanQuestionnaireRecord(artisanId, artisanName) {
             android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show()
         }
@@ -11254,9 +8402,6 @@ private fun ArtisanQuestionnaireData(repository: FieldRepository, artisanId: Str
     }
 }
 
-// SharedPreferences holding the "don't remind me again" acknowledgement for AI-cost prompts. The
-// walkthrough's "seen" flag lives in this same file and is read and written by `ui/WalkthroughScreen.kt`,
-// which names `"fieldrepo_prefs"` again in its own constant.
 private const val APP_PREFS_NAME = "fieldrepo_prefs"
 private const val PREF_AI_COST_ACK = "ai_refine_cost_ack"
 
@@ -11267,12 +8412,6 @@ private fun suppressAiCostReminder(context: Context) {
     context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(PREF_AI_COST_ACK, true).apply()
 }
 
-/**
- * "Refine transcript" / "Refine & translate to English" buttons + the cost-confirmation dialog,
- * spinner, and the Markdown-rendered result. Calls the gpt-4o-mini backed endpoint on demand. The
- * refined conversation is held in local state (not persisted) so it shows immediately and a re-press
- * is the only thing that incurs another cost.
- */
 @Composable
 private fun TranscriptRefineControls(
     context: Context,
@@ -11285,10 +8424,8 @@ private fun TranscriptRefineControls(
     var refined by remember(media.id) { mutableStateOf<String?>(null) }
     var refinedTranslated by remember(media.id) { mutableStateOf(false) }
     var refineError by remember(media.id) { mutableStateOf<String?>(null) }
-    // Approval state: persisting the refined transcript, plus a one-time "saved" confirmation.
     var applying by remember(media.id) { mutableStateOf(false) }
     var appliedNote by remember(media.id) { mutableStateOf<String?>(null) }
-    // When non-null, the cost dialog is open for that mode (false = refine, true = refine+translate).
     var pendingTranslate by remember { mutableStateOf<Boolean?>(null) }
     var dontRemind by remember { mutableStateOf(false) }
     val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
@@ -11351,8 +8488,6 @@ private fun TranscriptRefineControls(
                 color = MaterialTheme.field.onBrandTileMuted,
                 style = MaterialTheme.typography.bodySmall
             )
-            // Approve = persist the refined text as the transcript (uploader/admin only on the server);
-            // Reject = just discard this preview, leaving the stored transcript untouched.
             ActionRow {
                 Button(
                     onClick = {
@@ -11414,17 +8549,11 @@ private fun TranscriptRefineControls(
     }
 }
 
-/**
- * Minimal Markdown -> rich text renderer for the refined conversation: handles `#`/`##`/`###`
- * headings, `-`/`*` bullets, blank-line spacing, and inline `**bold**` / `*italic*`. Enough to make
- * the interviewer/interviewee dialogue read cleanly without pulling in a Markdown dependency.
- */
 @Composable
 private fun MarkdownText(markdown: String, color: Color = Body) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         markdown.replace("\r\n", "\n").split("\n").forEach { raw ->
             val line = raw.trim()
-            // A Markdown horizontal rule (---, ***, ___, three or more) becomes a long section-break line.
             val isRule = line.length >= 3 && (line.all { it == '-' } || line.all { it == '*' } || line.all { it == '_' })
             when {
                 line.isEmpty() -> Spacer(Modifier.height(2.dp))
@@ -11442,7 +8571,6 @@ private fun MarkdownText(markdown: String, color: Color = Body) {
     }
 }
 
-/** Parse inline `**bold**` and `*italic*` spans of a single Markdown line into an AnnotatedString. */
 private fun parseInlineMarkdown(text: String) = buildAnnotatedString {
     var i = 0
     while (i < text.length) {
@@ -11466,7 +8594,6 @@ private fun parseInlineMarkdown(text: String) = buildAnnotatedString {
     }
 }
 
-/** Loads and renders all media attached to a record (by linkedRecordType/Id) with transcripts. */
 @Composable
 private fun RecordMediaSection(
     repository: FieldRepository,
@@ -11495,7 +8622,6 @@ private fun RecordMediaSection(
 
 private val StarGold = Color(0xFFF5B301)
 
-/** Tappable 1–5 star input for a quantitative rating (0 = not yet rated). */
 @Composable
 private fun StarRatingInput(rating: Int, max: Int = 5, label: String = "Rating", onChange: (Int) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.selectableGroup()) {
@@ -11520,7 +8646,6 @@ private fun StarRatingInput(rating: Int, max: Int = 5, label: String = "Rating",
     }
 }
 
-/** Read-only star display for a saved rating. */
 @Composable
 private fun StarRatingDisplay(rating: Int, max: Int = 5) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -11537,7 +8662,6 @@ private fun StarRatingDisplay(rating: Int, max: Int = 5) {
     }
 }
 
-/** A labelled 1–5 star input row used for each quantitative aspect on the feedback form. */
 @Composable
 private fun LabeledStarRating(label: String, rating: Int, onChange: (Int) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -11546,7 +8670,6 @@ private fun LabeledStarRating(label: String, rating: Int, onChange: (Int) -> Uni
     }
 }
 
-/** A labelled read-only star row used to show a saved aspect rating to the master admin. */
 @Composable
 private fun LabeledRatingDisplay(label: String, rating: Int?) {
     if (rating == null) return
@@ -11556,7 +8679,6 @@ private fun LabeledRatingDisplay(label: String, rating: Int?) {
     }
 }
 
-/** A labelled qualitative answer shown to the master admin (skipped when the user left it blank). */
 @Composable
 private fun QualitativeRow(label: String, value: String?) {
     if (value.isNullOrBlank()) return
@@ -11566,17 +8688,10 @@ private fun QualitativeRow(label: String, value: String?) {
     }
 }
 
-/**
- * Hamburger-menu screen where any user gives — and later updates — their own detailed feedback on the
- * app: an overall rating plus per-aspect quantitative star ratings (ease of use, reliability,
- * performance, design, features, recommend) and several qualitative prompts (role, what they like,
- * what to improve, bugs, feature requests, and a general comment). Seeded with their last submission.
- */
 @Composable
 private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    // Quantitative (0 = not yet rated).
     var rating by remember { mutableStateOf(0) }
     var easeOfUse by remember { mutableStateOf(0) }
     var reliability by remember { mutableStateOf(0) }
@@ -11584,7 +8699,6 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
     var design by remember { mutableStateOf(0) }
     var features by remember { mutableStateOf(0) }
     var recommend by remember { mutableStateOf(0) }
-    // Qualitative.
     var role by remember { mutableStateOf("") }
     var comment by remember { mutableStateOf("") }
     var likeMost by remember { mutableStateOf("") }
@@ -11632,7 +8746,6 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
         if (loading) {
             Text("Loading your feedback…", color = Muted, style = MaterialTheme.typography.bodySmall)
         } else {
-            // ---- Quantitative ----
             Text("Ratings", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
             Text("Overall rating", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium)
             StarRatingInput(rating = rating) { rating = it }
@@ -11656,22 +8769,8 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
             LabeledStarRating("How likely you'd recommend it", recommend) { recommend = it }
 
             HorizontalDivider()
-            // ---- Qualitative ----
             Text("In your words", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
             TextInput("Your role (e.g. researcher, field documenter)", role) { role = it }
-            /*
-             * FEEDBACK: THE MICROPHONE, NOT THE EDITOR, ON ALL FIVE.
-             *
-             * They are multi-line and they are prose, so they clear the size bar — and dictation is
-             * the whole point of them, because a researcher reporting a bug at the end of a field day
-             * will say four sentences and type none. But nothing renders these: they go into a table
-             * an administrator reads and nowhere else, so a formatting toolbar would buy a heading
-             * nobody will ever see and would cost every one of them a line of explanatory copy under
-             * the box. Size alone was never the rule; "would formatting be read by anyone" is.
-             *
-             * THE DEFAULT HAS SINCE FLIPPED (2026-09-13), so these five no longer say `dictate`
-             * at all — this comment is the record of the decision, not the argument beside it.
-             */
             TextInput("What do you like most?", likeMost, minLines = 2) { likeMost = it }
             TextInput("What should we improve?", improve, minLines = 2) { improve = it }
             TextInput("Any bugs or issues you hit?", bugs, minLines = 2) { bugs = it }
@@ -11704,8 +8803,6 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
                                     bugs = bugs.blankToNull(),
                                     featureRequests = featureRequests.blankToNull()
                                 )
-                        // Feedback is an upsert, so replaying it later is safe whatever happened to
-                        // this attempt.
                         val payload = offlineFormJson.encodeToString(request)
                         if (queueSmallWrite(repository, context, null, idempotent = true, type = "feedback", payloadJson = payload, label = "App feedback")) {
                             status = ActionStatus.SUCCESS
@@ -11753,10 +8850,6 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
     }
 }
 
-/**
- * Master-admin-only card on the View Data screen: every user's feedback, grouped in a dropdown
- * sorted by user, with the selected user's quantitative rating and qualitative comment shown below.
- */
 @Composable
 private fun MasterFeedbackCard(repository: FieldRepository, onError: (String) -> Unit) {
     var feedback by remember { mutableStateOf<List<FeedbackDto>>(emptyList()) }
@@ -11809,7 +8902,6 @@ private fun MasterFeedbackCard(repository: FieldRepository, onError: (String) ->
                         fb.user?.email?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodySmall) }
                         if (!fb.role.isNullOrBlank()) Text("Role: ${fb.role}", color = Muted, style = MaterialTheme.typography.bodySmall)
 
-                        // Quantitative: overall + each aspect that was rated.
                         if (fb.rating != null) {
                             Text("Overall", color = Muted, style = MaterialTheme.typography.bodySmall)
                             StarRatingDisplay(fb.rating!!)
@@ -11821,7 +8913,6 @@ private fun MasterFeedbackCard(repository: FieldRepository, onError: (String) ->
                         LabeledRatingDisplay("Features", fb.features)
                         LabeledRatingDisplay("Would recommend", fb.recommend)
 
-                        // Qualitative: each prompt the user answered.
                         val hasText = listOf(fb.likeMost, fb.improve, fb.bugs, fb.featureRequests, fb.comment).any { !it.isNullOrBlank() }
                         if (hasText) HorizontalDivider()
                         QualitativeRow("Likes most", fb.likeMost)
@@ -11842,24 +8933,15 @@ private fun MasterFeedbackCard(repository: FieldRepository, onError: (String) ->
     }
 }
 
-/**
- * Master-admin-only recovery card on the View Data screen. Lists media whose original record was
- * later deleted — the file itself is safe in object storage, only its link was nulled — so those
- * recordings stay visible (and playable, with transcripts) instead of disappearing. Each can be
- * re-attached to an existing record of its own type, after which it shows under that record again.
- */
 @Composable
 private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var orphans by remember { mutableStateOf<List<MediaFileDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
-    // Re-link target option lists, loaded once per record type present among the orphans.
     var targetOptions by remember { mutableStateOf<Map<String, List<Pair<String, String>>>>(emptyMap()) }
     val selections = remember { mutableStateMapOf<String, String>() }
     var busy by remember { mutableStateOf<Set<String>>(emptySet()) }
-    // Recording queued for permanent deletion, awaiting confirmation (destructive: removes the DB row
-    // AND the S3 object — the file is gone for good, unlike re-linking which preserves it).
     var pendingDelete by remember { mutableStateOf<MediaFileDto?>(null) }
 
     suspend fun loadOptionsFor(types: Set<String>) {
@@ -11868,14 +8950,10 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
             if (map.containsKey(t)) return@forEach
             runCatching {
                 when (t.lowercase()) {
-                    // Unscoped, exactly as `recordRowsPage` is by default and for the identical reason: this
-                    // is the re-link picker on the media screen, which has no workshop control, and a
-                    // file legitimately re-links to a record filed at any workshop.
                     "questionnaire", "questionnaireinterview" -> repository.interviews(EVERY_WORKSHOP).map { it.id to it.title.ifBlank { "Untitled interview" } }
                     "product" -> repository.products().map { it.id to "${it.productName} · ${it.artisanName}" }
                     "tool" -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
                     "artisan" -> repository.artisans().map { it.id to it.name }
-                    // The master list, so a file is re-linked to a craft on it.
                     "craft" -> (CraftCatalogueCache.catalogue.value ?: repository.craftCatalogue(context))?.crafts.orEmpty().map { it.id to it.name }
                     "workshop" -> repository.workshops().map { it.id to workshopDisplayTitle(it.title, date = it.occurrenceDate(), place = it.place) }
                     else -> emptyList()
@@ -11946,8 +9024,6 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text(if (m.id in busy) "Re-linking…" else "Re-link this recording") }
                         }
-                        // Permanent deletion of a single recovered recording (file + DB row). Guarded by a
-                        // confirmation dialog because it is irreversible.
                         OutlinedButton(
                             onClick = { pendingDelete = m },
                             enabled = m.id !in busy,
@@ -11992,10 +9068,8 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
     }
 }
 
-// Sentinel id for the "Check completion" entry in the questionnaire dropdown (not a real record id).
 private const val COMPLETION_OPTION_ID = "__completion__"
 
-/** Entries of the admin "Settings" hub, each opening an existing admin composable/screen. */
 private enum class AdminHubEntry(
     val label: String,
     val description: String,
@@ -12004,12 +9078,9 @@ private enum class AdminHubEntry(
     val reviewGated: Boolean = false
 ) {
     REVIEWS("Reviews & approvals", "Approve or reject records the team submitted.", Icons.Filled.ManageAccounts, reviewGated = true),
-    // GET /media/orphans and POST /media/{id}/relink are `require_admin`, and the web exposes the
-    // same recovery table on /admin to any admin — so this is not master-only.
     RECOVERED("Recovered recordings", "Play & re-link recordings whose record was deleted.", Icons.Filled.RecordVoiceOver),
     FEEDBACK("User feedback", "Everyone's app feedback, grouped by user.", Icons.Filled.RateReview, masterOnly = true),
     TOOLS("Assign tools to artisans", "Link tools to the artisans who use them.", Icons.Filled.Build),
-    // Label + description verbatim from ADMIN_LINKS on the web's /settings page.
     TASKS(
         "Task assignment",
         "Assign and track work.",
@@ -12017,19 +9088,11 @@ private enum class AdminHubEntry(
     ),
     WORKSHOPS("Workshop assignments", "Choose who may submit entries for each workshop.", Icons.Filled.Groups),
     ACCESS_REQUESTS("Workshop access requests", "Approve or deny requests to work in a workshop.", Icons.Filled.LockOpen),
-    // THE SIGN-IN GATE'S ADMIN SIDE. Label and description verbatim from the web's own tile on
-    // /admin, because an admin who uses both must not have to work out that they are the same tool.
-    //
-    // Distinct from ACCESS_REQUESTS above and the distinction matters: that one is "may this person
-    // work in THIS WORKSHOP", this one is "may this person sign in AT ALL". They sit next to each
-    // other so the difference is visible rather than discovered.
     ACCESS_ROSTER(
         "Access roster",
         "Who may sign in, and pending requests.",
         Icons.Filled.HowToReg
     ),
-    // Every /secrets route is require_master_admin, not require_admin: handing out live provider
-    // credentials (reveal returns plaintext) is a different class of power from managing people.
     API_KEYS(
         "API keys",
         "Manage service keys.",
@@ -12039,46 +9102,20 @@ private enum class AdminHubEntry(
     SETTINGS("Settings", "Transcription output and off-peak processing.", Icons.Filled.Tune, masterOnly = true)
 }
 
-/**
- * Admin "Settings" hub, opened from the dashboard card. Lists the administrative tools and opens each
- * one in place (reusing the existing composables/screens). Back from a sub-tool returns to the list.
- */
 @Composable
 private fun AdminHubScreen(
     repository: FieldRepository,
-    /**
-     * The signed-in admin. Needed by the access-roster tool for ONE thing: the tiers an admin may
-     * hand out are bounded by their own (`users.assert_role`), and offering a tier the API will
-     * refuse is a button that can only ever fail — halfway through approving somebody who is
-     * standing there waiting.
-     */
     user: UserDto,
     isMasterAdmin: Boolean,
     canReview: Boolean,
-    /** Opens a pending record read-only (`Screen.View`) from its review card. */
     onOpenRecord: ((EntryMode, String) -> Unit)? = null,
-    /**
-     * Which tool is open, owned by the HOST rather than by this screen.
-     *
-     * It used to be local state with its own BackHandler and its own in-page "All admin tools"
-     * button, which is how the app ended up with two back controls stacked on one screen — the
-     * header's arrow (which left the hub) and a rounded rectangle (which popped the tool). Hoisting
-     * it into `Screen.AdminHub.section` lets `goBack()` pop one level, so the arrow already in the
-     * header does both jobs and the extra button is gone.
-     */
     section: AdminHubEntry? = null,
     onSectionChange: (AdminHubEntry?) -> Unit,
     onMessage: (String) -> Unit,
     onError: (String) -> Unit,
-    /**
-     * How many access requests are waiting, drawn on the roster tile — THE NOTIFICATION. Null means
-     * "not known yet", which draws nothing; so does zero. See [AdminHubEntry.ACCESS_ROSTER].
-     */
     pendingAccessRequests: Int? = null,
-    /** Told after a decision, so the tile and the drawer badge stop being stale the moment an admin acts. */
     onPendingCountChanged: (Int) -> Unit = {}
 ) {
-    // Loaded once for the Workshop assignments tool (which needs the researcher directory).
     var directory by remember { mutableStateOf<List<UserDto>>(emptyList()) }
     LaunchedEffect(Unit) { runCatching { repository.userDirectory() }.onSuccess { directory = it } }
 
@@ -12109,12 +9146,6 @@ private fun AdminHubScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(entry.label, display = true, color = Body, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
                         Text(entry.description, color = Muted, style = MaterialTheme.typography.bodySmall)
-                        // THE NOTIFICATION, on the tile. Only a POSITIVE count draws: null is "not
-                        // known yet" and zero is "nothing waiting", and a "0" shown while the count
-                        // is still being fetched would tell an admin the queue is empty at the exact
-                        // moment it might not be. Worded, not a bare numeral — a "3" beside a tile
-                        // title announces nothing to a screen reader and means nothing to a reader
-                        // who has not opened this tool before.
                         val waiting = pendingAccessRequests?.takeIf { it > 0 && entry == AdminHubEntry.ACCESS_ROSTER }
                         if (waiting != null) {
                             Text(
@@ -12130,15 +9161,11 @@ private fun AdminHubScreen(
             }
         }
     } else {
-        // No back control here on purpose. The screen already has one — the circular arrow in the
-        // page header — and `goBack()` now pops the open tool before leaving the hub.
         when (current) {
             AdminHubEntry.REVIEWS -> ReviewApprovalCard(repository = repository, onOpenRecord = onOpenRecord, onError = onError)
             AdminHubEntry.RECOVERED -> OrphanRecordingsCard(repository = repository, onError = onError)
             AdminHubEntry.FEEDBACK -> MasterFeedbackCard(repository = repository, onError = onError)
             AdminHubEntry.TOOLS -> ToolAssignScreen(repository = repository, onError = onError)
-            // The hub's own "All admin tools" pill is the back control here, so the board's built-in
-            // arrow stays off (`onBack = null`).
             AdminHubEntry.TASKS -> TaskAdminScreen(
                 repository = repository,
                 onBack = null,
@@ -12147,8 +9174,6 @@ private fun AdminHubScreen(
             )
             AdminHubEntry.WORKSHOPS -> WorkshopAssignmentCard(repository = repository, directory = directory, onMessage = onMessage, onError = onError)
             AdminHubEntry.ACCESS_REQUESTS -> WorkshopAccessQueueCard(repository = repository, onMessage = onMessage, onError = onError)
-            // Same hosting rule as every other tool: no `onBack`, because the hub's own header arrow
-            // already pops one level out of an open tool.
             AdminHubEntry.ACCESS_ROSTER -> AccessRosterScreen(
                 repository = repository,
                 user = user,
@@ -12157,8 +9182,6 @@ private fun AdminHubScreen(
                 onError = onError,
                 onPendingCountChanged = onPendingCountChanged
             )
-            // Same as the task board above: the hub's "All admin tools" pill is the back control,
-            // so the screen's own arrow stays off (`onBack = null`).
             AdminHubEntry.API_KEYS -> ApiKeysScreen(
                 repository = repository,
                 onBack = null,
@@ -12176,12 +9199,10 @@ private fun ViewDataScreen(
     canReview: Boolean = false,
     masterAdmin: Boolean = false,
     isAdmin: Boolean = false,
-    /** False only for an admin browsing with admin view OFF; always true for everyone else. */
     adminChrome: Boolean = true,
     showProvenance: Boolean = false,
     canDownloadDataset: Boolean = false,
     onOpenDataBrowser: (() -> Unit)? = null,
-    /** Opens a pending record read-only (`Screen.View`) from its review card. */
     onOpenRecord: ((EntryMode, String) -> Unit)? = null,
     onError: (String) -> Unit
 ) {
@@ -12189,49 +9210,15 @@ private fun ViewDataScreen(
     var selectedId by remember { mutableStateOf("") }
     var loadingList by remember { mutableStateOf(false) }
 
-    /*
-     * WHICH WORKSHOP'S INTERVIEWS THIS SCREEN BROWSES — defect (2) again, on the other surface that
-     * reproduces it.
-     *
-     * The questionnaire arm below loaded EVERY interview in the repository and every artisan in it,
-     * so "Involved artisans" offered people from the first workshop while the researcher was
-     * standing in the third, and the dependent dropdown then listed that first workshop's sittings.
-     * The shared control is the same one the completion matrix on this very screen already uses —
-     * same default, same three states, same wire format (`ui/WorkshopScope.kt`).
-     *
-     * BOTH HALVES ARE SCOPED FROM THE ONE PARAMETER, and that is not tidiness. Scoping only the
-     * interviews would still offer out-of-scope artisans in the filter above them; scoping only the
-     * artisans would offer this workshop's people against every interview they have ever sat in. The
-     * completion matrix states the identical rule in its own comment for the identical reason.
-     *
-     * DECLARED FOR EVERY MODE, DISPLAYED FOR ONE. `mode` is screen state here, not a parameter, so a
-     * `rememberWorkshopScope` behind `if (mode == EntryMode.QUESTIONNAIRE)` would be discarded and
-     * rebuilt every time somebody flipped record type and came back — silently throwing away the
-     * scope they had chosen and re-applying the most-recent default under them. It also has to be
-     * readable by the load effect below, which runs for every mode.
-     */
     val workshopScope = rememberWorkshopScope(repository = repository, onError = onError)
-    // Questionnaire-only filter: pick involved artisan(s), then the dependent dropdown lists the
-    // interviews any of them were part of. RELOADED WHENEVER THE WORKSHOP SCOPE MOVES — it used to
-    // load once when questionnaire mode was selected and never again, which is the same defect
-    // wearing a different hat: a list that was right when it arrived and wrong from the next tap on.
     var interviewsDetailed by remember { mutableStateOf<List<QuestionnaireInterviewDetailDto>>(emptyList()) }
     var selectedArtisanIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    // Sections (with their questions) so the dropdown can show the "A1"-style section+question codes
-    // each interview actually answered. Loaded alongside the interviews in questionnaire mode.
     var questionnaireSections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
 
-    // Interviews that involve at least one of the selected artisans. A questionnaire with several
-    // artisans appears as long as ONE selected artisan matches. The label LEADS with the artisan
-    // name(s) — then the section/question span it covers (e.g. "A1–A5" from the section codes +
-    // question numbers), then the title and place — so the list is easy to scan by who was interviewed.
-    // The two lists the screen picks from, both searched and paged by the server
-    // (`ui/ServerSearch.kt`). Declared here because the scope they read is.
     val scopeSettledForLists = mode != EntryMode.QUESTIONNAIRE || workshopScope.settled
     val entrySearch = rememberRecordRows(
         repository, mode, key = mode, enabled = mode != EntryMode.QUESTIONNAIRE
     )
-    // The artisans the interview filter offers: everybody in the workshop scope, asked of the server.
     val artisanFilterSearch = rememberServerSearch(
         key = workshopScope.requestKey,
         cached = emptyList<ArtisanDto>(),
@@ -12245,18 +9232,11 @@ private fun ViewDataScreen(
         if (selectedArtisanIds.isEmpty()) emptyList()
         else {
             val nameById = artisanFilterList.associate { it.id to it.name }
-            // questionId -> "A1" style code (section code + question number), built from the sections.
             val codeByQuestionId = questionnaireSections.flatMap { sec ->
                 sec.questions.map { q -> q.id to "${sec.code}${q.sortOrder}" }
             }.toMap()
             interviewsDetailed
                 .filter { iv -> iv.artisans.any { it.artisanId in selectedArtisanIds } }
-                // Idempotency: every saved interview record for the SAME set of artisan(s) collapses
-                // into ONE entry, regardless of how many update-saves or which researcher(s) made them —
-                // so the dropdown isn't cluttered with duplicates. The most recent save is the
-                // representative the entry opens; the detail view then aggregates ALL records in this
-                // group so nothing recorded under a sibling save is ever hidden. The label reflects the
-                // section/question coverage and researcher(s) across the whole group.
                 .groupBy { interviewGroupKey(it) }
                 .map { (_, group) ->
                     val representative = representativeInterview(group)
@@ -12265,7 +9245,6 @@ private fun ViewDataScreen(
                         .distinct()
                         .joinToString(", ")
                         .ifBlank { "Unknown artisan" }
-                    // The section/question codes answered across every save in this group, in order.
                     val answeredCodes = group
                         .flatMap { iv -> iv.responses }
                         .mapNotNull { codeByQuestionId[it.questionId] }
@@ -12290,15 +9269,6 @@ private fun ViewDataScreen(
         }
     }
 
-    /*
-     * Reloads when the scope moves, and NEVER fires before the picker has settled on its default —
-     * the first request would otherwise go out unscoped and be replaced a moment later, which is two
-     * requests and a second of the previous workshop's interviews on screen.
-     *
-     * Only the questionnaire arm reads the scope, so only it waits: keying the other seven modes on
-     * `settled` would put a workshops round-trip in front of every list on this screen, and keying
-     * them on `requestKey` would reload them whenever a control they do not display happened to move.
-     */
     val scopeSettled = mode != EntryMode.QUESTIONNAIRE || workshopScope.settled
     val scopeKey = if (mode == EntryMode.QUESTIONNAIRE) workshopScope.requestKey else ""
     LaunchedEffect(mode, scopeSettled, scopeKey) {
@@ -12309,24 +9279,14 @@ private fun ViewDataScreen(
         if (mode == EntryMode.QUESTIONNAIRE) {
             loadingList = true
             runCatching {
-                // Sections power the "A1"-style section+question codes in the dropdown label; a failure
-                // here must not block the list, so it's fetched leniently and defaults to empty.
                 runCatching { repository.questionnaireSections() }.getOrDefault(emptyList())
             }.onSuccess { questionnaireSections = it }.onFailure {
-                // Re-keying this effect on the scope cancels the load in flight, and `runCatching`
-                // catches that cancellation like any other Throwable. Rethrowing keeps a superseded
-                // request from surfacing as an error banner over the answer that replaced it — the
-                // same guard `CompletionMatrixCard` and `ConsolidatedIndex` carry on this screen and
-                // the next. It also skips `loadingList = false`, and must: the pass that replaced
-                // this one owns that flag.
                 if (it is kotlinx.coroutines.CancellationException) throw it
                 onError(it.apiErrorMessage("Unable to load questionnaires"))
             }
         }
         loadingList = false
     }
-    // THE DEPENDENT LIST: the interviews the ticked artisans sat in, inside the scope. Asked per
-    // artisan, so it is bounded by the selection rather than by every interview in the scope.
     LaunchedEffect(mode, selectedArtisanIds, scopeKey) {
         if (mode != EntryMode.QUESTIONNAIRE || selectedArtisanIds.isEmpty()) {
             interviewsDetailed = emptyList()
@@ -12340,7 +9300,6 @@ private fun ViewDataScreen(
             onError(it.apiErrorMessage("Unable to load questionnaires"))
         }
     }
-    // Keep the chosen questionnaire valid as the artisan filter changes (only in questionnaire mode).
     LaunchedEffect(questionnaireOptions, mode) {
         if (mode == EntryMode.QUESTIONNAIRE && selectedId.isNotBlank() && selectedId != COMPLETION_OPTION_ID && questionnaireOptions.none { it.first == selectedId }) {
             selectedId = ""
@@ -12358,46 +9317,7 @@ private fun ViewDataScreen(
         when {
             loadingList -> Text("Loading ${mode.label.lowercase()}…", color = Muted)
             mode == EntryMode.QUESTIONNAIRE -> {
-                // ABOVE both dropdowns, because it decides what each of them is a list OF: the
-                // artisans offered here and the interviews offered below come from the one parameter.
                 WorkshopScopeSelect(scope = workshopScope, label = "Workshops in this list")
-                /*
-                  -- THIS CONTROL KEEPS ITS OWN WORD, AND THAT IS A DECISION ---------------------------
-
-                  The capture form's artisan box is now "Artisans interviewed", which is the browser's
-                  word and the word both walkthrough registers and the printed guide use. THIS one
-                  stays "Involved artisans", and the reason is that it is a different control on a
-                  different screen doing a different job: it narrows a list of interviews that ALREADY
-                  EXIST, and ticking somebody here asserts nothing about any record.
-
-                  The capture form's label is a claim about the interview being written -- these are
-                  the artisans this interview is with. "Artisans interviewed" on a filter row would
-                  read as a claim of the same kind about rows the researcher is merely looking
-                  through, and the two screens would then use one phrase for a statement and for a
-                  query.
-
-                  THE WEB AGREES BY PRECEDENT RATHER THAN BY COINCIDENCE: it has no control called
-                  "Artisans interviewed" anywhere outside the capture form, and its own browse filter
-                  (`components/FunnelFilters.tsx:153`) names itself "Filter by artisan" -- filter
-                  wording for a filter, exactly as here.
-
-                  THE ALTERNATIVE, REJECTED: make every artisan control in the product say one thing,
-                  on the argument that one control should have one name. That argument is right and it
-                  is about ONE control; these are two. Unifying them would mean either this filter
-                  claiming to interview people or the capture form describing its subject as a filter
-                  term -- and the second is how "Linked artisans" got onto the capture form in the
-                  first place. `distinctLabels` in `shared/questionnaire-form-contract.json` records
-                  the decision so that a licence nobody checks cannot outlive the screen it describes.
-
-                  THE WIDGET, HOWEVER, IS NOT A DELIBERATE DIFFERENCE. This was the second wall of
-                  checkboxes on the handset -- every artisan in the scope, one row each, painted into
-                  a filter row above the list it filters -- and the owner's complaint was about the
-                  widget, not about one screen: *"the checkbox list should be replaced with
-                  multi-select dropdown for artisans over there as well"*. It draws with the same
-                  [SearchableMultiSelectField] the capture form now uses, so the two screens differ in
-                  the one place they mean to and in no other. The contract's `distinctLabels` row
-                  names this control as a searchable multi-select; that row is now true.
-                */
                 val artisanFilterOptions = remember(artisanFilterList) { artisanSelectOptions(artisanFilterList) }
                 SearchableMultiSelectField(
                     label = "Involved artisans",
@@ -12408,8 +9328,6 @@ private fun ViewDataScreen(
                     server = artisanFilterSearch.asServerSearchRows(countsRows = true) { artisanSelectOptions(it) }
                 ) { next -> selectedArtisanIds = next }
                 val hasArtisan = selectedArtisanIds.isNotEmpty()
-                // "Check completion" is always offered first — it opens the artisans x sections matrix
-                // (all artisans). The artisan-filtered questionnaire entries follow once an artisan is picked.
                 val secondaryOptions = listOf(COMPLETION_OPTION_ID to "▦ Check completion (all artisans)") +
                     (if (hasArtisan) questionnaireOptions else emptyList())
                 DropdownField(
@@ -12421,10 +9339,6 @@ private fun ViewDataScreen(
                     enabled = true
                 ) { selectedId = it }
                 if (hasArtisan && questionnaireOptions.isEmpty()) {
-                    // NAMES THE SCOPE WHEN THERE IS ONE, because "no questionnaires involve these
-                    // artisans" and "none in the workshops you are looking at" call for different
-                    // actions, and the first sentence alone sends a researcher hunting for a sitting
-                    // that is one tap away under All records.
                     val why =
                         if (workshopScope.isAllRecords) "No questionnaires involve the selected ${if (selectedArtisanIds.size == 1) "artisan" else "artisans"} yet"
                         else "No questionnaires for these artisans in these workshops"
@@ -12445,8 +9359,6 @@ private fun ViewDataScreen(
             ) { selectedId = it }
         }
     }
-    // The completion override is `adminMode && isAdmin(user)` on the web — the role decides, the
-    // admin-view toggle can only take the ability to override away again.
     val canOverrideCompletion = isAdmin && adminChrome
     if (selectedId == COMPLETION_OPTION_ID && mode == EntryMode.QUESTIONNAIRE) {
         CompletionMatrixCard(repository = repository, artisanId = null, canEdit = canOverrideCompletion, onError = onError)
@@ -12461,37 +9373,16 @@ private fun ViewDataScreen(
         )
     }
     if (canDownloadDataset) {
-        // The dataset lives behind the same entitlement whichever way you take it out: the browser
-        // walks it folder by folder, the card below pulls the whole thing in one zip.
         onOpenDataBrowser?.let { DataBrowserEntryCard(onOpen = it) }
         DatasetDownloadCard(repository = repository, onError = onError)
     }
-    // Reviews & approvals moved to the admin "Settings" hub for admins; a non-admin who was granted the
-    // review permission still reaches the queue here, since they have no admin hub. Reviewing is NOT
-    // admin chrome (the web keeps /review open with admin view off), so when the hub is hidden the
-    // queue has to reappear here — otherwise the toggle would take away a capability, not just chrome.
     if (canReview && !(isAdmin && adminChrome)) {
         ReviewApprovalCard(repository = repository, onOpenRecord = onOpenRecord, onError = onError)
     }
 }
 
-/**
- * One field a reviewer may correct in place. [key] is the API column name — it travels verbatim in
- * the `fields` map and is validated against the record type's own PATCH schema, so a typo here is a
- * 422 rather than a silent no-op.
- */
 private data class ReviewField(val key: String, val label: String, val multiline: Boolean = false)
 
-/**
- * The fields the review screen offers per record type: the name-like columns and the prose a reviewer
- * is actually qualified to fix ("a misspelt village").
- *
- * Deliberately NOT offered here: the craft (picked from the master list on the record's own edit
- * screen, never typed: REQUIREMENTS_2026-10-20 §2.4), status (that moves through approve/reject/revise), the workshop,
- * location and linked-record lists (all refused by the API with a 422), the measurement/price decimals
- * and the validated identity fields (Aadhaar, Pehchan, phone, email) — those belong on the record's
- * own edit screen where their formatting and duplicate rules are enforced by the form.
- */
 private fun reviewEditableFields(recordType: String): List<ReviewField> = when (recordType.lowercase()) {
     "artisan" -> listOf(
         ReviewField("name", "Name"),
@@ -12546,7 +9437,6 @@ private fun reviewEditableFields(recordType: String): List<ReviewField> = when (
     else -> emptyList()
 }
 
-/** The record's stored values for the fields above, so the editor opens on what is actually saved. */
 private suspend fun loadReviewRecordValues(
     repository: FieldRepository,
     recordType: String,
@@ -12600,15 +9490,9 @@ private suspend fun loadReviewRecordValues(
     else -> emptyMap()
 }
 
-/**
- * Admin/reviewer-only: the queue of records still awaiting review (status PENDING). Each card can be
- * approved, rejected, EDITED in place, or sent back for revision; the list refreshes so cleared items
- * drop off. Gated by [canReview] (any admin, or a user the master admin granted the review permission).
- */
 @Composable
 private fun ReviewApprovalCard(
     repository: FieldRepository,
-    /** Opens a pending record read-only, so a reviewer can read all of it before deciding. */
     onOpenRecord: ((EntryMode, String) -> Unit)? = null,
     onError: (String) -> Unit
 ) {
@@ -12616,25 +9500,13 @@ private fun ReviewApprovalCard(
     var pending by remember { mutableStateOf<List<PendingReviewDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var info by remember { mutableStateOf<String?>(null) }
-    /*
-     * PAGED BY THE SERVER. The queue used to be one capped read (200 rows per record type, silently)
-     * held whole on the phone; it is now one page of twenty at a time with the server's true count
-     * of the whole queue, so nothing past a cap is ever hidden and nothing needs saying about one.
-     */
     var page by remember { mutableIntStateOf(1) }
     var total by remember { mutableIntStateOf(0) }
     var loadError by remember { mutableStateOf<String?>(null) }
     val pages = maxOf(1, (total + REVIEW_PAGE_SIZE - 1) / REVIEW_PAGE_SIZE)
-    /*
-     * ROWS TICKED FOR ONE APPROVAL (B9), by type and id — the web's bulk approve, one request for the
-     * lot. A row the server refuses (a late submission, for a non-admin) comes back named and stays
-     * ticked; the approved ones leave the list.
-     */
     val selected = remember { mutableStateMapOf<String, PendingReviewDto>() }
     var bulkBusy by remember { mutableStateOf(false) }
-    /** Ticked rows carry files: the bulk approval says how many before it runs. */
     var confirmBulk by remember { mutableStateOf(false) }
-    /** The queue narrowed to one workshop (A13), as the web's queue is; empty is every workshop. */
     var workshopId by remember { mutableStateOf("") }
     val workshopSearch = rememberServerSearch(
         key = "review-workshops",
@@ -12643,7 +9515,6 @@ private fun ReviewApprovalCard(
         idOf = { it.id },
         textOf = { it.title + " " + it.place }
     ) { term, at -> repository.workshopsSearchPage(term, at) }
-    /** The short list a reviewer picks a reason from (C19), the server's wording. Empty on an older server. */
     var reasons by remember { mutableStateOf<List<ReviewReasonDto>>(emptyList()) }
     LaunchedEffect(Unit) { runCatching { repository.reviewReasons() }.onSuccess { reasons = it } }
 
@@ -12655,8 +9526,6 @@ private fun ReviewApprovalCard(
                     pending = answer.items
                     total = answer.total
                     loadError = null
-                    // Deciding the last rows of the final page must not strand the reviewer on an
-                    // empty page.
                     val last = maxOf(1, (answer.total + REVIEW_PAGE_SIZE - 1) / REVIEW_PAGE_SIZE)
                     if (answer.items.isEmpty() && page > last) {
                         page = last
@@ -12672,7 +9541,6 @@ private fun ReviewApprovalCard(
     }
     LaunchedEffect(page, workshopId) { refresh() }
 
-    /** Approve every ticked row in one request (B9). */
     fun approveTicked() {
         scope.launch {
             bulkBusy = true
@@ -12763,16 +9631,9 @@ private fun ReviewApprovalCard(
                     }
                 }
                 if (pending.isEmpty()) {
-                    // Every row on this page was decided: fetch the next rows into it.
                     LaunchedEffect(Unit) { refresh() }
                 }
                 pending.forEach { item ->
-                    // Keyed by the record, not by position in the list. Every row here remembers state
-                    // of its own — which panel is open, the half-typed rejection comment, the edit
-                    // baseline loaded from the server — and resolving a row REMOVES it, so without a
-                    // key Compose hands all of that to whichever record slides up into the vacated
-                    // slot. A reviewer could finish typing a comment about one submission and send it
-                    // against another.
                     key(item.recordType, item.id) {
                         val selectionKey = "${item.recordType}:${item.id}"
                         PendingReviewRow(
@@ -12785,11 +9646,6 @@ private fun ReviewApprovalCard(
                             },
                             onOpenRecord = onOpenRecord,
                             onResolved = { message ->
-                                // Approve / reject / revise all move the record out of PENDING, so drop
-                                // it from the list rather than re-fetching the whole queue. Matched on
-                                // the same pair as the key above, because an id alone does not name a
-                                // row here: the queue is several tables concatenated, so dropping by id
-                                // could take an unreviewed record of another type off the screen with it.
                                 pending = pending.filterNot { it.recordType == item.recordType && it.id == item.id }
                                 selected.remove(selectionKey)
                                 total = (total - 1).coerceAtLeast(0)
@@ -12816,14 +9672,11 @@ private fun ReviewApprovalCard(
     }
 }
 
-/** One queue row, with its inline edit / send-for-revision panels. */
 @Composable
 private fun PendingReviewRow(
     repository: FieldRepository,
     item: PendingReviewDto,
-    /** The reasons from `GET /review/reasons`; empty on an older server, which rejects as before. */
     reasons: List<ReviewReasonDto> = emptyList(),
-    /** Ticked for the bulk approval above the list (B9). */
     checked: Boolean = false,
     onCheckedChange: (Boolean) -> Unit = {},
     onOpenRecord: ((EntryMode, String) -> Unit)? = null,
@@ -12833,7 +9686,6 @@ private fun PendingReviewRow(
 ) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
-    // null | "edit" | "revise" | "reject" — at most one panel open, so the row never grows two forms tall.
     var panel by remember { mutableStateOf<String?>(null) }
     var confirmReject by remember { mutableStateOf(false) }
     var reviseNote by remember { mutableStateOf("") }
@@ -12841,7 +9693,6 @@ private fun PendingReviewRow(
     var reasonCode by remember { mutableStateOf("") }
     val reason = reasons.firstOrNull { it.code == reasonCode }
     var editNote by remember { mutableStateOf("") }
-    // Loaded values (the baseline the diff is taken against) and the reviewer's working copy.
     var original by remember { mutableStateOf<Map<String, String>?>(null) }
     val edited = remember { mutableStateMapOf<String, String>() }
     val fields = remember(item.recordType) { reviewEditableFields(item.recordType) }
@@ -12856,8 +9707,6 @@ private fun PendingReviewRow(
         }
     }
 
-    // Approving takes the record's pending files with it; with any, it asks first and says how many.
-    // With no signal it is kept in the outbox and the row still leaves the queue.
     val context = LocalContext.current
     var confirmApprove by remember { mutableStateOf(false) }
     fun approve() {
@@ -12873,8 +9722,6 @@ private fun PendingReviewRow(
         }
     }
 
-    // Load the record only when the reviewer actually opens the editor — the queue can be long, and
-    // fetching every record up front would be a request per row for panels nobody opens.
     LaunchedEffect(panel) {
         if (panel != "edit" || original != null || fields.isEmpty()) return@LaunchedEffect
         runCatching { loadReviewRecordValues(repository, item.recordType, item.id) }
@@ -12895,14 +9742,9 @@ private fun PendingReviewRow(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            // The title and its details open the record READ-ONLY, as the web's review row does. The
-            // decision buttons and the in-place Update panel below are their own taps, so a reviewer
-            // typing a comment never leaves the queue by accident.
             val openMode = recentSubmissionEntryMode(item.recordType)
             val open = onOpenRecord
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            // A checkbox CHOOSES ROWS here (select these three records), which is the one job a
-            // checkbox keeps under the form-primitives rule — it is not a setting.
             Checkbox(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
@@ -12934,7 +9776,6 @@ private fun PendingReviewRow(
             }
             }
             if (item.resubmitted) {
-                // Sent back before and fixed since: what was asked last time, beside the fix (A3).
                 Text("Resubmitted", color = Coral, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                 item.previousReview?.notes?.takeIf { it.isNotBlank() }?.let { note ->
                     Text(
@@ -12954,13 +9795,6 @@ private fun PendingReviewRow(
             ActionRow(
                 destructive = {
                     OutlinedButton(
-                        // Asks first, as the web's review page does. Rejection is the end of the road for a
-                        // submission and it sits one tap away from "Send for revision", the recoverable
-                        // action with almost the same meaning; on a phone, where the two buttons are a
-                        // thumb-width apart, doing it on the first tap was a mis-tap away from telling a
-                        // contributor their work was thrown out.
-                        // With the short list on offer the reason is picked first (C19): a fixable one
-                        // sends the record back instead. An older server offers none and rejects as before.
                         onClick = {
                             if (reasons.isEmpty()) confirmReject = true
                             else {
@@ -13005,9 +9839,6 @@ private fun PendingReviewRow(
                         color = Muted,
                         style = MaterialTheme.typography.bodySmall
                     )
-                    // The reviewer's note back to the field. Dictation only: it is read once, as a
-                    // message, and never rendered as a document — and the reviewer is usually
-                    // dictating a correction while looking at the record rather than composing.
                     ReviewReasonPicker(panel = "revise", reasons = reasons, reasonCode = reasonCode) { reasonCode = it }
                     TextInput("What needs to change?", reviseNote, minLines = 2) { reviseNote = it }
                     Button(
@@ -13033,7 +9864,6 @@ private fun PendingReviewRow(
                         enabled = !busy && ReviewFeedbackCopy.refusalReady(reason, rejectNote),
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
-                            // A final rejection still asks first; a fixable reason is a send-back.
                             if (ReviewFeedbackCopy.refusalOutcome(reason) == "REJECTED") confirmReject = true
                             else act("Sent ${item.label} back for revision", resolves = true) {
                                 repository.rejectRecord(item.recordType, item.id, reason?.code, rejectNote)
@@ -13053,33 +9883,6 @@ private fun PendingReviewRow(
                         )
                         fields.forEach { field ->
                             val value = edited[field.key].orEmpty()
-                            /*
-                             * THE REVIEW-EDIT RENDERER: DICTATION ON THE MULTILINE FIELDS, NEVER THE
-                             * EDITOR, AND THE SECOND HALF IS A CORRECTNESS DECISION RATHER THAN TASTE.
-                             *
-                             * A reviewer here is correcting somebody else's fieldwork in place, and
-                             * what they change is logged as a diff against the previous value. The
-                             * diff renderer — this platform's and the web's — compares plain strings.
-                             * Giving this box a rich editor would let a reviewer restructure a
-                             * paragraph into a list and produce a diff that reads as a total rewrite
-                             * of a field they touched one word in, on the screen where somebody
-                             * decides whether to accept a day's work. Worse, it would REWRITE the
-                             * stored shape: a value the browser stored as a document would come back
-                             * through this box as flattened prose, or a plain value would leave it as
-                             * a document, on a screen whose entire purpose is a faithful diff.
-                             *
-                             * Dictation is a different matter and belongs here: correcting a misspelt
-                             * village or a garbled address by saying it is the fastest thing on the
-                             * screen. `field.multiline` is the same flag the web's registry uses, so
-                             * the two platforms light up the same boxes.
-                             *
-                             * KNOWN COST, RECORDED HERE BECAUSE IT IS VISIBLE ON THIS SCREEN FIRST:
-                             * a record somebody formatted (here or in the browser) holds a serialised
-                             * document, and this box shows it as raw text. See the storage block
-                             * comment in `ui/RecordProseText.kt` — the fix is for this renderer and
-                             * `cell()` to flatten on read, which is a change to a shared registry
-                             * rather than to this call site.
-                             */
                             TextInput(
                                 field.label,
                                 value,
@@ -13088,7 +9891,6 @@ private fun PendingReviewRow(
                             ) {
                                 edited[field.key] = it
                             }
-                            // Name-like columns are title-cased server-side, so show what will land.
                             if (field.key in com.fieldrepository.app.data.TITLE_CASE_FIELDS) {
                                 titleCasePreview(value)?.let { normalised ->
                                     Text("Will be saved as “$normalised”", color = Muted, style = MaterialTheme.typography.bodySmall)
@@ -13096,8 +9898,6 @@ private fun PendingReviewRow(
                             }
                         }
                         TextInput("Why? (optional, logged with the edit)", editNote) { editNote = it }
-                        // Only the keys that actually moved travel — the API logs the diff, and sending
-                        // an unchanged value would put a no-op line in the record's edit history.
                         val changed = fields
                             .map { it.key }
                             .filter { key -> edited[key].orEmpty() != baseline[key].orEmpty() }
@@ -13108,8 +9908,6 @@ private fun PendingReviewRow(
                             onClick = {
                                 act("Edited ${item.label} (${countNoun(changed.size, "field")})", resolves = false) {
                                     repository.editReviewedRecord(item.recordType, item.id, changed, editNote)
-                                    // Re-read so the baseline matches what the server actually stored —
-                                    // it title-cases names, so the box must show the normalised value.
                                     val fresh = loadReviewRecordValues(repository, item.recordType, item.id)
                                     original = fresh
                                     edited.clear()
@@ -13142,8 +9940,6 @@ private fun PendingReviewRow(
         )
     }
 
-    // Word for word the web review page's rejection confirmation, including the pointer at the softer
-    // action, so a reviewer who works on both surfaces is answering the same question either way.
     if (confirmReject) {
         AlertDialog(
             onDismissRequest = { confirmReject = false },
@@ -13166,7 +9962,6 @@ private fun PendingReviewRow(
     }
 }
 
-/** Bottom-of-screen control to pull the entire dataset into a structured zip in Downloads. */
 @Composable
 private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -> Unit) {
     val context = LocalContext.current
@@ -13201,11 +9996,6 @@ private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -
                     runCatching {
                         repository.downloadDataset(context) { d, t -> done = d; total = t }
                     }.onSuccess { res ->
-                        // The truncation clause is not decoration. The server caps the export at
-                        // 5,000 rows per record table and 20,000 media rows and says so, and this
-                        // message used to drop that on the floor — so an archive missing everything
-                        // past the cap announced itself as "4,312/4,312 files", which is the exact
-                        // shape of a wrong answer that reads as a right one.
                         resultMessage = "Saved to ${res.displayLocation} — ${res.saved}/${res.total} files" +
                             (if (res.failed > 0) " (${res.failed} could not be fetched)" else "") +
                             (if (res.truncated) " — not every record included" else "")
@@ -13249,13 +10039,9 @@ private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -
     }
 }
 
-// Completion-matrix colours: section done (green), flagged for review (amber), to redo (red),
-// and not-yet-started (neutral). Green also covers a section recorded in any group/superset the
-// artisan belongs to, or individually.
 private val CompletionGreen = Color(0xFF2E9E5B)
 private val CompletionAmber = Color(0xFFE2A400)
 private val CompletionRed = Color(0xFFD25141)
-// Themed: the light-beige literal glowed as a bright tile on the dark canvas.
 private val CompletionEmpty: Color get() = com.fieldrepository.app.ui.Hairline
 
 private fun completionColor(status: String?, derived: Boolean): Color = when (status) {
@@ -13265,13 +10051,6 @@ private fun completionColor(status: String?, derived: Boolean): Color = when (st
     else -> if (derived) CompletionGreen else CompletionEmpty
 }
 
-/**
- * The "Check completion" matrix: artisans down the rows, questionnaire sections across the columns.
- * A cell is green when that section has been recorded for the artisan (individually, or in any group
- * / larger superset they were part of) or an admin marked it complete; amber = requires review; red =
- * needs redoing; neutral = not started. Pinch to zoom in/out. Admins/master admins tap a cell to set
- * its status. Pass [artisanId] to show just that one artisan (the per-artisan View Data view).
- */
 @Composable
 private fun CompletionMatrixCard(
     repository: FieldRepository,
@@ -13280,37 +10059,14 @@ private fun CompletionMatrixCard(
     onError: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    /*
-     * WHICH WORKSHOPS THIS MATRIX IS ABOUT. The shared control, same default (the most recent
-     * workshop) and same wire format as the map and the consolidated questionnaire, so a researcher
-     * moving between the three is always reading the same records.
-     *
-     * The server scopes BOTH HALVES from this one parameter: which artisans are rows, and which
-     * interviews count towards a cell. A matrix that scoped only one of the two would show a
-     * workshop's artisans against every interview they have ever sat in, which is precisely the
-     * confusion this control exists to remove.
-     *
-     * It applies in the per-artisan variant too ([artisanId] != null), where there is only ever one
-     * row: the scope still decides which interviews turn a cell green.
-     */
     val workshopScope = rememberWorkshopScope(repository = repository, onError = onError)
     var matrix by remember(artisanId) { mutableStateOf<CompletionMatrixDto?>(null) }
     var loading by remember(artisanId) { mutableStateOf(true) }
-    // Local override of cells so a tap reflects immediately without a full reload.
     var cellOverrides by remember(artisanId) { mutableStateOf<Map<Pair<String, String>, String?>>(emptyMap()) }
     var editing by remember { mutableStateOf<Pair<String, String>?>(null) }
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
 
-    /*
-     * Reloads when the scope moves, and NEVER fires before the picker has settled on its default: the
-     * first request would otherwise go out unscoped and be replaced a moment later, which is two
-     * requests and a second of the matrix showing the wrong answer.
-     *
-     * The load runs IN the effect rather than in this card's own coroutine scope, which the previous
-     * `reload()` used. Re-keying now CANCELS the request the previous scope started — two overlapping
-     * loads can otherwise land out of order and leave the matrix showing a scope nobody is on.
-     */
     LaunchedEffect(artisanId, workshopScope.settled, workshopScope.requestKey) {
         if (!workshopScope.settled) return@LaunchedEffect
         loading = true
@@ -13321,8 +10077,6 @@ private fun CompletionMatrixCard(
                 loading = false
             }
             .onFailure {
-                // Rethrown rather than reported: a superseded request is not a failed one, and
-                // rethrowing also leaves `loading` to the pass that replaced this one.
                 if (it is kotlinx.coroutines.CancellationException) throw it
                 onError(it.apiErrorMessage("Unable to load completion"))
                 loading = false
@@ -13336,19 +10090,8 @@ private fun CompletionMatrixCard(
             color = Muted,
             style = MaterialTheme.typography.bodySmall
         )
-        // The scope sits ABOVE the matrix, because it changes what every cell means.
         WorkshopScopeSelect(scope = workshopScope, label = "Workshops in this matrix")
 
-        /*
-         * THE SHORTFALL, NAMED. An interview that names no workshop is excluded from this matrix under any
-         * workshop scope, and the exclusion used to be invisible: the matrix simply showed less green,
-         * which reads as fieldwork that never happened. Saying the number turns that into something an
-         * admin can act on — the Workshop screen carries the card that files them.
-         *
-         * The server sends 0 whenever the scope cannot hide anything (no workshop chosen, or the
-         * unassigned records explicitly included), so this is a plain `> 0` test rather than a second
-         * copy of that rule.
-         */
         val hidden = matrix?.unassignedInterviews ?: 0
         if (hidden > 0) {
             Column(
@@ -13375,7 +10118,6 @@ private fun CompletionMatrixCard(
                 )
             }
         }
-        // Legend.
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -13386,13 +10128,6 @@ private fun CompletionMatrixCard(
             CompletionLegendChip(CompletionRed, "Needs redo")
             CompletionLegendChip(CompletionEmpty, "Not started")
         }
-        /*
-         * WHAT THE WORKSHOP SCOPE DOES AND DOES NOT NARROW. The green derived from recordings is scoped to
-         * the chosen workshops; an admin's mark is not, because the override table is keyed on (artisan,
-         * section) with no workshop column — a mark is a judgement about that artisan's section across the
-         * repository. Said here rather than left for a reader to deduce from a cell that stays green as the
-         * scope moves. The server states the fact so both clients cannot describe it differently.
-         */
         if (matrix?.overridesAreRepositoryWide == true) {
             Text(
                 "Admin-marked cells keep their colour in every scope.",
@@ -13405,8 +10140,6 @@ private fun CompletionMatrixCard(
         when {
             loading -> Text("Loading completion…", color = Muted, style = MaterialTheme.typography.bodySmall)
             data == null || data.sections.isEmpty() -> Text("No questionnaire sections defined yet.", color = Muted, style = MaterialTheme.typography.bodySmall)
-            // Two different facts, and saying the wrong one sends somebody to look for artisans that
-            // are there. The web's own two sentences.
             data.artisans.isEmpty() -> Text(
                 if (!workshopScope.isAllRecords) {
                     "No artisans in these workshops."
@@ -13429,7 +10162,6 @@ private fun CompletionMatrixCard(
                         .height(440.dp)
                         .clipToBounds()
                         .pointerInput(Unit) {
-                            // Two-finger pinch zooms + pans; a plain tap falls through to the cells.
                             detectTransformGestures { _, pan, zoom, _ ->
                                 scale = (scale * zoom).coerceIn(0.5f, 3f)
                                 offset += pan
@@ -13447,7 +10179,6 @@ private fun CompletionMatrixCard(
                             }
                             .horizontalScroll(rememberScrollState())
                     ) {
-                        // Header row: corner + section codes.
                         Row {
                             CompletionHeaderCell("Artisan", nameWidth, rowHeight, alignStart = true)
                             data.sections.forEach { section ->
@@ -13472,8 +10203,6 @@ private fun CompletionMatrixCard(
                                         val cell = cellByKey[key]
                                         val status = if (cellOverrides.containsKey(key)) cellOverrides[key] else cell?.status
                                         val derived = cell?.derived == true
-                                        // Each cell says what it is to TalkBack — artisan, section and
-                                        // state — and is a button where it can be edited.
                                         val cellWords = "${artisan.name}, ${section.code}: " + when {
                                             status == "COMPLETED" || (status == null && derived) -> "complete"
                                             status == "NEEDS_REVIEW" -> "needs review"
@@ -13499,7 +10228,6 @@ private fun CompletionMatrixCard(
                                             if (status == "COMPLETED" || (status == null && derived)) {
                                                 Text("✓", color = Color.White, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                                             } else if (status == "NEEDS_REVIEW") {
-                                                // Dark ink on amber: white was about 1.9:1.
                                                 Text("!", color = Color(0xFF3B2300), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                                             } else if (status == "NEEDS_REDO") {
                                                 Text("✗", color = Color.White, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
@@ -13529,7 +10257,6 @@ private fun CompletionMatrixCard(
                 runCatching { repository.setCompletionCell(cellToEdit.first, cellToEdit.second, status) }
                     .onFailure {
                         onError(it.apiErrorMessage("Unable to update status"))
-                        // Roll back the optimistic change on failure.
                         cellOverrides = cellOverrides - cellToEdit
                     }
             }
@@ -13589,28 +10316,16 @@ private fun CompletionStatusButton(color: Color, label: String, onClick: () -> U
     }
 }
 
-/**
- * One record, READ-ONLY — where a tap on any record card or row lands (`ui/RecordOpen.kt`).
- *
- * The body is [ViewDataDetail], the same read-only detail the View Data screen has always drawn —
- * every field, the attached files with their previews, transcripts and Download, and the comments —
- * so a record reads the same whichever way it was reached. Above it sits the one way to change it:
- * "Update", drawn only for an account the server would let save it ([canUpdate]) and only for a type
- * that has an edit form (a media file has none).
- */
 @Composable
 private fun RecordViewScreen(
     repository: FieldRepository,
     mode: EntryMode,
     recordId: String,
     canUpdate: Boolean,
-    /** Open the edit form; the argument is the field a completeness chip asked for, or null. */
     onUpdate: (String?) -> Unit,
     canOverrideCompletion: Boolean,
     showProvenance: Boolean,
-    /** The account has review access (`canAccessReview`); without it the bar asks nothing. */
     mayReview: Boolean = false,
-    /** Content admins, admin view or not: the page ends with the "Danger zone" card. */
     canDelete: Boolean = false,
     onDeleted: () -> Unit = {},
     onMessage: (String) -> Unit = {},
@@ -13619,15 +10334,9 @@ private fun RecordViewScreen(
     var status by remember(mode, recordId) { mutableStateOf<String?>(null) }
     var refresh by remember(mode, recordId) { mutableIntStateOf(0) }
     val reviewType = ReviewFeedbackCopy.recordTypeFor(mode.name)
-    /*
-     * The page's `GET /review/{type}/{id}/media` answer, handed to the review bar so the two do not
-     * each ask for it. Completed with null when the read failed or was cancelled; the bar then asks
-     * itself, as it always did.
-     */
     val mediaReviewAnswer = remember(reviewType, recordId, mayReview, refresh) { CompletableDeferred<RecordMediaReviewDto?>() }
     reviewType?.let { type ->
         ReviewNoteBanner(repository = repository, recordType = type, recordId = recordId, knownStatus = status)
-        // Approve, send back or reject without going back to the queue (A13), as the web's page does.
         RecordReviewBar(
             repository = repository,
             recordType = type,
@@ -13638,7 +10347,6 @@ private fun RecordViewScreen(
             onDecided = { message -> onMessage(message); refresh += 1 }
         )
     }
-    // The record's completeness block, reported by the detail below once it has loaded (2026-10-18).
     var completeness by remember(mode, recordId) { mutableStateOf<CompletenessDto?>(null) }
     RefreshCompletenessRules(repository)
     if (canUpdate) {
@@ -13648,11 +10356,6 @@ private fun RecordViewScreen(
             Text(RECORD_UPDATE_LABEL)
         }
     }
-    /*
-     * Each file card's Reject (owner decision 2026-10-18: approving a record approves its pending
-     * files, and a reviewer can still reject one file — before or after). The server lists the files
-     * this reader may reject; a card not on the list draws no button.
-     */
     var mediaReview by remember(mode, recordId) { mutableStateOf<MediaReviewScope?>(null) }
     LaunchedEffect(reviewType, recordId, mayReview, refresh) {
         try {
@@ -13674,14 +10377,11 @@ private fun RecordViewScreen(
             mediaReviewAnswer.complete(null)
         }
     }
-    // Under Update: what this record still lacks. The chips open the form at the field for a reader
-    // who may update it; for anyone else they are plain words.
     completeness?.let { block ->
         RecordCard(title = "Completeness") {
             CompletenessMeter(block = block, canUpdate = canUpdate, onUpdate = { key -> onUpdate(key) })
         }
     }
-    // A decision re-reads the record, so its status line and the bar above agree with the server.
     key(refresh) {
         CompositionLocalProvider(LocalMediaReview provides mediaReview) {
             ViewDataDetail(
@@ -13701,7 +10401,6 @@ private fun RecordViewScreen(
     }
 }
 
-/** Fetch the completeness rules once per process, so a newer table reaches this phone without a release. */
 private val completenessRulesRefreshed = java.util.concurrent.atomic.AtomicBoolean(false)
 
 @Composable
@@ -13715,7 +10414,6 @@ private fun RefreshCompletenessRules(repository: FieldRepository) {
     }
 }
 
-/** The live completeness line at the top of a record form, over the form's own state (`ui/CompletenessMeter.kt`). */
 @Composable
 private fun FormCompletenessLine(kind: String, values: Map<String, Any?>, stored: CompletenessDto?, add: Map<String, Int>) {
     val rules = rememberCompletenessRules() ?: return
@@ -13727,17 +10425,13 @@ private fun ViewDataDetail(
     repository: FieldRepository,
     mode: EntryMode,
     recordId: String,
-    /** Admin AND admin view on — the web's `adminMode && isAdmin(user)` for the completion matrix. */
     canOverrideCompletion: Boolean = false,
     showProvenance: Boolean = false,
-    /** The loaded record's review status, for the review note and bar above it. */
     onStatus: (String?) -> Unit = {},
     onError: (String) -> Unit,
-    /** The loaded record's completeness block (artisan, product, tool, workshop, interview), or null. */
     onCompleteness: (CompletenessDto?) -> Unit = {}
 ) {
     val context = LocalContext.current
-    /** The record's load failed: drawn as a failure with Try again, which bumps [loadAttempt]. */
     var loadError by remember(recordId) { mutableStateOf<String?>(null) }
     var loadAttempt by remember(recordId) { mutableIntStateOf(0) }
     val retryLoad = { loadError = null; loadAttempt += 1 }
@@ -13781,11 +10475,8 @@ private fun ViewDataDetail(
                 DetailRow("Email", v.email)
                 DetailRow("Address", v.address)
                 DetailRow("Notes", v.notes)
-                // Browsing is a shared surface, so the Aadhaar is masked here even though the edit
-                // form (same record, same DTO) shows it in full to the person about to correct it.
                 DetailRow(
                     "Aadhaar number",
-                    // C18: the explicit outcome reads as itself, and as the follow-up it is.
                     if (v.aadhaarNotShared && v.aadhaarNumber.isNullOrBlank()) "Not shared by artisan — follow up" else maskAadhaar(v.aadhaarNumber)
                 )
                 DetailRow("Pehchan card", if (v.pehchanCardAvailable) "Yes" else "No")
@@ -13795,11 +10486,7 @@ private fun ViewDataDetail(
                 DetailRow("Status", v.status)
                 RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
             }
-            // Per-artisan completion: the same matrix, scoped to just this artisan (one row).
             CompletionMatrixCard(repository = repository, artisanId = recordId, canEdit = canOverrideCompletion, onError = onError)
-            // Everything recorded against this artisan in the questionnaire — answers + the recordings
-            // from every interview they belong to (alone, in a subset, or a larger set), so a group
-            // recording surfaces here for this artisan to be validated individually.
             ArtisanQuestionnaireData(repository = repository, artisanId = recordId)
         }
         EntryMode.PRODUCT -> {
@@ -13852,7 +10539,6 @@ private fun ViewDataDetail(
                 DetailRow("Status", v.status)
                 DetailRow("Artisans", v.artisans.mapNotNull { it.artisan?.name }.joinToString(", ").ifBlank { null })
                 RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
-                // The questionnaire takes filed under this workshop, each with its chips (owner, 31 Oct 2026).
                 HorizontalDivider()
                 com.fieldrepository.app.questionnaire.ui.RecordingsList(
                     remember { com.fieldrepository.app.questionnaire.data.QuestionnaireV2.get(context) },
@@ -13871,7 +10557,6 @@ private fun ViewDataDetail(
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
                 DetailRow("Local name", v.localName)
                 DetailRow("Category", v.category)
-                // The master list's attributes, with the sub-category named from the stored list.
                 DetailRow("Sub-category", craftList?.let { list ->
                     list.categories.flatMap { it.subCategories }.firstOrNull { it.id == v.subCategoryId }?.name
                 })
@@ -13885,26 +10570,13 @@ private fun ViewDataDetail(
             }
         }
         EntryMode.QUESTIONNAIRE -> {
-            // A "questionnaire" here is the WHOLE set of saved interview records for the same set of
-            // artisan(s). We aggregate responses AND media across every record in that group, so a
-            // recording attached to one sibling save is visible no matter which entry was opened — the
-            // core fix for "not all features of the record(s) are visible".
             var members by remember(recordId) { mutableStateOf<List<QuestionnaireInterviewDetailDto>?>(null) }
             var groupMedia by remember(recordId) { mutableStateOf<List<MediaFileDto>>(emptyList()) }
             LaunchedEffect(recordId, loadAttempt) {
                 runCatching {
-                    // The record BY ID, then its group — see [interviewGroup]. This used to scan the
-                    // newest hundred interviews in the repository twice over: once to find the record
-                    // and once to find its siblings. A direct GET is the correct question for the
-                    // first, and one artisan's interviews for the second; neither can be defeated by
-                    // the repository growing, and neither is scoped by workshop, because the record
-                    // has already been chosen.
                     val selected = repository.interview(recordId)
-                    // The record opened, not the group's representative: the chips edit THIS sitting.
                     onCompleteness(selected.completeness)
                     val group = interviewGroup(repository, selected)
-                    // Media is pulled per record through the media endpoint (which carries uploader +
-                    // transcript), then de-duplicated by id across the whole group.
                     val mediaById = LinkedHashMap<String, MediaFileDto>()
                     group.forEach { m ->
                         runCatching { repository.mediaForRecord("questionnaire", m.id) }.getOrDefault(emptyList())
@@ -13930,7 +10602,6 @@ private fun ViewDataDetail(
                 val researchers = g.mapNotNull { it.createdBy?.name }.distinct().joinToString(", ")
                 if (researchers.isNotBlank()) DetailRow(if (researchers.contains(", ")) "Interviewers" else "Interviewer", researchers)
                 if (g.size > 1) DetailRow("Merged from", "${g.size} interview records with the same people")
-                // Answers aggregated across every record in the group (deduped by question + text).
                 val allResponses = g.flatMap { it.responses }
                     .filter { !it.answerText.isNullOrBlank() }
                     .distinctBy { it.questionId to it.answerText }
@@ -13958,7 +10629,6 @@ private fun ViewDataDetail(
         }
         else -> Text("This record type cannot be viewed here.", color = Muted)
     }
-    // Comments (Comment tier) + edit history (owner/admin) for this record — same data-access model as web.
     if (mode in setOf(
             EntryMode.ARTISAN, EntryMode.PRODUCT, EntryMode.TOOL, EntryMode.WORKSHOP,
             EntryMode.PROCESS, EntryMode.QUESTIONNAIRE, EntryMode.CRAFT, EntryMode.MEDIA
@@ -13968,11 +10638,6 @@ private fun ViewDataDetail(
     }
 }
 
-/**
- * Per-record comments + edit history, powered by the data-access API. Anyone who can view the record
- * can read comments; posting needs Comment-tier access (or owner/admin). Edit history is owner/admin
- * only (the endpoint 403s otherwise, which we hide). Mirrors the web CollabPanel.
- */
 @Composable
 private fun RecordCollabSection(
     repository: FieldRepository,
@@ -13986,8 +10651,6 @@ private fun RecordCollabSection(
     var revisions by remember(recordId) { mutableStateOf<List<RecordRevisionDto>?>(null) }
     var draft by remember(recordId) { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
-    // The signed-in account, read once. `EntryCommentRow` offers Edit to the author and Remove to a
-    // content admin in admin view (2026-10-20) — the two rules `data_access` enforces, as on the web.
     val me = remember { repository.cachedUser() }
     var editingId by remember(recordId) { mutableStateOf<String?>(null) }
     var editDraft by remember(recordId) { mutableStateOf("") }
@@ -13996,7 +10659,6 @@ private fun RecordCollabSection(
         scope.launch {
             runCatching { comments = repository.entryComments(recordType, recordId) }
                 .onFailure { onError(it.apiErrorMessage("Unable to load comments")) }
-            // Edit history is owner/admin only; silently hide if not permitted.
             revisions = runCatching { repository.recordRevisions(recordType, recordId) }.getOrNull()
         }
     }
@@ -14056,8 +10718,6 @@ private fun RecordCollabSection(
                 onClick = {
                     scope.launch {
                         busy = true
-                        // No signal: the comment waits in the outbox rather than in a box the
-                        // researcher is about to navigate away from.
                         val body = EntryCommentBody(recordType = recordType, recordId = recordId, body = draft.trim())
                         if (queueSmallWrite(repository, context, null, idempotent = false, type = "comment",
                                 payloadJson = offlineFormJson.encodeToString(body), label = "Comment")) {
@@ -14093,14 +10753,12 @@ private fun RecordCollabSection(
     }
 }
 
-/** Render a JSON value (string/number/bool/null) from an edit-history change for display. */
 private fun jsonText(value: kotlinx.serialization.json.JsonElement?): String {
     if (value == null || value is kotlinx.serialization.json.JsonNull) return "—"
     val prim = value as? kotlinx.serialization.json.JsonPrimitive ?: return value.toString()
     return prim.content
 }
 
-/** Record types a miscellaneous-media upload can be linked to (item: Misc Media). */
 private val mediaLinkModes = listOf(
     EntryMode.ARTISAN, EntryMode.WORKSHOP, EntryMode.CRAFT, EntryMode.TOOL,
     EntryMode.PRODUCT, EntryMode.PROCESS, EntryMode.QUESTIONNAIRE, EntryMode.MEDIA
@@ -14110,20 +10768,16 @@ private val mediaLinkModes = listOf(
 private fun AndroidMediaForm(
     repository: FieldRepository,
     onUploaded: (Int) -> Unit,
-    /** Files went to the outbox (no signal): how many it holds, and how many uploaded before that. */
     onQueued: (queued: Int, uploaded: Int) -> Unit = { _, _ -> },
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
     val draft = rememberFormDraft(repository, "media", null)
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var mediaTitle by remember { mutableStateOf("") }.drafted(draft, "mediaTitle")
     var linkedMode by remember { mutableStateOf<EntryMode?>(null) }
     var linkedEntryId by remember { mutableStateOf("") }
-    // A record picked before the process died, re-applied once its type's entries reload (the
-    // type change below clears the pick).
     var restoredEntryId by remember { mutableStateOf<String?>(null) }
     var caption by remember { mutableStateOf("") }.drafted(draft, "caption")
     var location by remember { mutableStateOf<LocationRequest?>(null) }.drafted(draft, "location")
@@ -14137,7 +10791,6 @@ private fun AndroidMediaForm(
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
     var savedMedia by remember { mutableStateOf<List<com.fieldrepository.app.data.MediaFileDto>>(emptyList()) }
     var localMessage by remember { mutableStateOf<String?>(null) }
-    // Set with SUCCESS when files went to the outbox: the button says "saved", not "uploaded".
     var batchQueued by remember { mutableStateOf(false) }
     AutoResetStatus(uploadStatus) { uploadStatus = ActionStatus.IDLE; batchQueued = false }
 
@@ -14149,9 +10802,7 @@ private fun AndroidMediaForm(
         }
     }
 
-    // Each capture asks for its own permission when pressed and waits for the answer (ui/PermissionGate.kt).
     val permissionGate = rememberPermissionGate(onRefused = onError)
-    // Location is asked as the pair, when "Use GPS" is pressed and only if neither is held.
     val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) selectedUris = selectedUris + uris
@@ -14170,19 +10821,14 @@ private fun AndroidMediaForm(
     LaunchedEffect(Unit) {
         refreshMedia()
     }
-    // When the linked record type changes, load that type's entries for the second dropdown.
     LaunchedEffect(linkedMode) {
         linkedEntryId = restoredEntryId ?: ""
         restoredEntryId = null
     }
-    // The chosen type's entries, searched and paged by the server (`ui/ServerSearch.kt`).
     val entrySearch = rememberRecordRows(repository, linkedMode)
     val entryOptions = linkedMode?.let { recordRowOptions(it, entrySearch.known).map { o -> o.value to o.label } }.orEmpty()
     val loadingEntries = linkedMode != null && !entrySearch.browseLoaded && entrySearch.note == null
 
-    // Which boxes on this form carry a microphone is DATA, not a pattern — see
-    // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
-    // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.MEDIA)
     RecordCard(title = "Capture media") {
         DraftOfferCard(draft)
@@ -14209,11 +10855,8 @@ private fun AndroidMediaForm(
             dirty = !uploading && (selectedUris.isNotEmpty() || mediaTitle.isNotBlank() || caption.isNotBlank()),
             label = mediaTitle.ifBlank { caption }
         )
-        // "transcription", not "Whisper transcription": the backend now runs a provider chain
-        // (ElevenLabs → Deepgram → Whisper), so naming one of them tells the researcher something
-        // that is only sometimes true. The web misc-media screen already says it this way.
         Text(
-            "Audio is transcribed after upload.",
+            "Tick Transcribe and translate on a recording or video to get its text.",
             color = Muted,
             style = MaterialTheme.typography.bodySmall
         )
@@ -14242,7 +10885,6 @@ private fun AndroidMediaForm(
         OutlinedButton(
             onClick = {
                 if (!recording && !permissionGate.holds(MICROPHONE_PERMISSION)) {
-                    // Ask first and record nothing yet: the press that grants it is not a press to record.
                     permissionGate.ask(MICROPHONE_PERMISSION, MICROPHONE_REFUSED_SENTENCE)
                 } else if (!recording) {
                     runCatching {
@@ -14295,12 +10937,7 @@ private fun AndroidMediaForm(
             enabled = linkedMode != null && !loadingEntries,
             server = linkedMode?.let { m -> entrySearch.asServerSearchRows(countsRows = true) { recordRowOptions(m, it) } }
         ) { linkedEntryId = it }
-        // A media caption. Dictation only — a caption is one sentence describing a photograph, and
-        // it is shown as a single run beside the thumbnail, where a heading or a bullet has nowhere
-        // to go.
         TextInput("Caption", caption, minLines = 2, dictate = dictates("caption")) { caption = it }
-        // Web parity (app/(protected)/media/page.tsx): the GPS block closes the form, after the
-        // caption — it describes the upload rather than being one of the things being described.
         LocationAddressEditor(
             repository = repository,
             value = location,
@@ -14332,8 +10969,6 @@ private fun AndroidMediaForm(
                         onRemove = { selectedUris = selectedUris.filterNot { it == uri } }
                     )
                 }
-                // On the purple tile every action is drawn in the tile's own ink: the theme's
-                // primary is purple too, and "Download" and "Clear batch" all but vanished (doc/75).
                 val tileInk = MaterialTheme.field.onBrandTile
                 if (selectedUris.size > batchCap) {
                     ActionRow {
@@ -14355,6 +10990,7 @@ private fun AndroidMediaForm(
                     }
                 }
             }
+            UriTranscribeChoices(selectedUris)
         }
         localMessage?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodySmall) }
         if (uploading) {
@@ -14368,8 +11004,6 @@ private fun AndroidMediaForm(
                     uploadFraction = 0f
                     uploadProgressText = null
                     val uris = selectedUris
-                    // Copy [files] into the outbox, to upload (and attach, when an entry is picked)
-                    // once the connection returns; the form is cleared as after an upload.
                     suspend fun queueBatch(files: List<Uri>, uploaded: Int = 0): Boolean {
                         val mode = linkedMode ?: return false
                         val title = mediaTitle.ifBlank { caption }
@@ -14397,13 +11031,10 @@ private fun AndroidMediaForm(
                         }
                         return queued
                     }
-                    // No signal: straight to the outbox. The offline banner already says why, so
-                    // trying each file only to report "Could not connect" under it told nobody anything.
                     if (!repository.isOnline(context) && queueBatch(uris)) {
                         uploading = false
                         return@launch
                     }
-                    // Sizes drive the overall %/ETA across the whole batch (cheap metadata reads).
                     val sizes = uris.map { queryMediaSize(context, it) }
                     val totalBytes = sizes.sum().coerceAtLeast(1L)
                     val startMs = System.currentTimeMillis()
@@ -14471,8 +11102,6 @@ private fun AndroidMediaForm(
                                 )
                             }
                         ) -> {
-                            // No signal, or it dropped part-way: the files that did not make it are
-                            // copied into the outbox and attach to the record when it returns.
                             draft.clear()
                             selectedUris = emptyList()
                             mediaTitle = ""
@@ -14482,14 +11111,11 @@ private fun AndroidMediaForm(
                             batchQueued = true
                             if (success > 0) refreshMedia()
                         }
-                        // No entry to attach to, and the signal went part-way: the rest wait unlinked,
-                        // and the message counts the ones that did go up as well.
                         linkedEntryId.isBlank() && !repository.isOnline(context) &&
                             queueBatch(failedUris.toList(), uploaded = success) -> {
                             if (success > 0) refreshMedia()
                         }
                         else -> {
-                            // Keep only the failed files staged so the user can retry just those.
                             selectedUris = failedUris.toList()
                             uploadStatus = ActionStatus.ERROR
                             val msg = if (success == 0) {
@@ -14505,7 +11131,6 @@ private fun AndroidMediaForm(
                 }
             },
             enabled = selectedUris.isNotEmpty() && linkedMode != null && !uploading && !recording,
-            // Keep the green/red visible even while the button is disabled (the batch clears on success).
             colors = if (uploadStatus == ActionStatus.IDLE) ButtonDefaults.buttonColors() else {
                 val c = if (uploadStatus == ActionStatus.SUCCESS) SuccessGreen else FailureRed
                 ButtonDefaults.buttonColors(
@@ -14547,7 +11172,6 @@ private fun AndroidMediaForm(
     }
 }
 
-/** Best-effort byte size of a content Uri (for upload ETA); 0 when unknown. */
 private fun queryMediaSize(context: Context, uri: Uri): Long {
     return runCatching {
         context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use { cursor ->
@@ -14557,7 +11181,6 @@ private fun queryMediaSize(context: Context, uri: Uri): Long {
     }.getOrDefault(0L)
 }
 
-/** Compact human estimate for an upload countdown, e.g. "~45s left" / "~2m 10s left". */
 private fun formatEta(seconds: Long): String {
     if (seconds <= 0) return "almost done"
     if (seconds < 60) return "~${seconds}s left"
@@ -14581,13 +11204,8 @@ private fun AndroidUriPreview(
     onRemove: (() -> Unit)? = null,
     progress: Float? = null,
     failed: Boolean = false,
-    // Per-file actions. [onRetry] re-runs just this file's upload (shown when it failed);
-    // [downloadable] draws the "Download" control, which saves this on-device copy to Downloads
-    // (`saveToDownloads`) — before, during and after the upload, so the media is never lost to a
-    // failing network and the upload is never waited on.
     onRetry: (() -> Unit)? = null,
     downloadable: Boolean = false,
-    /** Drawn on the brand tile (the "N files ready" card): actions in the tile's ink, outlined. */
     onTile: Boolean = false
 ) {
     val mimeType = remember(uri) { context.contentResolver.getType(uri) }
@@ -14613,7 +11231,6 @@ private fun AndroidUriPreview(
     when {
         failed -> Text(
             "Upload failed — tap Retry, or Download to keep a copy on this device.",
-            // On the purple tile the scheme's error red is 2.1:1; the tile's own error rung is AA.
             color = if (onTile) MaterialTheme.field.errorOnBrandTile else MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall
         )
@@ -14628,10 +11245,6 @@ private fun AndroidUriPreview(
         progress != null && progress >= 1f -> Text("Uploaded ✓", color = SuccessGreen, style = MaterialTheme.typography.bodySmall)
     }
     if ((failed && onRetry != null) || downloadable) {
-        // One action row at the foot of every media card, always in this order — Retry (the way out of
-        // a failure) then Download — as real tonal buttons (MediaActionButton), laid out by the one
-        // ActionRow (a pair shares the line, stacking only when a word cannot fit its half) and never
-        // overlapping the tile's discard badge above.
         ActionRow(modifier = Modifier.fillMaxWidth()) {
             if (failed && onRetry != null) {
                 MediaActionButton(
@@ -14645,7 +11258,6 @@ private fun AndroidUriPreview(
                     source = uri,
                     mimeType = mimeType,
                     name = uri.lastPathSegment,
-                    // On the purple "files ready" tile: the on-tile variant, outlined in the tile's ink.
                     onTile = if (onTile) MaterialTheme.field.onBrandTile else null
                 )
             }
@@ -14656,10 +11268,8 @@ private fun AndroidUriPreview(
     }
 }
 
-/** A small circular "✕" badge pinned to a media tile's top-right corner to discard/remove that file. */
 @Composable
 private fun DiscardBadge(contentDescription: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    // A 48dp target around the same 28dp disc: the disc was the whole target, too small to aim at.
     IconButton(
         onClick = onClick,
         modifier = modifier.size(48.dp)
@@ -14680,16 +11290,13 @@ private fun AndroidSavedMediaPreview(
     media: com.fieldrepository.app.data.MediaFileDto,
     onDelete: (() -> Unit)? = null
 ) {
-    // Removing a saved file is a delete: content admins only, admin view or not (2026-10-21).
     val onDelete: (() -> Unit)? = onDelete.takeIf { com.fieldrepository.app.ui.LocalMayDelete.current }
     val uri = remember(media.url) { media.url?.let(Uri::parse) }
     var showViewer by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
-    // The preview kept on this device, for when the file's link has expired or there is no signal.
     val offlinePreview = com.fieldrepository.app.ui.rememberOfflinePreview(media.id)
 
     if (uri == null) {
-        // No preview URL (e.g. an old/broken row) — still offer removal when allowed.
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text(media.originalFilename, color = Body, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
             if (onDelete != null) {
@@ -14766,47 +11373,6 @@ private fun AndroidSavedMediaPreview(
 
 private val IN_APP_PLAYABLE = setOf("IMAGE", "VIDEO", "AUDIO")
 
-/**
- * THE ARTISANS THE QUESTIONNAIRE FORM OFFERS, what that list is not showing, and the three states it
- * can be in while it shows nothing.
- *
- * [loading], [failed] and "loaded and genuinely empty" are three different facts and the picker
- * prints a different sentence for each. Collapsing them \u2014 which is what a bare `List<ArtisanDto>`
- * does \u2014 is how "No artisans available yet. Create an artisan first." came to be printed over a
- * dropped request, which is a claim about the repository assembled out of a claim about the network.
- * `frontend/app/(protected)/questionnaire/page.tsx` prints the same four sentences off the same three
- * facts.
- */
-/**
- * AN ARTISAN ROSTER AS PICKER ROWS — the one mapping, used by the interview capture form and by the
- * browse screen's interview filter.
- *
- * WHY IT IS A FUNCTION AND NOT TWO `map` BLOCKS. Both screens now draw [SearchableMultiSelectField]
- * over the same rows, and the thing that must not drift between them is the VALUE: it is the artisan
- * id, it is what the capture form puts in `artisanIds`, and it is what the browse filter matches
- * interviews by. Two copies of "value = artisan.id" is the cheapest possible drift to write and the
- * most expensive to see — a picker whose rows carry the wrong identifier looks completely normal and
- * files the interview against nobody.
- *
- * NAME AND PLACE IN THE LABEL, CRAFT IN THE HINT, and the browser's flat "Name - Craft - Place"
- * (`artisanPickerOptionLabel`) is the rejected alternative for a reason about this widget rather
- * than about wording. [SearchableMultiSelectField] draws the chosen rows as CHIPS, one line each,
- * ellipsised; a three-part string turns four ticked artisans into four truncated chips that all
- * begin with a name and end in "...". [SelectOption.hint] is the handset's answer: a second line
- * inside the sheet, where there is room, and [SelectOption] searches the hint as well as the label —
- * so typing a craft name filters the sheet exactly as it would if the craft were in the label. Same
- * three facts, same search, drawn the way this control was built to draw them. "No craft" is the
- * browser's own word for the blank, so the two clients read the same about an artisan with none.
- *
- * IT LIVES HERE AND NOT IN `ui/RecordPickers.kt`, WHICH IS WHERE THE REST OF THIS FAMILY LIVES
- * ([artisansNotAtWorkshop], [outOfWorkshopNotice]): both callers are in this file, and a helper
- * moved to a shared module for one file's benefit is a dependency nobody needed. The day a THIRD
- * caller appears outside `MainActivity.kt`, that is the moment to lift it — same condition
- * `WalkthroughSurfaceTest` set for its own copied helper, and the same one that was later met.
- *
- * `internal` rather than `private` so `QuestionnaireFormWiringTest` can put the rule in front of a
- * roster instead of asserting about the shape of a `map` block in the source.
- */
 internal fun artisanSelectOptions(artisans: List<ArtisanDto>): List<SelectOption> =
     artisans.map { artisan ->
         SelectOption(
@@ -14819,170 +11385,22 @@ internal fun artisanSelectOptions(artisans: List<ArtisanDto>): List<SelectOption
 private data class QuestionnaireArtisanOptions(
     val options: List<ArtisanDto>,
     val cut: String?,
-    /** This workshop's roster is in flight. Nothing is being offered YET; nothing is being claimed. */
     val loading: Boolean,
-    /** This workshop's roster request failed. Nothing is being offered; that is the network, not the repository. */
     val failed: Boolean,
-    /** The ids on the loaded roster, for [outOfWorkshopNotice]. Empty whenever [loadedForWorkshop] is null. */
     val offeredIds: List<String>,
-    /** Which workshop [offeredIds] describes; null before the first answer, on every change, and after a failure. */
     val loadedForWorkshop: String?,
-    /** The roster as the server searches and pages it — what the picker's sheet lists. */
     val search: ServerSearchState<ArtisanDto>
 )
 
-/**
- * THE ARTISANS THIS INTERVIEW MAY BE ABOUT, NARROWED TO THE WORKSHOP THE FORM IS FILING INTO.
- *
- * ── THE DEFECT, IN THE OWNER'S WORDS ────────────────────────────────────────────────────────────
- *
- * *"When the workshop is already selected in the dropdown, why are artisans from other workshops
- * showing up?"* They were said about the browser, and they were true of the handset for the same
- * reason: this form was handed the app-wide artisan list \u2014 one page of a hundred rows loaded once at
- * startup and given unchanged to every record form \u2014 and never asked the server a narrower question.
- * Fixing one client and not the other is the disagreement this repository is most tired of, so the
- * handset takes the same narrowing from the same field: THE WORKSHOP PICKER AT THE TOP OF THIS VERY
- * FORM, which is the only workshop a researcher filling it in has said anything about.
- *
- * THE FULL CONTRACT BOTH CLIENTS OWE IS WRITTEN OUT ONCE, in the header of
- * `frontend/components/questionnaires/interviewArtisans.ts`, as nine numbered rules. This function
- * owes rules 1\u20137. Where a paragraph below cites a rule number, that is the file it means.
- *
- * ── WHY IT RE-ASKS RATHER THAN FILTERING WHAT IT WAS GIVEN (rule 1) ─────────────────────────────
- *
- * Filtering the startup list in memory would give the intersection of one workshop with the NEWEST
- * HUNDRED ARTISANS OVERALL \u2014 a roster that silently shrinks as the repository grows, until the
- * picker stops offering a real artisan with nothing on screen to say they were left out. That is the
- * ceiling defect `ui/RecordPickers.kt` is written about, and the answer is the same one the craft
- * roster uses: filter where the WHERE clause is — and, since DC-A09, search and page there too
- * (`ui/ServerSearch.kt`), so nobody at the workshop is out of reach.
- *
- * THE PLURAL `workshopIds`, NOT THE SINGULAR `workshopId`, even though exactly one workshop is ever
- * sent. The plural is broader in one specific way that matters here: it also counts an artisan who
- * merely SAT IN an interview taken at this workshop, through `artisan_workshop_clause`. This form
- * creates precisely those sittings, so the singular filter would have offered a roster that excluded
- * people the previous interview at the same workshop was about \u2014 and it would have disagreed with
- * the completion matrix, the consolidated index and the browse screen, all of which count a workshop's
- * artisans the plural way. One question, one answer, on every screen that asks it.
- *
- * ── IT PAGES ON DEMAND (rule 2) ─────────────────────────────────────────────────────────────────
- *
- * It used to walk `ARTISAN_PAGE_BUDGET` pages up front, as the browser does. It now holds one page and
- * the sheet's search and "Load more" go to the server for the rest, so every artisan at the workshop
- * is reachable — the handset simply stops downloading the ones nobody asked for.
- *
- * ── THE FIRST REQUEST IS HELD ON [workshopSettled] (rule 3), AND THAT FLAG IS NEW ───────────────
- *
- * It used to be held on `workshop.workshops.isNotEmpty()`, and this paragraph used to claim that
- * prevented an unscoped first request. It did not, and the comment was wrong about its own code,
- * which this repository treats as a defect in itself. `rememberWorkshopPicker` publishes the workshop
- * LIST and only then awaits the submission-check walk that picks the default, so "the workshops are
- * known" went true seconds before "the workshop is known": the guard fell open, `workshopId` was
- * still `""`, `toQueryCsv()` turned an empty list into no parameter at all, and the server answered
- * with EVERY ARTISAN IN THE DEPLOYMENT. The researcher then ticked somebody out of a repository-wide
- * list while the workshop field filled itself in above them. [WorkshopPickerState.settled] is set
- * where the walk ENDS and cannot fail that way; it also releases when there are no workshops at all,
- * where the old flag deadlocked for the session.
- *
- * ── A WORKSHOP CHANGE CLEARS THE OFFER, AND CLEARS IT TO NOTHING (rule 4) ───────────────────────
- *
- * `scoped` is dropped BEFORE the request and not after it: a list left standing under a workshop that
- * has just changed is the same wrong-workshop list this whole change is about, and it would be on
- * screen for the length of a field connection's round trip.
- *
- * WHAT IT IS CLEARED TO IS THE HALF THAT WAS WRONG. This function used to compute
- * `val base = scoped ?: fallback`, so for the whole duration of every scoped request \u2014 the first one
- * and every workshop change \u2014 the checkbox list was `fallback`: THE APP-WIDE STARTUP PAGE, every
- * artisan in the repository, under a named workshop, with no notice. Clearing the stale list was the
- * right instinct and clearing it to the unscoped list reinstated the defect rather than removing it.
- * The base is now the scoped answer or NOTHING, and "nothing" carries a sentence
- * ([QuestionnaireArtisanOptions.loading]).
- *
- * Holding the PREVIOUS workshop's roster through the gap was the other candidate and was rejected for
- * the same reason as `fallback`: the previous workshop's people under this workshop's name is the
- * report, merely briefer. The browser clears to empty for that reason too, so the two clients show
- * the same thing in the same window.
- *
- * ── A FAILED NARROWING SAYS SO (rule 5) ─────────────────────────────────────────────────────────
- *
- * The failure arm used to be SILENT and argued for it: the startup list was "still a complete and
- * honest offer, merely a wider one". It is neither, under a workshop name \u2014 it is every artisan in
- * the deployment presented as one workshop's roster, which is the owner's first report reproduced on
- * the client they did not report it on, and it was PERSISTENT because a failed effect does not retry.
- * The failure is now a flag the form turns into one line beside the control. Not the screen's error
- * banner: a roster that could not be narrowed stops the form OFFERING, not working, and the banner is
- * for the failures that stop it working.
- *
- * ── A TICKED ARTISAN IS ALWAYS IN THE OPTIONS, AND IS NEVER UNTICKED (rule 6) ───────────────────
- *
- * A ticked artisan who is not in the options is an artisan the researcher can neither see nor untick,
- * and on an edit it is a link that has silently vanished from the screen that is supposed to be
- * showing it. So every row this form has ever held \u2014 the startup list, the rows the interview being
- * edited carries, and every page loaded under a workshop since changed \u2014 is kept in `everSeen`, and
- * any of them that is still ticked is merged back in. `mergeArtisansById` is first-writer-wins and
- * purely additive, which is what makes "a narrower list" incapable of becoming "a shorter world".
- *
- * THE BROWSER NOW AGREES, which it did not before this pass. It ran the ticked ids against the new
- * workshop's roster on every change and silently removed the ones it did not hold; this client kept
- * them. Same two taps, two different sets of `QuestionnaireInterviewArtisan` rows \u2014 and the browser's
- * half emptied the `?artisanId=` handoff and the carry prefill, which are the two paths that most
- * often name somebody filed at another workshop. The rule kept is this one; what the browser gained
- * is the sentence, `outOfWorkshopNotice`, which this form prints too.
- *
- * ── ORDERING IS THE SERVER'S, AND IS NOT TOUCHED HERE (rule 7) ──────────────────────────────────
- *
- * `GET /artisans` answers `createdAt desc` and that order is rendered as it arrives, exactly as
- * `ui/ConsolidatedQuestionnaireScreen.kt` renders it (it filters for its search box and never
- * re-orders) and exactly as the web's own artisan picker renders it. An alphabetical sort was
- * considered here \u2014 a list of PEOPLE is easier to search by name than a list of RECORDS \u2014 and
- * rejected, because imposing it on one client alone would give the two clients two different lists
- * of the same people. The parity break would be the ORDER, which is the kind of difference nobody
- * files a bug about and everybody notices. If it is ever worth changing it is worth changing in both
- * places, in one pass, and the server is the obvious place to decide it.
- *
- * Rescued rows land at the END rather than in date order, and that is the one deliberate exception:
- * `mergeArtisansById` is additive and first-writer-wins, so an artisan the scoped page did not
- * return is appended instead of being slotted in. They are by definition already ticked, so they are
- * not being searched FOR \u2014 they are being checked, and having them together at the bottom makes
- * that easier rather than harder.
- *
- * ── NO WORKSHOP CHOSEN MEANS EVERY ARTISAN ──────────────────────────────────────────────────────
- *
- * An empty selection sends no parameter, which the server reads as "do not filter" \u2014 the same
- * "All records" meaning `ui/WorkshopScope.kt` gives an empty scope on every list screen, and the same
- * answer the web gives. Showing NOTHING until a workshop is picked was considered and rejected: this
- * form's workshop field is optional, a legitimate interview can be filed without one, and a picker
- * that is empty for a reason the researcher cannot see is indistinguishable from a repository with
- * no artisans in it. Nothing on screen claims a narrowing while none is in force, so an unscoped list
- * cannot mislead; an empty one would.
- */
 @Composable
 private fun rememberQuestionnaireArtisanOptions(
     repository: FieldRepository,
-    /**
-     * The app-wide list, loaded once at startup and handed to every form.
-     *
-     * LABELS ONLY, NOW. It used to be the base of the options whenever no scoped page was in hand,
-     * which is the defect written up above; it is never offered any more. What it is still needed for
-     * is rule 6: a ticked artisan whose row is not on this workshop's roster has to be drawn from
-     * somewhere, and this is one of the three places a row can come from (with [hydrated] and the
-     * pages already walked). Exactly the job the web's `known` array does, for exactly the same rows.
-     */
     fallback: List<ArtisanDto>,
-    /** Rows the interview being edited already carries (`artisans[].artisan`), so an edit never has to rescue them by id. */
     hydrated: List<ArtisanDto>,
-    /** The form's own workshop field. Blank means none chosen, which is every artisan. */
     workshopId: String,
-    /** [WorkshopPickerState.settled] \u2014 has the workshop field finished choosing for itself? See rule 3 above. */
     workshopSettled: Boolean,
-    /** The ids currently ticked, which must never fall out of [QuestionnaireArtisanOptions.options]. */
     selectedIds: Set<String>
 ): QuestionnaireArtisanOptions {
-    // THE WORKSHOP'S ROSTER, one page at a time and searched by the server (`ui/ServerSearch.kt`).
-    // Keyed on the workshop and held until the workshop field has settled; the reset on every key
-    // change drops the previous workshop's rows to NOTHING rather than to the app-wide list, which is
-    // the rule the KDoc above argues. Nothing is cached for offline beyond what the HTTP read cache
-    // already serves, for the same reason.
     val roster = rememberServerSearch(
         key = workshopId,
         cached = emptyList<ArtisanDto>(),
@@ -14994,16 +11412,11 @@ private fun rememberQuestionnaireArtisanOptions(
     val answered = workshopSettled && roster.browseLoaded && roster.browseKey == workshopId
     val failed = workshopSettled && !roster.browseLoaded && roster.note != null && !roster.loading
     val base = if (answered) roster.browse else emptyList()
-    // Every row any scope or search has returned, plus what the record carries — so a ticked artisan is
-    // never missing from the options. Grows, never shrinks — see rule 6 above.
     val pool = mergeArtisansById(mergeArtisansById(fallback, hydrated), roster.seen)
     val keep = selectedIds.mapNotNull { id -> pool.firstOrNull { it.id == id } }
     val options = remember(base, keep) { mergeArtisansById(base, keep) }
     return QuestionnaireArtisanOptions(
         options = options,
-        // Not printed: the roster pages and searches, so nothing is out of reach. Still non-null while
-        // pages remain, because an absence from a partial roster proves nothing — see
-        // `artisansNotAtWorkshop`.
         cut = if (answered && roster.browse.size < roster.browseTotal) "partial" else null,
         loading = workshopSettled && !answered && !failed,
         failed = failed,
@@ -15018,40 +11431,23 @@ private fun QuestionnaireForm(
     repository: FieldRepository,
     sections: List<QuestionnaireSectionDto>,
     artisans: List<ArtisanDto>,
-    /** Whether [artisans] arrived, could not be reached, or is still coming. */
     lookupState: CarryScopeState = CarryScopeState.PENDING,
     canManageQuestionnaire: Boolean,
     prefill: Prefill? = null,
     editing: QuestionnaireInterviewDetailDto? = null,
     adminView: Boolean = false,
-    /**
-     * RELOAD THE SECTIONS, FOR ONE NAMED INSTRUMENT. The id is a parameter and not something the
-     * caller captures, because the form is now what CHOOSES the instrument (see the "Questionnaire"
-     * picker below) and the screen that owns `sections` cannot know what the researcher has picked.
-     *
-     * `null` means "whatever the server resolves" — the workshop's bound instrument, else the
-     * default — which is exactly what this lambda meant before it had a parameter, so the startup
-     * load is unchanged. THE REJECTED ALTERNATIVE was to let the form own its own section list and
-     * leave this signature alone: it compiles, and then two lists of sections exist (the screen's
-     * and the form's), the builder edits one of them, and which one the save reads depends on
-     * whether the researcher touched the picker. One list, passed the id, cannot do that.
-     */
     onRefreshSections: suspend (String?) -> Unit,
     onSync: suspend (String?) -> Unit = onRefreshSections,
-    /** Creates the interview; the second argument is the Idempotency-Key to send with it. */
     onSubmit: suspend (QuestionnaireInterviewCreateRequest, String?) -> String,
     onError: (String) -> Unit,
     onSaved: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
     val draft = rememberFormDraft(repository, "questionnaire", editing?.id, prefill.draftParentId(), prefill.draftParentLabel())
     val isEdit = editing != null
     var syncing by remember { mutableStateOf(false) }
     var saveState by remember { mutableStateOf(SaveState.IDLE) }
-    // B8: a new sitting's title starts EMPTY and is named for who, what and when on save — see
-    // `effectiveTitle` below. "Interview with Ramesh" used to be typed in for them, which blocked that.
     var title by remember(editing) { mutableStateOf(editing?.title ?: "") }.drafted(draft, "title")
     var selectedArtisans by remember(editing) {
         mutableStateOf(
@@ -15061,57 +11457,13 @@ private fun QuestionnaireForm(
         )
     }.drafted(draft, "selectedArtisans")
     var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }.drafted(draft, "place")
-    /*
-      THE LANGUAGE BOX OPENS BLANK, and the comment that stood here — "Hindi is the primary/default
-      language; the dropdown lists English + the major Indian languages" — described a control this
-      form no longer has. The box is free text now (the argument is at the field itself, and in
-      `shared/questionnaire-form-contract.json`), so there is no list to be the head of.
-
-      THE DEFAULT WENT WITH THE DROPDOWN AND NOT BY ACCIDENT. `?: "Hindi"` was a reasonable default on
-      a closed vocabulary where the researcher would see the box and pick from it; on a free-text box
-      it is an ANSWER the form supplies on the researcher's behalf, indistinguishable in the archive
-      from one they typed, in the column the archive reports language by. It also filled itself in on
-      an EDIT of a record that had no language — writing "Hindi" into a sitting nobody had said that
-      about, the moment somebody opened it to fix a typo. The browser opens this box blank; so does
-      this one.
-    */
     var language by remember(editing) { mutableStateOf(editing?.language.orEmpty()) }.drafted(draft, "language")
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }.drafted(draft, "notes")
     var capturedLocation by remember(editing) { mutableStateOf(editing?.location?.toRequest()) }.drafted(draft, "capturedLocation")
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing, runningOnly = true)
-    /*
-      ── WHICH INSTRUMENT THIS SITTING IS ON ─────────────────────────────────────────────────────
-
-      TWO QUESTIONNAIRES EXIST AND THEIR SECTION CODES COLLIDE COMPLETELY (see [QuestionnaireDto]),
-      so "section A" is meaningless without one. The handset never asked: it answered whichever
-      instrument the screen's startup `questionnaireSections()` call happened to resolve, and the
-      researcher was never shown the choice or the answer. On a deployment with one instrument that
-      is invisible; at the third workshop, with a revised instrument sitting beside the original, it
-      is an interview filed against the wrong questionnaire with nothing on screen that could have
-      said so. `shared/questionnaire-form-contract.json` names this field `questionnaireId` and the
-      web has drawn it since page.tsx:1034.
-
-      THE THREE PIECES OF STATE MIRROR THE BROWSER'S, deliberately and name for name — `instruments`,
-      `questionnaireId`, `instrumentTouched` (page.tsx:121-123). The third is the one that is easy to
-      leave out and the one that hurts: the workshop effect below wants to move the instrument
-      whenever the workshop changes, and a questionnaire manager running a pilot on the OTHER
-      instrument must not have their choice snatched back on the next recomposition. Without the
-      flag the answers go to the instrument they did not pick, silently.
-    */
     var instruments by remember { mutableStateOf<List<QuestionnaireDto>>(emptyList()) }
     var questionnaireId by remember(editing) { mutableStateOf(editing?.questionnaireId) }.drafted(draft, "questionnaireId")
     var instrumentTouched by remember(editing) { mutableStateOf(false) }.drafted(draft, "instrumentTouched")
-    /*
-      WHAT AN EMPTY INSTRUMENT LIST MEANS, WHICH IS NOT ALWAYS "THERE ARE NO QUESTIONNAIRES".
-
-      Two flags and not one, for the reason the artisan roster four fields down needed four sentences:
-      an empty list is three different facts — the request is in flight, the request failed, the
-      deployment has published nothing — and only the third is about the repository. A single
-      `isEmpty()` collapses them and the picker then says "Loading…" for ever on a deployment with no
-      instruments, or claims there are none while the answer is still coming. `loaded` separates the
-      first from the other two and `failed` separates the second from the third; between them the
-      placeholder below can say which one it is.
-    */
     var instrumentsLoaded by remember { mutableStateOf(false) }
     var instrumentsFailed by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
@@ -15119,69 +11471,21 @@ private fun QuestionnaireForm(
             .onSuccess { instruments = it; instrumentsLoaded = true; instrumentsFailed = false }
             .onFailure { instrumentsFailed = true }
     }
-    /*
-      WHAT THE FORM IS ACTUALLY BUILT FROM, read back off the sections rather than guessed.
-
-      The server resolved SOME instrument for the section request whether or not this client named
-      one, and the rows it sent carry the id it chose ([QuestionnaireSectionDto.questionnaireId]).
-      Reading it back is what keeps the picker showing the instrument whose questions are on screen
-      — the browser does the same at page.tsx:363-368, and for the same reason: a picker that shows
-      the client's guess while the questions come from the server's is a control that lies quietly.
-
-      ONLY WHILE NOBODY HAS CHOSEN. An explicit pick and an edit both set `questionnaireId` already,
-      and re-deriving over either would be the snatch-back the touched flag exists to prevent.
-    */
     LaunchedEffect(sections, instruments) {
         if (instrumentTouched || questionnaireId != null) return@LaunchedEffect
         questionnaireId = sections.firstOrNull()?.questionnaireId
             ?: instruments.firstOrNull { it.isDefault }?.id
             ?: instruments.firstOrNull()?.id
     }
-    /**
-     * The instrument an admin bound to the workshop now in the picker; null when none is bound,
-     * which resolves to the default at read time and is not the same as "this workshop has no
-     * questionnaire" (see [WorkshopDetailDto.questionnaireId]).
-     */
     val boundInstrumentId = workshop.workshops.firstOrNull { it.id == workshop.selectedId }?.questionnaireId
-    /*
-      THE WORKSHOP CHOOSES THE INSTRUMENT — until somebody says otherwise. Web parity with the effect
-      at page.tsx:392-402.
-
-      A workshop is bound to one questionnaire by an admin, so opening this form at that workshop
-      should open the questions that apply there without anybody choosing again. Guarded by
-      [instrumentTouched] for the pilot case above, and by [isEdit] for a harder reason: an interview
-      already saved is ON an instrument and the API has no field to move it (there is no
-      `questionnaireId` on [QuestionnaireInterviewUpdateRequest]), so re-pointing the picker on an
-      edit would change the questions under answers that belong to the other instrument's ids.
-    */
     LaunchedEffect(boundInstrumentId, questionnaireId, isEdit) {
         if (isEdit || instrumentTouched) return@LaunchedEffect
         val bound = boundInstrumentId ?: return@LaunchedEffect
         if (bound == questionnaireId) return@LaunchedEffect
         questionnaireId = bound
-        // THE FAILURE IS SAID OUT LOUD rather than swallowed, and it is the one case where this
-        // screen's error banner is the right place: the picker has already moved to the bound
-        // instrument, so a dropped section load leaves the control naming one questionnaire while
-        // the questions below it belong to another. That is a form disagreeing with itself, not a
-        // narrower offer — which is the line the artisan roster's own quiet notice sits on the other
-        // side of. The browser sets its page error from the same failure (`loadMeta`'s catch).
         runCatching { onRefreshSections(bound) }
             .onFailure { onError(it.apiErrorMessage("Couldn't load this workshop's questionnaire")) }
     }
-    /*
-      THE ROWS THE PICKER OFFERS, AND THE ONE IT MUST NEVER LOSE.
-
-      `GET /questionnaires` is asked with `activeOnly` on, so an instrument that has been retired
-      since a sitting was filed is NOT in the list — and an edit form whose picker cannot draw its
-      own record's instrument shows the researcher a blank where the answer is. The record's own
-      hydrated row ([QuestionnaireInterviewDetailDto.questionnaire]) is merged back in for exactly
-      that case. Same rule the artisan options keep three fields down: a selection is never absent
-      from the offer that describes it.
-
-      "(this workshop)" marks the bound instrument, verbatim from page.tsx:1048 — a researcher
-      comparing a handset against a laptop must not have to wonder whether a difference in wording
-      is a difference in meaning.
-    */
     val instrumentOptions = remember(instruments, editing, questionnaireId, boundInstrumentId) {
         val rows = instruments.toMutableList()
         val chosen = questionnaireId
@@ -15192,39 +11496,14 @@ private fun QuestionnaireForm(
             instrument.id to instrument.title + if (instrument.id == boundInstrumentId) " (this workshop)" else ""
         }
     }
-    /*
-     * WHO THIS INTERVIEW MAY BE ABOUT, narrowed by the workshop field directly above — the handset's
-     * half of the owner's first defect, and the half that keeps the two clients saying the same thing
-     * about the same workshop. See [rememberQuestionnaireArtisanOptions] for the whole argument: why
-     * it re-asks the server rather than filtering the startup list, why an unchosen workshop offers
-     * every artisan, and why the options can never be missing an artisan who is already ticked.
-     *
-     * The rows the interview being edited carries are handed in so an edit never opens with a linked
-     * artisan it cannot draw: they arrive embedded in the same `GET /questionnaire/interviews/{id}`
-     * response this form was built from, and rescuing them from there costs no request at all.
-     */
     val artisanOptions = rememberQuestionnaireArtisanOptions(
         repository = repository,
         fallback = artisans,
         hydrated = editing?.artisans?.mapNotNull { it.artisan }.orEmpty(),
         workshopId = workshop.selectedId,
-        // `workshop.workshops.isNotEmpty()` stood here and did not hold: the workshop LIST arrives
-        // several submission-check round trips before the workshop DOES, so the first artisan request
-        // went out with a blank scope and the form offered the whole repository under a workshop field
-        // that filled itself in a moment later. See [WorkshopPickerState.settled].
         workshopSettled = workshop.settled,
         selectedIds = selectedArtisans
     )
-    /**
-     * WHO IS TICKED THAT THIS WORKSHOP'S ROSTER DOES NOT ACCOUNT FOR — and the sentence that says so.
-     *
-     * Nothing here unticks anybody; that is rule 6 of the contract in
-     * `frontend/components/questionnaires/interviewArtisans.ts` and it is the rule BOTH clients now
-     * keep. What this adds is the half that was missing on both: a form that quietly disagrees with a
-     * researcher's selection is a form with an opinion nobody can read. The names come out of the
-     * options list, which is a superset of the selection by construction, so no request is made and
-     * no id is ever printed raw.
-     */
     val outOfWorkshopArtisans = artisansNotAtWorkshop(
         selectedIds = selectedArtisans.toList(),
         offeredIds = artisanOptions.offeredIds,
@@ -15235,79 +11514,40 @@ private fun QuestionnaireForm(
     val outOfWorkshopMessage = outOfWorkshopNotice(
         outOfWorkshopArtisans.mapNotNull { id -> artisanOptions.options.firstOrNull { it.id == id }?.name }
     )
-    // The rows the artisan picker offers, in the server's own order — [artisanSelectOptions] does
-    // not re-sort and neither does [rememberQuestionnaireArtisanOptions], so what the workshop's
-    // roster came back as is what the sheet shows.
     val artisanPickerOptions = remember(artisanOptions.options) { artisanSelectOptions(artisanOptions.options) }
-    /**
-     * Open on the artisan this researcher was last documenting.
-     *
-     * An interview is the record most often taken straight after a product or a tool — the artisan
-     * is sitting right there — so the artisan is the one thing worth carrying in. Nothing narrower
-     * transfers: an interview covers a person, not their products, and this form has no field for
-     * one.
-     */
     val carry = rememberFormCarry(
         repository = repository,
         enabled = !isEdit,
         applies = CarryPrefillDefaults.QUESTIONNAIRE_FORM,
-        // THE APP-WIDE LIST AND NOT THE SCOPED ONE, deliberately. `carryScope` asks "is the carried
-        // artisan reachable from this form", and answering it from a workshop's roster would DROP the
-        // prefill for the one case it exists to serve: an interview taken straight after a tool or a
-        // product, with an artisan whose own record happens to be filed at a different workshop.
-        // Nothing is lost by the wider answer — an artisan the carry ticks is rescued back into the
-        // options by `rememberQuestionnaireArtisanOptions` precisely because they are ticked.
         scopes = listOf(carryScope(CarryNode.ARTISAN, lookupState, artisans) { it.id }),
         handoff = prefill
     ) { carried ->
         carried.artisanId?.let { selectedArtisans = setOf(it) }
         carried.workshopId?.let { if (!workshop.isDirty()) workshop.applyDefault(it) }
     }
-    /** "Change": drop the carried artisan so the researcher picks from scratch. */
     fun clearCarriedContext() {
         carry.change()
         selectedArtisans = emptySet()
     }
-    // Status policy, identical to every other record form and to the web questionnaire page: a
-    // professor+ picks any status (APPROVED by default on create), everyone below sees the locked
-    // "Pending" chip. Without this control the interview was the ONE record type an interviewing
-    // professor could not approve as they filed it — the request defaulted to PENDING regardless.
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
     var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }.drafted(draft, "status")
     var titleError by remember { mutableStateOf<String?>(null) }
     val titleFocus = remember { FocusRequester() }
     val questions = remember(sections) { sections.flatMap { it.questions }.filter { it.isActive } }
-    // Seed answers from existing responses so an interviewer can fill remaining questions.
-    // C28: answers accepted from a transcript draft on this screen, by question id.
     val acceptedMachine = remember(editing) { mutableStateListOf<String>() }
     val answers = remember(questions, editing) {
         questions.associate { q ->
             q.id to mutableStateOf(editing?.responses?.firstOrNull { it.questionId == q.id }?.answerText ?: "")
         }
     }
-    // Attach-media batch (photos/videos/audio/files) with eager upload + progress, exactly like the
-    // other record forms — so questionnaire interviews can carry general media, with the array,
-    // progress bar and previews visible while filling the form.
     val media = rememberMediaCaptureState()
-    // Recorded/picked questionnaire audio clips get their OWN eager-upload batch so each clip streams
-    // to storage the moment it is captured and shows in a live "N recording(s) attached" progress
-    // card — exactly like the attach-media array on the other forms. Finalised with per-section /
-    // per-question captions at save time (see the save handler below).
-    /*
-     * B8 + A7: WHAT THE FORM FILLED IN FOR THE RESEARCHER, kept so each can be named on screen, undone,
-     * and (for a transcript) stored with its source. Each map holds the exact text it wrote: a box
-     * somebody has since edited no longer matches, and from then on it is their answer.
-     */
     var artisanFilled by remember(editing?.id) { mutableStateOf<Map<String, String>>(emptyMap()) }
     var artisanFilledFrom by remember(editing?.id) { mutableStateOf<String?>(null) }
     var transcriptFilled by remember(editing?.id) { mutableStateOf<Map<String, String>>(emptyMap()) }
     var autoPlace by remember(editing?.id) { mutableStateOf<String?>(null) }
     val headArtisanId = selectedArtisans.firstOrNull()
-    // B8: picking the artisan fills the place and every question mapped to one of their fields —
-    // EMPTY boxes only, and only on a new sitting (a saved one keeps what it says).
     LaunchedEffect(headArtisanId, questions) {
         if (isEdit) return@LaunchedEffect
-        // What the previous artisan filled, and nobody has touched since, makes way for this one.
         artisanFilled.forEach { (qid, value) -> answers[qid]?.let { if (it.value == value) it.value = "" } }
         val previousPlace = autoPlace
         if (headArtisanId == null) {
@@ -15317,8 +11557,6 @@ private fun QuestionnaireForm(
             return@LaunchedEffect
         }
         val listed = artisanOptions.options.firstOrNull { it.id == headArtisanId }
-        // Offline (the normal case in the field) the detail read fails: the listed row still knows
-        // the name, craft and place, so those mapped answers fill with the same notice and Undo.
         val detail = runCatching { repository.artisan(headArtisanId) }.getOrNull()
             ?: listed?.let { artisanDetailFromListed(it) }
         val theirPlace = (detail?.place ?: listed?.place).orEmpty().trim()
@@ -15339,22 +11577,10 @@ private fun QuestionnaireForm(
     }
     val qMedia = rememberMediaCaptureState()
     MediaStagingEffect(repository = repository, media = qMedia)
-    // The interview's already-saved media, loaded in edit mode so earlier recordings stay visible
-    // (and aren't lost) — shown under the relevant section and in an "other media" block.
     var savedMedia by remember(editing?.id) { mutableStateOf<List<MediaFileDto>>(emptyList()) }
     LaunchedEffect(editing?.id) {
         val ed = editing ?: return@LaunchedEffect
         runCatching {
-            // Show saved recordings/media from EVERY interview record for the same set of artisan(s),
-            // not just the one opened — so a recording captured on a sibling save is visible (and not
-            // lost) here too. De-duplicated by media id across the group.
-            //
-            // The group comes from [interviewGroup], which asks for one artisan's interviews rather
-            // than for the newest hundred in the repository. It is the same helper the View Data
-            // detail uses, so the two screens cannot come to disagree about which sittings belong
-            // together — and it is deliberately NOT workshop-scoped: the interview being edited is
-            // already chosen, and a recording made with these artisans at an earlier workshop is
-            // still one of this record's recordings.
             val groupIds = interviewGroup(repository, ed).map { it.id }
             val byId = LinkedHashMap<String, MediaFileDto>()
             groupIds.forEach { gid ->
@@ -15364,12 +11590,8 @@ private fun QuestionnaireForm(
             byId.values.toList()
         }.onSuccess { savedMedia = it }
     }
-    // The section the user most recently added to / updated this session — drives the green
-    // "Most recent changes by you were made over here ↑" pointer shown beneath that section.
     var lastEditedSectionId by remember { mutableStateOf<String?>(null) }
-    // A7: each question's newest transcribed clip, as answer text.
     val clipTranscripts = remember(savedMedia, questions) { questionTranscripts(savedMedia, questions) }
-    /** B8: the title typed, or the one the server writes when none is: "Ramesh · Craft questionnaire · 17 Oct". */
     fun effectiveTitle(): String = title.trim().ifBlank {
         automaticInterviewTitle(
             artisanName = artisanOptions.options.firstOrNull { it.id == selectedArtisans.firstOrNull() }?.name
@@ -15378,15 +11600,11 @@ private fun QuestionnaireForm(
             questionnaireTitle = instruments.firstOrNull { it.id == questionnaireId }?.title ?: editing?.questionnaire?.title
         )
     }
-    // Clips keyed by target: a question id (individual mode) or "section:<id>" (whole-section mode).
     var questionAudio by remember { mutableStateOf<Map<String, List<Uri>>>(emptyMap()) }
-    // H21: the interview an earlier, partly failed save of this form already created. Every later
-    // save updates it instead of creating a duplicate (data/LegacyQuestionnaireSave.kt).
     var createdId by remember(editing?.id) { mutableStateOf<String?>(null) }.drafted(draft, "createdId")
     fun sectionIdForKey(key: String): String? =
         if (key.startsWith("section:")) key.removePrefix("section:")
         else sections.firstOrNull { sec -> sec.questions.any { it.id == key } }?.id
-    // Forget a clip's eager-upload state and delete its staged (not-yet-saved) object from storage.
     fun dropStaged(uri: Uri) {
         val deferred = qMedia.stagedDeferred[uri]
         qMedia.forget(uri)
@@ -15395,7 +11613,6 @@ private fun QuestionnaireForm(
     }
     fun addClip(key: String, uri: Uri) {
         questionAudio = questionAudio + (key to ((questionAudio[key] ?: emptyList()) + uri))
-        // Mirror into the eager-upload batch so it starts streaming + shows in the progress card.
         qMedia.uris = qMedia.uris + uri
         lastEditedSectionId = sectionIdForKey(key)
     }
@@ -15406,17 +11623,12 @@ private fun QuestionnaireForm(
         if (removed != null) dropStaged(removed)
         lastEditedSectionId = sectionIdForKey(key)
     }
-    // Remove a single clip by uri (used by the progress card's per-file ✕), keeping both the keyed
-    // map and the eager-upload batch in sync no matter where the removal was triggered.
     fun removeClipUri(uri: Uri) {
         val entry = questionAudio.entries.firstOrNull { uri in it.value } ?: return
         questionAudio = questionAudio + (entry.key to entry.value.filterNot { it == uri })
         dropStaged(uri)
         lastEditedSectionId = sectionIdForKey(entry.key)
     }
-    // Whether a saved media item (by its caption) belongs to a given section — used to surface
-    // earlier recordings under the right section in edit mode. Exact match on the captions this form
-    // writes, with a resilient prefix fallback if a prompt/title was edited after recording.
     fun captionBelongsToSection(caption: String?, section: QuestionnaireSectionDto): Boolean {
         val cap = caption?.trim().orEmpty()
         if (cap.isEmpty()) return false
@@ -15435,52 +11647,11 @@ private fun QuestionnaireForm(
         }
         return false
     }
-    // One take for the whole section is how these interviews are actually conducted: the researcher
-    // sits down with the artisan and talks through the section, rather than starting and stopping a
-    // recorder between every question. Per-question capture stays a click away for the times it is
-    // wanted, but it is not the shape of the work and so it is not the default.
     var recordMode by remember { mutableStateOf("SECTION") }
     var expandedSections by remember { mutableStateOf<Set<String>>(emptySet()) }
-    /*
-      ── AN EDIT OPENS ON WHAT THE RECORD ALREADY HOLDS ──────────────────────────────────────────
-
-      *"when edit page is opened, already existing entries and media do not show up in the respective
-      sections, those should show up while editing as well"* — the owner's first complaint, and on
-      THIS client that sentence is about one line: `expandedSections` above starts empty.
-
-      Nothing was ever missing. `answers` is seeded from `editing.responses` a hundred lines up,
-      `savedMedia` is loaded across the whole sibling group, and both are drawn — the answers in
-      their boxes, the recordings read-only under each section with an "Other saved recordings &
-      media" catch-all beneath. But a section composes its contents ONLY when expanded, and none of
-      them were, so a researcher opening their own interview got a column of collapsed headers and
-      one count line as the sole evidence that anything was in there. "Not drawn" and "lost" look
-      identical from the other side of the screen, and the second is what gets reported.
-
-      [sectionsToRevealOnEdit] is the rule, and it is a pure function in `ui/QuestionnaireEditReveal`
-      rather than a condition inlined here, because Compose is deliberately off this module's
-      unit-test classpath: written here it would be checkable only by a human opening an interview.
-
-      ── WHY THE EFFECT RE-RUNS, AND WHY IT STILL CANNOT FIGHT THE READER ────────────────────────
-
-      `savedMedia` arrives asynchronously and over several requests (one per sibling sitting), so the
-      set of sections holding a recording GROWS after the first frame; keyed only on `editing?.id`
-      this would decide before the answer was in. Keyed on `savedMedia` as well, it decides again as
-      each batch lands — which is also how a section a researcher had just CLOSED would spring back
-      open under them, if `revealedSections` did not exist. That set remembers what this rule has
-      already opened once, so every section is auto-opened at most once per record and a deliberate
-      collapse is final. `remember(editing?.id)` re-arms the whole thing when a different interview
-      is opened rather than inheriting the first record's memory.
-
-      NOTHING IS EVER CLOSED HERE. The result is UNIONED into `expandedSections`; assigning over it
-      would shut a section the researcher had opened by hand while looking for something.
-    */
     var revealedSections by remember(editing?.id) { mutableStateOf<Set<String>>(emptySet()) }
     LaunchedEffect(editing?.id, sections, savedMedia) {
         if (!isEdit) return@LaunchedEffect
-        // Attributed through the form's own caption rule, so "which section is this recording under"
-        // has exactly one answer on this screen — the one that also decides where the clip is drawn
-        // and what the collapsed header counts. A second, differently-shaped rule here would open a
-        // section whose media panel then rendered nothing.
         val sectionsWithSavedMedia = sections
             .filter { section -> savedMedia.any { captionBelongsToSection(it.caption, section) } }
             .map { it.id }
@@ -15499,24 +11670,16 @@ private fun QuestionnaireForm(
     var showBuilder by remember { mutableStateOf(false) }
 
     if (canManageQuestionnaire && !isEdit) {
-        // Defer the heavy builder so opening the questionnaire tab never composes hundreds of rows at once.
         OutlinedButton(onClick = { showBuilder = !showBuilder }, modifier = Modifier.fillMaxWidth()) {
             Text(if (showBuilder) "Hide questionnaire builder" else "Open questionnaire builder")
         }
         if (showBuilder) {
-            // The builder edits the sections of the instrument the FORM is on, so the reload it
-            // triggers has to ask for that instrument back. Passing `onRefreshSections` bare would
-            // re-read whatever the server resolves by default, and a manager who renamed a section
-            // on the revised questionnaire would watch the original's sections appear underneath.
             QuestionnaireBuilder(
                 repository, sections, { onRefreshSections(questionnaireId) }, onError, questionnaireId,
                 canEdit = com.fieldrepository.app.ui.mayEditQuestionnaire(repository.cachedUser(), instruments.firstOrNull { it.id == questionnaireId }?.createdById)
             )
         }
     }
-    // Available to every user, including least-privilege: pull the latest sections/questions
-    // (and artisans) from the database on demand. Flashes green "Synchronised" for 5s on success,
-    // red on failure.
     var syncStatus by remember { mutableStateOf(ActionStatus.IDLE) }
     AutoResetStatus(syncStatus) { syncStatus = ActionStatus.IDLE }
     val syncContainer = when (syncStatus) {
@@ -15529,8 +11692,6 @@ private fun QuestionnaireForm(
             if (syncing) return@Button
             scope.launch {
                 syncing = true
-                // Same argument as the builder's reload above: sync the instrument on screen,
-                // not the one the server would pick for a request that named none.
                 runCatching { onSync(questionnaireId) }
                     .onSuccess { syncStatus = ActionStatus.SUCCESS }
                     .onFailure {
@@ -15558,8 +11719,6 @@ private fun QuestionnaireForm(
         )
     }
 
-    // Completion overview, collapsed by default, sitting right under the sync control. Composing the
-    // matrix (and loading it) is deferred until expanded. Kept in View Data too.
     val questionnaireIsAdmin = remember { repository.cachedUser()?.role in setOf("ADMIN", "MASTER_ADMIN") }
     var showCompletion by remember { mutableStateOf(false) }
     OutlinedButton(onClick = { showCompletion = !showCompletion }, modifier = Modifier.fillMaxWidth()) {
@@ -15568,8 +11727,6 @@ private fun QuestionnaireForm(
         Text(if (showCompletion) "Hide completion overview" else "Check completion")
     }
     if (showCompletion) {
-        // `canOverride={adminMode && isAdmin(user)}` on the web's questionnaire page: the role is
-        // checked first, and admin view can only take the override away.
         CompletionMatrixCard(
             repository = repository,
             artisanId = null,
@@ -15581,7 +11738,6 @@ private fun QuestionnaireForm(
     val interviewRecordings = media.uris.size + qMedia.uris.size + questionAudio.values.sumOf { it.size }
     RecordCard(title = if (isEdit) recordUpdateTitle("interview") else "Add questionnaire interview") {
         DraftOfferCard(draft)
-        // A new sitting's date is stamped by the server when it is saved, so it is never "missing" here.
         FormCompletenessLine(
             kind = CompletenessKind.INTERVIEW,
             values = mapOf(
@@ -15602,89 +11758,25 @@ private fun QuestionnaireForm(
         if (isEdit) {
             Text("Others' answers stay unless you change them.", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
-        // ABOVE EVERY FIELD IT FILLS, so what was carried in is read before any of them. This used
-        // to say "above the workshop picker", which was true when the workshop opened the form; the
-        // field order is now the web's and the title leads. The banner still comes first, for the
-        // same reason it always did.
         CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
-        /*
-          -- THE FIELD ORDER BELOW IS THE WEB'S, AND IT IS CONTRACTUAL ------------------------------
-
-          Interview title, Place, Language, Workshop, Questionnaire, Status, Artisans interviewed --
-          then the sections, then Interview notes at the foot. That sequence is declared once, in
-          `shared/questionnaire-form-contract.json` under `fields`, and its `howOrderIsPartOfIt`
-          section is the argument for holding it.
-
-          THIS FORM USED TO OPEN WITH THE WORKSHOP AND THE BROWSER OPENS WITH THE TITLE, and both are
-          defensible in isolation: the workshop is the container every other record form leads with,
-          and it is still what chooses the instrument and scopes the roster below. Exactly one of the
-          two orders can be the contract. A form whose boxes come in one sequence on a laptop and
-          another on a handset is a form a researcher re-learns per device -- in a courtyard, with an
-          artisan waiting -- and the printed guide is read with the form open beside it, so a list in
-          the wrong sequence sends the reader two fields down and, finding the wrong box, filling it
-          in. The owner ruled the web correct. The workshop keeps its job and loses its place.
-        */
-        // THE FIVE INTERVIEW BOXES DICTATE (owner ruling C23, 2026-10-17). They were held off on the
-        // stated ground that the browser's title box had no microphone; it has one, so the ground was
-        // gone. Title, place, language, each answer and the notes now take the shared default, as the
-        // sibling application's interview form has since 2026-08-28. The section clips are still the
-        // recorded, stored capture; dictation types into a box and keeps nothing.
         TextInput("Interview title", title, titleCased = true) { title = it }
         if (title.isBlank()) {
             Text("Leave empty to save as “${effectiveTitle()}”.", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
-        // There is deliberately NO date field: the server derives interviewDate from recordedAt,
-        // which is when the interview was actually captured. Asking a researcher to confirm today's
-        // date was a field to tab past that could only ever be wrong -- and a spoken date is the one
-        // thing a recogniser gets wrong in a way that still parses, so no microphone would go on one
-        // even if it came back. `absent` in the form contract holds all three guides to that.
         CompletenessAnchor("place") {
             TextInput("Place", place, titleCased = true) { place = it }
         }
         if (autoPlace != null && place == autoPlace) {
             Text("From the artisan's record. Change it to override.", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
-        // The shared language list (StandardValues, convergence point 10, owner decision 18 Oct 2026,
-        // superseding the free-text ruling): a standard code stored ("bn"), its name shown ("Bengali").
-        // A value stored before the list stays selectable, first, so no save overwrites it.
         CompletenessAnchor("language") {
             DropdownField(label = "Language", options = StandardValues.languageOptions(language), selectedValue = language, placeholder = "Select language", includeNone = false) { language = it }
         }
-        // The workshop no longer leads the form but still leads everything under it in MEANING: it
-        // is the context the interview belongs to, it chooses the instrument in the next field, and
-        // it scopes the artisan roster two fields down.
         WorkshopField(state = workshop, saving = saveState == SaveState.SAVING)
-        /*
-          WHICH INSTRUMENT THIS SITTING IS ON -- the field the handset did not have at all. The state,
-          the workshop binding and the rescue rule are all set out where they are declared, above;
-          this is only the control.
-
-          IMMEDIATELY AFTER THE WORKSHOP because the workshop is usually what chooses it, which is
-          where the browser puts it too (page.tsx:1027-1033).
-
-          `includeNone = false`: "no questionnaire" is not a state a sitting can be in. A blank here
-          means the server has not been told which one, and the server then resolves it -- the
-          workshop's bound instrument, else the default -- so the placeholder says THAT rather than
-          offering an empty row that would read like a choice.
-
-          DISABLED ON AN EDIT, and this is not politeness. There is no `questionnaireId` on
-          [QuestionnaireInterviewUpdateRequest] because the API has no way to move a sitting between
-          instruments; a picker that moved would swap the questions on screen while the saved answers
-          stayed keyed to the other instrument's question ids, and the researcher would be looking at
-          a form that cannot save what it is showing.
-        */
         DropdownField(
             label = "Questionnaire",
             options = instrumentOptions,
             selectedValue = questionnaireId.orEmpty(),
-            /*
-              THE THREE EMPTY STATES, SAID APART. "Default questionnaire" is the only one of the four
-              that is not about emptiness: it is what a blank selection MEANS on a loaded list — the
-              server has not been told which instrument, and it will resolve the workshop's binding or
-              the default. The other three are the flags above, and the order matters: a failure is
-              checked before "still loading", because a dropped request leaves `loaded` false for ever
-              and would otherwise print the in-flight sentence over a request that is not coming back.
-            */
             placeholder = when {
                 instrumentsFailed -> "Questionnaire list unavailable"
                 !instrumentsLoaded -> "Loading questionnaires…"
@@ -15694,7 +11786,6 @@ private fun QuestionnaireForm(
             includeNone = false,
             enabled = !isEdit && saveState != SaveState.SAVING && instrumentOptions.isNotEmpty()
         ) { picked ->
-            // An explicit pick, so the workshop effect stops moving it. See `instrumentTouched`.
             instrumentTouched = true
             questionnaireId = picked
             scope.launch {
@@ -15709,13 +11800,6 @@ private fun QuestionnaireForm(
                 style = MaterialTheme.typography.bodySmall
             )
         }
-        /*
-          THE FAILED INSTRUMENT LIST, BESIDE THE CONTROL IT IS ABOUT -- the same rule the artisan
-          roster keeps two fields down, and for the same reason: a picker that cannot offer anything
-          has to say why, and the screen's error banner is for the failures that stop the form
-          working rather than the ones that stop it offering. The sitting still saves; the server
-          resolves the instrument exactly as it did for every build before this field existed.
-        */
         if (instrumentsFailed) {
             Text(
                 "Couldn't load questionnaires. The workshop's default will be used.",
@@ -15724,30 +11808,6 @@ private fun QuestionnaireForm(
             )
         }
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
-        /*
-          -- THE WALL OF CHECKBOXES IS GONE ----------------------------------------------------------
-
-          The owner asked for this one by name: *"the checkbox list should be replaced with
-          multi-select dropdown for artisans over there as well"*. What stood here was
-          `ArtisanMultiSelectField` (since removed, 2026-10-17), which painted a Column of checkboxes -- every artisan at the
-          workshop, one row each, straight into a form that is already long. It has no summary line,
-          so the only way to see who is ticked is to scroll the form back over them, and no room for
-          a Select-all row without pushing the next field further down.
-
-          [SearchableMultiSelectField] ALREADY EXISTED (`ui/SearchableSelect.kt`) and is what
-          `CheckboxMultiSelectField` was itself rewritten onto: a summary trigger, the chosen rows as
-          chips, and a searchable sheet with "Select all N matching". There was no third control to
-          write, and writing one would have been this whole problem again. The browser reached the
-          same control by the same route -- `MultiSelectDropdown` over `SearchableSelect`, with
-          `searchable` forced ON rather than left to an option count, because a picker that changes
-          shape between two workshops changes it for reasons the researcher cannot see.
-
-          THE LABEL IS THE WEB'S WORD. "Linked artisans" stood here and "Artisans interviewed" is
-          what the browser, both walkthrough registers and the printed guide all say. One box with
-          two names across two devices a researcher may use on the same day is the quietest of the
-          drifts and the longest-lived. The browse screen's filter keeps its own word on purpose --
-          see [ViewDataScreen], and `distinctLabels` in the contract for the argument.
-        */
         CompletenessAnchor("artisans") {
         SearchableMultiSelectField(
             label = "Artisans interviewed",
@@ -15755,24 +11815,6 @@ private fun QuestionnaireForm(
             selected = selectedArtisans,
             placeholder = "Select the artisans this interview is with",
             server = artisanOptions.search.asServerSearchRows(countsRows = true) { artisanSelectOptions(it) },
-            /*
-              FOUR SENTENCES AND NOT ONE, because "the request failed", "the answer has not arrived",
-              "nobody is recorded at this workshop" and "nobody is recorded at all" are four different
-              facts and only two of them are about the repository. Word for word the browser's
-              `emptyLabel` (`frontend/app/(protected)/questionnaire/page.tsx`), because a researcher
-              comparing a handset against a laptop must not have to wonder whether a difference in
-              wording is a difference in meaning.
-
-              THE EMPTY LIST IS A ROUTINE STATE rather than a rare one, which is what made the old
-              single sentence untenable: the roster is dropped the moment the workshop changes, so this
-              control is genuinely empty for the length of every scoped request and STAYS empty when one
-              fails. It used to fall back to the app-wide startup list instead, which is why the
-              question never came up -- and that fallback was the defect.
-
-              CARRIED ACROSS THE WIDGET SWAP UNCHANGED, which is why this block survives in place: the
-              wall and the dropdown take the same `emptyMessage` parameter, so the four sentences moved
-              with the field. The widget is what changed, not what the form is able to say.
-            */
             emptyMessage = when {
                 artisanOptions.failed -> "This workshop's artisan list could not be loaded"
                 artisanOptions.loading -> "Loading artisans…"
@@ -15780,31 +11822,9 @@ private fun QuestionnaireForm(
                 else -> "No artisans recorded yet"
             }
         ) { next ->
-            /*
-              THE SHEET HANDS BACK THE WHOLE SELECTION, and this handler is pure set replacement, so
-              there is nothing to reconcile: `selectedArtisans` IS the answer. That is the difference
-              from the wall, which reported one id at a time and left the arithmetic here.
-
-              THE CARRIED CONTEXT STILL MOVES ONLY ON THE WAY IN, unchanged from the toggle this
-              replaces: unticking says who the interview is NOT about, which is no statement about
-              where the researcher is sitting. `next - selectedArtisans` is the ids that arrived, and
-              the sheet's own `LinkedHashSet` draft means `first()` is the researcher's own tick order
-              -- the same rule `primaryInterviewArtisanId` states for the browser. The browser goes one
-              step further and re-remembers the head of what REMAINS after an untick; that is a
-              difference in the carry bag rather than in this form's fields, and it is left alone
-              deliberately -- moving a behaviour the owner did not rule on, inside a commit about which
-              boxes the form draws, is how the next audit finds two changes wearing one reason.
-            */
             val added = next - selectedArtisans
             selectedArtisans = next
             added.firstOrNull()?.let { id ->
-                // LOOKED UP IN THE OPTIONS AND NOT IN THE APP-WIDE LIST. Since the options became a
-                // workshop's roster rather than the startup page, an artisan can legitimately be
-                // tickable here and absent from `artisans` -- and this lookup returning null is silent:
-                // the tick lands, the carried context simply never updates, and the NEXT form opens on
-                // whoever the researcher was documenting before.
-                // `search.seen` as well: a name found by searching the roster is ticked before it is
-                // in the options, and the carry must still learn who it is.
                 (artisanOptions.options.firstOrNull { it.id == id } ?: artisanOptions.search.seen.firstOrNull { it.id == id })?.let {
                     carry.remember(
                         CarryContext(
@@ -15820,18 +11840,6 @@ private fun QuestionnaireForm(
             }
         }
         }
-        /*
-          THE FAILED NARROWING, BESIDE THE CONTROL IT IS ABOUT — and not in the screen's error banner,
-          which is for the failures that stop the form working. A roster that could not be narrowed
-          stops the form OFFERING, which is a smaller thing; putting the two at the same weight teaches
-          a reader to discount both.
-
-          The failure arm used to be silent and argued for it in as many words, on the grounds that the
-          app-wide startup list was "still a complete and honest offer, merely a wider one". Under a
-          named workshop it is neither: it is every artisan in the deployment presented as one
-          workshop's roster, which is the owner's first report reproduced on the handset. Nothing falls
-          back any more, so there is an empty list to explain instead — and this explains it.
-        */
         if (artisanOptions.failed) {
             Text(
                 "Couldn't load artisans. Pick the workshop again to retry.",
@@ -15839,16 +11847,6 @@ private fun QuestionnaireForm(
                 style = MaterialTheme.typography.bodySmall
             )
         }
-        /*
-          WHO IS TICKED THAT THIS WORKSHOP'S ROSTER DOES NOT ACCOUNT FOR. See `outOfWorkshopNotice` for
-          the wording and `artisansNotAtWorkshop` for the three-way ruling that decides whether there is
-          anything to say at all.
-
-          UNDER the capped-list line rather than above it, because the two answer questions of different
-          sizes: that one is about the list, this one is about the record being saved. They are also
-          mutually exclusive in practice — nothing is named while the roster is cut, since a truncated
-          list cannot prove an absence.
-        */
         outOfWorkshopMessage?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodySmall) }
         DropdownField(
             label = "Recording mode",
@@ -15859,7 +11857,6 @@ private fun QuestionnaireForm(
             selectedValue = recordMode,
             includeNone = false
         ) { recordMode = it }
-        // On by default: keep the UI to just the record button; reveal answer boxes only on demand.
         var hideAnswers by remember { mutableStateOf(true) }
         AppToggle(
             label = "Show answer text boxes",
@@ -15873,13 +11870,11 @@ private fun QuestionnaireForm(
             onUseGps = { readLastKnownLocation(context) },
             onChange = { capturedLocation = it },
             onMessage = onError,
-            // C17: the first interviewed artisan's address, into the empty boxes of a new sitting.
             inherit = artisans.firstOrNull { it.id in selectedArtisans }.inheritedPlace(isEdit)
         )
         CompletenessAnchor("answers") {
             Text("Tap a section to answer it.", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
-        // B8: what the artisan's record answered, named, with one Undo.
         val standingFills = artisanFilled.filter { (qid, value) -> answers[qid]?.value == value }
         if (standingFills.isNotEmpty()) {
             Column(
@@ -15902,7 +11897,6 @@ private fun QuestionnaireForm(
                 }
             }
         }
-        // A7: every empty answer that has a transcribed clip, in one tap.
         val transcriptOffers = questions.mapNotNull { q -> transcriptOffer(answers[q.id]?.value, clipTranscripts[q.id])?.let { q.id to it } }
         if (transcriptOffers.size > 1) {
             ActionRow {
@@ -15918,11 +11912,6 @@ private fun QuestionnaireForm(
             if (activeQuestions.isNotEmpty()) {
                 val expanded = expandedSections.contains(section.id)
                 val sectionSavedMedia = if (isEdit) savedMedia.filter { captionBelongsToSection(it.caption, section) } else emptyList()
-                // A question counts as "answered" if it has a typed answer OR a recording. Reading the
-                // reactive `questionAudio` map here is what makes the count update the moment a clip is
-                // recorded/attached (not only when text is typed). Live per-question/section clips AND
-                // already-saved recordings (edit mode) both count; a whole-section recording marks every
-                // question in that section as answered.
                 val sectionRecorded = (questionAudio["section:${section.id}"]?.isNotEmpty() == true) ||
                     sectionSavedMedia.any { it.caption?.trim()?.startsWith("Section audio:") == true }
                 val answeredCount = if (sectionRecorded) activeQuestions.size else activeQuestions.count { q ->
@@ -15961,10 +11950,8 @@ private fun QuestionnaireForm(
                             }
                             Text(if (expanded) "Hide ▲" else "Open ▼", color = Body, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                         }
-                        // Only the expanded section composes its inputs, which keeps the screen responsive.
                         if (expanded) {
                             if (recordMode == "SECTION") {
-                                // One consolidated recording for the whole section.
                                 val sectionKey = "section:${section.id}"
                                 Text("Record this entire section in one take.", color = Muted, style = MaterialTheme.typography.bodySmall)
                                 AudioClipRecorder(
@@ -16001,34 +11988,12 @@ private fun QuestionnaireForm(
                                         onError = onError
                                     )
                                 }
-                                /*
-                                  THE ANSWER THIS RECORD ALREADY CARRIES, which decides whether the
-                                  box is drawn at all — see [answerBoxVisible] for the argument.
-
-                                  "Do not display answer text boxes" is ON by default and it STAYS
-                                  exactly as the reader left it: it is their choice about capture,
-                                  and flipping it for them would change what the next interview they
-                                  record looks like in order to fix the one they are reading. What
-                                  changes is its scope. The toggle hides EMPTY boxes, which is what
-                                  it was for; it does not hide a researcher's words. On an edit of a
-                                  sitting that was typed rather than spoken, every one of those
-                                  words was in `answers` and none of them were on screen — the same
-                                  invisible-answers report from the other direction, where
-                                  `InterviewEditSectionsTest` has the boxes drawn and blank.
-
-                                  Read off `editing` and not off the live box: deciding from the
-                                  current value would make the field vanish under the cursor the
-                                  moment somebody cleared it to retype.
-                                */
                                 val recordedAnswer = editing?.responses
                                     ?.firstOrNull { it.questionId == question.id }?.answerText
-                                // A box the form filled is always drawn: an answer nobody can see is
-                                // an answer nobody checked.
                                 val currentAnswer = answers[question.id]?.value.orEmpty()
                                 val fromTranscript = transcriptFilled[question.id]?.let { it == currentAnswer } == true
                                 val fromArtisan = artisanFilled[question.id]?.let { it == currentAnswer } == true
                                 if (answerBoxVisible(hideAnswers, recordedAnswer) || fromTranscript || fromArtisan) {
-                                    // Dictates (C23); no rich editor — an answer is plain text.
                                     TextInput("Answer", currentAnswer, minLines = 3) { value ->
                                         answers[question.id]?.let { state -> state.value = value }
                                         lastEditedSectionId = section.id
@@ -16038,8 +12003,6 @@ private fun QuestionnaireForm(
                                         fromArtisan -> Text("From the artisan's record.", color = Muted, style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
-                                // A7: the question's transcribed clip, as its answer in one tap. Never
-                                // offered over words already in the box.
                                 transcriptOffer(currentAnswer, clipTranscripts[question.id])?.let { offered ->
                                     ActionRow {
                                         OutlinedButton(onClick = {
@@ -16050,10 +12013,6 @@ private fun QuestionnaireForm(
                                     }
                                 }
                             }
-                            // Per-section live upload-progress card: the clips recorded/picked for THIS
-                            // section (its questions in individual mode, or its one consolidated clip in
-                            // section mode), so the user can verify this section's recordings on the go —
-                            // in addition to the all-recordings card at the very bottom.
                             val sectionUploadUris = questionAudio.entries
                                 .filter { sectionIdForKey(it.key) == section.id }
                                 .flatMap { it.value }
@@ -16068,8 +12027,6 @@ private fun QuestionnaireForm(
                                     uris = sectionUploadUris
                                 ) { uri -> removeClipUri(uri) }
                             }
-                            // In edit mode, surface this section's already-saved recordings/media so the
-                            // user can see (and not lose) what was captured earlier, right where it belongs.
                             if (isEdit && sectionSavedMedia.isNotEmpty()) {
                                 HorizontalDivider()
                                 Text("Saved recordings & media for this section", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
@@ -16078,7 +12035,6 @@ private fun QuestionnaireForm(
                         }
                     }
                 }
-                // Green pointer beneath the section the user most recently added to / updated this session.
                 if (lastEditedSectionId == section.id) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -16091,18 +12047,12 @@ private fun QuestionnaireForm(
                 }
             }
         }
-        // Live upload-progress card for the recorded/picked question & section audio clips: each
-        // streams to storage as you record it, with a progress bar and "all uploaded ✓ — ready to
-        // save" status, just like the attach-media array. Removing a clip here also clears it from
-        // the matching question/section.
         if (qMedia.uris.isNotEmpty()) {
             HorizontalDivider()
             Text("All recordings (every section)", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
             Text("Every clip in this interview.", color = Muted, style = MaterialTheme.typography.bodySmall)
             AttachedUploadsCard(context = context, media = qMedia, label = "recording", repository = repository) { uri -> removeClipUri(uri) }
         }
-        // Any saved media not tied to a specific section (general attachments, or recordings whose
-        // prompt/title changed) — shown in edit mode so nothing is ever hidden or lost.
         if (isEdit) {
             val otherSavedMedia = savedMedia.filterNot { m -> sections.any { captionBelongsToSection(m.caption, it) } }
             if (otherSavedMedia.isNotEmpty()) {
@@ -16111,74 +12061,10 @@ private fun QuestionnaireForm(
                 otherSavedMedia.forEach { MediaWithTranscript(context, it, repository) }
             }
         }
-        // Attach photos, video, audio files and other media to this interview (with live upload
-        // progress) — the same media array used by every other record form.
         CompletenessAnchor("recording") {
             MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         }
-        /*
-         * INTERVIEW NOTES DICTATE (C23, 2026-10-17), with the other four interview boxes. The opt-out
-         * this comment used to defend rested on the browser's interview form having no microphone,
-         * which stopped being true; the decision it asked for has now been taken, on all the boxes at
-         * once. The per-section clips remain the stored, transcribed capture.
-         */
-        /*
-          "Interview notes", WRITTEN AT THE CALL SITE, and not [MultiNoteInput]'s own default.
-
-          This call used to pass no label at all and take the composable's default, which is "Notes"
-          -- so the browser's box said "Interview notes" (`<MultiNoteField label="Interview notes">`,
-          page.tsx:1447) and the handset's said something else, with no call site anywhere saying so.
-          Nothing was missing and nothing was broken, which is exactly why it survived: it is the
-          class of difference a reader dismisses as cosmetic until they are explaining a form over a
-          phone line.
-
-          THE DEFAULT ITSELF IS LEFT ALONE. Changing `label: String = "Notes"` would rename the notes
-          box on every other record form in the application to fix one screen's label -- the fix and
-          its blast radius would not resemble each other in a diff, and four forms that say "Notes"
-          about notes are not wrong.
-        */
         MultiNoteInput(label = "Interview notes", value = notes) { notes = it }
-        /*
-          ══ FOLDING THIS INTERVIEW INTO THE ONE THAT ALREADY COVERS ITS ARTISAN SET ═══════════════
-
-          THE REPORT. Two researchers recorded one artisan set as two sittings, each titled by the
-          sections it covered — "D Black Pottery" and an "F" one. The F sitting had missed an
-          artisan. Ticking that artisan makes F's set key equal D's, `@@unique([questionnaireId,
-          artisanSetKey])` refuses the PATCH, and until the backend's merge route landed there was
-          nothing the handset could do but print a sentence and stop: the researcher could not
-          complete the correction, could not file the sitting, and could not get their recordings
-          onto the row that everything else reads from.
-
-          ── EXPLICITLY, NEVER SILENTLY: THE CONFIRMATION IS THE CALL ────────────────────────────
-
-          The save is NOT retried with a flag and the PATCH is not weakened — it still refuses,
-          exactly as before. What happens instead is that the refusal is read for its holder, the
-          holder is NAMED on screen, and `POST …/merge-into/{targetId}` is called only if a person
-          answers yes. A create folds on its own because a create has nothing to lose; an edit is
-          somebody's open record and two sittings being welded together is not a thing to discover
-          afterwards.
-
-          ── WHAT THE DIALOG HAS TO SAY, AND WHY EACH PART IS THERE ──────────────────────────────
-
-          * THE HOLDER'S TITLE. Without it the researcher is being asked to fold their afternoon
-            into something they cannot identify. The server hands the title over precisely so the
-            client can write this sentence ([mergeOfferQuestion]).
-          * WHAT MOVES AND WHAT GOES. The source row is DELETED by the route, so "move" is not the
-            whole truth unless the removal is said out loud too.
-          * WHAT IS NOT SAVED YET ([unsavedBeforeMergeNotice], counted at the moment of refusal).
-            The offer is reached from a save that did not land, so anything typed or recorded in
-            this form is still only on the screen — and after the fold there is no record left for
-            it to be saved to. Silent on the ordinary case, where the only change is the artisan.
-          * THE DISAGREEING ANSWERS, NAMED. The route refuses rather than picking a winner when both
-            rows answer one question differently, and it sends every such question with its section
-            code and prompt. A count would be unactionable; the list is what somebody walks back
-            through the paper with. When it is on screen the move is no longer offered — repeating
-            it before the wording is reconciled would only earn the same 409.
-
-          The amber panel is `MaterialTheme.field.warningContainer`, and its heading says "Not
-          moved — reconcile these first" in words: a reader who does not see the colour still gets
-          the whole signal.
-        */
         var mergeOffer by remember(editing?.id) { mutableStateOf<InterviewSetHolder?>(null) }
         var mergeUnsaved by remember(editing?.id) { mutableStateOf<String?>(null) }
         var mergeConflicts by remember(editing?.id) { mutableStateOf<List<MergeAnswerConflict>>(emptyList()) }
@@ -16199,11 +12085,6 @@ private fun QuestionnaireForm(
                     .onSuccess {
                         merging = false
                         mergeOffer = null
-                        // THE RECORD THIS FORM WAS EDITING NO LONGER EXISTS — the route deletes it
-                        // once its answers and clips are on the survivor. So the screen leaves, the
-                        // way a completed save leaves (`onSaved` is `InterviewEditLoader`'s
-                        // `onDone`). Staying would leave a form bound to a deleted id whose next
-                        // save 404s with nothing on screen explaining why.
                         draft.clear(); onSaved()
                     }
                     .onFailure { error ->
@@ -16211,10 +12092,6 @@ private fun QuestionnaireForm(
                         val failure = error.apiFailure("Unable to move this interview")
                         val conflicts = failure.mergeAnswerConflicts()
                         if (conflicts.isEmpty()) {
-                            // Any other refusal — a different instrument, a permission, a dropped
-                            // connection. NOTHING WAS MOVED in every one of those cases, so the
-                            // dialog closes and the sentence goes to the screen's error line rather
-                            // than leaving a dead offer open over it.
                             dismissMergeOffer()
                             onError(failure.message)
                         } else {
@@ -16298,18 +12175,11 @@ private fun QuestionnaireForm(
             )
         }
         fun submit() {
-                // Asked of a new interview even when it will FOLD into an existing one for the same
-                // artisan set: POST /questionnaire/interviews validates the whole body before it
-                // decides which of the two it is doing, so the stated address is required either way.
                 newRecordLocationError(isEdit, capturedLocation)?.let { onError(it); return }
                 scope.launch {
-                    // Late-submission gate first, so the save button does not sit in "Saving…" while
-                    // the confirmation is on screen.
                     if (!workshop.confirmSubmission()) return@launch
                     saveState = SaveState.SAVING
                     val now = Instant.now().toString()
-                    // Only send answers this interviewer actually added or changed; untouched answers
-                    // (including those entered by other interviewers) are left exactly as they were.
                     val responsesToSend = questions.mapNotNull { question ->
                         val current = answers[question.id]?.value?.trim().orEmpty()
                         val initial = editing?.responses?.firstOrNull { it.questionId == question.id }?.answerText?.trim().orEmpty()
@@ -16317,13 +12187,10 @@ private fun QuestionnaireForm(
                             QuestionnaireResponseRequest(
                                 questionId = question.id,
                                 answerText = current,
-                                // A7: stored as taken from the recording while the words are still exactly those.
                                 answerSource = if (transcriptFilled[question.id]?.trim() == current) TRANSCRIPT_SOURCE else null
                             )
                         } else null
                     }
-                    // Offline: queue the interview + every recorded clip (with its section/question
-                    // nomenclature) and attachments, to upload on reconnect.
                     fun questionnaireOfflineItems(): List<com.fieldrepository.app.data.OfflineMediaSpec> {
                         val questionsById = questions.associateBy { it.id }
                         val sectionsById = sections.associateBy { it.id }
@@ -16351,7 +12218,8 @@ private fun QuestionnaireForm(
                                     .let { if (uris.size > 1) "${it}_${index + 1}" else it }
                                 items.add(com.fieldrepository.app.data.OfflineMediaSpec(
                                     uri = uri, caption = caption, recordName = hint,
-                                    overrideBaseName = baseName, batchIndex = index + 1))
+                                    overrideBaseName = baseName, batchIndex = index + 1,
+                                    processing = listOf(UploadTranscribe.TRANSCRIPTION)))
                             }
                         }
                         media.uris.forEachIndexed { i, uri ->
@@ -16371,7 +12239,6 @@ private fun QuestionnaireForm(
                             place = place.blankToNull(),
                             language = language.blankToNull(),
                             notes = notes.blankToNull(),
-                            // Unauthorized status changes are dropped server-side either way.
                             status = status,
                             artisanIds = if (selectedArtisans != originalArtisans) selectedArtisans.toList() else null,
                             responses = responsesToSend.ifEmpty { null },
@@ -16379,7 +12246,6 @@ private fun QuestionnaireForm(
                             location = locationForBody(true, capturedLocation, original.location)
                         )
                     }
-                    /** The PATCH for whichever interview this save updates: the one being edited, or the one created by an earlier try. */
                     fun updateRequestFor(): QuestionnaireInterviewUpdateRequest =
                         if (editing != null) interviewUpdateRequest() else QuestionnaireInterviewUpdateRequest(
                             title = effectiveTitle(),
@@ -16394,9 +12260,6 @@ private fun QuestionnaireForm(
                         )
                     val saveTarget = com.fieldrepository.app.data.LegacyQuestionnaireSave.target(editing?.id, createdId)
                     val updateId = (saveTarget as? com.fieldrepository.app.data.LegacyQuestionnaireSave.Target.Update)?.interviewId
-                    // Offline: a new interview queues as a create; an EDIT queues as one ordered unit
-                    // (the PATCH, then its clips and attachments), replayed in order when the
-                    // connection returns and stopped at the first step the server refuses.
                     if (!repository.isOnline(context)) {
                         val ok = runCatching {
                             if (updateId != null) {
@@ -16415,14 +12278,6 @@ private fun QuestionnaireForm(
                                 status = status,
                                 artisanIds = selectedArtisans.toList(),
                                 workshopId = workshop.value(),
-                                // WRITTEN AT QUEUE TIME, NOT AT REPLAY TIME -- the one line in this
-                                // payload that has to be here rather than resolved later. This object
-                                // is what `queueOfflineEntry` serialises into the outbox, and an
-                                // interview captured today may not be sent for a week; by then the
-                                // workshop's binding or the server's default may have moved, and the
-                                // sitting would file against an instrument the researcher never saw.
-                                // Blank is normalised away so an unresolved picker sends nothing at
-                                // all rather than an empty string the server would have to interpret.
                                 questionnaireId = questionnaireId?.blankToNull(),
                                 location = capturedLocation,
                                 responses = responsesToSend,
@@ -16443,17 +12298,9 @@ private fun QuestionnaireForm(
                         }
                         if (ok) {
                             media.reset(); qMedia.reset(); questionAudio = emptyMap()
-                            // `language = ""` and no longer `"Hindi"`: the box is free text (see
-                            // the field above) and a cleared form must not arrive pre-answered.
-                            // `questionnaireId` is deliberately NOT cleared -- interviews are taken
-                            // back-to-back at one workshop on one instrument, the same argument the
-                            // workshop selection is kept on, and re-deriving it would put the picker
-                            // back to the default between two sittings on the revised questionnaire.
                             title = ""; selectedArtisans = emptySet(); place = ""; language = ""; notes = ""
                             status = defaultCreateStatus(repository.cachedUser()?.role)
                             capturedLocation = null; answers.values.forEach { it.value = "" }
-                            // Interviews are usually captured back-to-back at one workshop, so the
-                            // selection carries over — re-baselined so it isn't flagged as unsaved.
                             workshop.markSaved()
                             saveState = SaveState.SAVED
                             delay(SAVED_CONFIRM_MS)
@@ -16470,16 +12317,10 @@ private fun QuestionnaireForm(
                             val originalArtisans = original.artisans.map { it.artisanId }.toSet()
                             repository.updateQuestionnaireInterview(
                                 original.id,
-                                // NO `questionnaireId` HERE, AND THAT IS THE API'S RULE RATHER
-                                // THAN AN OMISSION: [QuestionnaireInterviewUpdateRequest] has no such
-                                // field, because a sitting's answers are keyed to one instrument's
-                                // question ids and moving the sitting would orphan every one of them.
-                                // The picker above is disabled on an edit for the same reason.
                                 interviewUpdateRequest()
                             )
                             original.id
                         } else if (updateId != null) {
-                            // An earlier save created this interview and then lost a clip: update it.
                             repository.updateQuestionnaireInterview(updateId, updateRequestFor())
                             updateId
                         } else {
@@ -16491,10 +12332,6 @@ private fun QuestionnaireForm(
                                     status = status,
                                     artisanIds = selectedArtisans.toList(),
                                     workshopId = workshop.value(),
-                                    // Which instrument the researcher was looking at. Null is a real
-                                    // answer and not a gap: the server then resolves it from the
-                                    // workshop's binding or the default, which is what every build
-                                    // before this field existed relied on.
                                     questionnaireId = questionnaireId?.blankToNull(),
                                     location = capturedLocation,
                                     responses = responsesToSend,
@@ -16505,15 +12342,11 @@ private fun QuestionnaireForm(
                                 effectiveTitle(), { questionnaireOfflineItems() }
                             ) { key -> onSubmit(request, key) }.also { createdId = it }
                         }
-                        // Upload all recorded clips, whether keyed by question id or by section.
                         val questionsById = questions.associateBy { it.id }
                         val sectionsById = sections.associateBy { it.id }
                         questionAudio.forEach { (key, uris) ->
                             val caption: String
                             val hint: String
-                            // Nomenclature parts: section code + question number (or "SEC" for a whole
-                            // section take), and the interview name — fed into the per-clip filename
-                            // SECTION_QUESTION_INTERVIEWNAME_DURATIONHHMMSS_DATETIMEDDMMYYYYHHMM.
                             val sectionCodePart: String?
                             val questionNumberPart: String?
                             if (key.startsWith("section:")) {
@@ -16536,11 +12369,7 @@ private fun QuestionnaireForm(
                                     questionNumber = questionNumberPart,
                                     interviewName = title,
                                     uri = uri
-                                // Append the clip index when a target has more than one clip, so two
-                                // recordings of the same question in the same minute never collide.
                                 ).let { if (uris.size > 1) "${it}_${index + 1}" else it }
-                                // Prefer the eagerly pre-uploaded object (awaiting any still-in-flight
-                                // transfer); only fall back to a fresh upload if staging never ran/failed.
                                 val staged = qMedia.stagedDeferred[uri]?.let { runCatching { it.await() }.getOrNull() }
                                     ?: qMedia.staged[uri]
                                 if (staged != null) {
@@ -16552,6 +12381,7 @@ private fun QuestionnaireForm(
                                         caption = caption,
                                         location = null,
                                         batchIndex = index + 1,
+                                        processingRequests = listOf(UploadTranscribe.TRANSCRIPTION),
                                         overrideBaseName = baseName
                                     )
                                 } else {
@@ -16564,17 +12394,15 @@ private fun QuestionnaireForm(
                                         location = null,
                                         titleHint = hint,
                                         batchIndex = index + 1,
+                                        processingRequests = listOf(UploadTranscribe.TRANSCRIPTION),
                                         overrideBaseName = baseName
                                     )
                                 }
-                                // Linked: a retry after a later clip fails must not send this one again.
                                 questionAudio = com.fieldrepository.app.data.LegacyQuestionnaireSave.withoutClip(questionAudio, key, uri)
                                 qMedia.forget(uri)
                                 qMedia.uris = qMedia.uris.filterNot { it == uri }
                             }
                         }
-                        // General attach-media batch (photos/videos/files/extra audio) — eager-uploaded
-                        // with progress while filling the form, finalised and linked to the interview here.
                         media.location = capturedLocation
                         uploadAttachments(
                             repository, context, media, "questionnaire", interviewId,
@@ -16592,42 +12420,9 @@ private fun QuestionnaireForm(
                             return@launch
                         }
                         saveState = SaveState.IDLE
-                        /*
-                          ── A REFUSED SAVE READ PROPERLY, AND THE ONE REFUSAL THAT HAS A WAY OUT ──
-
-                          `it.message` STOOD HERE AND IT IS RETROFIT'S, NOT THE SERVER'S. Retrofit
-                          collapses every non-2xx into an `HttpException` whose message is the bare
-                          status line, so a researcher whose save was refused read "HTTP 409
-                          Conflict" — the server's sentence explaining WHY was in the body and never
-                          reached the screen at all. `apiFailure` is the repository's own reader for
-                          that body (it is what the sign-in gate uses), and it is called ONCE because
-                          reading the error body consumes it.
-
-                          THE ARTISAN-SET COLLISION IS THE ONE FAILURE WITH SOMEWHERE TO GO. Two
-                          researchers recorded one artisan set as two sittings titled by the sections
-                          they covered; the "F" one had missed an artisan, and ticking that artisan
-                          makes F's set key equal D's, which `@@unique([questionnaireId,
-                          artisanSetKey])` refuses. A create folds into the holder on its own; an
-                          edit could not fold at all and the researcher was simply stuck. The 409 now
-                          names the holder, so the handset can ask.
-
-                          BRANCHED ON THE CODE, NEVER ON THE PROSE — the server's own instruction at
-                          `_DUPLICATE_SET_CODE`, and the reason [artisanSetHolder] checks it before
-                          it looks at anything else. A null holder (a concurrent delete, an older
-                          server) falls through to the sentence, which is what every screen did
-                          before this existed.
-
-                          `isEdit` GATES THE OFFER because the fold needs a source row to move: on a
-                          create there is no interview to merge and the POST has already folded
-                          server-side anyway, so the only honest answer there is the server's
-                          sentence.
-                        */
                         val failure = error.apiFailure("Unable to save questionnaire")
                         val holder = if (isEdit) failure.artisanSetHolder() else null
                         if (holder != null) {
-                            // Counted at the moment of refusal, while the pending work is still in
-                            // scope — the dialog cannot ask later, and after the fold there is no
-                            // record left for any of it to be saved to.
                             mergeUnsaved = unsavedBeforeMergeNotice(
                                 typedAnswers = responsesToSend.size,
                                 recordings = qMedia.uris.size,
@@ -16641,17 +12436,9 @@ private fun QuestionnaireForm(
                         }
                         return@launch
                     }
-                    // Clear the staged-media bookkeeping so leaving the form doesn't delete the objects
-                    // we just linked (the dispose cleanup only runs when uris are still pending).
                     media.reset()
-                    // The recorded clips are now persisted on the interview — clear the eager-upload
-                    // bookkeeping (so leaving doesn't delete the just-linked objects) and the keyed map
-                    // (so a second save can't re-upload them).
                     qMedia.reset()
                     questionAudio = emptyMap()
-                    // Bank the sitting: the interview itself does not join the bag — nothing else
-                    // links to one — but the artisan it was taken with is exactly where the
-                    // researcher still is.
                     artisans.firstOrNull { it.id in selectedArtisans }?.let { interviewed ->
                         carry.remember(
                             CarryContext(
@@ -16670,18 +12457,11 @@ private fun QuestionnaireForm(
                         title = ""
                         selectedArtisans = emptySet()
                         place = ""
-                        // Blank, not "Hindi": the box is free text now and a cleared form must not
-                        // arrive pre-answered. Same change as the offline reset above, and the
-                        // argument is at the field itself. `questionnaireId` is deliberately NOT
-                        // cleared here either — interviews are taken back-to-back at one workshop on
-                        // one instrument, which is the same reason the workshop selection survives.
                         language = ""
                         notes = ""
                         status = defaultCreateStatus(repository.cachedUser()?.role)
                         capturedLocation = null
                         answers.values.forEach { it.value = "" }
-                        // The workshop stays selected for the next interview (same field session),
-                        // re-baselined so the carry-over isn't reported as an unsaved change.
                         workshop.markSaved()
                     }
                     saveState = SaveState.SAVED
@@ -16690,17 +12470,12 @@ private fun QuestionnaireForm(
                 }
         }
         val qSig: () -> String = {
-            // The offer resolves a beat after the first composition, so until it does the handoff it
-            // was built from stands in — otherwise the baseline and the prefill would disagree for
-            // one frame and an untouched form would come out of it reading as edited.
             val carriedArtisan = carry.offer?.context?.artisanId ?: prefill?.artisanId
             listOf(title, place, language, notes, status,
                 selectedArtisans.filterNot { it == carriedArtisan }.sorted().joinToString(","),
                 answers.entries.joinToString("|") { "${it.key}=${it.value.value}" }).joinToString("")
         }
         val initialSig = remember(editing) { qSig() }
-        // Any changed field, an unsaved general attachment, or an unsaved recorded clip makes the
-        // interview "dirty" so an accidental Back offers to save it (including in-progress recordings).
         val dirty = qSig() != initialSig || workshop.isDirty() || qMedia.uris.isNotEmpty() || media.uris.isNotEmpty()
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         media.draftInto(draft, "media")
@@ -16717,10 +12492,6 @@ private fun QuestionnaireForm(
     }
 }
 
-/**
- * The builder on its own (audit H15): pick the questionnaire, edit its sections and questions, Back.
- * New sections join the questionnaire picked here, never the default (audit M23).
- */
 @Composable
 private fun QuestionnaireV2Builder(repository: FieldRepository, user: UserDto?, onBack: () -> Unit, onError: (String) -> Unit) {
     var instruments by remember { mutableStateOf<List<QuestionnaireDto>>(emptyList()) }
@@ -16761,23 +12532,13 @@ private fun QuestionnaireBuilder(
     sections: List<QuestionnaireSectionDto>,
     onRefresh: suspend () -> Unit,
     onError: (String) -> Unit,
-    /** The questionnaire new sections join; null keeps the old "server default" behaviour. */
     questionnaireId: String? = null,
-    /**
-     * Whether this viewer may edit and delete the form and everything in it: its author or a content
-     * admin (owner, 22 Oct 2026, applied strictly; [com.fieldrepository.app.ui.mayEditQuestionnaire]).
-     * Every other questionnaire manager reads it. No default: a caller that forgot to ask must not
-     * hand out an editor the server will refuse.
-     */
     canEdit: Boolean
 ) {
     val scope = rememberCoroutineScope()
     var newCode by remember { mutableStateOf("") }
     var newTitle by remember { mutableStateOf("") }
-    // Sections render collapsed by default; a section's editors + questions are only composed when it
-    // is expanded, so opening the builder never composes hundreds of fields at once (was an ANR/crash).
     var expandedSections by remember { mutableStateOf(setOf<String>()) }
-    // A tap on a section READS it (its questions, as text); the editors open only behind Update.
     var updatingSections by remember { mutableStateOf(setOf<String>()) }
 
     RecordCard(title = "Questionnaire builder") {
@@ -16786,12 +12547,6 @@ private fun QuestionnaireBuilder(
             color = Muted,
             style = MaterialTheme.typography.bodySmall
         )
-        // A SECTION CODE IS NOT PROSE. It is one to three letters that a regex in
-        // `backend/app/services/media_naming.py` matches (`_CAPTION_SECTION` at :148 and
-        // `_FILE_SECTION` at :156, both `[A-Za-z]{1,3}`) and that every media filename is built
-        // from; a recogniser hands back "ay" for "A" and "bee" for "B". Same call at the
-        // per-section "Code" box below. The sibling application agrees — `designer
-        // MainActivity.kt:16763` carries the identical opt-out.
         if (canEdit) {
         TextInput("New section code", newCode, dictate = false) { newCode = it }
         TextInput("New section title", newTitle) { newTitle = it }
@@ -16831,7 +12586,6 @@ private fun QuestionnaireBuilder(
                         }
                         Text(if (expanded) "Hide ▲" else "Show ▼", color = Body, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
-                    // `&& canEdit`: a viewer who may not edit the form never reaches its editors, even from stale state.
                     val updating = section.id in updatingSections && canEdit
                     if (expanded && !updating) {
                         if (section.questions.isEmpty()) {
@@ -16855,14 +12609,10 @@ private fun QuestionnaireBuilder(
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         ) { Text("Done") }
                     }
-                    // Heavy editors + per-question rows compose only for the section being updated,
-                    // and only for the form's author or a content admin (the server 403s anyone else).
                     if (expanded && updating) {
                         var code by remember(section.id, section.code) { mutableStateOf(section.code) }
                         var sectionTitle by remember(section.id, section.title) { mutableStateOf(section.title) }
                         var newPrompt by remember(section.id) { mutableStateOf("") }
-                        // A section code is not prose — the same argument, and the same regexes,
-                        // as "New section code" above (:11476).
                         TextInput("Code", code, dictate = false) { code = it }
                         TextInput("Title", sectionTitle) { sectionTitle = it }
                         ActionRow {
@@ -16923,8 +12673,6 @@ private fun QuestionnaireBuilder(
                             ) {
                                 Text("${question.sortOrder}. ${question.sectionCode} ${question.prompt}", color = Muted, style = MaterialTheme.typography.bodySmall)
                                 TextInput("Prompt", prompt, minLines = 2) { prompt = it }
-                                // B8: which of the artisan's fields answers this question, so an
-                                // interview fills it from the picked artisan instead of guessing.
                                 DropdownField(
                                     label = "Answered from the artisan's",
                                     options = ARTISAN_FIELD_OPTIONS,
@@ -16936,8 +12684,6 @@ private fun QuestionnaireBuilder(
                                         onClick = {
                                             scope.launch {
                                                 runCatching {
-                                                    // Sent only when it changed ("" clears it), so an untouched
-                                                    // mapping keeps the body a server without B8 accepts.
                                                     repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(prompt = prompt.trim(), isActive = true, artisanField = artisanFieldUpdate(question.artisanField, mapping)))
                                                     onRefresh()
                                                 }.onFailure { onError(it.apiErrorMessage("Unable to update question")) }
@@ -17049,27 +12795,15 @@ private fun UserManagementForm(
     LaunchedEffect(Unit) {
         refreshUsers()
     }
-    // Each user is collapsed by default (an accordion); tapping the header opens a READ-ONLY summary
-    // of their role, privileges and sign-in, so a long user list stays scannable. The role picker and
-    // the grant buttons appear only after Update — a tap reads a person and never changes them.
     var expandedUsers by remember { mutableStateOf<Set<String>>(emptySet()) }
     var updatingUsers by remember { mutableStateOf<Set<String>>(emptySet()) }
-    // The account whose two-step verification an administrator is about to turn off, awaiting confirm.
     var confirmTwoStepOff by remember { mutableStateOf<UserDto?>(null) }
-    /**
-     * A password link an administrator has just made, held on screen until they dismiss it, with the
-     * name it is FOR beside it. Composable state and nowhere else: the server returns it once.
-     */
     var issuedLink by remember { mutableStateOf<Pair<String, IssuedPasswordLinkDto>?>(null) }
     var linkBusy by remember { mutableStateOf(false) }
-    // Who is doing the managing. Read from the cached profile rather than threaded in, so the rules
-    // below can mirror `assert_role` / `assert_can_manage_target` without changing every call site.
     val actor = remember { repository.cachedUser() }
     val actorRank = remember(actor) { roleRank(actor?.role) }
     val actorIsMaster = isMasterAdmin
     val actorIsAdmin = actorRank >= RANK_ADMIN
-    // `assert_role`: a user may assign roles at or below their OWN tier, and only the master admin
-    // can mint another master admin. Highest first, matching the web picker's order.
     val assignableRoles = remember(actorRank, actorIsMaster) {
         ROLE_RANK.entries
             .filter { it.value <= actorRank && (it.key != "MASTER_ADMIN" || actorIsMaster) }
@@ -17096,7 +12830,6 @@ private fun UserManagementForm(
                     }
                 }) { Text("Turn off", color = MaterialTheme.colorScheme.error) }
             },
-            // Cancel is the safe answer and sits where a reflex tap lands last.
             dismissButton = { TextButton(onClick = { confirmTwoStepOff = null }) { Text("Cancel") } }
         )
     }
@@ -17107,8 +12840,6 @@ private fun UserManagementForm(
             color = Muted,
             style = MaterialTheme.typography.bodySmall
         )
-        // The issued link, at the top of the card and not inside the row that made it, so it is on
-        // screen however far down that row was. It is the only copy there will be.
         issuedLink?.let { (subject, link) ->
             IssuedPasswordLinkPanel(
                 link = link,
@@ -17124,8 +12855,6 @@ private fun UserManagementForm(
                 onDismiss = { issuedLink = null }
             )
         }
-        // "Add a person": the account, its admission and its role's own list in one step —
-        // `ui/AddPerson.kt`. Admins and the master admin; roles strictly below the viewer's own.
         if (actorIsAdmin) {
             AddPersonCard(
                 repository = repository,
@@ -17143,20 +12872,10 @@ private fun UserManagementForm(
         }
         users.forEach { appUser ->
             val isMaster = appUser.role == "MASTER_ADMIN"
-            // A grant is moot once the target reaches Professor: the rank already confers the power,
-            // exactly as `has_rank(user, "PROFESSOR") or user.canX` reads on the server.
             val targetIsProfessorPlus = roleRank(appUser.role) >= RANK_PROFESSOR
-            // `assert_can_manage_target`: the master admin manages everyone but other masters;
-            // everyone else manages strictly lower tiers only.
             val canManageTarget = if (actorIsMaster) !isMaster else roleRank(appUser.role) < actorRank
-            // PATCH /users is `require_professor`, but a non-admin professor may only change `role`
-            // (the server 403s any other field) — so the capability toggles need admin and above.
             val canEditGrants = actorIsAdmin && canManageTarget && !targetIsProfessorPlus
             val expanded = expandedUsers.contains(appUser.id)
-            // Count of granted privileges, for the collapsed summary line. One entry per toggle
-            // rendered below, and in the same order — the list used to name crafts and workshops
-            // (which are no longer grantable) while omitting the dataset toggle that is, so the
-            // summary counted five things that were not the five on screen.
             val grantedCount = listOf(
                 targetIsProfessorPlus || appUser.canManageQuestionnaire,
                 roleRank(appUser.role) >= RANK_FIELD_CONTRIBUTOR || appUser.canReview,
@@ -17190,8 +12909,6 @@ private fun UserManagementForm(
                         }
                         Text(if (expanded) "Hide ▲" else "Show ▼", color = Body, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
-                    // Anything the viewer may change about this person: the role (`assert_can_manage_target`)
-                    // or, for an admin, a privilege or their sign-in help. Nobody else sees Update.
                     val mayUpdate = canManageTarget && !isMaster && (actorIsAdmin || assignableRoles.isNotEmpty())
                     val updating = mayUpdate && updatingUsers.contains(appUser.id)
                     if (expanded && !updating) {
@@ -17205,8 +12922,6 @@ private fun UserManagementForm(
                         UserSummaryLine("View provenance", if (roleRank(appUser.role) >= RANK_ADMIN || appUser.canViewProvenance) "Granted" else "Not granted")
                         UserSummaryLine("Download entire dataset", if (targetIsProfessorPlus || appUser.canDownloadDataset) "Granted" else "Not granted")
                         UserSummaryLine("Password", if (accountHasPassword(appUser)) "Set" else "No password yet")
-                        // The shared switch, read-only here: only the person can turn it on, from their own
-                        // account; an administrator turns it off with the button below.
                         AppToggle(
                             label = "Two-step verification",
                             description = if (appUser.twoFactorEnabled) "Turned on by them." else "Not turned on. Only they can turn it on.",
@@ -17233,10 +12948,6 @@ private fun UserManagementForm(
                             onClick = { updatingUsers = updatingUsers - appUser.id },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         ) { Text("Done") }
-                        // The six-tier ladder, not an admin/researcher switch: the previous two-state
-                        // button could neither reach Crowdsource Volunteer, Field Contributor or
-                        // Professor nor be used by a professor at all, and demoting an admin dropped
-                        // them straight past Professor to Researcher.
                         if (canManageTarget && !isMaster && assignableRoles.isNotEmpty()) {
                             DropdownField(
                                 label = "Role",
@@ -17269,22 +12980,9 @@ private fun UserManagementForm(
                                 }
                             }
                         )
-                        /*
-                         * "Craft creation" and "Workshop creation" WERE HERE, and are gone.
-                         *
-                         * They set `canManageCrafts` / `canManageWorkshops`, two columns the server
-                         * deliberately stopped reading (`can_manage_crafts` in deps.py): both powers
-                         * are Professor-by-rank alone now, because a grant that lifted someone below
-                         * the taxonomy over it was invisible in the role column and nobody auditing
-                         * the user table could see who held it. The switches still flipped, still
-                         * saved, and granted nothing — a control that looks like it confers access
-                         * and does not is worse than no control at all. Promote the person instead.
-                         * Web parity: frontend/app/(protected)/users/page.tsx dropped the same two.
-                         */
                         GrantToggleRow(
                             label = "Record review & approval",
                             granted = roleRank(appUser.role) >= RANK_FIELD_CONTRIBUTOR || appUser.canReview,
-                            // Review is conferred by rank from Field Contributor up, not Professor.
                             enabled = actorIsAdmin && canManageTarget && roleRank(appUser.role) < RANK_FIELD_CONTRIBUTOR,
                             onToggle = { grant ->
                                 scope.launch {
@@ -17296,7 +12994,6 @@ private fun UserManagementForm(
                         GrantToggleRow(
                             label = "View provenance",
                             granted = roleRank(appUser.role) >= RANK_ADMIN || appUser.canViewProvenance,
-                            // Provenance comes with admin, so only sub-admin tiers need the grant.
                             enabled = actorIsAdmin && canManageTarget && roleRank(appUser.role) < RANK_ADMIN,
                             onToggle = { grant ->
                                 scope.launch {
@@ -17316,11 +13013,6 @@ private fun UserManagementForm(
                                 }
                             }
                         )
-                        // For somebody who has lost the phone their authenticator was on: the same
-                        // authority as deleting the account (an admin, over a person below them), and
-                        // never their own — that is turned off from their own Settings with a code.
-                        // A one-time link to copy and pass on by phone or WhatsApp. Offered by "has a
-                        // password" (`passwordLinkOffered`); the server's 429 is shown as it is.
                         if (actorIsAdmin && canManageTarget && appUser.id != actor?.id && passwordLinkOffered(appUser)) {
                             HorizontalDivider()
                             OutlinedButton(
@@ -17346,8 +13038,6 @@ private fun UserManagementForm(
                                 Text("Turn off two-step verification", color = MaterialTheme.colorScheme.error)
                             }
                         }
-                        // E-mail them a link, a temporary password, sign them out of every device —
-                        // `ui/AccountRecovery.kt`. The same gate as the two buttons above.
                         if (actorIsAdmin && canManageTarget && appUser.id != actor?.id) {
                             HelpThemBackInActions(
                                 repository = repository,
@@ -17363,16 +13053,10 @@ private fun UserManagementForm(
     }
 }
 
-/**
- * Cross-researcher data sharing. A researcher can request access to another's data at a tier
- * (Download < Comment < Edit, with definitions shown), and manage requests/grants on their own data:
- * approve, deny, change tier, or revoke. Mirrors the web Sharing page.
- */
 @Composable
 private fun SharingForm(
     repository: FieldRepository,
     isAdmin: Boolean,
-    /** The confirmation for an approve, deny, tier change or revoke — each used to say nothing. */
     onMessage: (String) -> Unit,
     onError: (String) -> Unit
 ) {
@@ -17383,7 +13067,6 @@ private fun SharingForm(
     var directory by remember { mutableStateOf<List<UserDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
-    /** A failed load is drawn as a failure with Try again, never as "Loading…" left up for ever. */
     var loadError by remember { mutableStateOf<String?>(null) }
 
     fun reload() {
@@ -17435,8 +13118,6 @@ private fun SharingForm(
         }
     }
 
-    // Both cards ask for several people at once and report each person separately — see
-    // ui/SharingBatch.kt, which owns the batch and the partial-failure panel.
     RecordCard(title = "Request access") {
         RequestAccessFields(
             repository = repository,
@@ -17504,20 +13185,10 @@ private fun SharingForm(
             }
         }
     }
-    // Workshop assignments moved to the admin "Settings" hub (see AdminHubScreen).
 }
 
-// ===========================================================================
-// Workshop access — ONE row per (workshop, user) holds the whole two-sided
-// conversation: an admin grants and revokes, a user requests and is approved
-// or denied. Only status == GRANTED confers access; a PENDING row confers
-// nothing, and DENIED/REVOKED rows are kept as history rather than deleted.
-// ===========================================================================
-
-/** The ladder, weakest first — the order the pickers offer it in. */
 private val workshopAccessLevels = listOf("VIEW", "CONTRIBUTE", "EDIT")
 
-/** CONTRIBUTE is what "assigned to a workshop" has always meant, so it is the default offered. */
 private const val DEFAULT_WORKSHOP_LEVEL = "CONTRIBUTE"
 
 private fun workshopLevelLabel(level: String): String = when (level) {
@@ -17535,8 +13206,6 @@ private fun workshopAccessStatusLabel(status: String): String = when (status) {
     else -> status
 }
 
-// @Composable: `Coral` is now a theme-aware getter (ui/Theme.kt), so reading it needs a composition.
-// Every call site is already inside one (a `Text(color = …)` argument).
 @Composable
 @ReadOnlyComposable
 private fun workshopAccessStatusColor(status: String): Color = when (status) {
@@ -17545,23 +13214,13 @@ private fun workshopAccessStatusColor(status: String): Color = when (status) {
     else -> FailureRed
 }
 
-/** Level options for a picker, with the API's own descriptions as labels once they have loaded. */
 private fun workshopLevelOptions(levels: List<WorkshopAccessLevelDto>): List<Pair<String, String>> =
     if (levels.isEmpty()) workshopAccessLevels.map { it to workshopLevelLabel(it) }
     else levels.map { it.level to workshopLevelLabel(it.level) }
 
-/** "Kutch weaving · 2026-07-12", falling back to the id-only title when the row carries no workshop. */
 private fun assignmentWorkshopLabel(row: WorkshopAssignmentDto): String =
     row.workshop?.let { workshopOptionLabel(it) } ?: "Unnamed workshop"
 
-/**
- * Admin-only: the roster for ONE workshop, at levels. Only GRANTED researchers may submit entries for
- * it, and out-of-window submissions are flagged for approval.
- *
- * Uses the per-user grant/patch/revoke endpoints rather than the whole-set PUT, because the set-based
- * call silently REVOKES everybody it does not mention — one stale checkbox state and an admin removes
- * a colleague they never looked at. Every action here changes exactly the one row it names.
- */
 @Composable
 private fun WorkshopAssignmentCard(
     repository: FieldRepository,
@@ -17576,7 +13235,6 @@ private fun WorkshopAssignmentCard(
     var roster by remember { mutableStateOf<List<WorkshopAssignmentDto>>(emptyList()) }
     var loadingRoster by remember { mutableStateOf(false) }
     var busyUserId by remember { mutableStateOf<String?>(null) }
-    // The "add someone" row at the bottom.
     var addUserId by remember { mutableStateOf("") }
     var addLevel by remember { mutableStateOf(DEFAULT_WORKSHOP_LEVEL) }
 
@@ -17597,7 +13255,6 @@ private fun WorkshopAssignmentCard(
         }
     }
 
-    /** Run one row-scoped action, then re-read the roster so the shown state is the server's. */
     fun act(userId: String, ok: String, block: suspend () -> Unit) {
         scope.launch {
             busyUserId = userId
@@ -17628,7 +13285,6 @@ private fun WorkshopAssignmentCard(
         } else if (roster.isEmpty()) {
             Text("Open to everyone.", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
-        // Granted first (the people who actually have access), then anyone waiting, then the history.
         val ordered = roster.sortedBy { row ->
             when (row.status) { "GRANTED" -> 0; "PENDING" -> 1; else -> 2 }
         }
@@ -17703,8 +13359,6 @@ private fun WorkshopAssignmentCard(
 
         HorizontalDivider()
         Text("Add a researcher", display = true, color = Body, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-        // Anyone already on the roster is reachable through their own row above, so they are not
-        // offered here — granting them again from this picker would be a second way to do one thing.
         val onRoster = roster.map { it.userId }.toSet()
         val addable = directory.filterNot { it.id in onRoster }
         if (addable.isEmpty()) {
@@ -17741,13 +13395,6 @@ private fun WorkshopAssignmentCard(
     }
 }
 
-/**
- * User-side workshop access: ask for one or more workshops at once, and see where every request got to.
- *
- * Multi-select because that is how the need arrives — a researcher joining a project needs the same
- * access to a whole season of workshops, and filing them one at a time produces a queue nobody works
- * through. Asking twice is safe: the API is idempotent per workshop and reports what it did with each.
- */
 @Composable
 private fun WorkshopAccessScreen(
     repository: FieldRepository,
@@ -17804,8 +13451,6 @@ private fun WorkshopAccessScreen(
             )
             levels.firstOrNull { it.level == level }?.description?.takeIf { it.isNotBlank() }
                 ?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodySmall) }
-            // A note to whoever grants the access. Dictation only: it is read once, by a person, in
-            // a request list — there is nothing here for formatting to survive into.
             TextInput("Why do you need access? (optional)", note, minLines = 2) { note = it }
             Button(
                 enabled = !busy && selected.isNotEmpty(),
@@ -17815,8 +13460,6 @@ private fun WorkshopAccessScreen(
                         busy = true
                         runCatching { repository.requestWorkshopAccess(selected.toList(), level, note) }
                             .onSuccess { result ->
-                                // Say what actually happened per workshop: pressing the button twice is
-                                // expected, and "already pending" is a different answer from "sent".
                                 val counts = result.outcomes.groupingBy { it.outcome }.eachCount()
                                 val parts = listOfNotNull(
                                     counts["CREATED"]?.let { "$it sent" },
@@ -17874,10 +13517,6 @@ private fun WorkshopAccessScreen(
     }
 }
 
-/**
- * Admin-only: the workshop-access approval queue across ALL workshops, so an approver works from one
- * list. Opening each workshop's roster in turn is how requests sit unanswered for a week.
- */
 @Composable
 private fun WorkshopAccessQueueCard(
     repository: FieldRepository,
@@ -17890,7 +13529,6 @@ private fun WorkshopAccessQueueCard(
     var showAll by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var busyId by remember { mutableStateOf<String?>(null) }
-    // Level the admin will hand out, per pending row — seeded from what the user asked for.
     val chosenLevel = remember { mutableStateMapOf<String, String>() }
 
     fun refresh() {
@@ -17997,11 +13635,6 @@ private fun WorkshopAccessQueueCard(
     }
 }
 
-// ===========================================================================
-// Tasks — the assignee's to-do list. An admin hands work out as a batch; each
-// person owns, sees and reports progress on their own row.
-// ===========================================================================
-
 private fun taskStatusLabel(status: String): String = when (status) {
     "OPEN" -> "Open"
     "IN_PROGRESS" -> "In progress"
@@ -18010,7 +13643,6 @@ private fun taskStatusLabel(status: String): String = when (status) {
     else -> status
 }
 
-// @Composable for the same reason as workshopAccessStatusColor: Coral/Muted/Body are theme getters.
 @Composable
 @ReadOnlyComposable
 private fun taskStatusColor(status: String): Color = when (status) {
@@ -18020,13 +13652,8 @@ private fun taskStatusColor(status: String): Color = when (status) {
     else -> Body
 }
 
-/** The statuses an ASSIGNEE may move a task between. Cancelling belongs to whoever handed it out. */
 private val assigneeTaskStatuses = listOf("OPEN", "IN_PROGRESS", "DONE")
 
-/**
- * One line describing everything the task asks for: the record kinds, the questionnaire sections and
- * the artisans it is scoped to. Built from the server-resolved names so nothing has to be looked up.
- */
 private fun taskScopeSummary(task: TaskDto): String {
     val parts = mutableListOf<String>()
     if (task.recordTypeLabels.isNotEmpty()) {
@@ -18047,19 +13674,9 @@ private fun taskScopeSummary(task: TaskDto): String {
     return parts.joinToString(" · ")
 }
 
-/**
- * My tasks. Admins can also flip to the work they handed out ("Assigned by me"), which is the same
- * rows read through `view=created` — the endpoint 403s that view for everyone else, so the toggle is
- * only offered to admins.
- */
 @Composable
 private fun MyTasksScreen(
     repository: FieldRepository,
-    /**
-     * Admin AND admin view on. Being an ASSIGNEE is open to everyone and is never narrowed; handing
-     * work out is admin chrome, so both the "Assigned by me" view (the endpoint 403s it for everyone
-     * else) and the route to the assignment board follow the toggle.
-     */
     canAssign: Boolean,
     onOpenAssignmentBoard: (() -> Unit)? = null,
     onMessage: (String) -> Unit,
@@ -18069,8 +13686,6 @@ private fun MyTasksScreen(
     val context = LocalContext.current
     val myId = remember { repository.cachedUser()?.id }
     var view by remember { mutableStateOf("assigned") }
-    // Flipping admin view off while "Assigned by me" is showing must not strand the user on a view
-    // they can no longer switch away from.
     LaunchedEffect(canAssign) { if (!canAssign) view = "assigned" }
     var statusFilter by remember { mutableStateOf("") }
     var tasks by remember { mutableStateOf<List<TaskDto>>(emptyList()) }
@@ -18088,12 +13703,9 @@ private fun MyTasksScreen(
     }
     LaunchedEffect(view, statusFilter) { refresh() }
 
-    /** Assignee-side change: move the status, or report how much is done. */
     fun update(task: TaskDto, status: String? = null, progressCount: Int? = null, ok: String) {
         scope.launch {
             busyId = task.id
-            // Offline, or the connection dropped: the change waits in the outbox (it is a plain
-            // update, so sending it later is safe) and the list shows it straight away.
             val payload = offlineFormJson.encodeToString(TaskUpdateBody(status = status, progressCount = progressCount))
             suspend fun keepOnDevice(failure: Throwable?): Boolean {
                 if (!queueSmallWrite(repository, context, failure, idempotent = true, type = "task-progress",
@@ -18125,8 +13737,6 @@ private fun MyTasksScreen(
             style = MaterialTheme.typography.bodySmall
         )
         if (canAssign) {
-            // Web parity with the strip on /tasks: say where handing work out actually happens, and
-            // offer the way there, rather than leaving the board undiscoverable outside the hub.
             Text(
                 "Assign work from the assignment board.",
                 color = Muted,
@@ -18170,8 +13780,6 @@ private fun MyTasksScreen(
             else -> tasks.forEach { task ->
                 TaskCard(
                     task = task,
-                    // Only the assignee may move a task; an admin looking at "assigned by me" is
-                    // reading someone else's row and the API would refuse the write anyway.
                     editable = task.assigneeId != null && task.assigneeId == myId,
                     busy = busyId == task.id,
                     onStatus = { status -> update(task, status = status, ok = "Marked ${taskStatusLabel(status).lowercase()}") },
@@ -18190,8 +13798,6 @@ private fun TaskCard(
     onStatus: (String) -> Unit,
     onProgress: (Int) -> Unit
 ) {
-    // Seeded from the server value and re-seeded whenever the server value moves, so a successful
-    // report leaves the box showing what was actually stored (the API clamps to the target).
     var reported by remember(task.id, task.progressCount) { mutableStateOf(task.progressCount.toString()) }
     val scopeLine = taskScopeSummary(task)
 
@@ -18210,8 +13816,6 @@ private fun TaskCard(
                 listOfNotNull(
                     task.workshopTitle?.takeIf { it.isNotBlank() },
                     formatIsoDate(task.dueAt)?.let { "due $it" },
-                    // Naming the assignee is only useful on somebody else's row — on my own list it
-                    // would print my own name against every single task.
                     if (!editable) task.assignee?.name?.takeIf { it.isNotBlank() }?.let { "for $it" } else null
                 ).joinToString(" · ").ifBlank { "No workshop or due date" },
                 color = Muted,
@@ -18220,7 +13824,6 @@ private fun TaskCard(
             if (scopeLine.isNotBlank()) Text(scopeLine, color = Body, style = MaterialTheme.typography.bodySmall)
             task.description?.takeIf { it.isNotBlank() }?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodySmall) }
 
-            // Reported vs derived, side by side: "says 8, repository sees 2" is the signal worth seeing.
             val target = task.targetCount
             val derived = task.derivedCount
             Text(
@@ -18243,8 +13846,6 @@ private fun TaskCard(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 assigneeTaskStatuses.forEach { value ->
                     val current = task.status == value
-                    // The current status is a FILLED segment and announced as selected; the others are
-                    // outlined. A tick prefix used to carry that, and clipped "In progress" at 360dp.
                     val segment = Modifier
                         .weight(1f)
                         .heightIn(min = 48.dp)
@@ -18291,7 +13892,6 @@ private fun tierLabel(tier: String): String = when (tier) {
     else -> tier
 }
 
-/** One line of a person's read-only summary on the users screen. */
 @Composable
 private fun UserSummaryLine(label: String, value: String) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -18334,26 +13934,6 @@ private fun RecordCard(title: String, icon: ImageVector? = null, content: @Compo
     }
 }
 
-/**
- * "Which records are not filed under any workshop, and where do they belong?" — the admin card.
- *
- * WHY THIS SCREEN EXISTS. Every control that narrows by workshop reads one column, `workshopId`. A record
- * with that column empty counts towards NO workshop scope — while remaining perfectly visible under "All
- * records". Since this app OPENS scoped to the most recent workshop, the result reads as "nothing was
- * documented here" rather than as a filter excluding data sitting right there. That is exactly what
- * happened: 25 questionnaire interviews and 924 media files, every one recorded at the single workshop in
- * the repository, none carrying its id, and a completion matrix showing nothing but the cells an admin had
- * ticked by hand.
- *
- * IT IS A PREVIEW FIRST, ALWAYS. The report is a plain read and loads on open; nothing is written until the
- * button is pressed, and the button says exactly how many rows it will touch. Rows the evidence cannot
- * settle are listed BY NAME with the reason, because "949 of 949" is a fine answer and "947 of 949" has to
- * say which two and why — that is the difference between a tool an admin can trust and one they have to
- * verify by hand afterwards.
- *
- * The web's `components/settings/WorkshopMappingPanel.tsx` is the same card against the same two endpoints,
- * with the same copy. Change them together.
- */
 @Composable
 private fun WorkshopMappingCard(
     repository: FieldRepository,
@@ -18365,8 +13945,6 @@ private fun WorkshopMappingCard(
     var applying by remember { mutableStateOf(false) }
     var appliedTotal by remember { mutableStateOf<Int?>(null) }
     var savingAuto by remember { mutableStateOf(false) }
-    // Re-check bumps this, which re-keys the effect below. A plain function call would need its own
-    // coroutine scope and could overlap with the load already in flight.
     var reloadKey by remember { mutableStateOf(0) }
 
     LaunchedEffect(reloadKey) {
@@ -18387,8 +13965,6 @@ private fun WorkshopMappingCard(
             style = MaterialTheme.typography.bodySmall
         )
 
-        // THE NIGHTLY SWITCH (2026-10-20) — the web card's Toggle, same label, same line under it. Absent
-        // against a server without the job, which sends no `autoMap`.
         plan?.autoMap?.let { status ->
             AppToggle(
                 label = "File clear-cut records each night",
@@ -18440,8 +14016,6 @@ private fun WorkshopMappingCard(
                     MappingStatTile("Need a person", current.totals.unresolved, Modifier.weight(1f))
                 }
 
-                // Only the buckets with something left for a person. The clear-cut rows are the nightly
-                // job's.
                 current.buckets.filter { WorkshopMappingCounts.needsReview(it) > 0 }.forEach { bucket ->
                     Column(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -18471,10 +14045,6 @@ private fun WorkshopMappingCard(
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
-                        // WHICH RULE DECIDED, aggregated. An admin approving a bulk write needs to know
-                        // whether 924 files were filed because their parent records said so or because their
-                        // timestamps merely fell inside a window — different levels of certainty, and the card
-                        // must not flatten them into one number.
                         WorkshopMappingCounts.reviewRungs(bucket).forEach { entry ->
                             Text(
                                 "${entry.count} because ${entry.copy}.",
@@ -18508,11 +14078,6 @@ private fun WorkshopMappingCard(
                                         style = MaterialTheme.typography.bodySmall
                                     )
                                 }
-                                // Compared against THIS list's own length, not `rowsTruncated`. That flag
-                                // is about the bucket's whole row list, which the server caps and fills
-                                // with resolved rows too — reading it here reported "the list is capped"
-                                // on a complete list of two, a false alarm on the one block an admin has
-                                // to act on.
                                 if (stuck.size < bucket.unresolved) {
                                     Text(
                                         "${bucket.unresolved - stuck.size} more. Re-check after filing these.",
@@ -18533,11 +14098,6 @@ private fun WorkshopMappingCard(
                                 runCatching { repository.mapUnmappedRecords() }
                                     .onSuccess {
                                         appliedTotal = it.totals.applied ?: 0
-                                        // RE-READ rather than render the apply response. That response is
-                                        // built from the ladder run the writes were derived FROM — a record
-                                        // of what was done, not a picture of what is left — so rendering it
-                                        // would leave the tiles reporting the records just filed as still
-                                        // unfiled and the button offering to file them again.
                                         reloadKey += 1
                                     }
                                     .onFailure { failure ->
@@ -18588,10 +14148,6 @@ private fun WorkshopMappingCard(
                     style = MaterialTheme.typography.bodySmall
                 )
             } else {
-                // The WINDOWS, not just the titles. An end date is stored differently by each client — the
-                // web form sends the last millisecond of the day, this app sends midnight — so "recorded
-                // inside that workshop's dates" is only checkable if the dates the server read are on
-                // screen. `end` is the exclusive bound, so the day printed is the one before it.
                 current.workshops.forEach { window ->
                     Text(
                         "${window.title} — read as ${formatIsoDay(window.start)} to " +
@@ -18609,13 +14165,6 @@ private fun WorkshopMappingCard(
     }
 }
 
-/**
- * One figure in [WorkshopMappingCard]'s header row.
- *
- * Its own tile rather than MapScreen's `MapStatTile`: that one is file-private to `ui/MapScreen.kt` (and
- * takes an icon this card has no use for), and widening its visibility to share three boxes would tie an
- * admin card to the map screen's internals for no gain.
- */
 @Composable
 private fun MappingStatTile(label: String, value: Int, modifier: Modifier = Modifier) {
     Column(
@@ -18636,16 +14185,8 @@ private fun MappingStatTile(label: String, value: Int, modifier: Modifier = Modi
     }
 }
 
-/** Serializer for offline-queued create requests (record forms persist their request as JSON). */
 private val offlineFormJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-/**
- * Offline save: when there's no connection, persist this record (and copies of its captured media)
- * to the local outbox and return true so the form can confirm "saved on device" and navigate. Returns
- * false when online (the form should take its normal upload path). [editId] is the record being
- * edited, or null for a new one: an edit is replayed onto that record (last write wins, as online).
- * The outbox syncs on reconnect, in the background if the app has been closed.
- */
 private suspend fun trySaveOffline(
     repository: FieldRepository,
     context: Context,
@@ -18662,10 +14203,6 @@ private suspend fun trySaveOffline(
     return true
 }
 
-/**
- * The one line that says the app is working from the device: screens show what they last loaded,
- * and anything saved now waits on the device. Shown at the foot of every screen while offline.
- */
 @Composable
 private fun OfflineNotice(
     modifier: Modifier = Modifier,
@@ -18688,27 +14225,8 @@ private fun OfflineNotice(
     }
 }
 
-/**
- * Thrown by [createOrKeep] when a create's answer was lost and the record went to the outbox
- * instead. Its message is what the form tells the researcher.
- */
 private class KeptOnDevice : Exception("Saved offline. Uploads when you're online.")
 
-/**
- * Send a create with a fresh `Idempotency-Key`, and if its answer is lost (no signal part-way, a
- * timeout, a 5xx) move the record into the outbox under the SAME key, then throw [KeptOnDevice].
- *
- * The key is what makes this safe. The server may already have written the record; the replay
- * carries the key, and the server answers it from the first record instead of writing a second
- * (backend `app/core/idempotency.py`). A refusal (4xx) is not a lost answer and is thrown as it was.
- *
- * THE QUEUED BODY IS THE SENT BODY. [payloadJson] must be the serialisation of the very object
- * [create] sent, built once by the caller: no fresh `recordedAt`, no new client key, nothing
- * recomputed. The server fingerprints the bytes, and a replay that differs from the first attempt
- * by one timestamp is a 422 "different request" instead of the record (`OutboxReplayBytesTest`
- * holds this for every record type). A NEW key is minted on every call, so a form changed and saved
- * again after a refusal never reuses the key of the earlier, different body.
- */
 private suspend fun <T> createOrKeep(
     repository: FieldRepository,
     context: Context,
@@ -18731,16 +14249,11 @@ private suspend fun <T> createOrKeep(
     }
 }
 
-/** This batch as outbox items: the same captions and order the online upload uses. */
 private fun MediaCaptureState.offlineSpecs(recordName: String?, caption: String?): List<OfflineMediaSpec> =
     uris.mapIndexed { index, uri ->
         OfflineMediaSpec(uri = uri, caption = caption, recordName = recordName, batchIndex = index + 1, location = location)
     }
 
-/**
- * The record a new form was opened from, for its draft key: the artisan when one was handed over,
- * else the craft. A product draft started from one artisan is never offered on another's form.
- */
 private fun Prefill?.draftParentId(): String? = this?.artisanId ?: this?.craftId
 
 private fun Prefill?.draftParentLabel(): String? {
@@ -18749,10 +14262,8 @@ private fun Prefill?.draftParentLabel(): String? {
     else handed.craftName?.takeIf { it.isNotBlank() }
 }
 
-/** Keep this state in the form's draft under [key] (ui/FormDrafts.kt). */
 private fun <T> MutableState<T>.drafted(draft: FormDraft, key: String): MutableState<T> = draft.bind(key, this)
 
-/** Keep a media batch (its files and its location) in the form's draft. */
 private fun MediaCaptureState.draftInto(draft: FormDraft, key: String) {
     draft.bindCustom("$key.uris", { FormDraft.encodeUris(uris) }, { el -> FormDraft.decodeUris(el)?.let { uris = it } })
     draft.bindCustom("$key.location", { DraftValues.encode(location) }, { el ->
@@ -18761,14 +14272,12 @@ private fun MediaCaptureState.draftInto(draft: FormDraft, key: String) {
     })
 }
 
-/** Keep the chosen workshop in the form's draft. */
 private fun WorkshopPickerState.draftInto(draft: FormDraft) {
     draft.bindCustom("workshop", { DraftValues.encode(selectedId) }, { el ->
         (DraftValues.decode(el) as? String)?.let { selectedId = it }
     })
 }
 
-/** Keep a questionnaire's typed answers in the form's draft. */
 private fun bindQuestionnaireAnswers(draft: FormDraft, answers: Map<String, MutableState<String>>) {
     draft.bindCustom("answers", {
         DraftValues.encode(answers.mapValues { it.value.value }.filterValues { it.isNotEmpty() })
@@ -18779,7 +14288,6 @@ private fun bindQuestionnaireAnswers(draft: FormDraft, answers: Map<String, Muta
     })
 }
 
-/** Keep a process's steps (names, types, notes and each step's files) in the form's draft. */
 private fun bindProcessSteps(
     draft: FormDraft,
     steps: androidx.compose.runtime.snapshots.SnapshotStateList<ProcessStepUi>,
@@ -18824,15 +14332,8 @@ private fun bindProcessSteps(
     })
 }
 
-/** Save-button lifecycle: idle, in-flight (spinner + "Saving…"), then a brief "Saved ✓" confirmation. */
 private enum class SaveState { IDLE, SAVING, SAVED }
 
-/**
- * Primary save button that reflects the save lifecycle: a buffering spinner with "Saving…" while the
- * record (and its uploads) are processing, then "Saved ✓" before the screen navigates away. Disabled
- * except when IDLE so a record can't be double-submitted. Drive it with a [SaveState]: set SAVING on
- * submit, SAVED on success (then navigate after a short beat), back to IDLE on failure.
- */
 @Composable
 private fun SaveButton(
     state: SaveState,
@@ -18862,11 +14363,6 @@ private fun SaveButton(
     }
 }
 
-/**
- * The save control of a create form (A8): the form's own save and, beside it, "Save and add another",
- * which saves and opens the same form again with the sitting kept. [onSaveAnother] null (an edit, or
- * a host with nowhere to re-open the form) draws the single full-width button it always was.
- */
 @Composable
 private fun SaveButtons(
     state: SaveState,
@@ -18884,60 +14380,14 @@ private fun SaveButtons(
     }
 }
 
-/** How long the "Saved ✓" confirmation lingers before the screen returns to the dashboard. */
 private const val SAVED_CONFIRM_MS = 750L
 
-/**
- * "Will be saved as …" — the API title-cases every name-like column on WRITE, so the form shows the
- * normalised value BEFORE saving rather than silently rewriting the researcher's text afterwards.
- * Nothing is shown when what they typed is already exactly what will be stored.
- */
 @Composable
 private fun TitleCaseHint(value: String) {
     val normalised = titleCasePreview(value) ?: return
     Text("Will be saved as “$normalised”", color = Muted, style = MaterialTheme.typography.bodySmall)
 }
 
-/**
- * Set [titleCased] on a field whose column is in the server's TITLE_CASE_FIELDS (see TextFormat.kt).
- *
- * [keyboardType] mirrors the web form's `type` attribute: every measurement, count and price box is
- * `<input type="number">` there, and leaving it at the default here opened the full QWERTY keyboard
- * for a field that only ever takes digits — the one place on a phone where that difference is felt.
- *
- * ── [dictate] AND [rich]: THE TWO CONTROLS THE WEB FORMS HAVE, ON THIS PLATFORM ───────────────
- *
- * The requirement was *"in the existing pages apart from the designer workshop as well, the dictate
- * option along with the rich text formatting for the bigger fields should be there"*, and this is
- * the single edit that delivers it: roughly two hundred boxes across every record form in this app
- * are built here, so a screen gains a microphone or an editor by naming one argument rather than by
- * being rewritten. The controls themselves live in `ui/RecordProseField.kt` — deliberately, so that
- * no two record screens can drift apart in what dictation means, and so that the rule "nothing here
- * uploads a clip" is checkable by reading one file rather than twenty call sites.
- *
- * **[dictate] NOW DEFAULTS TO ON; [rich] STILL DEFAULTS TO OFF, AND THE ASYMMETRY IS THE POINT.**
- * The original rule — *"only the larger text boxes need to have the rich text features"* — was
- * always two rules wearing one sentence, and only the formatting half survives it. A formatting
- * toolbar CHANGES WHAT LANDS IN THE COLUMN (`recordStoredFromDoc` writes `{"blocks":…}` the moment
- * anything is marked up) and is read by four exports that cannot yet flatten it, so it stays
- * opt-in and stays on the narrative boxes only. A microphone changes nothing about the stored
- * value: it types the same characters a thumb would, into the same box, and the researcher watches
- * it happen. On the form where it is wrong — a price, a measurement, an Aadhaar number — it is
- * wrong because the box wants digits, not because the box is small.
- *
- * SO THE RECORD FORMS DO NOT PASS A LITERAL HERE AT ALL. They ask `ui/RecordDictationFields.kt`
- * (`dictate = dictates("sellingPrice")`), which holds the classification and its written reasons
- * as data that `RecordProseTest` and `RecordDictationParityTest` both read. The default of TRUE is
- * what covers the screens OUTSIDE the seven record forms — feedback, the review queue, the entry
- * comment box — where there is no table and every box is prose. A box on one of those screens that
- * is NOT prose must turn it off and say why on the line above it; there are five such boxes after
- * this commit and they are all on the questionnaire screens.
- *
- * **AND [dictate] NEVER UPLOADS.** It is the handset's own recogniser — the same one behind the
- * keyboard's microphone key — and nothing else. `POST /media/transcribe` exists in this backend and
- * is open to any signed-in researcher; the argument for walking past it rather than through it is in
- * `ui/RecordProseText.kt`, and it is the reason that file has no networking in it at all.
- */
 @Composable
 private fun TextInput(
     label: String,
@@ -18945,25 +14395,11 @@ private fun TextInput(
     minLines: Int = 1,
     titleCased: Boolean = false,
     keyboardType: KeyboardType = KeyboardType.Text,
-    /**
-     * Draw the on-device microphone. On-device rungs only — nothing here posts a clip anywhere.
-     *
-     * **Defaults to TRUE.** The seven record forms never rely on that default — they ask
-     * `recordDictationFor(kind)` — so the default governs only the screens outside them. See the
-     * block comment above before turning it off, and say why at the call site.
-     */
     dictate: Boolean = true,
-    /** Draw the rich-text editor instead of a plain box. **Larger narrative boxes only.** */
     rich: Boolean = false,
-    /** Re-seed the rich editor when a form loads a different record into the same composition. */
     resetKey: Any? = null,
     onValueChange: (String) -> Unit
 ) {
-    // FORWARDED RATHER THAN BRANCHED HERE, so that the plain path and the two enriched ones cannot
-    // diverge in padding, label placement or keyboard type. With both flags off `RecordProseField`
-    // draws precisely the `OutlinedTextField` this function drew before it existed — same
-    // `minLines`, same `keyboardOptions`, no trailing icon and no extra composables — which is what
-    // makes this edit additive for the ~200 call sites that ask for nothing.
     RecordProseField(
         label = label,
         value = value,
@@ -18978,49 +14414,12 @@ private fun TextInput(
     )
 }
 
-/** Split a stored newline-separated list into editable rows (always at least one, for the empty case). */
 private fun splitNumbered(value: String?): List<String> =
     value?.split("\n")?.map { it.trim() }?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() } ?: listOf("")
 
-/** Collapse editable rows back into the stored newline-separated form (blank rows dropped). */
 private fun joinNumbered(items: List<String>): String =
     items.map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
 
-/**
- * A required, numbered multi-point input. Each row is one numbered bullet; pressing Enter inside a row
- * splits it into a new bullet (so the user just types a point and hits Enter for the next). Rows can be
- * removed individually, and "+ Add point" appends an empty one. Backed by a List<String>; persist with
- * [joinNumbered]. Used for an artisan's Do's and Don'ts.
- *
- * ── DELIBERATELY LEFT WITHOUT EITHER CONTROL, AND THIS IS THE RECORD OF WHY ───────────────────
- *
- * It is the one multi-row input on a record form that got neither a microphone nor an editor, so a
- * later reader will assume it was missed. It was not.
- *
- * NO EDITOR: this control already IS a list editor. Its rows persist as a newline-joined string and
- * reopen as numbered points, which is precisely the structure a rich document would encode — so
- * adding one would put two list models in one column, each convinced it owned the newlines.
- *
- * NO MICROPHONE, AND THIS HALF IS A JUDGEMENT THAT COULD REASONABLY GO THE OTHER WAY. A do or a
- * don't is one short line ("do not wash in hot water"), which is the shape the user's own rule
- * excludes; and the row's box carries three behaviours the shared control does not have — an
- * `onValueChange` that splits a pasted newline into new bullets, an `isError` on the first row, and
- * a `FocusRequester` the form drives on a validation failure. Threading those through
- * `RecordProseField` would widen it for exactly one caller. If somebody later decides these points
- * are worth dictating, widen the shared control rather than hand-rolling a second microphone here.
- *
- * RE-AFFIRMED 2026-09-13, WHEN THE DEFAULT FLIPPED. The sweep that gave every other record box a
- * microphone did not give this one, and the reason has not changed: the row's box carries three
- * behaviours the shared control does not have — an `onValueChange` that splits a pasted newline
- * into new bullets, an `isError` on the first row, and a `FocusRequester` the form drives on a
- * validation failure — and a mic on one of several rows needs a per-row partial overlay and a
- * rows-locked flag to avoid writing note three's stream into the row that slid up when note two was
- * removed. The sibling repository built exactly that (`designer ui/NumberedPointsField.kt`, where
- * `numberedRowsAfterEdit` is a unit-tested pure function at :82 and `rowsLocked` its guard at :86)
- * and it is the shape to copy if this is ever revisited. `dos` and `donts` are classified as NOT
- * dictated in `ui/RecordDictationFields.kt` with that reason, on both clients, so the two stay in
- * step until somebody changes both.
- */
 @Composable
 private fun NumberedListInput(
     label: String,
@@ -19041,7 +14440,6 @@ private fun NumberedListInput(
                     value = item,
                     onValueChange = { raw ->
                         if (raw.contains('\n')) {
-                            // Enter pressed: commit text before the break, push the remainder to new bullet(s).
                             val segments = raw.split('\n')
                             val updated = rows.toMutableList()
                             updated[index] = segments.first().trim()
@@ -19080,8 +14478,6 @@ private fun NumberedListInput(
     }
 }
 
-// Notes can hold several distinct entries. They are stored in the existing single `notes` column,
-// joined by a blank line, and split back on a blank line for editing. A note may itself span lines.
 private const val NOTE_SEPARATOR = "\n\n"
 
 private fun splitNotes(value: String?): List<String> =
@@ -19090,44 +14486,11 @@ private fun splitNotes(value: String?): List<String> =
 private fun joinNotes(items: List<String>): String =
     items.map { it.trim() }.filter { it.isNotEmpty() }.joinToString(NOTE_SEPARATOR)
 
-/**
- * Multi-note editor: several free-text notes, each its own multi-line field, with an "Add note" button
- * and per-note remove. Drop-in for a single notes field — reads/writes the same stored string (notes
- * joined by a blank line). Optional, unlike the required numbered Do's/Don'ts.
- *
- * ── EACH ROW GETS A MICROPHONE AND NONE OF THEM GETS THE EDITOR ───────────────────────────────
- *
- * This composable builds its own boxes rather than calling [TextInput], so it would have been missed
- * by the one edit that lit up every other record field — and it is behind four of the biggest boxes
- * in the app (an artisan's notes, a workshop's notes, a process's step notes). A field note is the
- * single most dictated thing in this product: it is written standing up, at the end of a
- * conversation, about something that has just been said.
- *
- * The editor stays out, and the reason is structural rather than aesthetic. These rows are NOT
- * separate columns — they are one `String?` joined by blank lines ([NOTE_SEPARATOR]) and split back
- * on blank lines, so a rich document in row two would have to survive being concatenated with rows
- * one and three and torn apart again on the next load. The multi-note control IS the structure here,
- * and a second structure inside each of its cells would be two things fighting over one column.
- * (`storedRichText.ts` records the same hazard from the browser's side: its `"paragraph"` join mode
- * exists precisely so that these columns keep their blank-line contract.)
- */
 @Composable
 private fun MultiNoteInput(
     label: String = "Notes",
     value: String,
     resetKey: Any? = null,
-    /**
-     * Draw a microphone on each row. **On by default, and the record forms now ask the table.**
-     *
-     * This was the FIRST control in the app to default a dictation flag on, months before
-     * `TextInput` did: every record form that uses it wants it, and defaulting off would have meant
-     * four call sites all saying yes with a fifth silently missing out the day somebody added one.
-     * `TextInput` and `RequiredInput` have since followed, so this is no longer the exception.
-     *
-     * The record forms pass `dictates("notes")` / `dictates("stepNotes")` rather than the default,
-     * so the classification is readable from one place. The questionnaire interview form took the
-     * default too on 2026-10-17 (owner ruling C23).
-     */
     dictate: Boolean = true,
     onValueChange: (String) -> Unit,
 ) {
@@ -19147,11 +14510,6 @@ private fun MultiNoteInput(
                     onValueChange = { v -> emit(rows.toMutableList().also { it[index] = v }) },
                     minLines = 2,
                     dictate = dictate,
-                    // KEYED ON THE ROW, so that removing note 2 does not leave note 3's dictation
-                    // buffer sitting under the row that slid up into its place. `index` alone would
-                    // be the same key for a different note; the note's own text is not a stable
-                    // identity either (two blank rows are equal), so the pair is what distinguishes
-                    // them.
                     resetKey = resetKey to index,
                     modifier = Modifier.weight(1f),
                 )
@@ -19172,7 +14530,6 @@ private fun MultiNoteInput(
     }
 }
 
-/** Read-only render of a stored newline-separated list as a numbered list; hidden when empty. */
 @Composable
 private fun NumberedListDisplay(label: String, value: String?) {
     val items = value?.split("\n")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
@@ -19185,35 +14542,6 @@ private fun NumberedListDisplay(label: String, value: String?) {
     }
 }
 
-/**
- * A mandatory text field: shows a trailing asterisk and an inline error when left empty.
- *
- * ── THIS FORWARDS TO `RecordProseField` NOW, AND THAT IS THE WHOLE POINT OF THIS WORK ─────────
- *
- * It used to draw its own bare `OutlinedTextField`, and the consequence was that not one required
- * box in this application could be dictated — not an artisan's name, not a place, not a product
- * name, not a toolkit name, not the name of a process or of a step. Those are the boxes with the
- * MOST typing friction on the whole form, and they were the only ones with no microphone.
- *
- * The reason was mechanical rather than considered: `RecordProseField` had nowhere to put an error
- * message or a focus target, and `RecordDictationButton` is private to that file. Both parameters
- * now exist (`ui/RecordProseField.kt`, `errorText` and `focusRequester`), so a required box and an
- * optional one are one control and cannot diverge in padding, label placement, keyboard type or —
- * the half that always drifts — the wording of a dictation refusal.
- *
- * ── [dictate] DEFAULTS TO TRUE, WHICH IS A CLAIM ABOUT THE CALL SITES ─────────────────────
- *
- * All sixteen of them are free prose or a proper noun: names, places, titles, a step's name, an
- * interview title. Not one is a date, a number, a dropdown or a regulated identity field. On the
- * seven record forms the fifteen boxes do not use the default at all — they pass
- * `dictates("column")` — and the sixteenth, the questionnaire’s interview title, opts out
- * explicitly with its reason. So nothing here relies on the default today; it is true so that the
- * NEXT required box added to a record form is dictated unless somebody writes down why not.
- *
- * `titleCased` and [dictate] COMPOSE, and the order matters: `RecordProseField` appends the
- * committed text and then this caller's `onValueChange` runs, so a dictated name reaches
- * `TitleCaseHint` exactly as a typed one does.
- */
 @Composable
 private fun RequiredInput(
     label: String,
@@ -19222,14 +14550,10 @@ private fun RequiredInput(
     focusRequester: FocusRequester,
     minLines: Int = 1,
     titleCased: Boolean = false,
-    /** See the note above before turning this off — and say why at the call site. */
     dictate: Boolean = true,
     onValueChange: (String) -> Unit
 ) {
     RecordProseField(
-        // The asterisk stays in the LABEL rather than becoming a parameter of the shared component:
-        // it is this function's whole visible contract, and pushing it down would put a
-        // required-ness concept into a control that has no idea whether a value is required.
         label = "$label *",
         value = value,
         onValueChange = onValueChange,
@@ -19242,18 +14566,12 @@ private fun RequiredInput(
     )
 }
 
-/** One required field's validation hooks: whether it is blank, how to flag it, and where to focus. */
 private class RequiredCheck(
     val isBlank: Boolean,
     val setError: (String?) -> Unit,
     val focus: FocusRequester
 )
 
-/**
- * Clears prior errors, then flags EVERY blank required field (not only the first, which made a form
- * with three gaps take three failed saves to discover), focuses the first, and returns false.
- * Returns true when every required field is filled.
- */
 private fun validateRequired(checks: List<RequiredCheck>): Boolean {
     checks.forEach { it.setError(null) }
     val missing = checks.filter { it.isBlank }
@@ -19263,13 +14581,9 @@ private fun validateRequired(checks: List<RequiredCheck>): Boolean {
     return false
 }
 
-/** Under each blank required box. The box's own label (ending in "*") names the field. */
 private const val REQUIRED_FIELD_SENTENCE = "Required — fill this in to save."
 
 private fun createAppFile(context: Context, prefix: String, suffix: String): File {
-    // App storage, not cacheDir: an unsaved form's draft points at these files, and they must still be
-    // there after the process dies (the camera app pushing it out is the usual way). Swept by
-    // DraftStore.sweep once no draft refers to them.
     val directory = DraftStore.capturesDir(context)
     return File.createTempFile(prefix, suffix, directory)
 }
@@ -19282,12 +14596,6 @@ private fun uriForFile(context: Context, file: File): Uri {
     return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 }
 
-/**
- * Download a previously-uploaded media file to the device's public Downloads folder via the system
- * DownloadManager (shows a notification + progress, and survives the app being backgrounded). Works
- * without storage permissions on Android 10+. The URL is the object-storage GET the previews already
- * stream from, so it is directly fetchable.
- */
 private fun saveMediaToDevice(context: Context, url: String?, filename: String, mimeType: String?) {
     if (url.isNullOrBlank()) {
         Toast.makeText(context, "This file has no downloadable URL.", Toast.LENGTH_LONG).show()
@@ -19325,7 +14633,6 @@ private fun openUri(context: Context, uri: Uri, mimeType: String?) {
     }
 }
 
-/** A media file's duration as HHMMSS (zero-padded), read from its metadata; "000000" if unknown. */
 private fun mediaDurationHHMMSS(context: Context, uri: Uri): String {
     val ms = runCatching {
         val retriever = android.media.MediaMetadataRetriever()
@@ -19343,11 +14650,6 @@ private fun mediaDurationHHMMSS(context: Context, uri: Uri): String {
     return "%02d%02d%02d".format(h, m, s)
 }
 
-/**
- * Build the questionnaire recording filename base per the required nomenclature:
- * `SECTION_QUESTION_INTERVIEWNAME_DURATIONHHMMSS_DATETIMEDDMMYYYYHHMM`. The repository sanitises this
- * and appends the file extension. For a whole-section recording the question slot is "SEC".
- */
 private fun questionnaireClipBaseName(
     context: Context,
     sectionCode: String?,
@@ -19373,15 +14675,10 @@ private fun createAudioRecorder(context: Context, file: File): MediaRecorder {
         MediaRecorder()
     }
     return recorder.apply {
-        // VOICE_RECOGNITION routes capture through the platform's voice pre-processing (noise
-        // suppression / AGC) tuned for clean speech without the aggressive echo-cancellation of the
-        // call path — i.e. less background noise and better transcription accuracy than raw MIC.
-        // Fall back to MIC on the rare device that doesn't expose the recognition source.
         runCatching { setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION) }
             .onFailure { setAudioSource(MediaRecorder.AudioSource.MIC) }
         setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
         setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-        // Mono speech at 44.1 kHz / 96 kbps: clear voice, modest file size, ideal for transcription.
         setAudioChannels(1)
         setAudioSamplingRate(44_100)
         setAudioEncodingBitRate(96_000)
@@ -19390,20 +14687,6 @@ private fun createAudioRecorder(context: Context, file: File): MediaRecorder {
     }
 }
 
-/**
- * The device's last known position, with NO name attached to it.
- *
- * WHAT WAS HERE AND WHY IT IS GONE. This function used to stamp every coordinate it produced with
- * `placeName = "Android precise location"`, and that string is on all fifteen live records that
- * carry a location. It is wrong three times over. It is not a place name — no human ever called
- * anywhere that. It is not precise — the same fifteen rows carry accuracy radii up to 2.5 km, which
- * is a mobile-network estimate rather than a reading. And by occupying the field it made the record
- * look as though the place had been identified when nothing had identified it, which is how a desk
- * in Kharagpur came to be filed as seven workshops across Rajasthan, Gujarat and Uttarakhand.
- *
- * A place name is now either a real name or absent, and absent is the honest answer here: this
- * reads a cached fix out of the platform and knows nothing whatever about where that is.
- */
 private fun readLastKnownLocation(context: Context): LocationRequest? {
     val hasFine = ContextCompat.checkSelfPermission(
         context,
@@ -19443,10 +14726,6 @@ private fun moveIds(ids: List<String>, index: Int, direction: Int): List<String>
 private fun String.blankToNull(): String? = trim().takeIf { it.isNotEmpty() }
 
 
-/**
- * Upload media's batch went to the outbox; the banner below carries the count from here on. When the
- * signal went part-way, [uploaded] files made it first, and the sentence says so.
- */
 internal fun queuedMediaSentence(count: Int, uploaded: Int = 0): String {
     val rest = if (count == 1) "It uploads when you're back online." else "They upload when you're back online."
     return if (uploaded > 0) "$uploaded uploaded, $count saved on this device. $rest"
@@ -19454,7 +14733,6 @@ internal fun queuedMediaSentence(count: Int, uploaded: Int = 0): String {
     else "$count files saved on this device. $rest"
 }
 
-/** Upload media's submit button. A batch that went to the outbox reads "saved", never "uploaded". */
 internal fun mediaUploadButtonLabel(
     uploading: Boolean,
     succeeded: Boolean,
@@ -19470,13 +14748,10 @@ internal fun mediaUploadButtonLabel(
     else -> "Upload batch"
 }
 
-/** Under a batch whose remaining files all failed: nothing is uploading, so say what happens next. */
 private fun uploadStalledSentence(failed: Int): String =
     "$failed file${if (failed == 1) "" else "s"} didn't upload. Tap Retry or save again."
 
-/** The island bar's height, reported up so the app-level offline and outbox lines sit above it. */
 private val LocalIslandClearance = staticCompositionLocalOf<MutableState<androidx.compose.ui.unit.Dp>?> { null }
 
-/** A rich-text photograph's media id -> its URL, for [com.fieldrepository.app.ui.richtext.LocalRichMediaUrl]. */
 private fun richMediaUrlResolver(repository: FieldRepository): suspend (String) -> String? =
     { id -> repository.mediaItem(id).url }

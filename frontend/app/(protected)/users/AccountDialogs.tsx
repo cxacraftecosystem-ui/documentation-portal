@@ -1,13 +1,5 @@
 "use client";
 
-/**
- * The row actions on /users that need more than a yes or a no: setting a temporary password, and
- * requiring a new password at next sign-in. Ported from the Design Prototype Workshop's file of the
- * same name. Both show the server's own sentence on a refusal — its wording is the remedy.
- *
- * `open` is separate from `target` so the exit animation plays over the real content.
- */
-
 import { useId, useRef, useState } from "react";
 import { AlertTriangle, Eye, EyeOff, KeyRound } from "lucide-react";
 
@@ -24,12 +16,10 @@ import type { User } from "@/lib/types";
 import { hasPassword, linkOffered, passwordFrom, passwordHasEdgeSpace } from "./accountAdmin";
 import { Toggle } from "@/components/ui/Toggle";
 
-/** The amber box for "this choice has a cost". */
 export const CAUTION_CLASS = "rounded-md border border-amber-500/30 bg-amber-100 px-3 py-2 text-xs leading-5 text-amber-800";
 
 const ERROR_CLASS = "rounded-md border border-error-600/30 bg-error-100 px-3 py-2 text-sm leading-6 text-error-600";
 
-/** The sentence under "Require a new password …", on the create form and in the dialog alike. */
 export function RequireChangeNote({ required, when }: { required: boolean; when: "first" | "next" }) {
   return (
     <div aria-live="polite">
@@ -54,10 +44,6 @@ export function EdgeSpaceNote() {
   );
 }
 
-/**
- * SET A TEMPORARY PASSWORD FOR SOMEBODY ELSE. Saving signs them out everywhere (the server stamps the
- * account's sign-out-everywhere mark), and the dialog says so before the button is pressed.
- */
 export function TemporaryPasswordDialog({
   open,
   target,
@@ -191,11 +177,6 @@ export function TemporaryPasswordDialog({
   );
 }
 
-/**
- * REQUIRE A NEW PASSWORD AT NEXT SIGN-IN, on an account that has one — its password is not touched.
- * It also signs them out everywhere. Offers a password link with the same decision, for somebody who
- * signs in with Google and may never have known the password the account carries.
- */
 export function RequirePasswordChangeDialog({
   open,
   target,
@@ -205,7 +186,6 @@ export function RequirePasswordChangeDialog({
   open: boolean;
   target: User | null;
   onClose: () => void;
-  /** `withLink`: the reader also asked for a password link, which the page makes and shows. */
   onSaved: (updated: User, withLink: boolean) => void;
 }) {
   const confirmRef = useRef<HTMLButtonElement | null>(null);

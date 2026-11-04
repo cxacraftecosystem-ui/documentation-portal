@@ -38,12 +38,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/**
- * The viewer drawn on a device: tabs, the copy menus (into the real ClipboardManager), select →
- * copy selected, and karaoke following a player the test moves by hand. The transcript is the
- * contract's example (`shared/transcript-contract.json`), written out here because an instrumented
- * test cannot read the repository.
- */
 @RunWith(AndroidJUnit4::class)
 class TranscriptViewerUiTest {
     @get:Rule
@@ -173,10 +167,8 @@ class TranscriptViewerUiTest {
         playback.seek(5.2)
         compose.waitForIdle()
         compose.onNodeWithTag("turn.text.turn_a").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "कैसे"))
-        // The timestamp plays from the turn's start.
         compose.onNodeWithTag("turn.time.turn_b").performClick()
         assertEquals(9.0, playback.positionSeconds, 0.001)
-        // A tap at the very start of the first turn's text is on its first word.
         compose.onNodeWithTag("turn.text.turn_a").performTouchInput { click(androidx.compose.ui.geometry.Offset(4f, centerY)) }
         assertEquals(4.0, playback.positionSeconds, 0.001)
         assertTrue(playback.playing)

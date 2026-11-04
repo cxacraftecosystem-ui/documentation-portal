@@ -6,14 +6,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * Radix-2 Cooley–Tukey FFT (ALGORITHMS §8). The tests are scale-agnostic wherever the normalisation
- * convention is not pinned by the contract: only the round trip is required to reproduce the input,
- * which is the property the saliency stage actually depends on.
- */
 class FftTest {
 
-    /** Deterministic pseudo-data — no RNG anywhere in this project, tests included. */
     private fun sample(n: Int): FloatArray {
         val a = FloatArray(n)
         for (i in 0 until n) a[i] = ((i * 37) % 17) / 17f - 0.5f + 0.01f * (i % 5)

@@ -6,10 +6,6 @@ import { expect, test } from "@playwright/test";
 import { consentDescription, consentStatusLine, SHARED_FIELDS_FALLBACK } from "@/components/forms/SharingConsentToggle";
 import { isMachineSuggested, MACHINE_SUGGESTED_LABEL } from "@/components/questionnaires/AnswerDraftsPanel";
 
-/**
- * C27 and C28 on the web: the sharing switch's status line, the machine-suggested label, and both
- * features mounted only behind their server flags. No browser.
- */
 test("the consent status line says what was recorded", () => {
   expect(consentStatusLine({ granted: false, recorded: false, recordedAt: null, linkedRecords: 0 })).toBe("Not asked yet");
   expect(consentStatusLine({ granted: true, recorded: true, recordedAt: null, linkedRecords: 1 })).toBe(

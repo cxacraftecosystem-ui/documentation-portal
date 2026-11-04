@@ -10,16 +10,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.URLDecoder
 
-/**
- * The artisan record CSV (`GET /artisans/{id}/record.csv`, missing on Android until 21 Oct 2026).
- * The server names the file (NAMING: the app never invents an export name); this only reads the name
- * from `Content-Disposition` and saves the bytes into Downloads.
- */
 object QuestionnaireExport {
-    /**
-     * The file name a `Content-Disposition` header carries: RFC 5987 `filename*=UTF-8''…` first, else
-     * `filename="…"`. Path separators are dropped, so a name can never leave Downloads.
-     */
     fun dispositionFileName(header: String?): String? {
         header ?: return null
         val star = Regex("""filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)""").find(header)?.groupValues?.get(1)
@@ -29,7 +20,6 @@ object QuestionnaireExport {
         return (star ?: plain)?.substringAfterLast('/')?.substringAfterLast('\\')?.trim()?.ifBlank { null }
     }
 
-    /** Fetches the record CSV and saves it to Downloads; returns where it landed. */
     suspend fun saveArtisanRecordCsv(context: Context, api: QuestionnaireApi, artisanId: String, questionnaireId: String? = null): String {
         val response = api.artisanRecordCsv(artisanId, questionnaireId)
         if (!response.isSuccessful) throw retrofit2.HttpException(response)

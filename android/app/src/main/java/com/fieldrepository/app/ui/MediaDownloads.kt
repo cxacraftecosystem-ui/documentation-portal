@@ -76,26 +76,6 @@ import java.io.File
 import java.time.LocalDateTime
 import java.util.Locale
 
-/*
- * Save a piece of media the researcher is uploading, or has queued to upload, to the phone's own
- * public Downloads folder.
- *
- * A clip recorded in a village sits in this app's storage for as long as the upload takes, and on a
- * bad connection that is minutes; until it lands, the on-device copy is the only copy. The Download
- * control on every attachment tile, recording card and outbox row copies that local file out — it
- * never waits for, pauses or re-reads through the upload, and the copy runs on the IO dispatcher so
- * neither the upload coroutine nor the frame the button was pressed on is held up.
- *
- * Where it lands: MediaStore's Downloads collection on API 29 and up (no permission needed). Below
- * that — minSdk is 26 — writing the public folder would need WRITE_EXTERNAL_STORAGE, which this app
- * does not hold, so the system "save as" picker (SAF CreateDocument) is opened instead, pre-filled
- * with the same name.
- *
- * The filename rules are pure and shared, row for row, with the web's `lib/localMediaDownload.ts`
- * (`downloadLocalMedia`); `MediaDownloadsTest` and `e2e/local-media-download-unit.spec.ts` drive the
- * same table.
- */
-
 private val EXTENSION_BY_MIME: Map<String, String> = mapOf(
     "audio/webm" to "webm",
     "audio/ogg" to "ogg",
@@ -140,13 +120,8 @@ private val EXTENSION_BY_MIME: Map<String, String> = mapOf(
 
 private val PLAIN_SUBTYPE = Regex("^[a-z0-9][a-z0-9-]{0,15}$")
 
-/** Characters no Windows, macOS or Android filesystem accepts in a name. */
 private val ILLEGAL_NAME_CHARS = Regex("[\\\\/:*?\"<>|\\u0000-\\u001f]")
 
-/**
- * File extension for a MIME type, without the dot. Parameters (`;codecs=…`) are dropped first; an
- * unlisted type uses a plain-word subtype, and anything else is `bin`.
- */
 fun mediaExtensionForMimeType(mimeType: String?): String {
     val base = mimeType.orEmpty().substringBefore(';').trim().lowercase(Locale.ROOT)
     if (base.isEmpty()) return "bin"
@@ -155,7 +130,6 @@ fun mediaExtensionForMimeType(mimeType: String?): String {
     return if (PLAIN_SUBTYPE.matches(subtype)) subtype else "bin"
 }
 
-/** `YYYY-MM-DD-HHmmss` in local time — sortable, and legal in every filesystem's names. */
 fun mediaFileStamp(now: LocalDateTime): String =
     String.format(
         Locale.ROOT,
@@ -163,11 +137,6 @@ fun mediaFileStamp(now: LocalDateTime): String =
         now.year, now.monthValue, now.dayOfMonth, now.hour, now.minute, now.second
     )
 
-/**
- * The name the saved file gets: the ORIGINAL name whenever there is one (illegal characters become
- * `_`, a leading dot is dropped, a missing extension is added from the MIME type), otherwise
- * `voice-note-<stamp>.<ext>` for audio and `media-<stamp>.<ext>` for anything else.
- */
 fun localMediaFileName(name: String?, mimeType: String?, now: LocalDateTime): String {
     val cleaned = name.orEmpty().replace(ILLEGAL_NAME_CHARS, "_").trim().trimStart('.')
     val extension = mediaExtensionForMimeType(mimeType)
@@ -180,7 +149,6 @@ fun localMediaFileName(name: String?, mimeType: String?, now: LocalDateTime): St
     return "${if (isAudio) "voice-note" else "media"}-${mediaFileStamp(now)}.$extension"
 }
 
-/** What a Uri calls itself — the content resolver's display name, else its last path segment. */
 private fun displayNameOf(context: Context, uri: Uri): String? {
     val queried = runCatching {
         context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
@@ -196,11 +164,6 @@ private fun mimeTypeOf(context: Context, uri: Uri, hint: String?): String =
         ?: runCatching { context.contentResolver.getType(uri) }.getOrNull()
         ?: "application/octet-stream"
 
-/**
- * Copy [source] into the public Downloads collection and return the new entry's Uri. API 29+ only;
- * below that the caller goes through [MediaDownloadButton]'s CreateDocument fallback. Runs on the IO
- * dispatcher, so it is safe to call from any coroutine — including while [source] is uploading.
- */
 @RequiresApi(Build.VERSION_CODES.Q)
 suspend fun saveToDownloads(context: Context, source: Uri, fileName: String, mimeType: String): Uri =
     withContext(Dispatchers.IO) {
@@ -219,13 +182,11 @@ suspend fun saveToDownloads(context: Context, source: Uri, fileName: String, mim
             resolver.update(target, values, null, null)
             target
         } catch (error: Throwable) {
-            // A half-written pending row would sit in Downloads under the person's file name.
             runCatching { resolver.delete(target, null, null) }
             throw error
         }
     }
 
-/** Stream [source] into [target] on the IO dispatcher. */
 private suspend fun copyUri(context: Context, source: Uri, target: Uri) = withContext(Dispatchers.IO) {
     val resolver = context.contentResolver
     resolver.openOutputStream(target)?.use { out ->
@@ -243,29 +204,12 @@ private fun openSaved(context: Context, uri: Uri, mimeType: String) {
         .onFailure { Toast.makeText(context, "No app on this phone can open this file.", Toast.LENGTH_LONG).show() }
 }
 
-/** The outline of a button drawn on a coloured tile: the label's own colour, a little quieter. */
 const val TILE_OUTLINE_ALPHA = 0.72f
 
 private data class SavedCopy(val uri: Uri, val name: String, val mimeType: String, val nonce: Long)
 
-/** Which of the two media-card actions a [MediaActionButton] is. */
 enum class MediaAction { DOWNLOAD, RETRY }
 
-/**
- * The visible action buttons on a media card — "Retry" and "Download" — drawn ONE way on every
- * tile, row and banner (capture tiles, uploaded media, the outbox). The web's `MediaActionButton`.
- *
- * Owner, 2026-10-17: these were not clearly visible. They were 12sp TextButtons in a light tint
- * with 2dp of vertical padding — a word floating on the card. Now each is a TONAL button with an
- * icon AND a word, 14sp semibold, at least 48dp tall, with a 1dp edge of the next rung:
- *
- *   Download  light: purple-800 on purple-100   dark: purple-100 on purple-900
- *   Retry     light: error-800 on error-100     dark: error-400 on error-950
- *
- * every pair far above WCAG AA's 4.5:1 for text. Retry takes the error rung because it sits under a
- * failure line and has to read as the way out of it. [text] overrides the word ("Try again",
- * "Send again") where the outbox already uses another; the icon stays.
- */
 @Composable
 fun MediaActionButton(
     action: MediaAction,
@@ -273,12 +217,6 @@ fun MediaActionButton(
     modifier: Modifier = Modifier,
     text: String? = null,
     enabled: Boolean = true,
-    /**
-     * The on-tile variant: on a coloured tile (Purple800 light, Purple900 dark) the tonal pair would be
-     * a purple chip on a purple card, so the button is drawn OUTLINED in the tile's own ink instead —
-     * the word and icon in [onTile], the edge in [onTile] at [TILE_OUTLINE_ALPHA], no container. The
-     * ink is the theme's onBrandTile, far above AA's 4.5:1 on both purples. Same size, icon and word.
-     */
     onTile: Color? = null
 ) {
     if (onTile != null) {
@@ -313,7 +251,6 @@ fun MediaActionButton(
     ) { MediaActionLabel(action, text) }
 }
 
-/** The icon and the word of a [MediaActionButton], in the button's content colour, in both variants. */
 @Composable
 private fun MediaActionLabel(action: MediaAction, text: String?) {
     Icon(
@@ -330,22 +267,12 @@ private fun MediaActionLabel(action: MediaAction, text: String?) {
     )
 }
 
-/**
- * The one "Download" control on every upload, recording and outbox row: a [MediaActionButton] —
- * the Download icon and the word "Download". [source] is the copy on this phone (a content or file
- * Uri); it works before, during and after the upload. On success a snackbar confirms where the file
- * went and offers "Open".
- */
 @Composable
 fun MediaDownloadButton(
     source: Uri,
     modifier: Modifier = Modifier,
     name: String? = null,
     mimeType: String? = null,
-    /**
-     * The ink of a coloured tile this button sits on (the purple "files ready" card). Non-null draws
-     * the on-tile [MediaActionButton] — outlined in that ink — instead of the tonal default.
-     */
     onTile: Color? = null
 ) {
     val context = LocalContext.current
@@ -357,7 +284,6 @@ fun MediaDownloadButton(
         Toast.makeText(context, "Couldn't save: ${error.apiErrorMessage("the copy failed")}", Toast.LENGTH_LONG).show()
     }
 
-    // Below API 29: the system "save as" picker. It answers with a document Uri, or null if dismissed.
     val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { target ->
         val (fileName, mime) = pending ?: return@rememberLauncherForActivityResult
         pending = null
@@ -420,33 +346,12 @@ fun MediaDownloadButton(
     }
 }
 
-/**
- * The "saved on this device — uploading when you're online" banner, with the queued files listed
- * under it on request so each can be saved out of the outbox before it drains.
- *
- * Expanded, it also lists every entry the server REFUSED, with the server's reason and a "Try
- * again" ([onRetry]). Those entries never drain on their own, and before this list the only trace
- * of a refusal was a toast at the moment it happened.
- *
- * [entries] is the signed-in account's queue; another account's entries on a shared handset are
- * not shown here.
- *
- * An entry this phone is HOLDING because it could not keep the Aadhaar number typed into it
- * (`AadhaarAtRest.numberWithheld`, 2026-10-18) gets "Type it again" in place of "Try again": a retry
- * would hold it again for the same reason. [validateAadhaar] is the form's own rule (the sentence, or
- * null when the number is fine); [onRetypeAadhaar] stores it sealed and sends the entry.
- *
- * An artisan the server held as a LIKELY DUPLICATE when it synced is neither: it reads "Not saved yet.
- * This looks like {name} ({place})." with "Same person" and "Different person" on one line
- * ([onAnswerDuplicate]). It is never offered "Try again", which would only be held again.
- */
 @Composable
 fun OutboxPendingBanner(
     pendingUploads: Int,
     modifier: Modifier = Modifier,
     entries: suspend () -> List<PendingEntry>,
     onRetry: suspend (entryId: String) -> Unit,
-    /** B1: the refused-saves tray's three other doors. See [OfflineOutboxTray]. */
     onFix: suspend (entryId: String, payloadJson: String) -> Boolean = { _, _ -> false },
     onUseExisting: suspend (entryId: String) -> Boolean = { false },
     onDiscard: suspend (entryId: String) -> Boolean = { false },
@@ -463,9 +368,7 @@ fun OutboxPendingBanner(
     var refused by remember { mutableStateOf<List<PendingEntry>>(emptyList()) }
     var reload by remember { mutableStateOf(0) }
     var trayOpen by remember { mutableStateOf(false) }
-    // Every queue write, the background worker's included: a hold recorded mid-pass shows live.
     val revision by OfflineOutbox.revision.collectAsState()
-    // Read whether anything is refused even while folded, so the banner can say so without a tap.
     LaunchedEffect(pendingUploads, reload, revision) {
         refused = runCatching { entries() }.getOrDefault(emptyList()).filter { it.failure != null }
     }
@@ -480,13 +383,10 @@ fun OutboxPendingBanner(
             onClose = { trayOpen = false; reload++ }
         )
     }
-    // A held artisan whose typed Aadhaar this phone can no longer read: only retyping it frees the entry.
     val needsAadhaar: (PendingEntry) -> Boolean = { entry ->
         onRetypeAadhaar != null && entry.createdId == null && AadhaarAtRest.numberWithheld(entry.payloadJson)
     }
-    // An artisan the server held as a likely duplicate: only "Same person" / "Different person" frees it.
     val heldAsDuplicate: (PendingEntry) -> Boolean = { entry -> onAnswerDuplicate != null && entry.isPossibleDuplicate() }
-    // The held entry whose Aadhaar number is being typed again, or null.
     var retyping by remember { mutableStateOf<PendingEntry?>(null) }
     retyping?.let { entry ->
         RetypeAadhaarDialog(
@@ -534,7 +434,6 @@ fun OutboxPendingBanner(
             )
             Text(if (expanded) "Hide files ▲" else "Files ▼", color = ink, style = MaterialTheme.typography.bodySmall)
         }
-        // B1: refused saves are named on the banner itself, with the one way into fixing them.
         val refusedOnly = refused.filterNot { it.needsReview || needsAadhaar(it) || heldAsDuplicate(it) }
         if (refusedOnly.isNotEmpty()) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -553,7 +452,6 @@ fun OutboxPendingBanner(
                 )
             }
         }
-        // A held artisan's Aadhaar is asked for on the banner itself: nothing else can free the entry.
         refused.filter { needsAadhaar(it) }.forEach { entry ->
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -571,7 +469,6 @@ fun OutboxPendingBanner(
                 )
             }
         }
-        // A held likely duplicate is answered on the banner too: the researcher is the one who knows.
         refused.filter(heldAsDuplicate).forEach { entry ->
             PossibleDuplicateTrayRow(
                 entry = entry,
@@ -617,10 +514,6 @@ fun OutboxPendingBanner(
     }
 }
 
-/**
- * A queued artisan the server held as a likely duplicate: the sentence, then "Same person" and
- * "Different person" on one line (the shared [ActionRow]).
- */
 @Composable
 private fun PossibleDuplicateTrayRow(entry: PendingEntry, ink: Color, onAnswer: (samePerson: Boolean) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -637,11 +530,6 @@ private fun PossibleDuplicateTrayRow(entry: PendingEntry, ink: Color, onAnswer: 
     }
 }
 
-/**
- * Type the Aadhaar number again for a queued artisan whose typed number this phone could not keep,
- * then send it. Checked here by the form's own rule ([validate]), so a mistyped digit is said in the
- * box rather than after a send; when the last four were kept, the number must end in them.
- */
 @Composable
 private fun RetypeAadhaarDialog(
     entry: PendingEntry,
@@ -672,7 +560,6 @@ private fun RetypeAadhaarDialog(
                     isError = error != null,
                     supportingText = { error?.let { Text(it) } },
                     singleLine = true,
-                    // NumberPassword: the digit pad, and no keyboard learning a regulated identifier.
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     modifier = Modifier.fillMaxWidth()
                 )

@@ -1,18 +1,3 @@
-"""The duplicate-artisan finder: the form's check and the admin review queue.
-
-* ``POST /artisan-duplicates/check`` — any record creator, 30 a minute: who already looks like the
-  artisan being typed. At most five, none below 0.60, birth year rather than birth date, and no
-  identifier value. An ``AADHAAR`` reason only when the caller typed that number.
-* ``GET /artisan-duplicates`` and ``GET /artisan-duplicates/{id}`` — admins: the queue and one pair.
-* ``POST .../{id}/dismiss`` and ``.../reopen`` — admins: "different people", and back again.
-
-A pair is MERGED through the one artisan merge (``routes/artisan_merge``, ``/admin/artisan-merge``):
-the merge deletes the merged record, and its pairs go with it (``onDelete: Cascade``). Undo lives
-there too. Its own prefix, so nothing here is shadowed by ``/artisans/{artisan_id}``. Admin screens
-are web-only. The hold at save time lives in ``routes/artisans.create_artisan``. Cross-portal pairs
-are the designer portal's: this portal only answers its exact-key match (``routes/cross_portal``).
-"""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -37,7 +22,6 @@ _check_buckets = _TokenBuckets(capacity=CHECKS_PER_MINUTE, refill_per_second=CHE
 
 
 def reset_check_budget() -> None:
-    """Forget every caller's /check budget (tests)."""
     global _check_buckets
     _check_buckets = _TokenBuckets(capacity=CHECKS_PER_MINUTE, refill_per_second=CHECKS_PER_MINUTE / 60.0)
 
@@ -46,11 +30,8 @@ def _enum(value: Any) -> str:
     return str(getattr(value, "value", value))
 
 
-# ── The form's check ──────────────────────────────────────────────────────────────────────────
-
 
 async def _craft_for(craft_id: str | None, craft_name: str | None) -> tuple[str | None, str | None]:
-    """(craftId, craftCode) for what the form names, so "same craft" can be asked."""
     craft = None
     if craft_id:
         craft = await db.craft.find_unique(where={"id": craft_id})
@@ -62,7 +43,6 @@ async def _craft_for(craft_id: str | None, craft_name: str | None) -> tuple[str 
 
 
 def typed_fingerprint(raw: str | None) -> str | None:
-    """The fingerprint of a typed Aadhaar, or None. The number itself is never kept."""
     number = normalize_aadhaar(raw) if raw else None
     if not number or aadhaar_error(number):
         return None
@@ -135,7 +115,6 @@ async def check_duplicates(
         fingerprint=fingerprint,
         pehchanCardNumber=payload.pehchanCardNumber,
     )
-    # Narrowed by records.viewable_where, the same read rule as the artisan list.
     found = await artisan_duplicates.candidates_for_profile(
         profile,
         exclude_id=payload.excludeArtisanId,
@@ -149,8 +128,6 @@ async def check_duplicates(
         ]
     }
 
-
-# ── The queue ─────────────────────────────────────────────────────────────────────────────────
 
 
 def _artisan_brief(artisan: Any) -> dict[str, Any] | None:
@@ -237,7 +214,6 @@ async def list_pairs(
     if band:
         where += f' AND "band" = {param(band)}'
     total = counts[band] if band else sum(counts.values())
-    # Band first, and within a band a pair the creator already called different people goes last.
     id_rows = await db.query_raw(
         f"""SELECT "id" FROM "ArtisanDuplicateCandidate" WHERE {where}
             ORDER BY CASE "band" WHEN 'VERY_LIKELY' THEN 0 WHEN 'LIKELY' THEN 1 ELSE 2 END,

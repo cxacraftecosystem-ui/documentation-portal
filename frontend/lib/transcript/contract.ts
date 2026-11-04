@@ -1,16 +1,3 @@
-/**
- * THE TRANSCRIPT, AS BOTH PORTALS' WEB CLIENTS READ IT: `shared/transcript-contract.json`
- * (contract "transcript-v1-api", owned by the backend stream), typed.
- *
- * `frontend/lib/transcript/**` and `frontend/components/transcript/**` are byte-identical in
- * designer-portal and Field Repository (`shared/transcript-web.sha256`, synced from designer-portal by
- * `scripts/sync_transcript_web.py`). `e2e/transcript-contract-unit.spec.ts` holds the contract's
- * example to these types and its `fixtures` to the copy renderer in `markdown.ts`, byte for byte.
- *
- * Times are integer MILLISECONDS from the start of the audio. Every route answers 404 NOT_FOUND
- * while the pipeline switch is off; the viewer then draws the legacy plain transcript.
- */
-
 export type TranscriptStatus =
   | "WAITING_FOR_CONSENT"
   | "QUEUED"
@@ -23,7 +10,6 @@ export type QueueReason = "PAUSED" | "BUDGET_PAUSED" | "WINDOW" | "WAITING" | nu
 
 export type TranslationStatus = "TRANSLATED" | "ALREADY_ENGLISH" | "STALE" | "PENDING" | "FAILED";
 
-/** Who wrote a piece of text: the pipeline, or a researcher's correction (the machine text is kept). */
 export type TextSource = "MACHINE" | "EDITED";
 
 export type SpeakerRole = "RESEARCHER" | "ARTISAN" | "OTHER";
@@ -34,16 +20,12 @@ export type TranscriptBadge = { kind: "stt" | "translation"; provider: string; m
 
 export type TranscriptSpeaker = {
   speakerKey: string;
-  /** The mapped name ("Nandini (researcher)"), else "Speaker 1". */
   label: string;
   name: string | null;
   role: SpeakerRole | null;
   personId: string | null;
-  /** The label comes from a suggestion nobody confirmed. */
   suggested: boolean;
-  /** A few seconds of this speaker (their longest turn, at most 8 s), to play when naming them. */
   sample?: { startMs: number; endMs: number } | null;
-  /** Contract v2: the `speakerPalette` slot ("s0".."s7", "neutral"); from the key only, so a rename never moves it. */
   colorKey?: string;
 };
 
@@ -51,7 +33,6 @@ export type TranscriptWord = {
   text: string;
   startMs: number;
   endMs: number;
-  /** The character index of the word in the turn's `text`. */
   offset: number;
 };
 
@@ -59,19 +40,14 @@ export type TranscriptTurn = {
   id: string;
   index: number;
   speakerKey: string | null;
-  /** As the speaker's label; the copy uses this. */
   speakerName: string;
-  /** Contract v2: as the speaker's `colorKey`; "neutral" with no speaker. */
   colorKey?: string;
   startMs: number;
   endMs: number;
   language: string;
-  /** The current original (edited if edited, else machine). */
   text: string;
   textSource: TextSource;
-  /** [start, end) code-point offsets into `text` where Scribe was unsure; [] once edited. */
   lowConfidence: [number, number][];
-  /** Karaoke word timings; [] once edited. */
   words: TranscriptWord[];
   translation: { text: string | null; status: TranslationStatus; source: TextSource; model: string | null };
   revision: number;
@@ -85,22 +61,17 @@ export type TranscriptPermissions = {
   autodraft: boolean;
   quoteCard: boolean;
   mapSpeakers: boolean;
-  /** Contract 3: may type or paste the English (POST /english, or a turn's English edit). */
   addEnglish?: boolean;
 };
 
-/** Contract 3: why English is missing, for this reader. DECLINED: Gemini declined and they may add it; UNAVAILABLE: everyone else. */
 export type EnglishNotice = "DECLINED" | "UNAVAILABLE" | null;
 
 export type Transcript = {
   mediaId: string;
-  /** "Interview · Giriraj Prasad Chhipa · 24 Jun 2026" — the markdown's first heading. */
   title: string;
   status: TranscriptStatus;
   queueReason: QueueReason;
-  /** One calm sentence for NEEDS_ATTENTION / WAITING_FOR_CONSENT; null otherwise. */
   statusMessage: string | null;
-  /** Null before the first run. */
   version: number | null;
   languages: TranscriptLanguage[];
   durationMs: number | null;
@@ -110,26 +81,18 @@ export type Transcript = {
   turns: TranscriptTurn[];
   summary: string[];
   quotes: { turnId: string | null; original: string; english: string; speaker: string | null }[];
-  /** Admins only, else null. */
   cost: { sttUsd: number; translationUsd: number; totalUsd: number } | null;
-  /** `url` is the Voice Isolator copy when `cleaned`; `originalUrl` is then the recording as made. */
-  audio: { url: string | null; durationMs: number | null; cleaned?: boolean; originalUrl?: string | null };
+  audio: { url: string | null; durationMs: number | null; cleaned?: boolean; originalUrl?: string | null; video?: boolean };
   permissions: TranscriptPermissions;
-  /** Contract 3: one calm notice above the turns while English is missing because Gemini declined; null otherwise. */
   englishNotice?: EnglishNotice;
-  /** Contract 3: the whole transcript's English as a person pasted it, while the turns lack their own. */
   manualEnglish?: string | null;
-  /** Why this reader may read but not change it (edit, speakers, re-translate, retry, auto-draft); null when they may. */
   readOnly: { code: "NOT_EDITOR" | "HELD_POST"; message: string } | null;
-  /** Bumps on every edit or speaker change; sent back as baseRevision. */
   revision: number;
   updatedAt: string;
 };
 
-/** One line of a list row's preview (contract v2): plain text, the speaker a separate label. */
 export type PreviewLine = { speaker: string | null; speakerKey: string | null; colorKey: string; text: string };
 
-/** A list row's transcript preview (contract v2): 1..3 lines, and the same on one line for a label. */
 export type TranscriptPreview = { text: string; lines: PreviewLine[] };
 
 export type SpeakerCandidate = { name: string; role: SpeakerRole; personId: string | null; reason: "roster" | "researcher" | "uploader" | "most_speech" };
@@ -154,7 +117,6 @@ export type QuoteCard = {
   speakerName: string;
   artisanName: string | null;
   craft: string | null;
-  /** "24 Jun 2026" */
   date: string;
   language: TranscriptLanguage;
   clip: { startMs: number; endMs: number; url: string | null };
@@ -168,7 +130,6 @@ export type GlossaryTerm = {
   craftId: string | null;
   craftName: string | null;
   occurrences: number;
-  /** At most five. */
   sightings: { mediaId: string; turnId: string | null; startMs: number | null }[];
 };
 
@@ -187,7 +148,6 @@ export type BudgetMeter = {
   pausedByBudget: boolean;
 };
 
-/** What a copy or a download carries ("copyTrack"). */
 export type CopyTrack = "original" | "english" | "both";
 
 export type ViewTab = "original" | "english" | "side";

@@ -8,11 +8,6 @@ import type { BudgetMeter } from "@/lib/transcript/contract";
 import { usd } from "@/lib/transcript/format";
 import { ts } from "@/lib/transcript/strings";
 
-/**
- * This month's transcription spend for this portal (design §4.7): an alert at 80%, a pause at 100%.
- * Mounted in each portal's admin hub; the route is admin-only server-side and the card draws nothing
- * when it is refused or the pipeline is off.
- */
 export function BudgetMeterCard() {
   const [meter, setMeter] = useState<BudgetMeter | null>(null);
   useEffect(() => {

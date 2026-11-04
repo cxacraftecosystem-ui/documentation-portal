@@ -1,18 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/**
- * A content admin sees Delete WHETHER OR NOT admin view is on (owner, 2026-10-21), in a browser,
- * against a running stack. The content admins are ADMIN, MASTER_ADMIN and MINISTRY_ADMIN, so
- * E2E_EMAIL must be one of them.
- *
- * The controls are the comment's Delete on a record page (`CollabPanel`, `user && canDeleteRecords`)
- * and the page's closing "Danger zone". The spec posts a comment on the first artisan through the
- * API, opens that artisan, and checks both are there with admin view on AND with it off, then deletes
- * the comment again. With E2E_RESEARCHER_EMAIL set it also checks a researcher sees neither.
- *
- *   E2E_EMAIL=… E2E_PASSWORD=… npx playwright test e2e/admin-comment-delete.spec.ts
- */
-
 const EMAIL = process.env.E2E_EMAIL ?? "";
 const PASSWORD = process.env.E2E_PASSWORD ?? "";
 const RESEARCHER_EMAIL = process.env.E2E_RESEARCHER_EMAIL ?? "";
@@ -26,7 +13,6 @@ async function token(page: Page, email: string): Promise<string> {
   return (await res.json()).accessToken as string;
 }
 
-/** Signed in through the login form, with admin view set as the toggle sets it. */
 async function signIn(page: Page, email: string, adminView: boolean) {
   await page.goto("/login");
   await page.waitForLoadState("networkidle").catch(() => {});
@@ -42,7 +28,6 @@ async function signIn(page: Page, email: string, adminView: boolean) {
   await setAdminView(page, adminView);
 }
 
-/** Flips admin view the way the toggle does, without signing in again (the login page sends a signed-in user on). */
 async function setAdminView(page: Page, on: boolean) {
   await page.evaluate((value) => {
     const stored = window.localStorage.getItem("field_repo_token") ?? "";
@@ -68,7 +53,6 @@ async function commentedArtisan(page: Page, stamp: number): Promise<Posted> {
   return { id: artisan!.id, body, commentId: (await posted.json()).id as string };
 }
 
-/** Removes the spec's comment, so a run leaves nothing on a real record. Idempotent: a 204 either way. */
 async function removeComment(page: Page, posted: Posted | undefined) {
   if (!posted) return;
   const auth = { Authorization: `Bearer ${await token(page, EMAIL)}` };

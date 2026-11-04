@@ -8,7 +8,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** C18: look the artisan up first; Pehchan starts unanswered; "Not shared by artisan" is explicit. */
 class ArtisanLookupTest {
 
     @Test
@@ -52,7 +51,6 @@ class ArtisanLookupTest {
         assertFalse(aadhaarNotSharedOffered("234123412346"))
         assertTrue(aadhaarNotSharedOffered(null))
         assertTrue(aadhaarNotSharedOffered("  "))
-        // A stale or forced "not shared" on a record with a number keeps the number.
         assertEquals("234123412346", aadhaarForBody("234123412346", notShared = true, storedAadhaar = "234123412346"))
         assertEquals("", aadhaarForBody("", notShared = true, storedAadhaar = null))
         assertEquals("234123412346", aadhaarForBody(" 234123412346 ", notShared = false, storedAadhaar = null))
@@ -61,10 +59,8 @@ class ArtisanLookupTest {
             "src/main/java/com/fieldrepository/app/MainActivity.kt",
         )
         assertTrue(source.contains("if (notSharedOffered) AppToggle("))
-        // An edit left empty beside the mask keeps the number on record (null, left out of the body).
         assertTrue(source.contains("aadhaarNumber = if (keepsStoredAadhaar) null else aadhaarForBody(aadhaar, aadhaarNotShared, editing?.aadhaarNumber)"))
         assertFalse(source.contains("aadhaarNumber = if (aadhaarNotShared) \"\" else"))
-        // The field beside an empty box on an edit names the number on record by its mask.
         assertTrue(source.contains("onRecord = storedAadhaarMask?.takeIf { aadhaar.isBlank() }"))
     }
 }

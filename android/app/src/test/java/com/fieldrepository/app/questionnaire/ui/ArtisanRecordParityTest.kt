@@ -8,11 +8,6 @@ import com.fieldrepository.app.questionnaire.ui.TimelineRow
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/**
- * DESIGN §9 test 58: the artisan record fixture renders these rows, in this order. The fixture is
- * DESIGN §4.6's own example; the web's parity spec reads the same expected rows, and once
- * `shared/` carries a record fixture both sides switch to it.
- */
 @QFeature("C6")
 class ArtisanRecordParityTest {
     private val fixture = """

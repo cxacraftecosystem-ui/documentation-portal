@@ -5,7 +5,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.Instant
 
-/** DESIGN §3.9: clockOffsetMs = server Date − X-Client-Time; an offset older than 7 days is estimated. */
 @QFeature("B17")
 class ClientClockTest {
     @Test

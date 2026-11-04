@@ -1,8 +1,3 @@
-"""Request bodies of the transcript API (``shared/transcript-contract.json`` ``types``).
-
-Pydantic only: no FastAPI, so the package stays importable without a portal.
-"""
-
 from __future__ import annotations
 
 from typing import Literal
@@ -44,8 +39,6 @@ class TurnEditBody(_Body):
 
 
 class EnglishBody(_Body):
-    """The whole transcript's English, typed or pasted by a person (D38): blank-line paragraphs."""
-
     baseRevision: int = Field(ge=0)
     text: str = Field(min_length=1, max_length=200_000)
 

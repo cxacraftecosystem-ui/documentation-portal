@@ -1,18 +1,5 @@
 "use client";
 
-/**
- * COVERAGE — which districts the documented work reaches, and which it has not reached yet.
- *
- * The Places view plots records where they are; this view colours each district by how many
- * workshops, artisans or records it holds, lists the shared crafts nobody has documented and the
- * districts with no workshop, and opens any district's records. Every filter lives in the URL
- * (`?view=coverage&craftCode=..&fy=..`), so a view can be linked and Back restores it.
- *
- * The district polygons are fetched only here (`shapeGeometry.loadShapes`); nothing in this folder
- * imports a mapping library or calls a tile server. The figures come from `GET /map/coverage`,
- * which folds the same records `/map/points` reads under the same visibility rule.
- */
-
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -118,7 +105,6 @@ export function CoverageView() {
     return () => controller.abort();
   }, [query, reload]);
 
-  // The state picker and the alias pickers need the whole register; a narrowed first view asks once.
   useEffect(() => {
     if (register.length || !data || isWholeRegister(data)) return;
     const controller = new AbortController();

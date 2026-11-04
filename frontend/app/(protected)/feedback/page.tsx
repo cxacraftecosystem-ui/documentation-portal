@@ -12,11 +12,6 @@ import { handleFormEnter } from "@/lib/formNav";
 import { isMasterAdmin } from "@/lib/permissions";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 
-/**
- * The backend keeps ONE feedback row per user (PUT /feedback/me upserts it), with an
- * overall 1-5 rating, per-aspect sub-ratings and several free-text prompts. GET /feedback/me
- * returns the row (or {} when the user hasn't given feedback yet).
- */
 type Feedback = {
   id?: string;
   userId?: string;
@@ -38,7 +33,6 @@ type Feedback = {
   user?: { id: string; name: string; email: string; role: string } | null;
 };
 
-/** The six 1-5 aspects, in the Android screen's order and with its exact wording. */
 const RATING_FIELDS = [
   { key: "easeOfUse", label: "Ease of use" },
   { key: "reliability", label: "Reliability / stability" },
@@ -48,12 +42,6 @@ const RATING_FIELDS = [
   { key: "recommend", label: "How likely you'd recommend it" }
 ] as const;
 
-/**
- * The six free-text prompts, again worded exactly as Android words them. The placeholders are web-only
- * — a phone keyboard covers half the screen, so Android leaves the box bare, but on a laptop an empty
- * textarea with a one-line label gets a one-line answer. Naming an example of a useful answer is what
- * turns "it's fine" into something the team can act on.
- */
 const TEXT_FIELDS = [
   {
     key: "likeMost",
@@ -87,20 +75,11 @@ const TEXT_FIELDS = [
   }
 ] as const;
 
-/** Android parity (FeedbackScreen): the word under the overall stars. */
 const OVERALL_WORDS = ["Tap a star to rate", "Poor", "Fair", "Good", "Very good", "Excellent"];
 
 type RatingKey = (typeof RATING_FIELDS)[number]["key"] | "rating";
 type TextKey = (typeof TEXT_FIELDS)[number]["key"] | "role";
 
-/**
- * A 1-5 star row.
- *
- * Stars rather than a number box for the reason Android uses them: a rating is a judgement, not a
- * measurement, and a five-target row is one tap where a number field is a tap, a keyboard and a
- * decision about whether 4.5 is allowed. Clicking the current value clears it, because "I would
- * rather not answer this one" has to stay reachable once a star has been pressed by accident.
- */
 function StarRating({
   value,
   onChange,
@@ -109,7 +88,6 @@ function StarRating({
 }: {
   value: number | null;
   onChange: (value: number | null) => void;
-  /** Used for the per-star accessible name, so a screen reader hears which aspect is being rated. */
   label: string;
   size?: "sm" | "md";
 }) {
@@ -133,7 +111,6 @@ function StarRating({
   );
 }
 
-/** One labelled aspect row: label on the left, stars on the right on anything wider than a phone. */
 function AspectRating({
   label,
   value,
@@ -154,8 +131,6 @@ function AspectRating({
 export default function FeedbackPage() {
   const { user } = useAuth();
   const [saved, setSaved] = useState<Feedback | null>(null);
-  // Every editable answer in one object, so the upsert (which overwrites the whole row) can send the
-  // complete picture without the old "carry the fields this form doesn't show" dance.
   const [ratings, setRatings] = useState<Record<RatingKey, number | null>>({
     rating: null,
     easeOfUse: null,
@@ -222,8 +197,6 @@ export default function FeedbackPage() {
     setTexts((current) => ({ ...current, [key]: value }));
   }
 
-  // Android parity: the save is refused only when the whole form is empty — every single answer is
-  // optional, and nobody should be made to invent a rating to send a bug report.
   const anyProvided =
     Object.values(ratings).some((value) => Boolean(value)) || Object.values(texts).some((value) => value.trim().length > 0);
 
@@ -242,7 +215,6 @@ export default function FeedbackPage() {
         method: "PUT",
         body: JSON.stringify({
           ...ratings,
-          // A cleared box means "no answer", which the column stores as NULL, not as "".
           ...Object.fromEntries(Object.entries(texts).map(([key, value]) => [key, value.trim() || null]))
         })
       });
@@ -373,11 +345,6 @@ export default function FeedbackPage() {
   );
 }
 
-/**
- * Read-only rendering of one feedback row, used both for "your saved feedback" and for the master
- * admin's list. Labels match the Android read-only view (shorter than the question wording — a
- * summary reads as a table of aspects, not as a re-run of the interview).
- */
 function SavedFeedbackDetail({ feedback }: { feedback: Feedback }) {
   const scores = [
     { label: "Overall", value: feedback.rating },

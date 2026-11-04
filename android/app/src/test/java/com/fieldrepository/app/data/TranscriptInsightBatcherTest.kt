@@ -9,7 +9,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Every transcript card on a screen is read, and polled, through one `GET /media/insights?ids=`. */
 class TranscriptInsightBatcherTest {
 
     private fun view(id: String, state: String = "PROCESSING") = TranscriptInsightViewDto(mediaId = id, state = state)
@@ -66,11 +65,9 @@ class TranscriptInsightBatcherTest {
     @Test
     fun aFailedFullReadRetriesAndABlankFinishedTranslationHidesThePanel() {
         val finished = TranscriptInsightDto(translation = InsightTranslationDto(status = "COMPLETED", text = null))
-        // The full read failed: no text is recorded, so the disclosure stays offered and asks again.
         assertNull(TranscriptInsightStates.fullTranslationText(null))
         assertNull(TranscriptInsightStates.fullTranslationText(TranscriptInsightViewDto(mediaId = "m", state = "READY")))
         assertTrue(TranscriptInsightStates.offersTranslation(finished, null))
-        // The full read answered with nothing in it: the panel is hidden, not drawn empty.
         val blank = TranscriptInsightViewDto(
             mediaId = "m",
             state = "READY",
@@ -80,7 +77,6 @@ class TranscriptInsightBatcherTest {
         assertFalse(TranscriptInsightStates.offersTranslation(finished, TranscriptInsightStates.fullTranslationText(blank)))
         assertEquals("", TranscriptInsightStates.fullTranslationText(blank.copy(insight = finished)))
         assertFalse(TranscriptInsightStates.offersTranslation(finished, ""))
-        // The full read answered with text: offered.
         assertTrue(TranscriptInsightStates.offersTranslation(finished, "Hello"))
     }
 }

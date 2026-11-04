@@ -1,25 +1,3 @@
-"""THE ARTISAN FORM CONTRACT — one form in both portals, on the web and on Android (2026-10-17).
-
-The owner's decision: the designer portal adopts the documentation portal's artisan form. Date of
-birth and Craft start date are required on every NEW save, and so is the answer to "Artisan Pehchan
-Card available" (2026-10-19: a new artisan's form starts with it unanswered, on both clients); experience is two optional boxes,
-"Experience (years)" and "Experience (months)", whose empty option is "Not stated"; Do's and Don'ts
-are "Do's" and "Don'ts". ``shared/artisan-form-contract.json`` declares it once and is byte-identical
-in both repositories. This file is identical in both too, and it holds:
-
-* the server's rule (``services/artisan_form_contract``) to the shared sentence vectors, and both
-  routes to the transition: a body carrying ``formContract`` 2 is refused when a date would be empty,
-  a body without it (an outbox entry queued by an older build, the spreadsheet import, a review edit)
-  lands exactly as before;
-* each client's artisan form to the declared labels, in order, the declared copy and none of the
-  retired words — read from source, no browser and no emulator;
-* the two repositories to each other, when the sibling checkout is present: the shared table and the
-  four files that implement it must be the same bytes on both sides.
-
-No database. The routes are driven against fakes up to the first write gate, which is all the
-contract decides.
-"""
-
 from __future__ import annotations
 
 import json
@@ -52,10 +30,6 @@ def anyio_backend():
 def contract() -> dict[str, Any]:
     return json.loads(CONTRACT_FILE.read_text(encoding="utf-8"))
 
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The rule
-# ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
 def test_the_module_speaks_the_contracts_key_value_and_dates():
@@ -121,13 +95,9 @@ def test_a_review_edit_cannot_carry_the_key():
     assert "formContract" in _NOT_REVIEW_EDITABLE
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The routes, up to the first gate
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 class _Reached(Exception):
-    """Raised by the first gate after the contract check: the save got past it."""
+    pass
 
 
 CALLER = SimpleNamespace(id="u-1", name="R. Menon", email="r@example.org", role="DESIGNER")
@@ -154,12 +124,6 @@ def _create_body(**extra: Any) -> ArtisanCreate:
 
 @pytest.fixture
 def create_gate(monkeypatch):
-    """Lets a create through the workshop gates and stops it at the first helper handed the body.
-
-    ``resolve_craft_id`` is that helper in both portals' create routes, so the same fake stands in
-    for both; the designer portal's ``assert_payload_workshop`` has no twin in the other, hence
-    ``raising=False``.
-    """
     seen: list[dict[str, Any]] = []
 
     async def _pass(*args: Any, **kwargs: Any) -> Any:
@@ -174,8 +138,6 @@ def create_gate(monkeypatch):
 
     monkeypatch.setattr(artisan_routes, "enforce_workshop_submission", _pass)
     monkeypatch.setattr(artisan_routes, "assert_payload_workshop", _pass, raising=False)
-    # The identity guard and the likely-duplicate score read the register, and on the designer
-    # portal both run before the craft is resolved; neither is what these tests are about.
     monkeypatch.setattr(artisan_routes, "_guard_identity_conflicts", _pass, raising=False)
     monkeypatch.setattr(artisan_routes, "_likely_duplicates", _none, raising=False)
     monkeypatch.setattr(artisan_routes, "resolve_craft_id", _gate)
@@ -215,7 +177,6 @@ async def test_an_old_shape_create_without_the_dates_lands_as_before(create_gate
     with pytest.raises(_Reached):
         await artisan_routes.create_artisan(_create_body(), current_user=CALLER)
     assert create_gate and "dateOfBirth" not in create_gate[0]
-    # Unanswered Pehchan in the old shape resolves from the number, as it always did.
     assert create_gate[0]["pehchanCardAvailable"] is False
 
 
@@ -241,7 +202,6 @@ def stored_row(monkeypatch):
         return holder["row"]
 
     def _gate(data: dict[str, Any], *args: Any, **kwargs: Any) -> Any:
-        # The first helper both portals' edit routes hand the body to after the contract check.
         assert "formContract" not in data, "the key is not a column"
         raise _Reached
 
@@ -278,8 +238,6 @@ async def test_an_edit_keeps_a_stored_date_and_refuses_clearing_one(stored_row):
 
 
 async def test_an_edit_counts_the_stored_pehchan_answer(stored_row):
-    # Every stored row holds an answer (the column is never empty), so reading one is never blocked
-    # and an edit made under the contract is not refused for a question the record already answers.
     stored_row["row"] = _stored(
         dateOfBirth="1971-03-04", craftStartDate="1994-06-01", pehchanCardAvailable=True
     )
@@ -294,15 +252,12 @@ async def test_an_old_shape_edit_of_a_legacy_record_lands_as_before(stored_row):
         await artisan_routes.update_artisan("a-1", ArtisanUpdate(phone="x"), current_user=CALLER)
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The clients, read from source
-# ──────────────────────────────────────────────────────────────────────────────────────────────
+
+_COMMENT_OR_STRING = re.compile(r'"(?:\\.|[^"\\\n])*"|/\*.*?\*/|(?<![:"\'\\])//[^\n]*', re.DOTALL)
 
 
 def _strip_comments(source: str) -> str:
-    """Block comments (TS, JSX and Kotlin) and line comments, so prose never satisfies a check."""
-    source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
-    return re.sub(r"(?m)(?<![:\"'\\])//.*$", "", source)
+    return _COMMENT_OR_STRING.sub(lambda m: m.group(0) if m.group(0).startswith('"') else "", source)
 
 
 def _one(pattern: str) -> pathlib.Path:
@@ -387,11 +342,6 @@ def test_both_clients_send_the_key_on_every_save():
     assert "missingArtisanDatesSentence(" in android
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The two repositories
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
-#: The files that must be the same bytes in both repositories (line endings aside).
 SHARED_FILES = (
     "shared/artisan-form-contract.json",
     "frontend/lib/artisanFormContract.ts",
@@ -430,7 +380,6 @@ def test_the_sibling_portal_carries_the_same_contract_and_implementation():
         theirs = sibling / rel
         assert theirs.is_file(), f"{sibling} lacks {rel}"
         assert _text(ROOT / rel) == _text(theirs), f"{rel} differs from {theirs}"
-    # The two Kotlin files differ by their package line and by nothing else.
     for pattern in (
         "android/app/src/main/java/com/*/*/data/ArtisanFormContract.kt",
         "android/app/src/test/java/com/*/*/data/ArtisanFormContractTest.kt",

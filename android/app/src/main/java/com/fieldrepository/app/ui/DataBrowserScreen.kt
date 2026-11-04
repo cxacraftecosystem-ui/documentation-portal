@@ -108,30 +108,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
-/*
- * Data browser — the Android twin of the web `/data` page.
- *
- * The repository is a VIRTUAL file system served one level at a time by `GET /data/tree?path=`.
- * Three taxonomies (by-workshop, by-uploader, by-type) re-root the same data; the switcher at the
- * top is what makes that legible, because before it existed the three roots looked like three
- * unrelated data sets rather than three views of one.
- *
- * Differences from the web, all forced by the form factor:
- *   - There is no split pane. The web keeps a sticky lazy TREE on the left and the folder contents
- *     on the right; a phone gets ONE column, so navigation is "tap a folder to descend" plus the
- *     server-resolved breadcrumbs to jump back up. System Back walks up the crumbs before it
- *     leaves the screen.
- *   - The web's "Data tables" accordion renders /data/report?format=json inline. There is no
- *     readable way to put a 27-column sheet on a phone, so this keeps only the half that matters
- *     in the field: the .xlsx download of the same subtree.
- *   - Zipping is done by FieldRepository.downloadDataFolder (straight into Downloads) instead of
- *     JSZip in the page.
- */
-
-// ---------------------------------------------------------------------------------------------
-// Content-type filters — the manifest `include` CSV, in the web's order and with its labels.
-// ---------------------------------------------------------------------------------------------
-
 private data class IncludeOption(val key: String, val label: String)
 
 private val INCLUDE_OPTIONS = listOf(
@@ -143,10 +119,6 @@ private val INCLUDE_OPTIONS = listOf(
     IncludeOption("documents", "Documents"),
     IncludeOption("other", "Other files")
 )
-
-// ---------------------------------------------------------------------------------------------
-// Icons — one per record type, mirroring RECORD_ICONS in frontend/app/(protected)/data/page.tsx.
-// ---------------------------------------------------------------------------------------------
 
 private fun recordIcon(recordType: String?): ImageVector = when (recordType) {
     "workshop" -> Icons.Filled.Groups
@@ -169,7 +141,6 @@ private fun fileIcon(entry: DataTreeEntryDto): ImageVector = when (entry.mediaTy
     else -> if (entry.content != null) Icons.Filled.Description else Icons.Filled.Attachment
 }
 
-/** "1.2 MB" — the web's `bytes()` helper, same 1024 base and same one-decimal rounding. */
 private fun formatBytes(size: Long?): String? {
     if (size == null || size < 0) return null
     if (size < 1024) return "$size B"
@@ -183,73 +154,45 @@ private fun formatBytes(size: Long?): String? {
     return String.format("%.1f %s", value, units[unit])
 }
 
-/** Filename minus its extension — how a transcript is paired with the media it came from. */
 private fun stem(name: String): String = name.substringBeforeLast('.', name)
 
-// ---------------------------------------------------------------------------------------------
-// State holder
-// ---------------------------------------------------------------------------------------------
-
-/**
- * Everything the browser needs to remember across recompositions: which folder is open, the levels
- * already fetched, the per-folder transcript manifest, and the two "restricted"/"error" terminal
- * states.
- *
- * Fetches are single-flight — opening a new folder cancels the in-flight one, so a fast tapper
- * never lands on a level they already navigated away from. A cancelled load deliberately leaves
- * [loading] true because the load that replaced it has already set it.
- */
 @Stable
 class DataBrowserState(
     private val repository: FieldRepository,
     private val scope: CoroutineScope
 ) {
-    /** The folder currently open. "" is the taxonomy chooser, not a folder listing. */
     var currentPath by mutableStateOf("")
         private set
 
-    /** The level served for [currentPath], or null before the first response arrives. */
     var tree by mutableStateOf<DataTreeDto?>(null)
         private set
 
     var loading by mutableStateOf(false)
         private set
 
-    /** A message worth showing the user; cleared by [dismissError] and by the next navigation. */
     var error by mutableStateOf<String?>(null)
         private set
 
-    /** HTTP 403 from /data/tree: this account lacks the dataset-download permission. */
     var restricted by mutableStateOf(false)
         private set
 
-    /** The id of the search hit being resolved to a folder, if any. */
     var locating by mutableStateOf<String?>(null)
         private set
 
-    /** Set when a search hit turned out to have no folder at all; cleared by the next navigation. */
     var unfiled by mutableStateOf<String?>(null)
         private set
 
-    /** Entry paths whose inline `content` is expanded. */
     var openInline by mutableStateOf<Set<String>>(emptySet())
         private set
 
-    /** Entry paths whose transcript is expanded. */
     var openTranscripts by mutableStateOf<Set<String>>(emptySet())
         private set
 
-    /**
-     * The review status every folder, preview and download is narrowed to (C21): Approved unless the
-     * reader chose otherwise, because an export means approved. The web's Data page, the same three.
-     */
     var reviewStatus by mutableStateOf(DataStatusChoice.DEFAULT)
         private set
 
-    /** The `status` the server is asked for; null is every status. */
     val statusParam: String? get() = DataStatusChoice.param(reviewStatus)
 
-    /** Every listed folder answered for the old status: drop them and re-read the open one. */
     fun changeReviewStatus(next: String) {
         if (next == reviewStatus) return
         reviewStatus = next
@@ -265,19 +208,14 @@ class DataBrowserState(
     private var loadJob: Job? = null
     private var locateJob: Job? = null
 
-    // The bare root is only a chooser, so the first resolution drops the user straight into the
-    // default taxonomy. One-shot, so navigating back to the root still shows the chooser.
     private var landed = false
 
-    /** Served with every level, so the switcher is available wherever the user is. */
     val taxonomies: List<DataTaxonomyDto>
         get() = tree?.taxonomies ?: levels[""]?.taxonomies ?: emptyList()
 
-    /** Which taxonomy [currentPath] sits in; null at the root. */
     val activeTaxonomy: DataTaxonomyDto?
         get() = tree?.taxonomy?.let { id -> taxonomies.firstOrNull { it.id == id } }
 
-    /** Server-resolved breadcrumbs — clean names, never path segments. */
     val crumbs: List<DataCrumbDto>
         get() {
             val served = tree?.crumbs.orEmpty()
@@ -292,20 +230,16 @@ class DataBrowserState(
 
     val truncated: Boolean get() = tree?.truncated == true
 
-    /** The current folder's own name — what the .zip and the .xlsx are named after. */
     val folderName: String get() = crumbs.lastOrNull()?.name?.takeIf { it.isNotBlank() } ?: "dataset"
 
-    /** True while the transcript manifest for the open folder is in flight. */
     val transcriptLoading: Boolean get() = transcriptFolderLoading == currentPath
 
-    /** There is an ancestor to step up to (the root has only its own crumb). */
     val canGoUp: Boolean get() = crumbs.size >= 2
 
     fun dismissError() {
         error = null
     }
 
-    /** Open [path], painting any cached level immediately and refreshing it from the server. */
     fun open(path: String) {
         if (path != currentPath) {
             openInline = emptySet()
@@ -321,8 +255,6 @@ class DataBrowserState(
             tree = levels[target]
             while (true) {
                 val level = fetch(target) ?: break
-                // Root resolved for the first time: fall through into the default taxonomy rather
-                // than leaving the user on a chooser with three identical-looking folders.
                 if (target.isEmpty() && !landed) {
                     val fallback = level.taxonomies.firstOrNull { it.isDefault } ?: level.taxonomies.firstOrNull()
                     if (fallback != null && fallback.path.isNotEmpty()) {
@@ -340,12 +272,6 @@ class DataBrowserState(
         }
     }
 
-    /**
-     * Open the folder that files a search hit, named [title] so the "no folder" answer can say WHICH
-     * record it is about. `GET /data/locate` returns a null path for a record nothing files yet — a
-     * product whose artisan was never attached to a workshop — and that is reported rather than
-     * approximated, because the nearest folder would be somebody else's.
-     */
     fun locate(recordType: String, recordId: String, title: String) {
         locateJob?.cancel()
         locateJob = scope.launch {
@@ -368,14 +294,12 @@ class DataBrowserState(
         }
     }
 
-    /** Re-fetch the open folder, bypassing the cached copy. */
     fun reload() {
         levels.remove(currentPath)
         transcriptsByFolder.remove(currentPath)
         open(currentPath)
     }
 
-    /** Step to the parent folder. Returns false when there is nowhere left to go (caller exits). */
     fun goUp(): Boolean {
         val parent = crumbs.getOrNull(crumbs.size - 2) ?: return false
         open(parent.path)
@@ -386,11 +310,6 @@ class DataBrowserState(
         openInline = openInline.toMutableSet().apply { if (!add(entry.path)) remove(entry.path) }
     }
 
-    /**
-     * Show/hide one file's transcript. Bodies are not on the tree entry — they arrive in the
-     * manifest as `.transcript.md` content — so the first open fetches the whole folder's
-     * transcripts once and every later toggle is free.
-     */
     fun toggleTranscript(entry: DataTreeEntryDto) {
         val opening = entry.path !in openTranscripts
         openTranscripts = openTranscripts.toMutableSet().apply { if (!add(entry.path)) remove(entry.path) }
@@ -410,7 +329,6 @@ class DataBrowserState(
         }
     }
 
-    /** This file's transcript body: matched on media id first, then on the shared filename stem. */
     fun transcriptFor(entry: DataTreeEntryDto): String? {
         val files = transcriptsByFolder[currentPath] ?: return null
         entry.mediaId?.let { id ->
@@ -420,7 +338,6 @@ class DataBrowserState(
         return files.firstOrNull { it.content != null && it.path.contains(nameStem) }?.content
     }
 
-    /** Report a failure raised by a download run from the screen (which owns the Context). */
     fun reportError(message: String) {
         error = message
     }
@@ -445,7 +362,6 @@ class DataBrowserState(
     }
 }
 
-/** A [DataBrowserState] scoped to this composition, loading the root on first appearance. */
 @Composable
 fun rememberDataBrowserState(repository: FieldRepository): DataBrowserState {
     val scope = rememberCoroutineScope()
@@ -454,18 +370,6 @@ fun rememberDataBrowserState(repository: FieldRepository): DataBrowserState {
     return state
 }
 
-// ---------------------------------------------------------------------------------------------
-// Screen
-// ---------------------------------------------------------------------------------------------
-
-/**
- * The data browser. Walks the virtual tree, previews generated text and transcripts, and downloads
- * either the open subtree as a filtered .zip or its relational report as .xlsx.
- *
- * [onBack] is called when the user is already at the top of the tree and presses Back; anywhere
- * deeper, Back walks one folder up instead. [onMessage] receives download confirmations so the host
- * can raise its own snackbar; the screen also shows them inline, so wiring it is optional.
- */
 @Composable
 fun DataBrowserScreen(
     repository: FieldRepository,
@@ -485,9 +389,6 @@ fun DataBrowserScreen(
     var reporting by remember { mutableStateOf(false) }
     var savingMediaId by remember { mutableStateOf<String?>(null) }
     var viewing by remember { mutableStateOf<DataTreeEntryDto?>(null) }
-    // The whole filter set, not just the text, and held HERE rather than inside the panel so that
-    // changing one filter cannot reset the others: the panel is an item in a LazyColumn, and a
-    // scrolled-away item is disposed along with anything it remembered.
     var jumpFilters by remember { mutableStateOf(SearchFilters()) }
     val jump = rememberQuickSearch(repository, jumpFilters)
 
@@ -545,8 +446,6 @@ fun DataBrowserScreen(
                 item("error") { ErrorBanner(message, onDismiss = state::dismissError) }
             }
 
-            // Above the browser, not inside it: walking down four levels of folders to reach one
-            // known artisan is the slowest thing this screen asks of a researcher.
             item("jump") {
                 JumpToRecordPanel(
                     filters = jumpFilters,
@@ -651,7 +550,6 @@ fun DataBrowserScreen(
                 }
             }
 
-            // 0.0.6: transcripts in View data and Download data, folded until opened.
             item("transcripts") {
                 var open by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
                 Column(
@@ -700,10 +598,6 @@ fun DataBrowserScreen(
                                         onProgress = { done, total -> zipDone = done; zipTotal = total }
                                     )
                                 }.onSuccess { result ->
-                                    // The walk stops at MAX_MANIFEST_FILES / MAX_WALK_DEPTH and the
-                                    // server reports that it did. Saying "Archive saved — 20,000
-                                    // files" over a subtree that has more is the one message here
-                                    // that could send somebody away believing they have everything.
                                     val short = if (result.truncated) {
                                         " Too large for one archive — some files left out."
                                     } else {
@@ -820,7 +714,6 @@ fun DataBrowserScreen(
                             }
                         }
                     )
-                    // 0.0.6: the recording's transcript files, one tap each to the share sheet.
                     file.mediaId?.let { mediaId ->
                         com.fieldrepository.app.transcript.ui.TranscriptFileChips(mediaId, file.transcriptFiles, Modifier.padding(start = 12.dp), onMessage = { note(it) })
                     }
@@ -850,17 +743,12 @@ fun DataBrowserScreen(
                         }
                     }
                 },
-                // The preview kept on this device, for when the link has expired or there is no signal.
                 offlinePreview = entry.mediaId?.let { rememberOfflinePreview(it) }?.file,
                 onDismiss = { viewing = null }
             )
         }
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Pieces
-// ---------------------------------------------------------------------------------------------
 
 @Composable
 private fun DataBrowserTopBar(onBack: () -> Unit, loading: Boolean, onReload: () -> Unit) {
@@ -869,8 +757,6 @@ private fun DataBrowserTopBar(onBack: () -> Unit, loading: Boolean, onReload: ()
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // The same arrow the shared header draws. This screen is hosted outside that header (its
-        // LazyColumn owns the viewport), so it repeats the control rather than inventing a pill.
         IconButton(onClick = onBack) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack,
@@ -894,7 +780,6 @@ private fun DataBrowserTopBar(onBack: () -> Unit, loading: Boolean, onReload: ()
     }
 }
 
-/** A card in the browser's single column. Every panel on this screen uses the same shell. */
 @Composable
 private fun BrowserPanel(content: @Composable ColumnScope.() -> Unit) {
     ElevatedCard(
@@ -957,10 +842,6 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
     }
 }
 
-/**
- * The 403 state. The wording is the web's verbatim, because "ask an admin" is only actionable if
- * the user is told WHICH permission is missing.
- */
 @Composable
 private fun RestrictedPanel() {
     Column(
@@ -995,14 +876,6 @@ private fun RestrictedPanel() {
     }
 }
 
-/**
- * Search straight to a folder. The box, the chips, the filter sheet, the debounce and the rows are
- * the Search screen's own — [SearchFilterBar] and [rememberQuickSearch], not a second copy of
- * either — but tapping a hit resolves the record to a tree path and navigates the browser there
- * instead of opening an edit form, because this screen is where the record's FILES live.
- *
- * That is the whole difference between the two surfaces: same question, different destination.
- */
 @Composable
 private fun JumpToRecordPanel(
     filters: SearchFilters,
@@ -1041,7 +914,6 @@ private fun JumpToRecordPanel(
             },
             modifier = Modifier.fillMaxWidth()
         )
-        // Directly under the field, so the chips read as part of the search and not a separate tool.
         SearchFilterBar(value = filters, onChange = onFiltersChange)
         Text(
             "Find a record or file and open its folder.",
@@ -1067,8 +939,6 @@ private fun JumpToRecordPanel(
         search.hits.forEach { hit ->
             SearchResultRow(row = hit, onOpen = { onOpenHit(hit) })
         }
-        // Only the first few hits fit above a folder listing, so say when there are more rather than
-        // letting the shortlist read as the whole answer.
         if (search.total > search.hits.size) {
             Text(
                 "Showing ${search.hits.size} of ${search.total}. Narrow the filters for more.",
@@ -1087,10 +957,6 @@ private fun JumpToRecordPanel(
     }
 }
 
-/**
- * The same repository, re-rooted three ways. Kept visible at every level (not only at the root)
- * because the taxonomies ride along with every /data/tree response.
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TaxonomySwitcher(
@@ -1127,7 +993,6 @@ private fun TaxonomySwitcher(
                 )
             }
         }
-        // The descriptions are the only place the folder shapes are spelled out.
         Text(
             active?.description ?: "Choose how to group the records.",
             style = MaterialTheme.typography.bodySmall,
@@ -1151,7 +1016,6 @@ private fun IncludeChips(selected: Set<String>, onToggle: (String) -> Unit) {
     }
 }
 
-/** Server-resolved breadcrumbs; every ancestor is tappable, the open folder is not. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Breadcrumbs(crumbs: List<DataCrumbDto>, onOpen: (String) -> Unit) {
@@ -1191,17 +1055,6 @@ private fun Breadcrumbs(crumbs: List<DataCrumbDto>, onOpen: (String) -> Unit) {
     }
 }
 
-/**
- * The record folder's own fields (artisan bio, workshop dates, …) as served in `info`, as the same
- * two-column table the web draws.
- *
- * A researcher opening an artisan's folder is almost always checking ONE value — the pincode, the
- * phone number, what the artisan said not to do — and a label column they can run a thumb down
- * answers that far faster than the same fields stacked as prose.
- *
- * Only fields the record actually carries become rows; the registry behind `info` already drops the
- * empty ones, and padding the table back out would say nothing except that the table is padded.
- */
 @Composable
 private fun RecordInfoCard(info: DataFolderInfoDto) {
     val fields = info.fields.filter { it.value.isNotBlank() }
@@ -1217,13 +1070,8 @@ private fun RecordInfoCard(info: DataFolderInfoDto) {
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        // A share of the card rather than a fixed width: 96.dp is comfortable on a phone and absurd
-        // on a tablet, and anything wider than a third squeezes the value into one word per line on
-        // the narrowest screens this app is used on.
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val labelWidth = (maxWidth * 0.34f).coerceIn(88.dp, 132.dp)
-            // Phone numbers and pincodes are read here to be typed somewhere else, so let them be
-            // copied out rather than transcribed by hand.
             SelectionContainer {
                 Column(
                     modifier = Modifier
@@ -1242,7 +1090,6 @@ private fun RecordInfoCard(info: DataFolderInfoDto) {
     }
 }
 
-/** The table's own header, tinted like the web's `thead`, so the two columns read as columns. */
 @Composable
 private fun InfoTableHeader(labelWidth: Dp) {
     Row(
@@ -1268,18 +1115,8 @@ private fun InfoTableHeader(labelWidth: Dp) {
     HorizontalDivider(color = MaterialTheme.field.hairline)
 }
 
-/**
- * How much of a long value the table shows before it offers to unfold: enough for a note or a set
- * of do's, short of an interview summary (one of them in production runs to 7,000 characters) that
- * would otherwise bury the rest of the record under a single row.
- */
 private const val INFO_VALUE_COLLAPSED_LINES = 8
 
-/**
- * One label/value row. Multi-line values keep their line breaks — a set of do's is a list, not a
- * sentence — and the long ones fold instead of scrolling inside the row, because a nested scroller
- * on a phone steals the flick meant for the page behind it.
- */
 @Composable
 private fun InfoTableRow(label: String, value: String, labelWidth: Dp) {
     var expanded by remember(label, value) { mutableStateOf(false) }
@@ -1302,8 +1139,6 @@ private fun InfoTableRow(label: String, value: String, labelWidth: Dp) {
                 lineHeight = 20.sp,
                 maxLines = if (expanded) Int.MAX_VALUE else INFO_VALUE_COLLAPSED_LINES,
                 overflow = TextOverflow.Ellipsis,
-                // Whether it fits is a question about the laid-out text, not its length: the same
-                // string wraps differently on a small phone, in landscape, and at a large font scale.
                 onTextLayout = { layout -> if (!expanded && layout.hasVisualOverflow) foldable = true }
             )
             if (foldable) {
@@ -1398,10 +1233,7 @@ private fun FileRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // An image previews itself; everything else gets its type glyph.
                 if (entry.mediaType == "IMAGE" && !entry.url.isNullOrBlank()) {
-                    // Kept on this device once it loads, and drawn from there when the link has
-                    // expired or there is no signal — the same store the record views use.
                     val offline = entry.mediaId?.let { rememberOfflinePreview(it) }
                     val context = LocalContext.current
                     val request = remember(entry.url, offline != null) {
@@ -1495,9 +1327,6 @@ private fun FileActions(
     onPreview: () -> Unit,
     onSave: () -> Unit
 ) {
-    // Playback is opt-in rather than inline: the web can afford <audio preload="none"> on every
-    // row, but a Compose AudioPlayer prepares its MediaPlayer the moment it composes, which would
-    // start buffering every recording a folder holds as the list scrolls past on field data.
     val previewable = entry.mediaType in setOf("IMAGE", "VIDEO", "AUDIO") && !entry.url.isNullOrBlank()
     if (entry.content == null && !entry.transcriptAvailable && !previewable && entry.mediaId == null) return
     ActionRow {
@@ -1518,7 +1347,6 @@ private fun FileActions(
     }
 }
 
-/** A bounded, scrollable well for a long body — capped so it never swallows the whole page. */
 @Composable
 private fun ScrollableTextBox(content: @Composable () -> Unit) {
     Box(
@@ -1543,12 +1371,6 @@ private fun PlainTextBody(text: String) {
     )
 }
 
-/**
- * Transcripts are stored as Markdown (the refinement pass emits headings, bold speaker labels and
- * bullets). There is no Markdown renderer on this client and pulling one in for a read-only panel
- * is not worth the dependency, so the handful of constructs the pipeline actually produces are
- * rendered here: ATX headings, `**bold**`, `*italic*`, `` `code` ``, bullets and rules.
- */
 @Composable
 private fun TranscriptBody(markdown: String) {
     val lines = remember(markdown) { markdown.replace("\r\n", "\n").split("\n") }
@@ -1591,7 +1413,6 @@ private fun TranscriptBody(markdown: String) {
 
 private val INLINE_MARKDOWN = Regex("\\*\\*(.+?)\\*\\*|\\*(.+?)\\*|`(.+?)`")
 
-/** `**bold**`, `*italic*` and `` `code` `` inside one line; everything else is copied verbatim. */
 private fun inlineMarkdown(text: String): AnnotatedString = buildAnnotatedString {
     var cursor = 0
     INLINE_MARKDOWN.findAll(text).forEach { match ->

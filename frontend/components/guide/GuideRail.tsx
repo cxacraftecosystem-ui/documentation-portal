@@ -10,23 +10,6 @@ import { useAppReducedMotion } from "@/components/guide/useAppReducedMotion";
 const RING_RADIUS = 34;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
-/**
- * The sticky navigation rail (large screens only — on phones the spine alone carries the
- * reader).
- *
- * It shows three things, all driven by the same scroll position:
- *  - a progress ring whose stroke is a `useTransform` of the journey's scroll progress, so the
- *    arc is written straight to the DOM without a React re-render per frame;
- *  - the step you are currently reading, swapped through `AnimatePresence` so the outgoing
- *    label leaves before the incoming one arrives;
- *  - the full list of steps, with a shared-layout marker that slides between entries.
- *
- * All three are deliberately silent to assistive technology. The readout changes every time a
- * card crosses the viewport band, so announcing it (an `aria-live` region) would interrupt a
- * screen-reader user ten times on the way down the page for information they already have: the
- * steps are a numbered `<ol>` and each card carries its own number and heading. The rail is a
- * scroll indicator, not an event.
- */
 export function GuideRail({
   steps,
   activeIndex,
@@ -41,11 +24,8 @@ export function GuideRail({
   const reduce = useAppReducedMotion();
   const [percent, setPercent] = useState(0);
 
-  // The ring is drawn as a single dash whose gap shrinks as you scroll.
   const dashOffset = useTransform(progress, [0, 1], [RING_CIRCUMFERENCE, 0]);
 
-  // The numeric readout is the only part that needs React: round hard so we re-render at most
-  // 100 times across the whole page rather than once per scroll frame.
   useMotionValueEvent(progress, "change", (latest) => {
     const next = Math.round(Math.min(Math.max(latest, 0), 1) * 100);
     setPercent((current) => (current === next ? current : next));
@@ -60,7 +40,6 @@ export function GuideRail({
           <div className="flex items-center gap-4">
             <div className="relative h-20 w-20 shrink-0">
               <svg viewBox="0 0 80 80" className="h-20 w-20 -rotate-90" aria-hidden>
-                {/* Track and arc: the themed progress tokens (globals.css), so the ring reads like every bar. */}
                 <circle cx="40" cy="40" r={RING_RADIUS} fill="none" className="stroke-progress-track" strokeWidth="6" />
                 <motion.circle
                   cx="40"
@@ -81,9 +60,6 @@ export function GuideRail({
               </div>
             </div>
 
-            {/* Not a live region: see the note above — scrolling past a card is not an
-                announcement, and `aria-current="step"` in the list below already carries the
-                position for anyone navigating it. */}
             <div className="min-w-0">
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div

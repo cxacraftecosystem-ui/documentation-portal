@@ -2,10 +2,6 @@
 
 import { COMPLETENESS_FILTERS, type CompletenessFilter as Value } from "@/lib/completenessCore";
 
-/**
- * All · Incomplete · Missing required — a choice between three named views of one list, so a
- * segmented `aria-pressed` group (§11.11 leaves mode buttons alone), sent as `completeness=`.
- */
 export function CompletenessFilter({ value, onChange }: { value: Value; onChange: (next: Value) => void }) {
   return (
     <div role="group" aria-label="Completeness" className="inline-flex rounded-full border border-line-200 bg-card p-0.5" data-completeness-filter>

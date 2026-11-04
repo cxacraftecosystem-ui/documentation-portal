@@ -6,19 +6,10 @@ import {
   requestableCeilingSentence
 } from "@/lib/requestableWorkshops";
 
-/**
- * `GET /workshops/requestable` as the server answers it today — `{items, truncated}` — and as it
- * answered before (a bare array). The panel handed the envelope to a sort that spreads its argument,
- * and Settings → "Request workshop access" threw "e is not iterable" in production. The server half
- * of this contract is `backend/tests/test_requestable_contract.py`; the designer portal's copy of
- * this spec also pins the ceiling sentence to its `selectFilter.ts` wording.
- */
-
 type Row = { id: string; title: string; accessStatus: string | null; restricted: boolean };
 
 const row = (id: string): Row => ({ id, title: `Workshop ${id}`, accessStatus: null, restricted: false });
 
-/** Byte for byte what `list_requestable_workshops` returns, keys and all. */
 const ENVELOPE = {
   items: [
     {

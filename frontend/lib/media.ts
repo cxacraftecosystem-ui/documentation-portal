@@ -1,23 +1,7 @@
 import { API_BASE, ApiError, apiFetch, getSessionMarker } from "@/lib/api";
 import { field, questionSequence, recordingFilename, sectionSequence, splitExtension } from "@/lib/naming";
+import { processingFor } from "@/lib/transcript/uploadChoice";
 import type { MediaFile, MediaType } from "@/lib/types";
-
-/**
- * The web media pipeline. Mirrors the tactics the Android app uses (see docs/MEDIA_PIPELINE.md):
- *
- * - **Eager pre-upload** — bytes start moving to object storage the moment a file is attached, so the
- *   slow transfer overlaps the minutes the researcher spends filling the form and saving is instant.
- * - **Multipart above a size threshold** — big videos go up in parts, each retried independently,
- *   with the whole upload aborted (never left half-written) on failure.
- * - **Safe-request retry** — presign / multipart-setup / complete are re-issued on 502/503/504 and on
- *   transport errors; record-creating calls are never auto-retried.
- * - **Idempotent completion** — `/media/complete` de-duplicates on `objectKey`, so a retried finish
- *   returns the row the first attempt created instead of duplicating it.
- * - **Orphan cleanup** — every staged object is journalled; discarding a file, closing the page, or
- *   simply never saving the record all end with the object being deleted rather than lingering in S3.
- * - **One naming scheme** — every upload is renamed here, by the one implementation below, so no two
- *   capture screens can drift into naming the same kind of file differently.
- */
 
 export function inferMediaType(file: File): MediaType {
   if (file.type.startsWith("image/")) return "IMAGE";
@@ -27,27 +11,6 @@ export function inferMediaType(file: File): MediaType {
   return "DOCUMENT";
 }
 
-// ---------------------------------------------------------------------------
-// Nomenclature — the only place a stored file gets its name
-// ---------------------------------------------------------------------------
-
-/**
- * Every file this app uploads is named by the one convention both portals use (`lib/naming.ts`,
- * docs/conventions/NAMING_2026-10-18.md):
- *
- *     Portal_Entity_Date_Time_Place_Craft_Subject_What_Sequence.ext
- *
- *     DesignWorkshop_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording_D-Q03.m4a
- *     DesignWorkshop_Product_2026-06-22_1043_Indigo-Dabu-Saree_Photo_03.jpg
- *     DesignWorkshop_Process_2026-06-23_1519_Preparation-Of-Bamboo_Step-4-Video_01.mp4
- *
- * because the researcher reads that name with the folder gone — out of an extracted zip, in a
- * downloads list, on a laptop that never saw this app. The name is also the S3 leaf, so it is ASCII.
- * backend/app/services/media_naming.py rebuilds the same shape at read time for everything already
- * uploaded under an older code.
- */
-
-/** What each kind of file is, as the What field. Plain words, never the app's IMG/VID/AUD codes. */
 const KIND_WORD: Record<MediaType, string> = {
   IMAGE: "Photo",
   VIDEO: "Video",
@@ -61,10 +24,8 @@ export function mediaKindWord(subject: File | MediaType): string {
   return KIND_WORD[typeof subject === "string" ? subject : inferMediaType(subject)] ?? "File";
 }
 
-/** What a file IS (the What field) and which of its kind (the Sequence field). */
 export type MediaDescriptor = { what: string; sequence?: string };
 
-/** 1-based, whole, and never zero. */
 function positiveIndex(index: number | null | undefined): number {
   const value = Math.trunc(index ?? 0);
   return value > 0 ? value : 1;
@@ -74,19 +35,10 @@ function twoDigits(index: number | null | undefined): string {
   return String(positiveIndex(index)).padStart(2, "0");
 }
 
-/**
- * `Photo` + `02`: what a file is when it is simply one of a record's captures. The index is its place
- * among that record's media of every kind, so it continues past the files already attached.
- */
 export function describeMedia(subject: File | MediaType, index: number): MediaDescriptor {
   return { what: mediaKindWord(subject), sequence: twoDigits(index) };
 }
 
-/**
- * `Recording` + `K-Q01` for a clip answering one question, `D-All` for a recording covering a whole
- * section — which answers no single question, so it claims no number. A clip that names no section
- * falls back to what it plainly is.
- */
 export function describeInterviewAudio({
   sectionCode,
   answerNumber,
@@ -104,10 +56,6 @@ export function describeInterviewAudio({
   return { what, sequence: sectionSequence(sectionCode) };
 }
 
-/**
- * `Grid-Measurement-Length-Breadth` / `Grid-Measurement-Height`. A grid photo whose axis the screen
- * did not record gets the bare `Grid-Measurement` rather than a guess.
- */
 export function describeMeasurementGrid(
   axis: "lengthBreadth" | "height" | null | undefined,
   index = 1
@@ -117,7 +65,6 @@ export function describeMeasurementGrid(
   return { what, sequence: twoDigits(index) };
 }
 
-/** `Step-4-Video` + `01`: the step's number, then what the file is. */
 export function describeProcessStep({
   stepNumber,
   subject,
@@ -132,20 +79,14 @@ export function describeProcessStep({
   return { what: `${head}-${mediaKindWord(subject)}`, sequence: twoDigits(index) };
 }
 
-/** `Pre-Process-Video` + `01` — a capture of what happens before the documented process begins. */
 export function describePreProcess(subject: File | MediaType, index: number): MediaDescriptor {
   return { what: `Pre-Process-${mediaKindWord(subject)}`, sequence: twoDigits(index) };
 }
 
-/** What a file is named after: the record it hangs off, what it is, and when it was captured. */
 export type MediaNameSpec = {
-  /** The Entity: Artisan, Product, Tool, Process, Workshop, Interview, Group-Interview. */
   recordType: string;
-  /** That record's own name, as stored — the artisan, the product, the process (the Subject). */
   recordName: string;
-  /** What this file IS and which of its kind. */
   descriptor: MediaDescriptor;
-  /** Capture time; defaults to now, which is when a browser upload is being named. */
   at?: Date;
   place?: string | null;
   craft?: string | null;
@@ -155,7 +96,6 @@ function extensionOf(filename: string): string {
   return splitExtension(filename)[1];
 }
 
-/** The NAMING 2.1 name for one captured file (ASCII, at most 150 characters). */
 export function mediaFileName(file: File, spec: MediaNameSpec): string {
   return recordingFilename(spec.recordType, extensionOf(file.name), {
     capturedAt: spec.at ?? new Date(),
@@ -167,13 +107,6 @@ export function mediaFileName(file: File, spec: MediaNameSpec): string {
   });
 }
 
-/**
- * The same file under its archive name, ready to hand to any upload path in this module.
- *
- * Renaming the File itself (rather than carrying a parallel name) is what lets every capture screen
- * share the one resilient upload path — and it is safe for the eager pre-upload, whose fallback
- * match is on size + last-modified + MIME, all of which a rename preserves (see `signatureOf`).
- */
 export function renameMediaFile(file: File, spec: MediaNameSpec): File {
   const name = mediaFileName(file, spec);
   return new File([file], name, { type: file.type, lastModified: file.lastModified });
@@ -181,38 +114,17 @@ export function renameMediaFile(file: File, spec: MediaNameSpec): File {
 
 const UPLOAD_MAX_ATTEMPTS = 3;
 
-/** Gateway codes that mean "the origin was too slow", not "the request was bad" (Android parity). */
 const RETRIABLE_GATEWAY_CODES = new Set([502, 503, 504]);
 const SAFE_RETRY_ATTEMPTS = 4;
 
-/**
- * Files at/under this size go up as one PUT; larger ones switch to an S3 multipart upload that the
- * server stitches back into a single object. 64 MiB matches Android's `MULTIPART_THRESHOLD`.
- */
 export const MULTIPART_THRESHOLD = 64 * 1024 * 1024;
 const PART_CONCURRENCY = 3;
 const PART_MAX_ATTEMPTS = 3;
 
-/**
- * How many files of one batch transfer at once. Three saturates a rural link far better than the
- * strict sequence this used to run, while staying low enough that no single upload is starved into
- * the stall watchdog below (which is exactly what a high fan-out does on a bad connection).
- */
 export const UPLOAD_CONCURRENCY = 3;
 
-/**
- * Above this, the SHA-256 content hash is skipped: `crypto.subtle.digest` needs the whole file in
- * memory at once, and a 300 MB video would cost more than the corruption check is worth.
- */
 const CHECKSUM_MAX_BYTES = 32 * 1024 * 1024;
 
-/**
- * The transfer is killed only when it STOPS MOVING, never on a flat deadline. A fixed five-minute
- * timeout dooms a large video on a slow link and then burns every retry doing it again; a stall
- * watchdog lets a slow-but-alive upload run for as long as it needs and still kills a dead socket
- * quickly. Once the last byte is handed to the socket we are waiting on S3 to finalise the object,
- * which produces no progress events at all — hence the longer second window.
- */
 const STALL_TIMEOUT_MS = 60_000;
 const FINALIZE_TIMEOUT_MS = 5 * 60_000;
 
@@ -220,9 +132,6 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Ordered by preference. Safari/iOS cannot record WebM at all (it produces audio/mp4), so hardcoding
-// "audio/webm" there yields a file whose extension and MIME lie about its contents — which breaks
-// both playback and server-side transcription. Ask MediaRecorder what it actually supports instead.
 const AUDIO_RECORDER_MIME_TYPES = [
   "audio/webm;codecs=opus",
   "audio/webm",
@@ -232,35 +141,11 @@ const AUDIO_RECORDER_MIME_TYPES = [
   "audio/ogg"
 ];
 
-/** The best container this browser can record, or null to let MediaRecorder pick its own default. */
 export function pickAudioRecorderMimeType(): string | null {
   if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") return null;
   return AUDIO_RECORDER_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) ?? null;
 }
 
-/**
- * Capture constraints for a spoken-word recording — the web's half of the noise handling Android
- * already does in `createAudioRecorder`, which asks the platform for the `VOICE_RECOGNITION` source
- * to get voice pre-processing tuned for clean speech.
- *
- * Both web recorders used to pass a bare `{ audio: true }`, which accepts whatever the browser
- * happens to default to — and those defaults vary by browser and by device. So one client was
- * suppressing noise and the other was recording raw. What these fields capture is interviews in
- * working workshops, over looms, hammering and open courtyards, and the audio is fed to
- * speech-to-text: background noise is transcription accuracy, not a cosmetic concern.
- *
- * Every flag is named explicitly rather than left to a default, because absent is not the same as
- * off and because naming them says what the recording is for. `autoGainControl` earns its place
- * here in particular — an artisan working at a bench sits further from the microphone than a caller
- * does, and without it their voice arrives quiet underneath the workshop.
- *
- * Plain (non-`exact`) constraints on purpose: a browser that cannot honour one ignores it and still
- * returns a stream, whereas `exact` would reject the request outright and leave the researcher
- * unable to record at all — far worse than a noisier file.
- *
- * Exported as a shared constant because two screens record audio (the media capture field and the
- * questionnaire) and a second copy is how the two drift apart.
- */
 export const SPEECH_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   noiseSuppression: true,
   echoCancellation: true,
@@ -269,7 +154,6 @@ export const SPEECH_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   sampleRate: 44_100
 };
 
-/** File extension for a recorded blob's REAL mime type (recorder.mimeType), never a guess. */
 export function audioExtensionForMimeType(mimeType: string | null | undefined): string {
   const type = (mimeType ?? "").toLowerCase();
   if (type.includes("webm")) return "webm";
@@ -280,11 +164,6 @@ export function audioExtensionForMimeType(mimeType: string | null | undefined): 
   return "webm";
 }
 
-// ---------------------------------------------------------------------------
-// Transport primitives
-// ---------------------------------------------------------------------------
-
-/** An object-storage (S3/MinIO) failure, carrying the HTTP status when there was one. */
 class StorageError extends Error {
   status: number | null;
 
@@ -295,20 +174,13 @@ class StorageError extends Error {
   }
 }
 
-/** Raised when S3 answered a part PUT without an ETag the browser is allowed to read. */
 class EtagUnavailableError extends Error {}
 
 function isRetriableApiFailure(error: unknown): boolean {
   if (error instanceof ApiError) return RETRIABLE_GATEWAY_CODES.has(error.status);
-  // fetch() rejects with a TypeError for DNS/connection/CORS-level failures.
   return error instanceof TypeError;
 }
 
-/**
- * `apiFetch` with the retry policy Android's OkHttp interceptor applies — but only ever used for
- * calls that are SAFE to repeat: presigning, multipart setup/abort, and `/media/complete` (which the
- * API de-duplicates on `objectKey`). Record-creating calls stay single-shot.
- */
 async function apiRetry<T>(path: string, init: RequestInit, attempts = SAFE_RETRY_ATTEMPTS): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -317,17 +189,12 @@ async function apiRetry<T>(path: string, init: RequestInit, attempts = SAFE_RETR
     } catch (error) {
       lastError = error;
       if (attempt >= attempts || !isRetriableApiFailure(error)) throw error;
-      // Linear-ish backoff with a hard cap, so a struggling origin gets air without long stalls.
       await delay(Math.min(4_000, 600 * attempt));
     }
   }
   throw lastError;
 }
 
-/**
- * PUT a blob to object storage with real byte-level progress, via XHR (fetch cannot report upload
- * progress). Returns the ETag when the response exposes one — S3 multipart completion needs it.
- */
 function putBlob({
   url,
   headers,
@@ -367,7 +234,6 @@ function putBlob({
 
     xhr.open("PUT", url, true);
     Object.entries(headers ?? {}).forEach(([key, value]) => xhr.setRequestHeader(key, value));
-    // No flat deadline — see STALL_TIMEOUT_MS.
     xhr.timeout = 0;
     xhr.upload.onprogress = (event) => {
       arm(STALL_TIMEOUT_MS);
@@ -401,11 +267,6 @@ function putBlob({
   });
 }
 
-/**
- * Run `worker` over `items` with at most `limit` in flight, preserving each item's index. Stops
- * handing out new work after the first rejection and rethrows it once the in-flight ones have
- * settled — a worker that swallows its own errors therefore never stops the pool.
- */
 async function runPool<T>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>): Promise<void> {
   let cursor = 0;
   let firstError: unknown = null;
@@ -424,11 +285,6 @@ async function runPool<T>(items: T[], limit: number, worker: (item: T, index: nu
   if (firstError !== null) throw firstError;
 }
 
-/**
- * SHA-256 of the file, as `sha256:<hex>`, stored on the media row so a later integrity sweep can
- * prove the bytes in S3 are the bytes that left the device. Null when the file is too big to hash in
- * one allocation, or when WebCrypto is unavailable (an insecure origin) — the upload still proceeds.
- */
 async function computeChecksum(file: File): Promise<string | null> {
   if (file.size === 0 || file.size > CHECKSUM_MAX_BYTES) return null;
   const subtle = globalThis.crypto?.subtle;
@@ -443,11 +299,6 @@ async function computeChecksum(file: File): Promise<string | null> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Object upload (presign -> PUT -> [multipart complete])
-// ---------------------------------------------------------------------------
-
-/** A file already pushed to object storage but not yet attached to a saved record. */
 export type StagedObject = {
   objectKey: string;
   bucket: string;
@@ -485,26 +336,12 @@ type ObjectUploadOptions = {
   linkedRecordType?: string | null;
   linkedRecordId?: string | null;
   onProgress?: (loaded: number, total: number) => void;
-  /** Called with every key we presign, so a half-written object can be cleaned up later. */
   onObjectKey?: (objectKey: string) => void;
   signal?: AbortSignal;
 };
 
-/**
- * Set to false the first time S3/MinIO answers a part PUT without a readable ETag: without
- * `ExposeHeaders: ["ETag"]` in the bucket CORS rule no browser can ever complete a multipart upload,
- * so the whole session falls back to single PUTs instead of failing every large file.
- */
 let multipartAvailable = true;
 
-/**
- * Push a file to object storage and stop there — no MediaFile row, no record link.
- *
- * Everything else in this module ends by calling `/media/complete`, which is right for field media:
- * a photo that is not attached to a record is an orphan. An Android APK is the one thing that is
- * legitimately just an object: the release is recorded against `/app/release` by object key, and a
- * MediaFile row for it would put a 25 MB binary into the researcher's media lists.
- */
 export function uploadStorageObject(options: ObjectUploadOptions): Promise<StagedObject> {
   return uploadObject(options);
 }
@@ -514,7 +351,6 @@ async function uploadObject(options: ObjectUploadOptions): Promise<StagedObject>
   if (file.size === 0) throw new Error(`"${file.name}" is empty.`);
   const mediaType = inferMediaType(file);
   const mimeType = file.type || "application/octet-stream";
-  // Hashed alongside the transfer, not before it, so it never delays the bytes leaving the device.
   const checksum = computeChecksum(file);
   const target =
     file.size > MULTIPART_THRESHOLD && multipartAvailable
@@ -528,7 +364,6 @@ async function uploadWhole(options: ObjectUploadOptions, mediaType: MediaType, m
   let lastError: unknown;
   let previousKey: string | null = null;
   for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt += 1) {
-    // A fresh presign per attempt keeps the 15-minute signature window from expiring under retries.
     const presign = await apiRetry<PresignResponse>("/media/presign", {
       method: "POST",
       body: JSON.stringify({
@@ -540,7 +375,6 @@ async function uploadWhole(options: ObjectUploadOptions, mediaType: MediaType, m
         linkedRecordId
       })
     });
-    // The previous attempt's key is now abandoned: stop keeping it alive so the sweeper reclaims it.
     if (previousKey) liveObjectKeys.delete(previousKey);
     previousKey = presign.objectKey;
     onObjectKey?.(presign.objectKey);
@@ -557,11 +391,6 @@ async function uploadWhole(options: ObjectUploadOptions, mediaType: MediaType, m
   throw lastError instanceof Error ? lastError : new StorageError(`${file.name} didn’t upload. Try again.`);
 }
 
-/**
- * S3 multipart upload for a large file: chunk -> upload parts (in parallel, each retried on its own)
- * -> S3 stitches them into one object. The win over a single PUT is that a blip costs one 16 MiB
- * part instead of restarting a 400 MB video.
- */
 async function uploadInParts(options: ObjectUploadOptions, mediaType: MediaType, mimeType: string): Promise<UploadTarget> {
   const { file, linkedRecordType, linkedRecordId, onProgress, onObjectKey, signal } = options;
   const create = await apiRetry<MultipartCreateResponse>("/media/multipart/create", {
@@ -597,8 +426,6 @@ async function uploadInParts(options: ObjectUploadOptions, mediaType: MediaType,
     let lastError: unknown;
     for (let attempt = 1; attempt <= PART_MAX_ATTEMPTS; attempt += 1) {
       try {
-        // Content-Type is deliberately unset: the part presign does not sign it, so sending one
-        // would not match the signature. `File.slice` yields a type-less Blob, so XHR sends none.
         const { etag } = await putBlob({
           url,
           body: file.slice(start, Math.min(file.size, start + create.partSize)),
@@ -614,8 +441,6 @@ async function uploadInParts(options: ObjectUploadOptions, mediaType: MediaType,
         lastError = error;
         loaded[partNumber - 1] = 0;
         report();
-        // A 403 on a part means the hour-long part signature expired mid-transfer — re-sign just
-        // that part rather than failing (and restarting) a multi-hundred-megabyte upload.
         if (error instanceof StorageError && error.status === 403) {
           const refreshed = await presignParts([partNumber]).catch(() => null);
           const fresh = refreshed?.urls?.[String(partNumber)];
@@ -628,9 +453,6 @@ async function uploadInParts(options: ObjectUploadOptions, mediaType: MediaType,
   }
 
   try {
-    // Probe part 1 on its own. S3 identifies each part by the ETag it returns, which the browser can
-    // only read when the bucket's CORS rule lists ETag under ExposeHeaders — if it does not, NO
-    // multipart upload can ever be completed from a browser, so find out after 16 MiB, not 400 MB.
     const firstEtag = await sendPart(1);
     if (!firstEtag) throw new EtagUnavailableError();
     etags[0] = firstEtag;
@@ -649,8 +471,6 @@ async function uploadInParts(options: ObjectUploadOptions, mediaType: MediaType,
     });
     return { objectKey: done.objectKey, bucket: done.bucket, publicUrl: done.publicUrl ?? null };
   } catch (error) {
-    // Never leave half-written parts behind: they are billable, invisible, and never expire on their
-    // own unless the bucket has a lifecycle rule for them.
     await apiFetch("/media/multipart/abort", {
       method: "POST",
       body: JSON.stringify({ objectKey: create.objectKey, uploadId: create.uploadId })
@@ -666,18 +486,12 @@ async function uploadInParts(options: ObjectUploadOptions, mediaType: MediaType,
   }
 }
 
-// ---------------------------------------------------------------------------
-// Staged-object journal — nothing we upload is ever allowed to become a silent orphan
-// ---------------------------------------------------------------------------
-
 const STAGED_JOURNAL_KEY = "field_repo_staged_objects";
-/** A journalled key untouched for this long is assumed abandoned (closed tab, crash, navigation). */
 const STAGED_STALE_MS = 5 * 60 * 1000;
 const STAGED_HEARTBEAT_MS = 60 * 1000;
 const STAGED_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 const STAGED_SWEEP_BATCH = 20;
 
-/** Keys this tab is actively using — heart-beaten, and never swept out from under a live form. */
 const liveObjectKeys = new Set<string>();
 let heartbeatTimer: number | null = null;
 let sweepTimer: number | null = null;
@@ -699,7 +513,6 @@ function writeJournal(entries: Record<string, number>) {
   try {
     window.localStorage.setItem(STAGED_JOURNAL_KEY, JSON.stringify(entries));
   } catch {
-    // Private mode / quota: the journal is a safety net, never a hard dependency.
   }
 }
 
@@ -720,11 +533,6 @@ function forgetStagedObject(objectKey: string) {
   }
 }
 
-/**
- * Keep every key this tab still owns looking fresh. A tab that closes (or a form the user navigated
- * away from) stops refreshing, and its keys age past STAGED_STALE_MS into the sweeper's sights —
- * which is what makes it safe to delete stale objects without ever hitting a form still in use.
- */
 function startHeartbeat() {
   if (heartbeatTimer !== null || typeof window === "undefined") return;
   heartbeatTimer = window.setInterval(() => {
@@ -748,13 +556,10 @@ async function deleteStagedObject(objectKey: string) {
     await apiFetch<void>(`/media/object?objectKey=${encodeURIComponent(objectKey)}`, { method: "DELETE" });
     forgetStagedObject(objectKey);
   } catch (error) {
-    // 403 / 404 / 409 are all terminal answers ("not yours" / "gone" / "now attached to a record"),
-    // so stop tracking it. A transport failure keeps the journal entry for the next sweep.
     if (error instanceof ApiError) forgetStagedObject(objectKey);
   }
 }
 
-/** Delete a staged object during page unload, where a normal fetch would be cancelled mid-flight. */
 function beaconDeleteStagedObject(objectKey: string) {
   if (!getSessionMarker()) return;
   liveObjectKeys.delete(objectKey);
@@ -764,16 +569,9 @@ function beaconDeleteStagedObject(objectKey: string) {
       keepalive: true
     }).catch(() => undefined);
   } catch {
-    // Best effort only — the journal sweep is the durable backstop.
   }
 }
 
-/**
- * Delete staged objects nobody claimed: uploads whose `/media/complete` never ran because the tab
- * was closed, the browser crashed, or the record was simply abandoned. Safe by construction — a key
- * still being used by THIS tab is in `liveObjectKeys`, and one used by another tab is still being
- * heart-beaten, so only genuinely stale keys are touched.
- */
 export async function sweepStagedObjects(): Promise<number> {
   if (typeof window === "undefined" || !getSessionMarker()) return 0;
   const journal = readJournal();
@@ -787,12 +585,10 @@ export async function sweepStagedObjects(): Promise<number> {
   return stale.length;
 }
 
-/** Run the orphan sweep shortly after the first media surface mounts, then periodically. */
 export function scheduleStagedObjectSweep() {
   if (typeof window === "undefined") return;
   if (!sweptThisSession) {
     sweptThisSession = true;
-    // Let the page finish its own data fetches first; abandoned objects are in no hurry.
     window.setTimeout(() => void sweepStagedObjects(), 4_000);
   }
   if (sweepTimer === null) {
@@ -800,13 +596,8 @@ export function scheduleStagedObjectSweep() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Eager pre-upload store
-// ---------------------------------------------------------------------------
-
 export type StageStatus = "uploading" | "ready" | "error";
 
-/** The read-only view of one eagerly-uploading attachment, as rendered by the capture UI. */
 export type StageEntry = {
   file: File;
   status: StageStatus;
@@ -817,11 +608,6 @@ export type StageEntry = {
   staged: StagedObject | null;
 };
 
-/**
- * Identity is the primary key, but a few call sites rename a File before saving
- * (`new File([file], niceName, …)`), which keeps the bytes and drops the object identity. Size +
- * last-modified + MIME survives that rename and is what the fallback match uses.
- */
 function signatureOf(file: File): string {
   return `${file.size}:${file.lastModified}:${file.type}`;
 }
@@ -842,8 +628,6 @@ class StageRecord {
     this.file = file;
     this.signature = signatureOf(file);
     this.promise = runStage(this);
-    // Nobody may be awaiting yet (the record is saved minutes later) — keep Node/browsers from
-    // reporting an unhandled rejection. The original promise still rejects for real awaiters.
     void this.promise.catch(() => undefined);
   }
 
@@ -889,7 +673,6 @@ export function getServerStagingSnapshot(): ReadonlyMap<File, StageEntry> {
   return EMPTY_STAGING;
 }
 
-/** Whole-percent throttling, so a 400 MB video does not re-render the tile grid thousands of times. */
 function setStageProgress(record: StageRecord, loaded: number) {
   const before = record.total > 0 ? Math.floor((record.loaded * 100) / record.total) : 0;
   const after = record.total > 0 ? Math.floor((loaded * 100) / record.total) : 0;
@@ -917,7 +700,6 @@ async function runStage(record: StageRecord): Promise<StagedObject> {
   } catch (error) {
     record.status = "error";
     record.error = error instanceof Error ? error.message : "Upload failed";
-    // Let the sweeper reclaim whatever the failed attempt left behind.
     if (record.objectKey) liveObjectKeys.delete(record.objectKey);
     notifyStaging();
     throw error;
@@ -933,12 +715,9 @@ function installLifecycleHooks() {
     const busy = Array.from(stagedByFile.values()).some((record) => record.status === "uploading");
     if (!busy) return;
     event.preventDefault();
-    // Still required by Chrome/Safari to actually show the "leave site?" prompt.
     event.returnValue = "";
   });
   window.addEventListener("pagehide", (event) => {
-    // A bfcache freeze may be restored with the form (and its attachments) intact — deleting the
-    // staged objects there would silently break a page the user is about to come back to.
     if (event.persisted) return;
     stagedByFile.forEach((record) => {
       record.controller.abort();
@@ -948,11 +727,6 @@ function installLifecycleHooks() {
   });
 }
 
-/**
- * Start streaming every newly attached file to object storage right now. Idempotent per File, so a
- * component may call it on every render pass; `ownerId` ties the files to the surface that attached
- * them so they can be cleaned up when it goes away.
- */
 export function stageFiles(files: File[], ownerId: string) {
   if (typeof window === "undefined" || !getSessionMarker()) return;
   cancelStagedOwnerRelease(ownerId);
@@ -960,7 +734,6 @@ export function stageFiles(files: File[], ownerId: string) {
   scheduleStagedObjectSweep();
   let changed = false;
   files.forEach((file) => {
-    // Presign rejects a zero-byte file (sizeBytes > 0); let the save path report that clearly.
     if (file.size === 0) return;
     let record = stagedByFile.get(file);
     if (!record) {
@@ -973,7 +746,6 @@ export function stageFiles(files: File[], ownerId: string) {
   if (changed) notifyStaging();
 }
 
-/** Abort a still-running eager upload and bin whatever it already wrote (the user pressed ✕). */
 export function discardStagedFile(file: File) {
   const record = stagedByFile.get(file);
   if (!record) return;
@@ -983,7 +755,6 @@ export function discardStagedFile(file: File) {
   discardRecordObject(record);
 }
 
-/** Re-run a failed eager upload from scratch (the per-file "Retry" affordance). */
 export function retryStagedFile(file: File) {
   const previous = stagedByFile.get(file);
   if (!previous) return;
@@ -1005,12 +776,6 @@ function cancelStagedOwnerRelease(ownerId: string) {
   releaseTimers.delete(ownerId);
 }
 
-/**
- * The surface that attached these files is gone (unmounted, or the user navigated away in the SPA).
- * Anything nobody else owns is aborted and deleted — after a short grace period, because React's
- * StrictMode tears every effect down and immediately re-runs it on mount in development, and that
- * must not throw away a perfectly good in-flight upload.
- */
 export function releaseStagedOwner(ownerId: string) {
   if (typeof window === "undefined") return;
   cancelStagedOwnerRelease(ownerId);
@@ -1040,10 +805,6 @@ function discardRecordObject(record: StageRecord) {
     });
 }
 
-/**
- * Claim the staged uploads for these files, synchronously and before any await, so a form that
- * unmounts the instant it saves can never delete an object the save is about to link.
- */
 function takeStagedFor(files: File[]): Array<StageRecord | null> {
   const taken = new Array<StageRecord | null>(files.length).fill(null);
   const unmatched: number[] = [];
@@ -1066,8 +827,6 @@ function takeStagedFor(files: File[]): Array<StageRecord | null> {
     unmatched.forEach((index) => {
       const signature = signatureOf(files[index]);
       const candidates = bySignature.get(signature);
-      // Only an UNAMBIGUOUS signature match is honoured: attaching the wrong photo to a record is
-      // far worse than re-uploading a file whose eager copy we could not confidently identify.
       if (!candidates || candidates.length !== 1) return;
       const record = candidates[0];
       stagedByFile.delete(record.file);
@@ -1079,7 +838,6 @@ function takeStagedFor(files: File[]): Array<StageRecord | null> {
   return taken;
 }
 
-/** Await a claimed eager upload, forwarding its live byte progress to the batch's progress bar. */
 async function awaitStaged(record: StageRecord, onProgress?: (loaded: number, total: number) => void) {
   if (!onProgress) return record.promise;
   onProgress(record.loaded, record.total);
@@ -1090,10 +848,6 @@ async function awaitStaged(record: StageRecord, onProgress?: (loaded: number, to
     unsubscribe();
   }
 }
-
-// ---------------------------------------------------------------------------
-// Save-time: link the staged object, or upload it now
-// ---------------------------------------------------------------------------
 
 type CompleteParams = {
   caption?: string;
@@ -1106,14 +860,11 @@ type CompleteParams = {
   processingRequests: string[];
 };
 
-function resolveProcessing(file: File, transcribeAudio: boolean, requested?: string[]): string[] {
-  const queued = new Set(requested ?? []);
-  if (inferMediaType(file) === "AUDIO" && transcribeAudio) queued.add("TRANSCRIPTION");
-  return Array.from(queued);
+function resolveProcessing(file: File, requested: string[] | undefined, always: boolean, flag?: boolean): string[] {
+  return processingFor(file, requested, { always, flag });
 }
 
 async function completeUpload(file: File, staged: StagedObject, params: CompleteParams): Promise<MediaFile> {
-  // Safe to retry: the API de-duplicates on objectKey and returns the row the first call created.
   return apiRetry<MediaFile>("/media/complete", {
     method: "POST",
     body: JSON.stringify({
@@ -1137,11 +888,6 @@ async function completeUpload(file: File, staged: StagedObject, params: Complete
   });
 }
 
-/**
- * The one path every upload takes at save time: prefer the eagerly pre-uploaded object (awaiting it
- * if it is still in flight), fall back to a fresh upload when there is none or it failed, then link
- * the object to the record.
- */
 async function linkOrUpload({
   file,
   record,
@@ -1156,7 +902,6 @@ async function linkOrUpload({
   let staged: StagedObject | null = null;
   if (record) {
     if (record.status === "error") {
-      // The eager attempt gave up; bin what it left behind and upload from scratch below.
       discardRecordObject(record);
     } else {
       try {
@@ -1176,7 +921,6 @@ async function linkOrUpload({
     });
   }
   const media = await completeUpload(file, staged, params);
-  // Linked: it is a real MediaFile now, not an orphan candidate.
   forgetStagedObject(staged.objectKey);
   return media;
 }
@@ -1190,7 +934,8 @@ export async function uploadMediaFile({
   extraMetadata,
   recordedAt,
   recordedTimezone,
-  transcribeAudio = true,
+  alwaysTranscribe = false,
+  transcribe,
   processingRequests,
   onProgress
 }: {
@@ -1202,7 +947,8 @@ export async function uploadMediaFile({
   extraMetadata?: Record<string, unknown>;
   recordedAt?: string;
   recordedTimezone?: string;
-  transcribeAudio?: boolean;
+  alwaysTranscribe?: boolean;
+  transcribe?: boolean;
   processingRequests?: string[];
   onProgress?: (loaded: number, total: number) => void;
 }) {
@@ -1219,7 +965,7 @@ export async function uploadMediaFile({
       extraMetadata,
       recordedAt,
       recordedTimezone,
-      processingRequests: resolveProcessing(file, transcribeAudio, processingRequests)
+      processingRequests: resolveProcessing(file, processingRequests, alwaysTranscribe, transcribe)
     }
   });
 }
@@ -1232,11 +978,6 @@ export type BatchProgress = {
   fraction: number;
   etaSeconds: number | null;
   currentFileName: string;
-  /**
-   * The in-memory files this batch is sending, in the caller's order — the SAME objects the transfer
-   * reads, never copies. Progress rows draw a "Download" control per file from them, so a person can
-   * keep their own file while the upload is still running.
-   */
   files?: File[];
 };
 
@@ -1245,12 +986,6 @@ export type BatchResult = {
   failed: Array<{ name: string; error: string }>;
 };
 
-/**
- * Upload many files resiliently: files that were eagerly pre-uploaded only need linking (so saving is
- * near-instant), the rest transfer now — up to {@link UPLOAD_CONCURRENCY} at a time. Each file
- * retries independently, a failure of one does not abort the rest, results keep the caller's order,
- * and per-byte progress + ETA is reported across the whole batch.
- */
 export async function uploadMediaBatch({
   files,
   linkedRecordType,
@@ -1260,13 +995,12 @@ export async function uploadMediaBatch({
   extraMetadata,
   recordedAt,
   recordedTimezone,
-  transcribeAudio = true,
+  alwaysTranscribe = false,
+  transcribe,
   processingRequests,
   onProgress
 }: {
   files: File[];
-  // Nullable so the Miscellaneous Media page (where the linked entry is optional) can share this
-  // path instead of keeping its own upload implementation.
   linkedRecordType?: string | null;
   linkedRecordId?: string | null;
   caption?: string;
@@ -1274,11 +1008,11 @@ export async function uploadMediaBatch({
   extraMetadata?: Record<string, unknown>;
   recordedAt?: string;
   recordedTimezone?: string;
-  transcribeAudio?: boolean;
+  alwaysTranscribe?: boolean;
+  transcribe?: readonly (boolean | undefined)[];
   processingRequests?: string[];
   onProgress?: (progress: BatchProgress) => void;
 }): Promise<BatchResult> {
-  // Claimed synchronously, before the first await, so nothing can reclaim these objects mid-save.
   const records = takeStagedFor(files);
   const uploadedByIndex = new Array<MediaFile | null>(files.length).fill(null);
   const failed: Array<{ name: string; error: string }> = [];
@@ -1327,20 +1061,17 @@ export async function uploadMediaBatch({
           extraMetadata,
           recordedAt,
           recordedTimezone,
-          processingRequests: resolveProcessing(file, transcribeAudio, processingRequests)
+          processingRequests: resolveProcessing(file, processingRequests, alwaysTranscribe, transcribe?.[index])
         }
       });
     } catch (error) {
       failed.push({ name: file.name, error: error instanceof Error ? error.message : "Upload failed" });
     }
-    // Settled either way — count its bytes so the bar still reaches the end of the batch.
     loaded[index] = file.size;
     completedFiles += 1;
     report();
   });
 
-  // Total failure (nothing got through) is escalated so every caller surfaces it — the record was
-  // already saved before this ran, so the fix is to retry the media, not redo the whole form.
   if (files.length > 0 && failed.length === files.length) {
     throw new Error(
       `No files uploaded (${failed[0]?.error ?? "network error"}). The record was saved — reopen it to re-attach.`
@@ -1367,26 +1098,6 @@ export async function transcribeMediaFile(file: File, mediaType = inferMediaType
   };
 }
 
-/**
- * HOW A DIMENSION CAME TO BE KNOWN, in the shape a client echoes back UNCHANGED when it saves the
- * value it was given.
- *
- * The API's `measurement_provenance` service composes this and reads it back off the save body; the
- * server then writes the method BESIDE the `{by, byName, at}` stamp `records.merge_field_provenance`
- * already writes, so the row reads *a vision model estimated this, and this person accepted it into
- * the record at that moment* rather than as a measurement that person took.
- *
- * DELIBERATELY ONE FORMAT FOR EVERY ORIGIN — a client composes the same shape by hand for the
- * on-device geometry path (`{method: "PHOTO_GEOMETRY", technique: "SCALE" | "RECTIFIED"}`, built by
- * `lib/photoMeasure.ts`'s `methodMarker`) and echoes the server's own for a vision reading. Keys
- * whose answer is not a known fact are OMITTED rather than sent as a placeholder: a `provider` on a
- * hand-typed dimension is a question that does not apply.
- *
- * SENDING NOTHING IS LEGAL AND MEANS `UNRECORDED`; **it must never mean TYPED.** The rows already in
- * this database include model estimates that auto-filled a form field, so defaulting an absent marker
- * to TYPED would assert a human measured a number a machine guessed, for exactly the rows where the
- * assertion is false.
- */
 export type MeasurementMethodMarker = {
   method: string;
   provider?: string;
@@ -1395,23 +1106,6 @@ export type MeasurementMethodMarker = {
   technique?: string;
 };
 
-/**
- * What `POST /media/analyze-measurement` answers with.
- *
- * EVERY PROVENANCE KEY IS OPTIONAL, and that is not laziness. A web build outlives a backend deploy
- * — the web ships to Vercel and the API to EC2, separately — and a client that required
- * `methodMarker` would break outright against a server that predates it. An absent marker is read as
- * "this server does not say", never as "typed".
- *
- * `requiresAcceptance` is a statement about what kind of thing this endpoint produces, not about one
- * reading. Nothing here branches on it — `components/media/gridProposal.ts` treats every reading as a
- * proposal UNCONDITIONALLY, which is the stronger reading of the same rule — but it is declared so a
- * future caller can see that the server has an opinion about it.
- *
- * `confidenceIsCalibrated` exists so `selfReportedConfidence` can never be mistaken for a measured
- * error bar — which is what `lib/photoMeasure.ts`'s `uncertainty` is, and the two must not look alike
- * on a wire that carries both.
- */
 export type MeasurementAnalysisResponse = {
   available: boolean;
   status: string;
@@ -1431,18 +1125,6 @@ export type MeasurementAnalysisResponse = {
   methodMarker?: MeasurementMethodMarker | null;
 };
 
-/**
- * Send one grid photograph to be read.
- *
- * THROWS RATHER THAN RETURNING A VERDICT, and the classification lives in `lib/measurementFailure.ts`
- * — `classifyMeasurementFailure` for what this throws, `measurementBodyFailure` for the two 200
- * bodies that are failures anyway. Kept apart so that this function is only the wire and the
- * sentences are only in one place; `components/media/gridProposal.ts` is the caller that reads both.
- *
- * NETWORK-ONLY, AND IT IS THE ONE MEASUREMENT PATH THAT IS. This route is not enqueueable: no outbox,
- * no retry, nothing banked. `components/media/RecordPhotoMeasure.tsx` is the on-device path and needs
- * no connection at all, which is why it is the primary one on both record forms.
- */
 export async function analyzeMeasurementImage(file: File, dimension?: "length" | "breadth" | "height") {
   const form = new FormData();
   form.append("file", file);

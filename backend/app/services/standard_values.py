@@ -1,46 +1,3 @@
-"""Standard values shared by both portals (convergence point 10): phone, language, gender, tool
-tradition and material family.
-
-The lists live in ``app/data/standard_values.json``. That file, this module and
-``tests/test_standard_values.py`` are byte-identical in the designer portal and the documentation
-portal, and ``shared/standard-values-vectors.json`` (repository root) holds the input -> output
-pairs the server, the web client and the Android app are all tested against. Change both
-repositories together.
-
-WHAT IS STORED
---------------
-* Phone: the country code in ``phoneCountryCode`` (``"+91"`` when none is given) and the national
-  number as ASCII digits only in ``phone``. ``+91`` takes exactly 10 digits; any other code takes
-  4 to 14 digits, and never more than E.164's 15 digits counting the code. Shown as
-  ``"+91 98765 43210"``.
-* Language: a standard code (ISO 639-1, or ISO 639-2/3 where a language has no two-letter code),
-  shown by its name. ``"Bengali"`` is the standard spelling, so ``"Bangla"`` and ``"Bengla"`` store
-  ``"bn"``.
-* Gender: the label (``"Male"``, ``"Female"``, ``"Transgender"``, ``"Other"``), which is what both
-  portals have always stored and printed. The code beside it is for the merged platform.
-* Tool tradition: the ``TraditionType`` enum code, one of three answers shown as "Traditional",
-  "Contemporary" and "Transitional (Hybrid)" (owner decision, 2026-10-19), the same three tokens
-  as the designer portal's stage registry; ``UNKNOWN`` is the unanswered default and is never
-  offered. ``MODERN`` and ``HYBRID``, the codes before that decision, stay in the enum so older rows
-  and older builds still load; they read as their successors (``retiredTraditionCodes``), and the
-  normalisation script rewrites the rows.
-* Tool material family: a code from the material list, beside the free ``material`` description.
-
-HOW INPUT IS MATCHED
---------------------
-:func:`fold` lower-cases and turns every run of spaces and the punctuation people type between
-words into one space. It is written with an explicit character class, not ``\\s``, because ``\\s``
-means a different set in Python, JavaScript and Kotlin, and the three clients must agree on every
-input. Nothing is guessed: an input that matches no code, label or alias is refused, or, in the
-normalisation scripts, reported for the owner.
-
-A SAVE THAT RE-SENDS A STORED LEGACY VALUE IS NOT REFUSED. An editor who opens an old record and
-saves it re-sends whatever is stored. The ``apply_*`` helpers leave a value alone when it equals
-the stored one, so legacy rows stay editable until the normalisation script cleans them.
-
-PURE: imports nothing from the app, so the scripts and the DB-free tests can use it.
-"""
-
 from __future__ import annotations
 
 import json
@@ -58,10 +15,7 @@ LANGUAGE_MESSAGE = "Choose a language from the list."
 TRADITION_MESSAGE = "Choose a tradition type from the list."
 MATERIAL_MESSAGE = "Choose a material type from the list."
 
-#: Spaces, the no-break space, ASCII and Unicode hyphens/dashes, and the punctuation people type
-#: between words. Spelled out so Python, JavaScript and Kotlin match the same set.
 _FOLD_SEPARATORS = re.compile("[ \t\r\n ‐-―_./,()\\[\\]-]+")
-#: What may sit between the digits of a phone number.
 _PHONE_SEPARATORS = re.compile("[ \t\r\n ‐-―().-]+")
 _ASCII_DIGITS = re.compile(r"[0-9]+")
 _COUNTRY_CODE = re.compile(r"\+[1-9][0-9]{0,3}")
@@ -69,8 +23,6 @@ _LANGUAGE_TAG = re.compile(r"([a-z]{2,3})[-_][a-z]{2}")
 
 
 class StandardValueError(ValueError):
-    """A value that is not on its list. ``field`` is the column, ``message`` the sentence to show."""
-
     def __init__(self, field: str, message: str) -> None:
         super().__init__(message)
         self.field = field
@@ -78,7 +30,6 @@ class StandardValueError(ValueError):
 
 
 def fold(text: Any) -> str:
-    """The form inputs are compared in: lower case, separators collapsed to one space, trimmed."""
     if text is None:
         return ""
     return _FOLD_SEPARATORS.sub(" ", str(text).lower()).strip()
@@ -90,7 +41,6 @@ def shared() -> dict[str, Any]:
 
 
 def _index(list_key: str, value_key: str, label_key: str) -> dict[str, str]:
-    """folded code, label and every alias -> the stored value."""
     out: dict[str, str] = {}
     for entry in shared()[list_key]:
         stored = entry[value_key]
@@ -125,15 +75,12 @@ def _normalise(list_key: str, field: str, message: str, value: Any) -> str | Non
     return found
 
 
-# ── Lists ─────────────────────────────────────────────────────────────────────────────────────
-
 
 def language_codes() -> list[str]:
     return [entry["code"] for entry in shared()["languages"]]
 
 
 def language_name(code: Any) -> str | None:
-    """The name a stored language code is shown by; a legacy free-text value is shown as stored."""
     if _blank(code):
         return None
     for entry in shared()["languages"]:
@@ -154,17 +101,14 @@ def material_family_codes() -> list[str]:
     return [entry["code"] for entry in shared()["materialFamilies"]]
 
 
-#: The stored state of a tradition question nobody answered. Never one of the offered answers.
 TRADITION_UNANSWERED = "UNKNOWN"
 
 
 def retired_tradition_codes() -> dict[str, str]:
-    """``{"MODERN": "CONTEMPORARY", "HYBRID": "TRANSITIONAL"}``: enum members no form writes now."""
     return dict(shared()["retiredTraditionCodes"])
 
 
 def tradition_options() -> list[dict[str, str]]:
-    """The answers a form offers, in order: every entry but the unanswered default."""
     return [
         {"code": entry["code"], "label": entry["label"]}
         for entry in shared()["traditionTypes"]
@@ -173,7 +117,6 @@ def tradition_options() -> list[dict[str, str]]:
 
 
 def tradition_label(code: Any) -> str | None:
-    """The label a stored code is shown by; a retired code reads as its successor's label."""
     code = retired_tradition_codes().get(code, code)
     for entry in shared()["traditionTypes"]:
         if entry["code"] == code:
@@ -187,8 +130,6 @@ def material_family_label(code: Any) -> str | None:
             return entry["label"]
     return None
 
-
-# ── Normalisers (raise StandardValueError; blank -> None) ────────────────────────────────────
 
 
 def normalize_language(value: Any) -> str | None:
@@ -208,11 +149,6 @@ def normalize_material_family(value: Any) -> str | None:
 
 
 def material_family_from_text(text: Any) -> str | None:
-    """The one material family a free description names, or None when it names none or several.
-
-    "Iron" -> METAL; "mango wood with an iron collar" names WOOD and METAL, so None. Used by the
-    normalisation scripts to PROPOSE a family; the write path never fills it in by itself.
-    """
     folded = f" {fold(text)} "
     if not folded.strip():
         return None
@@ -224,8 +160,6 @@ def material_family_from_text(text: Any) -> str | None:
             found.add(code)
     return found.pop() if len(found) == 1 else None
 
-
-# ── Phone ────────────────────────────────────────────────────────────────────────────────────
 
 
 def default_country_code() -> str:
@@ -249,7 +183,6 @@ def phone_message(code: str) -> str:
 
 
 def normalize_country_code(value: Any) -> str:
-    """``"+91"``, ``"91"`` and ``"0091"`` -> ``"+91"``; blank -> the default. Raises when malformed."""
     if _blank(value):
         return default_country_code()
     text = _PHONE_SEPARATORS.sub("", str(value))
@@ -263,13 +196,6 @@ def normalize_country_code(value: Any) -> str:
 
 
 def normalize_phone(country_code: Any, number: Any) -> tuple[str | None, str | None]:
-    """``(code, digits)`` for a number typed in any common form; ``(None, None)`` when blank.
-
-    Accepted for +91: ``9876543210``, ``09876543210``, ``919876543210``, ``+919876543210``,
-    ``+91 98765 43210``, ``98765-43210``. A number that carries its own ``+code`` keeps that code
-    (that is how older app builds send it). Raises :class:`StandardValueError` when the number is
-    not a phone number for that code.
-    """
     if _blank(number):
         return None, None
     raw = str(number).strip()
@@ -283,7 +209,6 @@ def normalize_phone(country_code: Any, number: Any) -> tuple[str | None, str | N
         elif compact.startswith("+91"):
             code, compact = "+91", compact[3:]
         else:
-            # "+44 2071234567": the code is what comes before the first separator.
             head = re.split("[ \t ‐-―-]", raw, maxsplit=1)
             embedded = _PHONE_SEPARATORS.sub("", head[0]) if len(head) == 2 else ""
             if not _COUNTRY_CODE.fullmatch(embedded):
@@ -304,7 +229,6 @@ def normalize_phone(country_code: Any, number: Any) -> tuple[str | None, str | N
 
 
 def split_legacy_phone(stored: Any) -> tuple[str, str]:
-    """A stored value from before the country-code column, as ``(code, digits)``, unvalidated."""
     text = "" if stored is None else str(stored).strip()
     try:
         code, digits = normalize_phone(None, text)
@@ -314,7 +238,6 @@ def split_legacy_phone(stored: Any) -> tuple[str, str]:
 
 
 def format_phone(country_code: Any, number: Any) -> str | None:
-    """``"+91 98765 43210"``. A legacy value that does not normalise is shown as stored."""
     if _blank(number):
         return None
     try:
@@ -327,7 +250,6 @@ def format_phone(country_code: Any, number: Any) -> str | None:
 
 
 def compose_phone(country_code: Any, number: Any) -> str | None:
-    """``"+91 9876543210"``: the one-string shape the designer portal's stage boxes carry."""
     if _blank(number):
         return None
     try:
@@ -338,12 +260,9 @@ def compose_phone(country_code: Any, number: Any) -> str | None:
 
 
 def phone_of(row: Any) -> str | None:
-    """:func:`format_phone` for a record (an object or a dict) carrying both columns."""
     get = row.get if isinstance(row, dict) else lambda key: getattr(row, key, None)
     return format_phone(get("phoneCountryCode"), get("phone"))
 
-
-# ── Write-path helpers (mutate ``data``; raise StandardValueError) ───────────────────────────
 
 
 def _stored(stored: Any, key: str) -> Any:
@@ -355,7 +274,6 @@ def _stored(stored: Any, key: str) -> Any:
 
 
 def _loose_pair(code: Any, number: Any) -> tuple[str, str]:
-    """The same number however a client re-sends it: the stored one-string form, or code + digits."""
     text = "" if number is None else str(number).strip()
     if not _blank(code) and not text.startswith("+"):
         text = f"{code} {text}"
@@ -363,15 +281,9 @@ def _loose_pair(code: Any, number: Any) -> tuple[str, str]:
 
 
 def apply_phone(data: dict[str, Any], stored: Any = None) -> dict[str, Any]:
-    """Write ``phone`` as digits and ``phoneCountryCode`` beside it.
-
-    Only acts when the body carries either key. Re-sending the stored value unchanged is not
-    refused, so a legacy row stays editable. Clearing the number clears the code.
-    """
     if "phone" not in data and "phoneCountryCode" not in data:
         return data
     if "phone" not in data and _blank(data["phoneCountryCode"]):
-        # An explicit null on the code alone clears it; the number then reads as +91, the default.
         data["phoneCountryCode"] = None
         return data
     number = data.get("phone", _stored(stored, "phone"))
@@ -437,7 +349,6 @@ def apply_interview_values(data: dict[str, Any], stored: Any = None) -> dict[str
 
 
 def catalogue() -> dict[str, Any]:
-    """What ``GET /reference/standard-values`` serves: the lists, without the input aliases."""
     values = shared()
     return {
         "version": values["version"],

@@ -5,11 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/**
- * The assertion that matters here is that `%%BoundingBox` actually encloses the geometry. It is
- * what a placing application uses to size the frame, so a box that is one point short silently
- * crops the artwork rather than failing.
- */
 class EpsWriterTest {
 
     private fun text(bytes: ByteArray) = String(bytes, Charsets.US_ASCII)
@@ -47,8 +42,6 @@ class EpsWriterTest {
         val by1 = m.groupValues[4].toInt()
         assertTrue(bx1 > bx0 && by1 > by0, "the box must be non-degenerate")
 
-        // The same geometry, transformed into EPS space by hand: at 72 dpi a document unit is a
-        // point, and y is measured up from the bottom of the page.
         val g = assertNotNull(ExportGeom.geometryBounds(doc), "the fixture has geometry")
         val gx0 = g[0]
         val gx1 = g[2]
@@ -59,7 +52,6 @@ class EpsWriterTest {
         assertTrue(bx1 >= gx1, "box right $bx1 must not crop geometry at $gx1")
         assertTrue(by1 >= gy1, "box top $by1 must not crop geometry at $gy1")
 
-        // It must also cover the page itself, so a placed EPS keeps the artboard proportions.
         assertTrue(bx0 <= 0 && by0 <= 0)
         assertTrue(bx1 >= Fixtures.DOC_W.toInt() && by1 >= Fixtures.DOC_H.toInt())
     }
@@ -71,8 +63,6 @@ class EpsWriterTest {
         val hi = Regex("%%HiResBoundingBox: ([-\\d.]+) ([-\\d.]+) ([-\\d.]+) ([-\\d.]+)\n").find(s)
         assertNotNull(lo)
         assertNotNull(hi)
-        // The integer box is the high-resolution one rounded *outward*, never nearest: rounding
-        // inward crops by up to half a point on each side.
         assertTrue(lo.groupValues[1].toInt() <= hi.groupValues[1].toFloat())
         assertTrue(lo.groupValues[2].toInt() <= hi.groupValues[2].toFloat())
         assertTrue(lo.groupValues[3].toInt() >= hi.groupValues[3].toFloat())
@@ -107,7 +97,6 @@ class EpsWriterTest {
         val s = text(EpsWriter.export(Fixtures.document(), ExportOptions(ExportFormat.EPS, dpi = 300)))
         val hi = Regex("%%HiResBoundingBox: ([-\\d.]+) ([-\\d.]+) ([-\\d.]+) ([-\\d.]+)\n").find(s)
         assertNotNull(hi)
-        // 100 x 50 document pixels at 300 dpi is a 24 x 12 point page.
         assertEquals(24f, hi.groupValues[3].toFloat(), 0.01f)
         assertEquals(12f, hi.groupValues[4].toFloat(), 0.01f)
     }

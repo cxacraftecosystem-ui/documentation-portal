@@ -1,7 +1,14 @@
 # AI image features — background removal, layer separation, vectorisation
 
-**Status: dormant.** Every capability described here is off by default, nothing in the API imports
-the package, and none of its dependencies are installed anywhere. A fresh clone with no new
+> **Where the live AI is.** The transcript pipeline (Scribe v2 words, Gemini 3.8 Flash English,
+> summaries, Ask, autodraft, quote cards, the glossary, refine) is on in production and documented in
+> [TRANSCRIPT_PIPELINE.md](TRANSCRIPT_PIPELINE.md); its summaries are §10 here, and the 0.0.10 model
+> defaults close this file. `AI_FEATURES_ENABLED` and `AI_TRANSCRIPT_INSIGHTS_ENABLED` are written
+> `true` into the box by the deploy since 0.0.4. The three **image** capabilities below are a different
+> matter: each has its own flag, and all three are still off.
+
+**Status of the image capabilities: dormant.** Each is off by default, nothing on the request path
+imports them, and none of their dependencies are installed anywhere. A fresh clone with no new
 environment variables behaves exactly as it did before this document existed. That is deliberate:
 the features were built so they are *ready*, not so they are *running*.
 
@@ -70,8 +77,9 @@ by the probe, so nothing has to be looked up in a document to be trusted or dist
 
 ### The honest recommendation for the production box
 
-Production is one **t3.micro: 2 burstable vCPU, 1 GiB of RAM total**, already running uvicorn, the
-Prisma query engine and the media queue worker behind nginx behind CloudFront.
+Production is one **t3.small: 2 burstable vCPU, 2 GiB of RAM** (a t3.micro with 1 GiB until
+10 Oct 2026), already running uvicorn, the Prisma query engine and the media queue worker behind
+nginx behind CloudFront, with the idle blue/green port started beside them during a release.
 
 - **Do not run `rembg_local` there.** Measured on a laptop, `import rembg` alone took the process
   from 35 MB to 167 MB, building a U2Net session took it to 564 MB, and a single 1.9-megapixel
@@ -87,7 +95,8 @@ Prisma query engine and the media queue worker behind nginx behind CloudFront.
 - **`vtracer_local` is fine on the box** in the sense that it fits, but it is still 273 MB and
   seconds of CPU per image on two burstable vCPU. Run it from the queue and do not run two at once.
 
-There is no configuration in this package that will make local U2Net fit in 1 GiB. Anybody who
+There is no configuration in this package that will make local U2Net fit beside the API, the worker
+and a release on this box. Anybody who
 needs it needs a bigger machine, and pretending otherwise in a document would cost somebody an
 afternoon and an OOM kill.
 
@@ -110,11 +119,11 @@ back to `backend/.env` — the same file the rest of the backend uses. **All fla
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `AI_FEATURES_ENABLED` | `false` | Master switch. Everything below is inert while this is off. |
+| `AI_FEATURES_ENABLED` | `false` (production: `true`, pinned by the deploy) | Master switch. Everything below is inert while this is off. |
 | `AI_BACKGROUND_REMOVAL_ENABLED` | `false` | Capability 2. Needs the master switch too. |
 | `AI_FOREGROUND_SEPARATION_ENABLED` | `false` | Capability 1. Needs the master switch too. |
 | `AI_IMAGE_VECTORISATION_ENABLED` | `false` | Capability 3. Needs the master switch too. |
-| `AI_TRANSCRIPT_INSIGHTS_ENABLED` | `false` | Interview summaries, quotes and translations (§10). Needs the master switch too. |
+| `AI_TRANSCRIPT_INSIGHTS_ENABLED` | `false` (production: `true`, pinned by the deploy) | Interview summaries, quotes and translations (§10) and every `/api/transcripts` route. Needs the master switch too. |
 
 Two levels because the master switch is what an incident responder flips: one variable stops the
 whole package without having to work out which of three features is misbehaving.
@@ -236,7 +245,7 @@ AI_FEATURES_LOCAL_MODEL_DIR=/var/lib/fieldrepo/models   # must be writable
 ```
 
 plus `pip install -e '.[ai-local]'` (~400 MB of wheels) and a 176 MB model download on first call.
-**Not on the t3.micro.** The first call is slow — import, session build, download — and every call
+**Not on the production box.** The first call is slow — import, session build, download — and every call
 after it holds the session resident.
 
 ---
@@ -440,12 +449,15 @@ expect to spend ten minutes confirming it.
 
 ## 10. Interview summaries, key quotes and translations
 
-**Status: built, switched off (launch list D7, which waits on D2, the transcription quota).**
+**Status: on in production since 0.0.4 (31 Oct 2026).** Since 0.0.5 the one Gemini pass of the
+transcript pipeline writes the English of every turn together with the summary and quotes
+([TRANSCRIPT_PIPELINE.md](TRANSCRIPT_PIPELINE.md)); the job and the table below are that pass's
+summary half, and since 0.0.10 Android can edit and regenerate it too (H1).
 
 For every transcript, the queue writes a five-line English summary, up to five key quotes (the
 speaker's own words and their English) and, when the transcript is not in English, an English
 translation of the whole of it. Researchers see it under the transcript on the web and in the app;
-the uploader or an admin can edit it or regenerate it on the web. The app is read-only.
+the uploader or an admin can edit it or regenerate it, on the web and, since 0.0.10, in the app.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -474,9 +486,11 @@ researcher, so it runs on their key instead of being skipped.
 at once. A busy or unreachable provider retries. A failed translation keeps the summary and says
 only that the translation couldn't be finished, since read-only viewers and Android see it too.
 
-**What leaves the building.** The transcript text goes to OpenAI, Anthropic or Gemini, whichever key
-resolves. The Field Repository has no AI consent gate (the designer portal re-checks the artisan's
-consent before each send). Logs carry exception classes and ids, never text or keys.
+**What leaves the building.** The transcript text goes to Gemini on the deployment's key (OpenAI or
+Anthropic only when `AI_TEXT_PROVIDER` selects them, or when a person runs their own key). Since 0.0.5
+this portal re-reads consent before every external send, like the designer portal
+(`backend/app/services/transcript_portal.py`, `may_send`, through the one consent ledger), and a
+refusal sends nothing. Logs carry exception classes and ids, never text or keys.
 
 **Storage.** One `TranscriptInsight` row per run, with provider, model, model version and prompt
 version (`transcript-insights/1`). A regeneration keeps the old row with `supersededAt` set. An edit
@@ -508,3 +522,30 @@ it queues nothing twice.
 `backend/tests/test_transcript_insights_db.py` (real Postgres, opt-in with
 `TRANSCRIPT_INSIGHTS_DB_TESTS=1`); `frontend/e2e/transcript-insights-unit.spec.ts`;
 `android/app/src/test/java/com/fieldrepository/app/data/TranscriptInsightsDtoTest.kt`.
+
+
+## Release 0.0.10: AI fixes
+
+**Translation of unintelligible speech.** Gemini is told to write `[unclear]` when it cannot make out the original. Before 0.0.10 such an answer was shorter than 30% of the original, so the check that catches summaries rejected it twice and marked the turn FAILED. In the Field Repository on 3 November 2026 this happened to 16 single-turn transcripts made from older text transcripts (Hindi, Gujarati, Kannada, Tamil, Telugu and one with no detected language). Their source text was mostly repetitive or garbled speech-to-text output. From 0.0.10, an English answer that contains `[unclear]` skips the length check and the strict number check. An empty answer, or a short answer with no `[unclear]` marker, still fails. Digits in any Unicode script are read as ASCII digits when numbers are compared (`translate.numbers_in`).
+
+**Models.** `GEMINI_MEASUREMENT_MODEL` now defaults to `gemini-3.8-flash`. Grid measurement moves to `gemini-3.7-flash` when the configured model returns 404. Photo captions and identity OCR read the same setting. `OPENAI_CHAT_MODEL` now defaults to `gpt-6-luna` (GPT-6 Luna). An OpenAI model in the GPT-5, GPT-6 or o-series is sent no `temperature`, because those models accept only the default (`ai_providers.openai_sampling`). A box that sets either variable keeps its own value.
+
+**Refusals.** A Gemini prompt block (`promptFeedback.blockReason`), an empty candidate that finished for a safety reason, or an OpenAI `refusal` is now reported as declined (`ModelDeclined`), not as an empty answer. Text verbs return `REFUSED`, and the user sees that the model declined. They are not asked to try again. Transcript summaries close with `MODEL_DECLINED` and are not retried. Gemini's internal thought parts are never shown as the answer.
+
+**Billing and timeouts.** A provider's HTTP 402 is reported as "the service's credit has run out", not as a refused request. A summary job that hits 402 is held for 15 minutes and spends no attempt, as the Gemini transcript pipeline already does. A timeout is reported as "took too long to answer".
+
+**Text provider (coordinator decision, 4 November 2026).** Every text verb on the deployment's key (proofread, expand, summarise, translate, captions, refine transcript, answer drafts, transcript summaries) runs on Gemini 3.8 Flash and falls back to Gemini 3.7 Flash when 3.8 returns 404 (`ai_providers.post_gemini`, `gemini_models`). An OpenAI or Anthropic deployment key is not used for these jobs, even when it is configured, unless an operator sets `AI_TEXT_PROVIDER=OPENAI` or `AI_TEXT_PROVIDER=ANTHROPIC` in the box `.env`. A user's own key still runs their own choice. When OpenAI is selected, the default model is `gpt-6-luna` (GPT-6 Luna). When Anthropic is selected, the default model is `claude-sonnet-5-5` (Claude Sonnet 5.5). Transcription keeps its own provider order. On `GET /transcripts/{id}/versions`, cost and badges follow one rule: ADMIN, MASTER_ADMIN and MINISTRY_ADMIN see them, and no one else does.
+**Summary edit and regenerate on Android (H1).** Both apps now offer the web's Edit and Regenerate under a transcript's summary, gated by the server's `canEdit` and `canRegenerate`. Edit sends `PATCH /media/{id}/insights` with the version read, at most five lines of 400 characters and eight quotes, and the English only when it was opened for editing. Regenerate sends `POST /media/{id}/insights/regenerate` and, over a researcher's edits, asks "Regenerating replaces your edits." (Keep / Replace) before sending `discardEdits: true`. A version conflict, a consent refusal or a used-up allowance shows the server's own sentence. The logic is `data/TranscriptInsightEditing.kt`; the screens are `ui/TranscriptInsightEditor.kt`.
+**Refine transcript on the web (R1).** Under a stored transcript, the uploader and the content admins see Refine transcript and Refine & translate (`components/media/TranscriptRefine.tsx`, `lib/transcriptRefine.ts`, identical in both portals). The cost confirmation, its "Do not remind me again" switch (kept in this browser), the refined Markdown and Approve or Reject match Android. Approve saves through `POST /media/{id}/transcript`. Read-only record pages and held workshops show no control.
+
+## How this document is kept true
+
+| Claim class | Kept true by |
+|---|---|
+| Model ids and defaults | `backend/app/services/ai_providers.py` (`GEMINI_DEFAULT_MODEL`, `GEMINI_FALLBACK_MODEL`, the catalogue) and `backend/app/core/config.py`; re-read both when either changes |
+| The image capabilities and their flags | `backend/app/ai_features/settings.py`; the probe (§6) prints what is on |
+| MEASURED, ESTIMATED and VENDOR-STATED numbers | labelled where they appear; §7 says how each measurement was taken |
+| The transcript summaries (§10) | `backend/tests/test_transcript_insights.py` and the transcript pipeline's own tests, listed in [TRANSCRIPT_PIPELINE.md](TRANSCRIPT_PIPELINE.md) |
+| The production box | `infra/terraform/main.tf` (`instance_type`) |
+
+**Review triggers:** a model or provider default changes, a capability is switched on, or the box is resized.

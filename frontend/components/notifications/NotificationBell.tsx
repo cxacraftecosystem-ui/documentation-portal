@@ -6,12 +6,6 @@ import { Bell } from "lucide-react";
 import { useUnreadNotificationCount } from "@/components/hooks/useUnreadNotifications";
 import { badgeText, bellLabel, NOTIFICATIONS_HREF } from "@/lib/inAppNotifications";
 
-/**
- * The island's bell: opens the activity list, and carries the unread count.
- *
- * The count is drawn as a pill on the bell AND spoken as part of the link's name ("Notifications,
- * 3 unread"), so it is never a bare digit and never only a colour.
- */
 export function NotificationBell({ active }: { active: boolean }) {
   const unread = useUnreadNotificationCount(true);
   const text = badgeText(unread);

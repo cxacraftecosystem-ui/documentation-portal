@@ -41,12 +41,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/**
- * The questionnaire session screens on a device (UNIFY §5.4, Android): a guest session started with
- * no artisan, a locked answer with P15, the fix tray with "Send without the conflicting answers",
- * the take sheet's history and restore, the ● ✎ marks and the overrides on the grid, and the
- * version-code banner.
- */
 @RunWith(AndroidJUnit4::class)
 class QuestionnaireSessionUiTest {
     @get:Rule
@@ -112,8 +106,6 @@ class QuestionnaireSessionUiTest {
                 )
             }
         }
-        // The formatting toolbar is the rich box's (drawn while one of its blocks holds focus); a plain
-        // text field has none.
         compose.onAllNodes(androidx.compose.ui.test.hasSetTextAction()).onFirst().performClick()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Bold").assertIsDisplayed()
@@ -189,7 +181,6 @@ class QuestionnaireSessionUiTest {
                 )
             }
         }
-        // A phone shows one summary per section: two of three covered, typed, and the override.
         compose.onNodeWithText("D", substring = false).assertIsDisplayed()
         assertTrue(compose.onAllNodesWithText("✎", substring = true).fetchSemanticsNodes().isNotEmpty())
     }

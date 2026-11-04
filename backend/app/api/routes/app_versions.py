@@ -1,9 +1,3 @@
-"""``GET /api/admin/app-versions``: which builds are in use (audit H22; owner decision 5).
-
-Admins only. ``days`` (default 30) is the window: decision 5 sets the old-build cutoff once
-``accountsBelow`` has read zero for 30 days. See ``services/app_versions`` for what is recorded.
-"""
-
 from __future__ import annotations
 
 from typing import Any

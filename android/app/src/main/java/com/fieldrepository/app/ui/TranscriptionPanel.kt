@@ -48,14 +48,6 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/*
- * Settings → API keys → Transcription on a phone. The Android half of the shared web panel
- * (`frontend/components/settings/TranscriptionPanel.tsx`): the pause, providers on/off, monthly
- * minute budgets, spend this month, active cooldowns, recent problems, and the dry-run "Check failed
- * transcriptions". [canChange] is the master admin's; an admin reads. Never scrolls itself — it
- * renders inside the admin hub's own `verticalScroll`, like [ProviderOrderPanel].
- */
-
 @Stable
 class TranscriptionPanelState internal constructor(
     private val api: TranscriptionSettingsApi,
@@ -216,7 +208,6 @@ fun TranscriptionPanel(
                             busy = panel.saving == "provider:${provider.id}"
                         )
                         if (canChange) {
-                            // A form-row button aligned to its input, not an action row.
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -261,7 +252,6 @@ fun TranscriptionPanel(
                 }
 
                 if (canChange) {
-                    // One button: centred.
                     Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                         OutlinedButton(onClick = panel::checkRetry, enabled = panel.saving != "retry") {
                             Text("Check failed transcriptions")
@@ -283,7 +273,6 @@ fun TranscriptionPanel(
 
 private val transcriptionStampFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM, HH:mm", Locale.ENGLISH)
 
-/** "18 Oct, 14:05" in the phone's zone, or the raw value when it cannot be read. */
 fun transcriptionStamp(value: String): String {
     val instant = runCatching { OffsetDateTime.parse(value).toInstant() }.getOrNull()
         ?: runCatching { Instant.parse(value) }.getOrNull()

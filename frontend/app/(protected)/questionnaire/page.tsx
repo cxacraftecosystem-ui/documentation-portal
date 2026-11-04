@@ -86,93 +86,30 @@ import { FormSessionsCard } from "@/components/questionnaires/FormSessionsCard";
 import { useOnline } from "@/components/questionnaires/useOnline";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 
-/**
- * The API's own ceiling on an interview title — `QuestionnaireInterviewCreate.title` is
- * `Field(min_length=1, max_length=220)` (`backend/app/schemas/questionnaire.py`).
- *
- * WRITTEN DOWN BECAUSE DICTATION IS THE ONE PATH THAT CAN EXCEED IT. A DOM `maxLength` bounds typing
- * and pasting and has no opinion at all about a value written into React state, which is exactly what
- * a committed phrase is; `clampToColumn` inside `DictatedTextInput` is what actually enforces this,
- * and it does nothing at all unless a number is handed to it. An over-long title 422s the WHOLE body,
- * so a researcher who spoke one sentence too many into the title box loses every answer in the
- * interview — and `saveOrQueue` refuses to bank a 4xx for later (`lib/offline.ts`), so the sitting is
- * not queued either: it is gone, with the artisan already on their way home.
- *
- * ONLY THE TITLE CARRIES ONE. `place`, `language` and `notes` are declared `str | None` with no
- * `max_length` on the same model, and inventing a cap the API does not have is a cap that refuses an
- * answer the API would have stored.
- */
 const INTERVIEW_TITLE_MAX = 220;
 
-/** Section ids the two questionnaire upload paths publish under, for the page-level tray. */
 const INTERVIEW_SECTION = "interview-audio";
 const INTERVIEW_SECTION_LABEL = "Interview audio";
 
-/**
- * Recorded clips are keyed by what they answer: a question id, or `section:<id>` for one take that
- * covers a whole section. Same keying as the Android form, so both clients think about a section
- * recording the same way and the same caption reaches the server from either.
- */
 const SECTION_CLIP_PREFIX = "section:";
 const sectionClipKey = (sectionId: string) => `${SECTION_CLIP_PREFIX}${sectionId}`;
 const isSectionClipKey = (key: string) => key.startsWith(SECTION_CLIP_PREFIX);
-/** Tray section id for a clip key — ":" is stripped so the id stays a plain slug. */
 const clipTraySectionId = (key: string) => `question-audio-${key.replace(SECTION_CLIP_PREFIX, "section-")}`;
 
-/*
-  ══ WHICH SECTION A SAVED CLIP BELONGS TO ═══════════════════════════════════════════════════════════
-
-  THE CAPTION IS THE ONLY EVIDENCE THERE IS, on every client. A clip's section is not a column on
-  `MediaFile`: this page sends `extraMetadata: { sectionId, sectionCode, … }` with the upload, and the
-  `MediaFile` the API hands back does not carry it (see `lib/types.ts` — there is no metadata field on
-  the type, because the response does not have one). What does survive is the caption this page and the
-  handset both write — "Section audio: D RAW MATERIALS", "Question audio: D3 - How is the clay
-  prepared?" — and the BACKEND reads the section back out of exactly that string too
-  (`_CAPTION_SECTION` / `_CAPTION_QUESTION` in `backend/app/services/media_naming.py`). So parsing the
-  caption is not a shortcut around a cleaner join; it is the same rule all three sides already keep.
-
-  PORTED FROM `captionBelongsToSection` IN `android/.../MainActivity.kt`, whose comment says the same
-  thing, because a rule the other client cannot read is a rule the other client will not match — and
-  the two clients drawing a different set of clips under one section is precisely the report this whole
-  change answers ("already existing entries and media do not show up … on both android and web").
-
-  TWO RULES, AND THE EXACT-MATCH RULE THE HANDSET LISTS FIRST IS DELIBERATELY NOT REPEATED. Android
-  builds the set of captions it would itself have written and checks membership before falling back to
-  the prefixes. Every caption this page writes begins with one of the two prefixes below, so rule 1 is
-  entirely subsumed by rules 2 and 3 here; repeating it would only add a branch that can never be the
-  one that decides. The prefixes are also what makes a clip survive an admin RENAMING the section or
-  editing the prompt after the recording was made — the case the exact set cannot cover.
-
-  THE DIGIT IN RULE 3 IS LOAD-BEARING. Section codes are one to three letters (`[A-Za-z]{1,3}` in the
-  backend's own parser), so "DA1" starts with "D": without requiring a digit immediately after the
-  code, section D would claim every one of section DA's question clips and DA's panel would look empty.
-
-  A caption neither rule can place is NOT guessed at. It goes to the catch-all block at the foot of the
-  form, which is the whole reason the catch-all exists — a clip filed under the wrong section is worse
-  than a clip filed under "everything else", because only one of the two is visibly a question.
-*/
 const SECTION_CAPTION_PREFIX = "Section audio:";
 const QUESTION_CAPTION_PREFIX = "Question audio:";
 
-/** What a caption says after one of the two prefixes above, or `null` when it is not that kind. */
 function captionBody(caption: string | null | undefined, prefix: string): string | null {
   const text = (caption ?? "").trim();
   return text.startsWith(prefix) ? text.slice(prefix.length).trim() : null;
 }
 
-/** A single take covering this whole section — the default capture mode, so most clips are these. */
 function captionIsWholeSection(caption: string | null | undefined, section: { code: string }): boolean {
   const rest = captionBody(caption, SECTION_CAPTION_PREFIX);
   if (rest === null) return false;
   return rest === section.code || rest.startsWith(`${section.code} `);
 }
 
-/**
- * A clip recorded against ONE question. Both separators are accepted because the two clients differ
- * by one character and always have: the web writes "Question audio: D3 - <prompt>" and the handset
- * writes "Question audio: D3 <prompt>". A recording made on a phone must still appear under its
- * question in the browser, so this reads both rather than picking a winner.
- */
 function captionAnswersQuestion(
   caption: string | null | undefined,
   question: { sectionCode: string; sortOrder: number }
@@ -180,18 +117,9 @@ function captionAnswersQuestion(
   const rest = captionBody(caption, QUESTION_CAPTION_PREFIX);
   if (rest === null) return false;
   const stem = `${question.sectionCode}${question.sortOrder}`;
-  // `rest === stem` for a caption with no prompt on it; the two separators otherwise. Anchoring on
-  // the separator is what stops question 3 claiming question 30's clips.
   return rest === stem || rest.startsWith(`${stem} `) || rest.startsWith(`${stem}-`);
 }
 
-/**
- * M20 (audit 21 Oct 2026): the clip whose TRANSCRIPT may answer this question, by its link and never
- * by its number. `extraMetadata.questionId` first (the web writes it); else the prompt the caption
- * carries, word for word, within the caption's section (the handset writes the prompt, not the id).
- * The "D3" in a caption is the question's position on the day it was recorded, so after a reorder it
- * names another question. The backend's `clip_question_id` is the same rule.
- */
 function clipAnswersQuestion(
   media: { caption?: string | null; extraMetadata?: unknown },
   question: { id: string; sectionCode: string; prompt: string }
@@ -206,7 +134,6 @@ function clipAnswersQuestion(
   return Boolean(found[3].trim()) && words(found[3]) === words(question.prompt);
 }
 
-/** Any clip belonging to this section: its whole-section take, or any of its questions' takes. */
 function captionBelongsToSection(caption: string | null | undefined, section: { code: string }): boolean {
   if (captionIsWholeSection(caption, section)) return true;
   const rest = captionBody(caption, QUESTION_CAPTION_PREFIX);
@@ -216,15 +143,6 @@ function captionBelongsToSection(caption: string | null | undefined, section: { 
   return next >= "0" && next <= "9";
 }
 
-/**
- * A stored `MediaFile` as the shape this page's preview tile and lightbox already speak.
- *
- * `url` MAY BE ABSENT and that is not a bug to code around: `public_encode` withholds media URLs from
- * a viewer who neither uploaded the file nor holds the rank to download other people's
- * (`backend/app/services/records.py`). The tile still draws — an audio tile is an icon and a name, not
- * a player — so a researcher can always SEE that the recording exists, which is the complaint being
- * answered here, even where they may not play it.
- */
 function savedMediaPreview(media: MediaFile): PreviewMedia {
   return {
     key: media.id,
@@ -241,22 +159,6 @@ function savedMediaPreview(media: MediaFile): PreviewMedia {
   };
 }
 
-/**
- * WHAT THE SHARED ENTRY ACTUALLY HOLDS, IN WORDS — and the reason this is a function and not a
- * `responses.length > 0` ternary in the JSX.
- *
- * THE BUG IT CLOSES. The banner measured `existingEntry.responses` and nothing else, so it told a
- * researcher "No questions answered yet" about an interview a colleague had fully recorded. On this
- * instrument that is not an edge case, it is the NORMAL case: capture defaults to one audio take per
- * section with the answer boxes hidden (`DEFAULT_CAPTURE_PREFS`), so a correctly conducted sitting has
- * ZERO response rows and a dozen media rows. The count that was being read was the one count that is
- * reliably zero for good work.
- *
- * IT SAYS WHAT IT FOUND rather than "empty" or "not empty". "3 recordings, no typed answers yet" is a
- * true sentence a researcher can act on; "No questions answered yet" over three recordings is a false
- * one that tells them their colleague did nothing. The only branch that may say nothing is there is
- * the one where both counts really are zero.
- */
 function sharedEntrySummary(responses: number, recordings: number): string {
   const answers = `${responses} typed answer${responses === 1 ? "" : "s"}`;
   const clips = `${recordings} recording${recordings === 1 ? "" : "s"}`;
@@ -266,49 +168,22 @@ function sharedEntrySummary(responses: number, recordings: number): string {
   return "Nothing recorded yet.";
 }
 
-/*
-  ══ THE TWO 409s THIS FORM CAN NOW ACT ON ══════════════════════════════════════════════════════════
-
-  BRANCH ON `code`, NEVER ON THE PROSE. Both refusals below carry a snake_case discriminator precisely
-  so a client stops grepping the sentence — the backend's own comment on `_DUPLICATE_SET_CODE` says the
-  message "is written for a human, has been reworded before, and any client that greps it for
-  'already exists' silently stops offering the move the next time somebody improves it".
-
-  `ApiError.payload` IS THE WHOLE RESPONSE BODY, not the detail: `lib/api.ts` throws
-  `new ApiError(status, message, body)`, so the structure is at `payload.detail`. `ApiError.message`
-  has already been reduced to the human sentence by `describeApiDetail`, which unpacks `{message: …}`
-  out of an object detail and throws the rest away — which is why the holder and the conflicting
-  questions have to be read off `payload` here rather than off the message.
-*/
 const ARTISAN_SET_TAKEN = "artisan_set_taken";
 const MERGE_ANSWER_CONFLICT = "merge_answer_conflict";
 
-/** The interview that already holds this artisan set. `title` is null for an untitled holder. */
 type ConflictHolder = { id: string; title: string | null };
-/** One question both interviews answer differently, named so a researcher can go and reconcile it. */
 type MergeAnswerConflict = { questionId: string; sectionCode: string | null; prompt: string | null; fields: string[] };
 
-/** The structured `detail` of a 409 carrying `code`, or null for any other failure. */
 function conflictDetail(error: unknown, code: string): Record<string, unknown> | null {
   if (!(error instanceof ApiError) || error.status !== 409) return null;
   const payload = error.payload;
   if (!payload || typeof payload !== "object") return null;
   const detail = (payload as { detail?: unknown }).detail;
-  // Arrays are excluded on purpose: FastAPI's own 422 body is a LIST of per-field errors, and one of
-  // those must never be read as a conflict envelope.
   if (!detail || typeof detail !== "object" || Array.isArray(detail)) return null;
   const record = detail as Record<string, unknown>;
   return record.code === code ? record : null;
 }
 
-/**
- * Who holds the artisan set a save was refused for — or null.
- *
- * NULL IS A REAL ANSWER AND NOT A PARSE FAILURE. The server sends `holder: null` when it cannot
- * identify the row (a concurrent delete, a null set key), and says so in as many words; a client that
- * gets it must fall back to printing `message`, which is exactly what this page does. So a null here
- * and a non-409 here take the same path, and that is correct in both cases: there is nobody to offer.
- */
 function artisanSetHolder(error: unknown): ConflictHolder | null {
   const detail = conflictDetail(error, ARTISAN_SET_TAKEN);
   const holder = detail?.holder;
@@ -318,13 +193,6 @@ function artisanSetHolder(error: unknown): ConflictHolder | null {
   return { id, title: typeof title === "string" && title.trim() ? title.trim() : null };
 }
 
-/**
- * The questions a merge was refused over, or null when the failure was something else.
- *
- * AN EMPTY ARRAY IS NOT NULL. A `merge_answer_conflict` whose `questions` list this client cannot read
- * is still a refusal that must be shown rather than swallowed — the caller renders the server's own
- * sentence above the (then empty) list, and the researcher is told nothing moved.
- */
 function mergeAnswerConflicts(error: unknown): MergeAnswerConflict[] | null {
   const detail = conflictDetail(error, MERGE_ANSWER_CONFLICT);
   if (!detail) return null;
@@ -339,27 +207,18 @@ function mergeAnswerConflicts(error: unknown): MergeAnswerConflict[] | null {
     }));
 }
 
-/**
- * The column names the merge refusal names, in words a researcher recognises. `answerText` and `notes`
- * are database columns (`_RESPONSE_TEXT_FIELDS` on the route); printing them raw asks the reader to
- * know the schema before they can tell which half of an answer disagrees.
- */
 const MERGE_FIELD_LABELS: Record<string, string> = { answerText: "the written answer", notes: "the notes" };
 function conflictFieldLabel(field: string): string {
   return MERGE_FIELD_LABELS[field] ?? field;
 }
 
 export default function QuestionnairePage() {
-  // QUESTIONNAIRE V2 (DESIGN §4.1): with `GET /questionnaire/config` reporting v2 on, this route is
-  // the sessions list. `/questionnaire/builder` renders this same page and always gets the screen
-  // below, which still owns the instrument builder. With v2 off (or no config route), nothing changes.
   const config = useQuestionnaireConfig();
   const pathname = usePathname();
   const { user } = useAuth();
   const online = useOnline();
   if (config === null) return <div className="panel p-4 text-sm text-ink-500">Loading...</div>;
   if (config.v2Enabled && !pathname.startsWith("/questionnaire/builder")) {
-    // The Deleted card under the list (UNIFY U8): a deleted session is restorable by content admins.
     return (
       <>
         <SessionsList />
@@ -373,7 +232,6 @@ export default function QuestionnairePage() {
   }
   return (
     <UploadsProvider>
-      {/* Next 16: `useEditDeepLink` reads useSearchParams, which must sit inside a Suspense boundary. */}
       <Suspense fallback={<div className="panel p-4 text-sm text-ink-500">Loading...</div>}>
         <QuestionnairePageBody />
       </Suspense>
@@ -389,79 +247,36 @@ function QuestionnairePageBody() {
   const { addCompleted } = useUploads();
   const searchParams = useSearchParams();
   const router = useRouter();
-  // `?interview=<id>` (a search result, docs/SEARCH.md) opens that interview read-only.
   const interviewLink = interviewFromSearchParams(searchParams);
   useEffect(() => {
     if (interviewLink) router.replace(`/questionnaire/interviews/${encodeURIComponent(interviewLink)}`);
   }, [interviewLink, router]);
   const [sections, setSections] = useState<QuestionnaireSection[]>([]);
-  /**
-   * WHICH INSTRUMENT THIS CAPTURE IS ON. Two exist and their section codes collide completely, so
-   * "section A" is meaningless without one.
-   *
-   * `instrumentTouched` is the same stale-prefill-vs-deliberate-choice problem the RESP block below
-   * solves with `prefilled`: the workshop effect wants to move the instrument whenever the workshop
-   * changes, and a manager who deliberately picked another one must not have it snatched back on
-   * the next re-render. The ref is what tells those two cases apart.
-   */
   const [instruments, setInstruments] = useState<Questionnaire[]>([]);
   const [questionnaireId, setQuestionnaireId] = useState<string | null>(null);
   const instrumentTouched = useRef(false);
   const [data, setData] = useState<PageResult<QuestionnaireInterview> | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [questionAudioFiles, setQuestionAudioFiles] = useState<Record<string, File[]>>({});
-  /**
-   * WHO THIS INTERVIEW IS WITH — one ordered list, one control.
-   *
-   * It replaces the `selectedArtisanId` + `additionalArtisanIds` pair the form carried until 0.0.5.
-   * That pair was a UI invention with nothing behind it: `QuestionnaireInterviewArtisan`
-   * (`backend/prisma/schema.prisma`) is `@@id([interviewId, artisanId])` with no rank column, and
-   * this page already flattened the two controls into ONE de-duplicated set before every request it
-   * made. See `components/questionnaires/interviewArtisans.ts` for the whole argument, for the rule
-   * that answers "which one" where something still needs a single artisan, and for why the list is
-   * ORDERED (the researcher's own tick order is what element 0 means).
-   *
-   * `?artisanId=` still seeds it — that deep link is how the artisan page hands an interview off —
-   * and it seeds a one-element SET rather than a "primary".
-   */
   const [selectedArtisanIds, setSelectedArtisanIds] = useState<string[]>(() => {
     const seeded = searchParams.get("artisanId");
     return seeded ? [seeded] : [];
   });
   const [existingEntry, setExistingEntry] = useState<QuestionnaireInterview | null>(null);
-  // Whole-section vs per-question capture, and whether the written-answer boxes are on screen.
-  // Remembered across sections and across visits — see useCapturePrefs.
   const { prefs: capture, update: updateCapture } = useCapturePrefs();
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
   const [questionAudioPreviews, setQuestionAudioPreviews] = useState<Record<string, PreviewMedia[]>>({});
   const [recordingKey, setRecordingKey] = useState<string | null>(null);
-  // The live stream is state (not just a ref) because <RecordingStrip>'s waveform re-renders on it.
   const [questionStream, setQuestionStream] = useState<MediaStream | null>(null);
   const [questionElapsedMs, setQuestionElapsedMs] = useState(0);
   const [interviewProgress, setInterviewProgress] = useState<BatchProgress | null>(null);
   const [questionProgress, setQuestionProgress] = useState<Record<string, BatchProgress | null>>({});
   const [page, setPage] = useState(1);
   const [funnel, setFunnel] = useState<FunnelValue>(EMPTY_FUNNEL);
-  /**
-   * Has the funnel settled on its own default workshop yet?
-   *
-   * `EMPTY_FUNNEL` and "the researcher chose All workshops" are the SAME VALUE — `workshopId: ""` —
-   * so the list below cannot tell "nothing has been chosen yet" from "everything was chosen" by
-   * looking at the funnel. This flag is the difference, flipped by the funnel's first `onChange`
-   * (which `FunnelFilters` guarantees, with the default or with "" when a deployment has no
-   * workshops at all). Without it the first interview request would go out unscoped and be replaced
-   * the instant the default landed.
-   */
   const [funnelReady, setFunnelReady] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  /*
-   * BACK FROM AN INTERVIEW'S VIEW PUTS THE LIST BACK AS IT WAS. A row click opens the read-only view
-   * (`/questionnaire/interviews/[id]`), so the search, page, funnel and scroll position are written
-   * down as it opens and restored here — see `lib/listReturn.ts`. The funnel returns through
-   * `FunnelFilters`' `restore`, whose first `onChange` keeps the restored page.
-   */
   const [completeness, setCompleteness] = useState<CompletenessValue>("");
   const listReturn = useListReturn("questionnaire", { query: searchQuery, page, funnel, completeness }, Boolean(data));
   const restoredPage = useRef<number | null>(null);
@@ -481,25 +296,7 @@ function QuestionnairePageBody() {
   const rememberPlace = () => listReturn.remember({ query: searchQuery, page, funnel, completeness });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /**
-   * THE SITTING THIS FORM IS EDITING, or null while it is capturing a new one.
-   *
-   * WHAT THIS CLOSES. Until now the browser could CREATE an interview and DELETE one, and nothing
-   * in between: `/data`'s "Edit record" for a questionnaire linked to the bare `/questionnaire`
-   * route, which renders this form in create mode, so "edit this interview" and "take a new
-   * interview" landed on the identical blank page — and filling it in produced a SECOND sitting
-   * instead of correcting the one that was clicked. That is the same defect `useEditDeepLink` was
-   * written for on /crafts, /workshops and /processes; this page is the fourth inline form and was
-   * simply never wired to it. The handset has had the edit path since `InterviewEditLoader`.
-   *
-   * IT IS THE WHOLE RECORD AND NOT JUST AN ID, because the form has to seed from it (title, place,
-   * language, the answers, the artisan set, the workshop) and because the instrument picker has to
-   * be able to draw the record's OWN instrument even when `GET /questionnaires?activeOnly` no
-   * longer lists it — the same rule the handset keeps at `MainActivity.kt`'s `instrumentOptions`.
-   */
   const [editing, setEditing] = useState<QuestionnaireInterview | null>(null);
-  // C28: which answers on the interview being edited began as a machine's draft, by question.
-  // Answers accepted on this screen since the interview was opened, keyed to that interview.
   const [acceptedNow, setAcceptedNow] = useState<{ interviewId: string | null; ids: string[] }>({ interviewId: null, ids: [] });
   const machineOrigin = useMemo(() => {
     const next: Record<string, string> = {};
@@ -511,66 +308,17 @@ function QuestionnairePageBody() {
     }
     return next;
   }, [editing, acceptedNow]);
-  /**
-   * THE QUESTIONS THIS RECORD ARRIVED WITH A WRITTEN ANSWER FOR — frozen at seed time, and the whole
-   * mechanism behind "show the recorded answers on an edit without touching the stored preference".
-   *
-   * WHY A SEPARATE SET AND NOT `answers[id]`. Both hold strings and only one of them is evidence. The
-   * live `answers` map is written by the RESP prefill effect, by every keystroke, and by dictation; a
-   * box drawn because the live map is non-empty would appear under the cursor as somebody typed into a
-   * neighbouring field, and — worse — would VANISH under the cursor the moment they selected their own
-   * answer and deleted it, taking the caret with it. This set is written once, from the stored
-   * responses, and never again for the life of the edit, so a box that is on screen stays on screen.
-   *
-   * IT IS EMPTY IN CREATE MODE, by construction, which is what keeps the default capture screen
-   * exactly as `e2e/questionnaire-capture.spec.ts` asserts it: one record button per section and no
-   * textareas at all.
-   */
   const [answeredOnRecord, setAnsweredOnRecord] = useState<Set<string>>(() => new Set());
-  /**
-   * The questions a merge was refused over, and the sentence a completed merge left behind.
-   *
-   * SEPARATE FROM `error`, which is a single string and would flatten a list of named questions into
-   * one line — and the list is the entire value of that refusal. The backend's comment says so: "NAME
-   * THE QUESTIONS, not just the count. A researcher cannot act on '3 answers disagree'; they can act
-   * on the section and the prompt".
-   */
   const [mergeConflicts, setMergeConflicts] = useState<MergeAnswerConflict[]>([]);
   const [mergeNotice, setMergeNotice] = useState<string | null>(null);
-  /** The capture form, so `useEditDeepLink` can scroll an arriving record into view. */
   const formRef = useRef<HTMLFormElement | null>(null);
-  /*
-    THE THREE HEADER BOXES LIVE IN REACT STATE, WHICH IS FORCED ON US BY THE CONTROL, NOT PREFERRED.
-
-    `DictatedTextInput` is controlled by its caller and deliberately has no self-controlled mode —
-    see its header for the argument. The reason it matters HERE more than on most forms is the two
-    `formElement.reset()` calls in `submit` below: `reset()` rewrites the DOM nodes and tells React
-    nothing, so a box that owned its own value would re-paint the previous interview's title over the
-    next artisan's. `clearHeaderBoxes` therefore sits in the same block as each `reset()`.
-
-    THE `name` ATTRIBUTES ON THE THREE BOXES ARE LOAD-BEARING AND SILENT IF DROPPED. `submit` reads
-    all three out of a `FormData` — `textValue(form, "title")`, `"place"`, `"language"` — so a box
-    rendered without its `name` submits NOTHING, with no type error, no runtime warning and a 201 in
-    reply. The interview saves with a generated title, no place and no language, and nobody finds out
-    until somebody reads the record back. `DictatedTextInput` renders a real `<input name=…>`, so
-    FormData reads these exactly as it read the `<TextInput>`s they replaced; keeping the state below
-    in step is only about the reset.
-  */
   const [title, setTitle] = useState("");
   const [place, setPlace] = useState("");
   const [language, setLanguage] = useState("");
-  /**
-   * A7 — THE ANSWERS WHOSE WORDS CAME FROM THEIR CLIP'S TRANSCRIPT and have not been edited since.
-   * Drawn as "From transcript" beside the box and sent as `answerSource: "TRANSCRIPT"`; a keystroke
-   * in the box takes the question out, because the words are then the researcher's.
-   */
   const [fromTranscript, setFromTranscript] = useState<Set<string>>(() => new Set());
-  /** B6 — set by the researcher's own typing in an answer box; part of the draft's `dirty`. */
   const [answersTouched, setAnswersTouched] = useState(false);
-  /** B6 — interview notes restored from a draft, and the remount that seeds them. */
   const [restoredNotes, setRestoredNotes] = useState<string | null>(null);
   const [draftNonce, setDraftNonce] = useState(0);
-  /** B8 — the place this form filled from the artisan, so a different artisan may replace it. */
   const placeFromArtisan = useRef<string | null>(null);
   const [placeFilled, setPlaceFilled] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -585,32 +333,12 @@ function QuestionnairePageBody() {
     }
   }
 
-  // Professors and above may pick a record's status; everyone below is forced to PENDING
-  // (mirrors the backend, which silently drops an unauthorized status on create).
   const canPickStatus = hasRank(user, "PROFESSOR");
 
-  // The workshop this interview was taken at. Create-only form, so it defaults to the most recent
-  // workshop the interviewer may record in (`mostRecentRecordableWorkshop`), still changeable.
   const workshop = useWorkshopSelection({ defaultRule: "mostRecent" });
 
-  /**
-   * THE ARTISANS THIS WORKSHOP'S INTERVIEWS MAY BE WITH, re-fetched whenever the workshop moves.
-   *
-   * The owner's report: *"when the workshop is already selected in the dropdown, why are artisans
-   * from other workshops showing up"*. They were, because the list came down once at mount with no
-   * workshop parameter on it. The whole rule set — the plural `workshopIds` and why not the
-   * singular, what an unselected workshop means, why the roster REPLACES rather than merges, why
-   * the request is held until the workshop picker has settled, and the Android contract all of it
-   * owes — lives in `components/questionnaires/interviewArtisans.ts`. It is a separate file because
-   * a rule the other client cannot read is a rule the other client will not match.
-   */
   const workshopSettling = workshopScopeSettling(workshop);
   const artisanScope = useWorkshopArtisans({ workshopId: workshop.workshopId, settling: workshopSettling });
-  /**
-   * Every artisan row this page has loaded, from the repository-wide reachability probe and from
-   * every workshop's roster. Used for LABELS and for the RESP block — never as the picker's offer,
-   * which is `artisanScope.scoped` and only that.
-   */
   const knownArtisans = artisanScope.known;
 
   const questions = useMemo(() => sections.flatMap((section) => section.questions), [sections]);
@@ -621,27 +349,12 @@ function QuestionnairePageBody() {
     return sections.map((section) => [section.code, { section, title: section.title, items: section.questions }] as const);
   }, [sections]);
 
-  /**
-   * THE ONE ARTISAN THE RESP BLOCK IS ABOUT: the head of the selection, in the researcher's own tick
-   * order. `primaryInterviewArtisanId` carries the argument for that rule and its in-repo precedent
-   * (`tools.py` derives a tool's scalar `artisanId` from `artisan_ids[0]`, and Android's tool sheet
-   * mirrors it).
-   *
-   * Looked up in `knownArtisans` and not in the workshop's roster: the RESP details must draw for
-   * whoever is actually ticked, including the row rescued for a deep-linked artisan the roster does
-   * not hold. An empty respondent block over a ticked name is a form that looks broken.
-   */
   const primaryArtisanId = primaryInterviewArtisanId(selectedArtisanIds);
   const selectedArtisan = useMemo(
     () => knownArtisans.find((artisan) => artisan.id === primaryArtisanId),
     [knownArtisans, primaryArtisanId]
   );
 
-  // The exact set of artisans this interview covers, de-duplicated. There is a single shared
-  // questionnaire entry per such set — we look it up so the researcher sees that it has already been
-  // started and which sections others have answered, instead of making a duplicate. `artisanSetKey`
-  // sorts, because ticking A then B is the same interview as ticking B then A; the SENT order stays
-  // the researcher's, which is what `primaryArtisanId` above reads.
   const selectedSetKey = artisanSetKey(selectedArtisanIds);
 
   useEffect(() => {
@@ -650,9 +363,6 @@ function QuestionnairePageBody() {
       return;
     }
     let active = true;
-    // SCOPED TO THE INSTRUMENT ON SCREEN. Without it the lookup finds the OTHER instrument's
-    // sitting for these artisans, the form flips to "Add to shared entry", and the researcher is
-    // offered a sitting the create would never have folded into — the two would disagree.
     const query = [
       ...selectedArtisanIds.map((id) => `artisanIds=${encodeURIComponent(id)}`),
       ...(questionnaireId ? [`questionnaireId=${encodeURIComponent(questionnaireId)}`] : [])
@@ -669,69 +379,15 @@ function QuestionnairePageBody() {
     };
   }, [selectedSetKey, selectedArtisanIds, questionnaireId]);
 
-  /**
-   * What this effect last wrote into `answers`, per question. It is how a stale prefill is told apart
-   * from a typed answer, which is the whole difficulty: both are just strings in the same map.
-   */
   const prefilled = useRef<Record<string, string>>({});
 
-  /**
-   * Which interview-list fetch is the current one. The search box is debounced and the funnel and
-   * the pager fire the same effect, so more than one request is routinely in flight; without this a
-   * slow answer for an abandoned filter could land last and win. Counted rather than aborted because
-   * `listResource` takes no signal, and ignoring the late answer is the part that matters.
-   */
   const currentInterviewLoad = useRef(0);
 
-  /**
-   * ⚠ WHICH `loadMeta` IS THE CURRENT ONE — the guard whose absence made an edit draw blank boxes.
-   *
-   * ── THE RACE ────────────────────────────────────────────────────────────────────────────────────
-   *
-   * TWO `loadMeta` RUNS HAPPEN ON EVERY EDIT and neither one waits for the other. The mount effect
-   * (`useEffect(() => { loadMeta(); }, [])`) asks with NO instrument, and the server answers with
-   * whichever one it resolves as the default. A moment later `useEditDeepLink` lands the record and
-   * `seedFromInterview` calls `loadMeta(interview.questionnaireId)` for the sitting's OWN instrument.
-   * Both end in `setSections(sectionList)`, so whichever response arrives LAST wins — and on a field
-   * connection, or against two endpoints of different sizes, that is routinely the first request.
-   *
-   * ── WHAT IT LOOKS LIKE ON SCREEN, WHICH IS WHY IT WENT UNDIAGNOSED SO LONG ──────────────────────
-   *
-   * The form renders the DEFAULT instrument's questions while the answers seeded beside them are keyed
-   * to the RECORD's instrument's question ids. The two instruments' section codes collide completely
-   * (that is stated all over this file and the backend), so nothing looks wrong: the section headings
-   * read A, B, C as they should, the question prompts are plausible, and every single answer box is
-   * empty. The researcher sees their recorded interview opened for editing with all their work gone,
-   * and there is nothing anywhere on the page that explains it. Saving from that state then PATCHes
-   * `responses: []`-shaped nothing over an instrument the answers do not belong to.
-   *
-   * ── THIS REPOSITORY'S ALONE, AND ALREADY FIXED ON THE OTHER CLIENT ──────────────────────────────
-   *
-   * Commit 544262b ("Editing a recorded interview: the browser gains it, the handset stops drawing the
-   * wrong questionnaire") fixed exactly this on Android by holding the form until the record's own
-   * sections arrive. The browser gained the edit path in that same commit and never got the guard.
-   *
-   * ── COUNTED, NOT ABORTED ────────────────────────────────────────────────────────────────────────
-   *
-   * `apiFetch` takes no `AbortSignal` (see `lib/api.ts`), so there is nothing to cancel; the same
-   * generation counter `currentInterviewLoad` above uses for the list is the convention here, and for
-   * the same stated reason — "ignoring the late answer is the part that matters". The counter also
-   * gives the right answer for the instrument PICKER and the builder's `onChanged`, which call
-   * `loadMeta` again later: the newest request always carries the highest generation, so the newest
-   * intent always wins, whatever order the network answers in.
-   */
   const currentMetaLoad = useRef(0);
 
   useEffect(() => {
     if (!selectedArtisan || questions.length === 0) return;
-    // B8: a question the builder MAPPED to an artisan field fills from that field, on any section;
-    // an unmapped respondent question keeps the older keyword guess (`lib/questionArtisanFields`).
     const respondentAnswers = artisanPrefill(questions, selectedArtisan, user);
-    // Overwrite only what is still blank or still exactly what this effect put there last time.
-    // The old rule kept every existing answer ahead of the new prefill, which read as "never clobber
-    // the researcher" but really meant the RESP block froze on the FIRST artisan picked: change the
-    // primary artisan and the interview kept the previous artisan's name, craft, place, gender and
-    // phone, and saved them against the new one.
     const previous = prefilled.current;
     prefilled.current = respondentAnswers;
     setAnswers((current) => {
@@ -748,11 +404,6 @@ function QuestionnairePageBody() {
     });
   }, [questions, selectedArtisan, user]);
 
-  /*
-    B8 — THE PLACE COMES FROM THE ARTISAN. Written only into an empty box, or over the place this
-    effect wrote for the previously picked artisan; a typed place is the researcher's and stays. An
-    edit never moves it: the stored sitting already says where it was taken.
-  */
   useEffect(() => {
     if (editing || !selectedArtisan) return;
     const offered = selectedArtisan.place?.trim() ?? "";
@@ -765,18 +416,12 @@ function QuestionnairePageBody() {
     setPlaceFilled(offered);
   }, [selectedArtisan, editing]);
 
-  /** B8 — the title an empty box saves under: "Ramesh · Craft questionnaire · 17 Oct". */
   const automaticTitle = automaticInterviewTitle(
     selectedArtisan?.name,
     selectedArtisanIds.length,
     instruments.find((instrument) => instrument.id === questionnaireId)?.title
   );
 
-  /**
-   * A7 — EACH QUESTION'S NEWEST TRANSCRIBED CLIP, as answer text. Only clips recorded against ONE
-   * question count (the caption rule above); a whole-section take answers no single question. Saved
-   * clips exist only on an edit, which is where a transcript has had time to arrive.
-   */
   const transcriptByQuestion = useMemo(() => {
     const out: Record<string, string> = {};
     const media = [...(editing?.media ?? [])].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
@@ -788,11 +433,6 @@ function QuestionnairePageBody() {
   }, [editing, questions]);
   const transcriptsReady = Object.entries(transcriptByQuestion).filter(([id, text]) => transcriptOffer(answers[id], text) !== null).length;
 
-  /*
-    B6 — THE SITTING KEEPS A DRAFT: the header, every answer, the artisans and every clip recorded
-    so far, autosaved while anything has been entered and offered back after a closed tab. An
-    interview is the one record that cannot be re-taken — the artisan has gone home.
-  */
   const interviewDirty = Boolean(
     title.trim() ||
       language.trim() ||
@@ -850,7 +490,6 @@ function QuestionnairePageBody() {
     }
   });
 
-  /** "Use as answer": one tap fills the empty box and marks it as the transcript's. */
   function takeTranscriptAsAnswer(questionId: string) {
     const offer = transcriptOffer(answers[questionId], transcriptByQuestion[questionId]);
     if (offer === null) return;
@@ -858,7 +497,6 @@ function QuestionnairePageBody() {
     setFromTranscript((current) => new Set(current).add(questionId));
   }
 
-  /** "Use all transcripts": every empty answer that has one, at once. A typed answer is never touched. */
   function takeAllTranscripts() {
     const { answers: next, filled } = applyTranscripts(answers, transcriptByQuestion);
     if (!filled.length) return;
@@ -870,39 +508,17 @@ function QuestionnairePageBody() {
     });
   }
 
-  /**
-   * THE INSTRUMENT AND ITS SECTIONS. They change only when an admin edits the questionnaire, so they
-   * load once at mount, again when the instrument changes, and again on the builder's `onChanged`.
-   *
-   * THE ARTISAN LIST USED TO BE LOADED HERE AND IS NOT ANY MORE — the comment that stood on this
-   * function said sections and artisans "load once … rather than per list page/filter", which was a
-   * fair reading of a list that belonged to nobody in particular and is simply wrong now. An
-   * artisan list is not instrument metadata: it belongs to the WORKSHOP, it has to be re-fetched
-   * every time the workshop moves, and it must not be re-fetched when somebody switches instrument
-   * or renames a section in the builder — all three of which this function does. It lives in
-   * `useWorkshopArtisans` (`components/questionnaires/interviewArtisans.ts`), keyed on the workshop.
-   */
   async function loadMeta(instrumentId?: string | null) {
     const generation = (currentMetaLoad.current += 1);
     try {
-      // TWO reads, one wave. The instrument list joins it rather than following it, because a
-      // sequential "which instruments exist, then give me that one's sections" is two round trips
-      // before the form can render a single question.
       const [instrumentList, sectionList] = await Promise.all([
         apiFetch<Questionnaire[]>("/questionnaires"),
         apiFetch<QuestionnaireSection[]>(
           `/questionnaire/sections${buildQuery({ questionnaireId: instrumentId ?? undefined })}`
         )
       ]);
-      // THE LATE ANSWER TO A SUPERSEDED QUESTION IS DROPPED HERE, before it can touch `sections` or
-      // `questionnaireId`. Placed after the await and before the FIRST setter, so a stale wave writes
-      // nothing at all rather than half of itself — an instrument list from one request and sections
-      // from another is the same defect wearing different clothes.
       if (generation !== currentMetaLoad.current) return;
       setInstruments(instrumentList);
-      // The server resolved SOME instrument for that read whether or not we named one, and its
-      // sections carry the id it chose. Reading it back off them keeps the picker showing what the
-      // form is actually built from rather than what the client guessed.
       const resolved = instrumentId ?? sectionList[0]?.questionnaireId
         ?? instrumentList.find((instrument) => instrument.isDefault)?.id
         ?? instrumentList[0]?.id
@@ -911,71 +527,28 @@ function QuestionnairePageBody() {
       setSections(sectionList);
       setError(null);
     } catch (err) {
-      // A superseded request's failure is not this form's failure: the instrument the researcher is
-      // actually on may well have loaded fine, and painting its error banner would describe a question
-      // nobody is waiting for an answer to any more.
       if (generation !== currentMetaLoad.current) return;
       setError(err instanceof Error ? err.message : "Unable to load questionnaire");
     }
   }
 
-  /**
-   * THE WORKSHOP CHOOSES THE INSTRUMENT — until somebody says otherwise.
-   *
-   * A workshop is bound to one questionnaire by an admin, and opening the capture form at that
-   * workshop should open the questions that apply there without anybody choosing again. Guarded by
-   * `instrumentTouched` so a questionnaire manager running a pilot on the other instrument keeps
-   * their choice: without the ref the next workshop re-render silently takes it back, and the
-   * researcher's answers go to the instrument they did not pick.
-   */
   const boundInstrumentId = useMemo(
     () => workshop.workshops?.find((row) => row.id === workshop.workshopId)?.questionnaireId ?? null,
     [workshop.workshops, workshop.workshopId]
   );
 
   useEffect(() => {
-    /*
-      `editing` GUARDS THIS AS WELL AS `instrumentTouched`, and the belt is not redundant with the
-      braces. `seedFromInterview` does set the ref, so on the ordinary path this effect is already
-      parked — but the ref is a mutable escape hatch that any future edit to this file could reset,
-      and what it is protecting here is not a preference. A sitting already saved is ON an
-      instrument the API has no field to move it to; re-pointing the picker under an open edit
-      would swap the questions out from under answers keyed to the other instrument's ids, and the
-      two instruments' section codes collide completely, so nothing downstream would raise. The
-      handset states the same condition the same way: `if (isEdit || instrumentTouched) return`.
-    */
     if (editing || instrumentTouched.current) return;
     const bound = boundInstrumentId;
     if (!bound || bound === questionnaireId) return;
     setQuestionnaireId(bound);
     void loadMeta(bound);
-    // `loadMeta` is deliberately NOT a dependency: it is re-created every render, so listing it
-    // would re-run this effect on every render and re-fetch the whole instrument each time.
   }, [boundInstrumentId, questionnaireId, editing]);
 
-  /**
-   * Open on the artisan this researcher was last documenting.
-   *
-   * An interview is the record most often taken straight after a product or a tool — the artisan is
-   * sitting right there — so the primary artisan is the one thing worth carrying in. Nothing narrower
-   * transfers: an interview covers a person, not their products, and this form has no field for one.
-   */
   const carry = useCarryContext({
-    // The REPOSITORY-WIDE reachability probe, never the workshop's roster. `useCarryContext` reads
-    // this id list to decide whether a carried artisan still exists and is still visible, and prunes
-    // the carried record — and everything hanging off it — when it is not. An artisan documented at
-    // another workshop is neither deleted nor invisible, so scoping this list would make carry
-    // destroy a perfectly good context; and since the bag also carries the WORKSHOP that `onApply`
-    // is about to select, the prune would land before the workshop it disagreed with had even moved.
-    // See `useWorkshopArtisans` for why the probe is kept as its own request.
     scopes: [carryScope("artisan", artisanScope.referenceState, knownArtisans)],
     applies: ["artisan", "workshop"],
     onApply: (context) => {
-      // Prepended rather than assigned: `onApply` fires once, before anything has been ticked, so in
-      // practice this IS `[id]` — but writing it as an assignment would mean that the day the offer
-      // is ever applied later (a "resume" affordance, a second bag) it would silently discard a
-      // selection the researcher had already made. The `includes` guard keeps the list free of the
-      // duplicate that would otherwise send one artisan twice.
       if (context.artisanId) {
         const carried = context.artisanId;
         setSelectedArtisanIds((current) => (current.includes(carried) ? current : [carried, ...current]));
@@ -983,35 +556,11 @@ function QuestionnairePageBody() {
       if (context.workshopId && !workshop.touched) workshop.setWorkshopId(context.workshopId);
     }
   });
-  /** "Change": drop the carried artisans so the researcher picks from scratch. */
   function clearCarriedContext() {
     carry.change();
     setSelectedArtisanIds([]);
   }
 
-  /**
-   * THE TICKED ARTISANS THIS WORKSHOP'S ROSTER DOES NOT ACCOUNT FOR — said, not silently undone.
-   *
-   * What stood here was `useArtisanSelectionScope`, which ran the same ruling and wrote the
-   * survivors back into `selectedArtisanIds`: a workshop change quietly unticked anybody the new
-   * workshop's complete roster did not hold, and told the researcher nothing. It also pruned the
-   * carry banner on the way past, because a banner reading "Continuing with Ramesh" over a form that
-   * had just dropped Ramesh is a page contradicting itself.
-   *
-   * BOTH OF THOSE ARE GONE, and the whole argument is in
-   * `components/questionnaires/interviewArtisans.ts` (rule 6). The short version: an artisan is
-   * linked to a workshop three ways and the third is HAVING SAT IN AN INTERVIEW TAKEN THERE — the
-   * link this very form creates — so a roster that does not hold somebody is not evidence that
-   * ticking them was a mistake. It is evidence they have not been interviewed here BEFORE. The two
-   * paths that most often name such a person are the two this product actually ships for the
-   * purpose: `/questionnaire?artisanId=` from the artisans page, and the carry bag after a tool or a
-   * product. Both of them used to arrive ticked and go blank about a second later, taking the RESP
-   * prefill with them, with no message anywhere — and Android kept the tick, so the same two taps
-   * saved two different sets of `QuestionnaireInterviewArtisan` rows.
-   *
-   * The banner therefore stands, correctly: the carried artisan really is still on this interview.
-   * `carry.prune("artisan")` is no longer called from this page at all.
-   */
   const artisansOutOfWorkshop = useMemo(
     () =>
       artisansNotAtWorkshop({
@@ -1023,12 +572,6 @@ function QuestionnairePageBody() {
       }),
     [selectedArtisanIds, artisanScope.scoped, artisanScope.loadedForWorkshop, artisanScope.cut, workshop.workshopId]
   );
-  /**
-   * The names for that sentence, out of `knownArtisans` — which is the only list that has them. The
-   * workshop's roster by definition does not hold these people, and an id in a sentence is not a
-   * sentence. An id whose row has not been loaded at all contributes nothing rather than printing a
-   * cuid: the notice is capped and best-effort, and a half-named list is worse than a shorter one.
-   */
   const outOfWorkshopMessage = useMemo(
     () =>
       outOfWorkshopNotice(
@@ -1045,36 +588,11 @@ function QuestionnairePageBody() {
       const result = await listResource<QuestionnaireInterview>("/questionnaire/interviews", {
         page,
         pageSize: 20,
-        // THE WORKSHOP IS ON THE WIRE, and this is the web half of the owner's second report — the
-        // Android one, where *"the questionnaire from the previous workshop are showing up even in
-        // the third workshop"*. This list had the same hole: the funnel has offered a workshop
-        // filter since it was written and this call quietly dropped it, so every workshop's browse
-        // table listed every workshop's interviews.
-        //
-        // SINGULAR `workshopId` HERE AND PLURAL `workshopIds` ON THE ARTISAN LIST, and the asymmetry
-        // is deliberate on both ends.
-        //
-        // `list_interviews` (`backend/app/api/routes/questionnaire.py`) declares BOTH — the singular
-        // every caller has always sent, and a plural for the multi-select workshop scope Android's
-        // `rememberWorkshopScope` and this page's own completion matrix drive. This control is not
-        // that one: `FunnelFilters` is single-select and has no "Not linked to a workshop" option,
-        // so it has exactly one id to say and the singular says it. For one real id the two are the
-        // same predicate — `workshop_clause([id], false)` is `{"workshopId": {"in": [id]}}` — so
-        // there is nothing to gain by spelling it the long way and one thing to lose: the singular
-        // is understood by every deployed API and the plural is not. The web deploys to Vercel and
-        // the API to EC2, separately, so a newer web build meets an older API routinely, and FastAPI
-        // IGNORES an undeclared query parameter rather than refusing it — a plural sent to an API
-        // that predates it produces an UNFILTERED list under a request that looks filtered, which is
-        // this defect wearing the fix's clothes.
-        //
-        // On `/artisans` the same choice goes the other way, because there the two spellings are NOT
-        // equivalent: see `components/questionnaires/interviewArtisans.ts`.
         workshopId: funnel.workshopId || undefined,
         artisanId: funnel.artisanId || undefined,
         search: searchQuery || undefined,
         completeness: completeness || undefined
       });
-      // The answer to a question already moved on from must not land last and win — see the ref.
       if (generation !== currentInterviewLoad.current) return;
       setData(result);
       setError(null);
@@ -1088,31 +606,12 @@ function QuestionnairePageBody() {
     loadMeta();
   }, []);
 
-  /**
-   * THE INTERVIEW LIST. The backend already returns interviews most-recent-first (`createdAt desc`);
-   * the funnel narrows by WORKSHOP and by artisan and the search box by text.
-   *
-   * The sentence that stood here said the funnel narrows "by artisan (the only list param the
-   * interviews endpoint supports)". That was never true of the route as shipped — `list_interviews`
-   * has declared `workshopId` for as long as it has declared `artisanId` — and leaving it in place
-   * is what let a reader conclude the missing workshop filter was the server's limitation rather
-   * than this call's omission. The funnel's craft filter really does have nothing to narrow here:
-   * an interview has artisans, not crafts, and there is no craft parameter on the route.
-   *
-   * HELD UNTIL THE FUNNEL HAS REPORTED. `FunnelFilters` defaults itself to the most recently held
-   * workshop and announces that default through `onChange` once its own `/workshops` request lands —
-   * its header says in as many words that parents should wait for that first call. Firing at mount
-   * instead would send one unscoped request, paint every workshop's interviews, and replace them a
-   * moment later: two requests and a visible flash of exactly the wrong list, which is the defect
-   * this scoping is here to remove rather than to re-stage for a quarter of a second.
-   */
   useEffect(() => {
     if (!funnelReady) return;
     loadInterviews();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [funnelReady, page, funnel.workshopId, funnel.artisanId, searchQuery, completeness]);
 
-  // Leaving the page mid-recording must release the microphone and the clock, not leak either.
   useEffect(() => {
     return () => {
       stopElapsedTimer();
@@ -1121,13 +620,6 @@ function QuestionnairePageBody() {
     };
   }, []);
 
-  // Eager upload for the per-question recordings, matching every other capture surface. An
-  // interview is the longest form in the app — a researcher can spend half an hour working down
-  // the sections — and each answer is an audio clip. Waiting until Save to start the transfer
-  // means the whole interview's audio goes up in one blocking burst at the end, on whatever
-  // connection the field site has; staging each clip when the recorder stops spreads it across
-  // the time already being spent. Saving then only links the objects. One owner for all of them
-  // (rather than per question) keeps this a single row in the tray instead of thirty.
   const stagedQuestionAudio = useMemo(() => Object.values(questionAudioFiles).flat(), [questionAudioFiles]);
   const questionAudioStaging = useEagerStaging(stagedQuestionAudio, "Question recordings");
   const stagedByFile = useMemo(
@@ -1135,7 +627,6 @@ function QuestionnairePageBody() {
     [stagedQuestionAudio, questionAudioStaging.entries]
   );
 
-  /** "3 clips · 2 uploaded" — the chip under a recorder, so "ready" is a fact not a hope. */
   function clipCountLabel(key: string): string {
     const files = questionAudioFiles[key] ?? [];
     const entries = files.map((file) => stagedByFile.get(file) ?? null);
@@ -1169,7 +660,6 @@ function QuestionnairePageBody() {
 
   function handleSearchChange(value: string) {
     setSearchInput(value);
-    // Clearing the box (the red X) immediately drops the filter, matching the funnel's live feel.
     if (value === "") {
       setSearchQuery("");
       setPage(1);
@@ -1181,19 +671,12 @@ function QuestionnairePageBody() {
     setPage(1);
   }
 
-  /**
-   * Record against one clip key — a question id, or a section's key for a single whole-section take.
-   * `filenameBase` is the human part of the object name; the extension follows the codec the browser
-   * actually gave us.
-   */
   async function startRecording(key: string, filenameBase: string) {
     try {
       if (recordingKey) recorderRef.current?.stop();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: SPEECH_AUDIO_CONSTRAINTS });
       streamRef.current = stream;
       chunksRef.current = [];
-      // Ask the browser what it can actually record: Safari/iOS produces audio/mp4, so a hardcoded
-      // "audio/webm" name and type would lie about the bytes and break playback and transcription.
       const preferredType = pickAudioRecorderMimeType();
       const recorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined);
       recorderRef.current = recorder;
@@ -1210,8 +693,6 @@ function QuestionnairePageBody() {
           [key]: [...(current[key] ?? []), file]
         }));
         stream.getTracks().forEach((track) => track.stop());
-        // Tapping "Record this question" on ANOTHER question stops this recorder while the next one
-        // is already running — only tear down the shared recording UI if this is still the live one.
         if (recorderRef.current !== recorder) return;
         streamRef.current = null;
         recorderRef.current = null;
@@ -1220,8 +701,6 @@ function QuestionnairePageBody() {
         setQuestionElapsedMs(0);
         setRecordingKey(null);
       };
-      // The clock starts when the recorder really starts; only it needs a timer, because the bars
-      // run on <Waveform>'s own requestAnimationFrame loop.
       recorder.onstart = () => {
         const startedAt = Date.now();
         setQuestionElapsedMs(0);
@@ -1239,17 +718,6 @@ function QuestionnairePageBody() {
     recorderRef.current?.stop();
   }
 
-  /**
-   * How one clip key is described on the way out: the caption, the metadata that files it, and the
-   * tray label. `null` for a key whose question or section is no longer in the form.
-   *
-   * A whole-section take carries the section, not a question — "Section audio: D RAW MATERIALS…",
-   * which is exactly what Android writes and what the backend already parses
-   * (`_CAPTION_SECTION` in services/media_naming.py, and `sectionCode` in the completion matrix).
-   * Attribution to artisans is not carried here and must not be: the clip links to the interview,
-   * and the interview links to every artisan in the set, so a group sitting's one section recording
-   * counts for all of them — which is what a group sitting means.
-   */
   function clipBatch(key: string): { caption: string; extraMetadata: Record<string, unknown>; trayLabel: string } | null {
     if (isSectionClipKey(key)) {
       const section = sectionsById.get(key.slice(SECTION_CLIP_PREFIX.length));
@@ -1269,20 +737,6 @@ function QuestionnairePageBody() {
     };
   }
 
-  /**
-   * The dictated header boxes, emptied — the half of "clear the form" that `reset()` cannot reach.
-   *
-   * CALLED BESIDE EVERY `formElement.reset()`, NEVER INSTEAD OF ONE. `reset()` still owns the
-   * uncontrolled controls on this form (status, the workshop select, the location card, the notes
-   * rows); this owns the three controlled ones. Miss this call and the next interview opens with the
-   * previous artisan's title and place already typed in, which is worse than a stale box on any other
-   * screen in this app: the questionnaire's uniqueness key is the artisan SET, so a researcher who
-   * does not notice files a second sitting under a title naming the wrong person.
-   *
-   * `""` and not `undefined`: a controlled input handed `undefined` switches to uncontrolled, React
-   * warns once in development and the box keeps whatever the DOM node last held — which is precisely
-   * the bug this function exists to close.
-   */
   function clearHeaderBoxes() {
     setTitle("");
     setPlace("");
@@ -1292,15 +746,6 @@ function QuestionnairePageBody() {
     setFromTranscript(new Set());
   }
 
-  /**
-   * BACK TO A BLANK CAPTURE FORM — the Cancel on the edit banner, and `?new=1`.
-   *
-   * `formRef.current?.reset()` and `clearHeaderBoxes()` together, for the reason the header-box
-   * block above gives: `reset()` rewrites the DOM nodes and tells React nothing, so the three
-   * controlled boxes would re-paint the edited interview's title over a form that is supposed to be
-   * empty. The uncontrolled half (notes, status, the location and capture rows) is what `reset()`
-   * is FOR — it returns them to the `defaultValue`s the remount keyed on `editing?.id` installs.
-   */
   function resetToCreate() {
     setEditing(null);
     formRef.current?.reset();
@@ -1311,29 +756,12 @@ function QuestionnairePageBody() {
     setSelectedArtisanIds([]);
     setInterviewProgress(null);
     setQuestionProgress({});
-    // The edit-only display state goes with the edit. Left behind, `answeredOnRecord` would keep
-    // drawing answer boxes on a BLANK capture form for question ids the previous sitting answered —
-    // overriding the researcher's hidden-answers preference on a screen with no record behind it.
     setAnsweredOnRecord(new Set());
     setFromTranscript(new Set());
     setMergeConflicts([]);
     setMergeNotice(null);
   }
 
-  /**
-   * SEED EVERY CONTROL FROM A STORED SITTING.
-   *
-   * THE ANSWERS ARE KEYED BY `questionId` and not by position, which is the only mapping that
-   * survives a section being reordered or a question being retired between the sitting and the
-   * edit. A response whose question no longer exists on the instrument simply has nowhere to render
-   * and is left untouched in the database — `upsert_responses` is an upsert over the ids this form
-   * sends, so an answer it cannot draw is an answer it cannot destroy.
-   *
-   * MEDIA IS NOT SEEDED, DELIBERATELY. `mediaFiles` and `questionAudioFiles` are the NEW clips this
-   * visit is uploading; what is already attached to the interview belongs to the saved-media block
-   * and must not be re-uploaded as duplicates on every save. The handset draws the same line
-   * (`savedMedia` versus `media.uris`).
-   */
   function seedFromInterview(interview: QuestionnaireInterview) {
     setEditing(interview);
     setTitle(interview.title ?? "");
@@ -1346,14 +774,6 @@ function QuestionnairePageBody() {
           .map((response) => [response.questionId, response.answerText ?? ""])
       )
     );
-    /*
-      WHICH OF THOSE ANSWERS ARE REAL WORDS, captured once, here, and never recomputed.
-
-      An `upsert_responses` row can exist with an empty `answerText` — the merge route's own "EMPTY
-      survivor rows" branch is written for exactly that shape — so "has a response row" is not the same
-      question as "somebody typed something", and only the second one earns a box on a form whose
-      reader has asked for no boxes. `.trim()` is what tells them apart.
-    */
     setAnsweredOnRecord(
       new Set(
         (interview.responses ?? [])
@@ -1371,31 +791,12 @@ function QuestionnairePageBody() {
     );
     setMediaFiles([]);
     setQuestionAudioFiles({});
-    /*
-      THE INSTRUMENT IS FIXED FOR THE LIFE OF A SITTING, and this is the half of the seed that is
-      not merely convenience. `questionnaireId` is one side of the interview's uniqueness key and
-      `QuestionnaireInterviewUpdate` carries no field for it — the API is extra="forbid", so sending
-      one is a 422 — because the answers are keyed to THIS instrument's question ids and moving the
-      sitting would orphan every one of them. `instrumentTouched` is set so the workshop effect
-      below cannot re-point the picker at the workshop's bound instrument while an edit is open,
-      which would change the questions under answers that belong to the other instrument. The picker
-      itself is disabled on edit for the same reason, exactly as `MainActivity.kt` disables it.
-    */
     instrumentTouched.current = true;
     setQuestionnaireId(interview.questionnaireId);
     void loadMeta(interview.questionnaireId);
-    // The workshop the sitting is filed under, so the roster and the late-submission pre-flight both
-    // describe the record actually on screen rather than whichever workshop the page opened on.
     if (interview.workshopId) workshop.setWorkshopId(interview.workshopId);
   }
 
-  /**
-   * `/questionnaire?edit=<id>` loads that interview into the form below; `?new=1` opens a blank one.
-   * Shared with /crafts, /workshops and /processes so the four inline forms cannot drift into four
-   * dialects of the same link. `allowed` is true because taking and correcting an interview is not
-   * a privileged act on this page — the server's own `guard_record_edit` decides, and a refusal
-   * arrives in the error banner rather than as a link that silently does nothing.
-   */
   const { loading: deepLinkLoading } = useEditDeepLink<QuestionnaireInterview>({
     endpoint: "/questionnaire/interviews",
     basePath: "/questionnaire",
@@ -1406,10 +807,7 @@ function QuestionnairePageBody() {
     allowed: true,
     errorMessage: "Unable to load that interview"
   });
-  // A meter pill's `?focus=<key>` from the interview's page, once the deep-linked sitting is seeded.
   useFocusField(Boolean(editing) && !deepLinkLoading);
-  // The live line over what the form holds. A new sitting's date is stamped by the server on save
-  // (it is derived from when the capture happened), so it is never "missing" before the first save.
   const completenessValues = useMemo(() => (editing ? undefined : { interviewDate: "on-save" }), [editing]);
   const completenessCounts = useMemo(
     () => ({
@@ -1420,45 +818,8 @@ function QuestionnairePageBody() {
     [selectedArtisanIds, answers, mediaFiles, questionAudioFiles]
   );
 
-  /**
-   * THE WAY FORWARD OUT OF "THIS ARTISAN SET IS ALREADY TAKEN" — the third complaint, answerable now.
-   *
-   * ── THE CASE ────────────────────────────────────────────────────────────────────────────────────
-   *
-   * Two researchers recorded one artisan set as two sittings titled by the sections they covered, "D
-   * Black Pottery" and an "F" one. The F sitting had MISSED an artisan. Adding that artisan is the
-   * correct fix and it makes F's set key equal D's, which `@@unique([questionnaireId, artisanSetKey])`
-   * refuses — so the only edit that repairs the record is the one edit the database will not accept.
-   * Until now the refusal a client could read said only that *an* interview exists, not WHICH, so this
-   * form could offer nothing at all and the researcher was simply stuck.
-   *
-   * ── WHAT THIS DOES AND, MORE IMPORTANTLY, WHAT IT DOES NOT ──────────────────────────────────────
-   *
-   * THE PATCH IS STILL REFUSED AND STAYS REFUSED. Nothing here retries the save. The 409 carries a
-   * `holder`, this reads it, and the ONLY thing that happens without a further human decision is that
-   * a dialog opens naming the holder. `POST …/merge-into/…` is called on confirmation and never
-   * otherwise — the backend says the same thing from its side: "the fold happens only when a client,
-   * having read the holder off that 409, calls THIS route. The confirmation is the call."
-   *
-   * EDIT-ONLY, DELIBERATELY. A CREATE for a taken set does not reach here: the server folds it into
-   * the canonical row by itself (`merge_into_interview`) and answers 200. And a merge needs a stored
-   * source row to move, which a create that never landed does not have.
-   *
-   * ── THE ONE THING THE DIALOG MUST SAY AND WOULD BE EASY TO LEAVE OUT ────────────────────────────
-   *
-   * ONLY WHAT IS ALREADY SAVED MOVES. The PATCH was refused, so anything typed or recorded in this
-   * form since it was opened is not on the server, is not what the merge moves, and is gone when the
-   * source row is deleted. That is a real cost and it is the researcher's to weigh, so the note says
-   * it in the dialog rather than in a comment only we will read.
-   *
-   * Returns true when it has fully handled the failure — including when the researcher declines, which
-   * is handled by explaining why nothing was saved rather than by falling through to a bare message.
-   */
   async function offerMergeOnConflict(error: unknown, sourceId: string): Promise<boolean> {
     const holder = artisanSetHolder(error);
-    // No holder — a different failure, or a 409 the server could not name a holder for. The caller
-    // prints `ApiError.message`, which is the server's own sentence, which is what it asks clients to
-    // fall back to.
     if (!holder) return false;
     const holderName = holder.title ?? "Another interview";
     setMergeConflicts([]);
@@ -1488,10 +849,6 @@ function QuestionnairePageBody() {
       return true;
     }
     try {
-      // The survivor comes back hydrated for exactly this: the backend returns it "so the client can
-      // redraw the whole screen from the response rather than guessing what the move produced". Seeding
-      // from it is what puts the moved recordings and answers straight in front of the researcher, on
-      // the entry they now live on, instead of an empty form and a hope.
       const survivor = await apiFetch<QuestionnaireInterview>(
         `/questionnaire/interviews/${sourceId}/merge-into/${holder.id}`,
         { method: "POST" }
@@ -1506,8 +863,6 @@ function QuestionnairePageBody() {
     } catch (mergeError) {
       const conflicts = mergeAnswerConflicts(mergeError);
       if (conflicts) {
-        // NEVER SWALLOWED. Nothing moved, and the questions the server named are the work list — see
-        // the panel above the form, which prints every one of them.
         setMergeConflicts(conflicts);
         setError(mergeError instanceof Error ? mergeError.message : "The two interviews answer some questions differently.");
         return true;
@@ -1519,16 +874,11 @@ function QuestionnairePageBody() {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // React nulls event.currentTarget after the first await — capture it before any async work.
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    // A workshop that has already ended makes this a late submission needing admin approval — say so
-    // before anything is written. Resolves true immediately when there is nothing to warn about.
     if (!(await workshop.confirmSubmission())) return;
     setSaving(true);
     setError(null);
-    // Last attempt's refusal and last merge's receipt both describe a state this save is about to
-    // replace; leaving either on screen over a fresh outcome is the page contradicting itself.
     setMergeConflicts([]);
     setMergeNotice(null);
     const artisanIds = selectedArtisanIds;
@@ -1537,72 +887,33 @@ function QuestionnairePageBody() {
       .map(([questionId, answerText]) => ({
         questionId,
         answerText: answerText.trim(),
-        // A7: only when the words are still the transcript's. The key is left off otherwise, so a
-        // body with no transcript answer is byte-for-byte what older builds sent.
         ...(fromTranscript.has(questionId) ? { answerSource: TRANSCRIPT_SOURCE } : {})
       }));
     try {
       const location = locationFromForm(form);
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
-      // B8: an empty title is named for who, what and when — the same words the server would use.
       const interviewTitle = textValue(form, "title") || automaticTitle;
-      /*
-        THE SHARED HALF OF BOTH BODIES. Every key here is legal on a create AND on an update —
-        `QuestionnaireInterviewUpdate` (backend/app/schemas/questionnaire.py:159) declares each one.
-      */
       const commonPayload = {
           title: interviewTitle,
-          // interviewDate is deliberately not sent: the server derives it from recordedAt.
           place: textValue(form, "place"),
           language: textValue(form, "language"),
           notes: textValue(form, "notes"),
-          // Nothing picked is PENDING, never APPROVED: a sitting is approved by somebody choosing to.
           status: canPickStatus ? textValue(form, "status") || "PENDING" : "PENDING",
           workshopId: workshop.workshopId || null,
           artisanIds,
           responses
       };
       const editingId = editing?.id ?? null;
-      /*
-        TWO BODIES, AND EACH OF THE THREE DIFFERENCES IS AN API RULE RATHER THAN A PREFERENCE.
-
-        `questionnaireId` — CREATE ONLY. The update schema has no such field and `APIModel` is
-        extra="forbid", so sending it on a PATCH is a 422 raised by pydantic before the handler
-        runs. A sitting never changes instrument: it is half of
-        @@unique([questionnaireId, artisanSetKey]), and every answer already stored is keyed to
-        THIS instrument's question ids.
-
-        `recordedAt` / `recordedTimezone` — CREATE ONLY. They stamp when the capture happened. The
-        update schema does accept them, which is exactly why omitting them has to be deliberate:
-        sending them would rewrite that stamp to whatever the remounted "Captured at" row happens
-        to read, silently restamping last week's fieldwork every time somebody corrects a typo in
-        its title. The handset's update body omits them for the same reason.
-
-        `location` — OMITTED WHEN ABSENT, never null. `forbid_clearing_location` on the update
-        model rejects an explicit null ("omit to keep, send to replace"), so a correction typed
-        indoors with no fix must leave the key off entirely rather than clear the coordinates the
-        sitting was actually recorded at. On a create there is nothing to clear and null is the
-        ordinary "no fix was available".
-      */
       const interviewPayload = editingId
         ? { ...commonPayload, ...(location ? { location } : {}) }
         : {
             ...commonPayload,
-            // WRITTEN AT QUEUE TIME, NOT AT REPLAY TIME. This same object is what `saveOrQueue`
-            // serialises into the outbox, so an interview captured today and replayed next week files
-            // on the instrument the researcher was actually looking at — not on whatever the default
-            // has become by then. Do not "simplify" this away on the offline path.
             questionnaireId: questionnaireId || null,
             recordedAt,
             recordedTimezone,
             location
           };
-      // Offline this queues the whole interview — answers, the interview audio and every
-      // per-question or whole-section clip — to the outbox. An interview is the one record that
-      // cannot be reconstructed later: the artisan has gone home. AN EDIT QUEUES THE SAME WAY:
-      // `saveOrQueue` takes the method, so a correction made with no signal is banked rather than
-      // lost, and replays as the PATCH it was rather than as a second sitting.
       const outcome = await saveOrQueue<QuestionnaireInterview>({
         label: editingId ? `Interview (edit) · ${interviewTitle}` : `Interview · ${interviewTitle}`,
         endpoint: editingId ? `/questionnaire/interviews/${editingId}` : "/questionnaire/interviews",
@@ -1616,10 +927,8 @@ function QuestionnairePageBody() {
             location,
             recordedAt,
             recordedTimezone,
-            transcribeAudio: true
+            alwaysTranscribe: true
           },
-          // One batch per clip key so the caption and the metadata that place a clip under its
-          // answer — or under its whole section — survive the round trip through IndexedDB.
           ...Object.entries(questionAudioFiles).flatMap(([key, files]) => {
             const batch = clipBatch(key);
             if (!batch || !files.length) return [];
@@ -1631,26 +940,18 @@ function QuestionnairePageBody() {
                 location,
                 recordedAt,
                 recordedTimezone,
-                transcribeAudio: true,
+                alwaysTranscribe: true,
                 extraMetadata: batch.extraMetadata
               }
             ];
           })
         ]
       });
-      // Saved or queued: the draft has done its job.
       interviewDraft.clear();
       setAnswersTouched(false);
       setRestoredNotes(null);
       if (outcome.queued) {
-        // OutboxBanner at the top of the page names the entry and says where it lives.
         if (editingId) {
-          // A QUEUED EDIT LEAVES EDIT MODE, and the form must not keep the corrected record on
-          // screen: the PATCH is banked and has not been applied yet, so a form still showing that
-          // interview invites a second correction written against a row the server has not seen the
-          // first one for. `resetToCreate` drops the whole edit, including the artisan set — the
-          // head-stays-ticked rule below is a CREATE convenience and carrying an old sitting's
-          // artisans into the next blank form is not the same thing at all.
           resetToCreate();
           setSaving(false);
           if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1661,18 +962,12 @@ function QuestionnairePageBody() {
         setAnswers({});
         setMediaFiles([]);
         setQuestionAudioFiles({});
-        // THE HEAD STAYS TICKED AND THE REST DO NOT, which is exactly what the two-control form did:
-        // it cleared "Additional artisans" and left "Primary artisan" where it was. The researcher is
-        // still sitting in front of the same person and may well take a second sitting with them —
-        // and the RESP block, which draws from the head, would otherwise empty itself under their
-        // hands. The GROUP that sat in the interview just filed is finished, so the tail goes.
         setSelectedArtisanIds((current) => current.slice(0, 1));
         setSaving(false);
         if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
         return;
       }
       const saved = outcome.saved;
-      // H21: every batch is settled, never assumed. What did not land is kept, by file.
       const interviewBatch = await settleBatch(mediaFiles, () =>
         uploadMediaBatch({
           files: mediaFiles,
@@ -1682,12 +977,11 @@ function QuestionnairePageBody() {
           location,
           recordedAt,
           recordedTimezone,
-          transcribeAudio: true,
+          alwaysTranscribe: true,
           onProgress: setInterviewProgress
         })
       );
       setInterviewProgress(null);
-      // Uploaded clips surface twice: as chips under this section and in the page-level tray.
       if (interviewBatch.uploaded.length) addCompleted(INTERVIEW_SECTION, INTERVIEW_SECTION_LABEL, interviewBatch.uploaded);
       const clipsLeft: Record<string, File[]> = {};
       for (const [key, files] of Object.entries(questionAudioFiles)) {
@@ -1702,7 +996,7 @@ function QuestionnairePageBody() {
             location,
             recordedAt,
             recordedTimezone,
-            transcribeAudio: true,
+            alwaysTranscribe: true,
             extraMetadata: batch.extraMetadata,
             onProgress: (progress) => setQuestionProgress((current) => ({ ...current, [key]: progress }))
           })
@@ -1710,16 +1004,9 @@ function QuestionnairePageBody() {
         if (clipBatchOutcome.uploaded.length) addCompleted(clipTraySectionId(key), batch.trayLabel, clipBatchOutcome.uploaded);
         if (clipBatchOutcome.left.length) clipsLeft[key] = clipBatchOutcome.left;
       }
-      // Cleared only once every question has been pushed, so the tray's page-level total counts the
-      // whole run rather than shrinking back to whichever question is uploading right now.
       setQuestionProgress({});
       const unsent = [...interviewBatch.left, ...Object.values(clipsLeft).flat()];
       if (unsent.length) {
-        /*
-          H21: SOME RECORDINGS DID NOT LAND. The interview exists now, so the form becomes an edit of
-          it (a second Save is a PATCH, never a second interview) and holds ONLY the files that
-          failed (a second Save never re-uploads the ones that landed).
-        */
         seedFromInterview(saved);
         setMediaFiles(interviewBatch.left);
         setQuestionAudioFiles(clipsLeft);
@@ -1728,31 +1015,10 @@ function QuestionnairePageBody() {
         return;
       }
       if (editingId) {
-        /*
-          AN EDIT BANKS NOTHING AND CARRIES NOTHING FORWARD.
-
-          The carry bag exists so the NEXT capture opens on the artisan the researcher is sitting in
-          front of. Correcting a sitting recorded last week is no evidence of where anybody is now,
-          and re-arming the bag from it would hand the next blank form a stale workshop and a stale
-          artisan — the carry banner would then announce a context the researcher never chose.
-
-          The form drops back to create mode rather than staying open on the record. Leaving it open
-          would be defensible, but every other inline form in this repository closes on save, and a
-          form that still shows a saved record is the one that invites a second save of the same
-          edit. The table below re-reads so the corrected row is visible straight away.
-        */
         resetToCreate();
         await loadInterviews();
         return;
       }
-      // Bank the sitting: the interview does not become part of the carried context (nothing else
-      // links to one) but the artisan it was taken with is exactly where the researcher still is.
-      //
-      // ONE artisan, and it is the head of the set. The carry bag has a single `artisanId` slot and
-      // nothing about this change adds one — see `primaryInterviewArtisanId` for why element 0 is
-      // the answer here as it is everywhere else in this repository, and why it does not move under
-      // the researcher. An interview covering four people still hands the next form the person the
-      // researcher is sitting in front of, which is who they ticked first.
       const interviewed = knownArtisans.find((artisan) => artisan.id === primaryArtisanId);
       if (interviewed) {
         carry.remember({
@@ -1770,16 +1036,10 @@ function QuestionnairePageBody() {
       setAnswers({});
       setMediaFiles([]);
       setQuestionAudioFiles({});
-      // Head kept, tail dropped — the same rule, and the same argument, as the queued branch above.
       setSelectedArtisanIds((current) => current.slice(0, 1));
-      // Show the freshly saved (most recent) interview at the top of page one.
       if (page !== 1) setPage(1);
       else await loadInterviews();
     } catch (err) {
-      // `saveOrQueue` rethrows a 4xx rather than banking it (`lib/offline.ts`: "Only a request that
-      // never reached the server may be queued"), so a collision arrives here as a real ApiError with
-      // the server's structured body on it. `editing` is the only case with a source row to move.
-      // A merge removes its source, so it is offered to content admins only (2026-10-20).
       const handled = editing && isContentAdmin(user) ? await offerMergeOnConflict(err, editing.id) : false;
       if (!handled) setError(err instanceof Error ? err.message : "Unable to save interview");
     } finally {
@@ -1806,38 +1066,11 @@ function QuestionnairePageBody() {
     }
   }
 
-  /**
-   * WHAT THE ONE ARTISAN CONTROL OFFERS: this workshop's roster, in the server's order.
-   *
-   * What it replaced was `artisans.filter((a) => a.id !== selectedArtisanId)` — the repository-wide
-   * list minus whoever was in the OTHER dropdown. Both halves of that expression are gone, and
-   * neither is a loss. The exclusion existed only to stop one person appearing in two controls that
-   * fed one set; with one control the set is the control, and `SearchableMultiSelect` cannot tick
-   * the same row twice. The unscoped source is the defect itself.
-   *
-   * NOT SORTED HERE, deliberately. `GET /artisans` answers `createdAt desc` and Android renders that
-   * order untouched (`ConsolidatedQuestionnaireScreen.kt` filters for the search box and never
-   * re-orders), so imposing an alphabetical sort on the web would give the two clients two different
-   * lists of the same people — the parity break is the ORDER, which is the sort of difference nobody
-   * files a bug about and everybody notices.
-   */
   const artisanOptions = useMemo(
     () => artisanPickerOptions({ scoped: artisanScope.scoped, known: knownArtisans, selectedIds: selectedArtisanIds }),
     [artisanScope.scoped, knownArtisans, selectedArtisanIds]
   );
 
-  /**
-   * THE ROWS THE INSTRUMENT PICKER OFFERS, AND THE ONE IT MUST NEVER LOSE.
-   *
-   * `GET /questionnaires` is asked with `activeOnly`, so an instrument retired since a sitting was
-   * filed is NOT in `instruments` — and an edit form whose picker cannot draw its own record's
-   * instrument shows a blank where the answer is, on a control the researcher cannot correct
-   * because it is disabled. The record's own hydrated row is merged back in for exactly that case.
-   *
-   * Same rule the artisan options keep: a selection is never absent from the offer that describes
-   * it. The handset does this merge too — see `instrumentOptions` in `MainActivity.kt`, which this
-   * mirrors deliberately so a researcher comparing a laptop against a handset sees one list.
-   */
   const instrumentOptions = useMemo(() => {
     const rows = [...instruments];
     const own = editing?.questionnaire ?? null;
@@ -1845,49 +1078,6 @@ function QuestionnairePageBody() {
     return rows;
   }, [instruments, editing]);
 
-  /**
-   * THE RECORDINGS ALREADY ON THIS SITTING, filed under the section each was made for.
-   *
-   * ── THE COMPLAINT ───────────────────────────────────────────────────────────────────────────────
-   *
-   * *"when edit page is opened, already existing entries and media do not show up in the respective
-   * sections"*. The handset has drawn these since it gained the edit path; THE BROWSER DREW NONE AT
-   * ALL. It is the one edit form in this repository without a saved-media block — `ExistingMedia` is
-   * mounted on artisans, products, tools, crafts and workshops, and never here — so a researcher who
-   * opened a recorded interview on a laptop saw the recordings they had made replaced by empty
-   * recorders, with the page saying nothing about the files still attached to the record.
-   *
-   * ── WHY NOT `components/media/ExistingMedia`, WHICH IS THE REPOSITORY'S OWN PANEL FOR THIS ──────
-   *
-   * It is the right component everywhere else and the wrong one here, for two reasons that are both
-   * about shape rather than taste:
-   *
-   *  1. IT IS FLAT. Its whole API is `linkedRecordType` + `linkedRecordId`, and it renders one list
-   *     for a record. There is no seam to group by — and a per-SECTION layout is the entire point of
-   *     the complaint, which names "the respective sections". A single list of thirty clips at the
-   *     foot of an eighty-one-question form does not answer "is section D recorded?", which is the
-   *     question a researcher opens this page holding.
-   *  2. IT WOULD RE-FETCH WHAT WE ALREADY HAVE. It issues `GET /media?linkedRecordType&linkedRecordId`
-   *     on mount. `RELATIONS` on the interview route already hydrates `media`, so
-   *     `GET /questionnaire/interviews/{id}` — the request `useEditDeepLink` has just made — brought
-   *     every one of these rows down with the record. A second request for them would be a round trip
-   *     on a field connection to learn something already in memory, and a window in which the two
-   *     lists disagree.
-   *
-   * So this builds the smallest thing that does fit, and it reuses rather than reinvents: the tiles
-   * are `MediaPreviewTile` and opening one hands it to the `MediaLightbox` ALREADY MOUNTED at the foot
-   * of this page through `activePreview` — the same preview the freshly recorded clips above use, so
-   * playback, download and the transcript block are identical for a clip whether it was recorded three
-   * seconds or three weeks ago, and there is exactly one lightbox on the page.
-   *
-   * ── READ-ONLY, AND THAT IS A RULE RATHER THAN AN OMISSION ───────────────────────────────────────
-   *
-   * Nothing here feeds `mediaFiles` or `questionAudioFiles`. Those two maps are the NEW clips this
-   * visit is uploading, and `submit` uploads every file in them on every save — so seeding them with
-   * what is already attached would re-upload the whole interview each time somebody fixed a typo, and
-   * the duplicates would count towards the completion matrix. `seedFromInterview` states the same rule
-   * from the other side, and the handset draws the same line (`savedMedia` versus `media.uris`).
-   */
   const savedMedia = useMemo(() => {
     const all = editing?.media ?? [];
     const bySection = new Map<string, MediaFile[]>();
@@ -1897,27 +1087,9 @@ function QuestionnairePageBody() {
       if (mine.length) bySection.set(section.id, mine);
       mine.forEach((media) => placed.add(media.id));
     });
-    // THE CATCH-ALL, as on the handset ("Other saved recordings & media"). Interview-wide audio, a
-    // photo attached from the general media field, and any clip whose caption this client cannot parse
-    // all land here. Dropping them instead would hide files from the one screen that exists to show
-    // the researcher that their work is still there — which is the defect, not a tidier list.
     return { bySection, other: all.filter((media) => !placed.has(media.id)) };
   }, [editing, sections]);
 
-  /**
-   * WHICH SECTIONS OPEN THEMSELVES ON AN EDIT — the ones that have something in them.
-   *
-   * The web opened only the FIRST section and Android opened none, so an interview whose answers live
-   * in sections D and F opened on section A, empty, with nine collapsed headings below it that said
-   * nothing about their contents. A researcher reading that page has no way to distinguish it from a
-   * sitting that was never recorded, which is precisely what happened.
-   *
-   * COMPUTED FROM THE SEEDED RECORD AND NOT FROM THE LIVE FORM, which is why it reads
-   * `answeredOnRecord` rather than `answers`. `open` on a `<details>` is re-applied by React whenever
-   * the value it renders changes, so deriving it from live state would let a section SHUT ITSELF while
-   * somebody was working in it — clear the last answer in a section and the panel folds up with the
-   * caret inside. Both inputs here are frozen for the life of the edit.
-   */
   const sectionsOpenOnEdit = useMemo(() => {
     const open = new Set<string>();
     if (!editing) return open;
@@ -1928,31 +1100,12 @@ function QuestionnairePageBody() {
     return open;
   }, [editing, sections, answeredOnRecord, savedMedia]);
 
-  /** What the shared entry holds, counted on BOTH axes — see `sharedEntrySummary` for why. */
   const existingEntryTally = useMemo(() => {
     const responses = existingEntry?.responses ?? [];
     const recordings = existingEntry?.media ?? [];
     return { responses, recordings, summary: sharedEntrySummary(responses.length, recordings.length) };
   }, [existingEntry]);
 
-  /**
-   * "12 questions · 5 answered · 3 saved recordings" — what the handset prints under every section
-   * heading and the browser printed nowhere.
-   *
-   * THIS IS THE LINE THAT WOULD HAVE TOLD THE RESEARCHER THEIR WORK WAS THERE. With the answer boxes
-   * hidden by preference and every section collapsed, a recorded sitting and an empty one are the same
-   * screen; a count on the closed heading is the only thing on the page that can tell them apart
-   * without a click.
-   *
-   * THE RULE FOR "ANSWERED" IS ANDROID'S, TO THE LETTER, because two clients disagreeing about how
-   * much of an interview is done is worse than either answer: a WHOLE-SECTION take answers every
-   * question in its section (that is what recording a section means), and otherwise a question counts
-   * when it has typed text, a clip staged in this visit, or a clip already saved against it.
-   *
-   * `group.items` AND NOT the section's active questions, because the count has to describe THE SCREEN
-   * — this form renders every question in `items`, so a count taken over any other set would be a
-   * number the reader cannot verify by looking.
-   */
   function sectionTally(group: { section: QuestionnaireSection; items: QuestionnaireQuestion[] }) {
     const clips = savedMedia.bySection.get(group.section.id) ?? [];
     const wholeSectionTake =
@@ -1977,11 +1130,6 @@ function QuestionnairePageBody() {
         icon={<ClipboardList className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
-      {/*
-        THE MERGE RECEIPT. Not red, because nothing failed, and not silent, because the interview that
-        was on screen a moment ago no longer exists — a form that quietly re-seeds itself with a
-        different record is a form the researcher will read as having lost theirs.
-      */}
       {mergeNotice ? (
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3 rounded-md border border-line-200 bg-field-100 px-3 py-2 text-sm text-ink-700">
           <span className="min-w-0">{mergeNotice}</span>
@@ -1990,18 +1138,6 @@ function QuestionnairePageBody() {
           </button>
         </div>
       ) : null}
-      {/*
-        THE MERGE REFUSAL, NAMED QUESTION BY QUESTION — never swallowed and never reduced to a count.
-        The server went to the trouble of resolving every clashing question's section and prompt for
-        exactly this, and its own comment says why: "A researcher cannot act on '3 answers disagree';
-        they can act on the section and the prompt, which is what they will read on screen and what
-        they have to go and reconcile by hand."
-
-        Amber and not red, and the HEADING SAYS "Nothing was moved" IN WORDS rather than leaving that
-        to the colour: amber is the repository's "consequential but recoverable" tone, this is
-        recoverable, and a reader who cannot tell amber from red — or who is reading a screenshot in
-        greyscale — still has to learn that both interviews are exactly as they were.
-      */}
       {mergeConflicts.length ? (
         <section className="mb-4 rounded-lg border border-amber-500 bg-amber-100 p-4">
           <h2 className="font-display font-bold text-lg text-amber-800">
@@ -2033,23 +1169,13 @@ function QuestionnairePageBody() {
         </section>
       ) : null}
 
-      {/* 1) Completion matrix — top of the page, collapsed by default. */}
       <CompletionMatrixPanel canOverride={adminMode && isContentAdmin(user)} questionnaireId={questionnaireId} />
 
-      {/*
-        KEYED ON THE RECORD, so arriving at `?edit=<id>` REMOUNTS the form rather than re-rendering
-        it. That is what re-seeds the uncontrolled half — "Interview notes", the status select, the
-        location and capture rows — from the `defaultValue`s below; a re-render would leave them
-        showing whatever the previous occupant of the form had typed. `"new"` and not `undefined`
-        for the create case, so cancelling an edit is also a remount and cannot leave one edited
-        box behind on a form that says it is blank. Same rule the other three inline forms keep.
-      */}
       <form
         key={`${editing?.id ?? "new"}-${draftNonce}`}
         ref={formRef}
         onSubmit={submit}
         onKeyDown={handleFormEnter}
-        // scroll-mt-28 clears the island nav when `?edit=` scrolls this form into view (§AppShell pt-24).
         className="panel mb-5 grid gap-4 p-4 scroll-mt-28"
       >
         {editing ? (
@@ -2058,7 +1184,6 @@ function QuestionnairePageBody() {
               <span className="font-semibold text-ink-900">Editing interview</span>
               <span className="px-1.5 text-ink-500">·</span>
               <span>{editing.title || "Untitled interview"}</span>
-              {/* Which instrument it is on, because the picker below is disabled and cannot say it. */}
               {editing.questionnaire?.title ? (
                 <span className="block text-xs text-ink-500">On {editing.questionnaire.title}</span>
               ) : null}
@@ -2086,37 +1211,9 @@ function QuestionnairePageBody() {
         ) : null}
         <DraftOfferCard draft={interviewDraft} />
         <LiveCompleteness kind="interview" formRef={formRef} stored={editing} values={completenessValues} counts={completenessCounts} />
-        {/* The carried context seeds a NEW sitting; on an edit the record itself is the context. */}
         {editing ? null : <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />}
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-          {/*
-            THE ONE PLACE THIS PAGE EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
-
-            Every dictated box on this page passes `explainWhenUnavailable={false}`, and there are a
-            lot of them: three here, one under every answer box in every section, and four more in the
-            builder below. Without this line, on Firefox — which implements no `SpeechRecognition` at
-            all — all of them would simply vanish and nothing anywhere would say why; with the button's
-            own sentence under each instead, an eighty-one-question instrument prints eighty-one copies
-            of one paragraph, which is the reader learning to skip grey text and then skipping the one
-            place it mattered. EXACTLY ONE, on the whole page: the builder is a collapsed accordion
-            further down this same file and deliberately does not mount a second.
-
-            `md:col-span-2 lg:col-span-4` because this is a child of the four-column field grid and
-            `className` here reaches the `<p>` itself — without it the sentence wraps into one cell.
-          */}
           <DictationUnavailableNotice className="md:col-span-2 lg:col-span-4" />
-          {/*
-            `titleCased` ON TITLE AND PLACE, AND NOT ON LANGUAGE, is read off the server rule rather
-            than guessed: `create_interview` runs `clean_data(...)` (`backend/app/api/routes/
-            questionnaire.py`), which title-cases every column in `TITLE_CASE_FIELDS`
-            (`backend/app/services/records.py`) — `title` and `place` are both in that set and
-            `language` is not. `TitleCasedInput` then says "Will be saved as …" whenever the server's
-            normalisation would change what is in the box. That sentence matters MORE with a
-            microphone than without one: a recogniser hands back its own casing and nobody typed it,
-            so without the hint the value simply changes after saving and the form and the record
-            disagree with no one having been told.
-          */}
-          {/* B8: optional. Left empty, the sitting is saved under the automatic title shown here. */}
           <DictatedTextInput
             name="title"
             label="Interview title"
@@ -2127,11 +1224,6 @@ function QuestionnairePageBody() {
             value={title}
             onChange={setTitle}
           />
-          {/* No date field: the server derives interviewDate from recordedAt, which is when the
-              interview was actually captured. Asking a researcher to confirm today's date was a
-              field to tab past that could only ever be wrong. AND NO MICROPHONE ON A DATE even if one
-              were re-added: a spoken date is the one thing a recogniser gets wrong in a way that
-              still parses. */}
           <div className="grid min-w-0 content-start gap-1" data-field="place">
             <DictatedTextInput
               name="place"
@@ -2143,11 +1235,6 @@ function QuestionnairePageBody() {
             />
             {placeFilled && place === placeFilled ? <p className="text-xs text-ink-500">From the artisan.</p> : null}
           </div>
-          {/*
-            Language is the shared list (lib/standardValues, convergence point 10): the value is a
-            standard code ("bn") and the label its name ("Bengali"), the same list the designer
-            portal and both apps use. A value stored before the list stays selectable, first.
-          */}
           <div className="min-w-0" data-field="language">
             <Field label="Language">
               <Select name="language" value={language} onChange={(event) => setLanguage(event.target.value)}>
@@ -2160,30 +1247,13 @@ function QuestionnairePageBody() {
               </Select>
             </Field>
           </div>
-          {/* The workshop leads every other dropdown: it is the context the interview belongs to. */}
           <WorkshopSelect state={workshop} saving={saving} />
-          {/*
-            A <Field> + <Select>, and NOT a <details>. `e2e/questionnaire-capture.spec.ts` locates
-            the questionnaire's sections as `form.panel details` minus "Captured at", then takes
-            `.first()`; a collapsible control here would join that set and break the default-capture
-            spec while looking like a styling change. Sits immediately after the workshop because
-            that is what usually chooses it.
-          */}
           <Field label="Questionnaire">
             <Select
               name="questionnaireId"
               value={questionnaireId ?? ""}
-              /*
-                DISABLED ON AN EDIT, AND IT IS THE API'S RULE RATHER THAN A UI CHOICE.
-                `QuestionnaireInterviewUpdate` carries no `questionnaireId` — a sitting is half of
-                @@unique([questionnaireId, artisanSetKey]) and its answers are keyed to THIS
-                instrument's question ids, so moving it would orphan every one of them. The handset
-                disables the same control on an edit for the same reason; `submit` above leaves the
-                field out of the PATCH body, and this is the half that stops it being asked for.
-              */
               disabled={saving || Boolean(editing) || instrumentOptions.length === 0}
               onChange={(event) => {
-                // An explicit pick, so the workshop effect stops moving it. See instrumentTouched.
                 instrumentTouched.current = true;
                 setQuestionnaireId(event.target.value);
                 void loadMeta(event.target.value);
@@ -2204,8 +1274,6 @@ function QuestionnairePageBody() {
           </Field>
           <Field label="Status">
             {canPickStatus ? (
-              /* An edit opens on the status the record already carries, not on the create default —
-                 re-approving a REJECTED sitting has to be something somebody chose on screen. */
               <Select name="status" defaultValue={editing?.status ?? "PENDING"}>
                 {["DRAFT", "PENDING", "APPROVED", "REJECTED"].map((status) => (
                   <option key={status} value={status}>{statusLabel(status)}</option>
@@ -2221,41 +1289,12 @@ function QuestionnairePageBody() {
               </span>
             )}
           </Field>
-          {/*
-            ONE CONTROL FOR EVERYBODY THE INTERVIEW IS WITH — the owner's third report: *"why are
-            there primary and other artisans two different dropdowns in the web application? Why can
-            it not be a multi-select dropdown that covers both?"*
-
-            It can, and there was never anything under the split to defend: the database join has no
-            rank column, and this form already de-duplicated the two controls into one set before
-            every request it sent. The two boxes only ever created work — a set could be assembled
-            two ways, "Primary" could be left blank while "Additional" held three people, and the
-            RESP block then described nobody.
-
-            `MultiSelectDropdown` and not a new control. It is a thin adapter over
-            `components/ui/SearchableSelect`, which floats its panel through `AnchoredPopover` (so
-            nothing shears it off), carries a filter box and "Select all N matching", and is the same
-            primitive every other multi-select in this product uses. `confirmOnSelect` stays at its
-            default: this fills in a form field rather than filtering the screen it sits on, so a
-            researcher who has ticked three people needs the panel to say "done" and move on.
-
-            `md:col-span-2` because an artisan row is "Name - Craft - Place" and the four-column
-            field grid gives it about a third of the width it needs; the workshop and the instrument
-            beside it are short by comparison.
-          */}
           <div className="md:col-span-2">
             <Field label="Artisans interviewed" fieldKey="artisans">
               <MultiSelectDropdown
                 values={selectedArtisanIds}
                 onChange={(next) => {
                   setSelectedArtisanIds(next);
-                  // An explicit pick replaces the remembered context and retires the banner: from
-                  // here on the artisans on screen are the researcher's own choice, not a
-                  // suggestion. The bag holds ONE artisan, so it is handed the head of the new set —
-                  // see `primaryInterviewArtisanId`. An untick down to nothing remembers nothing
-                  // rather than remembering a blank: the banner is retired either way, and writing
-                  // an empty artisan into the bag would wipe a context the researcher never
-                  // dismissed.
                   const head = knownArtisans.find((artisan) => artisan.id === primaryInterviewArtisanId(next));
                   if (head) {
                     carry.remember(
@@ -2271,39 +1310,8 @@ function QuestionnairePageBody() {
                   }
                 }}
                 options={artisanOptions}
-                /*
-                  THE SEARCH BOX IS FORCED ON rather than left to `SEARCH_THRESHOLD`'s option count.
-                  This is the argument `ComboBox` makes for itself in `components/ui/Dropdown`: the
-                  caller means "this list is meant to be searched" regardless of how few records
-                  exist today, and an artisan roster is the clearest case of it — one workshop on
-                  this deployment, forty on the next, and a researcher who knows the name and not the
-                  position. Letting the count decide also makes the control CHANGE SHAPE when the
-                  workshop changes, which is a picker that behaves differently at two workshops for
-                  reasons the researcher cannot see.
-                */
                 searchable
                 placeholder="Select the artisans this interview is with"
-                /*
-                  FOUR SENTENCES AND NOT ONE, because "the request failed", "the answer has not
-                  arrived", "nobody is recorded at this workshop" and "nobody is recorded at all" are
-                  four different facts and only two of them are about the repository.
-
-                  "No artisans are recorded at this workshop yet" is a CLAIM. Printing it off an
-                  empty array while the roster for the workshop now on screen is still in flight — or
-                  after a dropped request — makes that claim before the answer exists, and a
-                  researcher who reads it goes looking for a way to add an artisan who is already
-                  there. It is the same rule `components/forms/recordPickers` states for its own
-                  pickers: a caller must check that the list it holds belongs to the selection it is
-                  describing before it says anything about emptiness.
-
-                  THE EMPTY ARRAY IS NOW A ROUTINE STATE rather than a rare one, which is why the
-                  failure arm had to be added. `useWorkshopArtisans` drops the previous workshop's
-                  roster the moment the workshop changes (contract rule 4), so this control is
-                  genuinely empty for the length of every scoped request, and STAYS empty when one
-                  fails (rule 5). `loadedForWorkshop` tells the first two apart; `failed` is the only
-                  thing that can tell a dropped request from a workshop with nobody in it, and
-                  without it the handset and the browser would each invent their own answer.
-                */
                 emptyLabel={
                   artisanScope.failed
                     ? "This workshop's artisan list could not be loaded"
@@ -2314,72 +1322,18 @@ function QuestionnairePageBody() {
                         : "No artisans recorded yet"
                 }
               />
-              {/*
-                THE FAILED NARROWING, BESIDE THE CONTROL IT IS ABOUT — and not in the page's error
-                banner, which is driven by the instrument load: that is the failure that stops the
-                form working at all, and putting a roster blip next to it would teach a reader to
-                discount both. A researcher on a field connection can re-pick the workshop to ask
-                again, which is why the sentence says so; the alternative considered was a Retry
-                button, and it was rejected because it is a second control for a gesture the form
-                already has and the picker is where the researcher's hand already is.
-
-                Deliberately NOT red. Nothing is broken and nothing has been lost — the form still
-                saves, the ticks are still ticked, and the only thing missing is the offer.
-              */}
               {artisanScope.failed ? (
                 <p className="mt-1 text-xs leading-5 text-ink-500">
                   Couldn&apos;t load this workshop&apos;s artisans. Pick the workshop again to retry.
                 </p>
               ) : null}
-              {/*
-                WHAT THIS PICKER IS NOT SHOWING — `components/data/cappedList`'s standing rule, that a
-                list which quietly stops is indistinguishable from a place with no records. It matters
-                more here than anywhere else it is used: every other capped picker costs a reader a
-                second look, and this one decides whether an interview can be filed against the person
-                who gave it at all.
-
-                `reach="none"` and not `"search"`. The search box inside `SearchableMultiSelect`
-                filters the options array in the browser; it does not send a term to the server. Only
-                `components/forms/RecordSwitcher` has earned `"search"`, and claiming it here would be
-                the same lie one layer down — the researcher would type a name, see nothing, and read
-                that as a fact about the workshop.
-              */}
               <CappedListNotice cuts={[artisanScope.cut]} />
-              {/*
-                WHO IS TICKED THAT THIS WORKSHOP'S ROSTER DOES NOT ACCOUNT FOR.
-
-                The form used to untick these people and say nothing. It now keeps them and says
-                this, for the reasons `interviewArtisans.ts` sets out under rule 6 — chief among them
-                that an interview filed here is ONE OF THE THREE THINGS that links an artisan to a
-                workshop, so the roster's silence about somebody is not a verdict on them.
-
-                UNDER the capped-list line rather than above it, because the two answer questions of
-                different sizes: the cut line is about the list, this is about the record being
-                saved. And they are mutually exclusive in practice — `artisansNotAtWorkshop` says
-                nothing at all while the roster is cut, since a truncated list cannot prove an
-                absence.
-              */}
               {outOfWorkshopMessage ? (
                 <p className="mt-1 text-xs leading-5 text-ink-500">{outOfWorkshopMessage}</p>
               ) : null}
             </Field>
           </div>
         </div>
-        {/* The theme defines exactly three amber tokens (100/500/800); 50/200/300/700 are not
-            Tailwind classes here and silently render as nothing. */}
-        {/*
-          NOT SHOWN WHEN THE ENTRY IT FOUND IS THE ONE BEING EDITED, which on an edit is the usual
-          case: the lookup keys on the artisan set and the instrument, and an open edit normally
-          still has both of the record's own. Left in, this panel would announce the record to
-          itself and promise that saving "adds to" it, over a form that is about to PATCH it.
-
-          A DIFFERENT entry for the same set is still worth saying, and says something ELSE on an
-          edit than on a create. Creating folds into the existing sitting — that is the
-          one-entry-per-set rule working. Editing INTO an occupied set cannot fold: it would have to
-          make the pair (questionnaireId, artisanSetKey) collide, which @@unique refuses, so the
-          save comes back 409. Telling the researcher that before they press the button is the
-          difference between a warning and a postmortem.
-        */}
         {existingEntry && existingEntry.id !== editing?.id ? (
           <section className="rounded-lg border border-amber-500 bg-amber-100 p-4">
             <h3 className="font-display font-bold text-lg text-amber-800">These artisans already have an entry</h3>
@@ -2396,22 +1350,6 @@ function QuestionnairePageBody() {
                 </>
               )}
             </p>
-            {/*
-              WHAT IS IN THAT ENTRY, COUNTED ON BOTH AXES.
-
-              THE DEFECT THIS REPLACES: this block measured `existingEntry.responses` and nothing else,
-              so an interview a researcher had fully recorded was announced to their colleague as "No
-              questions answered yet". It was not a rare miss. Capture on this instrument defaults to
-              ONE AUDIO TAKE PER SECTION with the answer boxes hidden (`DEFAULT_CAPTURE_PREFS`), so a
-              properly conducted sitting has ZERO response rows and a dozen media rows — the one number
-              being read was the one number that is reliably zero for good work, and the sentence it
-              produced invited the reader to record the whole interview a second time.
-
-              The counts come off `media` as well, which `by-artisans` hydrates with the rest of
-              `RELATIONS`, so this costs no request. `sharedEntrySummary` writes the sentence and says
-              what it found — never a bare "empty" — and lives at module scope so the wording of each
-              case is pinned by a spec rather than by whoever edits this JSX next.
-            */}
             <p className="mt-2 text-xs text-amber-800">{existingEntryTally.summary}</p>
             {existingEntryTally.responses.length > 0 ? (
               <div className="mt-3 grid gap-2">
@@ -2437,9 +1375,6 @@ function QuestionnairePageBody() {
                 <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">
                   Recordings and files ({existingEntryTally.recordings.length})
                 </div>
-                {/* Captions, not tiles: this is somebody ELSE'S entry being described before the
-                    researcher decides to join it, so it names what is in there without offering to play
-                    it. The record's own recordings are drawn, playable, further down the form. */}
                 <ul className="grid gap-1 text-xs text-amber-800">
                   {existingEntryTally.recordings.map((media) => (
                     <li key={media.id} className="truncate">
@@ -2463,11 +1398,7 @@ function QuestionnairePageBody() {
             </div>
           </section>
         ) : null}
-        {/* Replaces the old "Record audio answers / Type answers manually" pair: that switch governed
-            the same text boxes as the toggle below, under a different name than Android uses for it. */}
         <QuestionnaireCaptureControls prefs={capture} onChange={updateCapture} />
-        {/* Always offered, as on Android: audio for the interview as a whole, distinct from the
-            per-section and per-question takes and never hidden by the answer-box toggle. */}
         <div data-field="recording">
           <MediaCaptureField
             files={mediaFiles}
@@ -2476,6 +1407,7 @@ function QuestionnairePageBody() {
             description="Record or upload. Transcribed when available."
             allowDocuments={false}
             allowedTypes={["AUDIO"]}
+            transcribeChoice={false}
           />
         </div>
         <UploadProgress progress={interviewProgress} sectionId={INTERVIEW_SECTION} label={INTERVIEW_SECTION_LABEL} />
@@ -2488,35 +1420,16 @@ function QuestionnairePageBody() {
             <details
               key={code}
               className="rounded-md border border-line-200 bg-field-100 p-3"
-              /*
-                OPEN ON THE FIRST SECTION, AS BEFORE — AND ON EVERY SECTION THAT HAS SOMETHING IN IT
-                WHEN THIS IS AN EDIT. `sectionsOpenOnEdit` is empty in create mode by construction, so
-                a fresh capture opens exactly as it always has: section one, and nothing else.
-              */
               open={index === 0 || sectionsOpenOnEdit.has(group.section.id)}
             >
               <summary className="cursor-pointer font-display font-bold text-lg text-ink">
                 {code}. {group.title}
-                {/*
-                  THE COUNTS, WHICH ARE THE ONLY THING A CLOSED SECTION CAN SAY ABOUT ITSELF. Android
-                  has printed this line under every section heading since the form was written; the web
-                  printed the heading alone, so a collapsed section gave a researcher no way at all to
-                  tell a recorded sitting from an empty one. See `sectionTally` for the counting rule
-                  and for why it is the handset's rule exactly.
-
-                  `font-sans` and `font-normal` because `<summary>` is inside a `font-display
-                  font-bold` heading and a sub-line in the display face at 12px reads as a second
-                  title rather than as a measurement.
-                */}
                 <span className="mt-0.5 block font-sans text-xs font-normal text-ink-500">
                   {tally.questions} question{tally.questions === 1 ? "" : "s"} · {tally.answered} answered
                   {tally.saved ? ` · ${tally.saved} saved recording${tally.saved === 1 ? "" : "s"}` : ""}
                 </span>
               </summary>
               <div className="mt-3 grid gap-3">
-                {/* One take for the whole section. Rendered whenever such a take EXISTS, not only in
-                    section mode, so switching to individual mode part-way never hides audio that is
-                    still going to be saved. */}
                 {capture.recordingMode === "SECTION" || questionAudioFiles[sectionClipKey(group.section.id)]?.length ? (
                   <div className="rounded-md border border-line-200 bg-card p-3">
                     <ClipRecorder
@@ -2573,10 +1486,6 @@ function QuestionnairePageBody() {
                   />
                 ) : null}
                 {group.items.map((question) => (
-                  // Not <Field>: that wraps its children in a <label>, and a <label> names its first
-                  // labelable descendant — which here is the record button, not the answer box. The
-                  // button ended up announced as the whole prompt and the textarea as nothing at
-                  // all. A plain heading plus aria-labelledby names both correctly.
                   <div key={question.id} className="grid gap-1">
                     <span className="field-label" id={`question-label-${question.id}`}>
                       {question.sortOrder}. {question.prompt}
@@ -2585,16 +1494,7 @@ function QuestionnairePageBody() {
                         <MachineSuggestedBadge edited={machineOrigin[question.id] === "MACHINE_SUGGESTED_EDITED"} />
                       ) : null}
                     </span>
-                    {/* THE PRO-FORMA'S "Help text" COLUMN, ON THE SCREEN THE ANSWER IS GIVEN ON.
-                        An admin types guidance under a question in Excel and the import stores it;
-                        rendering it nowhere would mean the app asked a question and ignored the
-                        answer — eighty-one help texts in the database and none on any screen. It is
-                        deliberately OUTSIDE the label: `aria-labelledby` names the textarea with the
-                        prompt, and folding a paragraph of guidance into that label would make a
-                        screen reader announce the whole thing every time focus entered the box. */}
                     <QuestionHelpText question={question} />
-                    {/* Same rule as the section recorder above: the button belongs to individual
-                        mode, but clips already recorded stay visible and stay saved in either. */}
                     {capture.recordingMode === "INDIVIDUAL" || questionAudioFiles[question.id]?.length ? (
                       <ClipRecorder
                         hint={
@@ -2628,35 +1528,6 @@ function QuestionnairePageBody() {
                         elapsedMs={questionElapsedMs}
                       />
                     ) : null}
-                    {/*
-                      ══ THE ANSWER THE RECORD ALREADY CARRIES IS ALWAYS DRAWN ═══════════════════════
-
-                      `hideAnswers` IS NOT TOUCHED AND MUST NOT BE. It is the reader's stored choice
-                      about CAPTURE, made for a real reason — an eighty-one-question instrument answered
-                      by voice does not want eighty-one empty textareas between the researcher and the
-                      record button — and it is remembered across sections, reloads and days. Flipping
-                      it to solve a display problem would silently change how every future interview is
-                      captured on this device, on behalf of somebody who never asked.
-
-                      SO THE GATE MOVES INSTEAD OF THE PREFERENCE. The box is drawn when the preference
-                      says to draw it, OR when THIS RECORD arrived with words in it. Those are the only
-                      boxes that appear against the preference, and they are the ones whose absence was
-                      the bug: an edit form that hides a researcher's typed answer is showing them a
-                      blank where their work is.
-
-                      AN EDITABLE BOX AND NOT READ-ONLY TEXT, which was the other option and is the
-                      wrong one here. This page is the correction surface — the reason `?edit=` exists —
-                      and text a researcher can see but not fix is a screen that shows them the typo and
-                      refuses to let them touch it. The recorded answer also has to stay in `answers`
-                      either way, because `submit` rebuilds `responses` from that map: a question
-                      rendered with no box still submits the seeded value, so making it read-only would
-                      buy nothing and cost the edit.
-
-                      NOT GATED ON `editing`. `answeredOnRecord` is only ever non-empty on an edit —
-                      `seedFromInterview` fills it and `resetToCreate` empties it — so the set IS the
-                      condition, and adding `editing &&` would state the same fact twice and invite the
-                      two to drift.
-                    */}
                     {transcriptOffer(answers[question.id], transcriptByQuestion[question.id]) !== null ? (
                       <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-950">
                         <span>Transcript ready.</span>
@@ -2686,7 +1557,6 @@ function QuestionnairePageBody() {
                             const next = event.target.value;
                             setAnswersTouched(true);
                             setAnswers((current) => ({ ...current, [question.id]: next }));
-                            // Edited words are the researcher's, whatever they started from.
                             setFromTranscript((current) => {
                               if (!current.has(question.id)) return current;
                               const out = new Set(current);
@@ -2695,41 +1565,6 @@ function QuestionnairePageBody() {
                             });
                           }}
                         />
-                        {/*
-                          THE ANSWER BOX IS THE REASON THIS PAGE HAS MICROPHONES AT ALL. A researcher
-                          sitting on the floor of a workshop is holding a phone in one hand and a
-                          question sheet in the other; an eighty-one-question instrument typed with a
-                          thumb is why the answer boxes were switched off by default in the first
-                          place.
-
-                          THE BARE BUTTON AND NOT `DictatedTextArea`, which is the component every
-                          other multi-line box on this page uses. Two reasons, both structural: this
-                          box is named by the prompt above it through `aria-labelledby`, and
-                          `DictatedTextArea` renders a `<label>` of its own — mounting it here would
-                          print the prompt twice and a screen reader would read it twice. And the
-                          value lives in the page's `answers` map (it is what `submit` turns into
-                          `responses`), while `DictatedTextArea` owns its value internally and reports
-                          it only through `FormData` under a `name`; these boxes have no `name`,
-                          because eighty-one of them in one `FormData` is not how an interview is
-                          submitted.
-
-                          `setAnswers((current) => …)` — THE UPDATER FORM, NOT `answers[question.id]`
-                          READ FROM THE RENDER CLOSURE. `OnDeviceDictationButton` installs its
-                          recogniser handlers once and reaches this callback through a ref, so the
-                          callback it calls is current; what is NOT current is any value this closure
-                          captured. Reading the map from the closure would append each phrase to the
-                          answers as they stood when the microphone was pressed, silently discarding
-                          everything typed into any box in between — invisible while testing with one
-                          short phrase and obvious only to the researcher who dictated three
-                          paragraphs. `appendDictatedPhrase` is the shared joiner rule
-                          (`components/richtext/dictatedValue.ts`): it APPENDS, because the recogniser
-                          stops and starts at every pause for breath, and it puts a single space in
-                          unless the box already ends in whitespace, or an answer dictated in five
-                          goes comes out as "…the warpis sized…".
-
-                          `explainWhenUnavailable={false}` on every one of these: the page says it
-                          once at the top of the form.
-                        */}
                         <OnDeviceDictationButton
                           fieldLabel={`the answer to question ${question.sectionCode}${question.sortOrder}`}
                           explainWhenUnavailable={false}
@@ -2750,9 +1585,6 @@ function QuestionnairePageBody() {
                     />
                   </div>
                 ))}
-                {/* THIS SECTION'S SAVED RECORDINGS — see the `savedMedia` memo for the whole argument,
-                    including why the repository's own `ExistingMedia` panel is not what is mounted here
-                    and why nothing in this block feeds the upload tray. */}
                 <SavedMediaPanel
                   title="Saved recordings & media for this section"
                   description="Already saved."
@@ -2764,31 +1596,16 @@ function QuestionnairePageBody() {
             );
           })}
         </div>
-        {/*
-          THE CATCH-ALL, exactly as the handset's "Other saved recordings & media" block. Interview-wide
-          audio names no section and never will; so does a photo attached through the media field above;
-          so does a clip whose caption this client cannot parse. Every one of them is on the record, and
-          a file on the record that no screen draws is the defect this whole change is about — so they
-          are gathered here rather than dropped for being hard to file.
-        */}
         <SavedMediaPanel
           title="Other saved recordings & media"
           description="Interview-wide audio and files."
           items={savedMedia.other}
           onOpenPreview={setActivePreview}
         />
-        {/* `defaultValue` is read once per mount, which is why the form above is keyed on the record. */}
         <MultiNoteField name="notes" label="Interview notes" defaultValue={restoredNotes ?? editing?.notes ?? null} />
         <ButtonRow>
           <button className="field-button" disabled={saving}>
             {editing ? <Save className="h-4 w-4" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
-            {/*
-              `editing` IS TESTED BEFORE `existingEntry`, and that order is load-bearing. The
-              shared-entry offer is the one-interview-per-artisan-set rule: it fires when the ticked
-              set already has a sitting on this instrument. On an edit the set very often still
-              matches the record being edited, so `existingEntry` is that same record — and the
-              button would read "Add to shared entry" while the form is in fact about to PATCH it.
-            */}
             {saving
               ? "Saving..."
               : editing
@@ -2869,7 +1686,6 @@ function QuestionnairePageBody() {
                       {interview.artisans?.map((link) => link.artisan.name).join(", ") || "-"}
                     </td>
                     <td className="px-4 py-3 text-ink-700">
-                      {/* `data-row-ignore`: reading the answers in place must not open the interview. */}
                       <details data-row-ignore>
                         <summary className="cursor-pointer font-semibold text-field-700 dark:text-purple-300">{interview.responses?.length ?? 0} answers</summary>
                         <div className="mt-2 grid max-w-lg gap-2">
@@ -2886,27 +1702,11 @@ function QuestionnairePageBody() {
                     <td className="px-4 py-3">
                       <StatusBadge status={interview.status} />
                     </td>
-                    {/* interviewDate is server-derived; recordedAt is what it is derived FROM, so it
-                        is the right fallback for a row saved before the derivation existed. */}
                     <td className="px-4 py-3 text-ink-700">
                       {formatDate(interview.interviewDate ?? interview.recordedAt ?? interview.createdAt)}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <RowActions>
-                        {/*
-                          UPDATE IS OFFERED TO EVERYONE, AND DELETE IS STILL NOT.
-
-                          The server's own `guard_record_edit` decides whether this account may write
-                          to this interview, and a refusal arrives in the page's error banner saying
-                          so. Gating the link on `adminMode` would hide it from the researcher who
-                          TOOK the sitting, who is the person most likely to be fixing a name or
-                          finishing an answer — and this page's whole purpose is their capture.
-                          Deleting is the irreversible one and stays where it was.
-
-                          A LINK AND NOT A BUTTON, so it is the same `?edit=` navigation the data
-                          browser, the dashboard and search all produce — one route into editing, and
-                          one that survives a refresh or being shared.
-                        */}
                         <Link className={rowAction("edit")} href={recordUpdateHref("questionnaire", interview.id)!}>
                           <Pencil className="h-3.5 w-3.5" aria-hidden />
                           Update
@@ -2930,7 +1730,6 @@ function QuestionnairePageBody() {
         {data ? <Pagination page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
       </section>
 
-      {/* 2) Questionnaire builder — bottom of the page, collapsed by default. */}
       {canManageQuestionnaire(user) ? (
         <QuestionnaireAdminEditor
           sections={sections}
@@ -2954,11 +1753,6 @@ function safeFileName(value: string) {
     .slice(0, 80) || "question-audio";
 }
 
-/**
- * The recorder for one clip key — a whole section, or a single question. One component for both so
- * the two modes cannot drift into two slightly different recorders, and so a clip list is rendered
- * identically whether or not its recorder's button is currently on offer.
- */
 function ClipRecorder({
   hint,
   showRecordButton,
@@ -3037,19 +1831,6 @@ function ClipRecorder({
   );
 }
 
-/**
- * Saved media for one section — or the catch-all — drawn READ-ONLY.
- *
- * Renders NOTHING for an empty list rather than an "or so far nothing" line, and that is deliberate on
- * a form with ten sections on it: a create has no saved media anywhere, and ten copies of a sentence
- * saying so is the reader learning to skip grey text on the screen where it finally matters.
- *
- * NO REMOVE CONTROL, which is the difference from `ExistingMedia` and is not an oversight. `MediaPreviewTile`
- * draws a delete affordance the moment it is handed `onRemove`, and deleting a colleague's recording is
- * not a gesture that belongs on a capture form behind no confirmation of its own — the media surfaces that
- * own that action have it. What this panel owes the researcher is the ability to SEE the work is still
- * there, which is what was missing.
- */
 function SavedMediaPanel({
   title,
   description,
@@ -3071,9 +1852,6 @@ function SavedMediaPanel({
       <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((media) => {
           const preview = savedMediaPreview(media);
-          // The page's own lightbox, handed the same shape the freshly recorded clips hand it: one
-          // preview surface for the whole form, so playback and the transcript block are identical
-          // whether a clip was recorded three seconds or three weeks ago.
           return <MediaPreviewTile key={preview.key} item={preview} onOpen={() => onOpenPreview(preview)} />;
         })}
       </div>
@@ -3081,51 +1859,21 @@ function SavedMediaPanel({
   );
 }
 
-// --- "Check completion" cellular matrix (Android parity) ---
-
 type CompletionMatrix = {
   sections: Array<{ id: string; code: string; title: string; sortOrder: number }>;
   artisans: Array<{ id: string; name: string }>;
   cells: Array<{ artisanId: string; sectionId: string; derived: boolean; status: string | null; setByName?: string | null }>;
-  /**
-   * How many interviews the CHOSEN WORKSHOP SCOPE cannot see, because they name no workshop at all.
-   *
-   * The number exists so the failure mode can never be silent again. An interview with an empty
-   * `workshopId` counts towards no workshop scope, which is correct — it genuinely does not say where it
-   * was taken — but it is also exactly the shape of the bug that had this matrix reporting "nothing was
-   * covered" while twenty-five interviews sat in the repository unlinked. Zero whenever the scope cannot
-   * hide anything (no workshop chosen, or unassigned records explicitly included). Absent on an API that
-   * predates the field.
-   */
   unassignedInterviews?: number;
-  /**
-   * WHICH INSTRUMENT THIS MATRIX IS ABOUT. Two instruments run overlapping section codes, so a
-   * grid of columns headed "A", "B", "C" is an unlabelled claim without this. Absent on an API
-   * that predates the field.
-   */
   questionnaireId?: string | null;
   questionnaireTitle?: string | null;
-  /** True while an admin's mark is keyed on (artisan, section) alone, i.e. is not per workshop. */
   overridesAreRepositoryWide?: boolean;
 };
 
-/**
- * Artisans down the rows, questionnaire sections across the columns. A cell is green when the
- * section is covered — either derived from recorded answers/audio or forced by an admin override
- * (overrides carry an amber ring). In admin view, admins click a cell to cycle the override:
- * complete -> not complete -> clear (back to the derived state).
- */
 function CompletionMatrixPanel({
   canOverride,
   questionnaireId
 }: {
   canOverride: boolean;
-  /**
-   * WHICH INSTRUMENT'S MATRIX. Without it the server resolves the default, which is the right
-   * answer for an old client and the wrong one for a page whose form is already open on the other
-   * instrument — the columns would be one instrument's sections and the form's another's, both
-   * labelled "A".
-   */
   questionnaireId: string | null;
 }) {
   const [matrix, setMatrix] = useState<CompletionMatrix | null>(null);
@@ -3134,18 +1882,6 @@ function CompletionMatrixPanel({
   const [busyCell, setBusyCell] = useState<string | null>(null);
   const opened = useRef(false);
 
-  /**
-   * WHICH WORKSHOPS THIS MATRIX IS ABOUT, defaulting to the most recent one.
-   *
-   * The scope is held HERE rather than inside the accordion because the accordion unmounts its
-   * children when it closes, and a selection that reset every time somebody collapsed the panel would
-   * be worse than no control at all.
-   *
-   * It also scopes BOTH halves of the matrix on the server — which artisans are rows, and which
-   * interviews count towards a cell. A matrix that scoped only one of the two would show a workshop's
-   * artisans against every interview they have ever sat in, which is precisely the confusion this
-   * control exists to remove.
-   */
   const scope = useWorkshopScope();
 
   const refresh = useCallback(async () => {
@@ -3164,11 +1900,6 @@ function CompletionMatrixPanel({
     }
   }, [scope.queryValue, questionnaireId]);
 
-  /**
-   * Load once the panel is open, and RELOAD whenever the scope moves — but never before the picker has
-   * settled on its default, or the first request would go out scoped to "all" and be replaced a
-   * moment later by the scoped one. Two requests, and for a second the matrix shows the wrong answer.
-   */
   useEffect(() => {
     if (!opened.current || scope.settling) return;
     setLoading(true);
@@ -3178,7 +1909,7 @@ function CompletionMatrixPanel({
   function handleOpenChange(open: boolean) {
     if (!open || opened.current) return;
     opened.current = true;
-    if (scope.settling) return; // the effect above fires as soon as the default lands
+    if (scope.settling) return;
     setLoading(true);
     refresh().finally(() => setLoading(false));
   }
@@ -3193,8 +1924,6 @@ function CompletionMatrixPanel({
     if (!canOverride) return;
     const key = `${artisanId}:${sectionId}`;
     const cell = cellByKey.get(key);
-    // The admin's verdicts in Android's order: Completed -> Requires review -> Needs to be redone -> no
-    // override. "Requires review" could not be set from the web at all before (A13).
     const next = nextCompletionStatus(cell?.status);
     setBusyCell(key);
     try {
@@ -3213,25 +1942,17 @@ function CompletionMatrixPanel({
   return (
     <Accordion
       title="Check completion"
-      // The instrument is NAMED in the subtitle rather than left to be inferred from the column
-      // headings. Two instruments run overlapping codes, so "A, B, C" across the top says nothing
-      // about which questionnaire is being reported on.
       subtitle={`${
         matrix?.questionnaireTitle ? `${matrix.questionnaireTitle} — ` : ""
       }Sections covered per artisan.${canOverride ? " Click a cell to override." : ""}`}
       onOpenChange={handleOpenChange}
     >
-      {/* The scope sits ABOVE the matrix, because it changes what every cell means. */}
       <div className="mb-4 max-w-xl">
         <WorkshopScopeSelect scope={scope} label="Workshops in this matrix" />
       </div>
       {error ? <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {loading ? <div className="text-sm text-ink-muted">Loading completion matrix...</div> : null}
 
-      {/* THE SHORTFALL, NAMED. An interview that names no workshop is excluded from this matrix under any
-          workshop scope, and the exclusion used to be invisible: the matrix simply showed less green, which
-          reads as fieldwork that never happened. Saying the number turns that into something an admin can
-          act on — and the action is one page away. */}
       {matrix && (matrix.unassignedInterviews ?? 0) > 0 ? (
         <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-100 px-3 py-2 text-xs leading-5 text-amber-800">
           <span className="font-semibold">
@@ -3341,11 +2062,6 @@ function CompletionMatrixPanel({
               <span className="h-3.5 w-3.5 rounded bg-line-200 ring-2 ring-purple-700 ring-offset-1 ring-offset-card" aria-hidden /> Admin override
             </span>
           </div>
-          {/* WHAT THE WORKSHOP SCOPE DOES AND DOES NOT NARROW. The green derived from recordings is scoped
-              to the chosen workshops; an admin's mark is not, because the override table is keyed on
-              (artisan, section) with no workshop column — a mark is a judgement about that artisan's
-              section across the repository. Said here rather than left for a reader to deduce from a cell
-              that stays green when the scope moves. */}
           {matrix.overridesAreRepositoryWide ? (
             <p className="mt-2 text-[11px] leading-4 text-ink-500">
               Admin overrides apply across all workshops.

@@ -11,44 +11,21 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.longOrNull
 
-/**
- * "FIX AND SEND" FOR A SAVE THE SERVER REFUSED (B1, 2026-10-17).
- *
- * A refused outbox entry used to have one door, "Try again", which sent the identical bytes to the
- * identical refusal. The researcher's only way out was to throw the entry away and type the record
- * again from memory — twenty fields and the photographs, a day after the artisan had gone home. Now
- * the entry opens in an editor with the field the server named highlighted, and is sent again with
- * the correction.
- *
- * WHY AN EDITOR OF THE QUEUED BODY AND NOT THE RECORD'S OWN FORM. One or two keys in the body are
- * wrong; every other answer in it was given by somebody standing in front of the artisan. Re-opening
- * a two-hundred-field form would re-derive a dozen of them from today's state (the workshop default,
- * the carried artisan, a fresh `recordedAt`) and send a record that is not the one that was taken.
- * The editor changes the keys a person changes and re-serialises the rest exactly as queued.
- *
- * Everything here is pure so a JVM test pins it; the dialog is `ui/OutboxTray.kt`.
- */
-
-/** One editable value in a queued body. [path] is dotted (`answers.3.answerText`). */
 data class PayloadField(
     val path: String,
     val label: String,
     val value: String,
-    /** "string", "number" or "boolean" — what the edited text is written back as. */
     val kind: String,
-    /** Named by the server's refusal: drawn first, marked, and opened ready to edit. */
     val highlighted: Boolean
 )
 
 private val payloadJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-/** Keys a person must never edit by hand in a queued body: ids, provenance and machine fields. */
 private val NOT_EDITABLE = setOf(
     "id", "recordedAt", "formContract", "status", "workshopId", "craftId", "artisanId", "productId",
     "toolId", "questionnaireId", "measurementMethods", "location", "createdById", "idempotencyKey"
 )
 
-/** Plain words for the keys a researcher meets most often; anything else is split from camelCase. */
 private val KEY_WORDS = mapOf(
     "aadhaarNumber" to "Aadhaar number",
     "pehchanCardNumber" to "Pehchan card number",
@@ -66,7 +43,6 @@ private val KEY_WORDS = mapOf(
     "answerText" to "Answer",
 )
 
-/** "aadhaarNumber" → "Aadhaar number"; "answers.3.answerText" → "Answer 4". */
 fun payloadFieldLabel(path: String): String {
     val parts = path.split('.')
     val key = parts.last()
@@ -78,11 +54,6 @@ fun payloadFieldLabel(path: String): String {
     return if (index != null) "$words ${index + 1}" else words
 }
 
-/**
- * The field paths a refusal names. A 422 carries Pydantic's `loc` (`["body", "aadhaarNumber"]`); an
- * object refusal carries `field` (the artisan identity 409). The leading `body` is the request, not
- * a field, and a refusal of the whole body names nothing.
- */
 fun refusalFieldPaths(detail: JsonElement?): List<String> = when (detail) {
     is JsonArray -> detail.mapNotNull { entry ->
         val loc = (entry as? JsonObject)?.get("loc") as? JsonArray ?: return@mapNotNull null
@@ -120,11 +91,6 @@ private fun kindOf(value: JsonElement?): String? = when {
 private fun textOf(value: JsonElement?): String =
     if (value == null || value is JsonNull) "" else (value as? JsonPrimitive)?.contentOrNull.orEmpty()
 
-/**
- * What the editor shows for [payload]: every field the refusal named (when it points at a value),
- * then every other plain top-level value a person could have typed. Lists and nested objects other
- * than the named paths stay as queued.
- */
 fun editablePayloadFields(payload: String, highlighted: List<String>): List<PayloadField> {
     val root = runCatching { payloadJson.parseToJsonElement(payload) }.getOrNull() as? JsonObject ?: return emptyList()
     val named = highlighted.filter { it.split('.').last() !in NOT_EDITABLE }.mapNotNull { path ->
@@ -148,7 +114,6 @@ private fun encodeEdit(kind: String, text: String, original: JsonElement?): Json
         "number" -> trimmed.toLongOrNull()?.let { JsonPrimitive(it) }
             ?: trimmed.toDoubleOrNull()?.let { JsonPrimitive(it) }
             ?: if (trimmed.isEmpty()) JsonNull else JsonPrimitive(trimmed)
-        // A box that held nothing and still holds nothing stays absent rather than becoming "".
         else -> if (trimmed.isEmpty() && (original == null || original is JsonNull)) JsonNull else JsonPrimitive(text)
     }
 }
@@ -167,10 +132,6 @@ private fun JsonElement.with(path: List<String>, value: JsonElement): JsonElemen
     }
 }
 
-/**
- * [payload] with [edits] (path → typed text) written in, each as the type the field already had.
- * Keys nobody edited are carried through exactly as queued.
- */
 fun applyPayloadEdits(payload: String, fields: List<PayloadField>, edits: Map<String, String>): String {
     var root: JsonElement = payloadJson.parseToJsonElement(payload)
     for (field in fields) {
@@ -182,7 +143,6 @@ fun applyPayloadEdits(payload: String, fields: List<PayloadField>, edits: Map<St
     return payloadJson.encodeToString(JsonElement.serializer(), root)
 }
 
-/** May this refused entry be opened in the editor? Only while its body has not reached the server. */
 fun PendingEntry.isFixable(): Boolean = when {
     failure == null || needsReview -> false
     createdId != null -> false
@@ -191,18 +151,12 @@ fun PendingEntry.isFixable(): Boolean = when {
     else -> payloadJson.isNotBlank()
 }
 
-/** The body the editor works on: the refused step of a sequence, otherwise the entry's own. */
 fun PendingEntry.fixablePayload(): String =
     if (kind == OutboxKind.SEQUENCE) steps.getOrNull(completedSteps)?.payloadJson.orEmpty() else payloadJson
 
-/** "Use existing artisan" applies to a refused create that clashed with a named artisan. */
 fun PendingEntry.offersExistingRecord(): Boolean =
     failure != null && createdId == null && kind == OutboxKind.CREATE && !existingRecordId.isNullOrBlank()
 
-/**
- * The confirmation before Discard. It names what goes — the copy on this phone and its files —
- * and, on a clash, that the record already on the server is not touched.
- */
 fun outboxDiscardSentence(label: String, files: Int, clash: Boolean): String {
     val filesPart = when (files) {
         0 -> ""
@@ -213,7 +167,6 @@ fun outboxDiscardSentence(label: String, files: Int, clash: Boolean): String {
     return "“$label”$filesPart will be deleted from this phone. This can't be undone.$clashPart"
 }
 
-/** What "Use existing artisan" says it did. */
 fun useExistingSentence(label: String, existing: String?, files: Int): String {
     val who = existing?.takeIf { it.isNotBlank() } ?: "the existing artisan"
     return if (files > 0) {

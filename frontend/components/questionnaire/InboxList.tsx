@@ -57,19 +57,12 @@ export const INBOX_TITLES: Record<InboxSectionKey, QsKey> = {
 const sessionHref = (id: string) => `/questionnaire/sessions/${encodeURIComponent(id)}`;
 type Run = (key: string, work: () => Promise<unknown>) => Promise<void>;
 
-/** PATCH needs the row's version; the session detail carries it for the session and its takes. */
 async function recordingVersion(sessionId: string | null, recordingId: string): Promise<number | null> {
   if (!sessionId) return null;
   const detail = await questionnaireApi.getSession(sessionId);
   return detail.recordings.find((r) => r.id === recordingId)?.version ?? null;
 }
 
-/**
- * The inbox (DESIGN §4.7): every row carries its own action, in place. A decision is made here —
- * Keep both, Keep one, Part 2 — and a clip is filed here, never by sending the reader to the session
- * (audit H13, H14). "Keep" on an empty session and "OK" on a primary change only acknowledge, so
- * they are remembered on this device; "Not needed" on a clip is stored on the server.
- */
 export function InboxList() {
   const goChip = useChipNavigator();
   const [raw, setRaw] = useState<Inbox | null>(null);
@@ -77,11 +70,9 @@ export function InboxList() {
   const [error, setError] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  // Declared before `load`, which re-arms a failed artisan read (see `artisanReadOnInboxReload`).
   const [artisanRead, setArtisanRead] = useState<ArtisanListRead>("idle");
   const [filing, setFiling] = useState<string | null>(null);
 
-  // The first read may share the badge's request; a reload after an action always reads afresh.
   const load = useCallback(async (fresh = true) => {
     setError(null);
     setArtisanRead(artisanReadOnInboxReload);
@@ -98,8 +89,6 @@ export function InboxList() {
 
   const inbox = useMemo(() => (raw ? visibleInbox(raw, dismissed) : null), [raw, dismissed]);
 
-  // One artisan list for every "Who was there?" row, read once the first such row is on screen
-  // (it used to be one request per row, and its page size of 200 was refused by the API's cap of 100).
   const needsArtisans = (inbox?.noParticipants.length ?? 0) > 0;
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   useEffect(() => {
@@ -116,7 +105,6 @@ export function InboxList() {
     () => artisans.map((a) => ({ value: a.id, label: a.place ? `${a.name} · ${a.place}` : a.name })),
     [artisans]
   );
-  // Back from a session lands on the same row (`useListPlace`): one list, no further pages.
   useListPlace(1, inbox !== null, true);
 
   const run: Run = async (key, work) => {
@@ -230,7 +218,6 @@ async function confirmLegacy(row: InboxLegacy, lineageId: string) {
   const version = await recordingVersion(row.sessionId, row.recordingId);
   if (version === null) throw new Error(qs("sessionLoadError"));
   await questionnaireApi.patchRecording(row.recordingId, { version, targets: [{ questionLineageId: lineageId }] });
-  // Filing the take settles the decision: KEEP_BOTH with no other take files just this one.
   await questionnaireApi.decide(row.recordingId, { action: "KEEP_BOTH" });
 }
 
@@ -245,20 +232,12 @@ async function addArtisans(sessionId: string, ids: string[]) {
   for (const artisanId of ids) await questionnaireApi.addParticipant(sessionId, artisanId);
 }
 
-/** "10:42 · Nandini · 14 min": how the two takes of a decision are told apart. */
 function takeChoiceLabel(recording: Recording): string {
   const at = new Date(recording.capturedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" });
   return [at, takeRow(recording, null)].filter(Boolean).join(" · ");
 }
 
-/**
- * One "Needs a decision" row, decided in place (DESIGN §3.10, §4.7; audit H13): Keep both, Keep one…
- * (pick the take that stays; the other is removed, restorably), and Part 2 under More. The other
- * take is the one the server names, else found in the session.
- */
 function DecisionRow({ row, busy, run }: { row: InboxDecision; busy: boolean; run: (work: () => Promise<unknown>) => Promise<void> }) {
-  // "Keep one" removes the other take, and removing a take is a content admin's (the server's
-  // KEEP_THIS refusal; the handset's `mayRemove`). Everyone else keeps both or files Part 2.
   const { canDeleteRecords } = useAdminView();
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -385,10 +364,6 @@ function DecisionRow({ row, busy, run }: { row: InboxDecision; busy: boolean; ru
   );
 }
 
-/**
- * "File it" (DESIGN §4.7, audit H14): session, target and subjects, with the candidate preselected.
- * Sessions are searched on the server; the target list is the chosen session's instrument.
- */
 function FileItPicker({ row, busy, onFile }: { row: InboxToFile; busy: boolean; onFile: (body: ReturnType<typeof fileItBody>) => void }) {
   const start = fileItDefaults(row);
   const [sessionId, setSessionId] = useState(start.sessionId);
@@ -427,7 +402,6 @@ function FileItPicker({ row, busy, onFile }: { row: InboxToFile; busy: boolean; 
       .then(async (d) => {
         if (cancelled) return;
         setDetail(d);
-        // Everyone in the sitting answered unless the candidate says otherwise.
         setSubjects((current) => (current.length ? current : d.participants.filter((p) => !p.leftAt).map((p) => p.artisanId)));
         const q = await loadInstrumentQuestions(d.questionnaire.id);
         if (cancelled) return;
@@ -511,7 +485,6 @@ function RowActions({
 }) {
   const secondary = "field-button-secondary";
   const primary = "field-button";
-  // Deleting a session is a content admin's act, admin view or not (owner, 2026-10-21).
   const { canDeleteRecords } = useAdminView();
   const confirm = useConfirm();
   switch (section) {
@@ -526,7 +499,6 @@ function RowActions({
             onClick={() =>
               void run(rowKey, () =>
                 questionnaireApi.dismissClip(r.mediaId).catch((error: unknown) => {
-                  // A server without the route yet: remember it on this device, as before.
                   if (error instanceof ApiError && (error.status === 404 || error.status === 405)) dismiss(rowKey);
                   else throw error;
                 })

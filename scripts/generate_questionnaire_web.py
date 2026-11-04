@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""Generate the shared web questionnaire's vocabularies from ``shared/``, and check for drift.
-
-    python scripts/generate_questionnaire_web.py           # write the outputs
-    python scripts/generate_questionnaire_web.py --check   # exit 1 when an output is stale
-
-* ``shared/strings/questionnaire.json`` -> ``frontend/lib/questionnaire/strings.ts``
-* ``shared/enums.json`` + ``shared/languages.json`` -> ``frontend/lib/questionnaire/enums.ts``
-
-Both outputs are part of the shared web tree (``shared/questionnaire.sha256``), so they are
-byte-identical in both portals: the text below is documentation-portal's ``scripts/generate_shared.py``
-web half, header included, and the two generators must agree. Edit ``shared/`` here, run this, then
-``python scripts/sync_questionnaire.py --to ../documentation-portal``.
-"""
-
 from __future__ import annotations
 
 import json

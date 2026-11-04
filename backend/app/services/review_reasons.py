@@ -1,13 +1,3 @@
-"""The short list a reviewer picks a reason from when a record is not accepted as it stands.
-
-One vocabulary, served to both clients by ``GET /review/reasons``, so the web and the handset cannot
-word the same decision two ways. A FIXABLE reason does not end the record: rejecting with it sends
-the record back for revision instead, because a missing detail is a correction for the person who
-recorded it, not a verdict. The other reasons reject; the creator's own edit still reopens a
-rejected record (``services/records.resubmit_status``), so nothing is ever a dead end that has to be
-re-keyed as a duplicate.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,7 +8,6 @@ class Reason:
     code: str
     label: str
     fixable: bool
-    #: "Other" says nothing by itself, so it needs the reviewer's own words.
     needs_note: bool = False
 
 

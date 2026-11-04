@@ -1,23 +1,5 @@
 name: Google sign-in on devices
 
-# ─── DOES "CONTINUE WITH GOOGLE" OPEN GOOGLE'S WINDOW ON A TABLET, A PHONE AND A DESKTOP? ──
-#
-# Reported 2026-10-22: on a tablet the button highlighted on a tap and no sign-in window opened.
-# `frontend/e2e/google-signin-devices.spec.ts` taps the button with real touch input on an iPad
-# (WebKit), a Galaxy Tab (Chromium), a phone of each and a desktop, and asserts a window on
-# accounts.google.com opens. Nobody signs in.
-#
-#   live    the production site, as it is right now
-#   branch  a production build of the pushed commit, served by `next start` on the runner
-#
-# The branch build needs the Google client id. It is a NEXT_PUBLIC_ value — compiled into the
-# bundle every visitor downloads — so it is read out of the live bundle rather than kept as a secret,
-# and never printed. Google renders the button on any origin; an origin the client does not list is
-# refused INSIDE the window, which still proves the window opened.
-#
-# Not a merge gate: it depends on Google answering a runner. Run it by hand with
-#     gh workflow run "Google sign-in on devices" --ref <branch> -f target=live|branch|both
-
 on:
   push:
     paths:

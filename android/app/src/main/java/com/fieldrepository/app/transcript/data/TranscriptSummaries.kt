@@ -8,11 +8,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/**
- * The entry rows' badges, asked for together: every row on a page that wants a summary within
- * [WINDOW_MS] of the first goes in one `GET /transcripts/batch` (at most [BATCH_MAX] ids), so a
- * record with twenty recordings costs one request, not twenty.
- */
 class TranscriptSummaryBatcher(
     private val scope: CoroutineScope,
     private val fetch: suspend (List<String>) -> List<TranscriptSummary>,
@@ -21,7 +16,6 @@ class TranscriptSummaryBatcher(
     private val waiting = LinkedHashMap<String, MutableList<CompletableDeferred<TranscriptSummary?>>>()
     private var flusher: Job? = null
 
-    /** The summary, null when the server left the id out (unreadable, or no transcript). */
     suspend fun get(mediaId: String): TranscriptSummary? {
         val answer = CompletableDeferred<TranscriptSummary?>()
         mutex.withLock {

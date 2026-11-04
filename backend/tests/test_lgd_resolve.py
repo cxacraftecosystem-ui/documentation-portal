@@ -1,8 +1,3 @@
-"""How a free-text state and district become LGD codes, in the one fixed order ``lgd.resolve`` keeps.
-
-No database: the alias table is the plain mapping the coverage fold builds from ``GeoAlias`` rows.
-"""
-
 from __future__ import annotations
 
 from app.services import district_lineage, lgd

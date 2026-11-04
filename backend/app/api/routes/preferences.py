@@ -11,8 +11,6 @@ from app.services import mailer
 router = APIRouter(prefix="/preferences", tags=["preferences"])
 
 
-# Every persisted preference echoed straight back to the client. Kept as one list so the
-# serializer and the upsert stay in lockstep.
 PREFERENCE_FIELDS = (
     "theme",
     "reducedMotion",
@@ -34,9 +32,6 @@ def _serialize(row: Any) -> dict[str, Any]:
 
 @router.get("/me")
 async def my_preferences(current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """The current user's saved preferences, or an empty object when they have never saved any.
-    The client reads that emptiness as "this account has no opinion yet" and keeps the choices it
-    already applied from localStorage, seeding the server with them."""
     preferences = await db.userpreference.find_unique(where={"userId": current_user.id})
     return _serialize(preferences) if preferences else {}
 
@@ -46,7 +41,6 @@ async def upsert_my_preferences(
     payload: PreferencesUpdateRequest,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Create or update the current user's preferences — every signed-in user owns their own row."""
     fields = {field: getattr(payload, field) for field in PREFERENCE_FIELDS}
     preferences = await db.userpreference.upsert(
         where={"userId": current_user.id},
@@ -60,8 +54,6 @@ async def upsert_my_preferences(
 
 @router.get("/notifications")
 async def my_notification_preferences(current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Whether this deployment sends e-mail at all, and this person's opt-out. ``available`` is what
-    the web reads before drawing ANY e-mail control; false means none is drawn, and nothing is said."""
     row = await db.userpreference.find_unique(where={"userId": current_user.id})
     return {
         "available": mailer.mail_configured(),
@@ -74,7 +66,6 @@ async def update_my_notification_preferences(
     payload: NotificationPreferencesUpdate,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Save this person's e-mail opt-out. Stored even while mail is off, so the choice holds later."""
     fields = {"emailTaskUpdates": payload.emailTaskUpdates}
     row = await db.userpreference.upsert(
         where={"userId": current_user.id},

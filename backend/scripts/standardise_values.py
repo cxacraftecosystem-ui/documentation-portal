@@ -60,9 +60,7 @@ sv = importlib.import_module("app.services.standard_values")
 
 IST = timezone(timedelta(hours=5, minutes=30))
 BATCH = 500
-#: Columns that are a Postgres enum, with the cast their UPDATE needs.
 ENUM_COLUMNS = {"traditionType": '::"TraditionType"'}
-#: Columns whose report spells out each old value and what it becomes.
 MAPPED_COLUMNS = ("gender", "language", "traditionType")
 
 
@@ -73,9 +71,7 @@ class FieldReport:
     checked: int = 0
     standard: int = 0
     blank: int = 0
-    #: (id, old, new) for every row the run changes (or would change).
     changes: list[tuple[str, Any, Any]] = field(default_factory=list)
-    #: value -> ids of the rows holding it that no list entry matches.
     unmappable: dict[str, list[str]] = field(default_factory=dict)
     values: Counter = field(default_factory=Counter)
 
@@ -280,7 +276,6 @@ async def apply_changes(client: Any, report: FieldReport) -> None:
                         row_id,
                     )
                 else:
-                    # An enum column takes its value through a cast; a text column as it is.
                     cast = ENUM_COLUMNS.get(report.column, "")
                     await tx.execute_raw(
                         f'UPDATE "{table}" SET "{report.column}" = $1{cast} WHERE "id" = $2',

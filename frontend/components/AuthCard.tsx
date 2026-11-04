@@ -3,11 +3,6 @@
 import { FieldRepoLogo } from "@/components/FieldRepoLogo";
 import { GLASS_PANEL, GlassSurface } from "@/components/ui/GlassSurface";
 
-/**
- * The frosted card on the mesh backdrop that every password screen outside the app draws in — the
- * sign-in card's right half on its own. Used by `/set-password`, `/forgot-password` and the forced
- * password change, so the four auth screens cannot come to look like four products.
- */
 export function AuthCard({
   title,
   subtitle,

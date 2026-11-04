@@ -98,7 +98,7 @@ def mapped(row: dict[str, Any]) -> dict[str, Any] | None:
 
 def plan(rows: list[dict[str, Any]]) -> dict[str, Any]:
     counts: Counter[tuple[str, str, str, str]] = Counter()
-    to_copy: list[tuple[dict[str, Any], bool]] = []  # (ledger row, needs the fallback actor)
+    to_copy: list[tuple[dict[str, Any], bool]] = []
     copied = unreadable = 0
     for row in rows:
         if row.get("copied"):

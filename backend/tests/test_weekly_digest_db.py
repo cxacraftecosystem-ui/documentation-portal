@@ -1,27 +1,3 @@
-"""The Monday summary against a REAL Postgres: idempotency, the opt-out at send time, mail off, the
-empty week, the kill switch, the counts against the screens they link to, owner-only reads, and
-retention (``app/services/weekly_digest.py``).
-
-WHY A DATABASE, IN A SUITE THAT OTHERWISE HAS NONE. The guarantee under test is a unique index and
-a compare-and-set: two passes racing for one person must produce one summary. An in-memory fake
-would test the fake's idea of a unique violation, not Postgres's.
-
-THE GATE IS DELIBERATELY NARROW. ``backend/.env`` names the LIVE production database, so this module
-never reads it: it runs only when ``DATABASE_URL`` is EXPORTED in the environment AND names a host on
-this machine AND something is listening there. Anything else — CI's unresolvable DSN included — skips
-the whole module with one sentence. Start a throwaway database first, e.g.::
-
-    docker run -d --name docs-digest-pg -e POSTGRES_USER=digest -e POSTGRES_PASSWORD=digest \\
-        -e POSTGRES_DB=docs_digest -p 127.0.0.1:55434:5432 postgres:17-alpine
-    export DATABASE_URL=postgresql://digest:digest@127.0.0.1:55434/docs_digest?connect_timeout=60
-    prisma migrate deploy && python -m pytest tests/test_weekly_digest_db.py
-
-The long ``connect_timeout`` is for Docker Desktop on Windows, whose port proxy can take more than
-Prisma's default five seconds to accept a burst of connections (the concurrent-pass test opens one).
-
-Every test TRUNCATES the tables it uses. Never point it at a database you want to keep.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -55,7 +31,7 @@ pytestmark = pytest.mark.skipif(
     reason="needs an exported DATABASE_URL naming a running Postgres on this machine (never backend/.env)",
 )
 
-if _listening():  # imported only when the gate is open: these modules build a client from settings
+if _listening():
     import httpx
     from fastapi import FastAPI
 
@@ -124,8 +100,6 @@ async def _counts(user_id: str) -> tuple[int, int, int]:
     )
 
 
-# --- who -----------------------------------------------------------------------------------------
-
 
 def test_the_eligibility_matrix() -> None:
     async def body() -> None:
@@ -140,8 +114,6 @@ def test_the_eligibility_matrix() -> None:
 
     _run(body)
 
-
-# --- once per person per week --------------------------------------------------------------------
 
 
 def test_two_passes_write_one_summary_one_notice_one_email() -> None:
@@ -198,7 +170,6 @@ def test_a_pass_that_died_after_the_insert_is_reclaimed_once(monkeypatch: pytest
         assert crashed["failed"] == 1
         row = await db.weeklydigest.find_first(where={"userId": professor.id})
         assert row.status == weekly_digest.PENDING
-        # Too fresh to reclaim: another pass may still be working on it.
         await weekly_digest.run_weekly_digests(force=True, settings=settings)
         assert await _counts(professor.id) == (1, 0, 0)
         await db.execute_raw(
@@ -213,8 +184,6 @@ def test_a_pass_that_died_after_the_insert_is_reclaimed_once(monkeypatch: pytest
 
     _run(body)
 
-
-# --- what stops it -------------------------------------------------------------------------------
 
 
 def test_an_opt_out_is_honoured_at_send_time() -> None:
@@ -266,8 +235,6 @@ def test_the_kill_switch_writes_nothing() -> None:
     _run(body)
 
 
-# --- the counts are the screens' counts ----------------------------------------------------------
-
 
 def test_the_counts_follow_the_review_ladder_the_task_rule_and_the_week() -> None:
     async def body() -> None:
@@ -277,19 +244,14 @@ def test_the_counts_follow_the_review_ladder_the_task_rule_and_the_week() -> Non
         professor = await _user("PROFESSOR")
         admin = await _user("ADMIN")
         researcher = await _user("RESEARCHER")
-        # Reviewable by the professor (a researcher's), one of them stale; an admin's is not theirs.
         await _artisan(researcher)
         await _artisan(researcher, created=now - timedelta(days=15))
         await _artisan(admin)
-        # Tasks the admin manages: one handed in, one past due, one past due but handed in.
         for status, due in (("SUBMITTED", None), ("OPEN", now - timedelta(days=1)), ("SUBMITTED", now - timedelta(days=1))):
             await db.assignedtask.create(
                 data={"title": "T", "status": status, "dueAt": due,
                       "assignee": {"connect": {"id": researcher.id}}, "createdBy": {"connect": {"id": admin.id}}}
             )
-        # New this week: one approved artisan inside the window, one before it. "New" counts the
-        # whole repository, and the database is shared with the other DB-backed modules (never
-        # truncated), so the assertion is on what THIS test adds.
         before = await weekly_digest.build_payload(professor, week_start, now=now)
         new_before = next(s for s in before["sections"] if s["key"] == "new")
         baseline = {line["key"]: line["count"] for line in new_before["lines"]}.get("artisans", 0)
@@ -333,8 +295,6 @@ def test_districts_documented_counts_distinct_approved_pairs() -> None:
 
     _run(body)
 
-
-# --- reading it back -----------------------------------------------------------------------------
 
 
 def test_a_summary_is_its_owners_alone_and_the_switch_is_for_authorities() -> None:
@@ -393,6 +353,6 @@ def test_summaries_older_than_twenty_six_weeks_are_purged() -> None:
         tally = await weekly_digest.run_weekly_digests(force=True, settings=_settings())
         assert tally["purged"] == 1
         kept = await db.weeklydigest.find_many(where={"userId": professor.id})
-        assert len(kept) == 2  # the 25-week-old one and this week's
+        assert len(kept) == 2
 
     _run(body)

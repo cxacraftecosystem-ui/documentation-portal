@@ -1,14 +1,3 @@
-"""Write the craft master list migration from ``app/data/craft_master_list.json`` (docs/CRAFTS.md).
-
-The migration's SQL is generated, so it cannot drift from the file it seeds: ``--check`` (run by
-``tests/test_craft_master_migration.py``) fails when the committed SQL is not what this prints. The
-output is the same text in both portals; the designer portal's two extra columns are added inside a
-guard that does nothing where their tables do not exist.
-
-    cd backend && .venv/Scripts/python.exe -m scripts.gen_craft_master_sql           # write
-    cd backend && .venv/Scripts/python.exe -m scripts.gen_craft_master_sql --check   # compare
-"""
-
 from __future__ import annotations
 
 import argparse

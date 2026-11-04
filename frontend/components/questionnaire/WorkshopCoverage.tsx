@@ -11,26 +11,16 @@ import { durationLabel, shortDate } from "@/lib/questionnaire/prompts";
 import { qs } from "@/lib/questionnaire/qs";
 import { coverageScope, listForms, listWorkshops, WORKSHOP_LABEL, type PortalForm, type PortalWorkshop } from "@/lib/questionnairePortal";
 
-/** A take a dot can open: the cell's own listing, or (from an older server) a coverage check's take. */
 export type CellTake = Pick<CoverageRecording, "recordingId" | "sessionId" | "capturedAt" | "durationMs" | "recordedBy">;
 
-/** Where a take is read: its session's read view, scrolled to it with its transcript open. */
 export function takeHref(take: Pick<CellTake, "recordingId" | "sessionId">): string {
   return `/questionnaire/sessions/${encodeURIComponent(take.sessionId ?? "")}/view?recording=${encodeURIComponent(take.recordingId)}`;
 }
 
-/** A take in the chooser: when, who, how long (owner, 1 Nov 2026). */
 export function takeChoiceLabel(take: Pick<CellTake, "capturedAt" | "recordedBy" | "durationMs">): string {
   return [shortDate(take.capturedAt), take.recordedBy?.name ?? "", durationLabel(take.durationMs)].filter(Boolean).join(" · ");
 }
 
-/**
- * Workshop coverage (DESIGN §4.1): sections recorded per artisan for one instrument and workshop.
- * A dot opens that artisan × section's recording: one opens directly, several open a short
- * chooser (oldest first, by date, researcher and duration); a cell with no recording is not a
- * button at all. The cell lists its takes (0.0.6); a grid from an older server is asked through
- * the coverage check instead.
- */
 export function WorkshopCoverage() {
   const router = useRouter();
   const [instruments, setInstruments] = useState<PortalForm[]>([]);

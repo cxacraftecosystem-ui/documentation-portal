@@ -1,26 +1,3 @@
-"""Keyset (cursor) pagination, and the cursor format itself. Flag-gated; off by default.
-
-THE PROBLEM WITH OFFSETS. ``skip=N`` makes Postgres produce and discard N rows before it returns
-anything, so page 50 costs fifty pages of work and page 1 costs one. On 925 media rows that is
-invisible; the reason to build the helper now is that the cost is linear in the offset and the fix
-is not something you retrofit under load. Keyset paging asks "the next 20 rows after THIS one",
-which is an index seek — the same cost on page 1 and page 500.
-
-THE OTHER PROBLEM IT FIXES, which matters at today's volumes already: offset paging over a
-non-unique sort key is not stable. Every list route here orders by ``createdAt desc`` alone, and two
-records created in the same millisecond — an import, a batch upload, a phone syncing offline work —
-have no defined order between them. Postgres may order them differently on the query for page 2 than
-it did for page 1, and the researcher sees one row twice and never sees another. Keyset paging
-cannot express "after this row" without a unique tie-break, so adopting it forces the ``(sortField,
-id)`` ordering that makes offset paging correct too.
-
-WHY THE CURSOR IS SIGNED. It is decoded straight back into a Prisma ``where`` clause. An unsigned
-cursor is a query fragment supplied by the client, and while the visibility filter is applied
-separately (so no rows leak), a hand-crafted value is a free hand at the query planner and at the
-type coercion in between. The HMAC costs microseconds and means the only cursors this API will act
-on are ones it minted.
-"""
-
 import base64
 import hashlib
 import hmac
@@ -32,16 +9,11 @@ from typing import Any, Iterable, Mapping
 
 from app.scale.flags import keyset_enabled, log_once, settings
 
-# Long enough that forging one is not worth anyone's afternoon, short enough that the cursor stays a
-# reasonable query-string value. The cursor is not a credential — it names a position in a list the
-# caller is already authorised to read — so this is tamper-evidence, not authentication.
 _TAG_LENGTH = 16
 
 
 @dataclass(frozen=True)
 class Cursor:
-    """A decoded position: the sort value and id of the last row the client received."""
-
     sort_field: str
     value: Any
     record_id: str
@@ -54,12 +26,6 @@ def _sign(body: str) -> str:
 
 
 def _encode_value(value: Any) -> dict[str, Any]:
-    """Tag the sort value with its type so decoding can hand Prisma the type it was given.
-
-    A datetime that came back as the string "2026-07-26T10:00:00+00:00" is not the same query
-    argument as the datetime itself, and the difference surfaces as a comparison the engine performs
-    against text. So the type travels with the value rather than being guessed on the way back.
-    """
     if isinstance(value, datetime):
         return {"t": "dt", "v": value.isoformat()}
     if isinstance(value, date):
@@ -86,7 +52,6 @@ def _decode_value(payload: Mapping[str, Any]) -> Any:
 
 
 def encode_cursor(*, sort_field: str, value: Any, record_id: str, descending: bool = True) -> str:
-    """Mint the opaque token that means "resume after this row"."""
     body = base64.urlsafe_b64encode(
         json.dumps(
             {
@@ -102,18 +67,6 @@ def encode_cursor(*, sort_field: str, value: Any, record_id: str, descending: bo
 
 
 def decode_cursor(token: str | None, *, sort_field: str, descending: bool = True) -> Cursor | None:
-    """Decode a cursor, or None if there is nothing usable here.
-
-    None covers four cases deliberately treated the same: no cursor was sent, the flag is off, the
-    token was tampered with, and the token belongs to a different sort order than this route uses.
-    In all four the caller's correct response is identical — fall back to offset paging and serve
-    the requested page — so distinguishing them would only give a route four branches where one is
-    right. The two that are not simply "no cursor" are logged once.
-
-    ``sort_field`` and ``descending`` are checked, not trusted from the token: a cursor minted for
-    ``createdAt desc`` fed to a route ordering by ``name asc`` describes a position that does not
-    exist in that list, and honouring it would silently drop rows.
-    """
     if not token or not keyset_enabled():
         return None
     body, _, tag = token.partition(".")
@@ -133,7 +86,7 @@ def decode_cursor(token: str | None, *, sort_field: str, descending: bool = True
             record_id=str(payload["i"]),
             descending=bool(payload["d"]),
         )
-    except (KeyError, ValueError, TypeError) as exc:  # binascii.Error subclasses ValueError
+    except (KeyError, ValueError, TypeError) as exc:
         log_once(
             f"keyset.cursor.parse.{type(exc).__name__}",
             "A signed pagination cursor did not parse (%s); serving the requested page by offset.",
@@ -154,17 +107,6 @@ def decode_cursor(token: str | None, *, sort_field: str, descending: bool = True
 
 
 def after_where(cursor: Cursor, *, id_field: str = "id") -> dict[str, Any]:
-    """The Prisma filter for "strictly after this row" in the cursor's own ordering.
-
-    Expressed as the row-value comparison ``(sort, id) < (v, i)`` written out longhand, because
-    Prisma has no tuple comparison. Postgres will use a composite index on ``(sortField, id)`` for
-    it; without such an index this is still correct, just not yet fast — which is the right order to
-    do things in, since the index is a migration and this is not.
-
-    Merge it into the route's existing ``where`` under ``AND``, never at the top level: these routes
-    already build ``OR`` clauses for free-text search, and a second top-level ``OR`` would replace
-    the first one.
-    """
     operator = "lt" if cursor.descending else "gt"
     return {
         "OR": [
@@ -180,11 +122,6 @@ def after_where(cursor: Cursor, *, id_field: str = "id") -> dict[str, Any]:
 
 
 def order_by(sort_field: str, *, descending: bool = True, id_field: str = "id") -> list[dict[str, str]]:
-    """The ordering keyset paging requires: the sort column, then the id as a unique tie-break.
-
-    Safe to adopt on the offset path at the same time, and worth doing independently — see the
-    module docstring on rows that appear twice when a non-unique sort has no tie-break.
-    """
     direction = "desc" if descending else "asc"
     return [{sort_field: direction}, {id_field: direction}]
 
@@ -197,11 +134,6 @@ def next_cursor(
     descending: bool = True,
     id_field: str = "id",
 ) -> str | None:
-    """A cursor for the row after the last one in ``items``, or None when this was the last page.
-
-    Returns None on a short page — fewer rows than asked for means there is nothing after them, and
-    a cursor that leads to an empty page is a "next" button that lies.
-    """
     rows = list(items)
     if not rows or len(rows) < page_size:
         return None
@@ -209,8 +141,6 @@ def next_cursor(
     value = getattr(last, sort_field, None)
     record_id = getattr(last, id_field, None)
     if value is None or record_id is None:
-        # A NULL sort value has no defined position in a keyset ordering, so there is no honest
-        # cursor to hand back. Offset paging still works; the client just does not get the fast path.
         return None
     try:
         return encode_cursor(
@@ -227,13 +157,6 @@ def next_cursor(
 
 
 def with_cursor(payload: dict[str, Any], cursor: str | None) -> dict[str, Any]:
-    """Add ``nextCursor`` to an existing page payload without disturbing anything already in it.
-
-    Purely additive, which is what keeps page numbers in the UI contract: ``items``, ``total``,
-    ``page``, ``pageSize`` and ``pages`` still mean exactly what they mean today, and a client that
-    has never heard of cursors keeps working unchanged. ``nextCursor`` is absent — not null — when
-    there is no next page, so its presence is the whole test a client needs.
-    """
     if cursor is None:
         return payload
     return {**payload, "nextCursor": cursor}

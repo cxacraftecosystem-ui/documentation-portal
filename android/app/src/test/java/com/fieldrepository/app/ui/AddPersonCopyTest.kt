@@ -10,7 +10,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** "Add a person": who may be created by whom, what is sent for each sign-in choice, and what is said. */
 class AddPersonCopyTest {
     private val wire = Json { ignoreUnknownKeys = true; explicitNulls = false }
 

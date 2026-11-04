@@ -1,10 +1,3 @@
-"""An in-memory stand-in for the three Prisma delegates transcript insights touch.
-
-Deliberately small: equality, ``None``, ``in``, ``not_in``, ``not``, ``lt``/``lte``/``gte`` and
-ordering by one or more columns. Every create and update is appended to ``writes`` so a test can
-assert that a dry run wrote nothing as a fact about the calls made.
-"""
-
 from __future__ import annotations
 
 import copy
@@ -19,12 +12,11 @@ class Row:
     def __init__(self, **columns: Any) -> None:
         self.__dict__.update(columns)
 
-    def __getattr__(self, name: str) -> Any:  # unknown columns read as NULL, like Prisma's
+    def __getattr__(self, name: str) -> Any:
         return None
 
 
 def _unwrap(value: Any) -> Any:
-    # prisma.Json wraps a value in .data
     return getattr(value, "data", value) if type(value).__name__ == "Json" else value
 
 

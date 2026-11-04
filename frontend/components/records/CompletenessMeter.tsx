@@ -11,13 +11,6 @@ const PILL_REQUIRED = `${PILL} border-red-200 bg-error-100 text-red-700`;
 const PILL_RECOMMENDED = `${PILL} border-line-200 bg-card text-ink-700`;
 const PILL_LINK_HOVER = "hover:border-purple-300 hover:bg-purple-50 hover:text-purple-800";
 
-/**
- * The ring, the sentence, and one pill per missing field — required ones first, in the error tone.
- *
- * A pill is a link into the edit form with `focus=<key>` when the reader may update the record
- * (`updateHref` given), and plain text otherwise, so a ministry or read-only reader still sees what is
- * missing. On an edit form, `onPick` replaces the link: the field is on the same screen.
- */
 export function CompletenessMeter({
   block,
   updateHref,

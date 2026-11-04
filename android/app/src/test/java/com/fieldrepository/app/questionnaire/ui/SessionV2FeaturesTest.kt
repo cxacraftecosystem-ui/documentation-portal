@@ -31,11 +31,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 
-/**
- * The v2 features the backend and the web had and Android lacked (audit §1, 21 Oct 2026): edit,
- * merge and continue a session, remove a participant (P10), the artisan record CSV, sessions-list
- * paging, offline artisan registration; and H15, the builder for questionnaire managers only.
- */
 class SessionV2FeaturesTest {
     private val t0 = Instant.parse("2026-07-01T10:00:00Z")
 
@@ -65,14 +60,12 @@ class SessionV2FeaturesTest {
         assertEquals("FOLLOW_UP", frozen.purpose)
         assertEquals("Second visit", frozen.note)
 
-        // P10 before sync: the artisan leaves the queued create, and their queued join goes too.
         outbox.addParticipantChange("c", ParticipantChange("a2", ParticipantChange.JOIN, t0.toString()))
         assertTrue(outbox.removePendingParticipant("c", "a2"))
         val after = outbox.unit("c")!!
         assertEquals(listOf("a1"), outboxJson.decodeFromString(QSessionCreate.serializer(), after.steps.single { it.kind == StepKind.SESSION }.bodyJson!!).participants.map { it.artisanId })
         assertTrue(after.steps.none { it.kind == StepKind.PARTICIPANT })
 
-        // Once the session has landed, only the server can change it.
         outbox.sync(FakeSessionTransport(), "u1")
         assertFalse(outbox.removePendingParticipant("c", "a1"))
         assertFalse(outbox.editPendingSession("c", edit::applyTo))

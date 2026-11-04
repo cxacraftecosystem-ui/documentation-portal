@@ -53,12 +53,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/**
- * Back from a record restores the list (owner, 1 Nov 2026), on a device: the search, every page
- * loaded and the scroll come back exactly as they were left — never the first record of page 1 —
- * while a fresh way in starts over. The host here arrives at screens the way both apps' MainActivity
- * does ([ScreenMemories.arrive], restoring only on Back from a record).
- */
 @RunWith(AndroidJUnit4::class)
 class ListRestoreUiTest {
     @get:Rule
@@ -66,7 +60,6 @@ class ListRestoreUiTest {
 
     private val source = (0 until 100).map { "Row $it" }
 
-    /** A cursor-paged source of 30 a page, searched by substring. */
     private fun page(query: String, cursor: String?): Pair<List<String>, String?> {
         val matching = source.filter { query.isBlank() || it.contains(query) }
         val from = cursor?.toInt() ?: 0
@@ -120,7 +113,6 @@ class ListRestoreUiTest {
         compose.onNodeWithText("Row 45").performClick()
         compose.onNodeWithText("Opened Row 45").assertIsDisplayed()
 
-        // Back from the record.
         restoring = true
         screen = "list"
         compose.waitForIdle()
@@ -128,7 +120,6 @@ class ListRestoreUiTest {
         compose.onNodeWithTag("list.search").assertTextContains("Row")
         compose.onAllNodesWithText("Row 0").assertCountEquals(0)
 
-        // A fresh way in starts over: page 1 at the top, no search.
         restoring = false
         screen = "elsewhere"
         compose.waitForIdle()
@@ -146,7 +137,6 @@ class ListRestoreUiTest {
     @Test fun theRecordingsListKeepsWhatTheReaderChangedAfterAChipOpenedIt() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val v2 = QuestionnaireV2.get(context)
-        // With no session the server refuses, and the list filters the takes this phone kept.
         v2.offlineRows.keepRecordings(takes)
         v2.filterStore.save("restore-test", QuestionnaireFilters())
         val chip = QuestionnaireFilters().with("artisanId", listOf("restore-a1"), mapOf("restore-a1" to "Giriraj"))
@@ -161,18 +151,15 @@ class ListRestoreUiTest {
         }
         compose.waitUntil(30_000) { compose.onAllNodesWithText("Restore interview one").fetchSemanticsNodes().isNotEmpty() }
         compose.onAllNodesWithText("Restore interview two").assertCountEquals(0)
-        // The reader takes the chip's filter off: both takes.
         compose.onNodeWithTag("filter-pill").performClick()
         compose.waitUntil(30_000) { compose.onAllNodesWithText("Restore interview two").fetchSemanticsNodes().isNotEmpty() }
 
-        // Into a take's session and Back: the chip is not applied again over what the reader chose.
         showList = false
         compose.waitForIdle()
         showList = true
         compose.waitForIdle()
         compose.onNodeWithText("Restore interview two").assertIsDisplayed()
 
-        // A fresh way in from the chip: its filter again.
         showList = false
         compose.waitForIdle()
         memory = ScreenMemory()

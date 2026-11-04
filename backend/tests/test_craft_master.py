@@ -1,9 +1,3 @@
-"""The master craft list (2026-10-20): the file, the service's pure parts, and the two portals' parity.
-
-No database. The database halves are ``test_craft_master_migration.py``, ``test_craft_catalogue_api.py``
-and ``test_map_crafts.py``. This file is the same in both portals.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -20,7 +14,6 @@ BACKEND = pathlib.Path(__file__).resolve().parents[1]
 ROOT = BACKEND.parent
 IS_DESIGNER_PORTAL = (BACKEND / "app" / "services" / "stage_schema.py").is_file()
 
-#: Byte-identical in both portals (line endings normalised, as git stores them).
 SHARED_FILES = (
     "backend/app/data/craft_master_list.json",
     "backend/app/data/craft_master_aliases.json",
@@ -38,24 +31,19 @@ SHARED_FILES = (
     "docs/CRAFTS.md",
 )
 
-#: THE SHARED FILES, PINNED. CI checks out one repository, so the sibling comparison below skips
-#: there; these digests are what CI can check. Both repositories carry this same table, so a shared
-#: file changed in one repository only fails here until the change is made in both and the digest
-#: is updated in both. sha256 of the file with CRLF read as LF. This file pins everything but itself;
-#: the sibling comparison covers it on any machine with both checkouts.
 SHARED_DIGESTS: dict[str, str] = {
     "backend/app/data/craft_master_list.json": "3ab7073e644bfcd96e580dc53e4ad00633ef70a81de3475a0fd552c7a80019a2",
     "backend/app/data/craft_master_aliases.json": "dc0c3ed2132ebd67d70fa688fd6152895585ae3d907ee51e2b88221adc630ba1",
-    "backend/app/services/craft_master.py": "1c4ca0d219d8446e73d97ded4252326d5e010b60b151601479d948880535f9e4",
-    "backend/app/services/linked_names.py": "c3645205f672aa2a41374c049ea962689b0513925e5fcbbf5cd234b3a4c9f95a",
-    "backend/app/api/routes/craft_categories.py": "19563aa23d85ae31b5d10e448ae9fa6503808dcdbf5a88a3f9956fd5cd4b1b02",
-    "backend/app/scripts/map_crafts.py": "8b7392d68cc74c8a304ff35ce04d9d0c494273a514c188a0754eaa0b131bb978",
-    "backend/app/scripts/sync_craft_master.py": "4d5a7701faa59b7812cf6770b0821f4606cdae0fbe0d0b3620067693f77f19e1",
-    "backend/scripts/gen_craft_master_sql.py": "40cfa9f474240748d6ab4adc50f6ba9ea8c6ba01e804219b0cd2dd2ff066b669",
+    "backend/app/services/craft_master.py": "9deebcb2e6032d38422d828f6e239e35c292262c937d14a0ef41ce656de03f2b",
+    "backend/app/services/linked_names.py": "8437734448c5f9033e8bb97c797ba92f7e8901b4ef1f31fb68156568450871aa",
+    "backend/app/api/routes/craft_categories.py": "be86cc49f9fe66da52dff3f9b0c1c61cade2f6f2e6a9bf892ca330200eaaf9ce",
+    "backend/app/scripts/map_crafts.py": "dac419d400c2d4671855f940283972ffed7647c158c84c19772eb29dbb6a0353",
+    "backend/app/scripts/sync_craft_master.py": "99ba9966aac3a4379c7040478714943660e0d8e07cab809e160d151fd1b20f0f",
+    "backend/scripts/gen_craft_master_sql.py": "1150ec3efb56ad745047fa8e047a83c99099b72f52ec952fc04ace9593245acb",
     "backend/prisma/migrations/20261104090000_craft_master_list/migration.sql": "940f7b5190d0cb669748e4f80c09001034f01c05d52901c5f248007da37158a4",
-    "backend/tests/test_craft_master_migration.py": "b05ff4432be56497a7b40f2e9b7b50603b5d54dd9c00d2216574c53c76dd720d",
-    "backend/tests/test_map_crafts.py": "b3d084dfe3e98fa06ec4f5908cbdda6ed5d505b517dd8d482bd3f43c521e63dc",
-    "backend/tests/test_craft_catalogue_api.py": "230d41bc4ad1bfbb548e84bf3f71face0c3f79d1a4a895db82980832005c4ed4",
+    "backend/tests/test_craft_master_migration.py": "629224229f77e5db6ea1cb86033e0091eb39598acb719ea5fba305add4f90808",
+    "backend/tests/test_map_crafts.py": "21c64991c71a098a31c1a0d95016f0115e35fee644809222087e19546f0472dc",
+    "backend/tests/test_craft_catalogue_api.py": "6fba31d7536ccc85951fe7687f74770a019f6cb00a2e9b011be3340ee52e00dd",
     "docs/CRAFTS.md": "faa3c82feaae70495152bc4928287cb50c18c020335c1da2b213979703234193",
 }
 
@@ -186,10 +174,6 @@ def test_the_exact_and_alias_matchers_work_on_rows():
     assert [c.id for c in cm.exact_matches("Bagru Hand Block printing", rows)] == ["2"]
     assert cm.exact_matches("Ajrakh", rows) == []
 
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The two repositories
-# ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
 def _sibling() -> pathlib.Path | None:

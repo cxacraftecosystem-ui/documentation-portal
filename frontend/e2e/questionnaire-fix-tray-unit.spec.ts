@@ -5,8 +5,6 @@ import { expect, test } from "@playwright/test";
 
 import { discardStep, memoryQueueStore, sendStepAgain, sendWithoutConflicts, trayItems, type SessionUnit } from "@/lib/questionnaire/queue";
 
-/** The questionnaire outbox's fix tray on Field Repository (UNIFY B39): the shared tray, under the sessions list. */
-
 const item = (artisanId: string, lineage: string, text: string) => ({
   artisanId,
   questionLineageId: lineage,

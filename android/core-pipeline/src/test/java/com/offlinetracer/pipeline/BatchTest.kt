@@ -5,10 +5,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * The batch runner, whose entire reason for existing is that one bad file must not cost the other
- * hundred and ninety-nine.
- */
 class BatchTest {
 
     private val white = RgbaImage.argb(255, 255, 255, 255)
@@ -23,7 +19,6 @@ class BatchTest {
         return img
     }
 
-    /** Small and cheap: these tests are about the loop, not about the trace. */
     private val fastParams = TraceParams(
         preprocess = PreprocessParams(claheEnabled = false, denoise = DenoiseMode.NONE),
         edge = EdgeParams(engine = EdgeEngine.ADAPTIVE, adaptiveRadius = 8),
@@ -97,8 +92,6 @@ class BatchTest {
 
     @Test
     fun anItemWhoseSaveThrowsIsRecordedAndTheRunContinues() {
-        // A disk that fills up halfway is recorded per item exactly like a corrupt input, because the
-        // remaining files may be smaller and still fit.
         val outcomes = Batch.run(
             items = items("a", "b", "c"),
             params = fastParams,
@@ -117,7 +110,6 @@ class BatchTest {
 
     @Test
     fun anErrorAndNotJustAnExceptionIsSurvivedToo() {
-        // The realistic failure in a large batch is an OutOfMemoryError on one oversized file.
         val outcomes = Batch.run(
             items = items("a", "huge", "c"),
             params = fastParams,
@@ -160,8 +152,6 @@ class BatchTest {
             progress = { _, _, _ -> },
             cancel = token,
         )
-        // One outcome per item even so: a caller that sees 4 items and 2 outcomes cannot tell
-        // "cancelled" from "crashed", and those need different words in front of the user.
         assertEquals(4, outcomes.size)
         assertTrue(outcomes[0].ok)
         assertTrue(outcomes[1].ok)
@@ -205,8 +195,6 @@ class BatchTest {
 
     @Test
     fun aSuccessfulItemsMessageCarriesTheTracesOwnNotesForward() {
-        // The batch view is the one place a user never sees the per-image notes, so the count has to
-        // survive into the row — the notes are where "the matte deleted your artwork" lives.
         val outcomes = Batch.run(
             items = items("only"),
             params = fastParams.copy(cleanup = CleanupParams(minBlobArea = 1_000_000)),
@@ -230,7 +218,6 @@ class BatchTest {
             save = { _, result -> seen.add(result.workingWidth) },
             progress = { _, _, _ -> },
         )
-        // An illegal working edge was clamped once, up front, so both items ran identically.
         assertEquals(listOf(48, 48), seen)
     }
 }

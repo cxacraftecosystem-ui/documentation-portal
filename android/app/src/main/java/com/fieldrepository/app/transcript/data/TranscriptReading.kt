@@ -1,10 +1,5 @@
 package com.fieldrepository.app.transcript.data
 
-/**
- * READING MODE (0.0.6): the conversation as one long transcript, no timestamps, each speaker's run
- * of turns one flowing paragraph under their label. Original, English (the original where a turn has
- * none) or Both. Copy and download of this view are the existing "without timestamps" ones.
- */
 object TranscriptReading {
 
     data class Paragraph(
@@ -14,11 +9,9 @@ object TranscriptReading {
         val startMs: Long,
         val endMs: Long,
         val original: String,
-        /** Null when no turn in the run has English to show, or every one is already English. */
         val english: String?,
     )
 
-    /** Consecutive turns of one speaker joined into a paragraph, in transcript order. */
     fun paragraphs(turns: List<TranscriptTurn>): List<Paragraph> {
         val runs = mutableListOf<MutableList<TranscriptTurn>>()
         for (turn in turns.sortedBy { it.index }) {
@@ -40,11 +33,9 @@ object TranscriptReading {
         }
     }
 
-    /** The paragraph holding [turnId], or -1. */
     fun paragraphOf(paragraphs: List<Paragraph>, turnId: String?): Int =
         if (turnId == null) -1 else paragraphs.indexOfFirst { turnId in it.turnIds }
 
-    /** What a paragraph shows for [track]: English falls back to the original. */
     fun text(p: Paragraph, track: CopyTrack): String = when (track) {
         CopyTrack.ORIGINAL -> p.original
         CopyTrack.ENGLISH -> p.english ?: p.original

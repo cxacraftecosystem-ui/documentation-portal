@@ -1,14 +1,7 @@
 package com.fieldrepository.app.ui
 
-/** One country entry for the phone ISD-prefix picker: display name + its calling (dial) code. */
 data class Country(val name: String, val dialCode: String)
 
-/**
- * The full list of countries with their international dial codes, used by the artisan phone field's
- * ISD-prefix selector. India (+91) is the default prefix; picking any other code marks the artisan as
- * a foreign resident. Codes are the country calling codes (several countries legitimately share one,
- * e.g. +1 across the NANP) — for phone entry only the code string matters, not the exact country.
- */
 object Countries {
     val all: List<Country> = listOf(
         Country("Afghanistan", "+93"),
@@ -212,6 +205,5 @@ object Countries {
         Country("Zimbabwe", "+263")
     ).sortedBy { it.name.lowercase() }
 
-    /** Distinct dial codes, longest first, so prefix-matching a stored "+CC number" picks the right one. */
     val dialCodes: List<String> = all.map { it.dialCode }.distinct().sortedByDescending { it.length }
 }

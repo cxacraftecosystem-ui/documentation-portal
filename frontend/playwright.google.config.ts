@@ -1,12 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
 
-/**
- * The Google sign-in device matrix — `e2e/google-signin-devices.spec.ts` on the screens people use.
- *
- * A config of its own because the main one is a single desktop Chromium project with a preflight
- * that wants a live API; this spec needs neither, and it needs WebKit. `E2E_BASE_URL` is required:
- * the workflow points it at the live site or at a production build of the branch.
- */
 const BASE_URL = process.env.E2E_BASE_URL;
 if (!BASE_URL) throw new Error("Set E2E_BASE_URL to the site whose login page should be checked.");
 

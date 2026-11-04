@@ -1,23 +1,3 @@
-"""Approving a record approves its still-pending files, in one transaction (owner decision 2026-10-18).
-
-What is held here:
-
-* approving a parent (artisan, product, tool, interview, process, workshop) approves its PENDING
-  files with the record's reviewer and moment, and writes one audit line per file;
-* a REJECTED file, or one already approved, keeps its decision — nothing re-stamps it;
-* rejecting or sending a parent back moves no file;
-* a single file can still be rejected on its own, also after it was approved with its record;
-* the record, its log line and its files land together or not at all;
-* the queue, the record page and the bulk approval say how many files go with an approval;
-* the review decisions accept an Idempotency-Key, so the Android outbox can replay one safely;
-* the backfill script finds, counts and approves exactly what a live approval would, once — and
-  only files uploaded at or before their record's approval; later ones stay pending for review.
-
-NOTHING HERE TOUCHES A DATABASE: the review module's ``db`` is an in-memory stand-in whose ``tx()``
-really rolls back (``review_tx_fakes.RollbackTx``). ``test_review_media_cascade_sql_db.py`` runs the
-same writes against Postgres.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -52,7 +32,7 @@ def _matches(row: Any, where: dict[str, Any]) -> bool:
             if not any(_matches(row, clause) for clause in expected):
                 return False
             continue
-        if key == "AND":  # live_media_where composes its removedAt clause under AND (M19)
+        if key == "AND":
             if not all(_matches(row, clause) for clause in expected):
                 return False
             continue
@@ -165,17 +145,14 @@ def world(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         [
             _media("m1", tag="artisan", linked="a1", uploader=creator, artisanId="a1"),
             _media("m2", tag="ARTISAN", linked="a1", uploader=creator, artisanId="a1"),
-            # An older row: no tag pair, only the typed column.
             _media("m3", uploader=creator, artisanId="a1"),
             _media("rejected", "REJECTED", tag="artisan", linked="a1", uploader=creator, **vars(earlier)),
             _media("decided", "APPROVED", tag="artisan", linked="a1", uploader=creator, **vars(earlier)),
-            # Not a1's: a product photograph that also names the artisan.
             _media("pm1", tag="product", linked="p1", uploader=creator, artisanId="a1"),
             _media("pm2", uploader=creator, productId="p1", artisanId="a1"),
             _media("prm", tag="process", linked="pr1", uploader=creator),
             _media("stm", tag="processStep", linked="s2", uploader=creator),
             _media("qm", uploader=creator, questionnaireInterviewId="q1"),
-            # An admin's photograph on a researcher's record: above a professor on the ladder.
             _media("above", tag="artisan", linked="a2", uploader=admin),
             _media("late", tag="artisan", linked="a2", uploader=creator,
                    extraMetadata={"workshopSubmission": {"needsAdminApproval": True}}),
@@ -233,7 +210,6 @@ def test_approving_a_record_approves_its_pending_files_with_the_same_reviewer_an
 
 
 def test_a_file_uploaded_after_the_approval_stays_pending(world: Any) -> None:
-    """The live cascade takes only the files present when the approval runs."""
     assert _call("POST", "/artisan/a1/approve", {"notes": None}).status_code == 200
     world.db.mediafile.rows.append(
         _media("after", tag="artisan", linked="a1", uploader=world.creator, artisanId="a1", createdAt=datetime.now(UTC))
@@ -312,7 +288,7 @@ def test_a_failure_part_way_leaves_the_record_and_every_file_as_they_were(world:
     assert world.db.reviewlog.created == []
     assert all(row.status in {"PENDING", "REJECTED", "APPROVED"} for row in world.db.mediafile.rows)
     assert _file(world, "m1").status == "PENDING"
-    assert world.notices == []  # nobody is told about an approval that did not happen
+    assert world.notices == []
 
 
 def test_the_queue_says_how_many_files_go_with_each_approval(world: Any) -> None:
@@ -320,7 +296,6 @@ def test_the_queue_says_how_many_files_go_with_each_approval(world: Any) -> None
     counts = asyncio.run(review.pending_media_counts(keys, world.reviewer))
     assert counts == {("artisan", "a1"): 3, ("artisan", "a2"): 0, ("product", "p1"): 2, ("process", "pr1"): 2,
                       ("questionnaire", "q1"): 1}
-    # An admin may take the late file; the other admin's photograph is still not theirs to judge.
     assert asyncio.run(review.pending_media_counts(keys[:2], world.admin))[("artisan", "a2")] == 1
 
 
@@ -336,11 +311,10 @@ def test_the_paged_queue_carries_the_count(world: Any, monkeypatch: pytest.Monke
 def test_the_record_page_learns_the_count_and_which_files_it_may_reject(world: Any) -> None:
     body = _call("GET", "/artisan/a1/media").json()
     assert body["approvesWith"] == 3
-    assert set(body["rejectable"]) == {"m1", "m2", "m3", "decided"}  # never one already rejected
+    assert set(body["rejectable"]) == {"m1", "m2", "m3", "decided"}
     assert _call("POST", "/artisan/a1/approve", {"notes": None}).status_code == 200
     after = _call("GET", "/artisan/a1/media").json()
     assert after["approvesWith"] == 0 and set(after["rejectable"]) == {"m1", "m2", "m3", "decided"}
-    # An admin's photograph is not a professor's to reject.
     assert "above" not in _call("GET", "/artisan/a2/media").json()["rejectable"]
     assert _call("GET", "/media/m1/media").status_code == 404
 
@@ -360,15 +334,12 @@ def test_review_decisions_take_an_idempotency_key_and_reads_do_not() -> None:
         assert not idempotency.is_create_route(path), path
 
 
-# ─── The backfill ────────────────────────────────────────────────────────────────────────────────
-
 
 def _approved(world: Any) -> None:
-    """Records approved before files followed their record: approved, files left pending."""
     for table in (world.db.artisan, world.db.productdocumentation, world.db.process, world.db.questionnaireinterview):
         for row in table.rows:
             row.status, row.reviewedById, row.reviewedAt = "APPROVED", "prof", APPROVED_AT
-    world.db.artisan.rows[1].reviewedById = None  # a2: approved with no reviewer on file
+    world.db.artisan.rows[1].reviewedById = None
 
 
 def test_the_backfill_dry_run_counts_per_type_and_writes_nothing(world: Any) -> None:
@@ -387,7 +358,7 @@ def test_the_backfill_dry_run_counts_per_type_and_writes_nothing(world: Any) -> 
 def test_the_backfill_applies_in_batches_with_the_records_reviewer_and_is_idempotent(world: Any) -> None:
     _approved(world)
     report = asyncio.run(backfill.run(world.db, apply=True, batch_size=1))
-    assert report.files == 8 and world.db.tx.opened == 4  # one transaction per batch that had work
+    assert report.files == 8 and world.db.tx.opened == 4
     m1 = _file(world, "m1")
     assert (m1.status, m1.reviewedById, m1.reviewedAt) == ("APPROVED", "prof", APPROVED_AT)
     assert len(_media_logs(world)) == 8
@@ -398,7 +369,6 @@ def test_the_backfill_applies_in_batches_with_the_records_reviewer_and_is_idempo
 
 
 def _uploaded_after_approval(world: Any) -> None:
-    """m2 and the product's pm1 arrived after their records were approved; m3 at the very moment."""
     _file(world, "m2").createdAt = datetime(2026, 10, 3, tzinfo=UTC)
     _file(world, "pm1").createdAt = datetime(2026, 10, 2, 9, 31, tzinfo=UTC)
     _file(world, "m3").createdAt = APPROVED_AT
@@ -415,7 +385,7 @@ def test_the_backfill_leaves_files_uploaded_after_the_approval_for_review(world:
     assert "Left 2 files for review: uploaded after their record was approved." in dry.lines()
     done = asyncio.run(backfill.run(world.db, apply=True))
     assert (done.files, done.uploaded_later) == (6, 2)
-    assert _file(world, "m3").status == "APPROVED"  # uploaded at the approval moment: it was there
+    assert _file(world, "m3").status == "APPROVED"
     assert (_file(world, "m2").status, _file(world, "pm1").status) == ("PENDING", "PENDING")
     assert not {"m2", "pm1"} & {log["recordId"] for log in _media_logs(world)}
     assert "Approved 6 files in total." in done.lines()

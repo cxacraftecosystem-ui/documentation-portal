@@ -5,11 +5,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * Denoising (ALGORITHMS §4). The property that matters for every filter here is that it removes
- * outliers **without** moving the edges — a denoiser that blurs the step is a Gaussian with extra
- * steps, and the edge detector downstream cannot tell the difference until the output is soft.
- */
 class DenoiseTest {
 
     private fun step(w: Int, h: Int, edgeX: Int): GrayF {
@@ -28,7 +23,6 @@ class DenoiseTest {
     @Test
     fun bilateralKeepsTheStepSharp() {
         val src = step(16, 8, 8)
-        // A range sigma well below the step height means the two sides never mix.
         val out = Denoise.bilateral(src, 2f, 0.05f)
         for (y in 0 until 8) {
             assertEquals(0.1f, out[7, y], 0.02f)
@@ -38,8 +32,6 @@ class DenoiseTest {
 
     @Test
     fun bilateralWithAHugeRangeSigmaApproachesAPlainBlur() {
-        // With the range term saturated the filter degenerates to its spatial Gaussian, which is the
-        // sanity check that the two weights are actually multiplied and not swapped.
         val src = step(16, 4, 8)
         val out = Denoise.bilateral(src, 2f, 100f)
         assertTrue(out[7, 2] > 0.15f, "expected the edge to soften, got ${out[7, 2]}")
@@ -58,8 +50,6 @@ class DenoiseTest {
 
     @Test
     fun medianWithALargeRadiusStillRemovesSaltAndPepper() {
-        // Radius >= 2 takes the histogram-sliding path, which is a completely different code path
-        // from the insertion sort used at radius 1.
         val src = GrayF(13, 13).fill(0.4f)
         src[6, 6] = 1f
         src[3, 9] = 0f
@@ -88,7 +78,6 @@ class DenoiseTest {
         val src = GrayF(16, 8)
         for (y in 0 until 8) for (x in 0 until 16) {
             src[x, y] = if (x < 8) 0f else 1f
-            // A tiny alternating ripple on top of each plateau: below kappa, so it must diffuse.
             if ((x + y) % 2 == 0) src[x, y] = src[x, y] + 0.02f
         }
         val out = Denoise.anisotropicDiffusion(src, 20, 0.1f)
@@ -111,8 +100,6 @@ class DenoiseTest {
         src[5, 5] = 1f
         val out = Denoise.despeckle(src, 1, 0.2f)
         assertEquals(clean[5, 5], out[5, 5], 0.05f)
-        // Everything that was not an outlier must come through byte-identical, which is the whole
-        // point of despeckle over a plain median.
         for (y in 1 until 10) for (x in 1 until 10) {
             if (x == 5 && y == 5) continue
             assertEquals(clean[x, y], out[x, y], 1e-5f)
@@ -147,7 +134,6 @@ class DenoiseTest {
 
     @Test
     fun aZeroRangeSigmaDoesNotDivideByZero() {
-        // Wp collapses to the centre tap alone; the guard is what stops this returning NaN.
         val out = Denoise.bilateral(step(8, 8, 4), 2f, 0f)
         for (v in out.data) assertTrue(!v.isNaN() && !v.isInfinite(), "got $v")
     }

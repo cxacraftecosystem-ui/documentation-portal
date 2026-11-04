@@ -1,14 +1,3 @@
-/**
- * Typed client for the questionnaire v2 API (BUILD_PLAN §1, the frozen contract, contractVersion 1).
- *
- * Paths are relative to `/api` (what `apiFetch` adds); the questionnaire routes sit under
- * `/questionnaire`, consent under `/artisans`, media under `/media`. Every POST that creates sends an
- * `Idempotency-Key`; `X-Client-Time` and `X-App-Version` are added by `apiFetch` for every call.
- *
- * Nothing here names a file: an uploaded clip's name is minted by the server at presign, and a
- * download uses the server's `downloadName`.
- */
-
 import type { TranscriptPreview } from "@/lib/transcript/contract";
 import { ApiError, apiFetch, buildQuery } from "@/lib/api";
 import type { RecordingChips } from "@/lib/questionnaire/chips";
@@ -47,7 +36,6 @@ export type ErrorCode =
   | "CONSENT_REFUSED"
   | "CONSENT_NOT_RECORDED"
   | "APPROVE_BLOCKED"
-  // The unification's codes (UNIFY 2.2).
   | "ANSWER_LOCKED"
   | "FORM_DELETED"
   | "RESPONDENT_HAS_ROWS"
@@ -61,7 +49,6 @@ export type ContractErrorDetail = {
   count?: number;
 };
 
-/** The `{detail:{code,...}}` of a contract error, or null for any other failure. */
 export function contractError(error: unknown): ContractErrorDetail | null {
   if (!(error instanceof ApiError)) return null;
   const payload = error.payload as { detail?: unknown } | null;
@@ -82,13 +69,10 @@ export type QuestionnaireConfig = {
   snapshotPollSeconds: number;
   joinCodeLength: number;
   minAppVersionForCreate: string | null;
-  /** Which portal answered (UNIFY 4.1). */
   portal?: "designer-portal" | "documentation-portal";
-  /** The create cutoff per platform; a lower build number gets 503 and the update banner (P14). */
   minVersionCode?: { android: number | null; web: number | null };
 };
 
-/** What the web assumes when `/config` cannot be read: the old screens, and transcription paused. */
 export const CONFIG_FALLBACK: QuestionnaireConfig = {
   contractVersion: CONTRACT_VERSION,
   v2Enabled: false,
@@ -101,7 +85,6 @@ export const CONFIG_FALLBACK: QuestionnaireConfig = {
   minAppVersionForCreate: null
 };
 
-// The vocabularies are the generated ones (shared/enums.json via scripts/generate_shared.py).
 export type { AnswerOrigin, ConsentBasis, ConsentState, ConsentVerdict, RepeatReason, SessionPurpose, SubjectRole } from "@/lib/questionnaire/enums";
 export type Attribution = AnswerAttribution;
 export const SESSION_PURPOSES: readonly SessionPurpose[] = SessionPurposeValues;
@@ -123,17 +106,13 @@ export type SessionCreate = {
   note: string | null;
   participants: { artisanId: string }[];
   researchers?: { userId: string; role: string }[];
-  /** Guests answering without an artisan record (owner decision 1); participants may then be empty. */
   respondents?: { name: string; kind: RespondentKind; notes?: string | null }[];
-  /** C9: the device's fix when the session started, beside the typed place. Never sent on an edit. */
   location?: SessionLocation | null;
 };
 
-/** Where the device was when a session started (C9); stored as a Location row on the server. */
 export type SessionLocation = { latitude: number; longitude: number; accuracy?: number | null; altitude?: number | null };
 
 export type RespondentKind = "GUEST" | "SELF";
-/** A guest respondent: a named person who is not a registered artisan, or the signed-in user (SELF). */
 export type Respondent = {
   id: string;
   sessionId: string;
@@ -167,7 +146,6 @@ export type SessionParticipant = {
 
 export type Session = {
   id: string;
-  /** Null on every session the backfill rebuilt; the outbox keys those on `id` (audit C4). */
   clientKey: string | null;
   version: number;
   title: string;
@@ -197,12 +175,9 @@ export type Session = {
   submittedAt: string | null;
   reviewReasons: string[];
   counts: { sections: number; takes: number; needsDecision: number };
-  /** Guests on this session (owner decision 1). Absent on servers that predate them. */
   respondents?: Respondent[];
   source?: "APP" | "UPLOAD" | "HANDOFF" | string;
-  /** Set on a session in the content admins' Deleted list. */
   deletedAt?: string | null;
-  /** The session's chips (owner, 31 Oct 2026): form, people, day, workshop, language. */
   chips?: RecordingChips | null;
 };
 
@@ -229,14 +204,12 @@ export type TranscriptState = {
   paused: boolean;
   text: string | null;
   language: string | null;
-  /** The list preview (transcript contract v2): plain text under speaker labels, mapped names included. */
   preview?: TranscriptPreview | null;
 };
 
 export type RecordingGuest = { respondentId: string; name: string; role: SubjectRole; named: boolean; subjectKey: string };
 
 export type Recording = {
-  /** Guest respondents on the take (owner decision 1). */
   respondents?: RecordingGuest[];
   id: string;
   mediaFileId: string;
@@ -260,14 +233,11 @@ export type Recording = {
   downloadName: string;
   transcript: TranscriptState;
   consent: { verdict: ConsentVerdict; source: string | null };
-  /** What the take answers, on which form, who answered, when and where (owner, 31 Oct 2026). */
   chips?: RecordingChips | null;
 };
 
-/** A page of the recordings list and search (`GET /questionnaire/recordings`). */
 export type RecordingList = { items: Recording[]; nextCursor: string | null; filters?: Record<string, unknown> };
 
-/** One choice a filter offers (`GET /questionnaire/filters`), most used first. */
 export type FilterOption = {
   id: string;
   label: string;
@@ -292,30 +262,20 @@ export type Answer = {
   pinned: boolean;
   sourceRecordingId: string | null;
   artisanId?: string | null;
-  /** A guest's answer (owner decision 1). */
   respondentId?: string | null;
   questionLineageId?: string;
-  /** Who wrote the current revision: the lock's "Answered by" (P15), before an edit is refused. */
   actorId?: string | null;
   actorName?: string | null;
-  /** The answer note (A20). */
   note?: string | null;
-  /**
-   * Decision C8: the answer as a rich-text document (designer-portal's stored format, as JSON), beside
-   * the canonical plain `text`. A client without an editor shows `text`.
-   */
   richText?: string | null;
 };
 
-/** Whose answer: an artisan's, or a guest respondent's (exactly one). */
 export type AnswerOwner = { artisanId?: string | null; respondentId?: string | null };
 
-/** The subject key the server uses (UNIFY 2.3 rule 1): `A:<artisanId>` or `R:<respondentId>`. */
 export function ownerKey(owner: AnswerOwner): string {
   return owner.artisanId ? `A:${owner.artisanId}` : `R:${owner.respondentId ?? ""}`;
 }
 
-/** One revision of an answer, newest first (B21). */
 export type AnswerRevision = {
   id: string;
   text: string;
@@ -329,7 +289,6 @@ export type AnswerRevision = {
   current: boolean;
 };
 
-/** `GET /questionnaire/form-for`: the start sheet's form, by the shared order (UNIFY 2.3 rule 5). */
 export type FormFor = {
   questionnaireId: string | null;
   reason: "EXPLICIT" | "PRIMARY_BINDING" | "ONLY_BINDING" | "TYPE_DEFAULT" | "GLOBAL_DEFAULT" | "PICKER" | string;
@@ -339,7 +298,6 @@ export type FormFor = {
 
 export type Binding = { workshopId: string | null; designWorkshopId: string | null; isPrimary: boolean };
 
-/** `GET /questionnaire/forms/{id}/structure`: sections and questions with lineages, codes and required marks. */
 export type FormQuestion = {
   id: string;
   prompt: string;
@@ -360,16 +318,13 @@ export type FormStructure = {
   sections: { id: string; code: string; title: string; sortOrder: number; questions: FormQuestion[] }[];
 };
 
-/** `GET /questionnaire/annexure`: the forms bound to a workshop grouped by kind, with live sittings (A12). */
 export type Annexure = {
-  /** The scope: a Field Repository workshop or a designer-portal design workshop (the other is null). */
   workshopId?: string | null;
   designWorkshopId: string | null;
   workshopTitle?: string | null;
   groups: {
     kind: string | null;
     label: string;
-    /** The report stage this kind is filed under on this portal. */
     stage?: string | null;
     forms: {
       questionnaireId: string;
@@ -380,7 +335,6 @@ export type Annexure = {
       questionCount: number;
       answeredTotal: number;
       emptySittings: number;
-      /** Each question with every live session's current answer (one shape in both portals). */
       sections?: { code: string; title: string; questions: { displayCode: string; prompt: string; answers: { subject: string; text: string }[] }[] }[];
       sittings: {
         id: string;
@@ -395,7 +349,6 @@ export type Annexure = {
   }[];
 };
 
-/** A take's history (B40). */
 export type RecordingEvent = { id: string; kind: string; before: unknown; after: unknown; actor: { id: string | null; name: string }; at: string | null };
 
 export type CoverageState =
@@ -410,23 +363,16 @@ export type CoverageState =
   | "NEEDS_REVIEW"
   | "NEEDS_REDO";
 
-/**
- * The admin override per section and subject (owner, amendment 2 point 1: three states), in the
- * shared `SectionStatus` vocabulary the servers store: COMPLETED ("Marked complete"), NEEDS_REVIEW,
- * NEEDS_REDO. An older server's or client's `MARKED_COMPLETE` is read as COMPLETED.
- */
 export type SectionOverride = "COMPLETED" | "NEEDS_REVIEW" | "NEEDS_REDO";
 export const SECTION_OVERRIDES: readonly SectionOverride[] = ["COMPLETED", "NEEDS_REVIEW", "NEEDS_REDO"];
 const SECTION_OVERRIDE_ALIASES: Record<string, SectionOverride> = { MARKED_COMPLETE: "COMPLETED" };
 
-/** A stored override token as the screens read it, the old alias included; anything else is none. */
 export function readSectionOverride(value: string | null | undefined): SectionOverride | null {
   if (!value) return null;
   const token = SECTION_OVERRIDE_ALIASES[value] ?? value;
   return SECTION_OVERRIDES.includes(token as SectionOverride) ? (token as SectionOverride) : null;
 }
 
-/** One take behind a coverage cell (transcript contract v2 `CoverageRecording`): what a dot opens. */
 export type CoverageRecording = {
   recordingId: string;
   mediaFileId: string | null;
@@ -437,7 +383,6 @@ export type CoverageRecording = {
   needsDecision: boolean;
 };
 
-/** Where a covered cell's coverage comes from: a recording (preferred), or a typed answer only (✎). */
 export type CoverageSource = "RECORDED" | "TYPED";
 
 type ContractCell = {
@@ -447,22 +392,17 @@ type ContractCell = {
   total: number | null;
   needsDecision: boolean;
   override: string | null;
-  /** `A:<artisanId>` or `R:<respondentId>` (UNIFY 2.3 rule 1). */
   subjectKey?: string;
   source?: CoverageSource | null;
   recordedCount?: number;
   typedOnlyCount?: number;
-  /** A typed-only cell: offer "Add a recording?", never blocking (owner, amendment 2 point 4). */
   addRecording?: boolean;
-  /** The takes behind the cell, oldest first (0.0.6); absent from an older server. */
   recordings?: CoverageRecording[];
 };
 
-/** `GET /coverage` and `SessionDetail.grid`, as the contract sends it. */
 export type CoverageGrid = {
   questionnaireId: string;
   artisans: { artisanId: string; name: string }[];
-  /** A session's guest respondents, each a column of its own (`R:<id>`). */
   respondents?: { respondentId: string; name: string; subjectKey: string }[];
   sections: {
     sectionId: string;
@@ -473,9 +413,7 @@ export type CoverageGrid = {
   }[];
 };
 
-/** The screens' view of a grid: sections (with their questions, where known) and flat cells. */
 export type CoverageGridCell = {
-  /** The column: an artisan's id, or `R:<respondentId>` for a guest. */
   artisanId: string;
   targetKey: string;
   state: CoverageState;
@@ -483,13 +421,10 @@ export type CoverageGridCell = {
   partial?: { done: number; of: number } | null;
   source?: CoverageSource | null;
   addRecording?: boolean;
-  /** The admin override, shown beside the data-derived state. */
   override?: SectionOverride | null;
-  /** The takes behind the cell, oldest first; undefined when the server did not say. */
   recordings?: CoverageRecording[];
 };
 
-/** The grid column id for a guest respondent. */
 export function guestColumn(respondentId: string): string {
   return `R:${respondentId}`;
 }
@@ -499,7 +434,6 @@ export type GridView = {
   cells: CoverageGridCell[];
 };
 
-/** Contract grid → view grid; the questions come from the instrument's sections where loaded. */
 export function toGridView(grid: CoverageGrid | null | undefined, questions: Record<string, GridQuestion[]> = {}): GridView {
   const sections = grid?.sections ?? [];
   return {
@@ -591,7 +525,6 @@ export type PresignRequest = {
 };
 export type PresignResponse = { objectKey: string; url: string; headers: Record<string, string>; expiresAt: string };
 export type MultipartCreateResponse = { objectKey: string; uploadId: string; partSize: number; partsDone: UploadPart[] };
-/** `POST /media/multipart/presign-parts`: part number (as a string key) → signed URL (audit C3). */
 export type MultipartPartUrls = { urls: Record<string, string> };
 export type UploadPart = { partNumber: number; etag: string };
 export type UploadState = {
@@ -604,7 +537,6 @@ export type UploadState = {
 
 export type CompleteRecording = {
   targets: ({ sectionId: string } | { questionLineageId: string })[];
-  /** An artisan (`artisanId`) or a guest respondent (`respondentId`), exactly one. */
   subjects: { artisanId?: string; respondentId?: string; role: SubjectRole; named: boolean; repeatReason: RepeatReason | null }[];
   deviceCapturedAt: string;
   clockOffsetMs: number | null;
@@ -625,7 +557,6 @@ export type CompleteRequest = {
 };
 
 export type AnswerItem = {
-  /** Exactly one owner: an artisan, or a guest respondent of the session. */
   artisanId?: string | null;
   respondentId?: string | null;
   questionLineageId: string;
@@ -635,9 +566,7 @@ export type AnswerItem = {
   sessionId: string;
   sourceRecordingId: string | null;
   baseVersion?: number;
-  /** The answer note (A20). */
   note?: string | null;
-  /** Decision C8: the document an editor wrote; sent alone, the server flattens it into `text`. */
   richText?: unknown;
 };
 export type AnswerResult = {
@@ -645,7 +574,6 @@ export type AnswerResult = {
   respondentId?: string | null;
   questionLineageId: string;
   status: "SAVED" | "UNCHANGED" | "CONFLICT" | "FORBIDDEN";
-  /** `ANSWER_LOCKED` on a FORBIDDEN item: someone else's answer with text (P15). */
   code?: "ANSWER_LOCKED" | string;
   answer: Answer | null;
   current: (Answer & { editedBy?: Person; editedAt?: string }) | null;
@@ -669,7 +597,6 @@ export type ConsentPost = {
   clientKey: string;
 };
 
-// The inbox rows are typed where they are labelled: lib/questionnaireInbox.ts.
 export type { Inbox } from "@/lib/questionnaire/inbox";
 
 export type RecordSession = { session: Session; recordings: Recording[]; uncertain: Recording[] };
@@ -694,7 +621,6 @@ export type ArtisanRecord = {
   }[];
 };
 
-/** A fresh key for `clientKey`, `clientClipKey` and `Idempotency-Key`. */
 export function mintKey(prefix: string): string {
   const random =
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -709,15 +635,8 @@ function json(method: string, body: unknown, idempotencyKey?: string): RequestIn
   return { method, body: body === undefined ? undefined : JSON.stringify(body), headers };
 }
 
-/** The JSON fetcher the client is built over: `apiFetch` in the browser, a plain one in the stack spec. */
 export type JsonFetcher = <T>(path: string, init?: RequestInit) => Promise<T>;
 
-/**
- * The client over any fetcher. The browser uses `questionnaireApi` (over `apiFetch`); the stack spec
- * (`e2e/questionnaire-v2-stack.spec.ts`) builds the SAME client over a fetcher pointed at a real local
- * backend, so a shape the server does not send fails there rather than hiding behind a fake.
- */
-/** `?<filters>&cursor=…&limit=…&<extra>`, or "" when there is nothing to send. */
 function withQuery(filters: string, cursor?: string | null, limit?: number, extra = ""): string {
   const parts = [filters, cursor ? `cursor=${encodeURIComponent(cursor)}` : "", limit ? `limit=${limit}` : "", extra].filter(Boolean);
   return parts.length ? `?${parts.join("&")}` : "";
@@ -736,19 +655,15 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
           date: params.date
         })}`
       ),
-    /** Always creates; the body's `clientKey` doubles as the Idempotency-Key, so a replay lands once. */
     createSession: (body: SessionCreate) => fetchJson<Session>(`${Q}/sessions`, json("POST", body, body.clientKey)),
     listSessions: (params: Record<string, string | number | undefined | null>) =>
       fetchJson<SessionList>(`${Q}/sessions${buildQuery(params)}`),
-    /** The sessions list under the shared filters, server-side; `deleted` is the content admins' list. */
     sessions: (filters: Filters, extra: { cursor?: string | null; limit?: number; deleted?: boolean } = {}) =>
       fetchJson<SessionList>(`${Q}/sessions${withQuery(filtersToQuery(filters), extra.cursor, extra.limit, extra.deleted ? "deleted=true" : "")}`),
-    /** Every live take matching the filters, newest first, each with its chips. */
     listRecordings: (filters: Filters, cursor?: string | null, sessionId?: string | null, limit?: number) =>
       fetchJson<RecordingList>(
         `${Q}/recordings${withQuery(filtersToQuery(filters), cursor, limit, sessionId ? `sessionId=${encodeURIComponent(sessionId)}` : "")}`
       ),
-    /** What a filter can be set to; `field` + `q` answer one searchable select as the reader types. */
     filterOptions: (field?: FilterField | null, q?: string | null, questionnaireIds: string[] = [], limit?: number) =>
       fetchJson<FilterOptions>(
         `${Q}/filters${buildQuery({ field: field ?? undefined, q: q || undefined, questionnaireId: questionnaireIds.length ? questionnaireIds.join(",") : undefined, limit })}`
@@ -773,20 +688,16 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
       fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}/merge-into/${encodeURIComponent(targetId)}`, json("POST", {})),
     continueSessions: (body: { fromSessionId: string; artisanIds: string[]; split: "ONE" | "EACH"; sessionDate: string }) =>
       fetchJson<{ sessions: Session[]; firstGap: Record<string, string | null> }>(`${Q}/sessions/continue`, json("POST", body, mintKey("cont"))),
-    /** A restorable soft delete; content admins only (owner decision 3). */
     deleteSession: (id: string) => fetchJson<void>(`${Q}/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }),
     restoreSession: (id: string) => fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}/restore`, json("POST", {})),
-    /** The content admins' Deleted list. */
     deletedSessions: (params: Record<string, string | number | undefined | null> = {}) =>
       fetchJson<SessionList>(`${Q}/sessions${buildQuery({ ...params, deleted: "true" })}`),
     addRespondents: (id: string, respondents: { name: string; kind: RespondentKind; notes?: string | null }[]) =>
       fetchJson<{ respondents: Respondent[] }>(`${Q}/sessions/${encodeURIComponent(id)}/respondents`, json("POST", { respondents }, mintKey("resp"))),
-    /** A17: edit a guest's name and notes; an empty name retracts it ("Respondent"). */
     patchRespondent: (id: string, respondentId: string, body: { name?: string | null; notes?: string | null }) =>
       fetchJson<Respondent>(`${Q}/sessions/${encodeURIComponent(id)}/respondents/${encodeURIComponent(respondentId)}`, json("PATCH", body)),
     removeRespondent: (id: string, respondentId: string) =>
       fetchJson<void>(`${Q}/sessions/${encodeURIComponent(id)}/respondents/${encodeURIComponent(respondentId)}`, { method: "DELETE" }),
-    /** Register a guest as an artisan: their answers and takes move to the artisan in one transaction. */
     registerRespondent: (respondentId: string, artisanId: string) =>
       fetchJson<Respondent>(`${Q}/respondents/${encodeURIComponent(respondentId)}/register`, json("POST", { artisanId })),
 
@@ -801,13 +712,10 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
     formStructure: (id: string, includeRetired = false) =>
       fetchJson<FormStructure>(`${Q}/forms/${encodeURIComponent(id)}/structure${buildQuery({ includeRetired: includeRetired ? "true" : undefined })}`),
     bindings: (id: string) => fetchJson<{ questionnaireId: string; bindings: Binding[] }>(`${Q}/forms/${encodeURIComponent(id)}/bindings`),
-    /** Admins: which workshops this form is bound to, and where it is the primary form. */
     putBindings: (id: string, bindings: Binding[]) =>
       fetchJson<{ questionnaireId: string; bindings: Binding[] }>(`${Q}/forms/${encodeURIComponent(id)}/bindings`, json("PUT", { bindings })),
-    /** Admins: the default form for a workshop type (null clears it). */
     putTypeDefault: (body: { questionnaireId: string | null; workshopType?: string | null; designWorkshopKind?: string | null }) =>
       fetchJson<{ questionnaireId: string | null }>(`${Q}/type-defaults`, json("PUT", body)),
-    /** B13, D1: content admins set or clear one artisan's override for one section (three states). */
     setSectionOverride: (body: { artisanId: string; sectionId: string; status: SectionOverride | null }) =>
       fetchJson<unknown>(`${Q}/completion`, json("PUT", body)),
     annexure: (params: { workshopId?: string | null; designWorkshopId?: string | null }) =>
@@ -845,32 +753,22 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
         `${Q}/recordings/${encodeURIComponent(id)}/answer-proposals`,
         json("POST", {})
       ),
-    /** While paused the server answers 202 `{status:"QUEUED",paused:true}`; the UI never offers it then. */
     transcribe: (id: string) =>
       fetchJson<{ status: string; paused: boolean }>(`${Q}/recordings/${encodeURIComponent(id)}/transcribe`, json("POST", {})),
-    /** The server 302s to a signed URL whose Content-Disposition is the recording's `downloadName`. */
     downloadHref: (id: string) => `/api${Q}/recordings/${encodeURIComponent(id)}/download`,
 
     putAnswers: (items: AnswerItem[]) => fetchJson<{ results: AnswerResult[] }>(`${Q}/answers`, json("PUT", { items })),
-    /** B21: every revision of one answer, newest first. */
     answerRevisions: (answerId: string) => fetchJson<{ answerId: string; revisions: AnswerRevision[] }>(`${Q}/answers/${encodeURIComponent(answerId)}/revisions`),
-    /** B40: removed takes of a session or an artisan, newest first. */
     removedTakes: (params: { sessionId?: string; artisanId?: string }) =>
       fetchJson<{ items: Recording[] }>(`${Q}/recordings/removed${buildQuery({ sessionId: params.sessionId, artisanId: params.artisanId })}`),
     recordingEvents: (id: string) => fetchJson<{ recordingId: string; events: RecordingEvent[] }>(`${Q}/recordings/${encodeURIComponent(id)}/events`),
     inbox: () => fetchJson<Partial<Inbox>>(`${Q}/inbox`).then(normaliseInbox),
-    /**
-     * "File it" (DESIGN §4.7, audit H14): a clip in "To file" becomes a recording of the session,
-     * target and subjects picked in the inbox (`POST /questionnaire/media/{mediaId}/file`).
-     */
     fileClip: (
       mediaId: string,
       body: { sessionId: string; targets: ({ sectionId: string } | { questionLineageId: string })[]; subjects: { artisanId: string; role: string }[] }
     ) => fetchJson<Recording>(`${Q}/media/${encodeURIComponent(mediaId)}/file`, json("POST", body)),
-    /** "Not needed" on a clip in "To file", stored on the server so every device agrees (audit M22). */
     dismissClip: (mediaId: string) => fetchJson<void>(`${Q}/media/${encodeURIComponent(mediaId)}/not-needed`, json("POST", {})),
 
-    /** The artisan's record, for prefill from its columns (B24). */
     artisan: (artisanId: string) => fetchJson<Record<string, unknown> & { id: string }>(`/artisans/${encodeURIComponent(artisanId)}`),
     getConsent: (artisanId: string) => fetchJson<ConsentRecord>(`/artisans/${encodeURIComponent(artisanId)}/consent`),
     postConsent: (artisanId: string, body: ConsentPost) =>
@@ -886,9 +784,7 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
       fetchJson<MultipartPartUrls>(`/media/multipart/presign-parts`, json("POST", body)),
     multipartComplete: (body: { objectKey: string; uploadId: string; parts: UploadPart[] }) =>
       fetchJson<{ objectKey: string }>(`/media/multipart/complete`, json("POST", body)),
-    /** 404 (an ApiError) when the server holds no intent for this clip. */
     uploadState: (clientClipKey: string) => fetchJson<UploadState>(`/media/uploads/${encodeURIComponent(clientClipKey)}`),
-    /** Idempotent on `clientClipKey`: 201 the first time, 200 on a replay, the same Recording either way. */
     complete: (body: CompleteRequest) => fetchJson<Recording>(`/media/complete`, json("POST", body, body.clientClipKey))
   };
 }

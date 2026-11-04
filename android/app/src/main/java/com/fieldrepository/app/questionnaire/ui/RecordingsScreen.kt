@@ -41,29 +41,14 @@ import com.fieldrepository.app.ui.FieldLinearProgressIndicator
 import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.launch
 
-/**
- * A list's filters, kept per screen ([FilterStore]) for this account: what a screen reads on its first
- * frame and writes on every change, so the list comes back as it was left after navigating away or
- * a restart. [initial] (a chip tapped elsewhere) replaces what was kept.
- */
 @Composable
 fun rememberKeptFilters(v2: QuestionnaireV2, screen: String, initial: QuestionnaireFilters? = null): Pair<QuestionnaireFilters, (QuestionnaireFilters) -> Unit> {
-    // A chip's filters replace the kept ones once per way in: Back to the same list keeps what the
-    // reader changed since (owner, 1 Nov 2026).
     val applied = rememberKept("$screen.initialApplied") { null as QuestionnaireFilters? }
     var filters by remember(screen) { mutableStateOf(initial?.takeIf { it != applied.value } ?: v2.filterStore.load(screen)) }
     LaunchedEffect(screen, initial) { if (initial != null && initial != applied.value) { applied.value = initial; filters = initial; v2.filterStore.save(screen, initial) } }
     return filters to { next: QuestionnaireFilters -> filters = next; v2.filterStore.save(screen, next) }
 }
 
-/**
- * The recordings list and search (owner, 31 Oct 2026): every take matching the shared filters,
- * newest first, each with its chips; tapping a chip filters by it. With no signal it filters the
- * takes this phone last read and says so.
- *
- * @param initial filters to open with (a chip tapped on another screen), replacing the kept ones.
- * @param fixed filters this host sets itself (e.g. one form), never shown or cleared here.
- */
 @Composable
 fun RecordingsList(
     v2: QuestionnaireV2,
@@ -77,7 +62,6 @@ fun RecordingsList(
     val scope = rememberCoroutineScope()
     val (filters, setFilters) = rememberKeptFilters(v2, screen, initial)
     val applied = merged(filters, fixed)
-    // Every page loaded, kept for Back from a take's session (owner, 1 Nov 2026; [ListPaging]).
     var kept by rememberKept("$screen.pages") { KeptPages<QRecording>() }
     val rows = kept.rows
     val cursor = kept.cursor
@@ -111,7 +95,6 @@ fun RecordingsList(
                         modifier = Modifier.clickable { r.sessionId?.let(onOpenSession) }
                     )
                 }
-                // What was said (0.0.6): speakers as labels, never markdown, three lines at most.
                 r.transcript?.shownPreview()?.let { TranscriptPreviewText(it, maxLines = 3) }
                 RecordingChips(r.chips, filters = applied, onChip = onChip)
             }
@@ -129,14 +112,9 @@ fun RecordingsList(
     }
 }
 
-/** [filters] with the host's own [fixed] values on top. */
 internal fun merged(filters: QuestionnaireFilters, fixed: QuestionnaireFilters): QuestionnaireFilters =
     fixed.values.entries.fold(filters) { f, (k, v) -> f.with(k, v) }
 
-/**
- * The sessions held on one form (UNIFY 4.2, form detail), with the shared search and filters, its
- * form fixed. Each row carries its chips; tapping one filters this list.
- */
 @Composable
 fun FormSessionsList(
     v2: QuestionnaireV2,
@@ -153,7 +131,6 @@ fun FormSessionsList(
     LaunchedEffect(applied) {
         loading = true
         val page = runCatching { v2.sessionsPage(applied, limit = 50) }.getOrNull()
-        // A failed read keeps the rows already shown rather than blanking the list.
         if (page != null || rows.isEmpty()) rows = page?.items.orEmpty(); offline = page?.offline == true
         loading = false
     }
@@ -176,10 +153,6 @@ fun FormSessionsList(
     }
 }
 
-/**
- * The recordings list over a screen that has none (an artisan's record): opened by a tapped chip,
- * filtered by it, closed with Done. Its filters are this dialog's own, so the main list's are kept.
- */
 @Composable
 fun RecordingsDialog(v2: QuestionnaireV2, initial: QuestionnaireFilters, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {

@@ -10,17 +10,6 @@ import { ScanPanel } from "@/components/scan/ScanSheet";
 import { SCAN_COPY, SCAN_HREF, dispatchScan } from "@/lib/scanDispatch";
 import { runScanAction, scanServices } from "@/lib/scanServices";
 
-/**
- * The Field Repository's scanner, without a browser or a sign-in (REQUIREMENTS_2026-10-20 §6.3), so
- * CI runs it on every push. `e2e/scan-session-join.spec.ts` drives the same two paths on the real
- * page when E2E credentials are set.
- *
- * 1. A typed six-character session code is answered with Join, and pressing it calls the real
- *    `POST /questionnaire/sessions/join` (fetch stubbed) and leads to the session.
- * 2. With no camera at all (Node has none), the panel still draws "Choose a photo" and the typed
- *    box, and the camera button answers a missing camera with a sentence naming both.
- */
-
 type Sent = { url: string; method: string; body: string };
 
 function stubApi(reply: (sent: Sent) => Response): { sent: Sent[]; restore: () => void } {
@@ -83,7 +72,6 @@ test("a scanned session QR joins by its clientKey and never creates the session"
   } finally {
     api.restore();
   }
-  // Not synced yet: the server's sentence, and nothing was created.
   const notYet = "This session hasn't synced yet. Try again once the lead's phone is online.";
   const refused = stubApi(
     () =>
@@ -112,7 +100,6 @@ test("with no camera, the photo and the typed code are still offered", () => {
   expect(html).toContain(SCAN_COPY.typeCode);
   expect(html).toContain('id="scan-typed"');
 
-  // The camera button, pressed where `navigator.mediaDevices` is missing, names both other routes.
   const source = readFileSync(join(__dirname, "..", "components", "scan", "ScanSheet.tsx"), "utf8");
   expect(source).toContain("if (!navigator.mediaDevices?.getUserMedia) {");
   expect(source).toContain("setProblem(`No camera here. ${SCAN_COPY.choosePhoto} or type the code.`);");

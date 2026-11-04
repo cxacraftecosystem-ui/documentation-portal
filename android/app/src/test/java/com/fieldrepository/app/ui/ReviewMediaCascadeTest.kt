@@ -18,14 +18,6 @@ import org.junit.Test
 import retrofit2.HttpException
 import retrofit2.Response
 
-/**
- * FILES APPROVED WITH THEIR RECORD (owner decision 2026-10-18), on the handset.
- *
- * Every approval says how many files go with it — the web's words (`e2e/review-media-cascade-unit.
- * spec.ts` holds the same sentences) — every file card on a record's page keeps its own Reject, and
- * an approval or a file's rejection made with no signal waits in the outbox and replays under the
- * Idempotency-Key it was first sent with.
- */
 class ReviewMediaCascadeTest {
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false; coerceInputValues = true }
     private fun source(path: String) = repoFile(path, "../$path").readText()

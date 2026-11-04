@@ -6,12 +6,6 @@ import { ChevronDown } from "lucide-react";
 import { copyText } from "@/lib/transcript/clipboard";
 import { ts } from "@/lib/transcript/strings";
 
-/**
- * Small pieces the transcript viewer is built from. They live in the shared tree (rather than
- * reaching for each portal's `components/ui`) because the two portals' primitives do not carry the
- * same exports, and this tree may import only what both do (`shared/transcript-web-imports.json`).
- */
-
 export const SECONDARY =
   "inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-line-200 bg-card px-3 py-2 text-sm font-medium text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-purple-950/40";
 export const PRIMARY =
@@ -19,10 +13,6 @@ export const PRIMARY =
 export const ICON_BUTTON =
   "inline-grid h-9 w-9 shrink-0 place-items-center rounded-md text-ink-500 transition hover:bg-purple-50 hover:text-purple-700 max-sm:h-11 max-sm:w-11 dark:hover:bg-purple-950/40 dark:hover:text-purple-300";
 
-/**
- * A row of buttons by the house rule (owner, 2026-10-17): one is centred, two share a line, three
- * or more stack on a phone and become pills from `sm` up.
- */
 export function Actions({ children, align = "end", className = "" }: { children: ReactNode; align?: "start" | "center" | "end"; className?: string }) {
   const count = Children.toArray(children).filter((child) => isValidElement(child)).length;
   const justify = align === "start" ? "sm:justify-start" : align === "center" ? "sm:justify-center" : "sm:justify-end";
@@ -38,10 +28,6 @@ export function Actions({ children, align = "end", className = "" }: { children:
 
 export type MenuItem = { id: string; label: string; onSelect: () => void; disabled?: boolean };
 
-/**
- * A button that opens a short menu of actions. Keyboard: Enter/Space/ArrowDown open it with the
- * first item focused, arrows and Home/End move, Escape closes and returns focus to the button.
- */
 export function MenuButton({
   label,
   ariaLabel,
@@ -105,8 +91,6 @@ export function MenuButton({
       ref={wrapRef}
       className="relative inline-flex"
       onKeyDown={(event) => {
-        // Escape closes from anywhere inside, the trigger included (focus reaches the first item a
-        // frame after opening, and a quick Escape must not be lost in between).
         if (open && event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
@@ -166,10 +150,6 @@ export function MenuButton({
   );
 }
 
-/**
- * Copy with a brief "Copied" (or a short failure) said in one polite live region per viewer.
- * The region is always mounted, so the first announcement is heard.
- */
 export function useCopyFeedback() {
   const [message, setMessage] = useState<{ text: string; ok: boolean; nonce: number } | null>(null);
   const timer = useRef<number | null>(null);
@@ -204,7 +184,6 @@ export function CopyStatus({ message }: { message: { text: string; ok: boolean }
   );
 }
 
-/** A clock that plays the audio from a moment: the timestamp on a turn, a citation chip. */
 export function TimeChip({ ms, label, onSeek, variant = "plain" }: { ms: number; label: string; onSeek: (ms: number) => void; variant?: "plain" | "chip" }) {
   return (
     <button

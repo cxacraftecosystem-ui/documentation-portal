@@ -1,20 +1,5 @@
 "use client";
 
-/**
- * Interview summaries, key quotes and translations (`/media/{id}/insights`).
- *
- * A list page can draw twenty transcripts at once, so `useTranscriptInsight` does not fetch one by
- * one: every block that mounts in the same tick joins one `GET /media/insights?ids=` (at most 50
- * ids per request). The batch leaves out the translation text; `fetchInsight` reads the single item
- * for that.
- *
- * A 404 means the feature is switched off (or the media is gone): the section is hidden, with no
- * message. While a summary is queued or being written the hook polls every 15 s for 10 minutes,
- * then every minute until it lands: a job can wait behind a long transcription backlog. The polls
- * run on ONE module-level timer (`createInsightPoller`), so every block still working on a page is
- * re-read in the same batched request rather than each on its own clock.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError, apiFetch } from "@/lib/api";
@@ -53,20 +38,14 @@ export function regenerateInsight(mediaId: string, discardEdits: boolean): Promi
   });
 }
 
-/** `{items}` for up to 50 ids. */
 export function fetchInsightBatch(ids: string[]): Promise<{ items: Record<string, TranscriptInsightView> }> {
   return apiFetch(`/media/insights?ids=${ids.map(encodeURIComponent).join(",")}`);
 }
 
-/** What a mounted block learns from a batch: its view, `null` (hidden), or a transient failure. */
 export type BatchAnswer = TranscriptInsightView | null | "error";
 
 type Waiter = (answer: BatchAnswer) => void;
 
-/**
- * Collects ids asked for within one tick and answers them from as few requests as possible.
- * Pure apart from the injected `fetchBatch` and `schedule`, so the unit spec drives it directly.
- */
 export function createInsightBatcher(
   fetchBatch: (ids: string[]) => Promise<{ items: Record<string, TranscriptInsightView> }>,
   schedule: (run: () => void) => void = (run) => queueMicrotask(run)
@@ -110,7 +89,6 @@ export function createInsightBatcher(
 
 const sharedLoad = createInsightBatcher(fetchInsightBatch);
 
-/** Polls that fall due within this window of each other are sent together. */
 export const POLL_COALESCE_MS = 1_000;
 
 export type PollTimers = {
@@ -125,11 +103,6 @@ const browserTimers: PollTimers = {
   clear: (handle) => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>)
 };
 
-/**
- * One timer for every block still working. Each watcher keeps its own cadence (`pollDelay` from its
- * own start), but whatever falls due together is asked for in the same tick, so the batcher sends
- * one `GET /media/insights?ids=` for all of them. Pure apart from the injected `load` and `timers`.
- */
 export function createInsightPoller(load: (id: string) => Promise<BatchAnswer>, timers: PollTimers = browserTimers) {
   type Watch = { id: string; started: () => number; onAnswer: (answer: BatchAnswer) => void; due: number; inFlight: boolean };
   const watches = new Set<Watch>();
@@ -180,15 +153,10 @@ export function isWorking(view: TranscriptInsightView | null | undefined): boole
   return view?.state === "QUEUED" || view?.state === "PROCESSING";
 }
 
-/** How long to wait before the next poll, `elapsedMs` after the work started or was asked for. */
 export function pollDelay(elapsedMs: number): number {
   return elapsedMs > POLL_LIMIT_MS ? POLL_SLOW_MS : POLL_MS;
 }
 
-/**
- * The insight for one media file. `view` is undefined while loading, null when hidden.
- * `replace` lets the component adopt the answer of a PATCH or a regenerate.
- */
 export function useTranscriptInsight(mediaId: string | null | undefined, { enabled = true } = {}) {
   const [view, setView] = useState<TranscriptInsightView | null | undefined>(undefined);
   const started = useRef<number>(0);
@@ -226,7 +194,6 @@ export function useTranscriptInsight(mediaId: string | null | undefined, { enabl
   return { view, replace };
 }
 
-/** The edit form's summary lines: trimmed, blanks dropped, at most five, each at most 400. */
 export function cleanSummaryLines(lines: string[]): string[] {
   return lines
     .map((line) => line.trim().slice(0, SUMMARY_LINE_MAX))
@@ -234,7 +201,6 @@ export function cleanSummaryLines(lines: string[]): string[] {
     .slice(0, SUMMARY_MAX_LINES);
 }
 
-/** Quote pairs without an original are dropped; at most eight are kept. */
 export function cleanQuotes(quotes: InsightQuote[]): InsightQuote[] {
   return quotes
     .map((q) => ({ original: q.original.trim(), english: q.english.trim(), speaker: q.speaker?.trim() || null }))
@@ -242,19 +208,16 @@ export function cleanQuotes(quotes: InsightQuote[]): InsightQuote[] {
     .slice(0, QUOTES_MAX);
 }
 
-/** Five input rows for the edit form, padded with blanks. */
 export function editRows(lines: string[]): string[] {
   const rows = lines.slice(0, SUMMARY_MAX_LINES);
   while (rows.length < SUMMARY_MAX_LINES) rows.push("");
   return rows;
 }
 
-/** Regenerating asks first only when a researcher has edited the current summary. */
 export function needsRegenerateConfirm(view: TranscriptInsightView | null | undefined): boolean {
   return Boolean(view?.insight?.edited);
 }
 
-/** The model name shown on the provenance line. */
 export function modelLabel(view: TranscriptInsightView): string {
   const provenance = view.insight?.provenance;
   if (!provenance) return "";

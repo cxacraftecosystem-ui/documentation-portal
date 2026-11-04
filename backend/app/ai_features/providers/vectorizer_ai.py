@@ -1,12 +1,3 @@
-"""Hosted tracing through vectorizer.ai, for the motifs VTracer does not do justice to.
-
-The default mode is ``test``: free, watermarked, and enough to judge whether the paid result is
-worth having. Nothing here promotes itself to ``production`` — that is a VECTORIZER_AI_MODE change
-an operator makes on purpose, because it is the one setting in this package that spends money per
-image.
-"""
-
-
 from app.ai_features.errors import ProviderNotConfigured
 from app.ai_features.providers.base import VectorisationProvider
 from app.ai_features.providers.http import post_image
@@ -15,8 +6,6 @@ from app.ai_features.types import Capability, ImagePayload, VectorResult
 
 
 class VectorizerAiProvider(VectorisationProvider):
-    """HTTP basic auth with an API id and secret, multipart image in, SVG out."""
-
     provider_id = "vectorizer_ai"
 
     def vectorise(self, image: ImagePayload, deadline: Deadline) -> VectorResult:
@@ -71,8 +60,6 @@ class VectorizerAiProvider(VectorisationProvider):
 
         notes = [f"mode={settings.vectorizer_mode}"]
         if settings.vectorizer_mode != "production":
-            # Said out loud because a watermarked SVG that reaches a catalogue page is a mistake
-            # that is easy to make and embarrassing to find later.
             notes.append("this result is a test render and carries the vendor's watermark")
         credits = headers.get("X-Credits-Charged") or headers.get("x-credits-charged")
         if credits:

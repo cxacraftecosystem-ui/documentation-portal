@@ -29,7 +29,6 @@ import sys
 from dataclasses import dataclass, field
 
 COLUMNS = ("twoFactorSecret", "twoFactorPendingSecret")
-#: Distinct from a crash's 1, so the deploy can tell "a key is missing" from "the database was busy".
 UNREADABLE_EXIT = 3
 
 

@@ -1,25 +1,3 @@
-"""Which provider gets the recording, and what a failure means.
-
-The walk, in the admin's order:
-
-1. A provider that is switched off, has no key, or that this job has given up on is passed over.
-2. A provider (per key) still cooling down after a throttle is passed over, and the NEXT one is
-   tried. Cooldowns are per provider and per key, persisted by the portal, so a 429 from ElevenLabs
-   no longer pauses Deepgram and a restart no longer forgets it.
-3. A provider whose remaining budget is smaller than this recording's estimated minutes is passed
-   over. A job is never failed for budget.
-4. A provider that needs parts (Muse always, Whisper over 24 MB) gets the normalised parts; parts
-   already transcribed for this job are reused, so a retry sends only the parts that failed.
-
-How it ends when nothing answered with text:
-
-* EMPTY when any provider answered with silence.
-* RATE_LIMITED when every failure was a throttle or a cooldown (no attempt is used up).
-* BUDGET when every failure was a budget (or a budget and a throttle): deferred to the next window.
-* UNAVAILABLE when no provider could be tried at all.
-* FAILED otherwise, so a recording that is truly broken still runs out of attempts.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -49,11 +27,8 @@ logger = logging.getLogger("app.transcription")
 
 RATE_LIMIT_BASE_SECONDS = 30
 RATE_LIMIT_MAX_SECONDS = 900
-#: Up to this fraction is ADDED to every cooldown, so replicas and jobs do not retry in lockstep.
 JITTER_FRACTION = 0.25
-#: After this many throttles on one job, the job stops asking that provider and moves on.
 THROTTLES_PER_JOB = 3
-#: When nothing else is known, assume 64 kbit/s compressed audio for the minute estimate.
 ASSUMED_BYTES_PER_SECOND = 8_000
 
 DEFERRABLE = frozenset({"throttled", "cooling"})
@@ -62,8 +37,6 @@ DEFERRABLE = frozenset({"throttled", "cooling"})
 def cooldown_seconds(
     consecutive: int, retry_after: float | None, rng: Callable[[], float] = random.random
 ) -> float:
-    """A provider's own Retry-After when it sent one (never less than the base), otherwise 30 s
-    doubling to 900 s; then 0-25 % jitter on top. Jitter only ever lengthens: never retry early."""
     if retry_after and retry_after > 0:
         delay = max(float(retry_after), RATE_LIMIT_BASE_SECONDS)
     else:
@@ -85,8 +58,6 @@ def cost_usd(price_per_hour: float, audio_ms: int | None) -> float:
 
 @dataclass
 class Slot:
-    """One rung: a provider and the key it would be called with (None = not configured)."""
-
     provider: str
     adapter: Any
     key: ApiKey | None
@@ -94,24 +65,17 @@ class Slot:
 
 @dataclass
 class ChainState:
-    """What the portal's database says right now, read before the thread hop."""
-
-    #: (provider, keyRef) -> cooldown deadline (UTC).
     cooldowns: dict[tuple[str, str], datetime] = field(default_factory=dict)
-    #: provider -> minutes left in the tightest budget period; absent = no budget set.
     budget_minutes_left: dict[str, float] = field(default_factory=dict)
-    #: (provider, part index) -> result already stored for this job.
     done_parts: dict[tuple[str, int], SttResult] = field(default_factory=dict)
-    #: Providers switched off by the admin.
     disabled: set[str] = field(default_factory=set)
-    #: Providers this job has given up on (throttled THROTTLES_PER_JOB times).
     skip: set[str] = field(default_factory=set)
 
 
 @dataclass
 class Failure:
     provider: str
-    kind: str  # throttled | cooling | budget | key | too_large | failed | unreachable
+    kind: str
     status: int | None = None
     retry_after: float | None = None
 
@@ -124,14 +88,14 @@ class UsageEvent:
     audio_ms: int | None
     latency_ms: int
     http_status: int | None
-    outcome: str  # COMPLETED | EMPTY | or the Failure kind
+    outcome: str
     cost_usd: float
     part_index: int | None = None
 
 
 @dataclass
 class ChainOutcome:
-    status: str  # COMPLETED | EMPTY | RATE_LIMITED | BUDGET | FAILED | UNAVAILABLE
+    status: str
     result: SttResult | None = None
     failures: list[Failure] = field(default_factory=list)
     retry_after: float | None = None
@@ -139,8 +103,6 @@ class ChainOutcome:
 
 
 class ChainHooks(Protocol):
-    """Written to as things happen, so a crash halfway through loses nothing already paid for."""
-
     def usage(self, event: UsageEvent) -> None: ...
 
     def throttled(
@@ -197,8 +159,6 @@ def _status(exc: BaseException) -> int | None:
 
 
 class _Parts:
-    """Lazily prepared parts for this recording, shared by every rung that needs them."""
-
     def __init__(self, audio: AudioInput, cutter_factory: Callable[[], PartCutter] | None) -> None:
         self.audio = audio
         self.factory = cutter_factory
@@ -218,7 +178,6 @@ class _Parts:
             if source is None:
                 from app.transcription import workdir
 
-                # The working directory (D37), never the system temp: sized, swept on start.
                 with workdir.named_file(prefix="transcription_source_") as handle:
                     self._spill = handle.name
                     handle.write(self.audio.content or b"")

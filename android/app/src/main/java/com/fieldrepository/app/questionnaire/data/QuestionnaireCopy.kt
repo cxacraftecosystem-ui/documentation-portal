@@ -7,19 +7,10 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/**
- * Every questionnaire v2 sentence on Android, worded exactly as `shared/strings/questionnaire.json`.
- *
- * [shared] is a verbatim copy of the shared table's entries this app uses, keyed by the shared key.
- * `SharedStringsTest` fails when one differs from the table by a single character, when an Android
- * key points at a key the table doesn't have, and when an Android-only key appears that isn't listed
- * in [androidOnly]. Sentences with values are filled from the same templates with [t].
- */
 object QuestionnaireCopy {
     private val DAY_MONTH: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM", Locale.UK)
     private val CLOCK: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", Locale.UK)
 
-    /** Shared key to text, copied from `shared/strings/questionnaire.json`. */
     val shared: Map<String, String> = linkedMapOf(
         "sessionsTitle" to "Sessions",
         "newSession" to "New session",
@@ -229,12 +220,10 @@ object QuestionnaireCopy {
         "formsTitle" to "Forms",
         "newForm" to "New form",
         "needsConnection" to "Needs a connection",
-        // Joined the table with the web's fix tray and start sheet (U1, 22 Oct 2026).
         "outboxSendAgain" to "Send again",
         "outboxDiscardTitle" to "Discard this?",
         "outboxSendWithout" to "Send without the conflicting answers",
         "useMyLocation" to "Use my location",
-        // Recording chips and the shared filters (owner, 31 Oct 2026).
         "recordingsTitle" to "Recordings",
         "chipWholeSession" to "Whole session",
         "chipPresent" to "{name} · present",
@@ -276,7 +265,6 @@ object QuestionnaireCopy {
         "kindNotStated" to "Kind not stated"
     )
 
-    /** The keys the screens use, each pointing at its shared key. */
     val sharedKeyOf: Map<String, String> = linkedMapOf(
         "sessions.title" to "sessionsTitle",
         "sessions.new" to "newSession",
@@ -458,11 +446,6 @@ object QuestionnaireCopy {
         "filter.to" to "filterTo"
     )
 
-    /**
-     * Sentences only Android shows (the join screen, the battery request, the menu), with no entry in
-     * the shared table yet. `SharedStringsTest` pins this list, so a new one is a deliberate choice.
-     * They move into `shared/strings/questionnaire.json` with the next BACKEND table revision.
-     */
     val androidOnly: Map<String, String> = linkedMapOf(
         "sessions.builder" to "Builder",
         "sessions.join" to "Join session",
@@ -477,7 +460,6 @@ object QuestionnaireCopy {
         "join.onlineOnly" to "The code needs a signal. Scan the QR code to join offline.",
         "join.rateLimited" to "Too many wrong codes. Wait a few minutes, or scan the QR code.",
         "battery.title" to "Keep recording in the background",
-        // Transcript words and errors that were hard-coded in the screens (audit Low, 21 Oct 2026).
         "transcript.failed" to "Transcription failed",
         "transcript.queued" to "Queued to transcribe",
         "error.removeTake" to "Couldn't remove the take. Try again with a signal.",
@@ -489,7 +471,6 @@ object QuestionnaireCopy {
         "error.needsSignal" to "That needs a signal. Try again when you're online.",
         "error.saveOnPhone" to "Couldn't save that on this phone.",
         "error.changedElsewhere" to "This session changed on another device. It has been reloaded.",
-        // The outbox fix tray (audit H20).
         "tray.title" to "Not sent",
         "tray.notAllowed" to "The server won't take this answer from you.",
         "tray.theirs" to "On the server",
@@ -499,7 +480,6 @@ object QuestionnaireCopy {
         "tray.participant" to "A change to who was there",
         "tray.answers" to "Typed answers",
         "tray.finish" to "Finishing the session",
-        // Session actions.
         "session.more" to "More",
         "session.edit" to "Edit session",
         "session.merge" to "Merge into another session",
@@ -507,7 +487,6 @@ object QuestionnaireCopy {
         "session.deleteBody" to "This can't be undone.",
         "session.mergeBody" to "Its takes and answers move into the session you pick. This can't be undone.",
         "session.noOtherSessions" to "No other session on this questionnaire.",
-        // Takes.
         "take.removed" to "Removed",
         "take.makePrimary" to "Make main take",
         "take.madePrimary" to "This is now the main take.",
@@ -515,7 +494,6 @@ object QuestionnaireCopy {
         "take.noProposals" to "Nothing to draft from this take yet.",
         "take.accept" to "Accept",
         "take.whose" to "Whose answer is this?",
-        // Inbox (audit H13, H14).
         "inbox.fileTitle" to "File this recording",
         "inbox.fileSession" to "Session",
         "inbox.fileTarget" to "Question or section",
@@ -523,11 +501,9 @@ object QuestionnaireCopy {
         "inbox.keepThis" to "Keep this take",
         "inbox.keepOther" to "Keep the earlier take",
         "inbox.noOtherTake" to "The other take could not be found. Open the session to decide.",
-        // Sessions list.
         "sessions.search" to "Search sessions",
         "sessions.loadMore" to "Load more",
         "sessions.capped" to "Showing the first results. Narrow the search to see more.",
-        // Offline artisan registration.
         "artisan.new" to "+ New artisan",
         "artisan.name" to "Name",
         "artisan.place" to "Village or town",
@@ -537,12 +513,8 @@ object QuestionnaireCopy {
         "artisan.donts" to "Don'ts",
         "artisan.register" to "Register artisan",
         "artisan.onPhone" to "Registered on this phone",
-        // Artisan record export.
         "csv.saved" to "Saved to Downloads.",
         "csv.failed" to "Couldn't export the CSV.",
-        // ── Designer portal additions (UNIFY §1, 22 Oct 2026). They join the shared table with the
-        // web's copy (U1); until then they are pinned here, word for word as the spec writes them.
-        // Guests (U6, A17, A18).
         "guest.myself" to "Myself",
         "guest.notes" to "Notes",
         "guest.add" to "+ Add someone else",
@@ -551,11 +523,9 @@ object QuestionnaireCopy {
         "guest.registerPick" to "Which artisan is this?",
         "guest.registered" to "Their answers and takes moved to the artisan.",
         "guest.needsName" to "Give their name.",
-        // Answers: locks, notes, history (U9, A11, A20, B21).
         "answer.prefill" to "Fill from profile",
         "answer.noHistory" to "No earlier versions.",
         "answer.locked" to "Only its author, a lead or an admin can change it.",
-        // Coverage (D1, D4).
         "override.COMPLETED" to "Marked complete",
         "override.NEEDS_REDO" to "Needs redo",
         "coverage.title" to "Workshop coverage",
@@ -564,7 +534,6 @@ object QuestionnaireCopy {
         "coverage.empty" to "No artisans recorded on this form yet.",
         "coverage.openTake" to "Open recording",
         "coverage.takes" to "{count} recordings",
-        // Sessions: deleted, restored, researchers, read view (A14, B6, B27).
         "sessions.deletedEmpty" to "No deleted sessions.",
         "session.restored" to "Session restored.",
         "session.read" to "Read view",
@@ -575,7 +544,6 @@ object QuestionnaireCopy {
         "read.returned" to "Returned for changes.",
         "read.returnNote" to "What should change?",
         "take.noHistory" to "Nothing has changed on this take.",
-        // The questionnaire home (UNIFY §4.2 Android).
         "home.back" to "Back",
         "place.notFound" to "Could not find where you are. Type the place.",
         "place.permission" to "Allow location to fill the place, or type it.",
@@ -583,7 +551,6 @@ object QuestionnaireCopy {
         "form.bound" to "Bound to this workshop",
     )
 
-    /** Every fixed string the screens ask for by key. */
     val strings: Map<String, String> = sharedKeyOf.mapValues { (_, key) -> shared.getValue(key) } + androidOnly
 
     fun s(key: String): String = strings[key] ?: error("No questionnaire string '$key'")
@@ -591,10 +558,6 @@ object QuestionnaireCopy {
     private val PLACEHOLDER = Regex("\\{([A-Za-z][A-Za-z0-9]*)\\}")
     private val ONE_PLURAL = Regex("\\b1 (takes|sections|artisans|sessions|repeats|recordings)\\b")
 
-    /**
-     * Fills a shared template. A count of 1 reads "1 take", not "1 takes": the table writes the plural
-     * and both clients singularise the noun right after a lone 1.
-     */
     fun t(key: String, vararg values: Pair<String, Any?>): String {
         val template = shared[key] ?: error("No shared questionnaire string '$key'")
         val map = values.toMap()
@@ -615,13 +578,11 @@ object QuestionnaireCopy {
     fun mode(count: Int): String = if (count <= 1) t("modeIndividual") else t("modeGroupOf", "count" to count)
     fun setting(rosterCount: Int): String = if (rosterCount <= 1) t("solo") else t("modeGroupOf", "count" to rosterCount)
 
-    /** "12 min", "0:42" below a minute. */
     fun minutes(durationMs: Long): String {
         val seconds = durationMs / 1000
         return if (seconds < 60) "0:${seconds.toString().padStart(2, '0')}" else "${seconds / 60} min"
     }
 
-    /** "12:40", "1:02:05". */
     fun elapsed(durationMs: Long): String {
         val total = durationMs / 1000
         val h = total / 3600; val m = (total % 3600) / 60; val s = total % 60
@@ -635,11 +596,8 @@ object QuestionnaireCopy {
         else -> t("checkedAgo", "age" to "${age.toDays()} d")
     }
 
-    // ── Start sheet ───────────────────────────────────────────────────────────────────────────
-
     data class ArtisanCoverage(val firstName: String, val sectionsCovered: Int)
 
-    /** §4.2: one, up to three, or more than three artisans; the snapshot suffix when offline. */
     fun coverageLine(artisans: List<ArtisanCoverage>, sectionsTotal: Int, checkedAgo: String?): String? {
         if (artisans.isEmpty()) return null
         val body = when {
@@ -648,7 +606,6 @@ object QuestionnaireCopy {
                 if (it.sectionsCovered == 0) t("coverageNoneYet", "name" to it.firstName)
                 else t("coverageShort", "name" to it.firstName, "covered" to it.sectionsCovered, "total" to sectionsTotal)
             } + "."
-            // The ▾ is the expand affordance, not copy.
             else -> t("coverageMany", "withTakes" to artisans.count { it.sectionsCovered > 0 }, "count" to artisans.size) + " ▾"
         }
         return if (checkedAgo == null) body else "$body · $checkedAgo"
@@ -657,18 +614,14 @@ object QuestionnaireCopy {
     fun p1Body(researcher: String, names: List<String>, startedAt: Instant): String =
         t("openMatchBody", "researcher" to researcher, "artisans" to joinNames(names), "time" to clock(startedAt))
 
-    /** Consent is assumed by default (19 Oct 2026): the notice, or the refusal on record. */
     fun consentNotice(firstName: String, refused: Boolean = false) =
         t(if (refused) "consentRefusedNotice" else "consentNotice", "name" to firstName)
-
-    // ── Workspace ─────────────────────────────────────────────────────────────────────────────
 
     fun joinCode(code: String) = t("joinCode", "code" to code)
     fun uploading(percent: Int) = t("uploadingPercent", "percent" to percent)
     fun takesUploading(count: Int) = t("takesUploading", "count" to count)
     fun leaveBody(pending: Int) = t("leaveBodyAndroid", "count" to pending)
 
-    /** The second sentence is left out when nothing is still uploading. */
     fun finishBody(sections: Int, artisans: Int, uploading: Int): String {
         val full = t("finishBody", "sections" to sections, "artisans" to artisans, "pending" to uploading)
         return if (uploading == 0) full.substringBefore(". ") + "." else full
@@ -677,9 +630,6 @@ object QuestionnaireCopy {
     fun notification(label: String, elapsedMs: Long) = t("notificationRecording", "target" to label, "elapsed" to elapsed(elapsedMs))
     fun missingFile(label: String) = SessionOutbox.missingFileMessage(label)
 
-    // ── P2 (§4.4) ─────────────────────────────────────────────────────────────────────────────
-
-    /** "Section D is recorded for 2 of 3 here." or the one-subject variants. */
     fun p2Body(targetLabel: String, coveredNames: List<String>, total: Int, onDate: LocalDate?, viaSection: Boolean): String {
         if (total == 1 && coveredNames.size == 1) {
             val key = if (viaSection) "alreadyRecordedWhole" else "alreadyRecordedOne"
@@ -689,15 +639,12 @@ object QuestionnaireCopy {
         return t("alreadyRecordedBody", "target" to targetLabel, "covered" to coveredNames.size, "count" to total)
     }
 
-    /** "Giriraj · 14 min · Nandini · 7 Jul · Group of 3". */
     fun p2TakeLine(name: String, durationMs: Long, researcher: String?, date: LocalDate?, rosterCount: Int): String =
         listOfNotNull(name, minutes(durationMs), researcher?.ifBlank { null }, date?.let(::day), setting(rosterCount)).joinToString(" · ")
 
     fun p2FirstTake(name: String, targetCode: String) = t("firstTakeFor", "name" to name, "target" to targetCode)
 
     fun alsoRecorded(date: LocalDate) = t("alsoRecordedOn", "date" to day(date))
-
-    // ── Other prompts (§4.5) ──────────────────────────────────────────────────────────────────
 
     fun p3Title(label: String) = t("p3Title", "target" to label)
     fun p3Body(elapsedMs: Long) = t("p3Body", "duration" to elapsed(elapsedMs))
@@ -717,15 +664,12 @@ object QuestionnaireCopy {
     fun p13Body(minutes: Long, label: String) = t("p13Body", "minutes" to minutes, "target" to label)
     fun takeOf(researcher: String, date: LocalDate) = t("takeOf", "researcher" to researcher, "date" to day(date))
 
-    // ── Artisan record (§4.6) ────────────────────────────────────────────────────────────────
-
     fun recordSummary(covered: Int, total: Int, sessions: Int, repeats: Int): String =
         t("recordSummary", "covered" to covered, "total" to total, "sessions" to sessions, "repeats" to repeats)
     fun openSections(codes: List<String>) = t("openSections", "codes" to codes.joinToString(", "))
     fun continueWith(firstName: String) = t("continueWith", "name" to firstName)
     fun showRemoved(count: Int) = t("showRemoved", "count" to count)
     fun moreTakes(count: Int) = t("moreTakes", "count" to count)
-    /** "Group answer (3)"; plain "Group" when the record carries no roster size for the answer. */
     fun groupAnswer(count: Int?) = if (count == null || count < 2) s("record.group") else t("groupAnswer", "count" to count)
     fun take(position: Int) = t("takeN", "n" to position)
     fun answerForLabel() = t("answerFor").removeSuffix(":")
@@ -738,15 +682,11 @@ object QuestionnaireCopy {
 
     fun firstName(name: String): String = name.trim().split(Regex("\\s+")).firstOrNull().orEmpty()
 
-    // ── Designer portal additions ────────────────────────────────────────────────────────────
-
-    /** P15, inline: "Answered by Nandini. Only they or a lead can change it." */
     fun locked(authorName: String?): String {
         val who = authorName?.trim()?.ifBlank { null } ?: "someone else"
         return "Answered by $who. Only they or a lead can change it."
     }
 
-    /** A19: Finish reports what is left, and never blocks. */
     fun requiredUnanswered(count: Int): String? = when {
         count <= 0 -> null
         count == 1 -> "1 required question unanswered."

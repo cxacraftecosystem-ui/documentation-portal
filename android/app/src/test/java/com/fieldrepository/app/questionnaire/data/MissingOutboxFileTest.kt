@@ -8,7 +8,6 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 
-/** DESIGN §9 test 56: a missing outbox file is Failed with the exact copy, and never ticked. */
 class MissingOutboxFileTest {
     @get:Rule val tmp = TemporaryFolder()
 

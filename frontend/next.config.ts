@@ -1,81 +1,28 @@
 import type { NextConfig } from "next";
 
-/**
- * Next.js configuration for the Field Repository web client.
- *
- * Deployment target is **Vercel** (Root Directory `frontend`) talking to the FastAPI backend
- * behind CloudFront — see `docs/DEPLOYMENT_VERCEL.md`. Two deliberate non-settings:
- *
- * - No `output: "standalone"`. That mode emits a self-hosted Node server bundle; Vercel's build
- *   pipeline needs the default output and errors out (or silently ships nothing) when it is set.
- *   Only add it if this app is ever moved onto the EC2 box / a container.
- * - No `rewrites` entry for the API. Since 2026-10-17 the browser calls `/api/*` on THIS site, and
- *   `proxy.ts` (not this file) rewrites each call to `${NEXT_PUBLIC_API_URL}/api/...` after turning
- *   the HttpOnly session cookie into a bearer token — a static rewrite cannot read a cookie. Vercel
- *   forwards those rewrites itself, so no Vercel Function sits in the path of an upload or a download;
- *   signed-S3 uploads still go straight from the browser to the bucket. See lib/server/apiProxy.ts.
- *   (The three `[id]/edit` routes still render on demand but fetch nothing server-side.)
- */
-
 const isProduction = process.env.NODE_ENV === "production";
 
-/**
- * Hosts that may serve media through `next/image`.
- *
- * Media URLs are minted by the backend (`backend/app/services/s3.py::public_url_for_key`), which
- * promotes real AWS hosts to their **dual-stack** form (`s3.dualstack.<region>.amazonaws.com`) so
- * media loads on IPv6-only mobile networks. Both the plain regional and the dual-stack host are
- * allowed because older rows may still hold the pre-promotion URL. Localhost covers the MinIO
- * container from `docker-compose.yml` during local development.
- *
- * Nothing renders through `next/image` today (media is shown with plain `<img>`/`<audio>` tags so
- * signed and cross-region URLs pass through untouched), but an unconfigured host is a hard runtime
- * error the moment somebody switches one component over — so the allowlist is declared up front.
- * Note Next.js only allows the `**` wildcard at the *start* of a hostname, so the bucket hosts are
- * listed literally: change `AWS_S3_BUCKET`/`AWS_REGION` on the backend and you must add the new
- * host here too.
- */
 const remotePatterns: NonNullable<NextConfig["images"]>["remotePatterns"] = [
-  // Any CloudFront distribution — currently d2b34i3e92al6i.cloudfront.net, which fronts the API
-  // (and any media proxied through it) over HTTPS + IPv6.
   { protocol: "https", hostname: "**.cloudfront.net", pathname: "/**" },
-  // Production media bucket: dual-stack host (what the backend mints today)…
   {
     protocol: "https",
     hostname: "fieldrepo-media-626159998512.s3.dualstack.ap-south-1.amazonaws.com",
     pathname: "/**"
   },
-  // …and the plain regional host, still present on rows written before dual-stack promotion.
   {
     protocol: "https",
     hostname: "fieldrepo-media-626159998512.s3.ap-south-1.amazonaws.com",
     pathname: "/**"
   },
-  // Local MinIO (docker-compose) — path-style URLs, e.g. http://localhost:9000/field-repository/...
   { protocol: "http", hostname: "localhost", port: "9000", pathname: "/**" },
   { protocol: "http", hostname: "127.0.0.1", port: "9000", pathname: "/**" }
 ];
 
-/**
- * Response headers applied to every route.
- *
- * These are intentionally conservative — the app is a pure SPA-style client, embeds nothing, and
- * is never meant to be framed. The one thing that must NOT be over-tightened is `Permissions-Policy`:
- * field capture depends on `navigator.geolocation` (LocationFields), `getUserMedia({ audio: true })`
- * (MediaCaptureField / questionnaire recorder) and camera-backed file inputs, so those three
- * features stay enabled for our own origin instead of being blanket-denied.
- */
 const securityHeaders = [
-  // Never sniff a response into a different Content-Type than the one the server declared.
   { key: "X-Content-Type-Options", value: "nosniff" },
-  // The app is never legitimately embedded; DENY blocks clickjacking outright.
   { key: "X-Frame-Options", value: "DENY" },
-  // Modern equivalent of the above for browsers that prefer CSP framing rules.
   { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
-  // Send the full URL only same-origin; cross-origin requests leak the origin at most, and nothing
-  // at all when downgrading HTTPS -> HTTP.
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  // Keep the capture features the field workflows need; deny the rest.
   {
     key: "Permissions-Policy",
     value: [
@@ -96,21 +43,11 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // The web build number for `X-App-Version-Code` (lib/api.ts, audit C7): the deploy workflow's run
-  // number, which only rises. `vercel build` runs on the GitHub runner, so the variable is there.
   env: {
     NEXT_PUBLIC_BUILD_NUMBER: process.env.NEXT_PUBLIC_BUILD_NUMBER || process.env.GITHUB_RUN_NUMBER || ""
   },
   experimental: {
-    /*
-      ONLY FOR A SELF-HOSTED SERVER (`next dev`, `next start`, the e2e stack) — Vercel never buffers
-      the body for `proxy.ts` at all (`skipMiddlewareRequestBody` in vercel.json). Next.js's own server
-      holds a request body in memory up to this size while `proxy.ts` runs and TRUNCATES anything
-      longer, which would quietly cut off an upload the API accepts. 64 MB clears every multipart
-      route the API has; media itself goes to S3 directly.
-    */
     proxyClientMaxBodySize: "64mb",
-    // The self-hosted server's wait for the API on a rewritten call; Vercel applies its own limit.
     proxyTimeout: 300_000
   },
   turbopack: {
@@ -119,31 +56,15 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns
   },
-  /**
-   * Workshop access moved out of /settings and into its own tree: `/workshop-access` is the fork,
-   * `/workshop-access/request` the page every account owns, `/workshop-access/manage` the admin
-   * console. The old URL WAS the console, so every bookmark and typed guess at it belonged to an
-   * admin or dead-ended someone below one — sending it to the fork gives an ordinary user their own
-   * page and an admin the choice.
-   *
-   * The fork, not the console, because a config redirect runs before anything knows who is asking;
-   * the role decision stays in the app, where the session is. Temporary (307) rather than 308 for
-   * the same reason a browser should not cache a product decision for good.
-   */
   async redirects() {
     return [{ source: "/settings/workshop-access", destination: "/workshop-access", permanent: false }];
   },
-  // The App Link verification file, served by app/asset-links/route.ts: the prebuilt deploy drops
-  // public/.well-known/ from the upload, so the static path alone 404s in production.
   async rewrites() {
     return [{ source: "/.well-known/assetlinks.json", destination: "/asset-links" }];
   },
   async headers() {
     return [
       {
-        // The Digital Asset Links file that verifies the Android app's /set-password App Link
-        // (`android:autoVerify` in the manifest). Served from public/ with no redirect; the type is
-        // stated so Android's verifier never has to infer it.
         source: "/.well-known/assetlinks.json",
         headers: [{ key: "Content-Type", value: "application/json" }]
       },
@@ -151,10 +72,6 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: [
           ...securityHeaders,
-          // HSTS is only meaningful (and only honoured) over HTTPS, and browsers ignore it on
-          // plain-HTTP origins — but it is still gated on a production build so a developer who
-          // fronts `next dev` with a local TLS proxy can never pin `localhost` to HTTPS for two
-          // years. Vercel serves everything over HTTPS, so production always gets it.
           ...(isProduction
             ? [
                 {

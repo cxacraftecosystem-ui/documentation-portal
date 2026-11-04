@@ -1,14 +1,3 @@
-/**
- * THE FORM HANDOFF BUNDLE on the web (UNIFY A10, `shared/questionnaire-bundle.json`): a form's
- * sections and questions as gzipped UTF-8 JSON, built and read with no connection.
- *
- * Download saves a `.dpwq` (designer-portal) or `.frwq` (Field Repository) file; Open bundle reads
- * either. A received bundle is untrusted input, so the format carries no id, no owner and no author:
- * importing ALWAYS CREATES a new form owned by the reader, and is idempotent on `bundleId` (the ids
- * already imported on this device are remembered, and every create carries an Idempotency-Key made
- * from it). A higher major version is refused with `BUNDLE_VERSION`.
- */
-
 import { exportFilename } from "@/lib/naming";
 
 export const BUNDLE_VERSION = 2;
@@ -53,7 +42,6 @@ function randomHex(bytes = 16): string {
 
 const clip = (value: unknown, max = BUNDLE_LIMITS.maxTextChars): string => String(value ?? "").slice(0, max);
 
-/** A bundle from a form's structure: sections in order, questions in order within each. */
 export function buildBundle(
   form: {
     title: string;
@@ -89,7 +77,6 @@ export function buildBundle(
   };
 }
 
-/** The handoff file's name: `{Prefix}_Questionnaire_{date}_{Form-Title}_Handoff.{ext}` (naming skill). */
 export function bundleFileName(bundle: Pick<QuestionnaireBundle, "form" | "createdAt">, extension: string): string {
   return exportFilename("Questionnaire", "Handoff", extension.replace(/^\./, ""), { subject: bundle.form.title, at: bundle.createdAt });
 }
@@ -101,22 +88,19 @@ async function gzip(text: string): Promise<Blob> {
 
 async function gunzip(blob: Blob): Promise<string> {
   const head = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
-  if (head[0] !== 0x1f || head[1] !== 0x8b) return blob.text(); // a plain JSON bundle is read too
+  if (head[0] !== 0x1f || head[1] !== 0x8b) return blob.text();
   const stream = blob.stream().pipeThrough(new DecompressionStream("gzip"));
   return new Response(stream).text();
 }
 
-/** The file to save: gzipped JSON. */
 export async function bundleBlob(bundle: QuestionnaireBundle): Promise<Blob> {
   const blob = await gzip(JSON.stringify(bundle));
   return new Blob([blob], { type: "application/octet-stream" });
 }
 
-/** A bundle read back and checked: refused (never half-read) when it is not one we can import. */
 export function validateBundle(raw: unknown): QuestionnaireBundle {
   if (!raw || typeof raw !== "object") throw new BundleError("BUNDLE_INVALID", "That file is not a questionnaire bundle.");
   const b = raw as Record<string, unknown>;
-  // Version 1 (the first handset format) has no `v` and no bundleId; its questions map field for field.
   const v = typeof b.v === "number" ? b.v : 1;
   if (Math.floor(v) > BUNDLE_VERSION) throw new BundleError("BUNDLE_VERSION", "This bundle was made by a newer app. Update to open it.");
   const form = (b.form ?? {}) as Record<string, unknown>;
@@ -160,7 +144,6 @@ export function validateBundle(raw: unknown): QuestionnaireBundle {
   };
 }
 
-/** Read a picked `.dpwq` / `.frwq` file. */
 export async function readBundleFile(file: Blob): Promise<QuestionnaireBundle> {
   if (file.size > BUNDLE_LIMITS.maxUncompressedBytes) throw new BundleError("BUNDLE_TOO_LARGE", "That file is too large to be a questionnaire bundle.");
   let text: string;
@@ -181,7 +164,6 @@ export async function readBundleFile(file: Blob): Promise<QuestionnaireBundle> {
 
 const IMPORTED_KEY = "questionnaire_bundles_imported";
 
-/** The bundles this device has already added, by bundleId → the form it became. */
 export function importedBundles(): Record<string, string> {
   try {
     const raw = window.localStorage.getItem(IMPORTED_KEY);
@@ -196,6 +178,5 @@ export function rememberImported(bundleId: string, formId: string): void {
   try {
     window.localStorage.setItem(IMPORTED_KEY, JSON.stringify({ ...importedBundles(), [bundleId]: formId }));
   } catch {
-    // Storage blocked: the server's Idempotency-Key still makes a repeat land once.
   }
 }

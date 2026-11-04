@@ -70,82 +70,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
-// ---------------------------------------------------------------------------------------------
-// Searchable selects: one picker interaction for every long list in the app.
-//
-// WHERE THIS COMES FROM. The phone field's country dialog already had the interaction the rest of
-// the app was missing — type "Nepal", the 200-row list collapses to one. Every other list in the
-// app (74 tools, 37 states, 25 interviews, the user directory) was a plain anchored DropdownMenu
-// you had to scroll past. Rather than write a second search box with its own habits, this file
-// LIFTS that dialog into a shared picker and the phone field's list becomes one caller among many.
-// A researcher learns "tap, type, commit" once.
-//
-// WHY A BOTTOM SHEET AND NOT A DROPDOWN OR A DIALOG. Three things decide it, and all three are
-// about a thumb on a handset rather than a cursor on a laptop:
-//
-//   1. The KEYBOARD is the whole problem. The moment the researcher types, the IME takes the lower
-//      half of the screen. An anchored DropdownMenu is positioned against its trigger, so a field
-//      near the bottom of a long form opens a menu that the IME then sits on top of — the rows are
-//      drawn where the keyboard now is. A sheet is anchored to the screen instead, and
-//      [Modifier.imePadding] lets the keyboard SHRINK the list rather than cover it.
-//   2. REACH. A sheet grows from the bottom edge, so its search box, its Select-all row and its
-//      first rows land inside the arc a thumb can cover one-handed. A centred AlertDialog puts the
-//      same controls in the middle of the screen, which is the one place a thumb has to stretch
-//      for; the phone field's dialog is fine for a control you touch once per artisan and wrong as
-//      the app's everyday picker.
-//   3. DISMISSAL. Swipe down. A researcher who opened the wrong field gets out without aiming at
-//      anything, which matters on a dusty screen in a workshop.
-//
-// [rememberModalBottomSheetState] is asked to skip the partially-expanded state. A half-height
-// sheet plus an IME is a three-row peephole — the exact failure the sheet was chosen to avoid.
-//
-// WHY SHORT LISTS KEEP THE OLD MENU. Below [SEARCH_THRESHOLD] options there is nothing to search:
-// "Draft / Pending / Approved" fits on screen, and making the researcher cross a sheet and dismiss
-// a keyboard to pick one of four is worse than the dropdown it replaced. The threshold is a
-// property of the LIST, not of the screen, so the same field behaves the same way on every device
-// — and it is the same number the web uses, so a field that searches on the laptop searches on the
-// phone.
-// ---------------------------------------------------------------------------------------------
-
-/**
- * Options at or above this count get the searchable sheet; below it, the anchored menu.
- *
- * Eight is where an anchored menu stops fitting between a mid-form trigger and the bottom of a
- * small handset, so it is the point at which the researcher starts scrolling a floating menu whose
- * position they did not choose. MUST match the web's threshold — see the note at the top of the
- * file.
- */
 const val SEARCH_THRESHOLD: Int = 8
 
-/**
- * Above this count the search box takes focus as the sheet opens, so the first keystroke filters.
- *
- * Deliberately higher than [SEARCH_THRESHOLD]: for a dozen rows the researcher can very likely SEE
- * the one they want, and popping the IME unasked would hide half of them behind a keyboard they
- * then have to dismiss. Past ~16 rows the list no longer fits on a handset either way, so typing is
- * the faster route in and the keyboard is what they came for.
- */
 private const val AUTOFOCUS_THRESHOLD: Int = 16
 
-/** Fraction of the screen the sheet may grow to before its list starts scrolling instead. */
 private const val SHEET_HEIGHT_FRACTION: Float = 0.88f
 
-/** A picker row: the stored [value], the [label] read aloud, and an optional trailing [hint]. */
 @Immutable
 data class SelectOption(val value: String, val label: String, val hint: String? = null)
 
-/** Adapt the `value to label` pairs the record forms already build. */
 fun List<Pair<String, String>>.asSelectOptions(): List<SelectOption> =
     map { (value, label) -> SelectOption(value, label) }
 
-/**
- * Case-insensitive substring match over label, hint and stored value.
- *
- * Split on whitespace and required in full, so "ram bagru" finds "Ram Kumar · Bagru" — which a
- * single contiguous `contains` does not, and which is how a researcher who half-remembers two
- * things about an artisan actually types. The value is searched too because some lists (dial codes,
- * status names) carry the meaning there rather than in the label.
- */
 private fun SelectOption.matches(terms: List<String>): Boolean {
     if (terms.isEmpty()) return true
     val haystack = buildString {
@@ -160,16 +96,6 @@ private fun SelectOption.matches(terms: List<String>): Boolean {
 private fun queryTerms(query: String): List<String> =
     query.trim().split(' ', '\t', '\n').filter { it.isNotBlank() }
 
-// ---------------------------------------------------------------------------------------------
-// Single select
-// ---------------------------------------------------------------------------------------------
-
-/**
- * A one-of-many field. Long lists open the searchable sheet; short ones keep the anchored menu.
- *
- * [includeNone] adds the "no selection" row, labelled with [placeholder] — the blank the record
- * forms rely on to unlink a record.
- */
 @Composable
 fun SearchableSelectField(
     label: String,
@@ -179,44 +105,9 @@ fun SearchableSelectField(
     placeholder: String = "Select",
     includeNone: Boolean = true,
     enabled: Boolean = true,
-    /**
-     * Force the searchable sheet on (or off), overriding the [SEARCH_THRESHOLD] count rule.
-     *
-     * `null` lets the count decide, which is what almost every call site should do and what every
-     * existing one does. Pass `true` for a list that is short on THIS deployment and long on the
-     * next: `ui/RecordSwitcher.kt`'s record dropdown is the case — a workshop with six records and
-     * a workshop with sixty are the same control, and a picker that is searchable on one handset and
-     * silently not on another is two controls wearing one name. The web's `ComboBox` exists for
-     * exactly this and says the same thing in its own docstring.
-     */
     searchable: Boolean? = null,
-    /**
-     * WHAT IS IN THE FILTER BOX, REPORTED OUT — for the one caller whose options are not all here yet.
-     *
-     * Search in this control is LOCAL: the sheet filters the list it was handed, which is the right
-     * and complete answer whenever the caller holds every row. It stops being complete when the
-     * caller holds ONE PAGE of a longer list — every list route clamps `pageSize` to 100 — because
-     * then the row being typed for may simply not be in the list, and the sheet answers "no matches"
-     * about the repository.
-     *
-     * `ui/RecordSwitcher.kt` is that caller: it mirrors this query, debounces it, and re-asks the
-     * server when — and only when — its list is actually cut. Nothing here changes; a wider set
-     * simply arrives as a new [options] list a moment later.
-     *
-     * IT FIRES ON EVERY RESET AS WELL AS EVERY KEYSTROKE. The clear button and the multi-select IME
-     * action both blank the box, and a listener told about the typing but not about the blanking
-     * would hold a term the reader can plainly see is gone.
-     */
     onSearch: ((String) -> Unit)? = null,
-    /**
-     * A Clear (x) button beside the trigger while a value is chosen; clearing calls `onSelect("")`.
-     * Off by default — a required field has nothing honest to clear to. The web's `clearable`.
-     */
     clearable: Boolean = false,
-    /**
-     * Rows that live on the server (`ui/ServerSearch.kt`): the sheet lists [ServerSearch.rows] and
-     * reports its query instead of filtering [options], which then only name the chosen row.
-     */
     server: ServerSearch? = null,
     onSelect: (String) -> Unit
 ) {
@@ -230,10 +121,6 @@ fun SearchableSelectField(
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(modifier = Modifier.weight(1f)) {
             SelectTrigger(
-                // The visible label sits in a separate Text above the button, which TalkBack reads
-                // as its own node — so a researcher swiping onto the control alone would hear
-                // "Ram Kumar, button" with no idea which field it belongs to. Naming the node with
-                // both halves is the only way the control is self-describing wherever focus lands.
                 speech = "$label. ${selectedLabel ?: "Nothing selected"}",
                 text = selectedLabel ?: placeholder,
                 hasSelection = selectedLabel != null,
@@ -294,8 +181,6 @@ fun SearchableSelectField(
             server = server,
             onDismiss = {
                 sheetOpen = false
-                // The sheet is leaving and its query goes with it. A caller still holding the last
-                // term would go on requesting against a filter nobody can see — see [onSearch].
                 onSearch?.invoke("")
                 server?.onQuery?.invoke("")
             },
@@ -304,19 +189,6 @@ fun SearchableSelectField(
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Multi select
-// ---------------------------------------------------------------------------------------------
-
-/**
- * A many-of-many field: a summary trigger, the chosen rows as chips beneath it, and the same sheet.
- *
- * The sheet is used at EVERY length here, unlike the single-select. What it replaces is a wall of
- * checkboxes rendered straight into the form — which has no summary line, so the only way to see
- * what is ticked is to scroll the form back over it, and no room for a Select-all row without
- * pushing the next field further down a page that is already long. The chips give the form back its
- * at-a-glance reading without the wall.
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SearchableMultiSelectField(
@@ -327,18 +199,12 @@ fun SearchableMultiSelectField(
     placeholder: String = "Select",
     emptyMessage: String = "No options available.",
     enabled: Boolean = true,
-    /**
-     * The chosen options as removable chips under the trigger (default on) — the web's `showChips`.
-     * Turn off only where the screen already draws the selection beside the field.
-     */
     showChips: Boolean = true,
-    /** See [SearchableSelectField]'s own parameter. */
     server: ServerSearch? = null,
     onSelectedChange: (Set<String>) -> Unit
 ) {
     var sheetOpen by remember { mutableStateOf(false) }
     val chosen = options.filter { it.value in selected }
-    // With server rows, [options] is one page plus the chosen rows, so "3 of 100" would count a page.
     val ofTotal = if (server == null) " of ${options.size}" else ""
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -365,8 +231,6 @@ fun SearchableMultiSelectField(
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
-                    // Each chip carries its own "Remove <name>" button (owner, 2026-10-17: chips for the
-                    // selections, with remove) — the web's SearchableMultiSelect chips, to the word.
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     chosen.forEach { option ->
@@ -420,14 +284,6 @@ fun SearchableMultiSelectField(
     }
 }
 
-/**
- * The picker with no trigger of its own, for a field that already has one of a shape a button
- * cannot take — the phone field's ISD box, which is a text field measured to the widest dial code.
- * Single-select: the tap commits and closes.
- *
- * [onSelect] must NOT close the sheet itself; [onDismiss] fires once the sheet has finished sliding
- * away, and a caller that drops the sheet out of composition on select cuts that animation short.
- */
 @Composable
 fun SearchableSelectSheet(
     title: String,
@@ -447,11 +303,6 @@ fun SearchableSelectSheet(
     )
 }
 
-// ---------------------------------------------------------------------------------------------
-// Shared pieces
-// ---------------------------------------------------------------------------------------------
-
-/** The tick that marks the chosen row. Purple-700 is the app's only action colour. */
 @Composable
 private fun SelectedTick() {
     Icon(
@@ -462,10 +313,6 @@ private fun SelectedTick() {
     )
 }
 
-/**
- * The closed field. Same outlined button and caret the app's dropdowns have always had, so
- * adopting the sheet does not redraw thirty-odd forms.
- */
 @Composable
 private fun SelectTrigger(
     speech: String,
@@ -479,9 +326,6 @@ private fun SelectTrigger(
         enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
-            // A button is already a merged semantics node, so naming it here REPLACES the child
-            // text rather than adding to it — which is what lets one description carry both the
-            // field name and the selection.
             .semantics {
                 contentDescription = speech
                 role = Role.DropdownList
@@ -503,15 +347,6 @@ private fun SelectTrigger(
     }
 }
 
-/**
- * The picker itself.
- *
- * Single-select commits and closes on the first tap — a second "Done" would be a tap that can only
- * confirm what the researcher just did. Multi-select holds a DRAFT of the selection and commits on
- * Done, because ticking six artisans against a form that re-derives its options on every change
- * (the tool form drops artisans when their craft is unticked) would otherwise pull rows out from
- * under the finger mid-list.
- */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun SearchablePickerSheet(
@@ -522,9 +357,7 @@ private fun SearchablePickerSheet(
     noneLabel: String?,
     onDismiss: () -> Unit,
     onApply: (Set<String>) -> Unit,
-    /** See [SearchableSelectField]'s own parameter. Null for every caller that holds all its rows. */
     onSearch: ((String) -> Unit)? = null,
-    /** Server-held rows; see `ui/ServerSearch.kt`. The sheet then lists them as given. */
     server: ServerSearch? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -534,14 +367,6 @@ private fun SearchablePickerSheet(
     var queryState by remember { mutableStateOf("") }
     var draft by remember { mutableStateOf(selected) }
 
-    /**
-     * The ONE writer of the filter term, so what is reported and what is rendered cannot come apart.
-     *
-     * Three things blank this box — the clear icon in the field, the "Clear search" button in the
-     * empty state, and the multi-select IME action that ticks a row and starts the next name — and a
-     * listener told about the typing but not about those three would hold a stale term. Routing every
-     * write through one function is the only way that stays true as the sheet grows more of them.
-     */
     fun setQuery(next: String) {
         queryState = next
         onSearch?.invoke(next)
@@ -554,13 +379,9 @@ private fun SearchablePickerSheet(
     val filtered = if (server != null) server.rows else remember(options, query) { options.filter { it.matches(terms) } }
     val searching = terms.isNotEmpty()
 
-    // Only meaningful while filtering. Unfiltered, "the first row" is whatever happens to sort
-    // first and committing it on a stray IME tap would be a silent wrong answer.
     val highlighted = if (searching) filtered.firstOrNull() else null
 
     fun close() {
-        // Hide first so the sheet slides away rather than vanishing, matching the filter sheet on
-        // the search screen; the flag drops once the animation has actually finished.
         scope.launch { sheetState.hide() }.invokeOnCompletion { if (!sheetState.isVisible) onDismiss() }
     }
 
@@ -573,14 +394,6 @@ private fun SearchablePickerSheet(
         draft = if (value in draft) draft - value else draft + value
     }
 
-    /**
-     * What the IME's action key does — the phone's stand-in for Enter, which a handset has not got.
-     *
-     * Single: commit the one highlighted row and leave. Multi: tick it and CLEAR THE QUERY, keeping
-     * the keyboard and the focus, so "bagru ⏎ jaipur ⏎ akola ⏎" ticks three without a tap in
-     * between. Clearing is the whole trick — leaving the query would leave the researcher staring
-     * at the row they just ticked with no room for the next name.
-     */
     fun onImeAction() {
         val row = highlighted ?: return
         if (multiple) {
@@ -607,18 +420,7 @@ private fun SearchablePickerSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                // ORDER MATTERS, and the other way round is wrong. A padding modifier subtracts
-                // from the constraints it passes inward and adds the same back to the size it
-                // reports outward, so with `imePadding()` on the outside the cap only ever sees the
-                // content — the sheet then reports content PLUS a 500dp keyboard and grows to the
-                // full height of the screen, sliding its own drag handle up under the status bar
-                // with no strip of the form left visible behind it. Capping first bounds the whole
-                // node, keyboard included, so 12% of the screen stays visible whatever the IME does
-                // and the researcher can still see which form they are picking into.
                 .heightIn(max = maxSheetHeight)
-                // Still outside the LIST, though: the keyboard has to SHRINK the rows rather than
-                // pad them, or the Done bar ends up underneath the IME. The sheet has its own
-                // window, which the activity's inset handling does not reach.
                 .imePadding()
         ) {
             Column(
@@ -638,12 +440,6 @@ private fun SearchablePickerSheet(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { setQuery(it) },
-                    // Just "Search", not "Search $title". A field label in this app is a whole
-                    // phrase — "Artisans of selected crafts", "State / union territory" — and
-                    // prefixing it wrapped the label onto two lines, which grows the box and, on a
-                    // required field, produced "Search Craft *". The heading directly above already
-                    // names the list, and it is the first thing TalkBack lands on inside the sheet,
-                    // so the short label loses nothing.
                     label = { Text("Search") },
                     singleLine = true,
                     leadingIcon = {
@@ -672,10 +468,6 @@ private fun SearchablePickerSheet(
                         .fillMaxWidth()
                         .focusRequester(focusRequester)
                 )
-                // A FlowRow and not a Row: "Select all 74 shown" and "Clear all" beside a count are
-                // about 230dp at font scale 1 and will not fit a 360dp screen at font scale 2, and
-                // a Row answers that by drawing off the edge. Wrapping is the only answer that
-                // holds at every scale, and at scale 1 it is still one line.
                 FlowRow(
                     verticalArrangement = Arrangement.Center,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -688,22 +480,9 @@ private fun SearchablePickerSheet(
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier
                             .align(Alignment.CenterVertically)
-                            // Polite, not Assertive: it fires on every keystroke, and a screen
-                            // reader that interrupts its own echo of the letter just typed makes
-                            // the field unusable.
                             .semantics { liveRegion = LiveRegionMode.Polite }
                     )
                     if (multiple) {
-                        // SELECT ALL TAKES THE VISIBLE ROWS, NOT THE WHOLE LIST — and the count in
-                        // the label is what says so, in both states, which is why the word "shown"
-                        // stays there even when nothing is filtered. Filtering to "Bagru" and
-                        // ticking the nine that match is the reason to have a search box in a
-                        // multi-select at all; a Select-all that quietly reached past the filter
-                        // and took all 74 tools would be the one action in the app capable of
-                        // undoing a careful search in a single tap. Clear all is deliberately the
-                        // OTHER way round — it empties the selection entirely, filtered or not,
-                        // because a half-cleared selection you cannot see is not an escape hatch.
-                        // Same wording and same split as the web's assignment builder.
                         TextButton(
                             onClick = { draft = draft + filtered.map { it.value } },
                             enabled = visibleUnselected > 0
@@ -720,8 +499,6 @@ private fun SearchablePickerSheet(
 
             LazyColumn(
                 state = listState,
-                // fill = false so a five-row list makes a five-row sheet; the cap above is what
-                // stops a 200-row one from trying to be taller than the screen.
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false),
@@ -732,13 +509,6 @@ private fun SearchablePickerSheet(
                     bottom = 6.dp
                 )
             ) {
-                // NO ITEM KEYS anywhere in this list, deliberately. A key has to be unique and
-                // an option value need not be: the country list gives twenty countries the dial
-                // code "+1", and a language list can offer a record's existing language twice.
-                // Keyed on the value, LazyColumn throws on the duplicate — the picker would crash
-                // on exactly the longest lists it exists for. Falling back to position keys costs
-                // only scroll-position stability across a filter change, and jumping back to the
-                // top is what filtering should do anyway.
                 if (noneLabel != null && !searching) {
                     item {
                         PickerRow(
@@ -795,8 +565,6 @@ private fun SearchablePickerSheet(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        // The sheet's own bottom inset is consumed by imePadding once the keyboard
-                        // is up; with it down, this is what keeps Done off the gesture bar.
                         .navigationBarsPadding()
                         .padding(horizontal = 20.dp, vertical = 12.dp)
                 ) {
@@ -814,10 +582,6 @@ private fun SearchablePickerSheet(
     }
 }
 
-/**
- * The count over server rows. Only the server knows the size of the whole listing, so the number is
- * its `total` when it has said, and what is shown otherwise.
- */
 private fun serverCountLine(shown: Int, total: Int?, searching: Boolean, loading: Boolean): String {
     val n = total ?: shown
     return when {
@@ -829,21 +593,12 @@ private fun serverCountLine(shown: Int, total: Int?, searching: Boolean, loading
     }
 }
 
-/** "12 of 74 match" while filtering, plain "74 options" otherwise. Read aloud on every keystroke. */
 private fun countLine(shown: Int, total: Int, searching: Boolean): String = when {
     !searching -> if (total == 1) "1 option" else "$total options"
     shown == 0 -> "No matches"
     else -> "$shown of $total match"
 }
 
-/**
- * One row of the picker.
- *
- * The whole row is the target, not the checkbox: `toggleable`/`selectable` on the Row is what gives
- * TalkBack a single node with the right role and its checked state, and the Checkbox is handed a
- * null callback so it stops being a focus stop of its own. A 48dp floor because these rows sit in a
- * scrolling list where a mis-hit picks the neighbour.
- */
 @Composable
 private fun PickerRow(
     label: String,
@@ -899,8 +654,6 @@ private fun PickerRow(
             }
         }
         if (isHighlighted) {
-            // Says what the keyboard's action key is about to do, so committing with it is never a
-            // guess about which row "the highlighted one" means.
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardReturn,
                 contentDescription = null,

@@ -10,7 +10,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The review of the smoke-test fixes (SmokeFixesTest): the gaps it found, pinned. */
 class SmokeFixesFollowUpTest {
 
     private val main: String by lazy {
@@ -27,11 +26,8 @@ class SmokeFixesFollowUpTest {
         "android/app/src/main/java/com/fieldrepository/app/ui/$name",
     )
 
-    // ── The error hides only behind a banner that is actually drawn ─────────────────────────
-
     @Test
     fun `a banner counts as drawn only while it reserves space`() {
-        // Offline with the keyboard up: the root reserves nothing, so the error must show.
         assertFalse(bannerDrawn(bannerClearance(48.dp, shown = false)))
         assertFalse(bannerDrawn(0.dp))
         assertTrue(bannerDrawn(bannerClearance(48.dp, shown = true)))
@@ -48,8 +44,6 @@ class SmokeFixesFollowUpTest {
         assertFalse(body.contains("repository.isOnline(context)"))
     }
 
-    // ── Every surface under the banners pads by them ────────────────────────────────────────
-
     @Test
     fun `the search results and the password gate scroll clear of the banners`() {
         assertTrue(ui("AppSearch.kt").contains("bottom = 24.dp + (LocalBannerClearance.current?.value ?: 0.dp)"))
@@ -59,8 +53,6 @@ class SmokeFixesFollowUpTest {
         val branch = main.indexOf("mustChangePasswordBlocks(user) -> ")
         assertTrue(main.substring(branch, branch + 200).contains("LocalBannerClearance provides bannerReserve"))
     }
-
-    // ── Upload media says what actually happened ────────────────────────────────────────────
 
     @Test
     fun `a queued batch reads saved on device, never uploaded`() {
@@ -85,8 +77,6 @@ class SmokeFixesFollowUpTest {
         val body = main.substring(start, main.indexOf("\nprivate fun ", start + 1))
         assertTrue(body.contains("queueBatch(failedUris.toList(), uploaded = success)"))
     }
-
-    // ── A rejected unlinked batch names no record ───────────────────────────────────────────
 
     @Test
     fun `a refused file in a batch with no record does not send the reader to one`() {

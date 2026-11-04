@@ -1,15 +1,3 @@
-"""The artisan register keeps a keyed fingerprint and the last four digits, never the Aadhaar number.
-
-Owner decision #2 (2026-10-17). No database: the routes run against an in-memory artisan table that
-answers the where-clauses they send, the way ``test_identity_masking`` drives the update route.
-
-Pinned: the fingerprint is deterministic, keyed, over the normalised number only, and byte for byte
-the cross-portal code (one key on both portals); duplicates are found by fingerprint and, before the
-backfill, by the legacy column; no response, export or edit-history entry carries the number or the
-fingerprint; the backfill is a dry run by default, idempotent and scrubs old history values; the
-drop migration is deferred and guarded.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -59,8 +47,6 @@ def _no_secret_in(text: str, number: str) -> None:
     assert "aadhaarFingerprint" not in text
 
 
-# ── The fingerprint ─────────────────────────────────────────────────────────────────────────────
-
 
 def test_the_fingerprint_is_hmac_sha256_of_the_twelve_digits_and_the_cross_portal_code() -> None:
     number = _fresh_aadhaar()
@@ -71,11 +57,6 @@ def test_the_fingerprint_is_hmac_sha256_of_the_twelve_digits_and_the_cross_porta
 
 
 def test_the_cross_portal_module_uses_this_key_and_this_column() -> None:
-    """Once feature/s-cross-portal is merged, its code IS the fingerprint and it reads the column.
-
-    Imports the real module, so the two cannot drift apart unnoticed. Skipped on a branch that does
-    not carry the cross-portal link yet.
-    """
     cross_portal = pytest.importorskip("app.services.cross_portal")
     number = _fresh_aadhaar()
     assert cross_portal.aadhaar_code(number, KEY) == fp.fingerprint(number, KEY)
@@ -108,7 +89,6 @@ def test_seal_keeps_only_the_fingerprint_and_last_four() -> None:
     number = _fresh_aadhaar()
     data: dict[str, Any] = {"aadhaarNumber": number}
     assert fp.seal(data, _settings()) == number
-    # The legacy column is dropped, so the request field leaves the payload entirely.
     assert data == {
         "aadhaarFingerprint": fp.fingerprint(number, KEY),
         "aadhaarLast4": number[-4:],
@@ -117,8 +97,6 @@ def test_seal_keeps_only_the_fingerprint_and_last_four() -> None:
     fp.seal(retract, _settings())
     assert retract == {"aadhaarFingerprint": None, "aadhaarLast4": None}
 
-
-# ── An in-memory register, and the real routes against it ───────────────────────────────────────
 
 
 def _matches(row: Any, where: dict[str, Any]) -> bool:
@@ -226,7 +204,6 @@ def register(monkeypatch: pytest.MonkeyPatch):
     for module in list(sys.modules.values()):
         if getattr(module, "__name__", "").startswith("app.") and getattr(module, "db", None) is real_db:
             monkeypatch.setattr(module, "db", fake_db)
-    # The record's own creator and an admin: the people who used to be shown the full number.
     _CURRENT["user"] = SimpleNamespace(
         id="owner", email="o@example.test", name="Owner", role="ADMIN",
         canDownloadDataset=True, canReview=True,
@@ -254,7 +231,6 @@ def test_the_lookup_finds_by_fingerprint_and_legacy_column_in_the_body_and_the_q
     assert body["found"] is True and body["artisan"]["id"] == "a1"
     query = register.call("GET", "/artisans/lookup/aadhaar", params={"number": n}).json()
     assert query["found"] is True
-    # The legacy column is dropped: only a fingerprint can match, and every row was backfilled first.
     legacy = register.call("POST", "/artisans/lookup/aadhaar", json={"number": register.other}).json()
     assert legacy["found"] is False
     assert register.call("POST", "/artisans/lookup/aadhaar", json={"number": _fresh_aadhaar()}).json() == {
@@ -273,7 +249,6 @@ def test_the_duplicate_guard_names_the_artisan_and_masks_the_number(register) ->
         assert detail["field"] == "aadhaarNumber" and detail["existingArtisan"]["id"] == holder
         assert detail["maskedValue"] == f"XXXX XXXX {number[-4:]}"
         _no_secret_in(repr(detail), number)
-    # Its own number is not a clash with itself.
     asyncio.run(_guard_identity_conflicts({}, exclude_id="a1", aadhaar=register.number))
 
 
@@ -317,7 +292,6 @@ def test_every_viewer_is_served_the_mask_and_a_history_value_is_never_served() -
         admin,
     )
     assert nodes["fresh"]["aadhaarNumber"] == f"XXXX XXXX {number[-4:]}"
-    # A stray full number under the dropped column's name is never served, not even masked.
     assert nodes["legacy"]["aadhaarNumber"] is None
     assert nodes["history"]["changes"]["aadhaarNumber"] == {
         "old": "(value recorded)", "new": "(value replaced)", "redacted": True,
@@ -335,8 +309,6 @@ def test_every_export_surface_prints_the_mask_from_the_last_four() -> None:
     rendered = record_fields.info_text(panel) + " | ".join(record_fields.sheet_row("artisan", artisan))
     _no_secret_in(rendered, number)
 
-
-# ── The backfill and the guarded drop ───────────────────────────────────────────────────────────
 
 
 class _BackfillDb:
@@ -386,7 +358,6 @@ def test_the_backfill_is_a_dry_run_by_default_idempotent_and_scrubs_history(monk
 
 @pytest.mark.parametrize("sep", ["", "%20", "+", "-"])
 def test_an_aadhaar_in_a_logged_query_string_is_redacted(sep: str) -> None:
-    """Old app builds send the lookup as ``GET ...?number=``; uvicorn's access line is redacted."""
     import logging as _logging
 
     number = _fresh_aadhaar()
@@ -400,13 +371,11 @@ def test_an_aadhaar_in_a_logged_query_string_is_redacted(sep: str) -> None:
     assert fp.AccessLogRedaction().filter(record) is True
     assert typed not in record.getMessage() and number not in record.getMessage()
     assert "[redacted]" in record.getMessage()
-    # A path without a query, or a query with no Aadhaar-shaped value, is left alone.
     assert fp.redact_path("/api/artisans?page=2&pageSize=20") == "/api/artisans?page=2&pageSize=20"
     assert fp.redact_path("/api/artisans/abc") == "/api/artisans/abc"
 
 
 def test_the_drop_migration_ships_guarded() -> None:
-    # Shipped 2026-10-19, after the backfill printed "Nothing left" on the box.
     assert not (BACKEND / "prisma" / "deferred_migrations").exists()
     sql = DROP_MIGRATION.read_text(encoding="utf-8")
     guard_at = sql.index("RAISE EXCEPTION")

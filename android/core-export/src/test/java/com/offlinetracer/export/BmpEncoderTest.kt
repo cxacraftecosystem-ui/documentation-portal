@@ -4,11 +4,6 @@ import com.offlinetracer.imaging.RgbaImage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/**
- * BMP is verified by reading the header fields back and walking the pixel array in the order the
- * header claims. The two things that go wrong are the row order (BMP stores bottom-up) and the
- * channel order (the bit masks describe a little-endian DWORD, so the bytes on disk are BGRA).
- */
 class BmpEncoderTest {
 
     @Test
@@ -42,7 +37,6 @@ class BmpEncoderTest {
         val h = 6
         for (y in 0 until h) {
             for (x in 0 until w) {
-                // Row y of the image is stored at row (h - 1 - y) of the file.
                 val o = off + ((h - 1 - y) * w + x) * 4
                 val argb = src[x, y]
                 assertEquals(argb and 0xFF, bmp[o].toInt() and 0xFF, "B at $x,$y")

@@ -20,7 +20,6 @@ class Boolean2DTest {
             closed = true,
         )
 
-    /** Rasterised area of a result set. Robust to how the chainer happened to walk the rings. */
     private fun area(paths: List<VecPath>): Float {
         if (paths.isEmpty()) return 0f
         val g = Raster.fill(paths, 20, 20, FillRule.NONZERO)
@@ -36,10 +35,6 @@ class Boolean2DTest {
 
     private val a = listOf(rect(0f, 0f, 10f, 10f))
     private val b = listOf(rect(5f, 5f, 15f, 15f))
-
-    // -----------------------------------------------------------------------------------------
-    // Primitives
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun polygonAreaIsSignedAndShoelaceExact() {
@@ -67,19 +62,13 @@ class Boolean2DTest {
             val ang = -Math.PI / 2 + i * 4.0 * Math.PI / 5.0
             pts.add(VecPoint((10.0 * cos(ang)).toFloat(), (10.0 * sin(ang)).toFloat()))
         }
-        // The centre is enclosed twice, so it is inside under non-zero and outside under even-odd.
         assertTrue(Boolean2D.pointInPolygon(pts, 0f, 0f, FillRule.NONZERO))
         assertTrue(!Boolean2D.pointInPolygon(pts, 0f, 0f, FillRule.EVENODD))
-        // A star point is enclosed once and is inside under both.
         val tip = pts[0]
         val nearTip = VecPoint(tip.x * 0.8f, tip.y * 0.8f)
         assertTrue(Boolean2D.pointInPolygon(pts, nearTip.x, nearTip.y, FillRule.NONZERO))
         assertTrue(Boolean2D.pointInPolygon(pts, nearTip.x, nearTip.y, FillRule.EVENODD))
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Operations on two overlapping squares (100 + 100 with a 25 overlap)
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun union() {
@@ -130,10 +119,6 @@ class Boolean2DTest {
         assertEquals(75f, ba, 0.6f)
         assertTrue(!covered(Boolean2D.apply(b, a, Boolean2D.BoolOp.DIFFERENCE), 2, 2))
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Short circuits and degenerate input
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun emptyOperandsTakeTheAlgebraicAnswer() {

@@ -12,40 +12,15 @@ import {
   type LucideIcon
 } from "lucide-react";
 
-/**
- * The ten steps of the documentation process, in the order a researcher actually performs
- * them in the field.
- *
- * Every `label` here is the Android-parity feature name (see
- * `.claude/skills/field-repo-frontend/SKILL.md` → "Naming"): the walkthrough must call a
- * screen exactly what the dashboard tile and the Android menu call it, or the guide teaches
- * a vocabulary the product does not use. `fields` mirrors the real form labels one-for-one,
- * so a researcher reading the guide recognises the screen when they open it.
- *
- * The labels are copied from the forms themselves — `components/forms/ArtisanForm`,
- * `ProductForm`, `ToolForm`, `ProcessForm`, the inline forms on the workshops / crafts /
- * questionnaire / media pages — plus the two shared sections every record form mounts:
- * `<WorkshopSelect>` (label "Workshop") and `<LocationFields>` (heading "Location"). Rename a
- * field on a form and it must be renamed here and in `docs/WALKTHROUGH.md`, which carries the
- * same lists in prose.
- */
 export type GuideStep = {
-  /** Stable anchor id — the rail scrolls to `#${id}` and the URL hash survives a reload. */
   id: string;
-  /** Android-parity feature name. Never invent a new one. */
   label: string;
-  /** The dashboard tile's verb for this action ("Record artisan", "Take interview", …). */
   action: string;
   icon: LucideIcon;
-  /** The real screen this step is teaching. */
   href: string;
-  /** One sentence: what you are doing at this point in the field. */
   summary: string;
-  /** Why the dataset needs it — the reason the step is not optional. */
   why: string;
-  /** The fields the screen actually asks for, in screen order. Required ones are marked. */
   fields: string[];
-  /** Field-tested cautions: the things that trip people up on their first workshop. */
   watch: string[];
 };
 
@@ -255,14 +230,7 @@ export const GUIDE_STEPS: GuideStep[] = [
     href: "/questionnaire?new=1",
     summary: "Work through the sections, recording each answer.",
     why:
-      "Audio is transcribed, so you keep their voice and searchable text.",
-    // Regenerated against the form on 2026-09-16 and now held to `shared/questionnaire-form-
-    // contract.json` by `backend/tests/test_questionnaire_form_contract.py`, together with the
-    // Android register and the printed guide. It listed a "Date" the form has not had since the
-    // server began deriving `interviewDate` from `recordedAt` (see page.tsx:997), and omitted
-    // Workshop, Questionnaire, Status and Interview notes. `WalkthroughStepsTest.kt` holds this
-    // array and the Kotlin one equal, so the two move together — what it could never say is which
-    // of them was right, which is why the contract exists.
+      "Tick Transcribe and translate to keep their words as searchable text.",
     fields: [
       "Interview title (optional)",
       "Place",
@@ -300,7 +268,7 @@ export const GUIDE_STEPS: GuideStep[] = [
     ],
     watch: [
       "Pick a record type first, or \"Miscellaneous Media\".",
-      "Audio is transcribed.",
+      "Tick Transcribe and translate on a recording or video to get its text.",
       "You can link it to a record later."
     ]
   },

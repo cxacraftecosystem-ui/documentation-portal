@@ -1,0 +1,8 @@
+ALTER TABLE "MediaFile" ADD COLUMN IF NOT EXISTS "transcribeRequested" BOOLEAN;
+ALTER TABLE "MediaFile" ADD COLUMN IF NOT EXISTS "transcribeRequestSource" TEXT;
+ALTER TABLE "MediaFile" ADD COLUMN IF NOT EXISTS "transcribeRequestedAt" TIMESTAMP(3);
+ALTER TABLE "AppSetting" ADD COLUMN IF NOT EXISTS "autoTranscribeVideo" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "AppSetting" ADD COLUMN IF NOT EXISTS "autoTranscribeAudio" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "AppSetting" ADD COLUMN IF NOT EXISTS "transcriptBackfillEnabled" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "AppSetting" ADD COLUMN IF NOT EXISTS "transcriptBackfillById" TEXT;
+ALTER TABLE "AppSetting" ADD COLUMN IF NOT EXISTS "transcriptBackfillLastRunAt" TIMESTAMP(3);

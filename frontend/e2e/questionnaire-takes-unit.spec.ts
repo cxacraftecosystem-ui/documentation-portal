@@ -8,8 +8,6 @@ import { takeRow } from "@/components/questionnaire/TakeSheet";
 import type { Recording } from "@/lib/questionnaireApi";
 import { CONTRACT } from "./questionnaire-contract-fixture";
 
-/** DESIGN test 43: take rows show position, duration, researcher, date and setting; downloads use `downloadName`. */
-
 const rec = CONTRACT.examples.Recording as Recording;
 
 test("a take row is words, never a bare file name", () => {

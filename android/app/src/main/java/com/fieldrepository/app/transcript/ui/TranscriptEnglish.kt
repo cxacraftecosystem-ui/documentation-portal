@@ -40,15 +40,6 @@ import com.fieldrepository.app.transcript.data.TranscriptStrings
 import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.launch
 
-/**
- * WHY THE ENGLISH IS MISSING, AND THE WAY TO ADD IT (contract 3, D38), the same on both portals.
- *
- * Gemini sometimes declines a recording outright, and asking again gets the same answer. The server
- * says so in `englishNotice`: DECLINED to whoever may add the English (the edit rule), UNAVAILABLE,
- * naming no provider, to every other reader. An editor edits any turn's English in place, or pastes
- * the whole translation here: paragraphs that line up with the turns land on them, anything else is
- * kept as one English text under the turns ([ManualEnglishBlock]).
- */
 @Composable
 internal fun EnglishNoticeCard(view: Transcript, host: TranscriptHost) {
     var writing by remember { mutableStateOf(false) }
@@ -81,7 +72,6 @@ internal fun EnglishNoticeCard(view: Transcript, host: TranscriptHost) {
                     }
                 }
             }
-            // One action, centred (the design bar's single-button rule).
             if (view.permissions.addEnglish) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Button(onClick = { writing = true }, modifier = Modifier.heightIn(min = 48.dp).testTag("transcript.english.add")) {
                     Text(TranscriptStrings.addEnglish)
@@ -139,7 +129,6 @@ private fun AddEnglishDialog(view: Transcript, host: TranscriptHost, onDismiss: 
     )
 }
 
-/** The whole transcript's English as a person pasted it (contract 3), under the turns for every reader. */
 @Composable
 internal fun ManualEnglishBlock(text: String) {
     Column(

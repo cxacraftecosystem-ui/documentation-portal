@@ -68,8 +68,6 @@ async def plan(client: Any, as_of: Any = None) -> dict[str, Any]:
         + SCOPE_SQL + " GROUP BY 1, 2 ORDER BY 1, 2",
         CUTOFF, SOURCE, RECORDED_AT,
     )
-    # Bounded by the report's --as-of day (audit Low): a count that grows with every new upload made
-    # the approved report stale by the next morning.
     bound = (as_of.astimezone(UTC).replace(tzinfo=None).isoformat(timespec="milliseconds") if as_of else None)
     later = await client.query_raw(
         'SELECT count(*) AS n FROM "MediaFile" m WHERE m."mediaType" IN (\'AUDIO\', \'VIDEO\') AND m."createdAt" > $1::timestamp '

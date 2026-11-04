@@ -1,10 +1,3 @@
-"""Deepgram pre-recorded STT on Nova-3: multilingual, diarized, craft-vocabulary biased.
-
-``language=multi`` is why Nova-3 fits: it transcribes code-switched Hindi and English without being
-told when a sentence changes language. The one rung that truly streams: the audio is the raw
-request body, so a temp file is handed to urllib3 and never sits in the heap.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -24,17 +17,14 @@ ID = "deepgram"
 URL = "https://api.deepgram.com/v1/listen"
 MODEL = "nova-3"
 KEYTERM_LIMIT = 50
-# Budget in Deepgram tokens, kept under its 500 ceiling: a romanised craft word splits into more
-# tokens than it looks like it should.
 KEYTERM_TOKEN_BUDGET = 400
 
 
 def keyterms_within_budget(terms: list[str] | tuple[str, ...]) -> list[str]:
-    """Craft terms inside both Deepgram's term guidance and its 500-token request ceiling."""
     chosen: list[str] = []
     spent = 0
     for term in list(terms)[:KEYTERM_LIMIT]:
-        cost = max(1, -(-len(term) // 3))  # ~3 characters a token, deliberately pessimistic
+        cost = max(1, -(-len(term) // 3))
         if spent + cost > KEYTERM_TOKEN_BUDGET:
             break
         chosen.append(term)
@@ -61,8 +51,6 @@ class Deepgram:
         return opts.models.get(ID) or MODEL
 
     def params(self, opts: SttOptions, *, conservative: bool) -> dict[str, Any]:
-        """Query parameters. The boolean ``diarize`` and ``diarize_model`` never appear together:
-        Deepgram rejects a request that carries both."""
         params: dict[str, Any] = {
             "model": self.model(opts),
             "language": "multi",
@@ -108,7 +96,6 @@ class Deepgram:
             provider=ID,
             model=self.model(opts),
             segments=parse_segments(payload) if opts.want_segments else [],
-            # Called with language=multi on purpose, so "multi" is the honest answer, not a detection.
             language="multi",
             audio_ms=int(float(duration) * 1000) if duration else None,
             speakers=speakers,
@@ -124,7 +111,6 @@ def _alternative(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def parse_text(payload: dict[str, Any]) -> tuple[str, int]:
-    """``(transcript, speakers)``: paragraphs first, then words, then the flat transcript."""
     alternative = _alternative(payload)
     fragments: list[tuple[Any, str]] = []
     for paragraph in (alternative.get("paragraphs") or {}).get("paragraphs") or []:

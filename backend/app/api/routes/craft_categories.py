@@ -1,10 +1,3 @@
-"""Craft categories and sub-categories: the two levels above a craft on the master list (docs/CRAFTS.md).
-
-Reading is for anyone signed in. Adding, renaming, moving and reordering is for content admins;
-deleting is ``assert_can_delete`` (§5 of the 2026-10-20 requirements) and refused while the row still
-holds anything. The same file in both portals.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -16,7 +9,7 @@ from app.core.db import db
 from app.core.deps import assert_can_delete, get_current_user
 from app.services import craft_master
 
-try:  # The perms stream adds the name; until it lands, a content admin is an admin.
+try:
     from app.core.deps import is_content_admin
 except ImportError:  # pragma: no cover - depends on which stream merged first
     from app.core.deps import is_admin as is_content_admin
@@ -71,7 +64,6 @@ async def _tree() -> list[dict[str, Any]]:
 
 
 async def _reorder(rows: list[Any], moving_id: str, position: int, delegate: Any) -> None:
-    """Put ``moving_id`` at ``position`` (1-based) among ``rows`` and renumber 1..n."""
     ordered = sorted(rows, key=lambda r: (r.sortOrder, r.name))
     moving = next(r for r in ordered if r.id == moving_id)
     ordered.remove(moving)
@@ -80,7 +72,6 @@ async def _reorder(rows: list[Any], moving_id: str, position: int, delegate: Any
 
 
 async def _renumber(rows: list[Any], delegate: Any) -> None:
-    """Close the gaps: ``rows`` numbered 1..n in their current order."""
     await _write_order(sorted(rows, key=lambda r: (r.sortOrder, r.name)), delegate)
 
 
@@ -130,7 +121,6 @@ async def update_category(
             raise _taken("CATEGORY")
         async with db.tx() as tx:
             await tx.craftcategory.update(where={"id": category_id}, data={"name": name})
-            # ``Craft.category`` is the compatibility copy of the category name; keep it true.
             await tx.craft.update_many(where={"subCategory": {"is": {"categoryId": category_id}}}, data={"category": name})
     if payload.sortOrder is not None and payload.sortOrder != category.sortOrder:
         await _reorder(await db.craftcategory.find_many(), category_id, payload.sortOrder, db.craftcategory)
@@ -195,7 +185,6 @@ async def update_sub_category(
         async with db.tx() as tx:
             await tx.craftsubcategory.update(where={"id": sub_category_id}, data=data)
             if moving:
-                # Its crafts move with it (they point at the sub-category); their category copy follows.
                 await tx.craft.update_many(where={"subCategoryId": sub_category_id}, data={"category": target.name})
         if moving:
             await _renumber(await db.craftsubcategory.find_many(where={"categoryId": sub.categoryId}), db.craftsubcategory)

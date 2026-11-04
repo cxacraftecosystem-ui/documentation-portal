@@ -18,12 +18,6 @@ import java.io.IOException
 import java.lang.reflect.Proxy
 import java.time.Instant
 
-/**
- * Audit H20 (21 Oct 2026): a step the server refused was never shown, retried or discarded, and the
- * workspace read "N takes uploading" for ever. The fix tray lists each refused step with Send again
- * and Discard, and each conflicted answer with P9 (Keep theirs · Keep mine). A 404 from a server with
- * v2 switched off is a switch, not a refusal: the step waits instead of failing.
- */
 @QFeature("B39")
 class OutboxFixTrayTest {
     @get:Rule val tmp = TemporaryFolder()
@@ -111,7 +105,6 @@ class OutboxFixTrayTest {
         assertTrue(outbox.unit("c-3")!!.steps.none { it.kind == StepKind.ANSWERS })
     }
 
-    /** A QuestionnaireApi nobody calls: the 404 comes from the artisan create below. */
     private val unusedApi = Proxy.newProxyInstance(QuestionnaireApi::class.java.classLoader, arrayOf(QuestionnaireApi::class.java)) { _, _, _ -> error("not called") } as QuestionnaireApi
 
     private fun notFound() = HttpException(Response.error<Any>(404, """{"detail":{"code":"NOT_FOUND","message":"Not found."}}""".toResponseBody()))
@@ -142,12 +135,6 @@ class OutboxFixTrayTest {
         assertNull(after.failure); assertNull(after.failureCode); assertEquals(0, after.attempts)
     }
 
-    /**
-     * A refusal is final until a person acts: the next sync (every screen that opens drains the
-     * outbox) must not send the refused step again, or each re-send replaces the server's reason in
-     * the tray. Send again sends it exactly once. The web queue (`lib/questionnaire/queue.ts`) had
-     * this wrong and now agrees; `questionnaire-queue-refused-unit.spec.ts` is its half.
-     */
     @Test fun `a refused step is not re-sent by the next sync, keeps its reason, and Send again sends it once`() = runBlocking {
         val outbox = SessionOutbox(InMemorySessionUnitStore(), clock = { t0 })
         session(outbox, "c-5")

@@ -12,15 +12,6 @@ import { Actions, Badge, PRIMARY, SECONDARY } from "./parts";
 const FIELD =
   "min-h-40 w-full rounded-md border border-line-200 bg-card px-3 py-2 text-sm leading-6 text-ink-900 placeholder:text-ink-300 focus:border-purple-600 focus:outline-hidden focus:ring-4 focus:ring-purple-600/15";
 
-/**
- * WHY THE ENGLISH IS MISSING, AND THE WAY TO ADD IT (contract 3, D38).
- *
- * Gemini sometimes declines a recording outright (a SAFETY / PROHIBITED_CONTENT refusal), and asking
- * again gets the same answer. The server says so in `englishNotice`: DECLINED to whoever may add the
- * English (the edit rule), UNAVAILABLE, naming no provider, to every other reader. An editor can edit
- * any turn's English in place, or paste the whole translation here: paragraphs that line up with the
- * turns land on them, anything else is kept as one English text under the turns.
- */
 export function EnglishNotice({
   transcript,
   busy,
@@ -122,7 +113,6 @@ export function EnglishNotice({
   );
 }
 
-/** The whole transcript's English as a person pasted it (contract 3), shown under the turns for every reader. */
 export function ManualEnglish({ text }: { text: string }) {
   const paragraphs = text.split(/\n\s*\n/).filter((part) => part.trim() !== "");
   return (

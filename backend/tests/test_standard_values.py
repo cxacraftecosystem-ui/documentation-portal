@@ -1,19 +1,3 @@
-"""STANDARD VALUES (convergence point 10): one list per vocabulary, both portals, three clients.
-
-This file is identical in the designer portal and the documentation portal. It holds:
-
-* the shared list to itself: codes unique, no input spelling claimed by two entries;
-* the server to ``shared/standard-values-vectors.json``, the table the web and Android ports are
-  tested against too;
-* the write-path helpers: a stored legacy value re-sent unchanged is not refused;
-* the write paths to the helpers, read from source;
-* the Prisma ``TraditionType`` enum to the shared tradition codes and the two retired ones;
-* the two repositories to each other when the sibling checkout is present, and to a pinned digest
-  when it is not (CI has one repository).
-
-No database.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -34,8 +18,6 @@ ROOT = BACKEND.parent
 VECTORS = ROOT / "shared" / "standard-values-vectors.json"
 IS_DESIGNER_PORTAL = any(ROOT.glob("android/app/src/main/java/com/designprototype"))
 
-#: sha256 of the two shared files with LF line endings. Changing either file means changing this
-#: constant, and this test file is itself shared, so the other portal has to take the same change.
 PINNED = {
     "backend/app/data/standard_values.json": "b4cfcda12f4b0b0e981efcc6c11746defce5be7e95f3db6f40f953370398e308",
     "shared/standard-values-vectors.json": "cede780e95b31ad1e357866281d7db1e716c6c507f516a02751686b1590cd74a",
@@ -61,8 +43,6 @@ def vectors() -> dict[str, Any]:
     return json.loads(VECTORS.read_text(encoding="utf-8"))
 
 
-# ── The list ─────────────────────────────────────────────────────────────────────────────────
-
 
 @pytest.mark.parametrize("list_key", ["languages", "genders", "traditionTypes", "materialFamilies"])
 def test_codes_are_unique_and_no_spelling_means_two_entries(list_key: str) -> None:
@@ -81,7 +61,6 @@ def test_codes_are_unique_and_no_spelling_means_two_entries(list_key: str) -> No
 def test_bengali_is_the_standard_spelling_and_codes_are_standard() -> None:
     names = {entry["code"]: entry["name"] for entry in sv.shared()["languages"]}
     assert names["bn"] == "Bengali"
-    # ISO 639-1 where the language has one, otherwise ISO 639-2/3; never a made-up code.
     assert all(re.fullmatch(r"[a-z]{2,3}", code) for code in names)
 
 
@@ -110,8 +89,6 @@ def test_the_web_copy_is_the_same_bytes() -> None:
     web = ROOT / "frontend" / "lib" / "standard-values.json"
     assert _lf(web) == _lf(sv.STANDARD_VALUES_FILE)
 
-
-# ── The vectors ──────────────────────────────────────────────────────────────────────────────
 
 
 def test_phone_vectors() -> None:
@@ -168,8 +145,6 @@ def test_the_display_shape() -> None:
     assert sv.phone_of({"phone": "not a number"}) == "not a number"
 
 
-# ── The write-path helpers ───────────────────────────────────────────────────────────────────
-
 
 def test_apply_phone_splits_an_old_build_value_and_a_new_build_pair() -> None:
     assert sv.apply_phone({"phone": "+91 98765 43210"}) == {
@@ -201,7 +176,6 @@ def test_apply_phone_leaves_a_stored_legacy_value_alone() -> None:
         "name": "x"
     }
     legacy = SimpleNamespace(phone="+91 98765", phoneCountryCode=None)
-    # The new clients split the stored value into a code and its digits before re-sending it.
     assert sv.apply_phone({"phone": "98765", "phoneCountryCode": "+91"}, stored=legacy) == {}
 
 
@@ -212,7 +186,6 @@ def test_apply_phone_clears_both_columns_together() -> None:
         "phoneCountryCode": None,
     }
     assert sv.apply_phone({"phone": ""}, stored=stored) == {"phone": None, "phoneCountryCode": None}
-    # The code alone, cleared: the number then reads as the default, +91.
     assert sv.apply_phone({"phoneCountryCode": None}, stored=stored) == {"phoneCountryCode": None}
 
 
@@ -236,7 +209,6 @@ def test_apply_gender_tool_and_interview_values() -> None:
         "traditionType": "CONTEMPORARY",
         "materialFamily": "METAL",
     }
-    # An older build, or an editor re-sending a row the script has not reached, writes the successor.
     assert sv.apply_tool_values(
         {"traditionType": "HYBRID"}, stored=SimpleNamespace(traditionType="HYBRID")
     ) == {"traditionType": "TRANSITIONAL"}
@@ -252,8 +224,6 @@ def test_catalogue_serves_the_lists_without_aliases() -> None:
     assert "aliases" not in json.dumps(served)
 
 
-# ── The write paths, read from source ────────────────────────────────────────────────────────
-
 
 @pytest.mark.parametrize(
     "rel, helper",
@@ -265,7 +235,6 @@ def test_catalogue_serves_the_lists_without_aliases() -> None:
 )
 def test_every_write_route_applies_the_standard_values(rel: str, helper: str) -> None:
     source = (BACKEND / rel).read_text(encoding="utf-8")
-    # Once on create and once on update.
     assert source.count(f"_standardise({helper}, data") >= 2, rel
 
 
@@ -274,8 +243,6 @@ def test_records_print_the_phone_with_its_code() -> None:
     assert "lambda a: a.phone)" not in source
     assert '_f("Phone", phone_of)' in source
 
-
-# ── The two repositories ─────────────────────────────────────────────────────────────────────
 
 
 def test_the_shared_files_match_their_pinned_digest() -> None:
@@ -311,8 +278,6 @@ def test_the_sibling_portal_carries_the_same_files() -> None:
         assert _lf(ROOT / rel) == _lf(sibling / rel), f"{rel} differs from {sibling / rel}"
 
 
-# ── The normalisation script, against a fake client ──────────────────────────────────────────
-
 
 def _script() -> Any:
     import importlib.util
@@ -322,7 +287,7 @@ def _script() -> Any:
     )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module  # dataclasses resolve their module by name
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 

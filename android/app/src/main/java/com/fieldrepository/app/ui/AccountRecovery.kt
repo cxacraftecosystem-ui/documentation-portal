@@ -56,31 +56,10 @@ import com.fieldrepository.app.data.accountHasPassword
 import com.fieldrepository.app.data.apiErrorMessage
 import kotlinx.coroutines.launch
 
-/*
- * ════════════════════════════════════════════════════════════════════════════════════════════════
- * GETTING BACK IN, ON THE HANDSET
- * ════════════════════════════════════════════════════════════════════════════════════════════════
- *
- * Three surfaces, the web's three, with the words in ui/AccountRecoveryCopy.kt:
- *
- *   1. [ForgotPasswordScreen] — drawn by `MainActivity` in place of the sign-in card. One box, one
- *      button, and the server's one answer printed as it is: the same for an address with an account
- *      and one without, so nothing on this screen can branch on which it was.
- *   2. [AccountPasswordScreen] — Settings → Password. Changes the password, or sets a first one for
- *      an account that signs in with Google, Microsoft or Yahoo.
- *   3. [HelpThemBackInActions] — on Manage users, beside the existing "Issue a set-password link" and
- *      "Turn off two-step verification": e-mail them a link, set a temporary password, sign them out
- *      of every device.
- *
- * NONE OF THESE MINTS A SESSION. A link or the forgotten-password e-mail sets a password; the person
- * then signs in and meets the two-step code exactly as any sign-in does.
- */
-
 @Composable
 fun ForgotPasswordScreen(
     repository: FieldRepository,
     onBack: () -> Unit,
-    /** The address already typed on the sign-in card, if any — saves typing it twice. */
     initialEmail: String = "",
 ) {
     val scope = rememberCoroutineScope()
@@ -173,13 +152,11 @@ fun ForgotPasswordScreen(
     }
 }
 
-/** Settings → Password. Its own TopAppBar, like the two-step screen beside it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccountPasswordScreen(
     repository: FieldRepository,
     onBack: () -> Unit,
-    /** Sign this device out — the way forward when the server asks for a fresh sign-in. */
     onSignOut: () -> Unit,
 ) {
     Scaffold(
@@ -208,7 +185,6 @@ fun AccountPasswordScreen(
 fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
     val scope = rememberCoroutineScope()
     var user by remember { mutableStateOf(repository.cachedUser()) }
-    // Re-read once, so an account that gained a password on the web is not offered "Set a password".
     LaunchedEffect(Unit) {
         runCatching { repository.refreshUser() }.onSuccess { user = it }
     }
@@ -221,11 +197,9 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
     var reveal by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    // The provider sign-in run again, for a first password (ProviderReauth.kt). Held in memory only.
     var proof by remember { mutableStateOf<ProviderProof?>(null) }
     var askedProvider by remember { mutableStateOf<String?>(null) }
     var saved by remember { mutableStateOf<String?>(null) }
-    // A first password on an account with two-step on also needs a code from the authenticator app.
     val needsCode = firstPasswordNeedsCode(hasPassword, user)
     val wantedProvider = askedProvider ?: reauthProviderFor(user?.authProvider)
     val confirmed = !hasPassword && proof?.isFresh(System.currentTimeMillis()) == true
@@ -289,8 +263,6 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             )
             if (needsCode) {
-                // Six digit boxes (OtpCodeField) for the authenticator code; a recovery code is a
-                // different shape and gets its own field behind the switch (owner, 2026-10-17).
                 if (useRecoveryCode) {
                     RecoveryCodeBox(code) { code = it; error = null; saved = null }
                 } else {
@@ -366,13 +338,10 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
                             }
                             .onFailure { failure ->
                                 if (failure is ConfirmSignInRequired) {
-                                    // Missing, stale or another address: drop it and ask again.
                                     error = failure.message
                                     proof = null
                                     askedProvider = failure.provider
                                 } else if (failure is TwoFactorCodeRequired) {
-                                    // The form is kept; only the code is cleared for the next one. A
-                                    // sign-in already accepted comes back as what stands in for it.
                                     error = failure.message
                                     code = ""
                                     failure.signInProof?.let { token -> proof = sending?.carried(token) ?: proof }
@@ -391,14 +360,6 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
     }
 }
 
-/**
- * The three "help them back in" actions this handset lacked, for one row of Manage users. Drawn only
- * when the caller has already decided the administrator may manage [target] — the same test the
- * link and two-step buttons beside it use, which mirrors the server's `assert_may_reset_credentials`.
- *
- * [onChanged] hands back the row as the server now has it (null when nothing came back), so the list
- * can refresh; [onError] carries the server's own sentence.
- */
 @Composable
 fun HelpThemBackInActions(
     repository: FieldRepository,
@@ -507,8 +468,6 @@ private fun TemporaryPasswordDialog(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
 ) {
-    // Never trimmed, and never echoed anywhere once the dialog closes: a password typed for somebody
-    // else is a shared secret, and this box is the one place on the handset it exists.
     var password by remember { mutableStateOf("") }
     var reveal by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<String?>(null) }
