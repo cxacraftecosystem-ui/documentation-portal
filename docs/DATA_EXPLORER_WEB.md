@@ -46,6 +46,8 @@ flowchart LR
   of the zip (a half-written entry is kept out of the zip's directory) and listed in
   `_failed-downloads.txt` and on screen. Audio converted to `.mp4` that the server answers with
   `X-Conversion: original` is saved under its real name.
+- The engine reads 408 and 429 as worth another try and any other 4xx as final itself, because it runs in
+  the worker and must not import the page-side failure table; `failure-triage-unit.spec.ts` lists it.
 - **Save to a folder** writes each file on its own and keeps `.download-progress.json` in the folder
   until the job finishes, so running it again into the same folder skips what is already there.
 - Cancel stops the worker at once; leaving the page mid-way asks first.
