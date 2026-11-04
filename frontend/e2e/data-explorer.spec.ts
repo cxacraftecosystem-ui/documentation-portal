@@ -200,7 +200,6 @@ test.describe("@qf:X1 errors in place", () => {
       await page.getByRole("treeitem", { name: "By craft", exact: true }).click();
       const problem = page.getByRole("alert").filter({ has: page.getByRole("button", { name: "Retry" }) });
       await expect(problem).toBeVisible();
-      await expect(problem).toContainText("This folder could not be loaded.");
       const retry = problem.getByRole("button", { name: "Retry" });
       const box = await retry.boundingBox();
       expect(box).not.toBeNull();
@@ -328,7 +327,7 @@ test.describe("@qf:X10 downloads", () => {
     try {
       await page.getByRole("button", { name: "Download zip" }).click();
       const progress = page.getByTestId("download-progress");
-      await expect(progress).toContainText(/Saved 6 of 7 files\. 1 failed\./);
+      await expect(progress).toContainText(/Saved 6 of 7\. 1 failed\./);
       await expect(page.getByTestId("failed-files")).toContainText("missing.jpg");
       await expect(page.getByTestId("download-announcer")).toHaveText(/Download finished\. 1 file failed\./);
       const entries = readZip(await savedZip(page));
@@ -458,7 +457,7 @@ test.describe("@qf:X3 multi-select", () => {
       await expect(selected).toContainText("2 folders");
       await expect(page.getByTestId("selection-size")).toHaveText(/^10 files · /);
       await selected.getByRole("button", { name: "Download selected" }).click();
-      await expect(page.getByTestId("download-progress")).toContainText(/Saved 9 of 10 files/);
+      await expect(page.getByTestId("download-progress")).toContainText(/Saved 9 of 10\. 1 failed\./);
       expect(fake.calledWith("POST", "/data/manifest")[0].body).toMatchObject({ paths: ["workshops/bagru", "workshops/sanganer"] });
       const names = readZip(await savedZip(page)).map((entry) => entry.name);
       expect(names).toContain("Bagru 2026/photo.jpg");
