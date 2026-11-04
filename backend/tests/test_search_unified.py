@@ -252,7 +252,13 @@ async def test_a_workshop_filter_finds_a_tool_through_its_linked_artisan(world, 
         }
     )
     tool = await db.tooldocumentation.create(
-        data={"toolkitName": f"Dabu block {token}", "place": "Akola", "createdById": world.professor.id}
+        data={
+            "toolkitName": f"Dabu block {token}",
+            "craftName": world.craft.name,
+            "craftId": world.craft.id,
+            "place": "Akola",
+            "createdById": world.professor.id,
+        }
     )
     await db.toolartisan.create(data={"toolId": tool.id, "artisanId": artisan.id})
     try:

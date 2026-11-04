@@ -261,7 +261,13 @@ async def test_a_tool_reaches_a_workshop_through_its_linked_artisan(world):
         data={"name": f"Kamla Devi {world.stamp}", "place": "Akola", "createdById": world.professor.id}
     )
     tool = await db.tooldocumentation.create(
-        data={"toolkitName": f"Dabu block {world.stamp}", "place": "Akola", "createdById": world.professor.id}
+        data={
+            "toolkitName": f"Dabu block {world.stamp}",
+            "craftName": world.craft.name,
+            "craftId": world.craft.id,
+            "place": "Akola",
+            "createdById": world.professor.id,
+        }
     )
     try:
         await _drain_all()
