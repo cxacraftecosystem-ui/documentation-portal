@@ -38,6 +38,7 @@ data class ExplorerRequest(
     val wifiOnly: Boolean = false,
     val single: Boolean = false,
     val expectedBytes: Long? = null,
+    val source: String? = null,
     val mimeType: String = if (single) "application/octet-stream" else "application/zip",
 )
 

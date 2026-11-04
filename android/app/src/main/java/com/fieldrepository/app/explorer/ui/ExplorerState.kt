@@ -312,6 +312,13 @@ class ExplorerState(
         }
     }
 
+    suspend fun transcriptText(entry: ExplorerEntry): String? {
+        (transcripts[entry.key] as? TranscriptLoad.Loaded)?.let { return it.text }
+        val text = entry.content ?: loadTranscript(entry)
+        if (!text.isNullOrBlank()) transcripts[entry.key] = TranscriptLoad.Loaded(text)
+        return text
+    }
+
     private suspend fun loadTranscript(entry: ExplorerEntry): String? {
         val route = entry.transcriptPath
         if (route != null) {
@@ -360,7 +367,7 @@ class ExplorerState(
     companion object {
         const val FALLBACK_MS = 6_000L
 
-        fun selectable(entry: ExplorerEntry): Boolean = entry.isFolder || entry.mediaId != null
+        fun selectable(entry: ExplorerEntry): Boolean = entry.isFolder || (entry.mediaId != null && !entry.isTranscriptFile)
 
         fun stamp(millis: Long): String? = runCatching {
             DateTimeFormatter.ofPattern("d MMM, HH:mm").format(Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()))

@@ -172,7 +172,37 @@ fun ExplorerScreen(
         onMessage(ExplorerText.keepsGoing)
     }
 
+    fun saveText(entry: ExplorerEntry) {
+        scope.launch {
+            val text = try {
+                state.transcriptText(entry)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                null
+            }
+            if (text.isNullOrBlank()) {
+                onMessage(ExplorerText.transcriptFailed)
+                return@launch
+            }
+            begin(
+                ExplorerRequest(
+                    title = entry.name,
+                    fileName = entry.name,
+                    kind = ExplorerJobKind.FILE,
+                    single = true,
+                    source = entry.key,
+                    items = listOf(ExplorerItem(path = entry.name, content = text)),
+                ),
+            )
+        }
+    }
+
     fun saveEntry(entry: ExplorerEntry) {
+        if (entry.isTranscriptFile) {
+            saveText(entry)
+            return
+        }
         val request = ExplorerRequest(
             title = entry.name,
             fileName = entry.name,
@@ -188,6 +218,7 @@ fun ExplorerScreen(
                 ),
             ),
             expectedBytes = entry.sizeBytes,
+            source = entry.key,
         )
         ensureNotifications()
         scope.launch {
@@ -302,7 +333,7 @@ fun ExplorerScreen(
     val activeCount = jobs.count { it.active }
     val saveJobs = remember(jobs) {
         jobs.filter { it.active && it.request.kind == ExplorerJobKind.FILE }
-            .associateBy { it.request.items.firstOrNull()?.let { item -> item.mediaId ?: item.path }.orEmpty() }
+            .associateBy { it.request.source.orEmpty() }
     }
     val transcriptJobs = remember(jobs) {
         jobs.filter { it.active && it.request.kind == ExplorerJobKind.TRANSCRIPTS }.mapNotNull { job ->
@@ -370,7 +401,7 @@ fun ExplorerScreen(
                 )
             }
             items(state.files, key = { it.key }) { file ->
-                val saveKey = file.mediaId ?: file.name
+                val saveKey = file.key
                 FileRow(
                     entry = file,
                     selecting = state.selecting,
@@ -383,6 +414,7 @@ fun ExplorerScreen(
                     onOpen = {
                         val mediaId = file.mediaId
                         when {
+                            file.isTranscriptFile -> state.toggleText(file)
                             mediaId != null && onOpenMedia != null -> onOpenMedia(mediaId)
                             file.mediaType in ExplorerPaths.PREVIEWABLE -> viewing = file
                             else -> state.toggleText(file)

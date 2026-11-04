@@ -169,4 +169,24 @@ class ExplorerStateTest {
         s.open("w")
         until { s.restricted }
     }
+
+    @QFeature("X12")
+    @Test fun `a transcript file reads its own route and is never selected as the recording`() = runBlocking {
+        val api = FakeExplorerApi()
+        val text = ExplorerEntry(name = "Interview_Transcript.md", path = "w/t1", mediaId = "m9", transcriptPath = "/data/media/m9/transcript")
+        api.trees = { path, _, _ -> ExplorerTree(path = path, entries = listOf(text)) }
+        api.paths = { path, _ ->
+            assertEquals("/api/data/media/m9/transcript", path)
+            FakeExplorerApi.bytes("{\"mediaId\":\"m9\",\"content\":\"hello transcript\"}".toByteArray())
+        }
+        val s = state(api)
+        s.open("w")
+        until { s.entries.isNotEmpty() }
+        val entry = s.files.first()
+        assertTrue(entry.isTranscriptFile)
+        assertEquals(false, ExplorerState.selectable(entry))
+        assertEquals("hello transcript", s.transcriptText(entry))
+        assertEquals("hello transcript", s.transcriptText(entry))
+        assertEquals(1, api.calls.count { it.startsWith("path:") })
+    }
 }
