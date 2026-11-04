@@ -56,6 +56,7 @@ export class DataExplorerFake {
   servedFiles: string[] = [];
   fileDelayMs = 0;
   reportBusy = 0;
+  treeFailures = new Map<string, number>();
   folders = new Map<string, FakeFolder>();
 
   constructor() {
@@ -233,6 +234,11 @@ export class DataExplorerFake {
     if (path === "/me") return { status: 200, json: { id: "u-lead", name: "Nandini Rao", email: "nandini@example.org", role: "ADMIN", isActive: true, mustChangePassword: false, twoFactorEnabled: false, usageConsentAt: "2026-01-01T00:00:00Z" } };
     if (path === "/preferences/me") return { status: 200, json: {} };
     if (path === "/data/tree") {
+      const failing = this.treeFailures.get(query.get("path") ?? "") ?? 0;
+      if (failing > 0) {
+        this.treeFailures.set(query.get("path") ?? "", failing - 1);
+        return { status: 500, json: { detail: "The folder could not be read." } };
+      }
       const tree = this.tree(query.get("path") ?? "", query.get("cursor"));
       return tree ? { status: 200, json: tree } : { status: 404, json: { detail: "No such folder." } };
     }

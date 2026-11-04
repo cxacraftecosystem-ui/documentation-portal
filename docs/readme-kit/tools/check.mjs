@@ -23,13 +23,17 @@ function walk(dir, pred, out = []) {
   return out;
 }
 
+const VENDORED_SKILLS = [".claude/skills/security-audit/"];
+
 function markdownFiles(extra) {
   const md = (p) => p.endsWith(".md");
   const files = [
     join(REPO, "README.md"),
     ...walk(KIT, md),
     ...walk(join(REPO, "docs"), md).sort(),
-    ...walk(join(REPO, ".claude", "skills"), md).sort(),
+    ...walk(join(REPO, ".claude", "skills"), md)
+      .filter((p) => !VENDORED_SKILLS.some((v) => rel(p).startsWith(v)))
+      .sort(),
     ...extra.map((p) => resolve(p)),
   ];
   return [...new Set(files.filter(existsSync))];

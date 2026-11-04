@@ -157,6 +157,26 @@ test.describe("@qf:X1 the tree", () => {
   });
 });
 
+test.describe("@qf:X1 errors in place", () => {
+  test("a folder that fails to load says so where it failed and Try again reloads it", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser);
+    try {
+      fake.treeFailures.set("crafts", 1);
+      await page.getByRole("treeitem", { name: "By craft", exact: true }).click();
+      const problem = page.getByRole("alert").filter({ has: page.getByRole("button", { name: "Try again" }) });
+      await expect(problem).toBeVisible();
+      const retry = problem.getByRole("button", { name: "Try again" });
+      const box = await retry.boundingBox();
+      expect(box).not.toBeNull();
+      await retry.click();
+      await expect(problem).toHaveCount(0);
+      expect(fake.calls.filter((call) => call.path === "/data/tree" && call.query.get("path") === "crafts").length).toBeGreaterThanOrEqual(2);
+    } finally {
+      await context.close();
+    }
+  });
+});
+
 test.describe("@qf:X1 review status", () => {
   test("changing the review status reloads every open folder in place", async ({ browser }) => {
     const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
@@ -220,6 +240,16 @@ test.describe("@qf:X5 previews", () => {
       await page.keyboard.press("Escape");
       await row("brief.pdf").getByRole("button", { name: "Preview" }).click();
       await expect(page.getByRole("dialog", { name: "brief.pdf" }).locator('object[type="application/pdf"]')).toHaveCount(1);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("a file row links to its file page", async ({ browser }) => {
+    const { context, page } = await openExplorer(browser, { path: "workshops/bagru" });
+    try {
+      const row = page.locator("[data-file-row]").filter({ hasText: "photo.jpg" });
+      await expect(row.getByRole("link", { name: "photo.jpg" })).toHaveAttribute("href", "/media/img1");
     } finally {
       await context.close();
     }

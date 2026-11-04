@@ -478,6 +478,8 @@ class ScopeCases(unittest.TestCase):
             "frontend/next-env.d.ts",
             ".env",
             "infra/terraform/main.tf",
+            ".claude/skills/security-audit/validate-findings.cjs",
+            ".claude/skills/security-audit/validate-coverage-ledger.test.cjs",
         ]
         for rel in excluded:
             self.assertIsNotNone(sc.path_exclusion(rel), rel)

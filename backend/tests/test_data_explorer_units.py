@@ -480,3 +480,72 @@ def test_a_recording_over_the_conversion_ceiling_is_refused_or_sent_as_it_is(mon
     assert sent.headers["X-Conversion"] == "original"
     plain = asyncio.run(downloads.media_download(media, fmt="original", fallback=False))
     assert plain.status_code == 307 and plain.headers["X-Conversion"] == "none"
+
+
+def test_a_transcript_page_keeps_filling_until_it_is_full_for_a_narrow_viewer(monkeypatch):
+    from app.api.routes import transcript_data
+
+    ids = [f"m{n:02d}" for n in range(1, 31)]
+    pages: list[str | None] = []
+
+    async def select_page(f, cursor, *, limit, client=None):
+        pages.append(cursor)
+        start = 0 if cursor is None else ids.index(cursor) + 1
+        return ids[start : start + limit]
+
+    async def visible_fn(user):
+        async def visible(page):
+            return {mid for mid in page if int(mid[1:]) % 3 == 0}
+
+        return visible
+
+    async def load(shown, *, sees_spend=False, client=None):
+        return {mid: {"mediaId": mid} for mid in shown}
+
+    async def filters(request):
+        return SimpleNamespace(echo=lambda: {})
+
+    monkeypatch.setattr(transcript_data.transcript_export, "select_page", select_page)
+    monkeypatch.setattr(transcript_data.transcript_export, "load", load)
+    monkeypatch.setattr(transcript_data, "_visible_fn", visible_fn)
+    monkeypatch.setattr(transcript_data, "_filters", filters)
+    monkeypatch.setattr(transcript_data.transcript_portal, "may_see_spend", lambda user: False)
+
+    first = asyncio.run(transcript_data.transcripts_page(request=None, cursor=None, limit=4, current_user=Row()))
+    assert [i["mediaId"] for i in first["items"]] == ["m03", "m06", "m09", "m12"]
+    assert first["nextCursor"] == "m12"
+    second = asyncio.run(transcript_data.transcripts_page(request=None, cursor=first["nextCursor"], limit=4, current_user=Row()))
+    assert [i["mediaId"] for i in second["items"]] == ["m15", "m18", "m21", "m24"]
+    last = asyncio.run(transcript_data.transcripts_page(request=None, cursor=second["nextCursor"], limit=4, current_user=Row()))
+    assert [i["mediaId"] for i in last["items"]] == ["m27", "m30"]
+    assert last["nextCursor"] is None
+    assert len(pages) == 8
+
+
+def test_the_visibility_check_reads_ids_only(monkeypatch):
+    from app.api.routes import data_browser, transcript_data
+
+    seen: dict[str, Any] = {}
+
+    async def group_by(**kwargs):
+        seen.update(kwargs)
+        return [{"id": "m1"}]
+
+    async def scope_for(user):
+        return SimpleNamespace(media={"createdById": "u1"})
+
+    monkeypatch.setattr(data_browser, "_scope_for", scope_for)
+    monkeypatch.setattr(transcript_data, "db", SimpleNamespace(mediafile=SimpleNamespace(group_by=group_by)))
+    visible = asyncio.run(transcript_data._visible_fn(Row()))
+    assert asyncio.run(visible(["m1", "m2"])) == {"m1"}
+    assert seen["by"] == ["id"]
+    assert seen["take"] == 2
+
+
+def test_has_transcript_reads_the_cheap_flag_before_any_text():
+    from app.services.data_explorer import slim
+
+    assert slim.has_transcript(Row(hasTranscript=True)) is True
+    assert slim.has_transcript(Row(hasTranscript=False, transcriptText="ignored")) is False
+    assert slim.has_transcript(Row(transcriptText="  ")) is False
+    assert slim.has_transcript(Row(transcriptText="Clay and gum")) is True

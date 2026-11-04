@@ -53,6 +53,7 @@ SNAPSHOT_DIR_NAMES = frozenset({"__snapshots__", "snapshots"})
 LOCK_NAMES = frozenset({"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "npm-shrinkwrap.json", "poetry.lock", "uv.lock", "Cargo.lock", "Gemfile.lock"})
 WRAPPER_NAMES = frozenset({"gradlew", "gradlew.bat", "gradle-wrapper.properties", "gradle-wrapper.jar"})
 GENERATED_NAMES = frozenset({"next-env.d.ts"})
+VENDORED_PREFIXES = (".claude/skills/security-audit/",)
 
 EXCLUSION_RULES = (
     ("prisma/migrations/** and any migrations/ directory", "applied migrations: their checksums are recorded in the database"),
@@ -64,6 +65,7 @@ EXCLUSION_RULES = (
     ("*.lock, package-lock.json, yarn.lock, pnpm-lock.yaml, requirements*.lock", "lockfiles"),
     ("gradlew, gradlew.bat, gradle/wrapper/**", "Gradle wrapper"),
     ("node_modules, .venv, venv, site-packages, vendor, vendored, third_party, third-party", "vendored or third-party code"),
+    (".claude/skills/security-audit/**", "vendored third-party skill (cloudflare/security-audit-skill, MIT)"),
     ("build, dist, out, .next, .gradle, .kotlin, target, __pycache__, coverage/ at a package root, caches", "build outputs"),
     ("*.md, *.mdx, *.markdown", "documentation"),
     ("*.json, *.jsonc, *.json5", "JSON"),
@@ -1820,6 +1822,8 @@ def path_exclusion(rel):
     dirs = parts[:-1]
     lower = name.lower()
     suffix = lower[lower.rfind("."):] if "." in lower else ""
+    if rel.startswith(VENDORED_PREFIXES):
+        return "vendored third-party skill"
     for a, b in zip(dirs, dirs[1:]):
         if a == "prisma" and b == "migrations":
             return "applied migrations"
