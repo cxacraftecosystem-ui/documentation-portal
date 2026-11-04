@@ -264,6 +264,7 @@ async def test_a_tool_reaches_a_workshop_through_its_linked_artisan(world):
         data={
             "toolkitName": f"Dabu block {world.stamp}",
             "craftName": world.craft.name,
+            "artisanName": artisan.name,
             "craftId": world.craft.id,
             "place": "Akola",
             "createdById": world.professor.id,

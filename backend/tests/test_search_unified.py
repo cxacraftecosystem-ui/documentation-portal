@@ -255,6 +255,7 @@ async def test_a_workshop_filter_finds_a_tool_through_its_linked_artisan(world, 
         data={
             "toolkitName": f"Dabu block {token}",
             "craftName": world.craft.name,
+            "artisanName": artisan.name,
             "craftId": world.craft.id,
             "place": "Akola",
             "createdById": world.professor.id,
