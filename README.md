@@ -150,6 +150,7 @@ sequenceDiagram
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","lineColor":"#AA69E9","textColor":"#857F9E","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE"}}}%%
 stateDiagram-v2
+  direction LR
   [*] --> WaitingForConsent: a subject refused
   [*] --> Queued
   WaitingForConsent --> Queued: consent given
@@ -301,15 +302,15 @@ erDiagram
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1"}}}%%
-flowchart LR
+flowchart TD
   P([Push to main]) --> C{Checks green?}
   C -->|no| X[Nothing ships]
-  C -->|yes| V["Release venv<br/>built on the runner"]
-  V --> M["Migrate<br/>live port still serving"]
+  C -->|yes| V["Release venv built on the runner"]
+  V --> M["Migrate while the live port serves"]
   M --> I["Start the idle port"]
   I --> H{"/health answers?"}
   H -->|no| K[nginx stays on the old port]
-  H -->|yes| S["nginx switches<br/>old port stops"]
+  H -->|yes| S["nginx switches, old port stops"]
   S --> F[Web deploys next]
   classDef accent fill:#762CB1,stroke:#5F1C93,color:#FFFFFF
   class S accent

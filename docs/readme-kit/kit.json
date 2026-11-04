@@ -46,7 +46,7 @@
         "icon": "badge-check",
         "tag": "Review",
         "title": "Six-tier ladder",
-        "body": "Each tier reviews the one below it: approve, reject or send back with comments, every decision kept with its author."
+        "body": "Each tier reviews the one below: approve, reject or send back, and every decision is kept."
       },
       {
         "icon": "database",
@@ -146,7 +146,7 @@
       {
         "icon": "mic",
         "title": "Capture",
-        "sub": "Records, photos, takes and GPS on site"
+        "sub": "Records, photos and GPS"
       },
       {
         "icon": "cloud",

@@ -17,7 +17,7 @@
 <circle cx="137" cy="65" r="11" fill="#C090F5" stroke="#1A1725" stroke-width="2"/>
 <text x="137" y="69" class="s" fill="#1A1725" font-size="11" font-weight="700" text-anchor="middle">1</text>
 <text x="110" y="158" class="d" fill="#F2F0F9" font-size="17" font-weight="700" text-anchor="middle">Capture</text>
-<text x="110" y="182" class="s" fill="#9E98B2" font-size="13" text-anchor="middle">Records, photos, takes and GPS on</text><text x="110" y="201" class="s" fill="#9E98B2" font-size="13" text-anchor="middle">site</text>
+<text x="110" y="182" class="s" fill="#9E98B2" font-size="13" text-anchor="middle">Records, photos and GPS</text>
 </g>
 <g class="rise r1">
 <circle class="ring" style="animation-delay:1.4s" cx="355" cy="92" r="36" fill="none" stroke="#C090F5" stroke-width="2"/>

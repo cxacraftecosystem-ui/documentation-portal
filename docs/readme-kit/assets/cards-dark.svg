@@ -54,7 +54,7 @@
 <g transform="translate(444.7 276) scale(1)" fill="none" stroke="#D6B6FB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></g>
 <text x="767.3" y="286" class="m" fill="#9E98B2" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">REVIEW</text>
 <text x="432.7" y="350" class="d" fill="#F2F0F9" font-size="20" font-weight="700" letter-spacing="-.3">Six-tier ladder</text>
-<text x="432.7" y="380" class="s" fill="#9E98B2" font-size="15">Each tier reviews the one below it:</text><text x="432.7" y="403" class="s" fill="#9E98B2" font-size="15">approve, reject or send back with</text><text x="432.7" y="426" class="s" fill="#9E98B2" font-size="15">comments, every decision kept with its…</text>
+<text x="432.7" y="380" class="s" fill="#9E98B2" font-size="15">Each tier reviews the one below:</text><text x="432.7" y="403" class="s" fill="#9E98B2" font-size="15">approve, reject or send back, and every</text><text x="432.7" y="426" class="s" fill="#9E98B2" font-size="15">decision is kept.</text>
 </g>
 <g class="rise r5">
 <rect x="811.3" y="240" width="382.7" height="214" rx="18" fill="#1A1725" stroke="#342E47"/>
