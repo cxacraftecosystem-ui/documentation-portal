@@ -57,6 +57,18 @@ regenerate the manifest, then run `npx playwright test trace-engine-unit --repor
 drives the pipeline on bitmaps whose right answer is arithmetic, so it fails on a copy that
 typechecks and no longer computes.
 
+**Since release 0.0.10 every file here has its comments removed**, so its digest no longer matches
+`UPSTREAM-MANIFEST.txt`, which still records upstream as it was. To check drift, copy the upstream
+`engine` and `worker` folders into a scratch tree at `frontend/lib/trace/`, strip that tree the same
+way, and compare it with this copy:
+
+```bash
+python scripts/tools/strip_comments.py --root "$SCRATCH" --write -q
+diff -r --strip-trailing-cr "$SCRATCH/frontend/lib/trace" frontend/lib/trace
+```
+
+Only the files named under known drift, plus this README and the manifest, should differ.
+
 ### Why the copy is safe to make at all
 
 Verified before copying, not assumed:
