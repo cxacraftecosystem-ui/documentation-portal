@@ -82,7 +82,7 @@ export type ManifestRequest =
   | { method: "POST"; endpoint: string; body: Record<string, unknown> };
 
 export function isUnsupported(status: number): boolean {
-  return status === 404 || status === 405 || status === 501;
+  return status === 404 || status === 405;
 }
 
 export async function fetchManifest(

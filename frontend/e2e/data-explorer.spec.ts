@@ -157,6 +157,29 @@ test.describe("@qf:X1 the tree", () => {
   });
 });
 
+test.describe("@qf:X1 review status", () => {
+  test("changing the review status reloads every open folder in place", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
+    try {
+      const group = page.getByRole("group", { name: "Review status" });
+      test.skip((await group.count()) === 0, "this portal has no review-status filter");
+      await expect(page.getByRole("treeitem", { name: "Bagru 2026", exact: true })).toHaveAttribute("aria-selected", "true");
+      const asked = fake.calls.length;
+      await group.getByRole("button", { name: "All statuses" }).click();
+      await expect(page).toHaveURL(/status=ALL/);
+      for (const path of ["", "workshops", "workshops/bagru"]) {
+        await expect
+          .poll(() => fake.calls.slice(asked).some((call) => call.path === "/data/tree" && (call.query.get("path") ?? "") === path && !call.query.has("status")))
+          .toBe(true);
+      }
+      await expect(page.getByRole("treeitem", { name: "Bagru 2026", exact: true })).toHaveAttribute("aria-selected", "true");
+      await expect(page.getByRole("treeitem", { name: "Sanganer", exact: true })).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+});
+
 test.describe("@qf:X2 sizes before download", () => {
   test("the folder shows its file count and size, and each type its own", async ({ browser }) => {
     const { context, page } = await openExplorer(browser, { path: "workshops/bagru" });
