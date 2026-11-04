@@ -83,7 +83,11 @@ object ExplorerNotifications {
         } else {
             launch(context)?.let { builder.setContentIntent(it) }
         }
-        runCatching { NotificationManagerCompat.from(context).notify(idFor(job.id) + DONE_OFFSET, builder.build()) }
+        try {
+            NotificationManagerCompat.from(context).notify(idFor(job.id) + DONE_OFFSET, builder.build())
+        } catch (denied: SecurityException) {
+            return
+        }
     }
 
     fun cancel(context: Context, jobId: String) {
