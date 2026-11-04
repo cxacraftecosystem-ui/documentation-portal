@@ -249,7 +249,7 @@ test.describe("@qf:X5 previews", () => {
     const { context, page } = await openExplorer(browser, { path: "workshops/bagru" });
     try {
       const row = page.locator("[data-file-row]").filter({ hasText: "photo.jpg" });
-      await expect(row.getByRole("link").filter({ hasText: "photo.jpg" })).toHaveAttribute("href", "/media/img1");
+      await expect(row.getByRole("link", { name: "photo.jpg", exact: true })).toHaveAttribute("href", "/media/img1");
     } finally {
       await context.close();
     }
