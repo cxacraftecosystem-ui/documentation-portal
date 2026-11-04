@@ -228,7 +228,7 @@ test.describe("the lists are wired to it", () => {
     const search = read("app", "(protected)", "search", "page.tsx");
     expect(search).not.toMatch(/href: `\/(artisans|products|tools)\/\$\{item\.id\}\/edit`/);
     expect(search).toContain('href: recordViewHref("workshop", item.id)!');
-    expect(read("app", "(protected)", "data", "page.tsx")).toContain("const viewHref = recordViewHref(typeKey, row.id);");
+    expect(read("app", "(protected)", "data", "page.tsx")).toContain('viewHref: value === "media" ? mediaHref : (id: string) => recordViewHref(value, id)');
     expect(read("components", "data", "DataSearchPanel.tsx")).not.toMatch(/\/edit`/);
     expect(read("components", "map", "types.ts")).not.toMatch(/\/edit`|\?edit=/);
     expect(read("app", "(protected)", "activity", "page.tsx")).toContain("recordViewHref(group.viewType, row.id)");
@@ -276,8 +276,8 @@ test.describe("the lists are wired to it", () => {
 
   test("the data browser offers Update only to an account the server would let save", () => {
     const code = read("app", "(protected)", "data", "page.tsx");
-    expect(code).toContain("const showLink = !viewHref || canUpdateRecord(user, typeKey);");
-    expect(code).toContain("{!recordViewHref(typeKey, recordId) || canUpdateRecord(user, typeKey) ? (");
+    expect(code).toContain("updateHref: canUpdateRecord(user, value) ? (id: string) => recordUpdateHref(value, id) : null");
+    expect(read("components", "dataExplorer", "BrowseByType.tsx")).toContain("{update ? (");
   });
 
   test("a row on a page with an inline form asks before leaving it", () => {

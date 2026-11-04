@@ -242,3 +242,51 @@ async def test_a_file_on_a_product_follows_the_products_artisan(world):
             where={"id": world.product_title.id}, data={"artisanId": world.consented.id}
         )
         await _drain_all()
+
+
+async def test_a_tool_reaches_a_workshop_through_its_linked_artisan(world):
+    from datetime import UTC, datetime
+
+    from app.core.db import db
+
+    other = await db.workshop.create(
+        data={
+            "title": f"Akola meet {world.stamp}",
+            "date": datetime(2026, 9, 3, tzinfo=UTC),
+            "place": "Akola",
+            "createdById": world.professor.id,
+        }
+    )
+    artisan = await db.artisan.create(
+        data={"name": f"Kamla Devi {world.stamp}", "place": "Akola", "createdById": world.professor.id}
+    )
+    tool = await db.tooldocumentation.create(
+        data={
+            "toolkitName": f"Dabu block {world.stamp}",
+            "craftName": world.craft.name,
+            "artisanName": artisan.name,
+            "craftId": world.craft.id,
+            "place": "Akola",
+            "createdById": world.professor.id,
+        }
+    )
+    try:
+        await _drain_all()
+        assert (await document("tools", tool.id))["workshopIds"] == []
+        await _clear_queue()
+        await db.toolartisan.create(data={"toolId": tool.id, "artisanId": artisan.id})
+        assert ("tools", tool.id) in await _queued()
+        await _drain_all()
+        assert (await document("tools", tool.id))["workshopIds"] == []
+        await _clear_queue()
+        await db.workshopartisan.create(data={"workshopId": other.id, "artisanId": artisan.id})
+        assert ("artisans", artisan.id) in await _queued()
+        await _drain_all()
+        assert (await document("tools", tool.id))["workshopIds"] == [other.id]
+        await db.workshopartisan.delete_many(where={"workshopId": other.id, "artisanId": artisan.id})
+        await _drain_all()
+        assert (await document("tools", tool.id))["workshopIds"] == []
+    finally:
+        await db.tooldocumentation.delete(where={"id": tool.id})
+        await db.artisan.delete(where={"id": artisan.id})
+        await db.workshop.delete(where={"id": other.id})

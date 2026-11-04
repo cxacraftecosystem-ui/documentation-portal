@@ -326,9 +326,12 @@ decodes the entire file to uncompressed PCM via pydub and materialises **every**
 before transcribing any of them (`ai.py:126-152`). Decoded PCM is several times the compressed
 size; for a multi-hundred-megabyte input this cannot fit and never will.
 
-The same pattern sits in the *web* process: `/data/media/{id}/download?format=mp4` reads the object
-whole and re-encodes it, guarded only by `MAX_CONVERT_BYTES = 200 MiB` (`data_browser.py:141`).
-Three live files (131, 151, 156 MiB) are under that cap.
+The same pattern sat in the *web* process: `/data/media/{id}/download?format=mp4` read the object
+whole and re-encoded it, guarded only by a 200 MiB constant. Three live files (131, 151, 156 MiB)
+were under that cap. **Fixed in 0.0.12** (`data_explorer/downloads.py::converted_audio`): the object
+goes to a temporary file, ffmpeg writes fragmented mp4 straight to the response, AAC is copied
+rather than re-encoded, one conversion runs at a time, and an original is a signed `307` that moves
+no bytes through the box. See [DATA_EXPLORER.md](DATA_EXPLORER.md).
 
 **Fix, all of which keep the small case working:**
 
@@ -336,8 +339,8 @@ Three live files (131, 151, 156 MiB) are under that cap.
    file handle, which `requests` streams rather than buffers. Peak heap becomes the chunk size.
 2. Make `_split_audio_into_chunks` a generator, and let pydub read from the temp file path so
    ffmpeg streams from disk rather than from a `BytesIO` of the whole input.
-3. Replace `MAX_CONVERT_BYTES` with a limit derived from free memory, and lower the constant to
-   something a t3.micro can actually hold (32 MiB) until then.
+3. Give the download route a memory-derived ceiling. Superseded in 0.0.12: the streaming
+   conversion holds no recording in memory.
 
 **Cost to the pilot:** disk instead of RAM (the box has disk; it does not have RAM), and one extra
 temp-file lifecycle. No new service, no new dependency.

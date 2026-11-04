@@ -112,6 +112,9 @@ of the request would name a host the client cannot reach).
 `media` has no CSV form: the shared field registry describes *records*, and a media file is not one.
 Use `media.ndjson`, whose rows carry every column.
 
+**Removed recordings are left out everywhere.** Since 0.0.12 a media file whose `removedAt` is set is
+not a row of `media`, and is not in the media columns of any other dataset, in either portal.
+
 **One thing to know about the media columns.** For every dataset except `processes` they come from the
 record's own `media` relation, which this API loads.
 

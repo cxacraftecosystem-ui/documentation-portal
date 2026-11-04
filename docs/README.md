@@ -64,6 +64,7 @@ flowchart TD
 | [CRAFTS.md](CRAFTS.md) | The craft master list: the categories, sub-categories and crafts both portals share, the catalogue every picker reads, the craft routes, and how crafts recorded before the list are mapped onto it |
 | [RELEASE.md](RELEASE.md) | Every release from 0.0.1 to 0.0.11 and what it shipped (the same page as designer-portal's), and the data steps a release takes on production after its migrations, such as mapping crafts onto the master list |
 | [MEDIA_PIPELINE.md](MEDIA_PIPELINE.md) | Every tactic both clients use to get a photograph off a phone on a bad network without losing it |
+| [DATA_EXPLORER_WEB.md](DATA_EXPLORER_WEB.md) | The `/data` page on the web, shared by both portals: the tree-first layout, every download in one place, the worker that keeps zips going in a background tab, browser limits, resume into a folder, and the tables memory |
 | [TRANSCRIPT_PIPELINE.md](TRANSCRIPT_PIPELINE.md) | Scribe v2 turns, Gemini 3.8 Flash English, the transcript API, its switches, budget, keys and backfill |
 | [SECURITY.md](SECURITY.md) | Transport, secrets, PII and Aadhaar handling, the authorisation model's security properties, and the open risk register |
 | [questionnaire/API.md](questionnaire/API.md) | Questionnaire v2 on the shared engine: sessions, takes, coverage, canonical answers, the routes both clients call |
@@ -96,6 +97,8 @@ flowchart TD
 | [ANDROID_OFFLINE_AUDIT.md](ANDROID_OFFLINE_AUDIT.md) | **Dated.** What the Android app keeps when there is no signal, screen by screen (16 Oct 2026) |
 | [REPO_FACTS.md](REPO_FACTS.md) | **Generated.** Model and enum counts, the API surface, the role ladder, test counts, code volume |
 | [DATASET_API.md](DATASET_API.md) | The bearer-token bulk export: how to authenticate, what datasets exist, the filters, and what the identity-number scope costs |
+| [DATA_EXPLORER.md](DATA_EXPLORER.md) | The data page's server side for **people**: folders, sizes before a download, multi-select, streaming zips, previews, thumbnails, table search, transcript zips, and why none of it holds a whole archive in memory |
+| [ANDROID_BACKGROUND_DOWNLOADS.md](ANDROID_BACKGROUND_DOWNLOADS.md) | The Android *Data* screen and its background downloads: the layout, how a zip keeps going when the app is left, the permissions, and the exact Play Console declaration text |
 | [readme-kit/README_STYLE.md](readme-kit/README_STYLE.md) | How every README and diagram here is built: the SVG templates in light and dark, the mermaid palette, tables, motion and the CI check. Shared with designer-portal |
 | [DESIGN-claude.md](DESIGN-claude.md) | **Observed, not generated.** The visual design system this interface borrows from, extracted from anthropic.com |
 

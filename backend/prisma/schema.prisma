@@ -430,6 +430,7 @@ model User {
   artisanDuplicatesDecided  ArtisanDuplicateCandidate[] @relation("DupDecidedBy")
 
   @@index([role])
+  usageEvents UsageEvent[] @relation("UsageEventUser")
 }
 
 enum CredentialLinkPurpose {
@@ -3497,4 +3498,21 @@ model TranscriptDraftCitation {
   mediaFile MediaFile @relation("MediaTranscriptDraftCitations", fields: [mediaFileId], references: [id], onDelete: Cascade)
 
   @@id([recordingId, questionLineageId])
+}
+
+model UsageEvent {
+  id            String   @id @default(cuid())
+  userId        String?
+  routeTemplate String
+  method        String
+  statusCode    Int
+  durationMs    Int
+  clientApp     String
+  consentState  String?
+  createdAt     DateTime @default(now())
+
+  user User? @relation("UsageEventUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([routeTemplate, createdAt])
 }

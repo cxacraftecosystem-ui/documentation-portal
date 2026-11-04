@@ -22,6 +22,7 @@ timeline
     0.0.9 : Old transcripts translated : Data page report
     0.0.10 : Video and the upload choice : No-comments rule
     0.0.11 : Tools across workshops
+    0.0.12 : Data explorer : Background downloads
 ```
 
 | Release | Date | DR code | FR code | What shipped |
@@ -37,6 +38,7 @@ timeline
 | 0.0.9 | 2026-11-03 | 34 | 29 | Old transcripts queue their translation and a declined one takes a person's English (D38); the Data page report on a click (D39); the backup freshness check |
 | 0.0.10 | 2026-11-04 | 35 | 30 | Video transcribed as its sound; the Transcribe and translate choice per file; admin auto switches; the backfill switch, off, with its cost estimate (D40); Gemini-first AI defaults with GPT-6 Luna and Claude Sonnet 5.5 only when selected; refine on every client; Android AI suggestions and summary edit; no comments in source, enforced in Checks; the README kit |
 | 0.0.11 | 2026-11-04 | 36 | 31 | A tool linked to several artisans shows under every workshop those artisans belong to, in the data browser, reports and xlsx, folder zip, dataset bundle, tools filters, search and the datasets API; the tool sheet's Linked workshops column; web and Android tool rows name every linked artisan; no migration and no data step |
+| 0.0.12 | 2026-11-05 | 37 | 32 | The data explorer in both portals and on every client: tree first with search as its toolbar and every download in one place; sizes before a download; multi-select; thumbnails and previews; table search over every row and a CSV per sheet; browse by type with pages; transcripts fetched on demand and all formats in one zip per transcript or folder; removed recordings never ship; audio streamed to `.mp4` with the original as fallback; web zips stream to disk in a worker and keep going in a hidden tab; Android zips run as a background data-sync job with a notification and Cancel; usage logging in FR; DR dictation allowance polled at most every 10 minutes; unified search finds a tool under every workshop its linked artisans belong to; migration `20261205090000_usage_event` in FR and `20261205090000_search_tool_workshops` (two search triggers) in DR; data step: `python -m scripts.search_reindex --type tools` once on each box |
 
 ## Video, the upload choice and the backfill switch (DR 0.0.10, FR 0.0.10)
 

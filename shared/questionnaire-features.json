@@ -1,7 +1,7 @@
 {
   "contract": "questionnaire-features",
   "version": 1,
-  "source": "C:/dev/IIT/docs/questionnaire/UNIFY_2026-10-21.md section 1 (A, B, C) and owner amendment 2 of 22 Oct 2026 (D); recording chips and filters of 31 Oct 2026 (E1-E6); coverage grid and transcript preview of 1 Nov 2026 (E7-E9)",
+  "source": "C:/dev/IIT/docs/questionnaire/UNIFY_2026-10-21.md section 1 (A, B, C) and owner amendment 2 of 22 Oct 2026 (D); recording chips and filters of 31 Oct 2026 (E1-E6); coverage grid and transcript preview of 1 Nov 2026 (E7-E9); data explorer of 4 Nov 2026 (X1-X12, shared/data-explorer-contract.json)",
   "enforcedBy": "backend/tests/test_questionnaire_feature_parity.py, identical in both portals",
   "rules": [
     "clients: 'required', or {'na': 'ministry-admin-authoring'} for dr-android only.",
@@ -3667,6 +3667,506 @@
         "fr-android": "r010"
       },
       "today": {}
+    },
+    {
+      "id": "X1",
+      "name": "Explorer layout: tree first, search as the tree toolbar, all downloads in one place",
+      "source": "data-explorer",
+      "api": {
+        "designer-portal": [
+          "GET /data/tree"
+        ],
+        "documentation-portal": [
+          "GET /data/tree"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r012-web",
+        "dr-android": "r012-android",
+        "fr-web": "r012-web",
+        "fr-android": "r012-android"
+      },
+      "today": {
+        "dr-web": "exists",
+        "dr-android": "exists",
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "X2",
+      "name": "Download size before download: file count and bytes in total and per type (W3, D3)",
+      "source": "data-explorer",
+      "api": {
+        "designer-portal": [
+          "GET /data/stats",
+          "POST /data/stats"
+        ],
+        "documentation-portal": [
+          "GET /data/stats",
+          "POST /data/stats"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r012-web",
+        "dr-android": "r012-android",
+        "fr-web": "r012-web",
+        "fr-android": "r012-android"
+      },
+      "today": {
+        "dr-web": "exists",
+        "dr-android": "exists",
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "X3",
+      "name": "Multi-select folders and files, downloaded together (W11)",
+      "source": "data-explorer",
+      "api": {
+        "designer-portal": [
+          "POST /data/manifest"
+        ],
+        "documentation-portal": [
+          "POST /data/manifest"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r012-web",
+        "dr-android": "r012-android",
+        "fr-web": "r012-web",
+        "fr-android": "r012-android"
+      },
+      "today": {
+        "dr-web": "exists",
+        "dr-android": "exists",
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "X4",
+      "name": "Thumbnails instead of originals in folder listings (W14)",
+      "source": "data-explorer",
+      "api": {
+        "designer-portal": [
+          "GET /data/media/{media_id}/thumbnail"
+        ],
+        "documentation-portal": [
+          "GET /data/media/{media_id}/thumbnail"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r012-web",
+        "dr-android": "r012-android",
+        "fr-web": "r012-web",
+        "fr-android": "r012-android"
+      },
+      "today": {
+        "dr-web": "exists",
+        "dr-android": "exists",
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "X5",
+      "name": "Video, audio, image and PDF preview in a dialog (W12)",
+      "source": "data-explorer",
+      "api": {
+        "designer-portal": [
+          "GET /data/media/{media_id}/preview"
+        ],
+        "documentation-portal": [
+          "GET /data/media/{media_id}/preview"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r012-web",
+        "dr-android": "r012-android",
+        "fr-web": "r012-web",
+        "fr-android": "r012-android"
+      },
+      "today": {
+        "dr-web": "exists",
+        "dr-android": "exists",
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "X6",
+      "name": "Table search across every row on the server, and CSV per sheet (W13)",
+      "source": "data-explorer",
+      "api": {
+        "designer-portal": [
+          "GET /data/report"
+        ],
+        "documentation-portal": [
+          "GET /data/report"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r012-web",
+        "dr-android": "r012-android",
+        "fr-web": "r012-web",
+        "fr-android": "r012-android"
+      },
+      "today": {
+        "dr-web": "exists",
+        "dr-android": "exists",
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "X7",
+      "name": "Transcript: all formats in one zip, per transcript and per folder",
+      "source": "data-explorer",
+      "api": {
+        "designer-portal": [
+          "GET /transcripts/{media_id}/download",
+          "GET /data/transcript-bundle"
+        ],
+        "documentation-portal": [
+          "GET /transcripts/{media_id}/download",
+          "GET /data/transcript-bundle"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r012-web",
+        "dr-android": "r012-android",
+        "fr-web": "r012-web",
+        "fr-android": "r012-android"
+      },
+      "today": {
+        "dr-web": "exists",
+        "dr-android": "exists",
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "X8",
+      "name": "Browse by type: pages and a cut notice (W5)",
+      "source": "data-explorer",
+      "api": {
+        "designer-portal": [
+          "GET /data/browse",
+          "GET /data/browse/{type}/{record_id}/media"
+        ],
+        "documentation-portal": [
+          "GET /data/browse",
+          "GET /data/browse/{type}/{record_id}/media"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r012-web",
+        "dr-android": "r012-android",
+        "fr-web": "r012-web",
+        "fr-android": "r012-android"
+      },
+      "today": {
+        "dr-web": "exists",
+        "dr-android": "exists",
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "X9",
+      "name": "Transcript language filter is filled (W8)",
+      "source": "data-explorer",
+      "api": {
+        "designer-portal": [
+          "GET /data/transcripts/languages"
+        ],
+        "documentation-portal": [
+          "GET /data/transcripts/languages"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r012-web",
+        "dr-android": "r012-android",
+        "fr-web": "r012-web",
+        "fr-android": "r012-android"
+      },
+      "today": {
+        "dr-web": "exists",
+        "dr-android": "exists",
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "X10",
+      "name": "Streaming download with progress in bytes, Cancel, failed-file list and resume (W1, W2, W4, D1, D10)",
+      "source": "data-explorer",
+      "api": {
+        "designer-portal": [
+          "GET /data/manifest",
+          "GET /data/media/{media_id}/download"
+        ],
+        "documentation-portal": [
+          "GET /data/manifest",
+          "GET /data/media/{media_id}/download"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r012-web",
+        "dr-android": "r012-android",
+        "fr-web": "r012-web",
+        "fr-android": "r012-android"
+      },
+      "today": {
+        "dr-web": "exists",
+        "dr-android": "exists",
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "X11",
+      "name": "Audio to mp4 with a visible fallback to the original under its real name (A10, D2)",
+      "source": "data-explorer",
+      "api": {
+        "designer-portal": [
+          "GET /data/media/{media_id}/download"
+        ],
+        "documentation-portal": [
+          "GET /data/media/{media_id}/download"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r012-web",
+        "dr-android": "r012-android",
+        "fr-web": "r012-web",
+        "fr-android": "r012-android"
+      },
+      "today": {
+        "dr-web": "exists",
+        "dr-android": "exists",
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "X12",
+      "name": "Open a single transcript on demand instead of from the folder listing (A3)",
+      "source": "data-explorer",
+      "api": {
+        "designer-portal": [
+          "GET /data/media/{media_id}/transcript"
+        ],
+        "documentation-portal": [
+          "GET /data/media/{media_id}/transcript"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r012-web",
+        "dr-android": "r012-android",
+        "fr-web": "r012-web",
+        "fr-android": "r012-android"
+      },
+      "today": {
+        "dr-web": "exists",
+        "dr-android": "exists",
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
     }
   ]
 }

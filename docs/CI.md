@@ -215,7 +215,7 @@ not named in `GATING_JOBS`, so a deploy does not wait on them:
 | **Questionnaire unify backfill** | the questionnaire backfill before and after the U0 migration, then the deferred migrations, on an empty Postgres |
 | **Questionnaire parity (both portals)** | the shared manifests, the schema fragment and `shared/questionnaire-features.json`, checked against a checkout of designer-portal |
 | **Deploy scripts** | shellcheck, `backend/deploy/test_blue_green.sh` (the release logic against stubs) and `scripts/ci/test_backup_freshness.sh` (the backup verdict against fixed clocks) |
-| **Comment stripper** | `scripts/tools/strip_comments.py`: its self-test, a stripped copy that still parses (Python, TypeScript, shell), then `--check`, which fails when any comment is left in code (0.0.10) |
+| **Comment stripper** | `scripts/tools/strip_comments.py`: its self-test, a stripped copy that still parses (Python, TypeScript, shell), then `--check`, which fails when any comment is left in code (0.0.10). Since 0.0.12 a quoted heredoc that feeds a shell, such as `ssh host 'bash -s' <<'REMOTE'` or a `cat <<'REMOTE'` group piped into one, is read as shell code, so its comments are stripped and checked too, while shebangs, `shellcheck` directives, unquoted heredocs and data heredocs stay; `scripts/tools/verify_strip_workflows.py` then runs `bash -n` over every POSIX `run:` script and every such heredoc body, committed and stripped |
 
 Measured on the tree the workflow landed with (2026-09-14, on a laptop — a runner will differ):
 pytest 1019 passed in 54 s, `tsc` clean, `eslint` clean, 104 unit specs in 8 s, check-docs in about a
@@ -266,7 +266,7 @@ defend.** It began at four, and both pairs were fixed and their lines deleted on
 |---|---|
 | `test_public_census.py::test_the_census_is_mounted_at_the_public_path_the_cdn_rule_would_be_scoped_to` | Read `api_router.routes` expecting flattened route objects. Since FastAPI 0.137 that list holds one `_IncludedRouter` per `include_router`, with no `.path`. The tests now ask FastAPI's public `iter_route_contexts`, added in 0.137.2 for exactly this. |
 | `test_public_census.py::test_the_census_asks_for_no_token` | Same cause, same fix; the effective route it finds carries router-level dependencies, which is what the test inspects. |
-| `test_manifest_stream.py::test_the_declared_size_refuses_before_a_byte_moves` | On Python 3.13+ `import pydub` failed (PEP 594 removed `audioop`), so `backend/app/api/routes/data_browser.py:2735` answered 503 before the 413 check. `audioop-lts` is now a dependency (marker `python_version >= '3.13'`), and the job runs 3.15.2 like production. |
+| `test_manifest_stream.py::test_the_declared_size_refuses_before_a_byte_moves` | On Python 3.13+ `import pydub` failed (PEP 594 removed `audioop`), so the old in-process converter in `data_browser.py` answered 503 before the 413 check (it was replaced in 0.0.12 by the streaming converter, and these two tests with it). `audioop-lts` is now a dependency (marker `python_version >= '3.13'`), and the job runs 3.15.2 like production. |
 | `test_manifest_stream.py::test_the_real_length_refuses_what_the_column_lied_about` | Same cause, same fix. |
 
 The census pair is worth reading twice, because it was not a code change: **it was a dependency

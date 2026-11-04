@@ -63,6 +63,9 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
+          config: |
+            paths-ignore:
+              - .claude/skills/security-audit
 
       - name: Compile Kotlin (debug) under CodeQL
         if: matrix.language == 'java-kotlin'

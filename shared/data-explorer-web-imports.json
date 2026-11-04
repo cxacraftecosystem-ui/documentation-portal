@@ -1,0 +1,19 @@
+{
+  "contract": "data-explorer-web-imports",
+  "version": 1,
+  "source": "feature/r012-web: the shared web data explorer of both portals (0.0.12)",
+  "rule": "frontend/lib/dataExplorer/** and frontend/components/dataExplorer/** are byte-identical in both portals (shared/data-explorer-web.sha256, scripts/sync_data_explorer.py). A file there may import only another file of the two trees, the packages listed in 'packages', and the app modules in 'modules', which both portals carry with the same exports. frontend/e2e/data-explorer-web-imports-unit.spec.ts fails on anything else.",
+  "trees": ["@/lib/dataExplorer/", "@/components/dataExplorer/"],
+  "packages": ["react", "next/link", "next/navigation", "lucide-react"],
+  "modules": [
+    "@/lib/api",
+    "@/lib/naming",
+    "@/components/EmptyState",
+    "@/components/dialogs/FieldDialog",
+    "@/components/transcript/TranscriptMarkdown",
+    "@/components/ui/AudioPlayer",
+    "@/components/ui/ButtonRow",
+    "@/components/ui/ProgressBar",
+    "@/components/ui/SearchableSelect"
+  ]
+}

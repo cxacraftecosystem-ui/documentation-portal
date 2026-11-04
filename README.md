@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/Web-Next.js_16-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="Web: Next.js 16">
   <img src="https://img.shields.io/badge/API-FastAPI_·_Python_3.15-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="API: FastAPI on Python 3.15">
   <img src="https://img.shields.io/badge/Android-Kotlin_·_Compose-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="Android: Kotlin and Compose">
-  <img src="https://img.shields.io/badge/Release-0.0.11-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="Release 0.0.11">
+  <img src="https://img.shields.io/badge/Release-0.0.12-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="Release 0.0.12">
   <img src="https://github.com/cxacraftecosystem-ui/documentation-portal/actions/workflows/checks.yml/badge.svg?branch=main" alt="Checks">
 </p>
 
@@ -272,10 +272,23 @@ erDiagram
 | Data browser and report workbooks | ✓ | ✓ | `GET /api/data/*` |
 | Coverage map with zoom | ✓ | ✓ | per-district counts |
 
-- **Data browser** (`/data`): the repository as folders (workshops, users, media types), browsed
-  online or zipped in the browser by content type. Transcripts are included in View data and
-  Download data. The report workbook is built on click, one at a time, with a 200-row JSON preview,
-  and the box hands the memory back afterwards (launch list D39).
+- **Data browser** (`/data`): the folder tree with search as its toolbar and every download in one
+  panel, with sizes shown first, several folders or files picked together, previews, thumbnails and
+  every transcript format in one zip. Zips stream to disk in a background worker and keep going in a
+  hidden tab; Save to a folder resumes. Removed recordings never ship, and the dataset download
+  includes every review status. Table search runs over every row on the server and any sheet
+  downloads as `.csv`; tables are remembered per folder. The report workbook is built one at a time,
+  and the box hands the memory back afterwards (launch list D39). See
+  [DATA_EXPLORER.md](docs/DATA_EXPLORER.md) and [DATA_EXPLORER_WEB.md](docs/DATA_EXPLORER_WEB.md).
+- **Android data browser**: the *Data* screen puts the tree first with search as its toolbar and one
+  *Download* button. Zips run in the background with a notification and Cancel, and keep going when the
+  app is left ([Play declaration](docs/ANDROID_BACKGROUND_DOWNLOADS.md)).
+- **Tools across workshops** (0.0.11): a tool linked to several artisans shows under every workshop
+  those artisans belong to, on every read surface: the data browser, reports and `.xlsx`, the folder
+  zip, the dataset bundle, the tools filters, both searches and the datasets API. The tool sheet's
+  **Linked workshops** column names the tool's own workshop and every workshop of its artisans, and
+  **Artisan** names every linked artisan, both pruned to what the reader may see
+  ([DATA_MODEL.md](docs/DATA_MODEL.md#where-a-linked-tool-shows-up-added-2026-11-04)).
 - **Dataset API** (`/api/datasets`): for machines, behind admin credentials. Streams NDJSON or CSV
   with no row cap, keyset-paged, and sends `X-Dataset-Total` so a client can prove a download is
   complete. Artisan identity numbers are masked by default.
@@ -434,6 +447,7 @@ machine. The full reference is [ENVIRONMENT.md](docs/ENVIRONMENT.md) and [DOCKER
 | 0.0.9 | 29 | Old transcripts translated, declined English pasted by hand (D38); Data page reports (D39) |
 | 0.0.10 | 30 | Video transcription, the upload choice, admin switches, Refine on web and Android, summary edits on Android, Gemini-first defaults, no comments in code |
 | 0.0.11 | 31 | A tool linked to several artisans shows under every workshop those artisans belong to, on every read surface; web and Android tool rows name every linked artisan |
+| 0.0.12 | 32 | The data explorer: tree first with search as its toolbar and every download in one place, sizes before a download, multi-select, thumbnails and previews, table search and a CSV per sheet, all transcript formats in one zip, removed recordings never ship, audio as `.mp4` with the original as fallback, downloads that stream and resume, usage logging |
 
 Every code file in this repository is comment-free: `scripts/tools/strip_comments.py --check` runs in
 Checks, and the reasons that used to live in comments live in [docs/](docs/README.md).

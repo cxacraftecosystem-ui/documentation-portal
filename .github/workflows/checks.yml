@@ -357,6 +357,62 @@ jobs:
           path: frontend/test-results
           if-no-files-found: ignore
 
+  data-explorer:
+    name: Data explorer in a browser
+    runs-on: ubuntu-26.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install npm 12
+        run: npm install --global npm@12 && npm --version
+
+      - name: Install
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
+
+      - name: Run the spec against the built site
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          E2E_SHOT_DIR: test-results/data-explorer
+        run: |
+          set -euo pipefail
+          mkdir -p "$E2E_SHOT_DIR"
+          npx next start --port 3000 > next.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://localhost:3000/login; then break; fi
+            sleep 2
+          done
+          curl -fsS -o /dev/null http://localhost:3000/login || { cat next.log; exit 1; }
+          npx playwright test e2e/data-explorer.spec.ts
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: data-explorer
+          path: frontend/test-results
+          if-no-files-found: ignore
+
   list-back-nav:
     name: Back to the list in a browser
     runs-on: ubuntu-26.04
@@ -912,6 +968,7 @@ jobs:
           python scripts/tools/strip_comments.py --out "$RUNNER_TEMP/stripped"
           node scripts/tools/verify_strip_ts.mjs "$RUNNER_TEMP/stripped"
           find "$RUNNER_TEMP/stripped" -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+          python scripts/tools/verify_strip_workflows.py .github/workflows "$RUNNER_TEMP/stripped/.github/workflows"
 
       - name: No comments remain
         run: python scripts/tools/strip_comments.py --check

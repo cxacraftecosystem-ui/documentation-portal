@@ -547,6 +547,13 @@ it. The admin-view toggle can hide it from an admin browsing as an ordinary user
 
 ---
 
+### Data page routes (0.0.12)
+
+Every `/api/data/*` route, including the stats, multi-select manifest, preview, thumbnail, transcript,
+transcript zip, languages and Browse by type routes added in 0.0.12, needs dataset-download access
+(`require_dataset_downloader`) and reads only the media the caller's access scope reaches.
+Removed recordings answer 404. See [DATA_EXPLORER.md](DATA_EXPLORER.md).
+
 ## 5. Route guards on the web client
 
 The client's half of gating is declared **once**, in `ROUTE_GUARDS` in `frontend/lib/permissions.ts`,

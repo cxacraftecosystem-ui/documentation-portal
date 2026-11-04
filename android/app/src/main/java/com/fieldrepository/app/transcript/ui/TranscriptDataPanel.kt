@@ -63,6 +63,7 @@ fun TranscriptDataPanel(
     extraFilters: Map<String, String> = emptyMap(),
     backend: TranscriptBackend? = null,
     onMessage: (String) -> Unit = {},
+    offeredLanguages: List<Pair<String, String>> = emptyList(),
 ) {
     val context = LocalContext.current
     val server = remember(backend) { backend ?: TranscriptPortal.backend(context) }
@@ -118,13 +119,15 @@ fun TranscriptDataPanel(
             label = { Text(TranscriptUiText.dataSpeaker) },
             modifier = Modifier.fillMaxWidth().testTag("transcript.data.speaker")
         )
-        val languages = (rows.flatMap { it.languages } ).distinctBy { it.code }
+        val seen = offeredLanguages.map { it.first }.toSet()
+        val languages = rows.flatMap { it.languages }.distinctBy { it.code }.filter { it.code !in seen }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             FilterChip(
                 selected = englishOnly, onClick = { englishOnly = !englishOnly },
                 label = { Text(TranscriptUiText.dataHasEnglish) }, modifier = Modifier.testTag("transcript.data.english")
             )
-            (languages.map { it.code to it.label.ifBlank { it.code } } + listOfNotNull((language to language).takeIf { language.isNotBlank() && languages.none { l -> l.code == language } }))
+            val offered = offeredLanguages + languages.map { it.code to it.label.ifBlank { it.code } }
+            (offered + listOfNotNull((language to language).takeIf { language.isNotBlank() && offered.none { l -> l.first == language } }))
                 .forEach { (code, label) ->
                     FilterChip(
                         selected = language == code, onClick = { language = if (language == code) "" else code },
