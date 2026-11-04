@@ -6,6 +6,9 @@
 > blue/green (since 19 Oct), with the API at 211 MB and the worker at 130 MB PSS
 > (measured 4 Nov 2026). Every bound written for 1 GiB still holds on 2 GiB and now leaves room for the idle
 > port a release starts; read "1 GiB" below as the design ceiling, not the box.
+>
+> **Docstrings and comments cited below are history.** The source has carried none since the 0.0.10
+> comment strip; a docstring or comment named here is read at tag `v0.0.9` (`git show v0.0.9:<file>`).
 
 What this system runs into as it grows, ranked by *when* each thing starts to hurt rather than by
 how interesting it is. Every entry carries the evidence it rests on, the scale at which it begins

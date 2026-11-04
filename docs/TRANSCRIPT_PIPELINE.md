@@ -49,8 +49,8 @@ failed still leaves the transcript `READY`; that turn reads "Couldn't translate"
 
 | Release | What the pipeline gained |
 |---|---|
-| 0.0.4 (31 Oct) | Turns, the viewer's first cut, recording chips and filters, the AI switches pinned on |
-| 0.0.5 (1 Nov) | Scribe v2 + Gemini 3.8 Flash live, Ask, autodraft, glossary, quote cards, the monthly budget, the 402 billing hold, the parallel translation lane, Voice Isolator (built, off) |
+| 0.0.4 (31 Oct) | Scribe v2 turns and Gemini 3.8 Flash English, the viewer's first cut, Ask, autodraft, glossary, quote cards, the monthly budget, recording chips and filters, the AI switches pinned on |
+| 0.0.5 (1 Nov) | The parallel translation lane, the 402 billing hold, admin-only cost and model names, speaker samples, copies without timestamps, Voice Isolator (built, off) |
 | 0.0.6 (1 Nov) | Karaoke, reading mode, marks and per-speaker colours, auto-follow, previews on list rows, transcripts in View and Download data, the work-directory leak fixed (D37) |
 | 0.0.9 (3 Nov) | Old transcripts translated on first open plus a one-off sweep; declined English typed or pasted by an editor (D38) |
 | 0.0.10 (4 Nov) | Video, the per-file choice, the admin auto switches and the backfill switch (off, D40), Refine on the web, summary edit on Android, Gemini-first text defaults, `[unclear]` translations accepted |

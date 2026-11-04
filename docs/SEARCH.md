@@ -117,6 +117,14 @@ removed), `types` (repeatable or comma-separated), `scope=all|local`, `limit` pe
 `type` + `page` for one group's pages, and the filters `craftId`, `place`, `dateFrom`, `dateTo`,
 `workshopIds`.
 
+**Tools and `workshopIds` (0.0.11).** The two routes read a tool's workshop differently. The legacy
+`GET /api/search` narrows through the shared clause builders in `app/services/record_filters.py`, so a
+tool matches a workshop through its own `workshopId` or through any linked artisan who belongs to it
+(`tool_workshop_clause`; [DATA_MODEL.md](DATA_MODEL.md#where-a-linked-tool-shows-up-added-2026-11-04)).
+The unified index stores the tool's own `workshopId` as its workshop, beside every linked `artisanId`
+(`search_index._tool`), so `/search/unified` with `workshopIds` does not yet find a tool that reaches
+the workshop only through a linked artisan.
+
 ```json
 {"query": "indigo", "mode": "text",
  "groups": [{"type": "artisans", "label": "Artisans", "total": 14, "localTotal": 9, "remoteTotal": 5,

@@ -451,7 +451,8 @@ disagree. **Why not 3.15:** 3.15.0 reached python.org on 2026-10-09 and python-b
 shipped it that evening (`20261009`), but setup-python's manifest (what CI installs from) stopped at
 3.15.0rc3, the official Docker image had only `3.15-rc` tags, the lock's `httptools` 0.8.0 and
 `PyYAML` 6.0.3 had no cp315 wheels, and `prisma-client-py` 0.15.0 classifies itself only up to 3.12
-— the build step's comment keeps that list next to the pin.
+— the build step's comment kept that list next to the pin until the 0.0.10 comment strip; the box
+has run 3.15.2 since 0.0.7.
 
 **How it is installed** — by the deploy's build step whenever the box lacks it, and by
 `user_data.sh` on a new box, the same way: downloaded, then hashed as root inside a root-only staging

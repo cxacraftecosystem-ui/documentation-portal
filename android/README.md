@@ -17,7 +17,11 @@ Kotlin + Jetpack Compose Android client for the same FastAPI backend used by the
 - "Document using grid": length + breadth from one top-down photo, height from a side-on photo (`POST /api/media/analyze-measurement`), auto-filling the fields
 - Split long audio/video into `PART_1`, `PART_2`, … (re-mux at sync frames) before streaming upload, so each part stays under the transcription/upload limits and large videos never exhaust the heap
 - Preview previously-uploaded media with uploader/date provenance and a **Save to device** download
-- Create questionnaire interviews with `POST /api/questionnaire/interviews`
+- Create questionnaire interviews with `POST /api/questionnaire/interviews`; their recordings carry chips (section, form, artisans, dates, workshop, language, duration), and tapping one filters the list, offline too (0.0.4)
+- Tick **Transcribe and translate** per audio or video file at upload, or once for the batch; the choice travels through the offline outbox, and a master admin's auto switches pre-tick and lock it. Settings carries the auto switches and the backfill switch beside Voice Isolator (0.0.10)
+- Read a recording's transcript: Original, English or Side by side, the playing word lit (a video's transcript plays in a video player), reading mode, timeline marks, auto-follow; an opened transcript stays readable offline (0.0.4 to 0.0.10)
+- Edit or regenerate a transcript's summary, and Refine transcript or Refine & translate under a stored transcript (0.0.10)
+- Tool rows name every artisan linked to the tool, by the rule in `shared/tool-scope-vectors.json` (0.0.11)
 - Send `Authorization: Bearer <token>` on every protected API call
 - Requests camera, audio and location permissions for field capture workflows
 

@@ -159,10 +159,10 @@ a package manager's build toolchain, or the source of the stage that produced it
 ### Backend
 
 Three stages: `builder` (pip, a C toolchain), `prisma` (adds Node.js), `runtime` (neither). The
-Python stages are `python:3.14-slim-trixie` — the interpreter CI and the EC2 box run, on Debian 13 —
+Python stages are `python:3.15-slim-trixie` — the minor CI and the EC2 box run (3.15.2), on Debian 13 —
 and the `prisma` stage takes `node` and `npm` from `node:26-trixie-slim`, the major the EC2 box's
 Prisma nodeenv is pinned to. Both base tags are written out rather than passed as build `ARG`s so
-that Dependabot can see them (the Dockerfile says why).
+that Dependabot can see them (the Dockerfile said why until the 0.0.10 comment strip).
 
 The `prisma` stage is what makes the image work at all, and it is the part worth understanding
 before changing anything. `prisma-client-py` ships **no generated code** — the `prisma` package on

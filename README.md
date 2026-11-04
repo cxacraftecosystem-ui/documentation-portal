@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/Web-Next.js_16-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="Web: Next.js 16">
   <img src="https://img.shields.io/badge/API-FastAPI_·_Python_3.15-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="API: FastAPI on Python 3.15">
   <img src="https://img.shields.io/badge/Android-Kotlin_·_Compose-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="Android: Kotlin and Compose">
-  <img src="https://img.shields.io/badge/Release-0.0.10-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="Release 0.0.10">
+  <img src="https://img.shields.io/badge/Release-0.0.11-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="Release 0.0.11">
   <img src="https://github.com/cxacraftecosystem-ui/documentation-portal/actions/workflows/checks.yml/badge.svg?branch=main" alt="Checks">
 </p>
 
@@ -418,7 +418,7 @@ machine. The full reference is [ENVIRONMENT.md](docs/ENVIRONMENT.md) and [DOCKER
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/readme-kit/assets/timeline-dark.svg">
-  <img src="docs/readme-kit/assets/timeline-light.svg" width="100%" alt="Releases since the version reset: 0.0.1 to 0.0.10">
+  <img src="docs/readme-kit/assets/timeline-light.svg" width="100%" alt="Releases since the version reset: 0.0.1 to 0.0.11">
 </picture>
 
 | Release | Android code | What it brought |
@@ -426,13 +426,14 @@ machine. The full reference is [ENVIRONMENT.md](docs/ENVIRONMENT.md) and [DOCKER
 | 0.0.1 | 22 | Version line reset, carrying what shipped as 0.0.20: the 455-craft master list, consent opt-out, coverage on Android |
 | 0.0.2 | 23 | Query optimisation; questionnaire phases 1 and 2; author-or-admin form edits |
 | 0.0.3 | 24 | One shared questionnaire engine; Questionnaire v2 switched on |
-| 0.0.4 | 25 | Recording chips and filters; the transcript viewer's first cut |
-| 0.0.5 | 26 | Scribe v2 + Gemini 3.8 Flash pipeline, Ask, autodraft, glossary, quote cards, budget |
+| 0.0.4 | 25 | The transcript pipeline: Scribe v2 turns, Gemini 3.8 Flash English, the viewer, Ask, autodraft, glossary, quote cards, the budget; recording chips and filters |
+| 0.0.5 | 26 | Translation beside transcription, the Gemini billing hold, speaker samples, copies without timestamps, the Voice Isolator switch (off) |
 | 0.0.6 | 27 | Karaoke, reading mode, marks, auto-follow; transcripts in View and Download data |
 | 0.0.7 | 28 | Latest stable everything: Python 3.15.2, Node 26, Next 16.4, AGP 9.5 |
 | 0.0.8 | · | Backend only: Terraform provider 6.71, Dependabot scanning restored |
 | 0.0.9 | 29 | Old transcripts translated, declined English pasted by hand (D38); Data page reports (D39) |
 | 0.0.10 | 30 | Video transcription, the upload choice, admin switches, Refine on web and Android, summary edits on Android, Gemini-first defaults, no comments in code |
+| 0.0.11 | 31 | A tool linked to several artisans shows under every workshop those artisans belong to, on every read surface; web and Android tool rows name every linked artisan |
 
 Every code file in this repository is comment-free: `scripts/tools/strip_comments.py --check` runs in
 Checks, and the reasons that used to live in comments live in [docs/](docs/README.md).
@@ -450,7 +451,7 @@ this file is the one to fix.
 | Claim class | Kept true by |
 |---|---|
 | Every link and repository path | `node docs/tools/check-docs.mjs` resolves them |
-| The images, the diagrams and the rendered page | `readme-check.yml`: the kit rebuilds byte for byte, every mermaid block renders, GitHub's render keeps every `<picture>` |
+| The images, the diagrams and the rendered page | `readme-check.yml`: the kit rebuilds byte for byte, every mermaid block renders in mermaid-cli and on github.com (opened with Playwright; an error, a raw tag or entity, or a clipped label fails), GitHub's render keeps every `<picture>` |
 | The words inside the SVGs | `docs/readme-kit/kit.json`; never hand-edit `docs/readme-kit/assets/` |
 | Counts that change with the code | not stated here; [REPO_FACTS.md](docs/REPO_FACTS.md) is generated |
 | The transcript features and models | [TRANSCRIPT_PIPELINE.md](docs/TRANSCRIPT_PIPELINE.md) and `shared/transcript-contract.json`, checked by `backend/tests/test_transcript_contract.py` |

@@ -1996,6 +1996,11 @@ Each of these looks wrong and is deliberate. Most were a shipped bug.
 - Filter a `WorkshopAssignment` list to `status === "GRANTED"`.
 - `/artisans` has no `workshopId` filter — narrow client-side.
 - `AddressReference.districts` is optional in the type deliberately (separate deploys).
+- A tool row names its artisans through `toolRowLabel` / `toolArtisanNames` (`lib/toolArtisans.ts`),
+  never `tool.artisanName` alone: since 0.0.11 a tool linked to several artisans belongs to every
+  workshop they belong to. The Android twin (`data/ToolArtisans.kt`) is held to the same
+  `shared/tool-scope-vectors.json`. Narrowing tools by workshop is the server's job
+  (`GET /tools?workshopId=`), never a client-side `workshopId` test.
 
 **Effects guarded by a ref (the deadlock shape)**
 - **An effect that claims a ref guard on START and gates its completion on a `cancelled` flag MUST

@@ -8,6 +8,9 @@ already in the repository.
 Audience: whoever operates the deployment (AWS + Supabase + Vercel consoles) and whoever reviews
 changes to `backend/app/core/*` and the Android network configuration.
 
+Docstrings quoted on this page are of the source at tag `v0.0.9`: since the 0.0.10 comment strip the
+code carries none (`git show v0.0.9:<file>` reads them).
+
 ---
 
 ## 1. Transport
