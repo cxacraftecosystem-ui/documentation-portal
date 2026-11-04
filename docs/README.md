@@ -62,7 +62,7 @@ flowchart TD
 | [PERMISSIONS.md](PERMISSIONS.md) | The six-tier ladder, the full capability matrix, the review state machine, the late-submission gate, and the three access systems layered on top |
 | [COVERAGE_MAP.md](COVERAGE_MAP.md) | The coverage view of `/map`: what each district is shaded by, the gaps, the Survey of India outline and the shape checks that hold it, LGD codes resolved at read time, unmatched places and their aliases, and the aggregate feed the designer portal reads |
 | [CRAFTS.md](CRAFTS.md) | The craft master list: the categories, sub-categories and crafts both portals share, the catalogue every picker reads, the craft routes, and how crafts recorded before the list are mapped onto it |
-| [RELEASE.md](RELEASE.md) | The data steps a release takes on production after its migrations, such as mapping crafts onto the master list |
+| [RELEASE.md](RELEASE.md) | Every release from 0.0.1 to 0.0.11 and what it shipped (the same page as designer-portal's), and the data steps a release takes on production after its migrations, such as mapping crafts onto the master list |
 | [MEDIA_PIPELINE.md](MEDIA_PIPELINE.md) | Every tactic both clients use to get a photograph off a phone on a bad network without losing it |
 | [TRANSCRIPT_PIPELINE.md](TRANSCRIPT_PIPELINE.md) | Scribe v2 turns, Gemini 3.8 Flash English, the transcript API, its switches, budget, keys and backfill |
 | [SECURITY.md](SECURITY.md) | Transport, secrets, PII and Aadhaar handling, the authorisation model's security properties, and the open risk register |
@@ -147,13 +147,16 @@ document's own maintenance table is for.
 
 **Mermaid, for certainty.** The lint above is structural. The real render runs in CI since 0.0.10:
 `.github/workflows/readme-check.yml` extracts every mermaid block in `README.md`, `docs/**` and
-`.claude/skills/**`, renders each one with mermaid-cli, and fails on any that does not render. Every
-block starts with the kit's `%%{init}%%` palette so diagrams read on GitHub's light and dark themes
-alike ([readme-kit/README_STYLE.md §6](readme-kit/README_STYLE.md)). Two traps the out-of-tree parse
+`.claude/skills/**`, renders each one with mermaid-cli on the mermaid release github.com ships, and
+fails on any that does not render. It then opens every file with a mermaid block on github.com with
+Playwright at the pushed commit, and fails when GitHub's viewer shows an error or draws no diagram,
+when a label prints an HTML tag or entity raw, or when a label's text is wider than its box. Every
+block starts with the kit's `%%{init}%%` palette, with the font stack as the top-level `fontFamily`, so
+diagrams read on GitHub's light and dark themes alike and every box is sized for the font it draws
+([readme-kit/README_STYLE.md §6](readme-kit/README_STYLE.md)). Two traps the out-of-tree parse
 used to catch, and the render still does: a semicolon inside a sequence message, and HTML entities
 (`&lt;`) inside one. **Normalise CRLF before matching**: some of these files are CRLF, and a
-`
-`-anchored regex silently finds zero blocks in them.
+`\n`-anchored regex silently finds zero blocks in them.
 
 Findings in documents owned by another workstream are reported as **warnings**, not failures, so the
 exit code speaks for the documents whose owner can act on it.

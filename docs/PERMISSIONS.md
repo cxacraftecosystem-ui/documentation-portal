@@ -8,6 +8,11 @@ systems that layer on top of it, and the exact state machine every record moves 
 UI, and neither is a control. Every rule below is enforced server-side, and the client copies exist
 only so a user is not offered a button that will 403.
 
+> **Docstrings quoted here are history.** Since the 0.0.10 comment strip the source carries no
+> comments or docstrings. Where this page says a function's docstring states or argues something, it
+> quotes the source at tag `v0.0.9` (`git show v0.0.9:<file>`); the rule itself is still enforced by
+> the code and the tests each section names.
+
 Sister documents: [SECURITY.md](SECURITY.md) for how the identity behind these checks is
 established, [DATA_MODEL.md](DATA_MODEL.md) for the tables, [WALKTHROUGH.md](WALKTHROUGH.md) for what
 this feels like to a researcher.
@@ -152,6 +157,8 @@ identically (`shared/signin-role-contract.json`, `tests/test_signin_role_contrac
 | Rank the **transcription providers** | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | Read / set **API key values** | `require_master_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ✅ |
 | Repository **app settings** | `require_master_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ✅ |
+| Read the **transcription settings** and the backfill estimate (`GET /settings/transcription`, `/settings/transcription/backfill`) | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
+| Change the **transcription switches**: pause, all new audio, all new video, the backfill, Voice Isolator (`PUT /settings/transcription`, 0.0.10) | `require_master_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ✅ |
 | Publish an **Android OTA release** | `require_master_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ✅ |
 
 ¹ A Professor may change a populated field on a record created by someone **ranked strictly below**
@@ -607,7 +614,7 @@ mechanical standing behind it.
 | The §2 capability matrix | `backend/tests/test_permission_matrix.py`. Run `python -m pytest -q backend/tests/test_permission_matrix.py`. Every ⬜/✅ should correspond to a case there; a row with no test is a row to distrust. |
 | The gate named in each matrix row | Re-derive with §6's step 1 across `backend/app/api/routes/*.py`. A route whose dependency changed but whose row did not is the failure mode this column exists to catch. |
 | The state machine (§3) | `RecordStatus` in `backend/prisma/schema.prisma` for the states; `set_review_status`, `apply_status_policy_update` and `resubmit_status` for the transitions. |
-| The late-submission gate (§3.3) | `backend/app/services/workshop_access.py` — `enforce_workshop_submission`, `stamp_workshop_submission`, `pin_pending_if_late`. The four numbered properties are each a docstring paragraph there. |
+| The late-submission gate (§3.3) | `backend/app/services/workshop_access.py` — `enforce_workshop_submission`, `stamp_workshop_submission`, `pin_pending_if_late`. The four numbered properties were each a docstring paragraph there until the 0.0.10 strip (`git show v0.0.9:backend/app/services/workshop_access.py`). |
 | The route-guard table (§5) | `ROUTE_GUARDS` is a single literal array; diff it against the table. |
 
 **Review triggers** — this document needs a human read whenever any of these change:

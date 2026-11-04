@@ -37,9 +37,11 @@ falsifies silently.
    code, or by hand. Drives the Google button in emulated phones and tablets. Gates nothing.
 10. **The README check** — `readme-check.yml` (0.0.10), on any change to `README.md`, a Markdown file
     under `docs/` or `.claude/skills/`, or the README kit. Rebuilds the kit's SVGs and fails on drift,
-    checks every SVG and image reference, renders every mermaid block in mermaid-cli and the Markdown
-    through `gh api markdown`, and uploads a `readme-preview` artifact with light, dark and
-    reduced-motion screenshots. The rules are in [readme-kit/README_STYLE.md](readme-kit/README_STYLE.md).
+    checks every SVG and image reference, renders every mermaid block in mermaid-cli (on the mermaid
+    release github.com ships) and the Markdown through `gh api markdown`, then opens every file with a
+    mermaid block on github.com with Playwright and fails on a block GitHub cannot draw, a label that
+    prints an HTML tag or entity raw, or a label wider than its box. It uploads the `github-mermaid`
+    screenshots and a `readme-preview` artifact with light, dark and reduced-motion screenshots. The rules are in [readme-kit/README_STYLE.md](readme-kit/README_STYLE.md).
 
 ```mermaid
 %%{init: {"theme":"base","fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","themeVariables":{"fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
@@ -75,10 +77,10 @@ under "it runs; it does not gate", for what this still does not cover.
 | 2 | Deploy frontend to Vercel | `.github/workflows/deploy-frontend.yml` | `workflow_run` on **1** completing | gate → `wait-for-checks` (2026-10-09) → `vercel pull` → **refuse any project but `field-repository`** → **assert the pulled env carries what the app needs** (every `NEXT_PUBLIC_*`, `[SENSITIVE]` placeholders included), and *warn* when the project's Node.js Version is not `engines.node` → `vercel build --prod` → print the Node runtime the functions were stamped with → **assert those values actually reached the bundle** → `vercel deploy --prebuilt --prod` → **prove the production domain resolves to the new deployment, and `vercel promote` it when a rollback has turned auto-assignment off** (2026-10-09) → smoke-check the alias → **assert the bundle the CDN serves is the one that was verified**, starting with which deployment it is |
 | 3 | Android build | `.github/workflows/android-build.yml` | `workflow_run` on **2** completing, plus `pull_request` filtered to `android/**` | JDK 25 → `compileDebugKotlin` → `testDebugUnitTest` plus the four core modules' `test` (ParityTest among them, since 2026-10-09) → `lintDebug` (a gate since 2026-10-09) → `assembleDebug` → upload APK. **Debug variants only.** Nothing it produces can install over a release build, and nothing it produces reaches a phone. |
 | 4 | Checks | `.github/workflows/checks.yml` | `pull_request`, `push` to `main`, manual | Independent jobs; the three that gate a deploy are the backend suite, the web typecheck/lint/unit specs and the documentation check, and the rest are listed under **The checks** below (browser specs, database tests, questionnaire parity, the deploy scripts, the comment stripper). **No `paths:` filter.** |
-| 11 | README check | `.github/workflows/readme-check.yml` | `push` and `pull_request` touching `README.md`, `docs/**/*.md`, `.claude/skills/**` or the kit; manual | Kit assets match `kit.json`, SVG rules and xmllint, image references and budgets, every mermaid block renders, GitHub renders the Markdown; a `readme-preview` artifact. |
+| 11 | README check | `.github/workflows/readme-check.yml` | `push` and `pull_request` touching `README.md`, `docs/**/*.md`, `.claude/skills/**` or the kit; manual | Kit assets match `kit.json`, SVG rules and xmllint, image references and budgets, every mermaid block renders in mermaid-cli, GitHub renders the Markdown, and github.com draws every mermaid block (Playwright; errors, raw tags or entities and clipped labels fail); `github-mermaid` and `readme-preview` artifacts. |
 | 5 | Publish Android release | `.github/workflows/publish-android.yml` | `push` of a `v*` **tag**, plus a manual dry run | Builds and **signs** the release APK on the runner, proves the signer against `ANDROID_RELEASE_CERT_SHA256`, uploads it, and `POST`s `/api/app/release` so the in-app updater offers it. See [RELEASING.md](RELEASING.md). |
 | 6 | Keep Supabase active | `.github/workflows/keep-supabase-active.yml` | nightly cron | Pings Postgres so Supabase does not pause the free-tier project. |
-| 7 | Back up the database | `.github/workflows/backup-db.yml` | scheduled | `pg_dump` to S3. |
+| 7 | Back up the database | `.github/workflows/backup-db.yml` | cron 21:47 UTC (03:17 IST) and 09:53 UTC, plus manual | The night run `pg_dump`s to S3 and writes the week's copy under `weekly/`. The afternoon run checks the newest dumps with `scripts/ci/backup_freshness.sh` (0.0.9): it expects the dump the schedule says should exist by now, today's IST date once IST is past 03:17 plus 6 hours of grace and yesterday's before that, not simply today's; it fails when that dump is missing, when the newest nightly was written more than 26 hours before its deadline, or when the newest weekly copy is over 8 days old. `scripts/ci/test_backup_freshness.sh` pins the verdict against fixed clocks in Checks → Deploy scripts. |
 | 8 | Android emulator smoke | `.github/workflows/android-emulator.yml` | manual only (`workflow_dispatch`; inputs `api-level`, default `37.0`, and `target`) | Builds the same debug APK as row 3, and the release variant unsigned to check what its manifest declares (target 37, no local-network permission); boots an emulator and runs `android/scripts/emulator-smoke.py`: launch, edge-to-edge insets in portrait, landscape and at a large-screen size, back and home, and — with a second debug build aimed at a stub on the runner — the Android 17 local-network permission. Screenshots and logcat come back as an artifact. Signs nothing in, publishes nothing. |
 | 9 | Uptime probe | `.github/workflows/monitor.yml` | cron every 15 minutes, plus manual | Asks production four questions from a GitHub runner: is the API up (`/health`), can it reach the database in under 2000 ms (`/health/ready`), does the web app serve its home page, and is the Android App Link file (`/.well-known/assetlinks.json`) served as JSON for `com.fieldrepository.app` with the release certificate from `ANDROID_RELEASE_CERT_SHA256`. Any red check fails the run and opens an issue labelled `outage` (updated, not duplicated, while it lasts); the first all-green run comments and closes it. The `outage` label is reserved for the probe: it only edits or closes an issue it opened itself (marked by a hidden `outage-signature` line), so an issue a person labels `outage` by hand stays open until a person closes it. Same shape as designer-portal's. It runs on GitHub, so a GitHub outage silences it; a free external checker on `/health/ready` is the upgrade. |
 | 10 | Live end-to-end specs | `.github/workflows/e2e-live.yml` | manual (`workflow_dispatch`; input `specs`, default `e2e/scan-session-join.spec.ts`), and `push` touching the workflow or that spec | A pgvector Postgres service container, `prisma migrate deploy`, `scripts/seed_admin.py` with a throwaway password written in the workflow, the API on the runner, `next build` + `next start`, Chromium, then the named specs. No repository secret is read and nothing reaches production. Report and traces come back as an artifact on failure. |
@@ -264,7 +266,7 @@ defend.** It began at four, and both pairs were fixed and their lines deleted on
 |---|---|
 | `test_public_census.py::test_the_census_is_mounted_at_the_public_path_the_cdn_rule_would_be_scoped_to` | Read `api_router.routes` expecting flattened route objects. Since FastAPI 0.137 that list holds one `_IncludedRouter` per `include_router`, with no `.path`. The tests now ask FastAPI's public `iter_route_contexts`, added in 0.137.2 for exactly this. |
 | `test_public_census.py::test_the_census_asks_for_no_token` | Same cause, same fix; the effective route it finds carries router-level dependencies, which is what the test inspects. |
-| `test_manifest_stream.py::test_the_declared_size_refuses_before_a_byte_moves` | On Python 3.13+ `import pydub` failed (PEP 594 removed `audioop`), so `backend/app/api/routes/data_browser.py:2735` answered 503 before the 413 check. `audioop-lts` is now a dependency (marker `python_version >= '3.13'`), and the job runs 3.14 like production. |
+| `test_manifest_stream.py::test_the_declared_size_refuses_before_a_byte_moves` | On Python 3.13+ `import pydub` failed (PEP 594 removed `audioop`), so `backend/app/api/routes/data_browser.py:2735` answered 503 before the 413 check. `audioop-lts` is now a dependency (marker `python_version >= '3.13'`), and the job runs 3.15.2 like production. |
 | `test_manifest_stream.py::test_the_real_length_refuses_what_the_column_lied_about` | Same cause, same fix. |
 
 The census pair is worth reading twice, because it was not a code change: **it was a dependency
@@ -336,17 +338,18 @@ pip check
 ```
 
 and the Dockerfile runs the first line only (it puts `app/` on `PYTHONPATH` instead of installing
-the project; its comment says why). `--no-deps` on the editable install keeps the lock
+the project; its comment said why until the 0.0.10 comment strip). `--no-deps` on the editable install keeps the lock
 authoritative — without it pip re-resolves `pyproject.toml`'s `>=` floors and can quietly lift a pin
 — and `pip check` is what notices when those floors have outgrown the lock. Before the lock, CI took
 whatever the index offered each day while the box sat on the versions of its first install, June's,
 security advisories included; the two ran different `anthropic` majors.
 
 **Refresh it deliberately, never as a side effect of something else**, in a container, so the Python
-that resolves it is the Python that runs it everywhere (3.14):
+that resolves it is the Python that runs it everywhere (3.15 since 0.0.7; the lock's header says
+Python 3.15):
 
 ```bash
-docker run --rm -v "$PWD/backend:/w" -w /w python:3.14 sh -c \
+docker run --rm -v "$PWD/backend:/w" -w /w python:3.15 sh -c \
   "pip install -q pip-tools && pip-compile -q --strip-extras --extra dev \
    --output-file requirements.lock pyproject.toml"
 ```
@@ -360,7 +363,7 @@ It is the same recipe the sister repository uses, and the same two traps apply:
 
 Two things to know about the result. It is resolved for Linux: `uvloop` (from `uvicorn[standard]`)
 is in it, and uvloop does not install on Windows, so a Windows venv installs the lock without that
-one line. And Dependabot cannot refresh it (`.github/dependabot.yml` says why): a pip pull request
+one line. And Dependabot cannot refresh it: a pip pull request
 raises a floor in `pyproject.toml`, and the lock is recompiled by hand in the same pull request —
 `pip check` fails Backend tests until it is.
 
@@ -605,7 +608,7 @@ same value in two places. Change one there and re-run this workflow (or push) to
 
 **Every check, reproduced locally, in the same directory the job uses.** These are the exact commands
 the workflow runs; if CI is red and one of these is green, the difference is the environment, and the
-first thing to check is the Python version (3.14.8 in CI) and whether your venv holds what
+first thing to check is the Python version (3.15.2 in CI and on the box) and whether your venv holds what
 `backend/requirements.lock` pins (`pip install -r requirements.lock && pip install --no-deps -e .`
 from `backend/`, as CI does):
 
@@ -653,7 +656,7 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
 - ~~**`backend/` has no lock file, so CI installs a different dependency set every day.**~~ **DONE on
   2026-10-09.** `backend/requirements.lock`, compiled on `python:3.14` with `--extra dev`, is what CI,
   the EC2 deploy and the Docker image install (§1, *The backend dependency lock*). The same change
-  moved CI and the box to Python 3.14 and rebuilt the box's venv from the lock, which retired the
+  moved CI and the box to Python 3.14 (3.15.2 since 0.0.7) and rebuilt the box's venv from the lock, which retired the
   June-vintage versions production had been running.
 - **The Android tests cannot see the change that breaks them.** `android-build.yml`'s `pull_request`
   trigger is filtered to `android/**` (`android-build.yml:8-10`), and the Kotlin suite reads the web
@@ -678,7 +681,7 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
   v7.0.2, download-artifact v8.0.2, ssh-agent v0.10.0 — and every job to `runs-on: ubuntu-26.04`.
   Dependabot now also watches npm, pip, gradle, docker, docker-compose and terraform (monthly,
   minor and patch grouped). **Deliberately still unpinned:** the Vercel CLI, which
-  `deploy-frontend.yml` installs as `vercel@latest` (its comment says why). How to check a pin, or
+  `deploy-frontend.yml` installs as `vercel@latest` (its comment said why until the 0.0.10 comment strip). How to check a pin, or
   redo one by hand, is in *How this document is kept true*.
 - **The Playwright end-to-end suite is still not a gate.** `checks.yml` runs only the eight
   `*-unit.spec.ts` files, which touch no server. The rest of `frontend/e2e/` signs in against a real

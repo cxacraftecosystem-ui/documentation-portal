@@ -31,13 +31,14 @@ flowchart LR
 | 0.0.1 | 22 | 21 Oct 2026 | the reset, carrying what had shipped as 0.0.20: the 455-craft master list, consent opt-out, maps and coverage on Android |
 | 0.0.2 | 23 | 22 Oct 2026 | query optimisation, questionnaire phases 1 and 2, author-or-admin form edits |
 | 0.0.3 | 24 | 23 Oct 2026 | one shared questionnaire engine; Questionnaire v2 on |
-| 0.0.4 | 25 | 31 Oct 2026 | recording chips and filters, the transcript viewer's first cut, AI switches pinned on |
-| 0.0.5 | 26 | 1 Nov 2026 | Scribe v2 + Gemini 3.8 Flash pipeline, Ask, autodraft, glossary, quote cards, budget |
+| 0.0.4 | 25 | 31 Oct 2026 | the transcript pipeline: Scribe v2 turns, Gemini 3.8 Flash English, the viewer, Ask, autodraft, glossary, quote cards, the budget; recording chips and filters; AI switches pinned on |
+| 0.0.5 | 26 | 1 Nov 2026 | translation beside transcription, the Gemini billing hold, admin-only cost and model names, speaker samples, copies without timestamps, the Voice Isolator switch (off) |
 | 0.0.6 | 27 | 1 Nov 2026 | karaoke, reading mode, marks, auto-follow, transcripts in exports |
 | 0.0.7 | 28 | 1 Nov 2026 | Python 3.15.2, Node 26, AGP 9.5, Gradle 9.8.2 |
 | 0.0.8 | · | 1 Nov 2026 | backend and infrastructure only; no app was published |
 | 0.0.9 | 29 | 3 Nov 2026 | old transcripts translated, pasted English (D38); Data page reports (D39) |
 | 0.0.10 | 30 | 4 Nov 2026 | video transcription, the upload choice, admin switches, Refine, summary edits on Android, Gemini-first defaults, comment-free code |
+| 0.0.11 | 31 | 4 Nov 2026 | a tool linked to several artisans shows under every workshop they belong to; tool rows name every linked artisan |
 
 `android/app/build.gradle.kts` holds the current pair (`appVersionName`, `appVersionCode`); the tags
 `v0.0.1` onward are the record.
@@ -332,7 +333,7 @@ A **lower** code has exactly one way past: `[version-reset]` in the annotated ta
 how the numbering restarted at 0.0.x on 2026-09-14. It is a deliberate restart, not a fix: Android
 will not install a lower code over a higher one, so it costs every handset the uninstall §6
 describes, and the release is not "latest" until the higher `AppRelease` rows are removed by hand.
-The comment on the GUARD 4 step says the rest.
+The GUARD 4 step in `publish-android.yml` is the rest (its comment is at tag `v0.0.9`).
 
 A 401 or 403 from `/api/app/release/latest` is called out as its own failure rather than read as
 "nothing is published yet": an auth failure produces a body with no `versionCode` in it, which a naive
@@ -625,7 +626,7 @@ so it cannot reach an automated pipeline even if somebody writes a `local.proper
 
 | What | How, and when to re-check |
 |---|---|
-| The guards | Each is a named step in `.github/workflows/publish-android.yml` whose comment block is the long-form version of §3. Diff the step names against the headings here whenever a guard is added, renamed or removed; the workflow is the authority and this page is the summary. |
+| The guards | Each is a named step in `.github/workflows/publish-android.yml` whose comment block was the long-form version of §3 until the 0.0.10 comment strip (`git show v0.0.9:.github/workflows/publish-android.yml`). Diff the step names against the headings here whenever a guard is added, renamed or removed; the workflow is the authority and this page is the summary. |
 | The signing arrangement | `android/app/build.gradle.kts` — the block above `signingConfigs` and the one inside `buildTypes.release`. A change to the property names, the fallback ordering or the CI refusal makes §7 wrong. |
 | The API contract | `backend/app/schemas/app_release.py` and `backend/app/api/routes/app_release.py`. `AppReleasePublishRequest` is `extra="forbid"`, so a field added or removed there changes what the workflow may send; §3's GUARD 4 and GUARD 6 both describe behaviour of `_latest_release` and `download_latest_apk`. |
 | Fingerprints and version numbers | Re-read them off artefacts, never from memory: `apksigner verify --print-certs` for a signer, `aapt2 dump badging` for a version, `curl -sSL -o - .../api/app/download \| wc -c` for a size. §0's debug fingerprint and §5's SHA-1 are the two values a reader is most likely to act on. |
