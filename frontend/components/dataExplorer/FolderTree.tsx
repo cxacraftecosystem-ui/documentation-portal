@@ -26,7 +26,7 @@ export function visibleRows(store: Pick<TreeStore, "trees" | "expanded" | "loadi
       rows.push({ kind: "folder", path: folder.path, name: folder.name, recordType: folder.recordType ?? null, level, parent, size, position: index + 1 });
       walk(folder.path, level + 1);
     });
-    if (tree.nextCursor) rows.push({ kind: "more", path: `${parent}#more`, name: "Show more", level, parent, size, position: size });
+    if (tree.nextCursor) rows.push({ kind: "more", path: `${parent}#more`, name: "Load more", level, parent, size, position: size });
   };
   walk("", 2);
   return rows;

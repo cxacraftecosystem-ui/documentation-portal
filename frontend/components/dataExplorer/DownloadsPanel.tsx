@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, CheckCircle2, Database, Download, FolderDown, ListChecks, X } from "lucide-react";
+import { Archive, CheckCircle2, Database, Download, FileSpreadsheet, FolderDown, ListChecks, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { CHIP_BUTTON, Note, Problem } from "@/components/dataExplorer/explorerUi";
@@ -16,7 +16,7 @@ import {
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SearchableMultiSelect } from "@/components/ui/SearchableSelect";
-import { fetchSelectionStats, fetchStats, includeParam, transcriptBundleUrl, unsupported } from "@/lib/dataExplorer/api";
+import { fetchSelectionStats, fetchStats, includeParam, reportFileUrl, transcriptBundleUrl, unsupported } from "@/lib/dataExplorer/api";
 import { INCLUDE_KEYS, INCLUDE_LABELS, type IncludeKey, type Stats } from "@/lib/dataExplorer/contract";
 import { formatBytes, limitSentence, overLimit, percentOf, summaryLine, typeHint, type ManifestSummary } from "@/lib/dataExplorer/plan";
 import type { JobSource } from "@/lib/dataExplorer/protocol";
@@ -135,9 +135,9 @@ function Progress({ job, onDismiss, onCancel }: { job: JobState; onDismiss: () =
         <Note tone={failed.length ? "warn" : "done"}>
           <CheckCircle2 className="mr-1 inline h-3.5 w-3.5" aria-hidden />
           {failed.length
-            ? `Saved ${job.outcome!.filesSaved} of ${job.outcome!.filesTotal} files. ${failed.length} failed.`
+            ? `Saved ${job.outcome!.filesSaved} of ${job.outcome!.filesTotal}. ${failed.length} failed.`
             : job.outcome!.filesTotal === 0
-              ? "Nothing matches these choices."
+              ? "Nothing here to download."
               : `Saved ${job.outcome!.filesSaved.toLocaleString("en-IN")} files.`}
           {job.outcome?.skipped ? ` ${job.outcome.skipped} were already in the folder.` : ""}
           {job.truncated ? " Too many files: download subfolders for the rest." : ""}
@@ -321,7 +321,11 @@ export function DownloadsPanel({
           ) : null}
           <a href={transcriptBundleUrl(path, extra)} download className="field-button-secondary">
             <Archive className="h-4 w-4" aria-hidden />
-            Transcripts · all formats
+            Transcripts, all formats
+          </a>
+          <a href={reportFileUrl(path, "xlsx", extra)} download className="field-button-secondary">
+            <FileSpreadsheet className="h-4 w-4" aria-hidden />
+            Report (.xlsx)
           </a>
         </ButtonRow>
       </div>

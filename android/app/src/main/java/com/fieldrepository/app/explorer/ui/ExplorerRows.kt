@@ -147,7 +147,7 @@ internal fun ExplorerThumb(entry: ExplorerEntry, size: Dp = 44.dp) {
     val stored: @Composable () -> Unit = {
         val file = offline?.file
         if (file != null) {
-            coil3.compose.AsyncImage(model = file, contentDescription = entry.name, contentScale = ContentScale.Crop, modifier = Modifier.size(size).clip(MaterialTheme.shapes.small))
+            coil3.compose.AsyncImage(model = file, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size).clip(MaterialTheme.shapes.small))
         } else {
             fallback()
         }
@@ -168,7 +168,7 @@ internal fun ExplorerThumb(entry: ExplorerEntry, size: Dp = 44.dp) {
     }
     SubcomposeAsyncImage(
         model = request,
-        contentDescription = entry.name,
+        contentDescription = null,
         contentScale = ContentScale.Crop,
         loading = { stored() },
         error = { stored() },

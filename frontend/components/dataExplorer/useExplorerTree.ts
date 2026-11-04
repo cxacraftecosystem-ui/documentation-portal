@@ -67,7 +67,7 @@ export function useExplorerTree(extra: QueryParams, enabled: boolean): TreeStore
           });
         } catch (error) {
           if (asked !== generation.current) return;
-          setErrors((previous) => ({ ...previous, [path]: message(error, "This folder didn't load.") }));
+          setErrors((previous) => ({ ...previous, [path]: message(error, "This folder could not be loaded.") }));
         } finally {
           inFlight.current.delete(key);
           if (asked === generation.current) mark(path, false);

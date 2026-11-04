@@ -12,7 +12,7 @@ in the designer portal, the record links). Proposal and owner decisions:
 | Place | What it holds |
 |---|---|
 | Left (top on a phone) | the folder tree, with search, Organise by and (documentation portal) Review status as its toolbar |
-| Right, first | **Downloads**: this folder, the selection, the whole dataset, all transcript formats, with sizes before anything starts |
+| Right, first | **Downloads**: this folder (zip, all transcript formats, the `.xlsx` report), the selection, the whole dataset, with sizes before anything starts |
 | Right, below | the record card, then **Files** or **Tables** |
 | Under both | Browse by type (paged, searched on the server) and Transcripts |
 
@@ -57,7 +57,8 @@ flowchart LR
 Subfolder tables load on their own; the repository root still loads on click. Each answer is kept in
 memory and in session storage per folder, review status and viewer (16 folders, 24 MB, 10 minutes), so
 going back costs no request. The search box searches every row on the server (`q`); against an older
-server it searches the 200 rows shown and says so. Each sheet has a CSV. A busy report reads
+server it searches the 200 rows shown and says so. Each sheet has a CSV; the folder's `.xlsx` report is under
+Downloads, as on Android. A busy report reads
 "Busy, retrying in 60 s" and retries once.
 
 ## How this document is kept true

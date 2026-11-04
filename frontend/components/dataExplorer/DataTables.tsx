@@ -1,6 +1,6 @@
 "use client";
 
-import { FileSpreadsheet, FileText, Search, Table2 } from "lucide-react";
+import { FileText, Search, Table2 } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import { Note, Problem, Spinner } from "@/components/dataExplorer/explorerUi";
@@ -106,7 +106,7 @@ export function DataTables({
         return;
       }
       setBusyRetry(false);
-      setError(err instanceof Error && err.message ? err.message : "The tables didn't load.");
+      setError(err instanceof Error && err.message ? err.message : "The tables could not be loaded.");
     } finally {
       if (inFlight.current === abort) inFlight.current = null;
       if (!abort.signal.aborted) setLoading(false);
@@ -178,7 +178,6 @@ export function DataTables({
     document.getElementById(`${tabsId}-tab-${target}`)?.focus();
   };
 
-  const xlsx = reportFileUrl(path, "xlsx", extra);
   const blocked = report && notice ? notice(report) : null;
 
   return (
@@ -188,12 +187,8 @@ export function DataTables({
           <Table2 className="h-4 w-4 shrink-0 text-purple-700 dark:text-purple-300" aria-hidden />
           <span className="truncate">Tables · {folderName}</span>
         </h2>
-        <ButtonRow size="sm">
-          <a href={xlsx} download className="field-button-secondary min-h-9 px-3 text-sm pointer-coarse:min-h-11">
-            <FileSpreadsheet className="h-4 w-4" aria-hidden />
-            Report .xlsx
-          </a>
-          {sheet ? (
+        {sheet ? (
+          <ButtonRow size="sm">
             <a
               href={reportFileUrl(path, "csv", { ...extra, sheet: sheet.name })}
               download
@@ -202,8 +197,8 @@ export function DataTables({
               <FileText className="h-4 w-4" aria-hidden />
               {sheet.name} .csv
             </a>
-          ) : null}
-        </ButtonRow>
+          </ButtonRow>
+        ) : null}
       </div>
       {blocked ? <p className="border-t border-line-200 bg-surface-50 px-4 py-2 text-xs text-ink-500">{blocked}</p> : null}
       <div className="border-t border-line-200">

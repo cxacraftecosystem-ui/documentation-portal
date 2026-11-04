@@ -72,7 +72,7 @@ export const LINK_BUTTON =
 export const CHIP_BUTTON =
   "field-button-secondary min-h-9 px-3 text-xs pointer-coarse:min-h-11";
 
-export function Problem({ children, onRetry, retryLabel = "Try again" }: { children: ReactNode; onRetry?: () => void; retryLabel?: string }) {
+export function Problem({ children, onRetry, retryLabel = "Retry" }: { children: ReactNode; onRetry?: () => void; retryLabel?: string }) {
   return (
     <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">
       <span className="min-w-0 flex-1">{children}</span>

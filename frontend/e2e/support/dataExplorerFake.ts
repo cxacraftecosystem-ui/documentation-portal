@@ -172,6 +172,9 @@ export class DataExplorerFake {
       url: `/e2e-files/original-${file.mediaId}`,
       transcriptAvailable: Boolean(file.transcript),
       transcriptPath: file.transcript ? `/data/media/${file.mediaId}/transcript` : undefined,
+      transcriptFiles: file.transcript
+        ? [{ name: file.name.replace(/\.[^.]+$/, ".vtt"), format: "vtt", track: "source", timestamps: true, url: `/api/transcripts/${file.mediaId}/download?format=vtt` }]
+        : undefined,
       thumbnailPath: file.mediaType === "IMAGE" ? `/data/media/${file.mediaId}/thumbnail` : undefined,
       previewPath: file.mediaType && file.mediaType !== "OTHER" ? `/data/media/${file.mediaId}/preview` : undefined,
       downloadPath: `/data/media/${file.mediaId}/download`

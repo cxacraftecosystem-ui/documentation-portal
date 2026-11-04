@@ -112,6 +112,41 @@ test.describe("@qf:X1 layout", () => {
   }
 });
 
+test.describe("@qf:X1 downloads in one place, worded as on Android", () => {
+  for (const size of [SIZES[0], SIZES[2]]) {
+    test(`every folder download sits in Downloads and the Tables tab keeps only its sheet CSV · ${size.name}`, async ({ browser }) => {
+      const { context, page } = await openExplorer(browser, { size, path: "workshops/bagru" });
+      try {
+        const downloads = page.getByRole("region", { name: "Downloads" });
+        const folder = downloads.getByTestId("download-folder");
+        await expect(folder.getByRole("button", { name: "Download zip" })).toBeVisible();
+        await expect(folder.getByRole("link", { name: "Transcripts, all formats" })).toHaveAttribute("href", /\/api\/data\/transcript-bundle\?path=workshops%2Fbagru/);
+        await expect(folder.getByRole("link", { name: "Report (.xlsx)" })).toHaveAttribute("href", /\/api\/data\/report\?path=workshops%2Fbagru&format=xlsx/);
+        await expect(page.getByRole("link", { name: /\.xlsx/ })).toHaveCount(1);
+        const all = page.getByRole("checkbox", { name: "Select all", exact: true });
+        await expect(all).not.toBeChecked();
+        await page.getByText("Select all", { exact: true }).click();
+        await expect(all).toBeChecked();
+        await expect(downloads.getByTestId("download-selection")).toBeVisible();
+        if (size.mobile) {
+          const chips = page.locator("[data-transcript-files] a");
+          await expect(chips).toHaveCount(1);
+          for (const link of await chips.all()) {
+            const box = await link.boundingBox();
+            expect(box!.height, "touch target").toBeGreaterThanOrEqual(44);
+          }
+        }
+        await page.getByRole("tab", { name: "Tables" }).click();
+        const tables = page.getByRole("region", { name: "Data tables" });
+        await expect(tables.getByRole("link", { name: "Artisans .csv" })).toBeVisible();
+        await expect(tables.getByRole("link", { name: /\.xlsx/ })).toHaveCount(0);
+      } finally {
+        await context.close();
+      }
+    });
+  }
+});
+
 test.describe("@qf:X1 the tree", () => {
   test("arrow keys move, open and choose folders, and the URL keeps the place", async ({ browser }) => {
     const { context, page } = await openExplorer(browser);
@@ -144,12 +179,12 @@ test.describe("@qf:X1 the tree", () => {
     }
   });
 
-  test("a long folder pages in with Show more", async ({ browser }) => {
+  test("a long folder pages in with Load more", async ({ browser }) => {
     const { context, page } = await openExplorer(browser, { path: "workshops/sanganer" });
     try {
       const files = page.getByRole("list", { name: "Files" }).locator("[data-file-row]");
       await expect(files).toHaveCount(2);
-      await page.getByRole("button", { name: "Show more" }).click();
+      await page.getByRole("button", { name: "Load more" }).click();
       await expect(files).toHaveCount(3);
     } finally {
       await context.close();
@@ -158,14 +193,15 @@ test.describe("@qf:X1 the tree", () => {
 });
 
 test.describe("@qf:X1 errors in place", () => {
-  test("a folder that fails to load says so where it failed and Try again reloads it", async ({ browser }) => {
+  test("a folder that fails to load says so where it failed and Retry reloads it", async ({ browser }) => {
     const { context, page, fake } = await openExplorer(browser);
     try {
       fake.treeFailures.set("crafts", 1);
       await page.getByRole("treeitem", { name: "By craft", exact: true }).click();
-      const problem = page.getByRole("alert").filter({ has: page.getByRole("button", { name: "Try again" }) });
+      const problem = page.getByRole("alert").filter({ has: page.getByRole("button", { name: "Retry" }) });
       await expect(problem).toBeVisible();
-      const retry = problem.getByRole("button", { name: "Try again" });
+      await expect(problem).toContainText("This folder could not be loaded.");
+      const retry = problem.getByRole("button", { name: "Retry" });
       const box = await retry.boundingBox();
       expect(box).not.toBeNull();
       await retry.click();
@@ -278,8 +314,8 @@ test.describe("@qf:X12 transcripts on demand", () => {
     const { context, page } = await openExplorer(browser, { path: "workshops/bagru" });
     try {
       const row = page.locator("[data-file-row]").filter({ hasText: "interview.m4a" });
-      await expect(row.getByRole("link", { name: "All formats" })).toHaveAttribute("href", /\/api\/transcripts\/aud1\/download\?format=zip/);
-      await expect(page.getByRole("link", { name: "Transcripts · all formats" })).toHaveAttribute("href", /\/api\/data\/transcript-bundle\?path=workshops%2Fbagru/);
+      await expect(row.getByRole("link", { name: "All formats (.zip), interview.m4a" })).toHaveAttribute("href", /\/api\/transcripts\/aud1\/download\?format=zip/);
+      await expect(page.getByRole("link", { name: "Transcripts, all formats" })).toHaveAttribute("href", /\/api\/data\/transcript-bundle\?path=workshops%2Fbagru/);
     } finally {
       await context.close();
     }

@@ -92,7 +92,7 @@ function TranscriptBlock({ entry, folder, extra }: { entry: TreeEntry; folder: s
         if (!cancelled) setAnswer({ attempt, text: found.content, error: null });
       })
       .catch((error) => {
-        if (!cancelled) setAnswer({ attempt, text: null, error: error instanceof Error && error.message ? error.message : "The transcript didn't load." });
+        if (!cancelled) setAnswer({ attempt, text: null, error: error instanceof Error && error.message ? error.message : "The transcript could not be loaded." });
       });
     return () => {
       cancelled = true;
@@ -101,7 +101,7 @@ function TranscriptBlock({ entry, folder, extra }: { entry: TreeEntry; folder: s
   const state = answer && answer.attempt === attempt ? answer : null;
   if (!state) return <Spinner label="Loading transcript…" />;
   if (state.error) return <Problem onRetry={() => setAttempt((value) => value + 1)}>{state.error}</Problem>;
-  if (!state.text) return <p className="text-xs text-ink-500">No transcript text yet.</p>;
+  if (!state.text) return <p className="text-xs text-ink-500">No transcript for this file.</p>;
   return (
     <div className="max-h-80 overflow-y-auto rounded-md border border-line-200 bg-surface-50 p-4" tabIndex={0} role="region" aria-label={`Transcript of ${entry.name}`}>
       <TranscriptMarkdown text={state.text} />
@@ -229,7 +229,7 @@ export function FolderContents({
 
       {tree?.truncated && !tree.nextCursor ? (
         <div className="border-b border-line-200 px-4 py-2">
-          <Note tone="warn">Too many to list. Open a subfolder.</Note>
+          <Note tone="warn">Showing part of this folder. Open subfolders for the rest.</Note>
         </div>
       ) : null}
 
@@ -242,9 +242,13 @@ export function FolderContents({
         </div>
       ) : (
         <div>
-          <div className="flex items-center gap-2 border-b border-line-200 px-2 py-1">
-            <SelectBox checked={allSelected} label="Select everything here" onChange={() => onSelectAll(entries, !allSelected)} />
-            <span className="text-xs text-ink-500">Select all</span>
+          <div className="flex items-center border-b border-line-200 px-2 py-1">
+            <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md pr-3 hover:bg-purple-50 dark:hover:bg-purple-950/30" data-row-ignore="">
+              <span className="grid h-11 w-11 shrink-0 place-items-center">
+                <input type="checkbox" checked={allSelected} onChange={() => onSelectAll(entries, !allSelected)} className="h-4 w-4 accent-purple-700" />
+              </span>
+              <span className="text-xs text-ink-500">Select all</span>
+            </label>
           </div>
           {folders.length ? (
             <ul className="grid gap-2 border-b border-line-200 p-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Folders">
@@ -311,9 +315,10 @@ export function FolderContents({
                           </button>
                         ) : null}
                         {hasTranscript(file) ? (
-                          <a href={transcriptZipUrl(file.mediaId!)} download className={LINK_BUTTON} title="Every transcript format in one zip">
+                          <a href={transcriptZipUrl(file.mediaId!)} download className={LINK_BUTTON}>
                             <Archive className="h-4 w-4" aria-hidden />
                             All formats
+                            <span className="sr-only"> (.zip), {file.name}</span>
                           </a>
                         ) : null}
                         {file.mediaId && file.mediaType && file.content == null ? (
@@ -328,7 +333,7 @@ export function FolderContents({
                     {file.transcriptFiles?.length ? (
                       <p data-row-ignore="" className="mt-1 flex flex-wrap gap-x-3 gap-y-1 pl-24 text-xs" data-transcript-files>
                         {file.transcriptFiles.map((link) => (
-                          <a key={link.url} href={link.url} download={link.name} className="font-semibold text-purple-700 hover:underline dark:text-purple-300">
+                          <a key={link.url} href={link.url} download={link.name} className="inline-flex min-h-9 items-center font-semibold text-purple-700 hover:underline dark:text-purple-300 pointer-coarse:min-h-11">
                             {link.name}
                           </a>
                         ))}
@@ -353,7 +358,7 @@ export function FolderContents({
             <div className="border-t border-line-200 p-3">
               <button type="button" className="field-button-secondary mx-auto flex" onClick={onMore} disabled={loading}>
                 <MoreHorizontal className="h-4 w-4" aria-hidden />
-                {loading ? "Loading…" : "Show more"}
+                {loading ? "Loading…" : "Load more"}
               </button>
             </div>
           ) : null}

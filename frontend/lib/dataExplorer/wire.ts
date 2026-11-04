@@ -101,7 +101,7 @@ export async function fetchManifest(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...request.body, stream: true })
         });
-  if (!response.ok) throw await refusalOf(response, "The file list didn't load. Try again.");
+  if (!response.ok) throw await refusalOf(response, "The file list could not be loaded. Try again.");
   const type = response.headers.get("content-type") ?? "";
   const files: ManifestFile[] = [];
   const take = (file: ManifestFile) => {

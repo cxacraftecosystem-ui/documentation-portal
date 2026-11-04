@@ -4,6 +4,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.assertIsDisplayed
@@ -157,6 +159,15 @@ class ExplorerScreenUiTest {
         val fake = Fake()
         show(fake)
         compose.onNodeWithTag("explorer.thumb.p1", useUnmergedTree = true).assertExists()
+    }
+
+    @QFeature("X4")
+    @Test fun aThumbnailIsDecorativeSoTheFileNameIsReadOnce() {
+        val fake = Fake()
+        show(fake)
+        compose.onNodeWithTag("explorer.thumb.p1", useUnmergedTree = true).assertExists()
+        compose.onAllNodesWithContentDescription("Block.jpg", useUnmergedTree = true).assertCountEquals(0)
+        compose.onAllNodesWithText("Block.jpg", useUnmergedTree = true).assertCountEquals(1)
     }
 
     @QFeature("X5")
