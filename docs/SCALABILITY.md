@@ -3,8 +3,8 @@
 > **Dated analysis.** The measurements and bounds below were taken when production was a 1 GiB
 > t3.micro with its database in another region. Since 13 Sep 2026 the database sits in ap-south-1
 > beside the box, and since 10 Oct 2026 the box is a 2 GiB t3.small on Ubuntu 26.04 that releases
-> blue/green (since 19 Oct), with the API near 179 MB and the worker near 98 MB PSS after the lazy Prisma types
-> (19 Oct 2026). Every bound written for 1 GiB still holds on 2 GiB and now leaves room for the idle
+> blue/green (since 19 Oct), with the API at 211 MB and the worker at 130 MB PSS
+> (measured 4 Nov 2026). Every bound written for 1 GiB still holds on 2 GiB and now leaves room for the idle
 > port a release starts; read "1 GiB" below as the design ceiling, not the box.
 
 What this system runs into as it grows, ranked by *when* each thing starts to hurt rather than by

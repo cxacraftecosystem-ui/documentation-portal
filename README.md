@@ -322,7 +322,7 @@ flowchart TD
 | Releases | blue/green on ports 8000 and 8001 behind nginx; `backend/deploy/blue_green.sh rollback` goes back |
 | Release venv | built on the GitHub runner and named after the interpreter, the lock and the schema; a code-only release ships none |
 | Prisma | `prisma.types` loads lazily (`backend/app/prisma_lazy_types.py`), so neither process imports 28 MB of TypedDicts at start; migrations run through `python -m app.prisma_cli` |
-| Memory | API about 179 MB and worker about 98 MB PSS, swap about 68 MB (measured 19 Oct 2026, after the lazy-types split) |
+| Memory | API 211 MB + query engine 42 MB, worker 130 MB + 24 MB (PSS); 785 MB of 1.9 GB used, 56 MB of swap (measured 4 Nov 2026) |
 | Work files | transcription temp files live in one capped directory (`backend/app/transcription/workdir.py`, 2 GiB, stale after 3 h) and are cleaned up |
 | Queries | list pages and the Data page were rewritten to load what they show; report builds are serialised behind a semaphore |
 | Backups | `pg_dump` to S3 every night at 03:17 IST, a weekly copy kept for a year, and a freshness check every afternoon that fails loudly |
@@ -432,7 +432,7 @@ machine. The full reference is [ENVIRONMENT.md](docs/ENVIRONMENT.md) and [DOCKER
 | 0.0.7 | 28 | Latest stable everything: Python 3.15.2, Node 26, Next 16.4, AGP 9.5 |
 | 0.0.8 | · | Backend only: Terraform provider 6.71, Dependabot scanning restored |
 | 0.0.9 | 29 | Old transcripts translated, declined English pasted by hand (D38); Data page reports (D39) |
-| 0.0.10 | 30 | Video transcription, the upload choice, admin switches, Refine on the web, summary edits on Android, Gemini-first defaults, no comments in code |
+| 0.0.10 | 30 | Video transcription, the upload choice, admin switches, Refine on web and Android, summary edits on Android, Gemini-first defaults, no comments in code |
 
 Every code file in this repository is comment-free: `scripts/tools/strip_comments.py --check` runs in
 Checks, and the reasons that used to live in comments live in [docs/](docs/README.md).
