@@ -500,6 +500,43 @@ def test_browse_pages_flag_a_cut_list_and_search_every_row():
     assert {"deletedAt": None, "mergedIntoId": None} in interviews["AND"]
 
 
+def test_browse_by_workshop_reaches_tools_and_artisans_through_membership():
+    from app.services.record_filters import artisan_workshop_clause, tool_workshop_clause
+
+    scope = SimpleNamespace(records=None, media=None)
+    tools = browse.where_for(browse.KINDS["tool"], scope, None, ["w1"])
+    assert tools == tool_workshop_clause(["w1"], False)
+    branches = tools["OR"]
+    assert {"workshopId": {"in": ["w1"]}} in branches
+    assert any("artisanLinks" in branch for branch in branches)
+    assert any("artisan" in branch for branch in branches)
+    artisans = browse.where_for(browse.KINDS["artisan"], scope, None, ["w1"])
+    assert artisans == artisan_workshop_clause(["w1"], False)
+    assert {"workshops": {"some": {"workshopId": {"in": ["w1"]}}}} in artisans["OR"]
+    products = browse.where_for(browse.KINDS["product"], scope, None, ["w1"])
+    assert products == {"workshopId": {"in": ["w1"]}}
+    assert browse.where_for(browse.KINDS["workshop"], scope, None, ["w1"]) == {}
+
+
+def test_a_plain_media_download_falls_back_to_the_original_unless_told_not_to(monkeypatch):
+    from app.api.routes import data_explorer
+
+    seen: list[tuple[Any, bool]] = []
+
+    async def media_for(_user: Any, media_id: str, **_kw: Any) -> Any:
+        return SimpleNamespace(id=media_id)
+
+    async def fake(_media: Any, *, fmt: Any, fallback: bool) -> str:
+        seen.append((fmt, fallback))
+        return "sent"
+
+    monkeypatch.setattr(data_explorer, "media_for", media_for)
+    monkeypatch.setattr(data_explorer.downloads, "media_download", fake)
+    for fmt, fallback in ((None, None), ("mp4", "original"), ("mp4", "none"), ("original", None)):
+        asyncio.run(data_explorer.media_download("m1", fmt, fallback, current_user=None))
+    assert seen == [(None, True), ("mp4", True), ("mp4", False), ("original", True)]
+
+
 def test_a_records_media_is_found_by_its_key_or_its_tag():
     where = browse.record_media_where("tool", "t1")
     assert {"toolId": "t1"} in where["OR"]

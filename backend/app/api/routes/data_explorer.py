@@ -263,7 +263,7 @@ async def media_download(
 ) -> Response:
     media = await media_for(current_user, media_id)
     return await downloads.media_download(
-        media, fmt=format, fallback=(fallback or "").strip().lower() == "original"
+        media, fmt=format, fallback=(fallback or "original").strip().lower() == "original"
     )
 
 

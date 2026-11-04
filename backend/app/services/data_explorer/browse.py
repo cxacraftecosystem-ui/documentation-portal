@@ -88,12 +88,21 @@ def where_for(kind: Kind, scope: Any, q: str | None, workshop_ids: list[str] | N
         if words
         else None
     )
-    workshops = (
-        {"workshopId": {"in": workshop_ids}}
-        if workshop_ids and kind.delegate in ("questionnaireinterview", "artisan", "productdocumentation", "tooldocumentation", "process")
-        else None
-    )
-    return _and(scoped, live, search, workshops)
+    return _and(scoped, live, search, workshop_where(kind, workshop_ids))
+
+
+def workshop_where(kind: Kind, workshop_ids: list[str] | None) -> dict[str, Any] | None:
+    from app.services.record_filters import artisan_workshop_clause, tool_workshop_clause
+
+    if not workshop_ids:
+        return None
+    if kind.delegate == "tooldocumentation":
+        return tool_workshop_clause(workshop_ids, False)
+    if kind.delegate == "artisan":
+        return artisan_workshop_clause(workshop_ids, False)
+    if kind.delegate in ("questionnaireinterview", "productdocumentation", "process"):
+        return {"workshopId": {"in": workshop_ids}}
+    return None
 
 
 def _creator(row: Any, media: bool) -> str | None:

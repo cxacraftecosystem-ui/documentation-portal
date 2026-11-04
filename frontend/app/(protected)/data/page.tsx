@@ -164,7 +164,7 @@ function Explorer({ user }: { user: User }) {
   const config: ExplorerConfig = {
     rootName: "Dataset root",
     extra: { status: statusParam },
-    downloadExtra: { status: statusParam },
+    downloadExtra: {},
     statusKey: reviewStatus,
     viewer: user.id,
     fileHref: mediaHref,

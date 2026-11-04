@@ -176,6 +176,51 @@ class ExplorerEngineTest {
         assertEquals(setOf("W/talk.mp4"), sink.entries().keys)
     }
 
+    @QFeature("X11")
+    @Test fun `a conversion answered by a redirect to the stored original keeps the original's name`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.manifest = { ndjson(listOf(line(ExplorerManifestFile(path = "W/note.mp4", url = null, mediaId = "a6", mediaType = "AUDIO", convertToMp4 = true, originalPath = "W/note.3gp", sizeBytes = 12)))) }
+        val data = byteArrayOf(0, 0, 0, 0x18) + "ftyp3gp4".toByteArray()
+        api.mediaResponse = { _, _, _, _ ->
+            val asked = okhttp3.Request.Builder().url("http://localhost/api/data/media/a6/download").build()
+            val prior = okhttp3.Response.Builder()
+                .code(307)
+                .message("Temporary Redirect")
+                .protocol(okhttp3.Protocol.HTTP_1_1)
+                .request(asked)
+                .header("X-Conversion", "original")
+                .header("Location", "https://storage.example/note.3gp")
+                .build()
+            val raw = okhttp3.Response.Builder()
+                .code(200)
+                .message("OK")
+                .protocol(okhttp3.Protocol.HTTP_1_1)
+                .request(okhttp3.Request.Builder().url("https://storage.example/note.3gp").build())
+                .priorResponse(prior)
+                .build()
+            Response.success(bytes(data).body()!!, raw)
+        }
+        val sink = Sink()
+        engine(api, sink).run("job16", folder()) { }
+        assertEquals(setOf("W/note.3gp"), sink.entries().keys)
+        assertTrue(data.contentEquals(sink.entries().getValue("W/note.3gp")))
+    }
+
+    @QFeature("X11")
+    @Test fun `after a broken conversion the original is asked for as the original`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.manifest = { ndjson(listOf(line(ExplorerManifestFile(path = "W/talk.mp4", url = null, mediaId = "a7", mediaType = "AUDIO", convertToMp4 = true, originalPath = "W/talk.wav", sizeBytes = 8)))) }
+        val asked = mutableListOf<String?>()
+        api.mediaResponse = { _, format, _, _ ->
+            asked += format
+            if (format == "mp4") error(503) else bytes("RIFF0000".toByteArray())
+        }
+        val sink = Sink()
+        engine(api, sink).run("job17", folder()) { }
+        assertEquals(listOf("mp4", "original"), asked)
+        assertEquals(setOf("W/talk.wav"), sink.entries().keys)
+    }
+
     @Test fun `too little free space stops before anything is written`() = runBlocking {
         val api = FakeExplorerApi()
         api.manifest = { ndjson(listOf(line(ExplorerManifestFile(path = "W/big.mp4", url = "/api/v/2", mediaId = "v2", mediaType = "VIDEO", sizeBytes = 5_000_000_000)))) }

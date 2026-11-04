@@ -186,6 +186,12 @@ test.describe("the wiring", () => {
     expect(data).toContain("Show all statuses");
   });
 
+  test("downloads carry every review status whatever the page shows", () => {
+    const data = read("app/(protected)/data/page.tsx");
+    expect(data).toContain("downloadExtra: {},");
+    expect(data).not.toMatch(/downloadExtra:\s*\{[^}]*status/);
+  });
+
   test("tasks show the records still waiting for review", () => {
     expect(read("components/tasks/MyTaskCard.tsx")).toContain("<TaskPendingRecords");
     expect(read("components/tasks/AccountabilityBoard.tsx")).toContain("<TaskPendingRecords");

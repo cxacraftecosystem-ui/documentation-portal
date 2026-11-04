@@ -90,7 +90,7 @@ type Source = { url: string; path: string; fallbackPath: string | null; converte
 
 function originalUrl(file: ManifestFile): string | null {
   if (file.url) return file.url;
-  return file.mediaId ? apiUrl(mediaPath(file.mediaId, "download")) : null;
+  return file.mediaId ? apiUrl(mediaPath(file.mediaId, "download"), { format: "original" }) : null;
 }
 
 export function sourcesOf(file: ManifestFile): Source[] {
@@ -107,7 +107,8 @@ export function sourcesOf(file: ManifestFile): Source[] {
 
 function pathFor(source: Source, response: Response): string {
   if (!source.converted || !source.fallbackPath) return source.path;
-  return (response.headers.get(CONVERSION_HEADER) ?? "").toLowerCase() === "original" ? source.fallbackPath : source.path;
+  const said = (response.headers.get(CONVERSION_HEADER) ?? "").toLowerCase();
+  return said === "original" || (!said && response.redirected) ? source.fallbackPath : source.path;
 }
 
 type Streamed = { path: string; bytes: number };

@@ -254,6 +254,8 @@ async def download(
     from app.services import naming
 
     media = await _media(media_id, user)
+    if getattr(media, "removedAt", None) is not None:
+        raise _not_found()
     try:
         doc, context = await pipeline.render_doc(media)
     except pipeline.PipelineRefused as exc:

@@ -270,19 +270,19 @@ class ExplorerEngine(
             }
             temp.delete()
             onBytes(0)
-            val original = fetchOriginal(item, temp, onBytes)
+            val original = fetchOriginal(item, temp, onBytes, ORIGINAL)
             return originalName(item, original.head)
         }
         val got = fetchOriginal(item, temp, onBytes)
         return if (item.path.isBlank()) got.filename.orEmpty() else item.path
     }
 
-    private suspend fun fetchOriginal(item: ExplorerItem, temp: File, onBytes: (Long) -> Unit): Fetched {
+    private suspend fun fetchOriginal(item: ExplorerItem, temp: File, onBytes: (Long) -> Unit, format: String? = null): Fetched {
         val url = item.url
         val mediaId = item.mediaId
         if (url.isNullOrBlank()) {
             mediaId ?: throw IllegalStateException(ExplorerText.fileFailed)
-            return ExplorerTransfer.fetchTo(temp, resumable = true, backoffMs = backoffMs, open = { offset -> openApi(api.media(mediaId, null, null, ExplorerTransfer.range(offset))) }, onBytes = onBytes)
+            return ExplorerTransfer.fetchTo(temp, resumable = true, backoffMs = backoffMs, open = { offset -> openApi(api.media(mediaId, format, null, ExplorerTransfer.range(offset))) }, onBytes = onBytes)
         }
         if (!ExplorerPaths.absolute(url)) {
             return ExplorerTransfer.fetchTo(temp, resumable = true, backoffMs = backoffMs, open = { offset -> openApi(api.path(ExplorerPaths.api(url), ExplorerTransfer.range(offset))) }, onBytes = onBytes)
@@ -291,7 +291,7 @@ class ExplorerEngine(
             ExplorerTransfer.fetchTo(temp, resumable = true, backoffMs = backoffMs, open = { offset -> openStorage(url, offset) }, onBytes = onBytes)
         } catch (failure: TransferFailed) {
             if (!ExplorerTransfer.expired(failure.code) || mediaId == null) throw failure
-            ExplorerTransfer.fetchTo(temp, resumable = true, backoffMs = backoffMs, open = { offset -> openApi(api.media(mediaId, null, null, ExplorerTransfer.range(offset))) }, onBytes = onBytes)
+            ExplorerTransfer.fetchTo(temp, resumable = true, backoffMs = backoffMs, open = { offset -> openApi(api.media(mediaId, format, null, ExplorerTransfer.range(offset))) }, onBytes = onBytes)
         }
     }
 
@@ -317,7 +317,7 @@ class ExplorerEngine(
             response.code(),
             response.code() == 206,
             body.byteStream(),
-            conversion = response.headers()[CONVERSION_HEADER],
+            conversion = response.headers()[CONVERSION_HEADER] ?: response.raw().priorResponse?.header(CONVERSION_HEADER),
             filename = ExplorerTransfer.dispositionName(response.headers()["Content-Disposition"]),
         ) { body.close() }
     }

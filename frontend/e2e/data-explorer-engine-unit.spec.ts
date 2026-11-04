@@ -332,6 +332,25 @@ test.describe("@qf:X10 the streaming zip", () => {
     expect(sourcesOf({ path: "x.ogg", mediaId: "m2", convertToMp4: true })[0].url).toContain("fallback=original");
   });
 
+  test("@qf:X11 a conversion that redirects to the stored original keeps the original's name", async () => {
+    const original = bytesOf(3000, 9);
+    const converted = "/api/data/media/m1/download?format=mp4&fallback=original";
+    const { fetcher: plain } = server({ [converted]: original });
+    const redirecting = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await plain(input, init);
+      Object.defineProperty(response, "redirected", { value: true });
+      return response;
+    }) as typeof fetch;
+    const out = collectSink();
+    await writeZip([{ path: "Voice/note.mp4", originalPath: "Voice/note.webm", mediaId: "m1", convertToMp4: true }], out.sink, hooks(redirecting).hooks);
+    const [entry] = readZip(out.bytes());
+    expect(entry.name).toBe("Voice/note.webm");
+    expect(entry.data).toEqual(original);
+    const sources = sourcesOf({ path: "x.mp4", originalPath: "x.wav", mediaId: "m2", convertToMp4: true });
+    expect(sources[1].url).toContain("format=original");
+    expect(sources[1].path).toBe("x.wav");
+  });
+
   test("cancel stops the walk and aborts the sink", async () => {
     const controller = new AbortController();
     const files: Record<string, Uint8Array> = {};

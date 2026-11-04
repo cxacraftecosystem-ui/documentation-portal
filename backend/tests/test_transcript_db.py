@@ -383,6 +383,45 @@ def test_the_routes_answer_the_contract_shapes(wired: Any) -> None:
     _run(scenario)
 
 
+def test_a_removed_recording_ships_its_transcript_in_no_format(wired: Any) -> None:
+    import io
+    import zipfile
+    from datetime import UTC, datetime
+
+    import httpx
+    from fastapi import FastAPI
+
+    from app.api.router import api_router
+    from app.core import deps
+    from app.core.db import db
+    from app.services import transcript_pipeline as pipeline
+
+    async def scenario() -> None:
+        seed = await _seed()
+        media = seed["media"]
+        app = FastAPI()
+        app.include_router(api_router)
+        app.dependency_overrides[deps.get_current_user] = lambda: seed["admin"]
+        try:
+            await pipeline.store_transcription(media, _scribe_result())
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+                bundle = await client.get(f"/api/transcripts/{media.id}/download", params={"format": "zip"})
+                assert bundle.status_code == 200 and bundle.headers["content-type"] == "application/zip"
+                assert "_Transcript-All-Formats" in bundle.headers["content-disposition"]
+                with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
+                    names = archive.namelist()
+                    assert archive.testzip() is None
+                assert any(n.endswith(".md") for n in names) and any(n.endswith(".docx") for n in names)
+                await db.mediafile.update(where={"id": media.id}, data={"removedAt": datetime.now(UTC)})
+                for fmt in ("zip", "md", "docx", "srt", "vtt"):
+                    gone = await client.get(f"/api/transcripts/{media.id}/download", params={"format": fmt, "track": "original"})
+                    assert gone.status_code == 404, fmt
+        finally:
+            await _cleanup(seed)
+
+    _run(scenario)
+
 
 async def _legacy(seed: dict[str, Any]) -> Any:
     from app.core.db import db
