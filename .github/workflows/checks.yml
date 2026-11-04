@@ -968,6 +968,7 @@ jobs:
           python scripts/tools/strip_comments.py --out "$RUNNER_TEMP/stripped"
           node scripts/tools/verify_strip_ts.mjs "$RUNNER_TEMP/stripped"
           find "$RUNNER_TEMP/stripped" -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+          python scripts/tools/verify_strip_workflows.py .github/workflows "$RUNNER_TEMP/stripped/.github/workflows"
 
       - name: No comments remain
         run: python scripts/tools/strip_comments.py --check

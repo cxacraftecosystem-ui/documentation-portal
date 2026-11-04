@@ -363,6 +363,155 @@ class ShellAndContainerCases(unittest.TestCase):
         )
         self.assertEqual(strip(src, "shell", "deploy.sh"), want)
 
+    def test_a_quoted_heredoc_fed_to_a_shell_is_shell_code(self):
+        src = (
+            "ssh host 'bash -s' <<'REMOTE'\n"
+            "#!/bin/bash\n"
+            "# shellcheck disable=SC2086\n"
+            "# a remote comment\n"
+            "set -e # trailing\n"
+            "echo \"# kept\" '# kept too' $# ${#arr[@]}\n"
+            "cat <<'CONF' > /etc/x.conf\n"
+            "# config data stays\n"
+            "CONF\n"
+            "python3 - <<'PY'\n"
+            "# python stays\n"
+            "PY\n"
+            "REMOTE\n"
+            "ssh host \"SHA='$SHA' bash -s\" <<'R2'\n"
+            "  # indented comment\n"
+            "echo \"$SHA\"\n"
+            "R2\n"
+            "sudo bash <<\\R3\n"
+            "# escaped marker is quoted too\n"
+            "true\n"
+            "R3\n"
+            "bash -s <<EOF\n"
+            "# unquoted heredoc stays, the body is expanded first\n"
+            "EOF\n"
+            "bash -c 'cat' <<'EOF'\n"
+            "# stdin of bash -c is data\n"
+            "EOF\n"
+            "{ printf 'a=%s\\n' x; cat; } <<'R4' | ssh host 'bash -s'\n"
+            "# piped remote comment\n"
+            "true\n"
+            "R4\n"
+            "{\n"
+            "  printf 'b\\n'\n"
+            "  cat <<'R5'\n"
+            "# grouped remote comment\n"
+            "true\n"
+            "R5\n"
+            "} | ssh host 'bash -s'\n"
+            "cat <<'R6' | sudo tee /etc/y\n"
+            "# tee data stays\n"
+            "R6\n"
+        )
+        want = (
+            "ssh host 'bash -s' <<'REMOTE'\n"
+            "#!/bin/bash\n"
+            "# shellcheck disable=SC2086\n"
+            "set -e\n"
+            "echo \"# kept\" '# kept too' $# ${#arr[@]}\n"
+            "cat <<'CONF' > /etc/x.conf\n"
+            "# config data stays\n"
+            "CONF\n"
+            "python3 - <<'PY'\n"
+            "# python stays\n"
+            "PY\n"
+            "REMOTE\n"
+            "ssh host \"SHA='$SHA' bash -s\" <<'R2'\n"
+            "echo \"$SHA\"\n"
+            "R2\n"
+            "sudo bash <<\\R3\n"
+            "true\n"
+            "R3\n"
+            "bash -s <<EOF\n"
+            "# unquoted heredoc stays, the body is expanded first\n"
+            "EOF\n"
+            "bash -c 'cat' <<'EOF'\n"
+            "# stdin of bash -c is data\n"
+            "EOF\n"
+            "{ printf 'a=%s\\n' x; cat; } <<'R4' | ssh host 'bash -s'\n"
+            "true\n"
+            "R4\n"
+            "{\n"
+            "  printf 'b\\n'\n"
+            "  cat <<'R5'\n"
+            "true\n"
+            "R5\n"
+            "} | ssh host 'bash -s'\n"
+            "cat <<'R6' | sudo tee /etc/y\n"
+            "# tee data stays\n"
+            "R6\n"
+        )
+        self.assertEqual(strip(src, "shell", "deploy.sh"), want)
+
+    def test_a_workflow_heredoc_fed_to_a_remote_shell_is_stripped(self):
+        src = (
+            "jobs:\n"
+            "  deploy:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - name: Remote\n"
+            "        run: |\n"
+            "          ssh ubuntu@${{ secrets.HOST }} \"SHA='$SHA' bash -s\" <<'REMOTE'\n"
+            "          # 1. THE INTERPRETER\n"
+            "          #    the owner's decision\n"
+            "          set -euo pipefail # trailing\n"
+            "          echo \"# kept\"\n"
+            "          sudo tee /etc/app.conf >/dev/null <<'CONF'\n"
+            "          # config stays\n"
+            "          CONF\n"
+            "          REMOTE\n"
+        )
+        want = (
+            "jobs:\n"
+            "  deploy:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - name: Remote\n"
+            "        run: |\n"
+            "          ssh ubuntu@${{ secrets.HOST }} \"SHA='$SHA' bash -s\" <<'REMOTE'\n"
+            "          set -euo pipefail\n"
+            "          echo \"# kept\"\n"
+            "          sudo tee /etc/app.conf >/dev/null <<'CONF'\n"
+            "          # config stays\n"
+            "          CONF\n"
+            "          REMOTE\n"
+        )
+        self.assertEqual(strip(src, "yaml", ".github/workflows/deploy.yml"), want)
+        self.assertEqual(strip(want, "yaml", ".github/workflows/deploy.yml"), want)
+
+    def test_the_workflow_parse_check_reads_shell_heredocs_only(self):
+        import verify_strip_workflows as vw
+
+        script = (
+            "ssh host 'bash -s' <<'REMOTE'\n"
+            "echo remote\n"
+            "cat <<'CONF'\n"
+            "data\n"
+            "CONF\n"
+            "REMOTE\n"
+            "python3 - <<'PY'\n"
+            "print(1)\n"
+            "PY\n"
+            "{\n"
+            "  cat <<'R2'\n"
+            "echo grouped\n"
+            "R2\n"
+            "} | ssh host 'bash -s'\n"
+        )
+        bodies = list(vw.shell_heredocs(script))
+        self.assertEqual(bodies, ["echo remote\ncat <<'CONF'\ndata\nCONF\n", "echo grouped\n"])
+        doc = {
+            "jobs": {
+                "a": {"runs-on": "ubuntu-latest", "steps": [{"run": "echo a"}, {"run": "print(1)", "shell": "python"}]},
+                "b": {"runs-on": "windows-latest", "steps": [{"run": "Write-Host b"}, {"run": "echo c", "shell": "bash"}]},
+            }
+        }
+        self.assertEqual(list(vw.shell_runs(doc)), ["echo a", "echo c"])
+
     def test_dockerfile(self):
         src = (
             "# syntax=docker/dockerfile:1.7\n"

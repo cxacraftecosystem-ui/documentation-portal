@@ -97,6 +97,9 @@ TOML_DIRECTIVE = re.compile(r"#(?::schema\b|\s*taplo:)")
 DOCKER_DIRECTIVE = re.compile(r"#\s*(?:(?:syntax|escape|check)\s*=|hadolint\s)", re.I)
 XML_DIRECTIVE = re.compile(r"(?:tools:|noinspection\b|suppress\b|lint\b|@formatter:)")
 SHA_PIN = re.compile(r"@[0-9a-f]{40}\b")
+STDIN_SHELL = re.compile(r"""(?:^|[\s'"])(?:/usr)?(?:/bin/)?(?:ba|da)?sh(?:\s+-[abd-zA-Z]+)*\s*['"]?\s*$""")
+CAT_FEED = re.compile(r"(?:^|[\s;{])cat\s*(?:;\s*\}\s*)?$")
+PIPE_FEED = re.compile(r"^\s*\}?\s*\|(.*)$")
 SQL_DOLLAR = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
 REGEX_KEYWORDS = frozenset({"return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield", "await"})
 WS = frozenset(" \t\r\n\f\v ﻿  ")
@@ -862,9 +865,12 @@ class Scan:
                         k = n if m < 0 else m + 1
                         continue
                     k += 1
-                delim = t[j:k].replace("'", "").replace('"', "").replace("\\", "")
+                marker = t[j:k]
+                delim = marker.replace("'", "").replace('"', "").replace("\\", "")
                 if delim:
-                    pending.append((delim, strip))
+                    quoted = any(q in marker for q in "'\"\\")
+                    mode = heredoc_mode(t[t.rfind("\n", 0, i) + 1:i], t[k:self.line_end(k)]) if quoted else None
+                    pending.append((delim, strip, mode))
                 i = k
                 word = False
                 continue
@@ -878,7 +884,7 @@ class Scan:
 
     def sh_heredocs(self, i, pending):
         t, n = self.t, self.n
-        for delim, strip in pending:
+        for delim, strip, mode in pending:
             start = i
             found = False
             while i < n:
@@ -887,7 +893,12 @@ class Scan:
                 line = t[i:le].rstrip("\r")
                 nxt = n if e < 0 else e + 1
                 if (line.lstrip("\t") if strip else line) == delim:
-                    self.literal(start, i)
+                    if mode == "cat" and nxt < n and piped_to_shell(t[nxt:self.line_end(nxt)]):
+                        mode = "shell"
+                    if mode == "shell":
+                        self.sh_code(start, i)
+                    else:
+                        self.literal(start, i)
                     i = nxt
                     found = True
                     break
@@ -895,6 +906,16 @@ class Scan:
             if not found:
                 self.literal(start, n)
         return i
+
+    def sh_code(self, s, e):
+        inner = Scan(self.t[s:e], "shell", self.path)
+        inner.sh(0, None)
+        for cm in inner.out.comments:
+            cm.start += s
+            cm.end += s
+            self.out.comments.append(cm)
+        for a, b in inner.out.literals:
+            self.literal(a + s, b + s)
 
     def sh_ansi(self, j):
         t, n = self.t, self.n
@@ -1445,6 +1466,23 @@ class Scan:
             self.out.comments.append(cm)
         for s, e in inner.out.literals:
             self.literal(mapping[s], mapping[min(e, len(sub))])
+
+
+def feeds_shell(command):
+    return bool(STDIN_SHELL.search(re.split(r"[;&|(]", command)[-1]))
+
+
+def piped_to_shell(text):
+    m = PIPE_FEED.match(text)
+    return bool(m) and feeds_shell(m.group(1))
+
+
+def heredoc_mode(prefix, suffix):
+    if feeds_shell(prefix):
+        return "shell"
+    if CAT_FEED.search(prefix):
+        return "shell" if piped_to_shell(suffix) else "cat"
+    return None
 
 
 def is_posix_shell(value):

@@ -328,64 +328,11 @@ jobs:
           set -euo pipefail
           app=/home/ubuntu/app
 
-          # 0. A BOX STILL IN ITS FIRST BOOT IS NOT READY FOR A DEPLOY. infra/terraform/user_data.sh
-          #    installs nginx, the two units and the interpreter below while cloud-init runs it, and the
-          #    first deploy to a new box can arrive before it has finished: it would race it for apt and
-          #    for /opt/cpython, and restart units that do not exist yet. Waiting costs nothing on a box
-          #    that booted long ago (0.4 s on the live one, 2026-10-09). A box without cloud-init skips it.
           if command -v cloud-init >/dev/null 2>&1; then
             timeout 1200 cloud-init status --wait >/dev/null 2>&1 || true
             echo "cloud-init: $(cloud-init status 2>&1 || true)"
           fi
 
-          # 1. THE INTERPRETER: UPSTREAM CPYTHON, PINNED, CHECKSUMMED, UNPACKED ONCE.
-          #
-          #    WHY NOT apt. Ubuntu 26.04's python3.14 is 3.14.4 with Ubuntu's security fixes backported;
-          #    24.04 has no python3.14 and needed the deadsnakes PPA; CI runs upstream 3.14.8. The owner's
-          #    decision on 2026-10-09 is that production runs exactly what CI tests, on both releases, so
-          #    the interpreter is upstream CPython as built by python-build-standalone
-          #    (https://github.com/astral-sh/python-build-standalone, Astral's relocatable builds, the
-          #    ones `uv python install` fetches). The x86_64 linux-gnu build asks nothing of the box but
-          #    glibc: OpenSSL, SQLite, expat, xz, libffi and zlib are built in, so 24.04 (OpenSSL 3.0)
-          #    and 26.04 (OpenSSL 3.5, sudo-rs, uutils coreutils, no python3.12) get the same interpreter.
-          #
-          #    THE PIN. The newest release carrying 3.14.8 on 2026-10-09 is 20261009, published at 16:38
-          #    UTC that day (20261003 and 20261001 carry 3.14.8 too; 20261009 adds expat 2.9.0 and libffi
-          #    3.8.0, which this build links in), and the asset is the full `install_only` build. The
-          #    SHA-256 is that asset's line in the release's SHA256SUMS, which matched GitHub's own digest
-          #    for the asset, a download hashed by hand, and the Sigstore build provenance the project's
-          #    release workflow signs for it (`gh attestation verify`). A download that hashes to
-          #    anything else is REFUSED: not unpacked, and since this runs before anything is stopped,
-          #    the API and the queue never notice.
-          #
-          #    WHY 3.14 AND NOT 3.15. 3.15.0 reached python.org on 2026-10-09, and python-build-standalone
-          #    shipped it that evening (20261009), but the rest of what this box needs had not caught up:
-          #    setup-python's manifest, which CI installs from, stopped at 3.15.0rc3; the official Docker
-          #    image had only 3.15-rc tags; the lock's httptools 0.8.0 and PyYAML 6.0.3 had no cp315
-          #    wheels; and prisma-client-py 0.15.0, its latest release and the one package the API cannot
-          #    start without, classifies itself only up to 3.12 (all four checked again that evening).
-          #    Move when they have, and move the pin in THREE places together: these four lines, the same
-          #    four in infra/terraform/user_data.sh, and `python-version` in checks.yml.
-          #    backend/tests/test_interpreter_pin.py fails while they disagree.
-          #
-          #    WHERE IT GOES. /opt/cpython/<version>+<build>, owned by root and writable by nobody else,
-          #    because every venv built on it runs it. Nothing changes it in place: a new pin is a new
-          #    directory, and INSTALLED_FROM inside it names the URL and the hash it came from. The
-          #    download is hashed as root inside a root-only staging directory on the same filesystem,
-          #    so what is hashed is what is unpacked; the standard library is byte-compiled there, as
-          #    root (below says why); the result is proved (the version, and ssl, sqlite3, lzma, ctypes,
-          #    pyexpat, ensurepip and venv) as the user the services run as, and only then takes its
-          #    name, in one rename(2). A directory of that name that is NOT the pinned build stops the
-          #    deploy rather than being replaced, because a venv may be running on it.
-          #
-          #    WHAT IT LEAVES ALONE. Nothing here adds the deadsnakes PPA any more, and nothing removes
-          #    it: on a 24.04 box that has it (the live one), the PPA and its python3.14 stay exactly as
-          #    they are, because the venv this change switches the API away from was built on that
-          #    interpreter and becomes the rollback venv, and a redeploy of a commit from before this
-          #    change builds on that interpreter again. Nothing upgrades them now, which is harmless
-          #    for an interpreter nothing runs on until somebody rolls back; backend/DEPLOY_AWS.md §9
-          #    says how to remove both once that rollback is no longer wanted. python3.12, 24.04's
-          #    system Python and the py3.12-legacy venv's, stays too. A 26.04 box gets neither.
           cpython=3.15.2
           pbs_release=20261026
           pbs_url=https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.15.2%2B20261026-x86_64-unknown-linux-gnu-install_only.tar.gz
@@ -404,9 +351,6 @@ jobs:
             exit 1
           else
             echo "installing CPython ${cpython} from python-build-standalone ${pbs_release} into ${prefix}"
-            # Downloaded as this user, onto the disk rather than into /tmp (a tmpfs on 26.04, and
-            # this box has little RAM to spare); hashed and unpacked as root, from root's own copy.
-            # A download dir left by a run that was killed before its trap could run goes first.
             rm -rf "$app"/.cpython-download.*
             dl="$(mktemp -d "$app/.cpython-download.XXXXXX")"
             stage=""
@@ -414,7 +358,6 @@ jobs:
             curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 5 --retry-all-errors \
               --connect-timeout 20 --max-time 900 -o "$dl/cpython.tar.gz" "$pbs_url"
             sudo install -d -m 0755 -o root -g root /opt/cpython
-            # Left by a run that was killed half way through, before its trap could run.
             sudo rm -rf /opt/cpython/.stage-*
             stage="$(sudo mktemp -d /opt/cpython/.stage-XXXXXX)"
             sudo install -m 0600 -o root -g root "$dl/cpython.tar.gz" "$stage/cpython.tar.gz"
@@ -429,13 +372,6 @@ jobs:
             sudo rm -f "$stage/cpython.tar.gz"
             printf '%s\n' "$provenance" > "$dl/INSTALLED_FROM"
             sudo install -m 0644 -o root -g root "$dl/INSTALLED_FROM" "$stage/python/INSTALLED_FROM"
-            # THE STANDARD LIBRARY'S BYTECODE, COMPILED ONCE, HERE, AS ROOT. The tarball ships the
-            # sources and no __pycache__, and nothing can write one later: the prefix is root's, so
-            # every process the services start as ubuntu would compile what it imports from source,
-            # on every start, for as long as the build is installed (Debian's postinst compiles
-            # deadsnakes' copy the same way). Measured in a container on 2026-10-09: 2.0 s against
-            # 1.4 s for the API's imports, each start; compiling took 2 to 4 s and 45 MB, once.
-            # `-s`/`-p` record the final path in the bytecode, not the staging one.
             sudo "$stage/python/bin/python${cpython%.*}" -I -m compileall -q -s "$stage/python" -p "$prefix" "$stage/python/lib/python${cpython%.*}"
             sudo chmod -R u+rwX,go+rX,go-w "$stage/python"
             sudo chmod 0755 "$stage"
@@ -452,21 +388,6 @@ jobs:
           fi
           "$py" -VV
 
-          # 2. The one library the pinned Node needs. libatomic1 is what Node 26's official binary
-          #    links against (the install step pins the Prisma CLI's Node to it). The live 24.04 box and
-          #    the 26.04 cloud image both have it (Canonical's manifest lists it), but a minimal image
-          #    does not: the ubuntu:26.04 container these scripts were proved in lacked it. Missing, the
-          #    step installs it or fails; present, apt is not touched at all.
-          #
-          #    A herestring, not a pipe: `grep -q` exits at its first match, and under pipefail the
-          #    SIGPIPE that can give the writer would read as "absent" (the `changes` job above carries
-          #    the same lesson).
-          #
-          #    `sudo env ...` and not `sudo VAR=value ...`: sudo honours an assignment only where its
-          #    policy allows (26.04's default sudo is sudo-rs), `env` is a command and works under any
-          #    policy. NEEDRESTART_SUSPEND keeps needrestart's apt hook from restarting the API in the
-          #    middle of this deploy when a library it uses is upgraded; the end of this job restarts
-          #    both services anyway. The lock timeout waits out an unattended-upgrades run.
           aptget() { sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 apt-get -o DPkg::Lock::Timeout=600 -qq "$@"; }
           refresh_lists() {
             for attempt in 1 2 3 4 5 6; do
@@ -482,12 +403,6 @@ jobs:
             aptget install -y --no-install-recommends libatomic1
           fi
 
-          # 3. The venv this interpreter, this lock and this schema call for, BUILT ON THE RUNNER. The
-          #    reuse is checked, not inferred: a venv marked complete whose python does not resolve to
-          #    the pinned interpreter is refused, never adopted and never deleted (it may be the one the
-          #    API is running on). Otherwise the runner's tarball is unpacked beside the live venvs,
-          #    proved on this box, and only then renamed into place. Its Prisma engine and CLI come in
-          #    the same tarball and go to ~/.cache/prisma-python/binaries when that version is new here.
           want="$WANT"
           target="$app/venvs/$want"
           mkdir -p "$app/venvs"
@@ -511,8 +426,6 @@ jobs:
               echo "::error::the shipped venv runs '${built_on:-missing}', not ${py}. Nothing was changed."
               exit 1
             fi
-            # Its compiled wheels against this box's libraries. Not `import prisma` or the app: the
-            # runner proved those, and the full client import is the cost this layout exists to avoid.
             "$stage/app/venvs/$want/bin/python" -c 'import uvloop, httptools, pydantic_core, bcrypt, cryptography.hazmat.bindings._rust, audioop, PIL._imaging; print("wheels load on the box")'
             mkdir -p "$HOME/.cache/prisma-python/binaries"
             for d in "$stage"/.cache/prisma-python/binaries/*/*; do
@@ -593,21 +506,11 @@ jobs:
           trap 'rm -f /home/ubuntu/app/next/.dburl' EXIT
           url="$(cat .dburl)"
           [ -n "$url" ] || { echo "the piped DATABASE_URL arrived empty"; exit 1; }
-          # The .env write above uses `printf '%s'`, which emits NO trailing newline, so a bare `>>`
-          # would glue the new key onto the end of whatever the last line is and silently corrupt
-          # that variable. Guarantee the newline first — the CORS step below carries the same guard
-          # and the same scar.
           [ -s .env ] && [ -n "$(tail -c1 .env)" ] && printf '\n' >> .env
-          # Drop any inherited value, so this is authoritative rather than additive.
           sed -i '/^DATABASE_URL=/d' .env
           printf 'DATABASE_URL=%s\n' "$url" >> .env
           chmod 600 .env
-          # Assert the key landed on a line of its own. `grep -q` rather than `grep -c`: a count of
-          # zero exits 1, which under `set -e` fails the step with no explanation of what was wrong.
           grep -q '^DATABASE_URL=' .env || { echo "DATABASE_URL did not land on its own line"; exit 1; }
-          # Print the HOST ONLY, never the credentials. Actions logs are readable by anyone with
-          # repository access, and Actions only masks a value it knows verbatim — a substring of a
-          # secret (the password inside a URL) is NOT masked for you.
           echo "database pinned to: $(grep -m1 '^DATABASE_URL=' .env | sed -E 's#^DATABASE_URL=postgresql://[^@]+@#>>> #')"
           REMOTE
         env:
@@ -618,16 +521,9 @@ jobs:
           ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
           set -euo pipefail
           cd /home/ubuntu/app/next
-          # The step above writes this file with `printf '%s'`, which emits NO trailing newline, so a
-          # bare `>>` glues the new key onto the end of whatever the last line is and silently
-          # corrupts that variable. Guarantee the newline first. (This is not hypothetical: the first
-          # version of this step did exactly that, and `grep -c` then found zero matches.)
           [ -s .env ] && [ -n "$(tail -c1 .env)" ] && printf '\n' >> .env
-          # Drop any inherited value, so this is authoritative rather than additive.
           sed -i '/^BACKEND_CORS_ORIGINS=/d' .env
           printf 'BACKEND_CORS_ORIGINS=%s\n' 'https://field-repository.vercel.app,http://localhost:3000' >> .env
-          # Assert the key landed on a line of its own. `grep -q` rather than `grep -c`: a count of
-          # zero exits 1, which under `set -e` fails the step with no explanation of what was wrong.
           grep -q '^BACKEND_CORS_ORIGINS=' .env || { echo "CORS origins did not land on their own line"; exit 1; }
           echo "CORS origins pinned"
           REMOTE
@@ -998,9 +894,6 @@ jobs:
           if [ -z "$el" ]; then
             echo "ElevenLabs: no key in the live .env (skipped)"
           else
-            # POST speech-to-text with NO audio: the one scope the pipeline uses, refused by validation
-            # (400/422) before anything is transcribed or billed. Each portal's key is restricted to
-            # speech-to-text, so a read such as GET /v1/models answers 401 missing_permissions (31 Oct).
             code="$(curl -s -o "$body" -w '%{http_code}' --max-time 30 -H @<(printf 'xi-api-key: %s\n' "$el") -F model_id=scribe_v2 https://api.elevenlabs.io/v1/speech-to-text || true)"
             echo "ElevenLabs POST /v1/speech-to-text (no audio): HTTP ${code:-000}"
             case "$code" in
