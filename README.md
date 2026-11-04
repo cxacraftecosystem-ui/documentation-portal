@@ -280,6 +280,9 @@ erDiagram
   downloads as `.csv`; tables are remembered per folder. The report workbook is built one at a time,
   and the box hands the memory back afterwards (launch list D39). See
   [DATA_EXPLORER.md](docs/DATA_EXPLORER.md) and [DATA_EXPLORER_WEB.md](docs/DATA_EXPLORER_WEB.md).
+- **Android data browser**: the *Data* screen puts the tree first with search as its toolbar and one
+  *Download* button. Zips run in the background with a notification and Cancel, and keep going when the
+  app is left ([Play declaration](docs/ANDROID_BACKGROUND_DOWNLOADS.md)).
 - **Dataset API** (`/api/datasets`): for machines, behind admin credentials. Streams NDJSON or CSV
   with no row cap, keyset-paged, and sends `X-Dataset-Total` so a client can prove a download is
   complete. Artisan identity numbers are masked by default.

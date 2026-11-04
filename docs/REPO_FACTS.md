@@ -123,9 +123,9 @@ no key is skipped wherever it sits.
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
 | Backend unit (`backend/tests/`) | 189 | 2430 `def test_` | `python -m pytest -q` from `backend/` |
-| Web end-to-end (`frontend/e2e/`) | 140 | 1456 `test(` | Playwright, `frontend/playwright.config.ts` |
-| Android unit (`android/app/src/test/`) | 176 | 1421 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
-| Android instrumented | 17 | 69 `@Test` | not run in CI |
+| Web end-to-end (`frontend/e2e/`) | 137 | 1407 `test(` | Playwright, `frontend/playwright.config.ts` |
+| Android unit (`android/app/src/test/`) | 182 | 1457 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
+| Android instrumented | 20 | 82 `@Test` | not run in CI |
 
 The backend case count is `def test_` occurrences; pytest reports a larger number because
 parametrised cases expand. Neither the backend suite nor the e2e suite is a CI gate today — see
@@ -136,10 +136,10 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
 | `backend/app` | 273 | 70,037 | 273 | 70,037 |
-| `frontend/app` | 81 | 16,955 | 81 | 16,955 |
-| `frontend/components` | 327 | 61,659 | 327 | 61,659 |
-| `frontend/lib` | 186 | 36,031 | 186 | 36,031 |
-| `android/app/src/main/java` | 271 | 88,006 | 271 | 88,006 |
+| `frontend/app` | 81 | 18,526 | 81 | 18,526 |
+| `frontend/components` | 317 | 59,097 | 317 | 59,097 |
+| `frontend/lib` | 172 | 33,825 | 172 | 33,825 |
+| `android/app/src/main/java` | 294 | 91,133 | 294 | 91,133 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is
 uncommitted. **Tracked** is `git ls-files`, which is the figure to use in a write-up — it is

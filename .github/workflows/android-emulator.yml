@@ -132,6 +132,7 @@ jobs:
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package com.fieldrepository.app.questionnaire com.fieldrepository.app.test/androidx.test.runner.AndroidJUnitRunner > "$SMOKE_OUT/questionnaire-ui-test.txt" 2>&1; cat "$SMOKE_OUT/questionnaire-ui-test.txt"; grep -q "^OK (" "$SMOKE_OUT/questionnaire-ui-test.txt"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package com.fieldrepository.app.forms com.fieldrepository.app.test/androidx.test.runner.AndroidJUnitRunner > "$SMOKE_OUT/forms-ui-test.txt" 2>&1; cat "$SMOKE_OUT/forms-ui-test.txt"; grep -q "^OK (" "$SMOKE_OUT/forms-ui-test.txt"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package com.fieldrepository.app.transcript com.fieldrepository.app.test/androidx.test.runner.AndroidJUnitRunner > "$SMOKE_OUT/transcript-ui-test.txt" 2>&1; cat "$SMOKE_OUT/transcript-ui-test.txt"; grep -q "^OK (" "$SMOKE_OUT/transcript-ui-test.txt"
+            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package com.fieldrepository.app.explorer com.fieldrepository.app.test/androidx.test.runner.AndroidJUnitRunner > "$SMOKE_OUT/explorer-ui-test.txt" 2>&1; cat "$SMOKE_OUT/explorer-ui-test.txt"; grep -q "^OK (" "$SMOKE_OUT/explorer-ui-test.txt"
 
       - name: Upload the smoke results
         if: ${{ always() }}

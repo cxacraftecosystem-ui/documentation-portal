@@ -98,6 +98,7 @@ flowchart TD
 | [REPO_FACTS.md](REPO_FACTS.md) | **Generated.** Model and enum counts, the API surface, the role ladder, test counts, code volume |
 | [DATASET_API.md](DATASET_API.md) | The bearer-token bulk export: how to authenticate, what datasets exist, the filters, and what the identity-number scope costs |
 | [DATA_EXPLORER.md](DATA_EXPLORER.md) | The data page's server side for **people**: folders, sizes before a download, multi-select, streaming zips, previews, thumbnails, table search, transcript zips, and why none of it holds a whole archive in memory |
+| [ANDROID_BACKGROUND_DOWNLOADS.md](ANDROID_BACKGROUND_DOWNLOADS.md) | The Android *Data* screen and its background downloads: the layout, how a zip keeps going when the app is left, the permissions, and the exact Play Console declaration text |
 | [readme-kit/README_STYLE.md](readme-kit/README_STYLE.md) | How every README and diagram here is built: the SVG templates in light and dark, the mermaid palette, tables, motion and the CI check. Shared with designer-portal |
 | [DESIGN-claude.md](DESIGN-claude.md) | **Observed, not generated.** The visual design system this interface borrows from, extracted from anthropic.com |
 
