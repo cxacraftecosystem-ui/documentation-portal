@@ -21,6 +21,7 @@ timeline
     0.0.7 : Latest stable stack
     0.0.9 : Old transcripts translated : Data page report
     0.0.10 : Video and the upload choice : No-comments rule
+    0.0.11 : Tools across workshops
 ```
 
 | Release | Date | DR code | FR code | What shipped |
@@ -35,6 +36,7 @@ timeline
 | 0.0.8 | 2026-11-01 | · | · | `requires-python >=3.14` so Dependabot scans the backend; no app release |
 | 0.0.9 | 2026-11-03 | 34 | 29 | Old transcripts queue their translation and a declined one takes a person's English (D38); the Data page report on a click (D39); the backup freshness check |
 | 0.0.10 | 2026-11 | 35 | 30 | Video transcribed as its sound; the Transcribe and translate choice per file; admin auto switches; the backfill switch, off, with its cost estimate (D40); Gemini-first AI defaults with GPT-6 Luna and Claude Sonnet 5.5 only when selected; refine on every client; Android AI suggestions and summary edit; no comments in source, enforced in Checks; the README kit |
+| 0.0.11 | 2026-11-04 | 36 | 31 | A tool linked to several artisans shows under every workshop those artisans belong to, in the data browser, reports and xlsx, folder zip, dataset bundle, tools filters, search and the datasets API; the tool sheet's Linked workshops column; web and Android tool rows name every linked artisan; no migration and no data step |
 
 ## Video, the upload choice and the backfill switch (DR 0.0.10, FR 0.0.10)
 
