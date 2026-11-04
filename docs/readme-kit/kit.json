@@ -231,7 +231,7 @@
     ]
   },
   "timeline": {
-    "label": "Releases since the version reset: 0.0.1 to 0.0.10",
+    "label": "Releases since the version reset: 0.0.1 to 0.0.11",
     "items": [
       {
         "date": "21 Oct",
@@ -239,13 +239,8 @@
         "sub": "Fresh line, crafts list"
       },
       {
-        "date": "23 Oct",
-        "title": "0.0.3",
-        "sub": "One questionnaire engine"
-      },
-      {
-        "date": "1 Nov",
-        "title": "0.0.5",
+        "date": "31 Oct",
+        "title": "0.0.4",
         "sub": "Scribe v2 + Gemini"
       },
       {
@@ -261,7 +256,12 @@
       {
         "date": "4 Nov",
         "title": "0.0.10",
-        "sub": "Video, upload choice",
+        "sub": "Video, upload choice"
+      },
+      {
+        "date": "4 Nov",
+        "title": "0.0.11",
+        "sub": "Tools across workshops",
         "now": true
       }
     ]
