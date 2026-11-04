@@ -245,7 +245,7 @@ async def copy(media_id: str, body: CopyBody, user: Any = Depends(get_current_us
 @router.get("/{media_id}/download", dependencies=ENABLED)
 async def download(
     media_id: str,
-    format: str = Query(..., pattern="^(md|docx|srt|vtt)$"),
+    format: str = Query(..., pattern="^(md|docx|srt|vtt|zip)$"),
     track: str = Query("both", pattern="^(original|english|both)$"),
     timestamps: bool = Query(True),
     user: Any = Depends(get_current_user),
@@ -257,6 +257,17 @@ async def download(
         doc, context = await pipeline.render_doc(media)
     except pipeline.PipelineRefused as exc:
         raise _refused(exc) from None
+    if format == "zip":
+        from fastapi.responses import StreamingResponse
+
+        from app.services.data_explorer import transcript_zip
+
+        files = transcript_zip.one_transcript_files(media, context, doc)
+        return StreamingResponse(
+            transcript_zip.one_transcript_zip(files),
+            media_type="application/zip",
+            headers={"Content-Disposition": naming.content_disposition(transcript_zip.bundle_name(media, context))},
+        )
     if format in {"srt", "vtt"} and track == "both":
         track = "original"
     if format == "md":

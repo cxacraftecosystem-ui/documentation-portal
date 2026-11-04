@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.core.db import db
 from app.core.deps import require_dataset_downloader
@@ -25,6 +25,7 @@ from app.services import (
     transcript_portal,
 )
 from app.services.concurrency import gather_reads
+from app.services.data_explorer import report_tools, slim, tree as explorer_tree, walk as explorer_walk
 from app.services.media_naming import (
     RESERVED_NAMES as _RESERVED_NAMES,
 )
@@ -32,7 +33,6 @@ from app.services.media_naming import (
     clip as _clip,
 )
 from app.services.media_naming import (
-    display_filename,
     folder_order,
     interview_record,
     transcript_filename,
@@ -80,7 +80,6 @@ from app.services.record_fields import (
 )
 from app.services.record_filters import tools_in_workshop_clause
 from app.services.records import owned_or_granted_where
-from app.services.s3 import get_object_bytes
 from app.services.tool_scope import (
     TOOL_SCOPE_INCLUDE,
     hide_unseen,
@@ -100,7 +99,6 @@ TAKE = 500
 MAX_MANIFEST_FILES = 20000
 MAX_WALK_DEPTH = 16
 _WALK_SEM = asyncio.Semaphore(5)
-MAX_CONVERT_BYTES = 200 * 1024 * 1024
 REPORT_TAKE = 5000
 PREVIEW_ROWS = 200
 _REPORT_BUILD = asyncio.Semaphore(1)
@@ -380,8 +378,8 @@ def _media_entries(
                 "mediaId": m.id,
                 "url": m.url,
                 "sizeBytes": int(m.sizeBytes) if m.sizeBytes is not None else None,
-                "transcriptAvailable": bool((m.transcriptText or "").strip()),
-                "_transcriptText": m.transcriptText,
+                "transcriptAvailable": slim.has_transcript(m),
+                "_transcriptText": getattr(m, "transcriptText", None),
                 "_transcriptName": transcript_filename(
                     m,
                     record_type=record_type,
@@ -411,13 +409,21 @@ _NAMING_INCLUDE: dict[str, Any] = {
 }
 
 
+def _memo_key(*parts: Any) -> str:
+    return json.dumps(parts, sort_keys=True, default=str)
+
+
 async def _media(where: dict[str, Any], scope: Scope, *, named: bool = False) -> list[Any]:
     kwargs: dict[str, Any] = {}
     if named:
         kwargs["include"] = _NAMING_INCLUDE
-    return await db.mediafile.find_many(
-        where=live_media_where(_and(where, scope.media)), take=TAKE, order={"createdAt": "asc"}, **kwargs
-    )
+
+    async def load() -> list[Any]:
+        return await slim.find_media(
+            where=slim.live(_and(where, scope.media)), take=TAKE, order={"createdAt": "asc"}, **kwargs
+        )
+
+    return await explorer_walk.memo(_memo_key("media", where, scope.media, named), load)
 
 
 async def _workshop_misc_media(wid: str, scope: Scope, *, named: bool = False) -> list[Any]:
@@ -521,11 +527,16 @@ async def _require(
     kwargs: dict[str, Any] = {"where": {"id": rec_id}}
     if include:
         kwargs["include"] = include
-    if scope_where:
-        kwargs["where"] = {"AND": [{"id": rec_id}, scope_where]}
-        record = await delegate.find_first(**kwargs)
-    else:
-        record = await delegate.find_unique(**kwargs)
+
+    async def load() -> Any:
+        if scope_where:
+            kwargs["where"] = {"AND": [{"id": rec_id}, scope_where]}
+            return await delegate.find_first(**kwargs)
+        return await delegate.find_unique(**kwargs)
+
+    record = await explorer_walk.memo(
+        _memo_key("require", id(delegate), rec_id, include, scope_where), load
+    )
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{what} not found")
     return record
@@ -687,6 +698,12 @@ async def _filed_tool_artisan_ids(wid: str, reached: list[str], scope: Scope) ->
 
 
 async def _linked_artisans(ws: Any, scope: Scope) -> list[Any]:
+    return await explorer_walk.memo(
+        _memo_key("linked", ws.id, scope.records), lambda: _load_linked_artisans(ws, scope)
+    )
+
+
+async def _load_linked_artisans(ws: Any, scope: Scope) -> list[Any]:
     reach = workshop_artisan_reach(ws)
     reached = await db.artisan.find_many(
         where=_and({"OR": reach}, scope.records),
@@ -1147,8 +1164,7 @@ def _transcript_entries(parent: str, media: list[Any]) -> list[dict[str, Any]]:
     used: set[str] = set()
     entries: list[dict[str, Any]] = []
     for position, m in enumerate(folder_order(media), start=1):
-        text = (m.transcriptText or "").strip()
-        if not text:
+        if not slim.has_transcript(m):
             continue
         name = unique_display_stem(
             m, used, extension=".transcript.md", position=position, fallback=m.id
@@ -1159,7 +1175,7 @@ def _transcript_entries(parent: str, media: list[Any]) -> list[dict[str, Any]]:
                 "path": _join(parent, name),
                 "kind": "file",
                 "originalFilename": m.originalFilename,
-                "content": m.transcriptText,
+                "content": getattr(m, "transcriptText", None),
                 "mediaId": m.id,
                 "_txMedia": m.id,
                 "_media": m,
@@ -1439,7 +1455,7 @@ async def _locate_path(record_type: str, record_id: str, scope: Scope) -> str | 
         return f"{base}/questionnaire/{record_id}" if base else None
 
     if kind in {"media", "mediafile"}:
-        media = await db.mediafile.find_first(where=_and({"id": record_id}, scope.media))
+        media = await db.mediafile.find_first(where=slim.live(_and({"id": record_id}, scope.media)))
         if media is None:
             return None
         for owner_kind, owner_id in (
@@ -1475,6 +1491,9 @@ async def data_locate(
 async def data_tree(
     path: str = "",
     status_value: str | None = Query(None, alias="status"),
+    lean: bool = Query(False, alias="slim"),
+    cursor: str | None = None,
+    limit: int | None = Query(None, ge=1, le=explorer_tree.TREE_PAGE_MAX),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
     scope = await _scope_for(current_user, data_status(status_value))
@@ -1482,14 +1501,18 @@ async def data_tree(
     entries, info = await _list_level(norm, scope)
     entries = await transcript_export.settle_tree(entries, pipeline_on=transcript_pipeline.enabled())
     crumbs = await _resolve_crumbs(norm)
-    public = [{k: v for k, v in e.items() if not k.startswith("_")} for e in entries]
-    public.sort(key=lambda e: (0 if e["kind"] == "folder" else 1, e["name"].lower()))
+    cut = len(entries) >= TAKE
+    public, total, next_cursor = await explorer_tree.shape(
+        entries, lean=lean is True, cursor=cursor, limit=limit
+    )
     return {
         "path": norm,
         "crumbs": crumbs,
         "entries": public,
         "info": info,
-        "truncated": len(entries) >= TAKE,
+        "truncated": cut,
+        "total": total,
+        "nextCursor": next_cursor,
         "taxonomies": TAXONOMIES,
         "taxonomy": _taxonomy_of(norm),
     }
@@ -1505,114 +1528,12 @@ async def _walk(
     state: dict[str, bool],
     scope: Scope,
 ) -> None:
-    if depth > MAX_WALK_DEPTH or len(files) >= MAX_MANIFEST_FILES:
+    walker = explorer_walk.Walk(_list_level, scope, include)
+    walker.files = files
+    walker.seen_media = seen_media
+    await walker.run(path, rel, depth)
+    if walker.truncated:
         state["truncated"] = True
-        return
-    try:
-        async with _WALK_SEM:
-            entries, _ = await _list_level(path, scope)
-    except HTTPException:
-        return
-    if len(entries) >= TAKE:
-        state["truncated"] = True
-    used_names: set[str] = set()
-
-    def emit(entry: dict[str, Any], stem: str, extension: str) -> None:
-        if len(files) < MAX_MANIFEST_FILES:
-            entry["path"] = _join(rel, unique_name(stem, extension, used_names))
-            files.append(entry)
-        else:
-            state["truncated"] = True
-
-    child_walks = []
-    for e in entries:
-        if e["kind"] == "folder":
-            child_walks.append(
-                _walk(
-                    e["path"],
-                    _join(rel, e["name"]),
-                    include,
-                    files,
-                    depth + 1,
-                    seen_media,
-                    state,
-                    scope,
-                )
-            )
-            continue
-        if "content" in e:
-            if e.get("_txMedia"):
-                if include is None or "transcripts" in include or "text" in include:
-                    mid = str(e["_txMedia"])
-                    entry = {"content": e["content"], "mediaId": mid, "_tx": (mid, "legacy")}
-                    if e.get("originalFilename"):
-                        entry["originalFilename"] = e["originalFilename"]
-                    emit(entry, *_split_leaf(e["name"]))
-                    for leaf, file_entry, needs in transcript_export.bundle_entries(
-                        mid, transcript_export.bundle_names(e["_media"], e.get("_nameKw"))
-                    ):
-                        file_entry["_tx"] = (mid, "pipeline", needs)
-                        emit(file_entry, *_split_leaf(leaf))
-                continue
-            if include is None or "text" in include:
-                entry = {"content": e["content"]}
-                if e.get("originalFilename"):
-                    entry["originalFilename"] = e["originalFilename"]
-                emit(entry, *_split_leaf(e["name"]))
-            continue
-        if e["mediaId"] in seen_media:
-            continue
-        seen_media.add(e["mediaId"])
-        media_type = e.get("mediaType") or "OTHER"
-        token = _TYPE_TOKEN.get(media_type, "other")
-        name = e["name"]
-        stem, extension = _split_leaf(name)
-        original = e.get("originalFilename")
-        if include is None or token in include:
-            if media_type == "AUDIO":
-                emit(
-                    {
-                        "url": e.get("url"),
-                        "originalPath": _join(rel, name),
-                        "originalFilename": original,
-                        "mediaId": e["mediaId"],
-                        "mediaType": media_type,
-                        "convertToMp4": True,
-                    },
-                    stem,
-                    ".mp4",
-                )
-            else:
-                emit(
-                    {
-                        "url": e.get("url"),
-                        "originalFilename": original,
-                        "mediaId": e["mediaId"],
-                        "mediaType": media_type,
-                    },
-                    stem,
-                    extension,
-                )
-        if e.get("transcriptAvailable") and (include is None or "transcripts" in include):
-            mid = str(e["mediaId"])
-            emit(
-                {
-                    "content": e.get("_transcriptText") or "",
-                    "originalFilename": original,
-                    "mediaId": e["mediaId"],
-                    "_tx": (mid, "legacy"),
-                },
-                *_split_leaf(e.get("_transcriptName") or f"{stem}.md"),
-            )
-            if e.get("_media") is not None:
-                for leaf, file_entry, needs in transcript_export.bundle_entries(
-                    mid, transcript_export.bundle_names(e["_media"], e.get("_nameKw"))
-                ):
-                    file_entry["originalFilename"] = original
-                    file_entry["_tx"] = (mid, "pipeline", needs)
-                    emit(file_entry, *_split_leaf(leaf))
-    if child_walks:
-        await asyncio.gather(*child_walks)
 
 
 MANIFEST_NDJSON_MEDIA_TYPE = "application/x-ndjson"
@@ -1658,29 +1579,17 @@ async def data_manifest(
     stream: bool = False,
     status_value: str | None = Query(None, alias="status"),
     current_user: Any = Depends(require_dataset_downloader),
-) -> dict[str, Any] | StreamingResponse:
+) -> Response:
+    from app.api.routes import data_explorer
+
     include_set: set[str] | None = None
     if include is not None and include.strip():
         include_set = {t.strip().lower() for t in include.split(",") if t.strip()}
     scope = await _scope_for(current_user, data_status(status_value))
-    norm = _norm(path)
-    files: list[dict[str, Any]] = []
-    state = {"truncated": False}
-    await _walk(norm, "", include_set, files, 0, set(), state, scope)
-    await transcript_export.finalize_manifest(files, pipeline_on=transcript_pipeline.enabled())
-    total_media = sum(
-        1 for f in files if f.get("mediaId") and f.get("content") is None and f.get("mediaType") != "TRANSCRIPT"
+    files, truncated = await explorer_walk.manifest_files(
+        _list_level, scope, [(_norm(path), "")], include_set, fill=not stream
     )
-    if stream:
-        return manifest_ndjson_response(
-            files, total_media, bool(state["truncated"]), "manifest.ndjson"
-        )
-    return {
-        "files": files,
-        "totalFiles": len(files),
-        "totalMedia": total_media,
-        "truncated": state["truncated"],
-    }
+    return data_explorer.manifest_response(files, truncated, stream=stream)
 
 
 _ARTISAN_INCLUDE = {
@@ -1719,7 +1628,9 @@ _REPORT_MEDIA_COLUMNS = (
     'm."toolId"',
     'm."questionnaireInterviewId"',
 )
-_HAS_TRANSCRIPT = 'COALESCE(length(btrim(m."transcriptText")) > 0, false) AS "hasTranscript"'
+_HAS_TRANSCRIPT = (
+    '(m."transcriptText" IS NOT NULL AND m."transcriptText" <> \'\') AS "hasTranscript"'
+)
 _REPORT_MEDIA_SQL = (
     "SELECT " + ", ".join((*_REPORT_MEDIA_COLUMNS, _HAS_TRANSCRIPT))
     + ' FROM "MediaFile" m WHERE m."id" = ANY($1::text[])'
@@ -1858,48 +1769,42 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown data path")
 
     if len(segs) <= 1:
-        data["workshops"] = await db.workshop.find_many(
-            where=scope.records,
-            take=REPORT_TAKE,
-            order={"createdAt": "desc"},
-            include={"createdBy": True},
+        order = [{"createdAt": "desc"}, {"id": "desc"}]
+        (
+            data["workshops"],
+            data["crafts"],
+            data["artisans"],
+            data["products"],
+            data["processes"],
+            data["tools"],
+            data["interviews"],
+            data["media"],
+        ) = await gather_reads(
+            db.workshop.find_many(
+                where=scope.records, take=REPORT_TAKE, order=order, include={"createdBy": True}
+            ),
+            db.craft.find_many(
+                take=REPORT_TAKE,
+                order=order,
+                include={"workshops": {"include": {"workshop": True}}},
+            ),
+            db.artisan.find_many(
+                where=scope.records, take=REPORT_TAKE, order=order, include=_ARTISAN_INCLUDE
+            ),
+            db.productdocumentation.find_many(
+                where=scope.records, take=REPORT_TAKE, order=order, include=_PRODUCT_INCLUDE
+            ),
+            db.process.find_many(
+                where=scope.records, take=REPORT_TAKE, order=order, include=_PROCESS_INCLUDE
+            ),
+            db.tooldocumentation.find_many(
+                where=scope.records, take=REPORT_TAKE, order=order, include=_TOOL_INCLUDE
+            ),
+            db.questionnaireinterview.find_many(
+                where=scope.records, take=REPORT_TAKE, order=order, include=_INTERVIEW_INCLUDE
+            ),
+            _report_media(None, scope),
         )
-        data["crafts"] = await db.craft.find_many(
-            take=REPORT_TAKE,
-            order={"createdAt": "desc"},
-            include={"workshops": {"include": {"workshop": True}}},
-        )
-        data["artisans"] = await db.artisan.find_many(
-            where=scope.records,
-            take=REPORT_TAKE,
-            order={"createdAt": "desc"},
-            include=_ARTISAN_INCLUDE,
-        )
-        data["products"] = await db.productdocumentation.find_many(
-            where=scope.records,
-            take=REPORT_TAKE,
-            order={"createdAt": "desc"},
-            include=_PRODUCT_INCLUDE,
-        )
-        data["processes"] = await db.process.find_many(
-            where=scope.records,
-            take=REPORT_TAKE,
-            order={"createdAt": "desc"},
-            include=_PROCESS_INCLUDE,
-        )
-        data["tools"] = await db.tooldocumentation.find_many(
-            where=scope.records,
-            take=REPORT_TAKE,
-            order={"createdAt": "desc"},
-            include=_TOOL_INCLUDE,
-        )
-        data["interviews"] = await db.questionnaireinterview.find_many(
-            where=scope.records,
-            take=REPORT_TAKE,
-            order={"createdAt": "desc"},
-            include=_INTERVIEW_INCLUDE,
-        )
-        data["media"] = await _report_media(None, scope)
         return data
 
     wid = segs[1]
@@ -2615,14 +2520,15 @@ async def data_report(
     path: str = "",
     format: str | None = None,
     status_value: str | None = Query(None, alias="status"),
+    q: str | None = None,
+    sheet: str | None = None,
     current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
     fmt = (format or "xlsx").strip().lower()
-    if fmt not in ("json", "xlsx"):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="format must be 'json' or 'xlsx'",
-        )
+    if fmt not in ("json", "xlsx", "csv"):
+        raise HTTPException(status_code=422, detail="format must be 'json', 'xlsx' or 'csv'")
+    if fmt == "csv" and not (sheet or "").strip():
+        raise HTTPException(status_code=422, detail="Name the sheet to download as CSV.")
     status_filter = data_status(status_value)
     if _REPORT_BUILD.locked():
         raise HTTPException(
@@ -2632,7 +2538,7 @@ async def data_report(
         )
     async with _REPORT_BUILD:
         try:
-            return await _build_report(path, fmt, status_filter, current_user)
+            return await _build_report(path, fmt, status_filter, current_user, q=q, sheet=sheet)
         finally:
             _trim_heap()
 
@@ -2678,9 +2584,17 @@ def _trim_heap() -> None:
 
 
 async def _build_report(
-    path: str, fmt: str, status_filter: str | None, current_user: Any
+    path: str,
+    fmt: str,
+    status_filter: str | None,
+    current_user: Any,
+    *,
+    q: str | None = None,
+    sheet: str | None = None,
 ) -> Response:
     scope = await _scope_for(current_user, status_filter)
+    searching = fmt == "json" and bool(report_tools.words(q))
+    preview_only = fmt == "json" and not searching
     norm = _norm(path)
     segs = [s for s in norm.split("/") if s]
     records = await _report_records(segs, scope)
@@ -2688,7 +2602,7 @@ async def _build_report(
     await transcript_export.withhold_refused(records["media"])
     transcribed = [str(m.id) for m in records["media"] if transcript_export.has_text(m)]
     texts = await transcript_export.transcript_texts(
-        transcribed[:PREVIEW_ROWS] if fmt == "json" else transcribed
+        transcribed[:PREVIEW_ROWS] if preview_only else transcribed
     )
     sheets = _report_sheets(records, texts)
     del texts
@@ -2696,13 +2610,41 @@ async def _build_report(
         transcribed,
         sees_spend=transcript_portal.may_see_spend(current_user),
         sheet=_sheet,
-        cap=PREVIEW_ROWS if fmt == "json" else REPORT_TAKE,
+        cap=PREVIEW_ROWS if preview_only else REPORT_TAKE,
         color=TRANSCRIPT_COLOR,
     )
-    uncounted = set(range(len(sheets), len(sheets) + len(pipeline))) if fmt == "json" else set()
+    uncounted = set(range(len(sheets), len(sheets) + len(pipeline))) if preview_only else set()
     sheets += pipeline
+    if sheet and sheet.strip():
+        sheets = report_tools.pick(sheets, sheet)
+        if not sheets:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such sheet")
+    if fmt == "csv":
+        crumbs = await _resolve_crumbs(norm)
+        level_name = crumbs[-1]["name"] if crumbs else "Repository"
+        chosen = _rendered(sheets[:1])[0]
+        del sheets, records
+        csv_name = naming.export_filename(
+            "Dataset",
+            "-".join(str(chosen["name"]).split()) or "Sheet",
+            "csv",
+            subject="All Records" if level_name == "Repository" else level_name,
+        )
+        return StreamingResponse(
+            report_tools.csv_chunks(chosen),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": _content_disposition(csv_name)},
+        )
     if fmt == "json":
-        return JSONResponse({"sheets": _preview(sheets, uncounted), "previewRows": PREVIEW_ROWS})
+        shown = report_tools.search(sheets, q) if searching else _preview(sheets, uncounted)
+        report_tools.cap_prose(shown)
+        return JSONResponse(
+            {
+                "sheets": shown,
+                "query": q if searching else None,
+                "previewRows": PREVIEW_ROWS,
+            }
+        )
 
     crumbs = await _resolve_crumbs(norm)
     level_name = crumbs[-1]["name"] if crumbs else "Repository"
@@ -2720,92 +2662,4 @@ async def _build_report(
         io.BytesIO(payload),
         media_type=XLSX_MIME,
         headers={"Content-Disposition": _content_disposition(report_name)},
-    )
-
-
-def _convert_audio_to_mp4(raw: bytes) -> io.BytesIO:
-    from pydub import AudioSegment
-
-    segment = AudioSegment.from_file(io.BytesIO(raw))
-    out = io.BytesIO()
-    segment.export(out, format="mp4")
-    out.seek(0)
-    return out
-
-
-@router.get("/media/{media_id}/download")
-async def download_media(
-    media_id: str,
-    format: str | None = None,
-    current_user: Any = Depends(require_dataset_downloader),
-) -> Response:
-    scope = await _scope_for(current_user)
-    media = (
-        await db.mediafile.find_first(
-            where={"AND": [{"id": media_id}, scope.media]}, include=_NAMING_INCLUDE
-        )
-        if scope.media
-        else await db.mediafile.find_unique(where={"id": media_id}, include=_NAMING_INCLUDE)
-    )
-    if media is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found")
-
-    is_audio = str(_ev(media.mediaType)) == "AUDIO"
-    fmt = (format or "").strip().lower() or ("mp4" if is_audio else None)
-
-    if is_audio and fmt == "mp4":
-        try:
-            import pydub  # noqa: F401
-        except Exception as exc:  # pragma: no cover
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="This recording can't be converted right now; download the original instead.",
-            ) from exc
-        declared = int(media.sizeBytes or 0)
-        if declared > MAX_CONVERT_BYTES:
-            raise HTTPException(
-                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                detail="This recording is too large to convert in-process; download the original.",
-            )
-        try:
-            raw = await asyncio.to_thread(get_object_bytes, media.objectKey)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="The recording couldn't be loaded. Try again.",
-            ) from exc
-        if len(raw) > MAX_CONVERT_BYTES:
-            del raw
-            raise HTTPException(
-                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                detail="This recording is too large to convert in-process; download the original.",
-            )
-        try:
-            out = await asyncio.to_thread(_convert_audio_to_mp4, raw)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="This recording couldn't be converted; download the original instead.",
-            ) from exc
-        mp4_name = display_filename(media, extension=".mp4")
-        return StreamingResponse(
-            out,
-            media_type="video/mp4",
-            headers={"Content-Disposition": _content_disposition(mp4_name)},
-        )
-
-    if media.url:
-        return RedirectResponse(media.url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
-    try:
-        raw = await asyncio.to_thread(get_object_bytes, media.objectKey)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="The file couldn't be loaded. Try again.",
-        ) from exc
-    name = display_filename(media, fallback=media.id)
-    return Response(
-        content=raw,
-        media_type=media.mimeType or "application/octet-stream",
-        headers={"Content-Disposition": _content_disposition(name)},
     )

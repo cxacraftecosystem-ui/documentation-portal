@@ -924,10 +924,10 @@ async def render_doc(media: Any) -> tuple[render.RenderDoc, dict[str, Any]]:
     return doc, context
 
 
-def download_name(media: Any, context: dict[str, Any], fmt: str, track: str) -> str:
+def download_name(media: Any, context: dict[str, Any], fmt: str, track: str, *, what: str | None = None) -> str:
     from app.services import naming
 
-    what = {
+    what = what or {
         ("md", "original"): "Transcript", ("md", "english"): "Transcript-English", ("md", "both"): "Transcript-Bilingual",
         ("docx", "original"): "Transcript", ("docx", "english"): "Transcript-English", ("docx", "both"): "Transcript-Bilingual",
         ("srt", "original"): "Subtitles-With-Speakers", ("srt", "english"): "Subtitles-With-Speakers-English",

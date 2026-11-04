@@ -273,9 +273,11 @@ erDiagram
 | Coverage map with zoom | ✓ | ✓ | per-district counts |
 
 - **Data browser** (`/data`): the repository as folders (workshops, users, media types), browsed
-  online or zipped in the browser by content type. Transcripts are included in View data and
-  Download data. The report workbook is built on click, one at a time, with a 200-row JSON preview,
-  and the box hands the memory back afterwards (launch list D39).
+  online or downloaded as streamed zips, with sizes shown first, several folders or files picked
+  together, previews, thumbnails and every transcript format in one zip. Removed recordings never
+  ship. Table search runs over every row on the server and any sheet downloads as `.csv`. The report
+  workbook is built on click, one at a time, with a 200-row JSON preview, and the box hands the
+  memory back afterwards (launch list D39). See [DATA_EXPLORER.md](docs/DATA_EXPLORER.md).
 - **Dataset API** (`/api/datasets`): for machines, behind admin credentials. Streams NDJSON or CSV
   with no row cap, keyset-paged, and sends `X-Dataset-Total` so a client can prove a download is
   complete. Artisan identity numbers are masked by default.

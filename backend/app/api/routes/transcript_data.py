@@ -22,6 +22,7 @@ KINDS = {
     "glossary": ("Transcript-Glossary", transcript_export.GLOSSARY_COLUMNS),
 }
 PAGE_MAX = transcript_export.BATCH
+FILL_ROUNDS = 10
 
 
 async def _visible_fn(user: Any) -> Any:
@@ -35,8 +36,10 @@ async def _visible_fn(user: Any) -> Any:
         return None
 
     async def visible(ids: list[str]) -> set[str]:
-        rows = await db.mediafile.find_many(where={"AND": [{"id": {"in": ids}}, media_where]})
-        return {str(r.id) for r in rows}
+        rows = await db.mediafile.group_by(
+            by=["id"], where={"AND": [{"id": {"in": ids}}, media_where]}, take=len(ids), order={"id": "asc"}
+        )
+        return {str(r["id"]) for r in rows}
 
     return visible
 
@@ -62,15 +65,28 @@ async def transcripts_page(
     f = await _filters(request)
     visible = await _visible_fn(current_user)
     sees_spend = transcript_portal.may_see_spend(current_user)
-    page = await transcript_export.select_page(f, cursor, limit=limit)
-    shown = page
-    if visible is not None and page:
-        allowed = await visible(page)
-        shown = [mid for mid in page if mid in allowed]
+    shown: list[str] = []
+    after = cursor
+    more = False
+    for _ in range(FILL_ROUNDS):
+        page = await transcript_export.select_page(f, after, limit=limit)
+        if not page:
+            more = False
+            break
+        after = page[-1]
+        more = len(page) == limit
+        allowed = set(page) if visible is None else await visible(page)
+        for mid in page:
+            if mid in allowed and len(shown) < limit:
+                shown.append(mid)
+                if len(shown) == limit:
+                    after = mid
+        if len(shown) >= limit or not more:
+            break
     loaded = await transcript_export.load(shown, sees_spend=sees_spend) if shown else {}
     return {
         "items": [loaded[mid] for mid in shown if mid in loaded],
-        "nextCursor": page[-1] if len(page) == limit else None,
+        "nextCursor": after if more or len(shown) >= limit else None,
         "filters": f.echo(),
     }
 
