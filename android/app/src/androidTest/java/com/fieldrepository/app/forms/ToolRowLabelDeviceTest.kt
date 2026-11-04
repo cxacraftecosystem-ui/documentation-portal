@@ -1,4 +1,4 @@
-package com.fieldrepository.app
+package com.fieldrepository.app.forms
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
