@@ -549,3 +549,115 @@ def test_has_transcript_reads_the_cheap_flag_before_any_text():
     assert slim.has_transcript(Row(hasTranscript=False, transcriptText="ignored")) is False
     assert slim.has_transcript(Row(transcriptText="  ")) is False
     assert slim.has_transcript(Row(transcriptText="Clay and gum")) is True
+
+
+def test_a_thumbnail_keeps_its_own_pixel_ceiling_and_leaves_the_global_one_alone(monkeypatch):
+    from PIL import Image
+
+    before = Image.MAX_IMAGE_PIXELS
+    source = io.BytesIO()
+    Image.new("RGB", (300, 300), (10, 20, 30)).save(source, format="PNG")
+    monkeypatch.setattr(downloads, "THUMBNAIL_PIXELS_MAX", 300 * 300 - 1)
+    with pytest.raises(downloads.ThumbnailTooLarge):
+        downloads.render_thumbnail(source.getvalue(), 256)
+    monkeypatch.setattr(downloads, "THUMBNAIL_PIXELS_MAX", 300 * 300)
+    assert downloads.render_thumbnail(source.getvalue(), 256)
+    assert Image.MAX_IMAGE_PIXELS == before
+
+
+def test_a_thumbnail_is_shrunk_before_it_is_turned_upright_or_converted():
+    from PIL import Image
+
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    source = io.BytesIO()
+    Image.new("RGB", (400, 200), (200, 10, 10)).save(source, format="JPEG", exif=exif.tobytes())
+    out = downloads.render_thumbnail(source.getvalue(), 256)
+    with Image.open(io.BytesIO(out)) as small:
+        assert small.size == (128, 256)
+    palette = io.BytesIO()
+    Image.new("P", (600, 300), 3).save(palette, format="PNG")
+    with Image.open(io.BytesIO(downloads.render_thumbnail(palette.getvalue(), 256))) as small:
+        assert small.size == (256, 128) and small.mode in ("RGB", "RGBA")
+
+    seen: list[tuple[int, int]] = []
+    from PIL import ImageOps
+
+    original = ImageOps.exif_transpose
+
+    def spy(picture: Any, **kwargs: Any) -> Any:
+        seen.append(picture.size)
+        return original(picture, **kwargs)
+
+    ImageOps.exif_transpose = spy
+    try:
+        downloads.render_thumbnail(source.getvalue(), 256)
+    finally:
+        ImageOps.exif_transpose = original
+    assert seen and max(seen[0]) <= 256
+
+
+def test_a_thumbnail_waits_a_bounded_time_for_the_render_slot(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.services import s3
+
+    monkeypatch.setattr(downloads, "THUMBNAIL_WAIT_SECONDS", 0.05)
+    monkeypatch.setattr(s3, "object_exists", lambda _key: False)
+    monkeypatch.setattr(downloads, "_THUMB_SLOT", asyncio.Semaphore(1))
+    media = Row(id="img", mediaType="IMAGE", mimeType="image/jpeg", objectKey="media/img.jpg")
+
+    async def run() -> HTTPException:
+        await downloads._THUMB_SLOT.acquire()
+        try:
+            with pytest.raises(HTTPException) as refused:
+                await downloads.thumbnail_redirect(media, 256)
+            return refused.value
+        finally:
+            downloads._THUMB_SLOT.release()
+
+    refused = asyncio.run(run())
+    assert refused.status_code == 503
+    assert refused.headers["Retry-After"] == downloads.THUMBNAIL_RETRY_AFTER
+    assert not downloads._THUMB_SLOT.locked()
+
+
+def test_a_folder_transcript_zip_reads_texts_in_batches_and_renders_off_the_event_loop(monkeypatch):
+    import threading
+
+    files: list[dict[str, Any]] = [
+        {"path": f"A/Talk {n}.md", "mediaId": f"m{n}", "_fill": f"m{n}"} for n in range(250)
+    ]
+    files.append(
+        {"path": "A/Doc.srt", "mediaId": "d1", "transcriptFile": {"format": "srt", "track": "original", "timestamps": True}}
+    )
+    calls: list[int] = []
+
+    async def load_texts(ids: list[str]) -> dict[str, str]:
+        calls.append(len(ids))
+        return {mid: f"words of {mid}" for mid in ids}
+
+    doc = SimpleNamespace(turns=[SimpleNamespace(end_ms=1000, english="")], english_text=None)
+
+    async def load_doc(_mid: str) -> Any:
+        return doc
+
+    threads: list[bool] = []
+
+    def fake_render(_doc: Any, _fmt: str, _track: str, _stamps: bool) -> bytes:
+        threads.append(threading.current_thread() is threading.main_thread())
+        return b"1\n00:00:00,000 --> 00:00:01,000\nhi\n"
+
+    monkeypatch.setattr(transcript_zip, "render_bytes", fake_render)
+
+    async def collect() -> bytes:
+        return b"".join([part async for part in transcript_zip.folder_zip(files, load_doc, load_texts=load_texts)])
+
+    data = asyncio.run(collect())
+    with zipfile.ZipFile(io.BytesIO(data)) as handle:
+        names = handle.namelist()
+        assert len(names) == 251
+        assert handle.read("A/Talk 249.md") == b"words of m249"
+    assert sum(calls) == 250
+    assert len(calls) <= -(-250 // transcript_zip.TEXT_WINDOW)
+    assert threads == [False]

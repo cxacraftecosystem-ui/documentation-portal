@@ -19,7 +19,10 @@ THUMBNAIL_PREFIX = "thumbnails"
 THUMBNAIL_MIME = "image/webp"
 THUMBNAIL_SOURCE_MAX_BYTES = 64 * 1024 * 1024
 THUMBNAIL_PIXELS_MAX = 50_000_000
+THUMBNAIL_RESIZABLE_MODES = frozenset({"RGB", "RGBA", "L", "LA", "CMYK", "YCbCr"})
 _THUMB_SLOT = asyncio.Semaphore(1)
+THUMBNAIL_WAIT_SECONDS = 20.0
+THUMBNAIL_RETRY_AFTER = "15"
 
 PREVIEW_MIME_PREFIXES = ("image/", "video/", "audio/")
 PREVIEW_MIME_EXACT = frozenset({"application/pdf"})
@@ -209,17 +212,27 @@ def thumbnail_key(media_id: str, size: int) -> str:
     return f"{THUMBNAIL_PREFIX}/{size}/{media_id}.webp"
 
 
+class ThumbnailTooLarge(ValueError):
+    pass
+
+
 def render_thumbnail(source: bytes | str, size: int) -> bytes:
     from PIL import Image, ImageOps
 
-    Image.MAX_IMAGE_PIXELS = THUMBNAIL_PIXELS_MAX
     handle = io.BytesIO(source) if isinstance(source, bytes) else source
     with Image.open(handle) as opened:
         opened.draft("RGB", (size * 2, size * 2))
-        picture = ImageOps.exif_transpose(opened)
+        width, height = opened.size
+        if width * height > THUMBNAIL_PIXELS_MAX:
+            raise ThumbnailTooLarge(f"{width}x{height} is over {THUMBNAIL_PIXELS_MAX} pixels")
+        picture: Any = opened
+        if picture.mode not in THUMBNAIL_RESIZABLE_MODES:
+            alpha = "A" in picture.getbands() or "transparency" in picture.info
+            picture = picture.convert("RGBA" if alpha else "RGB")
+        picture.thumbnail((size, size))
+        picture = ImageOps.exif_transpose(picture)
         if picture.mode not in ("RGB", "RGBA"):
             picture = picture.convert("RGBA" if "A" in picture.getbands() else "RGB")
-        picture.thumbnail((size, size))
         out = io.BytesIO()
         picture.save(out, format="WEBP", quality=78, method=4)
         return out.getvalue()
@@ -268,10 +281,20 @@ async def thumbnail_redirect(media: Any, size: int | None) -> Response:
     name = f"{media.id!s}-{edge}.webp"
     exists = await asyncio.to_thread(s3.object_exists, key)
     if not exists:
-        async with _THUMB_SLOT:
+        try:
+            await asyncio.wait_for(_THUMB_SLOT.acquire(), timeout=THUMBNAIL_WAIT_SECONDS)
+        except TimeoutError:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Thumbnails are being made. Try again shortly.",
+                headers={"Retry-After": THUMBNAIL_RETRY_AFTER},
+            ) from None
+        try:
             exists = await asyncio.to_thread(s3.object_exists, key)
             if not exists:
                 data = await _render_from_storage(str(object_key), edge)
                 await asyncio.to_thread(s3.put_object_bytes, key, data, mime_type=THUMBNAIL_MIME)
+        finally:
+            _THUMB_SLOT.release()
     url, max_age = signing.signed_get(key, filename=name, mime_type=THUMBNAIL_MIME, inline=True)
     return _redirect(url, max_age)

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
 from app.services.data_explorer.zipstream import StreamingZip
+
+TEXT_WINDOW = 100
 
 
 def render_bytes(doc: Any, fmt: str, track: str, timestamps: bool) -> bytes:
@@ -60,17 +63,27 @@ def bundle_name(media: Any, context: dict[str, Any]) -> str:
 async def one_transcript_zip(files: list[tuple[str, bytes]]) -> AsyncIterator[bytes]:
     archive = StreamingZip()
     for name, data in files:
-        out = archive.add_bytes(name, data)
+        out = await asyncio.to_thread(archive.add_bytes, name, data)
         if out:
             yield out
-    yield archive.close()
+    yield await asyncio.to_thread(archive.close)
+
+
+def _text_ids(files: list[dict[str, Any] | None], start: int, first: str) -> list[str]:
+    wanted = [first]
+    for entry in files[start : start + TEXT_WINDOW]:
+        if entry is not None and entry.get("_fill") and entry.get("mediaId"):
+            wanted.append(str(entry["mediaId"]))
+    return list(dict.fromkeys(wanted))
 
 
 async def folder_zip(
-    files: list[dict[str, Any]], load_doc: Any, *, load_text: Any = None, readable: Any = None
+    files: list[dict[str, Any]], load_doc: Any, *, load_texts: Any = None, readable: Any = None
 ) -> AsyncIterator[bytes]:
     archive = StreamingZip()
     cached: tuple[str, Any] | None = None
+    texts: dict[str, str] = {}
+    fetched: set[str] = set()
     written = 0
     for index, entry in enumerate(files):
         files[index] = None  # type: ignore[call-overload]
@@ -91,14 +104,20 @@ async def folder_zip(
                 continue
             if not _wanted(doc, spec["format"], spec["track"], spec["format"] in {"srt", "vtt"}):
                 continue
-            data = render_bytes(doc, spec["format"], spec["track"], bool(spec.get("timestamps")))
+            data = await asyncio.to_thread(
+                render_bytes, doc, spec["format"], spec["track"], bool(spec.get("timestamps"))
+            )
         elif isinstance(content, str) and media_id:
             data = content.encode("utf-8")
-        elif entry.get("_fill") and media_id and load_text is not None:
-            data = str(await load_text(media_id) or "").encode("utf-8")
+        elif entry.get("_fill") and media_id and load_texts is not None:
+            if media_id not in fetched:
+                batch = _text_ids(files, index + 1, media_id)
+                fetched.update(batch)
+                texts.update(await load_texts(batch))
+            data = str(texts.pop(media_id, "") or "").encode("utf-8")
         if not data or not data.strip():
             continue
-        out = archive.add_bytes(path, data)
+        out = await asyncio.to_thread(archive.add_bytes, path, data)
         written += 1
         if out:
             yield out
@@ -106,4 +125,4 @@ async def folder_zip(
         out = archive.add_bytes("No transcripts.txt", b"This folder has no transcripts yet.\n")
         if out:
             yield out
-    yield archive.close()
+    yield await asyncio.to_thread(archive.close)

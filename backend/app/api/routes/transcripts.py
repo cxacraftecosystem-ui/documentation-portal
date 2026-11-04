@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -262,7 +263,7 @@ async def download(
 
         from app.services.data_explorer import transcript_zip
 
-        files = transcript_zip.one_transcript_files(media, context, doc)
+        files = await asyncio.to_thread(transcript_zip.one_transcript_files, media, context, doc)
         return StreamingResponse(
             transcript_zip.one_transcript_zip(files),
             media_type="application/zip",

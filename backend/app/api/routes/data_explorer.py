@@ -295,9 +295,6 @@ async def _load_doc(media_id: str) -> Any:
     return doc
 
 
-async def _load_text(media_id: str) -> str:
-    return (await slim.transcript_texts([media_id])).get(media_id, "")
-
 
 @router.get("/transcript-bundle")
 async def transcript_bundle(
@@ -323,7 +320,7 @@ async def transcript_bundle(
         subject="All Records" if level == "Repository" else level,
     )
     return StreamingResponse(
-        transcript_zip.folder_zip(files, _load_doc, load_text=_load_text),
+        transcript_zip.folder_zip(files, _load_doc, load_texts=slim.transcript_texts),
         media_type="application/zip",
         headers={"Content-Disposition": naming.content_disposition(name)},
     )

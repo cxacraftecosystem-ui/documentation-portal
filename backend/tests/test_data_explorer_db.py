@@ -234,6 +234,37 @@ def test_a_folder_listing_and_its_zip_walk_cost_the_same_statements_at_any_size(
     assert seen["stats3"] == seen["stats12"], seen
 
 
+def test_a_folder_transcript_zip_costs_the_same_statements_at_any_size(monkeypatch):
+    _consented(monkeypatch)
+
+    async def work() -> dict[str, int]:
+        seed = await _seed()
+        try:
+            path = _artisan_path(seed)
+            headers = _auth(seed["admin"])
+            out: dict[str, int] = {}
+            async with asgi_client() as client:
+                for size in (3, 12):
+                    while len(seed["media"]) < size:
+                        n = len(seed["media"])
+                        await _media(seed, "AUDIO", f"talk{n}.m4a", 100 + n, transcriptText=f"words {n}")
+                    await client.get("/api/data/transcript-bundle", params={"path": path}, headers=headers)
+                    async with count_statements() as zipped:
+                        bundle = await client.get(
+                            "/api/data/transcript-bundle", params={"path": path}, headers=headers
+                        )
+                    assert bundle.status_code == 200, bundle.text
+                    out[f"zip{size}"] = zipped.value
+                    out[f"bytes{size}"] = len(bundle.content)
+            return out
+        finally:
+            await _cleanup(seed)
+
+    seen = _private(monkeypatch, work)
+    assert seen["zip3"] == seen["zip12"], seen
+    assert seen["bytes12"] > seen["bytes3"], seen
+
+
 def test_a_large_folder_manifest_stays_within_a_memory_bound(monkeypatch):
     async def work() -> tuple[int, int]:
         seed = await _seed()
