@@ -194,6 +194,7 @@ Android alike, because both clients read the same server routes:
 | Data browser tree, `/data/manifest` zip, `/data/report` sheets and xlsx | Under workshop *W*, artisan *A*: every tool linked to *A* whose own workshop is *W* or empty, plus every tool linked to *A* when *A* is a member of *W*. A tool filed at *W* none of whose artisans *W* reaches adds those artisans to *W*'s list, so it is never missing from its own workshop. |
 | `/export/dataset` bundle | The same rule, applied in memory. One copy per artisan folder, so a tool shared by artisans in two workshops is filed under both. |
 | `GET /tools?workshopId=&artisanId=&craftId=`, `/search`, `/datasets/tools*` with `workshopIds` | The flat clause `tool_workshop_clause`: own workshop, the primary artisan's workshops, or any linked artisan's workshops. `artisanId` and `craftId` match the link tables as well as the scalar columns. `none` means no own workshop and no artisan in any workshop. |
+| `/search/unified` with `workshopIds` (0.0.12) | Every workshop `tool_scope.tool_workshop_ids` names, stored on the tool's search document: own workshop, then each linked artisan's own and member workshops. A tool-artisan or workshop-artisan change rebuilds the document. |
 
 Every list is one row per tool. The **Linked workshops** column names the tool's own workshop and
 every workshop of its artisans; **Artisan** names every linked artisan. Both are pruned to what the

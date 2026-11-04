@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import quote
 
 from app.core.db import db
+from app.services.tool_scope import tool_workshop_ids, with_tool_scope
 
 BODY_LIMIT = 100_000
 
@@ -403,12 +404,13 @@ async def _product(entity_id: str) -> dict[str, Any] | None:
 async def _tool(entity_id: str) -> dict[str, Any] | None:
     row = await db.tooldocumentation.find_unique(
         where={"id": entity_id},
-        include={
-            "craft": True,
-            "location": True,
-            "artisanLinks": True,
-            "craftLinks": {"include": {"craft": True}},
-        },
+        include=with_tool_scope(
+            {
+                "craft": True,
+                "location": True,
+                "craftLinks": {"include": {"craft": True}},
+            }
+        ),
     )
     if row is None:
         return None
@@ -431,7 +433,7 @@ async def _tool(entity_id: str) -> dict[str, Any] | None:
         place=_place_of(row),
         craftIds=_ids(row.craftId, *(c.id for c in linked_crafts)),
         craftCodes=_codes(row.craft, *linked_crafts),
-        workshopIds=_ids(row.workshopId),
+        workshopIds=tool_workshop_ids(row),
         artisanIds=artisan_ids,
         shareable=await _shareable(
             artisan_ids,

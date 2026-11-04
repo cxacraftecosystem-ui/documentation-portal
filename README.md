@@ -283,6 +283,12 @@ erDiagram
 - **Android data browser**: the *Data* screen puts the tree first with search as its toolbar and one
   *Download* button. Zips run in the background with a notification and Cancel, and keep going when the
   app is left ([Play declaration](docs/ANDROID_BACKGROUND_DOWNLOADS.md)).
+- **Tools across workshops** (0.0.11): a tool linked to several artisans shows under every workshop
+  those artisans belong to, on every read surface: the data browser, reports and `.xlsx`, the folder
+  zip, the dataset bundle, the tools filters, both searches and the datasets API. The tool sheet's
+  **Linked workshops** column names the tool's own workshop and every workshop of its artisans, and
+  **Artisan** names every linked artisan, both pruned to what the reader may see
+  ([DATA_MODEL.md](docs/DATA_MODEL.md#where-a-linked-tool-shows-up-added-2026-11-04)).
 - **Dataset API** (`/api/datasets`): for machines, behind admin credentials. Streams NDJSON or CSV
   with no row cap, keyset-paged, and sends `X-Dataset-Total` so a client can prove a download is
   complete. Artisan identity numbers are masked by default.

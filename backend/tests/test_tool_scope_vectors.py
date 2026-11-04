@@ -13,7 +13,12 @@ from app.services.record_filters import (
     tool_workshop_clause,
     tools_in_workshop_clause,
 )
-from app.services.tool_scope import tool_artisan_names, tool_fits, tool_workshop_titles
+from app.services.tool_scope import (
+    tool_artisan_names,
+    tool_fits,
+    tool_workshop_ids,
+    tool_workshop_titles,
+)
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 VECTORS = json.loads((ROOT / "shared" / "tool-scope-vectors.json").read_text(encoding="utf-8"))
@@ -111,3 +116,19 @@ def test_the_browser_clause_admits_a_members_tool_from_any_workshop():
     assert '"workshopId": "w2"' in text
     assert '"workshopId": null' in text
     assert text.count('"artisanId": {"in": ["a2"]}') == 4
+
+
+def test_the_search_index_takes_every_workshop_the_titles_name():
+    ids = [tool_workshop_ids(_ns(row["tool"])) for row in VECTORS["linkedWorkshops"]]
+    assert ids == [["w1", "w2", "w3"], ["w2"], []]
+
+
+def test_the_search_index_reads_the_scalar_workshop_columns_too():
+    tool = _ns(
+        {
+            "workshopId": "w9",
+            "artisan": {"id": "a1", "workshopId": "w8", "workshops": [{"workshopId": "w7"}]},
+            "artisanLinks": [],
+        }
+    )
+    assert tool_workshop_ids(tool) == ["w9", "w7", "w8"]

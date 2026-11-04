@@ -121,9 +121,14 @@ removed), `types` (repeatable or comma-separated), `scope=all|local`, `limit` pe
 `GET /api/search` narrows through the shared clause builders in `app/services/record_filters.py`, so a
 tool matches a workshop through its own `workshopId` or through any linked artisan who belongs to it
 (`tool_workshop_clause`; [DATA_MODEL.md](DATA_MODEL.md#where-a-linked-tool-shows-up-added-2026-11-04)).
-The unified index stores the tool's own `workshopId` as its workshop, beside every linked `artisanId`
-(`search_index._tool`), so `/search/unified` with `workshopIds` does not yet find a tool that reaches
-the workshop only through a linked artisan.
+The unified index once stored only the tool's own `workshopId`.
+Since 0.0.12 the unified index follows the same rule: `search_index._tool` stores every workshop
+`tool_scope.tool_workshop_ids` names (the tool's own, then each linked artisan's own and member
+workshops, once each), so `/search/unified` with `workshopIds` finds a tool that reaches the workshop
+only through a linked artisan. A tool-artisan link lists its tool and a workshop-artisan link lists
+its artisan, whose dependents include every tool linked to it, so the documents follow link changes.
+After the 0.0.12 deploy the tools were listed again once with
+`python -m scripts.search_reindex --type tools`.
 
 ```json
 {"query": "indigo", "mode": "text",

@@ -227,3 +227,42 @@ def test_local_types_are_the_vocabulary_without_the_designer_types():
         "artisans", "crafts", "workshops", "interviews", "transcripts", "products", "tools",
         "processes", "media",
     )
+
+
+@needs_search_db
+async def test_a_workshop_filter_finds_a_tool_through_its_linked_artisan(world, settings):
+    from app.core.db import db
+    from app.services import search_indexer
+
+    token = new_stamp()
+    other = await db.workshop.create(
+        data={
+            "title": f"Akola meet {token}",
+            "date": datetime(2026, 9, 3, tzinfo=UTC),
+            "place": "Akola",
+            "createdById": world.professor.id,
+        }
+    )
+    artisan = await db.artisan.create(
+        data={
+            "name": f"Kamla Devi {token}",
+            "workshopId": other.id,
+            "place": "Akola",
+            "createdById": world.professor.id,
+        }
+    )
+    tool = await db.tooldocumentation.create(
+        data={"toolkitName": f"Dabu block {token}", "place": "Akola", "createdById": world.professor.id}
+    )
+    await db.toolartisan.create(data={"toolId": tool.id, "artisanId": artisan.id})
+    try:
+        for kind, record_id in (("workshops", other.id), ("artisans", artisan.id), ("tools", tool.id)):
+            await search_indexer.index_one(kind, record_id)
+        there = await _search(world.professor, token, workshopIds=[other.id])
+        assert _ids(there, "tools") == [tool.id]
+        elsewhere = await _search(world.professor, token, workshopIds=[world.workshop.id])
+        assert _ids(elsewhere, "tools") == []
+    finally:
+        await db.tooldocumentation.delete(where={"id": tool.id})
+        await db.artisan.delete(where={"id": artisan.id})
+        await db.workshop.delete(where={"id": other.id})

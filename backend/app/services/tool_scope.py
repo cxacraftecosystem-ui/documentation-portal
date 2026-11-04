@@ -106,6 +106,20 @@ def artisan_workshop_ids(artisan: Any) -> set[str]:
     return ids
 
 
+def tool_workshop_ids(tool: Any) -> list[str]:
+    candidates: list[Any] = [
+        getattr(getattr(tool, "workshop", None), "id", None) or getattr(tool, "workshopId", None)
+    ]
+    for artisan in _linked_artisans(tool):
+        candidates.extend(getattr(workshop, "id", None) for workshop in _artisan_workshops(artisan))
+        candidates.extend(sorted(artisan_workshop_ids(artisan)))
+    ids: list[str] = []
+    for workshop_id in candidates:
+        if workshop_id and workshop_id not in ids:
+            ids.append(workshop_id)
+    return ids
+
+
 def tool_fits(tool: Any, workshop_id: str, artisan_id: str, members: set[str]) -> bool:
     if artisan_id not in tool_artisan_ids(tool):
         return False
