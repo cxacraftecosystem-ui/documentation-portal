@@ -87,7 +87,7 @@ test("the browse table offers Update, and it is the same ?edit= navigation as ev
 });
 
 test("the data browser carries the interview id instead of dropping it", () => {
-  expect(DATA_CODE).toMatch(/editHref: \(id\) => `\/questionnaire\?edit=\$\{id\}`/);
+  expect(DATA_CODE).toContain("updateHref: canUpdateRecord(user, value) ? (id: string) => recordUpdateHref(value, id) : null");
   expect(DATA_CODE).not.toMatch(/editHref: \(\) => "\/questionnaire"/);
 });
 

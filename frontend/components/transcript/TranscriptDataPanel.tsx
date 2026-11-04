@@ -110,7 +110,37 @@ export function TranscriptDataPanel({ languages = [] }: { languages?: { code: st
   );
 }
 
-function TranscriptData({ languages }: { languages: { code: string; label: string }[] }) {
+export type TranscriptLanguageCount = { code: string; label: string; count?: number };
+
+let languagesAsked: Promise<TranscriptLanguageCount[]> | null = null;
+
+export function fetchDataLanguages(): Promise<TranscriptLanguageCount[]> {
+  languagesAsked ??= apiFetch<{ languages?: TranscriptLanguageCount[] }>("/data/transcripts/languages")
+    .then((answer) => (answer.languages ?? []).filter((language) => language.code && language.label))
+    .catch(() => {
+      languagesAsked = null;
+      return [];
+    });
+  return languagesAsked;
+}
+
+export function languageLabel(language: TranscriptLanguageCount): string {
+  return typeof language.count === "number" ? `${language.label} · ${language.count}` : language.label;
+}
+
+function TranscriptData({ languages: given }: { languages: { code: string; label: string }[] }) {
+  const [fetched, setFetched] = useState<TranscriptLanguageCount[]>([]);
+  useEffect(() => {
+    if (given.length) return;
+    let cancelled = false;
+    void fetchDataLanguages().then((found) => {
+      if (!cancelled) setFetched(found);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [given.length]);
+  const languages: TranscriptLanguageCount[] = given.length ? given : fetched;
   const [filters, setFilters] = useState<Filters>(EMPTY);
   const [applied, setApplied] = useState<Filters>(EMPTY);
   const [items, setItems] = useState<DataRecording[] | null>(null);
@@ -156,7 +186,7 @@ function TranscriptData({ languages }: { languages: { code: string; label: strin
   }
 
   const set = (patch: Partial<Filters>) => setFilters((current) => ({ ...current, ...patch }));
-  const languageOptions = [{ value: "", label: "Any language" }, ...languages.map((language) => ({ value: language.code, label: language.label }))];
+  const languageOptions = [{ value: "", label: "Any language" }, ...languages.map((language) => ({ value: language.code, label: languageLabel(language) }))];
 
   return (
     <div className="grid gap-4">
