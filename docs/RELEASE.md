@@ -7,7 +7,7 @@ The steps a release has to take on the production data, after the deploy has app
 Both portals release together from a branch `release/<version>` of the same name, merged locally, with one deploy per platform. The Android version line was reset to 0.0.1 on 2026-10-21; the version code keeps rising and `publish-android.yml` refuses a code at or below the published one.
 
 ```mermaid
-%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","lineColor":"#AA69E9","textColor":"#857F9E","cScale0":"#F2E9FE","cScale1":"#FAEECD","cScale2":"#E7D5FE","cScale3":"#F3F1FA","cScaleLabel0":"#1E1B2E","cScaleLabel1":"#1E1B2E","cScaleLabel2":"#1E1B2E","cScaleLabel3":"#1E1B2E"}}}%%
+%%{init: {"theme":"base","fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","themeVariables":{"fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","lineColor":"#AA69E9","textColor":"#857F9E","cScale0":"#F2E9FE","cScale1":"#FAEECD","cScale2":"#E7D5FE","cScale3":"#F3F1FA","cScaleLabel0":"#1E1B2E","cScaleLabel1":"#1E1B2E","cScaleLabel2":"#1E1B2E","cScaleLabel3":"#1E1B2E"}}}%%
 timeline
   title Releases since the version reset
   section October 2026
