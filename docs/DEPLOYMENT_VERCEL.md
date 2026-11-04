@@ -15,7 +15,7 @@ Vercel account. Sister documents:
 | Piece | Where it runs | Notes |
 |---|---|---|
 | Next.js web app | **Vercel** | Deployed by `.github/workflows/deploy-frontend.yml`, **after** the backend deploy succeeds and the Checks run for the same commit is green ([docs/CI.md](CI.md)) — not by Vercel's Git integration (§3). Every page under a dynamic segment renders on demand in a function pinned to `bom1` (Mumbai); every other page prerenders to static HTML (§8). Route handlers: the App Link file and, since 2026-10-17, the seven session routes and `proxy.ts` (below); no server actions, no `fs` access — see §8. |
-| FastAPI API | **AWS EC2** `t3.micro`, behind nginx | Not deployed by Vercel. Auto-deployed by `.github/workflows/deploy-backend.yml`. |
+| FastAPI API | **AWS EC2** `t3.small`, blue/green behind nginx | Not deployed by Vercel. Auto-deployed by `.github/workflows/deploy-backend.yml`. |
 | HTTPS + IPv6 edge for the API | **CloudFront** `https://d2b34i3e92al6i.cloudfront.net` | The value the browser actually talks to. |
 | Database | **Supabase** Postgres | Reached only by the backend. |
 | Media | **S3** `fieldrepo-media-626159998512` (dual-stack endpoints) | Browsers upload straight to S3 with signed PUT URLs — the bytes never pass through Vercel. |

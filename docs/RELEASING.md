@@ -7,6 +7,41 @@ Everything here is about `android/`. The backend and the web client deploy on a 
 [CI.md](CI.md)); the app does not, and must not. Publishing is a deliberate act, and the only way to
 perform it is to push a tag.
 
+### Releases since the version reset
+
+On 21 Oct 2026 the owner reset the version name to 0.0.1; the code kept rising. Each release is one
+batch: everything is fixed on a `release/0.0.N` branch, Checks and the emulator run are green, it is
+merged to `main` once (which deploys the backend and the web), and then the tag publishes the app.
+One deployment per platform per release.
+
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1"}}}%%
+flowchart LR
+  B["release/0.0.N<br/>branches merged in"] --> C{"Checks, Android build,<br/>emulator, README check"}
+  C --> M["merge to main<br/>locally, as ankits1802"]
+  M --> D["deploy-backend → deploy-frontend<br/>one deploy each"]
+  D --> T(["tag v0.0.N"])
+  T --> P["publish-android.yml<br/>signed APK, in-app update"]
+  classDef accent fill:#762CB1,stroke:#5F1C93,color:#FFFFFF
+  class P accent
+```
+
+| Name | Code | Date | What it carried |
+|---|---:|---|---|
+| 0.0.1 | 22 | 21 Oct 2026 | the reset, carrying what had shipped as 0.0.20: the 455-craft master list, consent opt-out, maps and coverage on Android |
+| 0.0.2 | 23 | 22 Oct 2026 | query optimisation, questionnaire phases 1 and 2, author-or-admin form edits |
+| 0.0.3 | 24 | 23 Oct 2026 | one shared questionnaire engine; Questionnaire v2 on |
+| 0.0.4 | 25 | 31 Oct 2026 | recording chips and filters, the transcript viewer's first cut, AI switches pinned on |
+| 0.0.5 | 26 | 1 Nov 2026 | Scribe v2 + Gemini 3.8 Flash pipeline, Ask, autodraft, glossary, quote cards, budget |
+| 0.0.6 | 27 | 1 Nov 2026 | karaoke, reading mode, marks, auto-follow, transcripts in exports |
+| 0.0.7 | 28 | 1 Nov 2026 | Python 3.15.2, Node 26, AGP 9.5, Gradle 9.8.2 |
+| 0.0.8 | · | 1 Nov 2026 | backend and infrastructure only; no app was published |
+| 0.0.9 | 29 | 3 Nov 2026 | old transcripts translated, pasted English (D38); Data page reports (D39) |
+| 0.0.10 | 30 | 4 Nov 2026 | video transcription, the upload choice, admin switches, Refine, summary edits on Android, Gemini-first defaults, comment-free code |
+
+`android/app/build.gradle.kts` holds the current pair (`appVersionName`, `appVersionCode`); the tags
+`v0.0.1` onward are the record.
+
 ---
 
 ## 0. Read this first: the fleet is on the release key, and must stay on it
@@ -70,6 +105,7 @@ cannot answer which key signed the file, which API base is compiled into it, or 
 from, because nobody ever told it.
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart LR
   T["git push origin v0.0.10"] --> W[".github/workflows/publish-android.yml"]
   W --> G1["GUARD 1<br/>tag == built version"]

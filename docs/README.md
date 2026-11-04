@@ -9,6 +9,7 @@ with no such section does not meet the bar and is listed as a gap.
 ## Where to start, by what you are doing
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TD
   Q{What are you here for?}
 
@@ -17,10 +18,12 @@ flowchart TD
   Q -->|"I'm deploying or operating it"| O1
   Q -->|"I'm reviewing a change"| C1
   Q -->|"I need a number for a paper"| F1
+  Q -->|"I'm working on transcripts or AI"| T1
+  Q -->|"I'm writing a README or a diagram"| K1
 
   R1["<b>RESEARCHER_GUIDE.md</b><br/>accounts, install, offline, exports"] --> R2["<b>WALKTHROUGH.md</b><br/>the ten screens, field by field"]
 
-  D1["<b>ARCHITECTURE.md</b><br/>the map"] --> D2["<b>DATA_MODEL.md</b><br/>33 models, and the four surprises"]
+  D1["<b>ARCHITECTURE.md</b><br/>the map"] --> D2["<b>DATA_MODEL.md</b><br/>the schema, and its surprises"]
   D2 --> D3["<b>PERMISSIONS.md</b><br/>who may do what"]
   D3 --> D4["<b>MEDIA_PIPELINE.md</b><br/>how bytes get in"]
 
@@ -30,7 +33,12 @@ flowchart TD
   C1["<b>SECURITY.md</b><br/>risk register"] --> C2["<b>QA_AUDIT.md</b><br/>what is and isn't tested"]
   C2 --> C3["<b>SCALABILITY.md</b><br/>what breaks first"]
 
-  F1["<b>REPO_FACTS.md</b><br/>generated counts"]
+  F1["<b>REPO_FACTS.md</b><br/>generated counts"] --> F2["<b>RESEARCH_NOTES.md</b><br/>dated results"]
+
+  T1["<b>TRANSCRIPT_PIPELINE.md</b><br/>Scribe v2, Gemini, the viewer"] --> T2["<b>AI_FEATURES.md</b><br/>models, summaries, image tools"]
+  T2 --> T3["<b>questionnaire/API.md</b><br/>sessions, takes, chips"]
+
+  K1["<b>readme-kit/README_STYLE.md</b><br/>the visual system"]
 ```
 
 ---
@@ -58,6 +66,8 @@ flowchart TD
 | [MEDIA_PIPELINE.md](MEDIA_PIPELINE.md) | Every tactic both clients use to get a photograph off a phone on a bad network without losing it |
 | [TRANSCRIPT_PIPELINE.md](TRANSCRIPT_PIPELINE.md) | Scribe v2 turns, Gemini 3.8 Flash English, the transcript API, its switches, budget, keys and backfill |
 | [SECURITY.md](SECURITY.md) | Transport, secrets, PII and Aadhaar handling, the authorisation model's security properties, and the open risk register |
+| [questionnaire/API.md](questionnaire/API.md) | Questionnaire v2 on the shared engine: sessions, takes, coverage, canonical answers, the routes both clients call |
+| [questionnaire/ANDROID.md](questionnaire/ANDROID.md) | The Android half of the questionnaire engine and how it is kept identical to the designer portal's |
 | [SEARCH.md](SEARCH.md) | One search across both portals: the per-portal index and its triggers, full-text, trigram and (behind the AI flag) meaning ranking, the signed peer search with the designer portal, consent, and the rollout order |
 
 ### Operating it
@@ -80,9 +90,13 @@ flowchart TD
 | [SCALABILITY.md](SCALABILITY.md) | What breaks first, what it costs to fix, and the measured finding that relations — not rows — drive the latency |
 | [QA_AUDIT.md](QA_AUDIT.md) | What is tested, what is not, the open failure modes, and the regressions that were documented as working while broken |
 | [OPEN_FINDINGS.md](OPEN_FINDINGS.md) | Which features users might look for are missing, which known defects they can meet, and what closing each one takes. These are recorded here because no screen talks about them. |
-| [AI_FEATURES.md](AI_FEATURES.md) | Background removal, layer separation, vectorisation: providers, costs, and how to turn one on |
+| [AI_FEATURES.md](AI_FEATURES.md) | The AI that is live (transcript summaries and the 0.0.10 model defaults: Gemini 3.8 Flash first, GPT-6 Luna and Claude Sonnet 5.5 only when selected) and the image tools that are not (background removal, layer separation, vectorisation): providers, costs, and how to turn one on |
+| [RESEARCH_NOTES.md](RESEARCH_NOTES.md) | **A dated snapshot (July 2026).** The engineering results written for a paper: the latency law, the pooler, memory on a small box |
+| [UX_AUDIT_2026-10-16.md](UX_AUDIT_2026-10-16.md) | **Dated.** The interface audit of 16 Oct 2026 and what it found |
+| [ANDROID_OFFLINE_AUDIT.md](ANDROID_OFFLINE_AUDIT.md) | **Dated.** What the Android app keeps when there is no signal, screen by screen (16 Oct 2026) |
 | [REPO_FACTS.md](REPO_FACTS.md) | **Generated.** Model and enum counts, the API surface, the role ladder, test counts, code volume |
 | [DATASET_API.md](DATASET_API.md) | The bearer-token bulk export: how to authenticate, what datasets exist, the filters, and what the identity-number scope costs |
+| [readme-kit/README_STYLE.md](readme-kit/README_STYLE.md) | How every README and diagram here is built: the SVG templates in light and dark, the mermaid palette, tables, motion and the CI check. Shared with designer-portal |
 | [DESIGN-claude.md](DESIGN-claude.md) | **Observed, not generated.** The visual design system this interface borrows from, extracted from anthropic.com |
 
 Also in the repository, outside `docs/`: [`../README.md`](../README.md) (orientation and local
@@ -131,21 +145,15 @@ It verifies the four things about documentation that *can* be verified:
 It deliberately does **not** check whether a sentence is true. Nothing can. That is what each
 document's own maintenance table is for.
 
-**Mermaid, for certainty.** The lint above is structural. A real parse needs `mermaid` itself, which
-is not a dependency of this repository, so it is run out-of-tree when diagrams change:
-
-```bash
-mkdir /tmp/mmd && cd /tmp/mmd && npm init -y && npm i mermaid jsdom
-# Set window/document/DOMParser/Element/Node/HTMLElement/SVGElement/NodeFilter/getComputedStyle
-# from a JSDOM instance, then for each fenced block:  await mermaid.parse(block)
-```
-
-Two things that run found and the structural lint would not have: a semicolon inside a sequence
-message, and HTML entities (`&lt;`) inside one. **Normalise CRLF before matching** — half these files
-are CRLF, and a `\n`-anchored regex silently finds zero blocks in them, which is exactly how ten
-diagrams went unvalidated while the run looked green.
-
-**All 45 blocks in this documentation set parse as of 2026-07-27.**
+**Mermaid, for certainty.** The lint above is structural. The real render runs in CI since 0.0.10:
+`.github/workflows/readme-check.yml` extracts every mermaid block in `README.md`, `docs/**` and
+`.claude/skills/**`, renders each one with mermaid-cli, and fails on any that does not render. Every
+block starts with the kit's `%%{init}%%` palette so diagrams read on GitHub's light and dark themes
+alike ([readme-kit/README_STYLE.md §6](readme-kit/README_STYLE.md)). Two traps the out-of-tree parse
+used to catch, and the render still does: a semicolon inside a sequence message, and HTML entities
+(`&lt;`) inside one. **Normalise CRLF before matching**: some of these files are CRLF, and a
+`
+`-anchored regex silently finds zero blocks in them.
 
 Findings in documents owned by another workstream are reported as **warnings**, not failures, so the
 exit code speaks for the documents whose owner can act on it.
@@ -158,7 +166,7 @@ Honest about its own state, since that is the standard the rest of the set is he
 
 | Gap | Status |
 |---|---|
-| `SCALABILITY.md`, `DOCKER.md`, `KUBERNETES.md`, `CDN.md`, `AI_FEATURES.md`, `RESEARCH_NOTES.md` have no maintenance section | Owned by another workstream. The checker warns rather than failing; move each name out of `OWNED_ELSEWHERE` in `docs/tools/check-docs.mjs` as its owner adds one. |
+| `OWNED_ELSEWHERE` in `docs/tools/check-docs.mjs` still names six documents | All six have had a maintenance section since 0.0.10, so the checker no longer warns about them; the set can be emptied in the next code change, which turns any future regression into a failure. |
 | `SCALABILITY.md` pins 38 line numbers | They will drift. The checker reports the count so it cannot grow unnoticed. `MEDIA_PIPELINE.md` has been converted to symbol names; that is the pattern. |
 | Android has no equivalent of the role-ladder parity check | The Kotlin client's permission mirror is believed to match and is not proven to. Noted in [PERMISSIONS.md](PERMISSIONS.md). |
 | Console state — CloudFront, S3, Vercel, Google Cloud — cannot be verified from a checkout | Every such claim is marked **UNVERIFIED**. The better fix, where it is possible, is the one [CI.md §1](CI.md) took: assert it at deploy time instead of documenting it. |

@@ -1,5 +1,15 @@
 # Deploying the Field Repository backend + media storage on AWS (free tier)
 
+> **Where the box stands on 4 Nov 2026.** The 26.04 rebuild this runbook plans in §10 is done: the
+> API runs on a **t3.small** (2 GiB, encrypted gp3) on **Ubuntu 26.04**, instance
+> `i-012eae3e379fbbeac`, reached with `aws ssm start-session` (no standing SSH; the deploy opens port
+> 22 for its own runner and closes it). The interpreter is **upstream CPython 3.15.2** from the pinned
+> python-build-standalone build `20261026` (since 0.0.7), releases are **blue/green** on ports 8000 and
+> 8001 (§13), and the release venv is built on the GitHub runner. The
+> pre-rebuild 24.04 t3.micro was stopped after the cut-over and terminated with its disk on
+> 17 Oct 2026. Sections that describe the 24.04 box, deadsnakes or Python 3.12 and 3.14 are the record
+> of how it got here.
+
 Architecture for the cheapest durable setup:
 
 | Concern        | Service                | Persistence |

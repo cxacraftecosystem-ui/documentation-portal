@@ -2,7 +2,7 @@
 
 The steps a release has to take on the production data, after the deploy has applied the migrations. The same page in both repositories. Each step names the release that introduced it.
 
-## The craft master list (DR 0.0.24, FR 0.0.19)
+## The craft master list (DR 0.0.24, FR 0.0.19, before the 21 Oct version reset)
 
 The migration `20261104090000_craft_master_list` seeds the master list and marks every craft recorded before it LEGACY. The mapping is a separate, reviewed step ([CRAFTS.md](CRAFTS.md)):
 
@@ -22,6 +22,22 @@ Release note (Designer Repository): stage 1 now requires a craft from the list. 
 3. `python -m app.scripts.queue_pending_translations --apply`. The queue translates them within the monthly budget.
 4. Run the dry run again: `would-queue` reads 0. A `declined` count is recordings Gemini turned down; an editor adds their English on the transcript page.
 
+## Video, the upload choice and the backfill switch (DR 0.0.10, FR 0.0.10)
+
+No data step runs on deploy. The migration adds the per-file choice columns and the three admin
+switches, all off, and the release ships with them off.
+
+1. Deploy.
+2. When the owner asks (launch list D40), see what a backfill would cost first: on the server,
+   through SSM, from the backend directory, `python scripts/backfill_transcripts.py`. It prints counts,
+   hours and the estimated cost only.
+3. Turn on "Transcribe and translate all previously uploaded media" in Settings. The clients show the
+   same estimate and ask before they send `confirmBackfill: true`; the queue worker then queues at most
+   25 at a time, oldest first, inside the month's budget.
+
+Release note: researchers now tick **Transcribe and translate** per audio or video file at upload.
+Videos are transcribed from their sound; nothing about the video changes.
+
 ## How this document is kept true
 
 | Claim | Kept true by |
@@ -29,3 +45,4 @@ Release note (Designer Repository): stage 1 now requires a craft from the list. 
 | The mapping's dry run, its curated table and its idempotence | `test_map_crafts.py` |
 | The translation sweep's counts, dry run and idempotence | `test_transcript_db.py` |
 | The migration name and what it seeds | `test_craft_master_migration.py` |
+| The backfill's estimate, batch size and budget stop | `backend/scripts/backfill_transcripts.py` and its tests; the switch's 409 without `confirmBackfill` |

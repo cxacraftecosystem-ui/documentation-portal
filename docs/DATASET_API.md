@@ -261,7 +261,7 @@ the index, short enough that a leaked line out of an `.ndjson` file is not a per
 a recording. Re-read the index rather than storing these. A row whose object cannot be signed simply
 has no `downloadUrl`, which says plainly that this one cannot be fetched.
 
-Bytes come **straight from S3**, never through the API — the web box is a single-worker `t3.micro`.
+Bytes come **straight from S3**, never through the API — the web box is a single-worker `t3.small`.
 
 ---
 

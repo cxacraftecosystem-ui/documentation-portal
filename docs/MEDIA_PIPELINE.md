@@ -13,9 +13,19 @@ and of every trick either client plays.
 - Web: `frontend/lib/media.ts`, `frontend/lib/uploads.tsx`, `frontend/components/forms/MediaCaptureField.tsx`
 - API: `backend/app/api/routes/media.py`, `backend/app/services/s3.py`
 
-**Scope.** This document ends where the bytes land. What happens to an audio file *after* it is
-stored — the three-provider transcription chain, its failover semantics and the queue's cooldown
-behaviour — is [ARCHITECTURE.md §6](ARCHITECTURE.md).
+**Scope.** This document ends where the bytes land. What happens to an audio or video file *after*
+it is stored — the provider chain, its failover semantics and the queue's cooldown — is
+[ARCHITECTURE.md §6](ARCHITECTURE.md), and the Scribe v2 + Gemini turn pipeline that follows is
+[TRANSCRIPT_PIPELINE.md](TRANSCRIPT_PIPELINE.md).
+
+**The one thing an upload decides about transcription (0.0.10).** Every audio or video file carries
+its own **Transcribe and translate** box at upload, on the web and on Android, plus a batch toggle.
+The box travels as `processingRequests: ["TRANSCRIPTION"]` on `POST /api/media/complete`, and the
+server stores the choice on the row (`MediaFile.transcribeRequested`, `transcribeRequestSource`,
+`transcribeRequestedAt`). A complete without it queues nothing. When a master admin has switched on
+"all new videos" or "all new audio", clients read `GET /settings/transcription/upload-policy` and show
+the box ticked and locked with a short note. The outbox keeps the choice per file, so a clip saved
+offline is queued the way it was ticked.
 
 > **Citations are by symbol name, not by line number.** They used to be by line — `MainActivity.kt:1629`,
 > `FieldRepository.kt:677` — and every one of them had silently drifted by 60 to 170 lines within a
@@ -50,6 +60,7 @@ Four properties of that contract the clients lean on hard:
 `MediaCompleteRequest` also accepts a free-form `checksum` (`backend/app/schemas/media.py`).
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 sequenceDiagram
   autonumber
   participant C as Client
@@ -365,6 +376,7 @@ The lost-response case it was aiming at is covered properly by `created` above, 
 than guesses.
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 stateDiagram-v2
   direction LR
   [*] --> queued: save with no connection

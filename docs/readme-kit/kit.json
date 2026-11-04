@@ -1,0 +1,278 @@
+{
+  "hero": {
+    "eyebrow": "AI CoE · IIT Kharagpur",
+    "name": "Field Repository",
+    "titleWrap": 17,
+    "tagline": "Living craft documentation: artisans, crafts, workshops and interviews captured in the field, transcribed into English and kept as a research-ready dataset.",
+    "chips": [
+      "Next.js",
+      "FastAPI",
+      "Kotlin + Compose",
+      "Postgres",
+      "Scribe v2 + Gemini"
+    ],
+    "motifCaption": "record · transcribe · preserve",
+    "label": "Field Repository: living craft documentation, captured in the field, transcribed into English and kept as a research-ready dataset"
+  },
+  "cards": {
+    "label": "What the Field Repository does: capture, offline, interviews, transcripts, review and the dataset",
+    "columns": 3,
+    "items": [
+      {
+        "icon": "camera",
+        "tag": "Capture",
+        "title": "Eight linked record types",
+        "body": "Artisans, crafts, workshops, products, tools, processes, interviews and media, linked from the moment they are saved."
+      },
+      {
+        "icon": "wifi-off",
+        "tag": "Offline",
+        "title": "Works without signal",
+        "body": "The Android app saves to an outbox, keeps takes on the phone and syncs with idempotency keys when a network returns."
+      },
+      {
+        "icon": "notebook-pen",
+        "tag": "Interviews",
+        "title": "One questionnaire engine",
+        "body": "Sessions, takes, coverage and canonical answers from one shared engine, with chips and filters on every recording."
+      },
+      {
+        "icon": "languages",
+        "tag": "Transcripts",
+        "title": "Every voice in English",
+        "body": "Scribe v2 hears the words, Gemini 3.8 Flash translates each turn, and the viewer follows the audio word by word."
+      },
+      {
+        "icon": "badge-check",
+        "tag": "Review",
+        "title": "Six-tier ladder",
+        "body": "Each tier reviews the one below it: approve, reject or send back with comments, every decision kept with its author."
+      },
+      {
+        "icon": "database",
+        "tag": "Dataset",
+        "title": "Browse it, export it",
+        "body": "A data browser laid out as folders, report workbooks, transcripts in every export, and a streaming dataset API."
+      }
+    ]
+  },
+  "cards:ai": {
+    "label": "The AI in the Field Repository: transcription, translation, Ask, autodraft, quote cards, consent and budget",
+    "columns": 3,
+    "items": [
+      {
+        "icon": "mic",
+        "tag": "Hear",
+        "title": "Scribe v2 words",
+        "body": "Speakers, timings and key terms from the artisan, the craft and the master list. Video is heard from its sound."
+      },
+      {
+        "icon": "languages",
+        "tag": "Translate",
+        "title": "Gemini 3.8 Flash",
+        "body": "English for every turn, a summary and key quotes in one pass, with 3.7 Flash as the fallback."
+      },
+      {
+        "icon": "search",
+        "tag": "Ask",
+        "title": "Questions, cited",
+        "body": "Ask one transcript a question and get an answer that points back to the turns it came from."
+      },
+      {
+        "icon": "notebook-pen",
+        "tag": "Autodraft",
+        "title": "Drafts, not answers",
+        "body": "Open questionnaire questions drafted from a take; a person accepts each one before it counts."
+      },
+      {
+        "icon": "scroll-text",
+        "tag": "Quote cards",
+        "title": "Their words, shared",
+        "body": "An image and audio clip of a quote, refused the moment the artisan withdraws consent."
+      },
+      {
+        "icon": "gauge",
+        "tag": "Guarded",
+        "title": "Consent and budget",
+        "body": "Consent re-read before every send, a monthly budget per portal, and a 15-minute hold on a 402."
+      }
+    ]
+  },
+  "cards:ops": {
+    "label": "How the Field Repository is run: blue/green releases, backups, origin lock, two-step sign-in, RLS and comment-free code",
+    "columns": 3,
+    "items": [
+      {
+        "icon": "server",
+        "tag": "Releases",
+        "title": "Blue / green",
+        "body": "Two loopback ports behind nginx. The idle one starts, answers /health, and only then takes traffic."
+      },
+      {
+        "icon": "archive",
+        "tag": "Backups",
+        "title": "Nightly, checked",
+        "body": "pg_dump to S3 every night, a weekly copy kept for a year, and a freshness check that fails loudly."
+      },
+      {
+        "icon": "lock",
+        "tag": "Origin",
+        "title": "CloudFront only",
+        "body": "The box answers CloudFront alone; SSH opens for one runner during a deploy and closes after."
+      },
+      {
+        "icon": "shield-check",
+        "tag": "Sign-in",
+        "title": "Two-step, roster",
+        "body": "TOTP with recovery codes, an access roster at the door, and six roles enforced on the server."
+      },
+      {
+        "icon": "database",
+        "tag": "Data",
+        "title": "RLS everywhere",
+        "body": "Row Level Security on every table and the anon role revoked; Aadhaar kept only as a fingerprint."
+      },
+      {
+        "icon": "code",
+        "tag": "Code",
+        "title": "No comments",
+        "body": "A CI job fails on any comment in code; the reasons live in the docs, beside the rules they explain."
+      }
+    ]
+  },
+  "pipeline": {
+    "label": "How a recording travels: capture, sync, transcribe, review, dataset",
+    "stages": [
+      {
+        "icon": "mic",
+        "title": "Capture",
+        "sub": "Records, photos, takes and GPS on site"
+      },
+      {
+        "icon": "cloud",
+        "title": "Sync",
+        "sub": "Signed, resumable uploads to S3"
+      },
+      {
+        "icon": "languages",
+        "title": "Transcribe",
+        "sub": "Scribe v2 words, Gemini English"
+      },
+      {
+        "icon": "badge-check",
+        "title": "Review",
+        "sub": "Approve up the six-tier ladder"
+      },
+      {
+        "icon": "database",
+        "title": "Dataset",
+        "sub": "Browser, workbooks and API"
+      }
+    ]
+  },
+  "pipeline:transcript": {
+    "label": "How a recording becomes English: upload, consent, Scribe v2, Gemini, the viewer",
+    "stages": [
+      {
+        "icon": "send",
+        "title": "Upload",
+        "sub": "Transcribe and translate, ticked per file"
+      },
+      {
+        "icon": "shield-check",
+        "title": "Consent",
+        "sub": "Re-read before anything is sent"
+      },
+      {
+        "icon": "mic",
+        "title": "Scribe v2",
+        "sub": "Words, speakers and timings"
+      },
+      {
+        "icon": "languages",
+        "title": "Gemini",
+        "sub": "English per turn, summary, quotes"
+      },
+      {
+        "icon": "book-open",
+        "title": "Viewer",
+        "sub": "Karaoke, reading mode, marks"
+      }
+    ]
+  },
+  "stats": {
+    "label": "At a glance: six role tiers, two clients, eight record types, capture offline",
+    "tiles": [
+      {
+        "icon": "users",
+        "kicker": "Tiers",
+        "value": "6",
+        "label": "Volunteer to Master Admin"
+      },
+      {
+        "icon": "smartphone",
+        "kicker": "Clients",
+        "value": "2",
+        "label": "Web and Android, one API"
+      },
+      {
+        "icon": "layers",
+        "kicker": "Records",
+        "value": "8",
+        "label": "Linked record types"
+      },
+      {
+        "icon": "wifi-off",
+        "kicker": "Offline",
+        "value": "100",
+        "unit": "%",
+        "label": "Capture without signal"
+      }
+    ]
+  },
+  "timeline": {
+    "label": "Releases since the version reset: 0.0.1 to 0.0.10",
+    "items": [
+      {
+        "date": "21 Oct",
+        "title": "0.0.1",
+        "sub": "Fresh line, crafts list"
+      },
+      {
+        "date": "23 Oct",
+        "title": "0.0.3",
+        "sub": "One questionnaire engine"
+      },
+      {
+        "date": "1 Nov",
+        "title": "0.0.5",
+        "sub": "Scribe v2 + Gemini"
+      },
+      {
+        "date": "1 Nov",
+        "title": "0.0.6",
+        "sub": "Karaoke, reading mode"
+      },
+      {
+        "date": "3 Nov",
+        "title": "0.0.9",
+        "sub": "Translations, Data page"
+      },
+      {
+        "date": "4 Nov",
+        "title": "0.0.10",
+        "sub": "Video, upload choice",
+        "now": true
+      }
+    ]
+  },
+  "divider": {
+    "label": "Section divider"
+  },
+  "footer": {
+    "title": "The interview ends. The knowledge is preserved.",
+    "sub": "AI CoE · IIT Kharagpur · Ministry of Textiles",
+    "label": "The interview ends. The knowledge is preserved. AI CoE, IIT Kharagpur, Ministry of Textiles."
+  },
+  "icons": "all"
+}

@@ -11,8 +11,8 @@ is the authority on shapes.
 
 | Switch | Shipped | Effect |
 |---|---|---|
-| `QUESTIONNAIRE_V2` (env) | `false` | Off: every v2 route answers 404, the old routes behave exactly as before. On: the routes below, and the old-build shims. |
-| `AppSetting.transcriptionPaused` (database) | `true` | Owner correction (d): no audio leaves the server. Jobs wait as QUEUED; Retry answers 202 `{"status":"QUEUED","paused":true}`. |
+| `QUESTIONNAIRE_V2` (env) | `false` at first; `true` since 0.0.3, in code and in production | Off: every v2 route answers 404, the old routes behave exactly as before. On: the routes below, and the old-build shims. |
+| `AppSetting.transcriptionPaused` (database) | `true`; un-paused in production on 1 Nov 2026 | Owner correction (d): while paused no audio leaves the server. Jobs wait as QUEUED; Retry answers 202 `{"status":"QUEUED","paused":true}`. |
 | `QUESTIONNAIRE_MIN_ANDROID_VERSION_CODE_FOR_CREATE`, `QUESTIONNAIRE_MIN_WEB_VERSION_CODE_FOR_CREATE` (env) | unset | Decision 5: an older build's create gets 503 + `Retry-After: 86400`, compared on the build NUMBER per platform. Clips are always accepted. |
 
 `GET /api/questionnaire/config` reports them to both clients (`minAndroidVersionCodeForCreate`,

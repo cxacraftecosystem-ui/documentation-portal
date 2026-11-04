@@ -21,23 +21,24 @@ This document is the map. The territory is split across:
 ## 1. System context
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart LR
   researcher([Researcher / field user])
   admin([Reviewer / admin])
-  web[Next.js web app<br/>Vercel]
+  web[Next.js web app<br/>Vercel · proxy.ts]
   android[Android app<br/>Kotlin + Compose]
   cf{{CloudFront<br/>dual-stack TLS}}
-  api[FastAPI on EC2<br/>behind nginx]
-  db[(PostgreSQL<br/>Supabase, other region)]
+  api[FastAPI on EC2<br/>blue/green behind nginx]
+  db[(PostgreSQL 17<br/>Supabase ap-south-1)]
   s3[(S3 · ap-south-1<br/>dual-stack endpoint)]
   worker[fieldrepo-queue<br/>separate systemd unit]
-  stt{{ElevenLabs → Deepgram → Whisper}}
-  gem{{Gemini · grid measurement}}
+  stt{{Scribe v2 → Deepgram → Whisper}}
+  gem{{Gemini 3.8 Flash<br/>English · insights · measurement}}
 
   researcher --> web
   researcher --> android
   admin --> web
-  web -->|JWT REST| cf
+  web -->|HttpOnly cookie, server proxy| cf
   android -->|JWT REST| cf
   cf --> api
   api -->|Prisma| db
@@ -48,7 +49,7 @@ flowchart LR
   worker -->|downloads object| s3
   worker --> stt
   worker --> gem
-  worker -->|writes transcript / dimensions| db
+  worker -->|turns, English, dimensions| db
 ```
 
 The dotted lines are the point of the design: a 400 MB video costs the API one presign and one
@@ -58,11 +59,18 @@ metadata row, not 400 MB of bandwidth.
 
 ## 2. The production request path
 
-Worth drawing in full, because the two facts that dominate this system's behaviour are both
-invisible in the logical diagram above: **the database is in a different AWS region from the web
-box**, and **the box is a single burstable t3.micro**.
+Worth drawing in full. When this section was first written (27 Jul 2026) two facts dominated the
+system's behaviour: **the database was in a different AWS region from the web box** (Supabase in
+ap-northeast-1), and **the box was a single burstable t3.micro**. Both have since changed: the
+database moved to a new Supabase project in ap-south-1, beside the box and the bucket, on 13 Sep
+2026, and the box was rebuilt as a **t3.small (2 GiB) on Ubuntu 26.04** on 10 Oct 2026, and since 19 Oct it serves from
+two loopback ports behind nginx so a release never takes the API down. On 4 Nov 2026 `/health/ready`
+reported a 12.1 ms database round trip from the box. The diagram is today's; the measurements in
+§2.1 and §2.2 are July's, and the law they found (round trips in sequence, not rows, set the cost of
+a page) is why the rewrite in §2.2 still matters on a fast link.
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TB
   subgraph client["Client"]
     B[Browser or Android app]
@@ -70,28 +78,28 @@ flowchart TB
   subgraph edge["AWS edge"]
     CF["CloudFront distribution<br/>d2b34i3e92al6i.cloudfront.net<br/>TLS 1.2+ · IPv4 and IPv6"]
   end
-  subgraph ec2["EC2 t3.micro · ap-south-1 · 2 burstable vCPU · 1 GiB"]
-    NX["nginx :80<br/>client_max_body_size 200M<br/>proxy_read_timeout 300s"]
-    UV["uvicorn :8000 on 127.0.0.1<br/><b>--workers 1</b>"]
+  subgraph ec2["EC2 t3.small · ap-south-1 · 2 burstable vCPU · 2 GiB · Ubuntu 26.04"]
+    NX["nginx :80<br/>X-Origin-Verify required<br/>client_max_body_size 200M"]
+    UV["uvicorn on :8000 or :8001<br/>blue / green<br/><b>--workers 1</b>"]
     QW["fieldrepo-queue<br/>python -m app.worker"]
     PE[Prisma query engine]
   end
   subgraph remote["Elsewhere"]
-    PG[("Supabase PostgreSQL<br/>transaction pooler :6543<br/><b>different region</b>")]
+    PG[("Supabase PostgreSQL 17<br/>transaction pooler :6543<br/>ap-south-1, RLS on")]
     S3[(S3 bucket)]
   end
 
   B -->|"HTTPS"| CF
-  CF -->|"plaintext HTTP inside AWS — risk P1"| NX
+  CF -->|"HTTP inside AWS, origin-locked — risk P1"| NX
   NX -->|loopback| UV
   UV --> PE
   QW --> PE
-  PE -->|"TLS, sslmode=require<br/><b>~200–400 ms per round trip</b>"| PG
+  PE -->|"TLS, sslmode=require<br/>same region since 13 Sep"| PG
   B -.->|presigned, direct| S3
   QW --> S3
 
-  style PG fill:#fff6e0,stroke:#d89a2a,color:#222
-  style UV fill:#e8f2ff,stroke:#4a7fd6,color:#222
+  style PG fill:#FAEECD,stroke:#CD9200,color:#1E1B2E
+  style UV fill:#F2E9FE,stroke:#9148D2,color:#1E1B2E
 ```
 
 ### 2.1 What each hop costs
@@ -128,6 +136,7 @@ rows** — which is why twenty rows out of a seventy-four-row table took 3.3 sec
 the table smaller would have changed nothing.
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart LR
   subgraph before["Before — sequential"]
     direction TB
@@ -173,6 +182,7 @@ HTTP and never share the supervisor.
 ## 3. Backend module flow
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TD
   routes["backend/app/api/routes/*.py<br/>one module per resource"]
   deps["core/deps.py<br/>auth + the six-tier ladder<br/>+ the identity cache"]
@@ -216,6 +226,7 @@ Two module-level things worth knowing before reading any route:
 ## 4. Authentication
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 sequenceDiagram
   autonumber
   participant C as Web / Android
@@ -256,6 +267,7 @@ a restart and no deploy.
 ### 4.1 Google sign-in
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 sequenceDiagram
   participant W as Web (GSI)
   participant A as Android (Credential Manager)
@@ -285,6 +297,7 @@ as a researcher until an admin elevates it.
 ## 5. Field capture
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TD
   ui[Capture UI · web or Android]
   geo["Location: GPS fix, or a MapTiler map pin<br/>PROVENANCE ≠ the subject's stated address"]
@@ -308,7 +321,7 @@ flowchart TD
   ui --> outbox
   outbox -.->|network returns| complete
 
-  style outbox fill:#fff6e0,stroke:#d89a2a,color:#222
+  style outbox fill:#FAEECD,stroke:#CD9200,color:#1E1B2E
 ```
 
 Long audio and video captured on Android is split by **re-muxing at sync frames — no re-encoding** —
@@ -321,12 +334,19 @@ Every tactic in that diagram, and the several the web has that Android does not,
 
 ---
 
-## 6. Transcription: three providers, with failover
+## 6. Transcription: the provider chain, then the turn pipeline
 
-Not Whisper. Whisper is the **third** provider, and on a deployment with an ElevenLabs key it is
-usually never called.
+Since 0.0.5 (1 Nov 2026) a transcribed recording is stored as **turns** (speaker, words, timings)
+in a `TranscriptVersion`, and a second queue step writes the English of every turn with Gemini 3.8
+Flash, plus the summary, quotes and craft terms. That pipeline, its switches, the upload choice and
+the video path are in [TRANSCRIPT_PIPELINE.md](TRANSCRIPT_PIPELINE.md). This section is the first
+step: which speech-to-text provider hears the audio.
+
+Not Whisper. Scribe v2 is first, Whisper is the **third** provider, and on a deployment with an
+ElevenLabs key it is usually never called. A fourth, Meta Muse, is built and disabled.
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TD
   job["MediaProcessingJob<br/>TRANSCRIPTION, QUEUED"] --> claim{"worker claims it<br/>single elected worker"}
   claim --> chain["transcription_provider_chain()<br/>master admin's ranking,<br/>minus every provider with no key"]
@@ -353,9 +373,9 @@ flowchart TD
   resolve -->|"PURE throttle,<br/>no hard failures"| rate["RATE_LIMITED · requeue<br/><b>without spending an attempt</b><br/>behind a growing cooldown"]
   resolve -->|"throttle + hard failures"| failed["FAILED · normal retry/backoff,<br/>terminates after maxAttempts"]
 
-  style rate fill:#fff6e0,stroke:#d89a2a,color:#222
-  style failed fill:#fdecec,stroke:#c33,color:#222
-  style done fill:#eaf7ee,stroke:#3a9a5c,color:#222
+  style rate fill:#FAEECD,stroke:#CD9200,color:#1E1B2E
+  style failed fill:#FDE8EC,stroke:#C0264B,color:#1E1B2E
+  style done fill:#E6F6EC,stroke:#2F8F57,color:#1E1B2E
 ```
 
 Three distinctions in that diagram are the whole design, and they are genuinely different failures:
@@ -380,10 +400,16 @@ when the one-minute load average is below a fraction of the CPU count, so spare 
 burstable instance is used rather than wasted. Measurement jobs keep flowing during a transcription
 cooldown — they are lighter and hit a different provider.
 
-**Refinement is separate from transcription.** `OPENAI_API_KEY`'s primary job is rewriting a raw
-transcript into clean interviewer/interviewee dialogue and translating it, per the master-admin
-`transcriptionMode` setting (`RAW` / `REFINED` / `REFINED_TRANSLATED`). It only *transcribes* when it
-is reached as the third link in the chain.
+**Refinement is separate from transcription.** Rewriting a raw transcript into clean
+interviewer/interviewee dialogue (and translating it, per the master-admin `transcriptionMode`
+setting, `RAW` / `REFINED` / `REFINED_TRANSLATED`) is a text job, and since 0.0.10 every text job on
+the deployment's key runs on Gemini 3.8 Flash, falling back to 3.7 Flash on a 404. OpenAI and
+Anthropic run it only when `AI_TEXT_PROVIDER` says so or a person brings their own key. The OpenAI
+key only *transcribes* when Whisper is reached as the third link in the chain.
+
+**Video** is transcribed as its sound only: the worker extracts the first audio track with ffmpeg
+into the capped working directory (`backend/app/transcription/workdir.py`), sends that, and deletes
+it. The stored video never changes.
 
 ---
 
@@ -393,6 +419,7 @@ Both clients can complete a save with no connection at all. They do it different
 difference is deliberate.
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 stateDiagram-v2
   direction LR
   [*] --> Attempt: user presses Save
@@ -448,6 +475,7 @@ Everything a researcher records is scoped to a workshop, and that scoping is wha
 the export and the permission checks all read.
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TD
   W["<b>Workshop</b><br/>title · place · start/end dates<br/><i>the container everything drops into</i>"]
 
@@ -474,8 +502,8 @@ flowchart TD
 
   W --> TK["AssignedTask<br/><i>what someone was asked to record</i>"]
 
-  style W fill:#e2ecff,stroke:#3a6fd0,color:#222
-  style A fill:#eaf7ee,stroke:#3a9a5c,color:#222
+  style W fill:#F2E9FE,stroke:#9148D2,color:#1E1B2E
+  style A fill:#E6F6EC,stroke:#2F8F57,color:#1E1B2E
 ```
 
 Two consequences of that shape a newcomer will hit:
@@ -494,6 +522,7 @@ Summarised here; the authoritative version, with who may make each transition, i
 [PERMISSIONS.md §3](PERMISSIONS.md).
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 stateDiagram-v2
   direction LR
   [*] --> DRAFT: Professor+ chooses Draft
@@ -517,24 +546,26 @@ earlier versions of this file were.
 ### 10.1 Production, today
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart TB
   subgraph vercel["Vercel"]
-    NX2["Next.js 16 App Router<br/>static prerender · no route handlers<br/>no server actions · no fs"]
+    NX2["Next.js 16 App Router<br/>proxy.ts + auth route handlers<br/>session in an HttpOnly cookie"]
   end
   subgraph aws["AWS ap-south-1"]
     CF2[CloudFront]
-    E["EC2 t3.micro<br/>nginx + uvicorn(1) + fieldrepo-queue"]
+    E["EC2 t3.small · Ubuntu 26.04<br/>nginx + uvicorn(1) on :8000 or :8001<br/>+ fieldrepo-queue"]
     S3B[(S3 media bucket)]
   end
-  subgraph sb["Supabase — different region"]
+  subgraph sb["Supabase ap-south-1"]
     PG2[(PostgreSQL<br/>session pooler :5432 for migrations<br/>transaction pooler :6543 at runtime)]
   end
-  GH["GitHub Actions<br/>backend → frontend → Android"]
+  GH["GitHub Actions<br/>backend → frontend → Android<br/>nightly pg_dump → S3"]
 
   NX2 --> CF2 --> E --> PG2
   NX2 -.-> S3B
   E --> S3B
-  GH -->|rsync + migrate + restart| E
+  GH -->|venv from the runner, migrate,<br/>start idle port, switch nginx| E
+  GH -->|backup + freshness check| S3B
   GH -->|vercel deploy --prebuilt| NX2
 ```
 
@@ -545,6 +576,7 @@ Alternative shapes are documented and, in the case of Kubernetes, partially vali
 ### 10.2 Local development
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart LR
   subgraph compose["docker compose up -d"]
     pg[PostgreSQL 17<br/>host :55432 → container :5432]
@@ -565,6 +597,56 @@ Two local-only gotchas: set `AWS_S3_SSE_ALGORITHM=` (empty) or the local store (
 fork of MinIO, since 2026-10-09; [DOCKER.md](DOCKER.md) says why) rejects multipart creates with
 `NotImplemented`, and leave the queue worker **on** locally — the split into a separate service is a
 production concern.
+
+---
+
+## 11. Code shared with the designer portal
+
+The two portals will merge one day, and the parts they already have in common are not two
+implementations: they are one, written in designer-portal and copied here byte for byte by its sync
+scripts. Each copy is pinned by a SHA-256 manifest in `shared/`, the same file in both repositories,
+and a parity test fails the build when a copy drifts.
+
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1"}}}%%
+flowchart LR
+  subgraph DR["designer-portal (edited here)"]
+    Q1["Questionnaire engine<br/>backend, web, Android"]
+    T1["Transcription backend"]
+    W1["Transcript web"]
+    A1["Transcript Android"]
+  end
+  subgraph FR["documentation-portal (copies)"]
+    Q2["backend/app/questionnaire"]
+    T2["backend/app/transcription"]
+    W2["transcript web tree"]
+    A2["transcript Android tree"]
+  end
+  Q1 -->|sync_questionnaire.py| Q2
+  T1 -->|sync_transcription.py| T2
+  W1 -->|sync_transcript_web.py| W2
+  A1 -->|transcript_android.py| A2
+  M[("shared/*.sha256<br/>questionnaire-features.json")]
+  Q2 -.-> M
+  T2 -.-> M
+  W2 -.-> M
+  A2 -.-> M
+  classDef accent fill:#762CB1,stroke:#5F1C93,color:#FFFFFF
+  class M accent
+```
+
+| Manifest | What it pins |
+|---|---|
+| `shared/questionnaire.sha256` | the questionnaire engine: backend package, web screens, contracts |
+| `shared/android-questionnaire.sha256` | the Android questionnaire tree |
+| `shared/transcription.sha256` | the transcription backend and the transcript contract |
+| `shared/transcript-web.sha256` | the transcript viewer on the web |
+| `shared/android-transcript.sha256` | the transcript viewer on Android |
+| `shared/questionnaire-features.json` | the parity registry: every feature, tagged by a test on all four clients |
+
+Never edit a copy here. Change designer-portal, run its sync script with `--to` this repository, and
+commit both. Portal-only behaviour lives beside the copy, not in it: for transcripts that is
+`backend/app/services/transcript_portal.py` (who may read and edit, consent, context).
 
 ---
 

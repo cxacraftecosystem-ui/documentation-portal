@@ -52,6 +52,11 @@ traps — check it before "simplifying" anything that looks redundant.
 13. **Every row of buttons goes through `ButtonRow`** (`components/ui/ButtonRow.tsx`): one centred,
     two on one line, three or more stacked on a phone and pills from `sm` up. Never hand-style a
     button row. §11.13.
+14. **No comments in code, ever.** Owner rule, enforced since 0.0.10 by the **Comment stripper** job
+    (`python scripts/tools/strip_comments.py --check`): no `//`, `/* */`, JSDoc, `{/* */}` or HTML
+    comments in `.ts`, `.tsx`, `.css`, `.mjs`, config files or anything else, and no docstrings in the
+    backend. Names, types and small functions carry the meaning. A reason worth keeping (an invariant,
+    a trap, why a rule looks odd) goes into this skill or into `docs/`, in the same commit.
 
 ---
 
@@ -74,7 +79,17 @@ Never load Google-hosted fonts.
 - `fontSize` restates **Tailwind 3's** scale (same sizes, line heights as lengths: `text-sm` is
   0.875rem on 1.25rem). Tailwind 4's stock scale writes line heights as ratios, which descendants
   inherit as ratios, so a `text-[11px]` badge inside a `text-sm` parent would lose 4px of height. Do
-  not delete it to get "stock"; the config's comment says what moves if you do.
+  not delete it to get "stock": Tailwind 4 writes those line heights as ratios, so a `text-[11px]`
+  badge inside a `text-sm` button inherited 15.7px of line instead of 20px, and the guide's step-badge
+  digits sat 1px higher.
+- `tailwind.config.ts` ends in a **CommonJS export on purpose**. `@tailwindcss/node` loads it with
+  Node's own loader, which reads a `.ts` file in a package with no `"type"` as CommonJS first; an
+  `export default` fails that parse, falls back to ES modules and prints `MODULE_TYPELESS_PACKAGE_JSON`
+  on every build and every `next dev`.
+- `card` is the themed stand-in for the old literal `bg-white` on every panel; Tailwind's own `white`
+  is deliberately untouched, so `text-white` on purple stays white in both themes. The legacy `field`
+  scale maps 50 to 300 onto the tinted surface ladder (themed) and 400 to 700 onto the purple ramp
+  (never inverted). The brand logo colours are never re-themed.
 - Breakpoints are stock: `sm` 640 · `md` 768 · `lg` 1024 · `xl` 1280 · `2xl` 1536.
 
 ---
@@ -868,10 +883,25 @@ under `LocalAppPreferences.current.reducedMotion`. `FLASH_MILLIS = 1400L` — th
 `.text-gold-gradient`, `.glass-card`, `.glass-dark`, plus legacy aliases `.ambient-light`,
 `.text-gradient-violet`.
 
-⚠ **Every rule in `globals.css` sits in a cascade layer**, and the file's header says which and why.
-Under Tailwind 4 a rule outside every layer beats every utility, whatever its specificity, so a new
-rule goes in `@layer base` (an element default), `@layer components` (a recipe) or the
-`@layer utilities` block (a rule that must tie or beat a utility, as the focus ring does).
+⚠ **Every rule in `globals.css` sits in a cascade layer.** Under Tailwind 4 a rule outside every layer
+beats every utility not marked `!`, whatever its specificity; Tailwind 3 printed hand-written rules
+after its utilities, so they won only when at least as specific. Each rule was placed to keep v3's
+answer, and a new one follows the same placement:
+
+- `:root` token blocks and rules made only of element and universal selectors go in `@layer base`,
+  where every utility beats them;
+- any other hand-written rule that could tie or beat a utility (the focus ring, for one) goes in the
+  `@layer utilities` block, after the generated utilities;
+- recipe classes go in `@layer components`, below every utility, which is what
+  `class="field-button w-full"` relies on;
+- v3's `@layer utilities` classes are v4 `@utility` declarations, so variants still apply to them.
+
+`@import "tailwindcss" source(none)` plus `@config "../tailwind.config.ts"` keeps v3's arrangement:
+the config's `content` globs (app/, components/, lib/; `.ts` and `.tsx`) are the only files scanned,
+so `e2e/` and `scripts/` never generate CSS. Four v4 preflight changes are restored at their v3 value
+in `base`: a bare `border` draws gray-200 rather than `currentcolor`; buttons get `cursor: pointer`;
+placeholders are gray-400; and a file input's "Choose File" button keeps the browser's own look
+(`revert`), because the APK upload and the photo pickers show it.
 
 ⚠ **`cn()` in `lib/utils.ts` is `classes.filter(Boolean).join(" ")`** — not `tailwind-merge`, and
 neither `clsx` nor `tailwind-merge` is a dependency. Later classes do **not** win; CSS source order
@@ -1340,7 +1370,8 @@ conscious."* Every help line, subtitle, hint, empty state, banner, dialog body, 
 description is rewritten to that bar, and new copy starts there.
 
 - **One short sentence, often a few words — or nothing** when the label already says it.
-- **Remove:** how the software works, history and rationale (that belongs in a code comment),
+- **Remove:** how the software works, history and rationale (that belongs in `docs/`, never in a code
+  comment: code carries none),
   hedging, a repeat of the label, multi-sentence paragraphs, internal terms (endpoints, schemas, "the
   server", "this device's store", record ids) and any admission of a gap.
 - **Keep, but tighten:** consent and data-handling wording (Aadhaar masking, dictation, recording,
@@ -1434,8 +1465,15 @@ hour later when there IS an interview in the form. `Use current GPS` and map pin
 
 ### 12.5 Location capture (`components/forms/LocationFields.tsx`)
 
-The two-group split: **stated address** (where the subject is) vs **captured at** (the device fix). Read
-that file's header before changing anything; the highlights:
+The two-group split: **stated address** (where the subject is) vs **captured at** (the device fix). It
+exists because every artisan location once read Kharagpur: real GPS fixes of the desk the record was
+typed at, while the places researchers typed into free text were Bagru, Kutch, Rudraprayag and the
+like. The rule to keep: **automatic capture may write into "captured at" and never into the stated
+address**; the geocoder may offer a stated value, and a person accepts it. The state and district
+lists come from `GET /reference/address` once per page load (never a second copy in the client) but
+are never the only source of states (`OFFLINE_STATES`, below). MapLibre is loaded only when somebody
+opens the map: it is the largest chunk the app can load, and a static import put it on every form's
+critical path. The highlights:
 
 - **An edit form NEVER auto-captures location.** `isEditForm = initial !== undefined`, so passing
   `initial={null}` still counts as an edit; **omitting `initial` is the only thing that switches
@@ -1870,8 +1908,9 @@ never as a badge, a disabled placeholder or a "coming soon" toast.
 **When a feature lands on both clients**, the shared vocabulary must come from the **server**
 (`rungCopy`, `reasonCopy`, `childLevel`, `levels`, `overridesAreRepositoryWide` …) so the two cannot
 describe one decision differently. Where a platform genuinely differs — hover does not exist on a
-phone; a phone has no room for two panes — say so in a comment and pick the equivalent moment or shape,
-never a paraphrase of the copy.
+phone; a phone has no room for two panes — record it in the feature's entry in
+`shared/questionnaire-features.json` or its doc (never a code comment) and pick the equivalent moment
+or shape, never a paraphrase of the copy.
 
 ---
 
@@ -2036,6 +2075,8 @@ Each of these looks wrong and is deliberate. Most were a shipped bug.
 ### New cross-client feature
 - [ ] wording, order and copy come from the **server**, not from each client
 - [ ] both clients gate on the same predicate, mirroring `deps.py`
-- [ ] platform differences are commented, not paraphrased
+- [ ] platform differences are written in the feature registry or its doc, not paraphrased, and not
+      in a code comment
+- [ ] no comments anywhere in the change (`python scripts/tools/strip_comments.py --check`)
 - [ ] `npm run typecheck && npm run lint` (frontend) · `ruff check app && pytest -q` (backend) ·
       `./gradlew.bat :app:compileDebugKotlin` (Android)

@@ -13,6 +13,7 @@ changes to `backend/app/core/*` and the Android network configuration.
 ## 1. Transport
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif","fontSize":"15px","primaryColor":"#F2E9FE","primaryTextColor":"#1E1B2E","primaryBorderColor":"#9148D2","secondaryColor":"#FAEECD","secondaryTextColor":"#1E1B2E","secondaryBorderColor":"#CD9200","tertiaryColor":"#F3F1FA","tertiaryTextColor":"#1E1B2E","tertiaryBorderColor":"#A7A3BC","mainBkg":"#F2E9FE","nodeBorder":"#9148D2","nodeTextColor":"#1E1B2E","lineColor":"#AA69E9","textColor":"#857F9E","edgeLabelBackground":"#F9F5FF","clusterBkg":"#F9F5FF","clusterBorder":"#D6B6FB","titleColor":"#762CB1","noteBkgColor":"#FAEECD","noteTextColor":"#1E1B2E","noteBorderColor":"#CD9200","actorBkg":"#F2E9FE","actorBorder":"#9148D2","actorTextColor":"#1E1B2E","actorLineColor":"#AA69E9","signalColor":"#AA69E9","signalTextColor":"#857F9E","labelBoxBkgColor":"#F2E9FE","labelBoxBorderColor":"#9148D2","labelTextColor":"#1E1B2E","loopTextColor":"#857F9E","activationBkgColor":"#E7D5FE","activationBorderColor":"#9148D2","sequenceNumberColor":"#FFFFFF","transitionColor":"#AA69E9","transitionLabelColor":"#857F9E","stateLabelColor":"#1E1B2E","stateBkg":"#F2E9FE","compositeBackground":"#F9F5FF","compositeTitleBackground":"#F2E9FE","attributeBackgroundColorOdd":"#FFFFFF","attributeBackgroundColorEven":"#F9F5FF","relationColor":"#AA69E9","relationLabelBackground":"#F9F5FF","relationLabelColor":"#1E1B2E"}}}%%
 flowchart LR
   web[Next.js web app<br/>Vercel, HTTPS]
   app[Android app<br/>OkHttp]
@@ -238,12 +239,18 @@ change this; SSE-S3 protects the physical disks, not URL holders. See risk P0.
   stored hash was written, so an account whose password was set longer before 2026-10-09 still
   signs in. `backend/tests/test_auth_library_swap.py` holds hashes written by the old passlib/bcrypt
   pair and proves both halves.
-- **Nothing is encrypted at the column level.** Artisan names, phone numbers, addresses, GPS
+- **Little is encrypted at the column level.** The exceptions are secrets: authenticator secrets
+  (sealed with `TWO_FACTOR_ENCRYPTION_KEY`), runtime provider keys in `ManagedSecret` (sealed with
+  `SECRETS_ENCRYPTION_KEY`), and Aadhaar, which is never stored at all (an HMAC fingerprint under
+  `AADHAAR_FINGERPRINT_KEY` and the last four digits, §4A.1). Artisan names, phone numbers, addresses, GPS
   coordinates, interview transcripts and researcher notes are plaintext columns. Anyone with the
   database URL, a Supabase dashboard login, or a `DATABASE_URL` leak reads all of it. Treat the
   Supabase credentials as the crown jewels.
-- Row Level Security is **not** in use: the API connects as the owning role and enforces every
-  access rule in application code (`backend/app/core/deps.py`). A SQL-injection bug or a leaked
+- **Row Level Security is on for every table, and the `anon` role's grants are revoked**, so the
+  Supabase Data API (PostgREST) reads and writes nothing; an event trigger turns RLS on for any new
+  table, and the migrations that add tables enable it explicitly as well. RLS is a lock on that
+  side door, not the access model: the API connects as the owning role, which RLS does not restrict,
+  and enforces every access rule in application code (`backend/app/core/deps.py`). A SQL-injection bug or a leaked
   connection string bypasses the entire RBAC ladder in one step. Prisma's parameterised queries are
   what stand between the two; keep raw SQL (`db.query_raw`) free of string interpolation.
 
@@ -582,7 +589,7 @@ Record-level rules layered on top of the ladder:
   and approvable only by an admin. The stamp survives an edit and survives a re-link to an in-window
   workshop — both are laundering paths that were closed deliberately.
 
-Authorisation is **entirely application-side** (see §2.2 on RLS).
+Authorisation is **entirely application-side** (RLS only closes the Data API; see §2.2).
 
 ### 4.1 The token is not the authority
 

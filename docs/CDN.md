@@ -280,3 +280,13 @@ Three things make this an easy change rather than a risky one:
 - [docs/DEPLOYMENT_VERCEL.md](DEPLOYMENT_VERCEL.md) — §7.7 for the upload-timeout symptom.
 - [docs/SECURITY.md](SECURITY.md) — risk P1: the CloudFront→origin hop is plaintext HTTP.
 - [backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) — how the distribution was created.
+
+## How this document is kept true
+
+| Claim class | Kept true by |
+|---|---|
+| The distribution, its behaviours and timeouts | `infra/terraform/` is the source; the console is checked against it when they differ |
+| The origin lock | [INFRA_ORIGIN_LOCK.md](INFRA_ORIGIN_LOCK.md), and the deploy, which proves CloudFront still gets a 200 through after every nginx change |
+| Incidents and their causes | written once, dated, and not revised; a later change says so beside them |
+
+**Review triggers:** a change under `infra/terraform/`, a new cached path, or an origin timeout.
