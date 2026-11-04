@@ -731,6 +731,27 @@ jobs:
             echo "::error::CloudFront got $code from the box after the origin check went in, so the previous nginx config was put back. ORIGIN_VERIFY_SECRET must equal the X-Origin-Verify header on the CloudFront origin: docs/INFRA_ORIGIN_LOCK.md."
             exit 1
           fi
+      - name: Log response times in nginx
+        run: |
+          ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          CONF=/etc/nginx/conf.d/response-times.conf
+          tmp="$(mktemp)"
+          {
+            echo 'log_format response_times escape=json '"'"'$time_iso8601 $request_method $uri $status $body_bytes_sent $request_time $upstream_response_time'"'"';'
+            echo 'access_log /var/log/nginx/response-times.log response_times;'
+          } > "$tmp"
+          if [ -f "$CONF" ]; then sudo cp -a "$CONF" /tmp/response-times.prev; else sudo rm -f /tmp/response-times.prev; fi
+          sudo install -m 644 -o root -g root "$tmp" "$CONF"; rm -f "$tmp"
+          if ! sudo nginx -t; then
+            if [ -f /tmp/response-times.prev ]; then sudo cp -a /tmp/response-times.prev "$CONF"; else sudo rm -f "$CONF"; fi
+            echo "::warning::nginx refused the response-time log; the previous config was put back"
+            exit 0
+          fi
+          sudo rm -f /tmp/response-times.prev
+          sudo systemctl reload nginx
+          echo "response times: nginx logs \$request_time to /var/log/nginx/response-times.log"
+          REMOTE
       - name: Pin the two-step encryption key and the proxy hops
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}

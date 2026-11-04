@@ -24,7 +24,7 @@ from app.core.db import connect_db, db, disconnect_db
 from app.core.deps import PASSWORD_CHANGE_REQUIRED_HEADER
 from app.core.idempotency import IdempotencyMiddleware
 from app.core.security import verify_jwt_configuration
-from app.services import aadhaar_fingerprint
+from app.services import aadhaar_fingerprint, usage_log
 from app.services.app_versions import AppVersionMiddleware
 from app.services.email_outbox import process_next_email_jobs
 from app.services.media_queue import process_next_media_jobs, queue_work_due
@@ -96,6 +96,7 @@ async def lifespan(app: FastAPI):
             exc,
         )
     db_reconnect_task: asyncio.Task[None] = asyncio.create_task(_keep_db_connected())
+    usage_task: asyncio.Task[None] = asyncio.create_task(usage_log.run_flush_worker())
     settings = get_settings()
     queue_task: asyncio.Task[None] | None = None
     queue_lock: Any | None = None
@@ -115,6 +116,11 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        usage_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await usage_task
+        with suppress(Exception):
+            await usage_log.flush_all()
         if db_reconnect_task:
             db_reconnect_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -287,6 +293,7 @@ def create_app() -> FastAPI:
             "BACKEND_CORS_ORIGINS to the explicit frontend origin(s).",
             ", ".join(cors_origins),
         )
+    app.add_middleware(usage_log.TimingMiddleware)
     app.add_middleware(IdempotencyMiddleware)
     app.add_middleware(AppVersionMiddleware)
     app.add_middleware(UnhandledErrorMiddleware)

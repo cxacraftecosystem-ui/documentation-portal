@@ -17,6 +17,7 @@ from app.services import questionnaire_library, questionnaire_readers
 from app.core.deps import can_download_dataset, get_current_user
 from app.services import answer_drafts
 from app.services.access import owner_download_scope
+from app.services.concurrency import gather_reads
 from app.services.csv_export import records_to_csv
 from app.services.record_fields import info_panel, info_text, interview_label
 from app.services.records import owned_or_granted_where
@@ -33,6 +34,7 @@ from app.services import naming
 router = APIRouter(prefix="/export", tags=["export"])
 
 EXPORT_TAKE = 5000
+_EXPORT_ORDER = [{"createdAt": "asc"}, {"id": "asc"}]
 MEDIA_TAKE = 20000
 
 
@@ -117,23 +119,25 @@ async def dataset_manifest(
     def _in_scope(rtype: str, rid: str) -> bool:
         return scope is None or rid in scope.get(rtype, set())
 
-    workshops = await db.workshop.find_many(
-        where=rec_where, take=EXPORT_TAKE, include=_WORKSHOP_INCLUDE
-    )
-    artisans = await db.artisan.find_many(
-        where=rec_where, take=EXPORT_TAKE, include=_ARTISAN_INCLUDE
-    )
-    products = await db.productdocumentation.find_many(
-        where=rec_where, take=EXPORT_TAKE, include=_PRODUCT_INCLUDE
-    )
-    tools = await db.tooldocumentation.find_many(
-        where=rec_where, take=EXPORT_TAKE, include=_TOOL_INCLUDE
-    )
-    interviews = await db.questionnaireinterview.find_many(
-        where=rec_where, take=EXPORT_TAKE, include=_INTERVIEW_INCLUDE
-    )
-    processes = await db.process.find_many(
-        where=rec_where, take=EXPORT_TAKE, include=_PROCESS_INCLUDE
+    workshops, artisans, products, tools, interviews, processes = await gather_reads(
+        db.workshop.find_many(
+            where=rec_where, take=EXPORT_TAKE, include=_WORKSHOP_INCLUDE, order=_EXPORT_ORDER
+        ),
+        db.artisan.find_many(
+            where=rec_where, take=EXPORT_TAKE, include=_ARTISAN_INCLUDE, order=_EXPORT_ORDER
+        ),
+        db.productdocumentation.find_many(
+            where=rec_where, take=EXPORT_TAKE, include=_PRODUCT_INCLUDE, order=_EXPORT_ORDER
+        ),
+        db.tooldocumentation.find_many(
+            where=rec_where, take=EXPORT_TAKE, include=_TOOL_INCLUDE, order=_EXPORT_ORDER
+        ),
+        db.questionnaireinterview.find_many(
+            where=rec_where, take=EXPORT_TAKE, include=_INTERVIEW_INCLUDE, order=_EXPORT_ORDER
+        ),
+        db.process.find_many(
+            where=rec_where, take=EXPORT_TAKE, include=_PROCESS_INCLUDE, order=_EXPORT_ORDER
+        ),
     )
     truncated = any(
         len(rows) >= EXPORT_TAKE
@@ -181,7 +185,9 @@ async def dataset_manifest(
         media_where: dict[str, Any] = {"OR": media_or}
         if media_vis:
             media_where = {"AND": [media_where, media_vis]}
-        media = await db.mediafile.find_many(where=live_media_where(media_where), take=MEDIA_TAKE)
+        media = await db.mediafile.find_many(
+            where=live_media_where(media_where), take=MEDIA_TAKE, order=_EXPORT_ORDER
+        )
         truncated = truncated or len(media) >= MEDIA_TAKE
 
     media_by: dict[tuple[str, str], list[Any]] = {}
@@ -353,7 +359,7 @@ def _with_status(where: dict[str, Any], status_value: str | None) -> dict[str, A
     return {"AND": [where, {"status": wanted}]} if where else {"status": wanted}
 
 
-_CSV_INCLUDE = {"media": True, "createdBy": True, "workshop": True}
+_CSV_INCLUDE = {"media": {"where": {"removedAt": None}}, "createdBy": True, "workshop": True}
 
 
 @router.get("/products.csv")

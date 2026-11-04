@@ -4,7 +4,7 @@
   "release": "0.0.12",
   "owner": "feature/r012-server (backend, both portals). The web and Android streams build against this file and copy nothing from it into code by hand: they read routes, fields and limits from here.",
   "source": "C:/dev/IIT/docs/data-explorer/PROPOSAL_2026-11-04.md, Owner decisions (2026-11-04)",
-  "enforcedBy": "backend/tests/test_data_explorer_contract.py, identical in both portals: every route below is mounted in this portal with its method, and this file is byte-identical in both repos (shared/data-explorer.sha256).",
+  "enforcedBy": "backend/tests/test_data_explorer_contract.py (shared): every route below is mounted in this portal with its method, and the limits and type tokens equal the server's. This file, the shared backend package backend/app/services/data_explorer and backend/app/api/routes/data_explorer.py are byte-identical in both repos through shared/transcription.sha256 (scripts/sync_transcription.py).",
   "compatibility": "Every change is additive. A 0.0.11 client that sends none of the new parameters gets exactly the 0.0.11 response shape, plus extra fields it ignores. New clients opt in with slim=1 and the new routes.",
   "portals": [
     "designer-portal",
@@ -94,9 +94,10 @@
         "path": "string",
         "slim": "1 to leave transcript text out of entries (A3). New clients always send it.",
         "cursor": "string | absent: the nextCursor of the previous page",
-        "limit": "int 1..500, default 500"
+        "limit": "int 1..500, default 500",
+        "status": "FR only: review status filter for the tree, unchanged"
       },
-      "response": "{path, crumbs, entries: [TreeEntry], info, truncated: bool, nextCursor: string | null, total: int, taxonomies, taxonomy, designWorkshopsVisible, designWorkshopsDownloadable}",
+      "response": "{path, crumbs, entries: [TreeEntry], info, truncated: bool, total: int, nextCursor: string | null, taxonomies, taxonomy, designWorkshopsVisible (DR), designWorkshopsDownloadable (DR)}",
       "notes": "Removed recordings (removedAt set) never appear (A1). truncated is true when a source list hit treeTake; nextCursor pages the entries of this level in their shown order."
     },
     {
@@ -173,7 +174,7 @@
       "method": "GET",
       "path": "/data/media/{media_id}/download",
       "query": {
-        "format": "mp4 for audio conversion | absent for the original",
+        "format": "mp4 | original | absent. Absent means mp4 for audio (as in 0.0.11) and the original for everything else",
         "fallback": "original: if conversion fails, stream the original instead of an error (D2)"
       },
       "headers": {
@@ -181,7 +182,7 @@
         "Content-Disposition": "the name to save under: the .mp4 name when converted, the real name when original",
         "Content-Length": "set for originals; absent for a streamed conversion"
       },
-      "notes": "Conversion streams through ffmpeg, copies AAC audio without re-encoding, runs one at a time per server, and counts failures (A10). An original is a 307 to a signed URL that is reused for signedUrlReuseSeconds (A13), so a repeat play or download is a cache hit; resume with Range against that URL (D1, D10)."
+      "notes": "Conversion streams through ffmpeg, copies AAC audio without re-encoding, runs one at a time per server, and counts failures (A10). If ffmpeg fails after the first bytes the connection is cut, so a client never keeps a half file: retry, then ask with fallback=original. An original is a 307 to a signed URL that is reused for signedUrlReuseSeconds (A13), so a repeat play or download is a cache hit; resume with Range against that URL (D1, D10). Removed recordings are 404."
     },
     {
       "id": "report",
@@ -193,7 +194,7 @@
         "sheet": "sheet name: required for csv, optional for json (only that sheet is returned)",
         "q": "string: json only. Rows of every sheet (or of sheet) that contain every word, case-insensitive, searched across all rows on the server (W13)"
       },
-      "response": "json: {sheets: [{name, color, columns, rows, truncated, preview, capped, totalRows, matchedRows (when q)}], previewRows, query}. csv: the one sheet, UTF-8 with BOM, streamed. xlsx: unchanged.",
+      "response": "json: {sheets: [{name, color, columns, rows, truncated, preview, capped, totalRows, matchedRows (when q)}], previewRows, query}. csv: the one sheet, UTF-8 with BOM, streamed. xlsx: unchanged. A sheet the viewer may not download is not offered as csv.",
       "notes": "In the json preview a transcript cell is cut to reportPreviewTranscriptChars; the xlsx and csv stay complete (A6). 503 with Retry-After: 60 when another report is being built (D9): show 'Busy, retrying in 60 s' and retry once."
     },
     {
@@ -205,18 +206,16 @@
         "track": "original | english | both",
         "timestamps": "bool"
       },
-      "response": "format=zip: one zip holding .md, .docx, .srt and .vtt of that transcript (srt and vtt per track that exists)."
+      "response": "format=zip: one zip holding every format of that transcript (md and docx with and without timestamps, srt and vtt for each track that has timing). track and timestamps are ignored for zip."
     },
     {
       "id": "transcript-bundle",
       "method": "GET",
       "path": "/data/transcript-bundle",
       "query": {
-        "path": "string",
-        "track": "original | english | both",
-        "timestamps": "bool"
+        "path": "string"
       },
-      "response": "A streamed zip of every transcript in that folder and below, each in every format, in the folder layout of the tree. Content-Disposition carries the name.",
+      "response": "A streamed zip of every transcript in that folder and below, each in every format the transcript has (md and docx with and without timestamps, srt and vtt per track), in the folder layout of the tree. Content-Disposition carries the name.",
       "notes": "Per-folder 'all formats in one zip' (owner decision 6). Streamed; nothing is held whole in memory."
     },
     {
