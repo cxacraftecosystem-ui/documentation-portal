@@ -10,50 +10,59 @@ import {
   Film,
   Folder,
   GitBranch,
+  HardDrive,
   Layers,
   Package,
   RefreshCw,
   User,
   UserCircle,
   UsersRound,
-  Wrench,
-  type LucideIcon
+  Wrench
 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { TreeEntry } from "@/lib/dataExplorer/contract";
 
-const RECORD_ICONS: Record<string, LucideIcon> = {
-  workshop: UsersRound,
-  craft: Brush,
-  artisan: User,
-  product: Package,
-  tool: Wrench,
-  process: GitBranch,
-  interview: ClipboardList,
-  user: UserCircle,
-  category: Folder,
-  designWorkshop: Layers,
-  designWorkshopStage: Brush
-};
-
-export function recordIcon(recordType?: string | null): LucideIcon {
-  return (recordType && RECORD_ICONS[recordType]) || Folder;
+export function RecordIcon({ recordType, root = false, className }: { recordType?: string | null; root?: boolean; className?: string }) {
+  if (root) return <HardDrive className={className} aria-hidden />;
+  switch (recordType) {
+    case "workshop":
+      return <UsersRound className={className} aria-hidden />;
+    case "craft":
+    case "designWorkshopStage":
+      return <Brush className={className} aria-hidden />;
+    case "artisan":
+      return <User className={className} aria-hidden />;
+    case "product":
+      return <Package className={className} aria-hidden />;
+    case "tool":
+      return <Wrench className={className} aria-hidden />;
+    case "process":
+      return <GitBranch className={className} aria-hidden />;
+    case "interview":
+      return <ClipboardList className={className} aria-hidden />;
+    case "user":
+      return <UserCircle className={className} aria-hidden />;
+    case "designWorkshop":
+      return <Layers className={className} aria-hidden />;
+    default:
+      return <Folder className={className} aria-hidden />;
+  }
 }
 
-export function fileIcon(entry: Pick<TreeEntry, "mediaType" | "content">): LucideIcon {
+export function FileTypeIcon({ entry, className }: { entry: Pick<TreeEntry, "mediaType" | "content">; className?: string }) {
   switch (entry.mediaType) {
     case "IMAGE":
-      return FileImage;
+      return <FileImage className={className} aria-hidden />;
     case "VIDEO":
-      return Film;
+      return <Film className={className} aria-hidden />;
     case "AUDIO":
-      return AudioLines;
+      return <AudioLines className={className} aria-hidden />;
     case "PDF":
     case "DOCUMENT":
-      return FileText;
+      return <FileText className={className} aria-hidden />;
     default:
-      return entry.content != null ? FileText : FileIcon;
+      return entry.content != null ? <FileText className={className} aria-hidden /> : <FileIcon className={className} aria-hidden />;
   }
 }
 

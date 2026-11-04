@@ -1,9 +1,9 @@
 "use client";
 
-import { ChevronRight, HardDrive, MoreHorizontal, RefreshCw } from "lucide-react";
+import { ChevronRight, MoreHorizontal, RefreshCw } from "lucide-react";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 
-import { recordIcon } from "@/components/dataExplorer/explorerUi";
+import { RecordIcon } from "@/components/dataExplorer/explorerUi";
 import type { TreeStore } from "@/components/dataExplorer/useExplorerTree";
 
 type Row =
@@ -115,7 +115,6 @@ export function FolderTree({
         const selected = row.kind === "folder" && row.path === selectedPath;
         const expanded = row.kind === "folder" ? store.expanded.has(row.path) : undefined;
         const busy = row.kind === "folder" && store.loading.has(row.path);
-        const Icon = row.kind === "more" ? MoreHorizontal : row.path === "" ? HardDrive : recordIcon(row.recordType);
         return (
           <div
             key={row.path}
@@ -154,7 +153,11 @@ export function FolderTree({
             ) : (
               <span aria-hidden className="w-1 shrink-0" />
             )}
-            <Icon className="h-4 w-4 shrink-0 text-purple-700 dark:text-purple-300" aria-hidden />
+            {row.kind === "more" ? (
+              <MoreHorizontal className="h-4 w-4 shrink-0 text-purple-700 dark:text-purple-300" aria-hidden />
+            ) : (
+              <RecordIcon recordType={row.recordType} root={row.path === ""} className="h-4 w-4 shrink-0 text-purple-700 dark:text-purple-300" />
+            )}
             <span className="min-w-0 flex-1 truncate">{row.name}</span>
             {busy ? <RefreshCw className="h-3 w-3 shrink-0 animate-spin text-ink-500" aria-hidden /> : null}
           </div>

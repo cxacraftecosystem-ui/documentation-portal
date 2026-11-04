@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 
-import { fileIcon, LINK_BUTTON, Note, Problem, recordIcon, Spinner } from "@/components/dataExplorer/explorerUi";
+import { FileTypeIcon, LINK_BUTTON, Note, Problem, RecordIcon, Spinner } from "@/components/dataExplorer/explorerUi";
 import { canPreview } from "@/components/dataExplorer/PreviewDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { TranscriptMarkdown } from "@/components/transcript/TranscriptMarkdown";
@@ -49,7 +49,6 @@ export function entryMeta(entry: TreeEntry): string {
 
 function Thumb({ entry }: { entry: TreeEntry }) {
   const [broken, setBroken] = useState(false);
-  const Icon = fileIcon(entry);
   const source = entry.mediaType === "IMAGE" && entry.mediaId ? (entry.thumbnailPath ? apiUrl(entry.thumbnailPath, { size: 256 }) : mediaThumbnailUrl(entry.mediaId)) : null;
   if (source && !broken) {
     return (
@@ -68,7 +67,7 @@ function Thumb({ entry }: { entry: TreeEntry }) {
   }
   return (
     <span className="grid h-12 w-12 shrink-0 place-items-center rounded-md bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">
-      <Icon className="h-5 w-5" aria-hidden />
+      <FileTypeIcon entry={entry} className="h-5 w-5" />
     </span>
   );
 }
@@ -250,14 +249,13 @@ export function FolderContents({
           {folders.length ? (
             <ul className="grid gap-2 border-b border-line-200 p-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Folders">
               {folders.map((folder) => {
-                const Icon = recordIcon(folder.recordType);
                 const key = selectionKey(folder);
                 return (
                   <li key={folder.path} className="flex items-center gap-1 rounded-lg border border-line-200 bg-card pr-2 shadow-sm transition hover:border-purple-300">
                     <SelectBox checked={selection.has(key)} label={`Select ${folder.name}`} onChange={() => onToggle(folder)} />
                     <button type="button" className="flex min-h-11 min-w-0 flex-1 items-center gap-3 py-2 text-left" onClick={() => onOpen(folder.path)}>
                       <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-purple-800 text-purple-50">
-                        <Icon className="h-4 w-4" aria-hidden />
+                        <RecordIcon recordType={folder.recordType} className="h-4 w-4" />
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate font-display text-sm font-semibold text-ink-900">{folder.name}</span>

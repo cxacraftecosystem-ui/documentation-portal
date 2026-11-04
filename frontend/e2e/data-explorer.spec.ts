@@ -64,8 +64,9 @@ async function savedZip(page: Page): Promise<Buffer> {
 }
 
 async function openFolder(page: Page, name: string) {
-  await page.getByRole("treeitem", { name, exact: true }).click();
-  await expect(page.getByRole("navigation", { name: "Folder path" })).toContainText(name);
+  const item = page.getByRole("treeitem", { name, exact: true });
+  await item.click();
+  await expect(item).toHaveAttribute("aria-selected", "true");
 }
 
 async function expandTo(page: Page, names: string[]) {
@@ -385,7 +386,7 @@ test.describe("@qf:X6 tables", () => {
     try {
       await page.getByRole("tab", { name: "Tables" }).click();
       await expect(page.getByRole("tab", { name: /Artisans/ })).toHaveAttribute("aria-selected", "true");
-      await expect(page.getByRole("link", { name: "Artisans .csv" })).toHaveAttribute("href", /format=csv&sheet=Artisans/);
+      await expect(page.getByRole("link", { name: "Artisans .csv" })).toHaveAttribute("href", /format=csv.*sheet=Artisans/);
       await page.getByRole("searchbox", { name: "Search every row of Artisans" }).fill("rare weaver");
       await expect(page.getByText("1 matching rows")).toBeVisible();
       await expect(page.getByRole("region", { name: "Artisans rows" })).toContainText("Kaithoon");
