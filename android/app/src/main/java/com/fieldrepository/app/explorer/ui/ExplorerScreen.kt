@@ -110,7 +110,7 @@ fun rememberExplorerState(api: ExplorerApi): ExplorerState {
         ExplorerState(
             api = api,
             scope = scope,
-            cache = ExplorerCache(java.io.File(context.filesDir, "explorer-cache"), owner),
+            cache = ExplorerCache(java.io.File(context.filesDir, ExplorerCache.DIR), owner),
             rootName = ExplorerPortal.ROOT_NAME,
             defaultStatus = ExplorerPortal.defaultStatus,
             statusParamOf = ExplorerPortal::statusParam,

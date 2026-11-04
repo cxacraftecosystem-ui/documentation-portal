@@ -97,7 +97,7 @@ private const val PDF_LIMIT = 60L * 1024L * 1024L
 
 private fun fetchPdf(context: android.content.Context, entry: ExplorerEntry, url: String): File? = runCatching {
     if ((entry.sizeBytes ?: 0) > PDF_LIMIT) return@runCatching null
-    val dir = File(context.cacheDir, "explorer-preview").apply { mkdirs() }
+    val dir = File(context.cacheDir, ExplorerDownloads.PREVIEW_DIR).apply { mkdirs() }
     val target = File(dir, (entry.mediaId ?: entry.path.hashCode().toString()) + ".pdf")
     if (target.isFile && target.length() > 0) return@runCatching target
     val part = File(dir, target.name + ".part")

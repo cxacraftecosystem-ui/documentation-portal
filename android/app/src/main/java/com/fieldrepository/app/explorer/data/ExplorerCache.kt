@@ -38,6 +38,8 @@ class ExplorerCache(private val root: File, private val owner: String?, private 
     fun clear() = synchronized(lock) { runCatching { File(root, segment(owner)).deleteRecursively() }; Unit }
 
     companion object {
+        const val DIR = "explorer-cache"
+
         fun key(path: String, status: String?): String = "tree|${status.orEmpty()}|$path"
 
         fun hash(text: String): String =

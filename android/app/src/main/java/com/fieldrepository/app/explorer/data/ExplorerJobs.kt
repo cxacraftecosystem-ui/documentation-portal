@@ -106,6 +106,8 @@ class ExplorerJobStore(private val file: File) {
 
     fun clearFinished() = update { list -> list.filter { it.active } }
 
+    fun clear() = update { emptyList() }
+
     fun flush() = update { it }
 
     private fun update(transform: (List<ExplorerJob>) -> List<ExplorerJob>) {

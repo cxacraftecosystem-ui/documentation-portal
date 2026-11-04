@@ -559,6 +559,16 @@ def has_text(m: Any) -> bool:
     return bool(str(getattr(m, "transcriptText", None) or "").strip())
 
 
+async def withheld_ids(media_ids: list[str], *, client: Any = None) -> set[str]:
+    ids = list(dict.fromkeys(str(i) for i in media_ids if i))
+    withheld: set[str] = set()
+    for start in range(0, len(ids), BATCH * 4):
+        chunk = ids[start : start + BATCH * 4]
+        verdicts = await _verdicts(chunk, _conn(client))
+        withheld |= {mid for mid in chunk if verdicts.get(mid) != ALLOW}
+    return withheld
+
+
 async def withhold_refused(media: list[Any], *, client: Any = None) -> set[str]:
     ids = [str(m.id) for m in media if has_text(m)]
     withheld: set[str] = set()

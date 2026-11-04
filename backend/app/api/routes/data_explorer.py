@@ -233,8 +233,7 @@ async def media_transcript(
     media_id: str, current_user: Any = Depends(require_dataset_downloader)
 ) -> dict[str, Any]:
     media = await media_for(current_user, media_id)
-    withheld = await transcript_export.withhold_refused([media])
-    if str(media.id) in withheld:
+    if str(media.id) in await transcript_export.withheld_ids([str(media.id)]):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transcript not found")
     content = (await slim.transcript_texts([str(media.id)])).get(str(media.id), "")
     if not content.strip() and transcript_pipeline.enabled():

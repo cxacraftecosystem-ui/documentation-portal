@@ -20,6 +20,7 @@ object ExplorerDownloads {
     const val TAG = "explorer-download"
     const val KEY_ID = "jobId"
     const val WORK_DIR = "explorer"
+    const val PREVIEW_DIR = "explorer-preview"
 
     @Volatile private var storeInstance: ExplorerJobStore? = null
 
@@ -114,6 +115,25 @@ object ExplorerDownloads {
         if (job.active) return
         store(app).remove(id)
         ExplorerNotifications.cancel(app, id)
+    }
+
+    fun forgetFiles(filesDir: File, cacheDir: File) {
+        listOf(File(filesDir, ExplorerCache.DIR), File(cacheDir, WORK_DIR), File(cacheDir, PREVIEW_DIR)).forEach { dir ->
+            runCatching { dir.deleteRecursively() }
+        }
+    }
+
+    fun forgetAll(context: Context) {
+        val app = context.applicationContext
+        val jobs = store(app).jobs.value
+        jobs.forEach { job ->
+            val systemId = job.systemId
+            if (job.active && systemId != null) runCatching { ExplorerSystemDownloads.remove(app, systemId) }
+            runCatching { ExplorerNotifications.cancel(app, job.id) }
+        }
+        runCatching { WorkManager.getInstance(app).cancelAllWorkByTag(TAG) }
+        store(app).clear()
+        forgetFiles(app.filesDir, app.cacheDir)
     }
 
     fun clearFinished(context: Context) {

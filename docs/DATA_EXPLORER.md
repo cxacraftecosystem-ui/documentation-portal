@@ -42,6 +42,19 @@ All routes sit under `/api/data` and need dataset-download access, like the rest
 | `GET /data/browse`, `GET /data/browse/{type}/{record_id}/media` | Browse by type, paged, searched on the server, with a `truncated` flag |
 | `GET /data/report` | New: `q` searches every row of every sheet on the server, `sheet` picks one sheet, and `format=csv` streams one sheet |
 
+## Access
+
+- Every route reads the same scope as the tree: a record or file is reachable by id only when the
+  tree would list it for that user, and removed files never are.
+- `GET /data/media/{media_id}/transcript` asks the consent ledger first, for every recording, so a
+  refused consent answers `404` even when the transcript exists only as pipeline turns.
+- Previews and thumbnails compare the MIME type without its parameters, so `image/svg+xml;
+  charset=utf-8` is never signed inline.
+- Signed links are cached by object, file name, type and disposition, never by user; the redirect is
+  `Cache-Control: private`.
+- On Android, signing out cancels running downloads and clears the download list, the saved folder
+  copies, the scratch folder and the PDF previews.
+
 ## Memory
 
 The box is a t3.small with 1.9 GB. Nothing on these routes holds a whole archive, a whole folder of transcripts

@@ -36,8 +36,12 @@ def kind_of(media: Any) -> str:
     return str(value or "OTHER").upper()
 
 
+def base_mime(raw: str | None) -> str:
+    return str(raw or "").split(";")[0].strip().lower()
+
+
 def _mime(media: Any) -> str:
-    return str(getattr(media, "mimeType", None) or "application/octet-stream").strip().lower()
+    return base_mime(getattr(media, "mimeType", None)) or "application/octet-stream"
 
 
 def previewable(media: Any) -> bool:
@@ -53,7 +57,7 @@ def entry_links(media_id: str, media_type: str, mime: str | None = None) -> dict
     base = f"/data/media/{media_id}"
     links = {"downloadPath": f"{base}/download"}
     kind = (media_type or "OTHER").upper()
-    safe_mime = (mime or "").lower() not in PREVIEW_MIME_UNSAFE
+    safe_mime = base_mime(mime) not in PREVIEW_MIME_UNSAFE
     if kind == "IMAGE" and safe_mime:
         links["thumbnailPath"] = f"{base}/thumbnail"
     if kind in PREVIEW_TYPES and safe_mime:

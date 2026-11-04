@@ -4,6 +4,7 @@ import com.fieldrepository.app.explorer.data.ExplorerBusy
 import com.fieldrepository.app.explorer.data.ExplorerBusyException
 import com.fieldrepository.app.explorer.data.ExplorerBytes
 import com.fieldrepository.app.explorer.data.ExplorerCache
+import com.fieldrepository.app.explorer.data.ExplorerDownloads
 import com.fieldrepository.app.explorer.data.ExplorerJob
 import com.fieldrepository.app.explorer.data.ExplorerJobState
 import com.fieldrepository.app.explorer.data.ExplorerJobStore
@@ -42,6 +43,27 @@ class ExplorerPartsTest {
         assertEquals("A", cache.read(a)?.tree?.path)
         assertEquals("B", cache.read(b)?.tree?.path)
         assertNotEquals(cache.fileFor(ExplorerCache.key("a/b", null)), cache.fileFor(ExplorerCache.key("a_b", null)))
+    }
+
+    @Test fun `signing out leaves no saved copies, scratch files, previews or download list behind`() {
+        val files = temp.newFolder("files")
+        val cache = temp.newFolder("cache")
+        val saved = ExplorerCache(File(files, ExplorerCache.DIR), "user-1")
+        saved.write(ExplorerCache.key("by-workshop", null), ExplorerTree(path = "by-workshop"))
+        File(cache, "${ExplorerDownloads.WORK_DIR}/job-1").apply { mkdirs() }.resolve("part.bin").writeText("x")
+        File(cache, ExplorerDownloads.PREVIEW_DIR).apply { mkdirs() }.resolve("m1.pdf").writeText("x")
+        val other = File(cache, "updates").apply { mkdirs() }
+        val store = ExplorerJobStore(File(files, "${ExplorerDownloads.WORK_DIR}/jobs.json"))
+        store.put(ExplorerJob(id = "j", request = ExplorerRequest(title = "Kamla's folder", fileName = "Kamla.zip"), createdAt = 1))
+        ExplorerDownloads.forgetFiles(files, cache)
+        store.clear()
+        assertTrue(!File(files, ExplorerCache.DIR).exists())
+        assertTrue(!File(cache, ExplorerDownloads.WORK_DIR).exists())
+        assertTrue(!File(cache, ExplorerDownloads.PREVIEW_DIR).exists())
+        assertTrue(other.isDirectory)
+        assertNull(saved.read(ExplorerCache.key("by-workshop", null)))
+        assertTrue(store.jobs.value.isEmpty())
+        assertTrue(ExplorerJobStore(File(files, "${ExplorerDownloads.WORK_DIR}/jobs.json")).jobs.value.isEmpty())
     }
 
     @Test fun `one person's saved copy is not another's`() {

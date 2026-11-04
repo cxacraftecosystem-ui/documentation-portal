@@ -441,6 +441,7 @@ class FieldRepository(
         val signedOut = tokenStore.getUser()?.id
         tokenStore.clear()
         if (context != null) runCatching { NotificationSync.signOut(context, signedOut) }
+        if (context != null) runCatching { com.fieldrepository.app.explorer.data.ExplorerDownloads.forgetAll(context) }
         OfflineReadCache.clear()
         PreviewCache.clear()
     }

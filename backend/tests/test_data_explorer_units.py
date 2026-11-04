@@ -333,6 +333,61 @@ def test_svg_and_unknown_types_get_no_inline_preview():
     assert downloads.previewable(pdf) and not downloads.previewable(html)
 
 
+def test_svg_with_a_mime_parameter_is_still_refused_inline(monkeypatch):
+    from fastapi import HTTPException
+
+    for raw in ("image/svg+xml; charset=utf-8", " Image/SVG+XML;charset=UTF-8"):
+        assert set(downloads.entry_links("s", "IMAGE", raw)) == {"downloadPath"}
+        svg = Row(id="s", mediaType="IMAGE", mimeType=raw, objectKey="media/u/s.svg")
+        assert not downloads.previewable(svg)
+        with pytest.raises(HTTPException) as refused:
+            downloads.preview_redirect(svg)
+        assert refused.value.status_code == 415
+        with pytest.raises(HTTPException) as no_thumb:
+            asyncio.run(downloads.thumbnail_redirect(svg, 256))
+        assert no_thumb.value.status_code == 404
+    signed: list[str] = []
+    monkeypatch.setattr(
+        signing, "signed_get", lambda key, **kw: (signed.append(kw["mime_type"]) or f"https://bucket.example/{key}", 60)
+    )
+    png = Row(id="p", mediaType="IMAGE", mimeType="image/png; name=x", objectKey="media/u/p.png", originalFilename="p.png")
+    assert downloads.preview_redirect(png).status_code == 307
+    assert signed == ["image/png"]
+
+
+def test_a_transcript_whose_consent_was_refused_is_withheld_even_without_legacy_text(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.api.routes import data_explorer
+    from app.services import transcript_export
+
+    media = Row(id="m1", hasTranscript=False, transcriptText=None)
+    rendered: list[str] = []
+
+    async def media_for(user: Any, media_id: str, **kw: Any) -> Any:
+        return media
+
+    async def verdicts(ids: list[str], _client: Any) -> dict[str, str]:
+        return dict.fromkeys(ids, transcript_export.WITHHELD)
+
+    async def texts(ids: list[str]) -> dict[str, str]:
+        return {}
+
+    async def render_doc(row: Any) -> Any:
+        rendered.append(str(row.id))
+        raise AssertionError("a refused transcript must not be rendered")
+
+    monkeypatch.setattr(data_explorer, "media_for", media_for)
+    monkeypatch.setattr(transcript_export, "_verdicts", verdicts)
+    monkeypatch.setattr(data_explorer.slim, "transcript_texts", texts)
+    monkeypatch.setattr(data_explorer.transcript_pipeline, "enabled", lambda: True)
+    monkeypatch.setattr(data_explorer.transcript_pipeline, "render_doc", render_doc)
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(data_explorer.media_transcript("m1", current_user=Row(id="u")))
+    assert refused.value.status_code == 404
+    assert rendered == []
+
+
 def test_a_thumbnail_is_a_small_webp_and_never_the_original():
     from PIL import Image
 
