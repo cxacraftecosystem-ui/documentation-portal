@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -20,11 +21,17 @@ def _contract() -> dict:
 
 
 def _mounted() -> set[tuple[str, str]]:
-    from app.main import app
+    from app.api.router import api_router
 
+    try:
+        from fastapi.routing import iter_route_contexts
+
+        routes = list(iter_route_contexts(api_router.routes))
+    except ImportError:
+        routes = list(api_router.routes)
     found: set[tuple[str, str]] = set()
-    for route in app.routes:
-        path = getattr(route, "path", "")
+    for route in routes:
+        path = re.sub(r"\{[^}]+\}", "{}", getattr(route, "path", ""))
         for method in getattr(route, "methods", None) or ():
             found.add((method, path))
     return found
@@ -40,7 +47,7 @@ ROUTES = [
 @pytest.mark.parametrize("route", ROUTES, ids=[r["id"] for r in ROUTES])
 def test_every_contract_route_is_mounted_with_its_method(route):
     base = _contract()["basePath"]
-    want = (route["method"], base + route["path"].replace("{media_id}", "{media_id}"))
+    want = (route["method"], re.sub(r"\{[^}]+\}", "{}", base + route["path"]))
     mounted = _mounted()
     assert want in mounted, f"{route['id']}: {want} is not mounted"
 

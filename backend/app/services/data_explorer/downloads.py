@@ -156,7 +156,7 @@ async def converted_audio(media: Any, *, fallback: bool) -> Response:
                 status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 "This recording is too large to convert. Download the original instead.",
             ) from None
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             convert.record("failed", media_id, type(exc).__name__)
             if fallback:
                 return await _fallback(media, "fetch failed")
@@ -166,7 +166,7 @@ async def converted_audio(media: Any, *, fallback: bool) -> Response:
             ) from exc
         try:
             process, head, mode = await convert.first_chunk(source_path, media_id)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             convert.record("failed", media_id, str(exc)[:200])
             if fallback:
                 return await _fallback(media, "conversion failed")
@@ -214,14 +214,14 @@ def render_thumbnail(source: bytes | str, size: int) -> bytes:
 
     Image.MAX_IMAGE_PIXELS = THUMBNAIL_PIXELS_MAX
     handle = io.BytesIO(source) if isinstance(source, bytes) else source
-    with Image.open(handle) as image:
-        image.draft("RGB", (size * 2, size * 2))
-        image = ImageOps.exif_transpose(image)
-        if image.mode not in ("RGB", "RGBA"):
-            image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
-        image.thumbnail((size, size))
+    with Image.open(handle) as opened:
+        opened.draft("RGB", (size * 2, size * 2))
+        picture = ImageOps.exif_transpose(opened)
+        if picture.mode not in ("RGB", "RGBA"):
+            picture = picture.convert("RGBA" if "A" in picture.getbands() else "RGB")
+        picture.thumbnail((size, size))
         out = io.BytesIO()
-        image.save(out, format="WEBP", quality=78, method=4)
+        picture.save(out, format="WEBP", quality=78, method=4)
         return out.getvalue()
 
 
@@ -237,11 +237,11 @@ async def _render_from_storage(object_key: str, edge: int) -> bytes:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="No thumbnail"
         ) from exc
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No thumbnail") from exc
     try:
         return await asyncio.to_thread(render_thumbnail, path, edge)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="No thumbnail"
         ) from exc
@@ -265,7 +265,7 @@ async def thumbnail_redirect(media: Any, size: int | None) -> Response:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No thumbnail")
     edge = _thumbnail_size(size)
     key = thumbnail_key(str(media.id), edge)
-    name = f"{str(media.id)}-{edge}.webp"
+    name = f"{media.id!s}-{edge}.webp"
     exists = await asyncio.to_thread(s3.object_exists, key)
     if not exists:
         async with _THUMB_SLOT:

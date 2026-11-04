@@ -368,7 +368,7 @@ def test_tools_reach_a_workshop_through_their_linked_artisans_too(api) -> None:
 
 
 def test_media_is_owned_by_its_uploader_not_its_creator(api) -> None:
-    assert _where("media", created_by="u1")["AND"] == [{"uploadedById": "u1"}]
+    assert _where("media", created_by="u1")["AND"] == [{"removedAt": None}, {"uploadedById": "u1"}]
 
 
 

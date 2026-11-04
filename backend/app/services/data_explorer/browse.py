@@ -76,7 +76,7 @@ def where_for(kind: Kind, scope: Any, q: str | None, workshop_ids: list[str] | N
         scoped = getattr(scope, "records", None) or None
     elif kind.scoped == "media":
         scoped = getattr(scope, "media", None) or None
-    live = {field: value for field, value in kind.live} or None
+    live = dict(kind.live) or None
     words = [w for w in (q or "").split() if w]
     search = (
         {

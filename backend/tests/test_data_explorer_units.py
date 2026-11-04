@@ -90,7 +90,7 @@ def test_a_signed_link_is_reused_inside_its_window_and_renewed_after():
     assert age == signing.REUSE_SECONDS
     assert left == signing.REUSE_SECONDS - 600
     assert len(made) == 2
-    short, short_age = signing.cached(("k", "short"), 900, sign, now=5.0)
+    _short, short_age = signing.cached(("k", "short"), 900, sign, now=5.0)
     assert short_age == 450
     assert signing.redirect_headers(left)["Cache-Control"] == f"private, max-age={left}"
     signing.forget()
@@ -436,7 +436,7 @@ def test_browse_pages_flag_a_cut_list_and_search_every_row():
     where = browse.where_for(browse.KINDS["media"], scope, "loom  video", None)
     assert {"removedAt": None} in where["AND"]
     assert {"uploadedById": "u1"} in where["AND"]
-    words = [part for part in where["AND"] if "AND" in part][0]["AND"]
+    words = next(part for part in where["AND"] if "AND" in part)["AND"]
     assert len(words) == 2
     craft = browse.where_for(browse.KINDS["craft"], scope, None, None)
     assert craft == {"mergedIntoId": None}
