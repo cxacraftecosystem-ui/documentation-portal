@@ -1,0 +1,272 @@
+{
+  "contract": "data-explorer-v1-api",
+  "contractVersion": 1,
+  "release": "0.0.12",
+  "owner": "feature/r012-server (backend, both portals). The web and Android streams build against this file and copy nothing from it into code by hand: they read routes, fields and limits from here.",
+  "source": "C:/dev/IIT/docs/data-explorer/PROPOSAL_2026-11-04.md, Owner decisions (2026-11-04)",
+  "enforcedBy": "backend/tests/test_data_explorer_contract.py, identical in both portals: every route below is mounted in this portal with its method, and this file is byte-identical in both repos (shared/data-explorer.sha256).",
+  "compatibility": "Every change is additive. A 0.0.11 client that sends none of the new parameters gets exactly the 0.0.11 response shape, plus extra fields it ignores. New clients opt in with slim=1 and the new routes.",
+  "portals": [
+    "designer-portal",
+    "documentation-portal"
+  ],
+  "basePath": "/api",
+  "featureIds": {
+    "note": "Parity registry ids for shared/questionnaire-features.json. Tag web tests '@qf:<id>' and Android tests '@QFeature(\"<id>\")'. The registry rows are added once all four clients carry their markers (unifiedRelease is true, so a 'planned' row fails CI).",
+    "X1": "Explorer layout: tree first, search as the tree toolbar, all downloads in one place",
+    "X2": "Download size before download: file count and bytes in total and per type (W3, D3)",
+    "X3": "Multi-select folders and files, downloaded together (W11)",
+    "X4": "Thumbnails instead of originals in folder listings (W14)",
+    "X5": "Video, audio, image and PDF preview in a dialog (W12)",
+    "X6": "Table search across every row on the server, and CSV per sheet (W13)",
+    "X7": "Transcript: all formats in one zip, per transcript and per folder",
+    "X8": "Browse by type: pages and a cut notice (W5)",
+    "X9": "Transcript language filter is filled (W8)",
+    "X10": "Streaming download with progress in bytes, Cancel, failed-file list and resume (W1, W2, W4, D1, D10)",
+    "X11": "Audio to mp4 with a visible fallback to the original under its real name (A10, D2)",
+    "X12": "Open a single transcript on demand instead of from the folder listing (A3)"
+  },
+  "limits": {
+    "treeTake": 500,
+    "treePageMax": 500,
+    "manifestMaxFiles": 20000,
+    "manifestMaxPaths": 50,
+    "manifestMaxMediaIds": 2000,
+    "browsePageSizeMax": 100,
+    "reportPreviewRows": 200,
+    "reportSearchMaxRows": 200,
+    "reportPreviewTranscriptChars": 2000,
+    "thumbnailSizes": [
+      256,
+      512
+    ],
+    "signedUrlExpiresInSeconds": 3600,
+    "signedUrlReuseSeconds": 1800,
+    "convertConcurrency": 1,
+    "suggestedParallelFetches": 4,
+    "suggestedParallelConversions": 1,
+    "browsePageSizeDefault": 50
+  },
+  "types": {
+    "typeToken": "images | videos | audios | documents | other | transcripts | text",
+    "TreeEntry": {
+      "name": "string",
+      "path": "string",
+      "kind": "folder | file",
+      "recordType": "string (folders only)",
+      "mediaId": "string | absent",
+      "mediaType": "IMAGE | VIDEO | AUDIO | PDF | DOCUMENT | OTHER | absent",
+      "originalFilename": "string | absent",
+      "sizeBytes": "int | null",
+      "url": "string | null (stored object URL; prefer previewPath/downloadPath)",
+      "transcriptAvailable": "bool",
+      "content": "string: text files (details.txt, answers.txt, notes.txt) always; transcript files only when slim is not set",
+      "transcriptPath": "string: GET path of this file's transcript text (A3). Present on transcript files and on media whose transcriptAvailable is true",
+      "thumbnailPath": "string: present on IMAGE media. GET it with ?size=256|512 (W14)",
+      "previewPath": "string: present on IMAGE, VIDEO, AUDIO and PDF media (W12)",
+      "downloadPath": "string: GET path of the file itself"
+    },
+    "Stats": {
+      "files": "int",
+      "bytes": "int (bytes of media whose size is known; text and transcripts count their UTF-8 length)",
+      "unknownSizeFiles": "int",
+      "byType": "{typeToken: {files: int, bytes: int}}",
+      "truncated": "bool (the walk hit manifestMaxFiles or the depth cap)"
+    },
+    "ManifestFile": {
+      "path": "string (relative, unique, '/'-separated)",
+      "url": "string | null",
+      "content": "string | absent (inline text)",
+      "mediaId": "string | absent",
+      "mediaType": "string | absent",
+      "sizeBytes": "int | null (new in 0.0.12)",
+      "typeToken": "typeToken (new in 0.0.12)",
+      "convertToMp4": "bool | absent: fetch GET /data/media/{mediaId}/download?format=mp4&fallback=original",
+      "originalPath": "string | absent: the name to save under when the response says X-Conversion: original"
+    }
+  },
+  "routes": [
+    {
+      "id": "tree",
+      "method": "GET",
+      "path": "/data/tree",
+      "query": {
+        "path": "string",
+        "slim": "1 to leave transcript text out of entries (A3). New clients always send it.",
+        "cursor": "string | absent: the nextCursor of the previous page",
+        "limit": "int 1..500, default 500"
+      },
+      "response": "{path, crumbs, entries: [TreeEntry], info, truncated: bool, nextCursor: string | null, total: int, taxonomies, taxonomy, designWorkshopsVisible, designWorkshopsDownloadable}",
+      "notes": "Removed recordings (removedAt set) never appear (A1). truncated is true when a source list hit treeTake; nextCursor pages the entries of this level in their shown order."
+    },
+    {
+      "id": "transcript",
+      "method": "GET",
+      "path": "/data/media/{media_id}/transcript",
+      "response": "{mediaId, name, content: string, language: string | null}",
+      "notes": "One transcript, fetched when the user opens it (A3). 404 for a removed or unreadable recording. Clients cache it for the session; never fetch twice for one open (W16)."
+    },
+    {
+      "id": "stats",
+      "method": "GET",
+      "path": "/data/stats",
+      "query": {
+        "path": "string",
+        "include": "comma-separated typeTokens | absent for everything"
+      },
+      "response": "Stats",
+      "notes": "What a download of this folder would contain, before downloading (W3, D3). Same walk as the manifest, without the file list."
+    },
+    {
+      "id": "stats-selection",
+      "method": "POST",
+      "path": "/data/stats",
+      "body": "{paths: [string], mediaIds: [string], include: [typeToken] | null}",
+      "response": "Stats"
+    },
+    {
+      "id": "manifest",
+      "method": "GET",
+      "path": "/data/manifest",
+      "query": {
+        "path": "string",
+        "include": "comma-separated typeTokens",
+        "stream": "true for NDJSON"
+      },
+      "response": "{files: [ManifestFile], totalFiles, totalMedia, totalBytes, byType, truncated}",
+      "headers": {
+        "X-Dataset-Total": "files",
+        "X-Dataset-Media": "media files",
+        "X-Dataset-Bytes": "bytes (new)",
+        "X-Dataset-Truncated": "true | false",
+        "X-Dataset-Skipped": "int"
+      },
+      "notes": "Android folder downloads include everything by default (owner decision 3): send no include."
+    },
+    {
+      "id": "manifest-selection",
+      "method": "POST",
+      "path": "/data/manifest",
+      "body": "{paths: [string] (<= manifestMaxPaths), mediaIds: [string] (<= manifestMaxMediaIds), include: [typeToken] | null, stream: bool}",
+      "response": "as GET /data/manifest",
+      "notes": "Multi-select download (W11). Each selected folder becomes a top-level folder named as in the tree (made unique); selected files sit at the top level. A media file selected twice appears once."
+    },
+    {
+      "id": "thumbnail",
+      "method": "GET",
+      "path": "/data/media/{media_id}/thumbnail",
+      "query": {
+        "size": "256 | 512, default 256"
+      },
+      "response": "302 to a signed WebP URL (generated once and kept in storage); Cache-Control: private, max-age=1800. 404 when the media is not an image, 415 when it cannot be decoded: show the type icon.",
+      "notes": "Never load the original in a listing (W14)."
+    },
+    {
+      "id": "preview",
+      "method": "GET",
+      "path": "/data/media/{media_id}/preview",
+      "response": "302 to a signed inline URL (Content-Disposition: inline, Range supported by storage); Cache-Control: private, max-age=1800.",
+      "notes": "Video, audio, image and PDF (W12). 415 for other types."
+    },
+    {
+      "id": "download",
+      "method": "GET",
+      "path": "/data/media/{media_id}/download",
+      "query": {
+        "format": "mp4 for audio conversion | absent for the original",
+        "fallback": "original: if conversion fails, stream the original instead of an error (D2)"
+      },
+      "headers": {
+        "X-Conversion": "converted | original | none",
+        "Content-Disposition": "the name to save under: the .mp4 name when converted, the real name when original",
+        "Content-Length": "set for originals; absent for a streamed conversion"
+      },
+      "notes": "Conversion streams through ffmpeg, copies AAC audio without re-encoding, runs one at a time per server, and counts failures (A10). An original is a 307 to a signed URL that is reused for signedUrlReuseSeconds (A13), so a repeat play or download is a cache hit; resume with Range against that URL (D1, D10)."
+    },
+    {
+      "id": "report",
+      "method": "GET",
+      "path": "/data/report",
+      "query": {
+        "path": "string",
+        "format": "json | xlsx | csv",
+        "sheet": "sheet name: required for csv, optional for json (only that sheet is returned)",
+        "q": "string: json only. Rows of every sheet (or of sheet) that contain every word, case-insensitive, searched across all rows on the server (W13)"
+      },
+      "response": "json: {sheets: [{name, color, columns, rows, truncated, preview, capped, totalRows, matchedRows (when q)}], previewRows, query}. csv: the one sheet, UTF-8 with BOM, streamed. xlsx: unchanged.",
+      "notes": "In the json preview a transcript cell is cut to reportPreviewTranscriptChars; the xlsx and csv stay complete (A6). 503 with Retry-After: 60 when another report is being built (D9): show 'Busy, retrying in 60 s' and retry once."
+    },
+    {
+      "id": "transcript-zip",
+      "method": "GET",
+      "path": "/transcripts/{media_id}/download",
+      "query": {
+        "format": "zip (new) | md | docx | srt | vtt",
+        "track": "original | english | both",
+        "timestamps": "bool"
+      },
+      "response": "format=zip: one zip holding .md, .docx, .srt and .vtt of that transcript (srt and vtt per track that exists)."
+    },
+    {
+      "id": "transcript-bundle",
+      "method": "GET",
+      "path": "/data/transcript-bundle",
+      "query": {
+        "path": "string",
+        "track": "original | english | both",
+        "timestamps": "bool"
+      },
+      "response": "A streamed zip of every transcript in that folder and below, each in every format, in the folder layout of the tree. Content-Disposition carries the name.",
+      "notes": "Per-folder 'all formats in one zip' (owner decision 6). Streamed; nothing is held whole in memory."
+    },
+    {
+      "id": "transcript-languages",
+      "method": "GET",
+      "path": "/data/transcripts/languages",
+      "response": "{languages: [{code: string, label: string, count: int}]}",
+      "notes": "Fills the transcript language filter (W8). Counts only what this user may read."
+    },
+    {
+      "id": "browse",
+      "method": "GET",
+      "path": "/data/browse",
+      "query": {
+        "type": "artisan | product | tool | workshop | craft | interview | process | media",
+        "page": "int >= 1, default 1",
+        "pageSize": "int 1..100, default 50",
+        "q": "string: case-insensitive, matched on the server across every row, not only the current page (W5, W16)",
+        "workshopIds": "comma-separated | absent: scoped types only (interview)"
+      },
+      "response": "{type, items: [{id, name, creator: string | null, createdAt: string | null}], total, page, pageSize, pages, truncated: bool}",
+      "notes": "Browse by type (W5). Newest first. Removed recordings never appear (A1). FR includes every review status (owner decision 1, W6 dropped). truncated is true when total > page * pageSize: show 'Showing N of TOTAL' and offer the next page."
+    },
+    {
+      "id": "browse-media",
+      "method": "GET",
+      "path": "/data/browse/{type}/{record_id}/media",
+      "query": {
+        "page": "int >= 1",
+        "pageSize": "int 1..100, default 50"
+      },
+      "response": "{items: [TreeEntry (kind file)], total, page, pageSize, pages, truncated: bool}",
+      "notes": "The files of one record picked in Browse by type, with thumbnailPath, previewPath and downloadPath like the tree."
+    },
+    {
+      "id": "dictation-allowance",
+      "method": "GET",
+      "path": "/design-workshops/dictation-allowance",
+      "portals": [
+        "designer-portal"
+      ],
+      "response": "unchanged; Cache-Control: private, max-age=60",
+      "notes": "Clients read it once per screen and at most every 10 minutes, and update it locally after a dictation."
+    }
+  ],
+  "clientRules": [
+    "Removed recordings are already left out by the server everywhere (A1); clients never filter them.",
+    "Stream zips to disk with a zip64 writer; never hold an archive in memory (W1).",
+    "Fetch suggestedParallelFetches files at a time and suggestedParallelConversions conversions (W1).",
+    "On X-Conversion: original save under originalPath, never under the .mp4 name (D2).",
+    "A file that fails 3 times is left out of the zip and listed (D1, W4)."
+  ]
+}
