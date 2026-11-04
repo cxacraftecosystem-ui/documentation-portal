@@ -118,7 +118,7 @@ private fun PdfDialog(file: File, title: String, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(Color(0xF0101010)).testTag("explorer.preview.pdf")) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(title, color = Color.White, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f).padding(start = 8.dp), maxLines = 1)
+                Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(start = 8.dp), maxLines = 1)
                 IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = ExplorerText.dismiss, tint = Color.White) }
             }
             if (renderer == null) {

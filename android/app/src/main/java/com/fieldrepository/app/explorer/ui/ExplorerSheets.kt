@@ -155,7 +155,7 @@ private fun ChoiceRow(icon: ImageVector, label: String, detail: String, selected
     ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+            Text(label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         RadioButton(selected = selected, onClick = null)
@@ -171,7 +171,7 @@ private fun SizeBreakdown(size: SizeLoad) {
         Modifier.fillMaxWidth().background(MaterialTheme.field.surface50, MaterialTheme.shapes.medium).padding(12.dp).testTag("explorer.sheet.sizes"),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(ExplorerBytes.line(known), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.testTag("explorer.sheet.total"))
+        Text(ExplorerBytes.line(known), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.testTag("explorer.sheet.total"))
         rows.forEach { (kind, stats) ->
             Row(Modifier.fillMaxWidth()) {
                 Text(kind.label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body, modifier = Modifier.weight(1f))
@@ -240,7 +240,7 @@ private fun JobCard(job: ExplorerJob, onCancel: () -> Unit, onRetry: () -> Unit,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (job.state == ExplorerJobState.RUNNING) FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-            Text(job.request.title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(job.request.title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         }
         Text(job.request.fileName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         when (job.state) {

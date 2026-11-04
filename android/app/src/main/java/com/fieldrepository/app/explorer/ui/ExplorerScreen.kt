@@ -88,7 +88,6 @@ import com.fieldrepository.app.explorer.data.ExplorerText
 import com.fieldrepository.app.explorer.portal.ExplorerPortal
 import com.fieldrepository.app.transcript.ui.TranscriptDataPanel
 import com.fieldrepository.app.transcript.ui.TranscriptFileChips
-import com.fieldrepository.app.ui.CachedCopyNote
 import com.fieldrepository.app.ui.FieldCircularProgressIndicator
 import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.CancellationException
@@ -350,7 +349,7 @@ fun ExplorerScreen(
             }
             if (state.locating != null) item("locating") { LoadingLine(ExplorerText.preparing) }
             state.unfiled?.let { text -> item("unfiled") { Notice(text, warn = true) } }
-            state.cachedNote?.let { text -> item("cached") { CachedCopyNote(text) } }
+            state.cachedNote?.let { text -> item("cached") { CachedNote(text) } }
             state.error?.let { text ->
                 item("error") {
                     ErrorRow(text, onRetry = { state.dismissError(); state.reload() }, onDismiss = state::dismissError)
@@ -428,7 +427,7 @@ fun ExplorerScreen(
             state.info?.takeIf { info -> info.fields.any { it.value.isNotBlank() } }?.let { info ->
                 item("info") {
                     Section(title = ExplorerText.details, open = state.showInfo, onToggle = { state.showInfo = !state.showInfo }, tag = "explorer.details") {
-                        Text(info.title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                        Text(info.title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                         RecordInfoTable(info)
                     }
                 }
@@ -616,7 +615,7 @@ private fun Section(title: String, open: Boolean, onToggle: () -> Unit, tag: Str
     Surface(color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
                 TextButton(onClick = onToggle, modifier = Modifier.heightIn(min = 44.dp).testTag(tag)) { Text(if (open) ExplorerText.hide else ExplorerText.show) }
             }
             if (open) {
