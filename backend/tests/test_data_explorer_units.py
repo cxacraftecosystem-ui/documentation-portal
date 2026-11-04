@@ -654,7 +654,7 @@ def test_a_thumbnail_keeps_its_own_pixel_ceiling_and_leaves_the_global_one_alone
         downloads.render_thumbnail(source.getvalue(), 256)
     monkeypatch.setattr(downloads, "THUMBNAIL_PIXELS_MAX", 300 * 300)
     assert downloads.render_thumbnail(source.getvalue(), 256)
-    assert Image.MAX_IMAGE_PIXELS == before
+    assert before == Image.MAX_IMAGE_PIXELS
 
 
 def test_a_thumbnail_is_shrunk_before_it_is_turned_upright_or_converted():
