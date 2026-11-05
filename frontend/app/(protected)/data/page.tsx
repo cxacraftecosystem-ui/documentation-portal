@@ -1,15 +1,14 @@
 "use client";
 
-import { Database, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { DataSearchPanel } from "@/components/data/DataSearchPanel";
-import { DataExplorer, type ExplorerConfig } from "@/components/dataExplorer/DataExplorer";
+import { DataExplorer, ExplorerHeader, type ExplorerConfig } from "@/components/dataExplorer/DataExplorer";
 import type { BrowseType } from "@/components/dataExplorer/BrowseByType";
-import { PageHeader } from "@/components/PageHeader";
 import { TranscriptDataPanel } from "@/components/transcript/TranscriptDataPanel";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { useWorkshopScope, WorkshopScopeSelect } from "@/components/WorkshopScopeSelect";
@@ -140,8 +139,15 @@ function browseTypes(user: User): BrowseType[] {
   }));
 }
 
+const TITLE = "Data";
+const DESCRIPTION = "Browse, check and download everything you can see.";
+
+const WIDE = "sm:max-lg:mx-1 lg:mx-[calc((100%-min(1360px,100vw-80px))/2)]";
+
 const header = (
-  <PageHeader title="Data" description="Browse, check and download everything you can see." icon={<Database className="h-5 w-5" aria-hidden />} />
+  <div className="mb-4">
+    <ExplorerHeader title={TITLE} description={DESCRIPTION} />
+  </div>
 );
 
 function Explorer({ user }: { user: User }) {
@@ -162,6 +168,8 @@ function Explorer({ user }: { user: User }) {
   }
 
   const config: ExplorerConfig = {
+    title: TITLE,
+    description: DESCRIPTION,
     rootName: "Dataset root",
     extra: { status: statusParam },
     downloadExtra: {},
@@ -169,6 +177,7 @@ function Explorer({ user }: { user: User }) {
     statusFilter: { active: Boolean(statusParam), label: dataStatusLabel(reviewStatus) },
     viewer: user.id,
     fileHref: mediaHref,
+    recordHref: (kind, id) => recordViewHref(kind, id),
     renderSearch: (reveal, openPreview, ask) => <DataSearchPanel onReveal={reveal} onPreview={openPreview} ask={ask} />,
     headerExtra: (
       <div className="flex flex-wrap items-center gap-2">
@@ -176,10 +185,7 @@ function Explorer({ user }: { user: User }) {
         <SegmentedChoice label="Review status" value={reviewStatus} onChange={(value) => changeReviewStatus(value || DEFAULT_DATA_STATUS)} options={DATA_STATUS_OPTIONS} />
       </div>
     ),
-    emptyBody:
-      reviewStatus === "ALL"
-        ? "Files appear here as soon as someone records for this folder."
-        : `Nothing ${dataStatusLabel(reviewStatus).toLowerCase()} here.`,
+    emptyBody: (folder) => (reviewStatus === "ALL" ? `Files appear as soon as someone records for ${folder}.` : `Nothing ${dataStatusLabel(reviewStatus).toLowerCase()} here.`),
     emptyAction: (
       <>
         {reviewStatus !== "ALL" ? (
@@ -188,7 +194,7 @@ function Explorer({ user }: { user: User }) {
           </button>
         ) : null}
         {canCreateRecords(user) ? (
-          <Link href="/media" className="field-button">
+          <Link href="/media" className="inline-flex min-h-11 items-center rounded-md bg-purple-700 px-4 text-sm font-semibold text-white hover:bg-purple-800 dark:bg-purple-300 dark:text-purple-950">
             Record now
           </Link>
         ) : null}
@@ -229,11 +235,10 @@ export default function DataBrowserPage() {
   }
 
   return (
-    <>
-      {header}
+    <div className={WIDE}>
       <Suspense fallback={<section className="panel p-6 text-sm text-ink-500">Loading…</section>}>
         <Explorer user={user} />
       </Suspense>
-    </>
+    </div>
   );
 }

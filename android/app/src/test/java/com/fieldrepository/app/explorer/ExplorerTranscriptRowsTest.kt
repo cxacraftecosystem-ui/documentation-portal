@@ -27,4 +27,12 @@ class ExplorerTranscriptRowsTest {
         assertEquals(TranscriptStatus.READY, ExplorerTranscriptStatus.row(item, null).status)
         assertNull(ExplorerTranscriptStatus.row(item, TranscriptSummary(mediaId = "m1", status = "TRANSLATING")).percent)
     }
+
+    @QFeature("X9")
+    @Test fun `a failed transcript carries the server's reason`() {
+        val row = ExplorerTranscriptStatus.row(item, TranscriptSummary(mediaId = "m1", status = "NEEDS_ATTENTION", statusMessage = "No speech found in the recording"))
+        assertEquals(TranscriptStatus.FAILED, row.status)
+        assertEquals("No speech found in the recording", row.message)
+        assertNull(ExplorerTranscriptStatus.row(item, TranscriptSummary(mediaId = "m1", status = "NEEDS_ATTENTION", statusMessage = " ")).message)
+    }
 }

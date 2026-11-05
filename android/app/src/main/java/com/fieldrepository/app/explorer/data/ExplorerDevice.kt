@@ -26,7 +26,10 @@ object ExplorerPlace {
 data class ExplorerLink(val online: Boolean, val metered: Boolean)
 
 object ExplorerNetwork {
+    @Volatile var override: ExplorerLink? = null
+
     fun now(context: Context): ExplorerLink {
+        override?.let { return it }
         val manager = context.getSystemService(ConnectivityManager::class.java) ?: return ExplorerLink(true, false)
         val caps = manager.getNetworkCapabilities(manager.activeNetwork)
         val online = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
@@ -36,7 +39,7 @@ object ExplorerNetwork {
     fun watch(context: Context): Flow<ExplorerLink> = callbackFlow {
         val manager = context.getSystemService(ConnectivityManager::class.java)
         trySend(now(context))
-        if (manager == null) {
+        if (manager == null || override != null) {
             awaitClose { }
             return@callbackFlow
         }

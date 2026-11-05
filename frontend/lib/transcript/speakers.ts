@@ -4,14 +4,14 @@ export type SpeakerColorKey = "neutral" | "s0" | "s1" | "s2" | "s3" | "s4" | "s5
 
 export const SPEAKER_PALETTE: Readonly<Record<SpeakerColorKey, { light: string; dark: string }>> = {
   neutral: { light: "#52525B", dark: "#A1A1AA" },
-  s0: { light: "#1D4ED8", dark: "#60A5FA" },
-  s1: { light: "#B45309", dark: "#FBBF24" },
-  s2: { light: "#047857", dark: "#34D399" },
+  s0: { light: "#762CB1", dark: "#C090F5" },
+  s1: { light: "#0F766E", dark: "#2DD4BF" },
+  s2: { light: "#B45309", dark: "#FBBF24" },
   s3: { light: "#BE185D", dark: "#F472B6" },
-  s4: { light: "#6D28D9", dark: "#A78BFA" },
-  s5: { light: "#0E7490", dark: "#22D3EE" },
+  s4: { light: "#1D4ED8", dark: "#60A5FA" },
+  s5: { light: "#4D7C0F", dark: "#A3E635" },
   s6: { light: "#B91C1C", dark: "#F87171" },
-  s7: { light: "#4D7C0F", dark: "#A3E635" }
+  s7: { light: "#0E7490", dark: "#22D3EE" }
 };
 
 const PALETTE_SIZE = 8;

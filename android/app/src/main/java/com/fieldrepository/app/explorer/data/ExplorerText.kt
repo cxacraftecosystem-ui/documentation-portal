@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 
 object ExplorerText {
-    const val title = "Data"
+    const val title = "View data"
     const val back = "Back"
     const val reload = "Reload"
     const val searchHint = "Search records"

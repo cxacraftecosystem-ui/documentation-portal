@@ -1,6 +1,6 @@
 "use client";
 
-import { Maximize2, Music, Pause, Play, RotateCcw, RotateCw, X } from "lucide-react";
+import { Pause, Play, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { linesOf } from "@/components/dataExplorer/PreviewDialog";
@@ -10,15 +10,14 @@ import type { Transcript } from "@/lib/transcript/contract";
 
 export type MiniPlayerTrack = { mediaId: string; name: string; src: string; startMs?: number };
 
-const ROUND =
-  "grid h-10 w-10 shrink-0 place-items-center rounded-full text-ink-900 transition hover:bg-purple-50 dark:hover:bg-purple-950/40 pointer-coarse:h-11 pointer-coarse:w-11";
+const ROUND = "grid h-10 w-10 shrink-0 place-items-center rounded-full text-xs text-white transition hover:bg-white/10";
 
 function session(): MediaSession | null {
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return null;
   return navigator.mediaSession;
 }
 
-export function MiniPlayer({ track, onExpand, onClose }: { track: MiniPlayerTrack | null; onExpand: () => void; onClose: () => void }) {
+export function MiniPlayer({ track, onExpand, onClose, onPosition }: { track: MiniPlayerTrack | null; onExpand: () => void; onClose: () => void; onPosition?: (ms: number, durationMs: number | null) => void }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [position, setPosition] = useState(track?.startMs ?? 0);
   const [duration, setDuration] = useState<number | null>(null);
@@ -44,7 +43,7 @@ export function MiniPlayer({ track, onExpand, onClose }: { track: MiniPlayerTrac
   const lines = useMemo(() => (transcript && transcript.id === mediaId ? linesOf(transcript.value) : []), [transcript, mediaId]);
   const at = lineAt(lines, position);
   const line = at >= 0 ? lines[at] : null;
-  const spoken = line ? `${line.speakerName ? `${line.speakerName}: ` : ""}“${line.text.trim()}”` : null;
+  const spoken = line ? `${line.speakerName ? `${line.speakerName}: ` : ""}“${(line.english || line.text).trim()}”` : null;
 
   const seek = (ms: number) => {
     const audio = audioRef.current;
@@ -108,7 +107,7 @@ export function MiniPlayer({ track, onExpand, onClose }: { track: MiniPlayerTrac
     <div
       role="region"
       aria-label="Now playing"
-      className="fixed inset-x-3 z-40 mx-auto max-w-xl overflow-hidden rounded-lg border border-line-200 bg-card shadow-lg sm:inset-x-auto sm:left-1/2 sm:w-[min(36rem,calc(100vw-2rem))] sm:-translate-x-1/2"
+      className="fixed inset-x-3 z-40 mx-auto max-w-xl overflow-hidden rounded-[18px] bg-[#1e1b2e] text-white shadow-[0_8px_28px_rgba(30,27,46,.3)] sm:inset-x-auto sm:left-1/2 sm:w-[min(36rem,calc(100vw-2rem))] sm:-translate-x-1/2"
       style={{ bottom: "calc(var(--bottom-nav-h, 0px) + 0.75rem + env(safe-area-inset-bottom, 0px))" }}
       data-testid="mini-player"
     >
@@ -125,6 +124,7 @@ export function MiniPlayer({ track, onExpand, onClose }: { track: MiniPlayerTrac
         onTimeUpdate={(event) => {
           const audio = event.currentTarget;
           setPosition(audio.currentTime * 1000);
+          onPosition?.(audio.currentTime * 1000, Number.isFinite(audio.duration) ? audio.duration * 1000 : null);
           const media = session();
           if (media?.setPositionState && Number.isFinite(audio.duration) && audio.duration > 0) {
             try {
@@ -138,42 +138,38 @@ export function MiniPlayer({ track, onExpand, onClose }: { track: MiniPlayerTrac
         onPause={() => setPlaying(false)}
         onEnded={() => setPlaying(false)}
       />
-      <div className="h-1 bg-progress-track" aria-hidden>
-        <div className="h-full bg-progress-fill" style={{ width: `${progress}%` }} />
+      <div className="h-[3px] bg-[#3a3651]" aria-hidden>
+        <div className="h-full bg-[#c090f5]" style={{ width: `${progress}%` }} />
       </div>
-      <div className="flex items-center gap-2 px-3 py-2">
-        <span aria-hidden className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-200">
-          <Music className="h-4 w-4" />
+      <div className="flex items-center gap-2.5 px-3 py-2.5">
+        <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-[#fef3c7] font-bold text-[#92400e]">
+          ♪
         </span>
         <button type="button" onClick={onExpand} className="min-w-0 flex-1 text-left" aria-label={`Open ${track.name}`}>
-          <span className="block truncate text-sm font-semibold text-ink-900">{track.name}</span>
-          <span className="block truncate text-xs text-ink-500" aria-live="off">
+          <span className="block truncate text-[13px] font-semibold">{track.name}</span>
+          <span className="block truncate text-xs text-[#cfcbe0]" aria-live="off">
             {spoken ?? `${playing ? "Playing" : "Paused"} · ${shortClock(position)}${duration ? ` of ${shortClock(duration)}` : ""}`}
           </span>
         </button>
         <button type="button" className={ROUND} aria-label={`Back ${SEEK_STEP_SECONDS} seconds`} onClick={() => seek(position - SEEK_STEP_SECONDS * 1000)}>
-          <RotateCcw className="h-4 w-4" aria-hidden />
+          ↺10
         </button>
-        <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-purple-700 text-white transition hover:bg-purple-800" aria-label={playing ? "Pause" : "Play"} onClick={toggle}>
-          {playing ? <Pause className="h-5 w-5" aria-hidden /> : <Play className="h-5 w-5" aria-hidden />}
+        <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#c090f5] text-[#2a0f47] transition hover:bg-[#d4b0f8]" aria-label={playing ? "Pause" : "Play"} onClick={toggle}>
+          {playing ? <Pause className="h-4 w-4" fill="currentColor" aria-hidden /> : <Play className="h-4 w-4" fill="currentColor" aria-hidden />}
         </button>
-        <button type="button" className={`${ROUND} max-sm:hidden`} aria-label={`Forward ${SEEK_STEP_SECONDS} seconds`} onClick={() => seek(position + SEEK_STEP_SECONDS * 1000)}>
-          <RotateCw className="h-4 w-4" aria-hidden />
-        </button>
-        <button type="button" className={`${ROUND} max-sm:hidden`} aria-label="Open player" onClick={onExpand}>
-          <Maximize2 className="h-4 w-4" aria-hidden />
-        </button>
-        <button
-          type="button"
-          className={ROUND}
-          aria-label="Stop and close player"
-          onClick={() => {
-            audioRef.current?.pause();
-            onClose();
-          }}
-        >
-          <X className="h-4 w-4" aria-hidden />
-        </button>
+        {!playing ? (
+          <button
+            type="button"
+            className={ROUND}
+            aria-label="Stop and close player"
+            onClick={() => {
+              audioRef.current?.pause();
+              onClose();
+            }}
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        ) : null}
       </div>
     </div>
   );

@@ -1,9 +1,8 @@
 "use client";
 
-import { ChevronRight, MoreHorizontal, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 
-import { RecordIcon } from "@/components/dataExplorer/explorerUi";
 import type { TreeStore } from "@/components/dataExplorer/useExplorerTree";
 
 type Row =
@@ -11,14 +10,19 @@ type Row =
   | { kind: "more"; path: string; name: string; level: number; parent: string; size: number; position: number }
   | { kind: "loading"; path: string; level: number; parent: string };
 
-export function visibleRows(store: Pick<TreeStore, "trees" | "expanded" | "loading">, rootName: string): Row[] {
+function parentOf(path: string): string {
+  return path.split("/").slice(0, -1).join("/");
+}
+
+export function visibleRows(store: Pick<TreeStore, "trees" | "expanded" | "loading">, rootName: string, rootPath = ""): Row[] {
   const countOf = (path: string, known?: number | null): string | null => {
     if (typeof known === "number") return known.toLocaleString("en-IN");
     const tree = store.trees[path];
     if (!tree) return null;
     return `${tree.entries.length.toLocaleString("en-IN")}${tree.nextCursor ? "+" : ""}`;
   };
-  const rows: Row[] = [{ kind: "folder", path: "", name: rootName, recordType: null, level: 1, parent: null, size: 1, position: 1, count: null }];
+  const rootEntry = rootPath ? store.trees[parentOf(rootPath)]?.entries.find((entry) => entry.path === rootPath) : undefined;
+  const rows: Row[] = [{ kind: "folder", path: rootPath, name: rootName, recordType: null, level: 1, parent: null, size: 1, position: 1, count: rootPath ? countOf(rootPath, rootEntry?.count) : null }];
   const walk = (parent: string, level: number) => {
     if (!store.expanded.has(parent)) return;
     const tree = store.trees[parent];
@@ -34,7 +38,7 @@ export function visibleRows(store: Pick<TreeStore, "trees" | "expanded" | "loadi
     });
     if (tree.nextCursor) rows.push({ kind: "more", path: `${parent}#more`, name: "Load more", level, parent, size, position: size });
   };
-  walk("", 2);
+  walk(rootPath, 2);
   return rows;
 }
 
@@ -42,17 +46,19 @@ export function FolderTree({
   store,
   selectedPath,
   rootName,
+  rootPath = "",
   onSelect
 }: {
   store: TreeStore;
   selectedPath: string;
   rootName: string;
+  rootPath?: string;
   onSelect: (path: string) => void;
 }) {
-  const rows = useMemo(() => visibleRows(store, rootName), [store, rootName]);
+  const rows = useMemo(() => visibleRows(store, rootName, rootPath), [store, rootName, rootPath]);
   const focusable = rows.filter((row) => row.kind !== "loading");
   const [focused, setFocused] = useState<string | null>(null);
-  const activePath = focusable.some((row) => row.path === focused) ? focused : selectedPath;
+  const activePath = focusable.some((row) => row.path === focused) ? focused : focusable.some((row) => row.path === selectedPath) ? selectedPath : rootPath;
   const refs = useRef(new Map<string, HTMLDivElement>());
 
   const focusRow = (path: string) => {
@@ -63,6 +69,11 @@ export function FolderTree({
   const activate = (row: Row) => {
     if (row.kind === "more") void store.more(row.parent);
     else if (row.kind === "folder") onSelect(row.path);
+  };
+
+  const hasChildren = (path: string) => {
+    const tree = store.trees[path];
+    return tree ? tree.entries.some((entry) => entry.kind === "folder") || Boolean(tree.nextCursor) : true;
   };
 
   const onKey = (event: KeyboardEvent<HTMLDivElement>, row: Row) => {
@@ -107,12 +118,12 @@ export function FolderTree({
   };
 
   return (
-    <div role="tree" aria-label="Folders" className="grid gap-0.5" data-testid="folder-tree">
+    <div role="tree" aria-label="Folders" className="flex flex-col gap-0.5 text-sm" data-testid="folder-tree">
       {rows.map((row) => {
-        const indent = { paddingLeft: `${(row.level - 1) * 14 + 4}px` };
+        const indent = { paddingLeft: `${(row.level - 1) * 16 + 8}px` };
         if (row.kind === "loading") {
           return (
-            <div key={row.path} role="none" className="flex min-h-8 items-center gap-2 text-xs text-ink-500" style={indent}>
+            <div key={row.path} role="none" className="flex min-h-10 items-center gap-2 text-xs text-ink-500" style={indent}>
               <RefreshCw className="h-3 w-3 animate-spin" aria-hidden />
               Loading…
             </div>
@@ -121,6 +132,7 @@ export function FolderTree({
         const selected = row.kind === "folder" && row.path === selectedPath;
         const expanded = row.kind === "folder" ? store.expanded.has(row.path) : undefined;
         const busy = row.kind === "folder" && store.loading.has(row.path);
+        const open = Boolean(expanded) && row.kind === "folder" && hasChildren(row.path);
         return (
           <div
             key={row.path}
@@ -140,33 +152,31 @@ export function FolderTree({
             onKeyDown={(event) => onKey(event, row)}
             onClick={() => activate(row)}
             data-path={row.path}
-            className={`group flex min-h-10 cursor-pointer select-none items-center gap-1.5 rounded-md pr-2 text-sm transition-colors pointer-coarse:min-h-11 ${
-              selected ? "bg-purple-100 font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-200" : "text-ink-700 hover:bg-purple-50 dark:hover:bg-purple-950/30"
+            className={`group flex min-h-10 cursor-pointer select-none items-center gap-2 rounded-[10px] pr-2 transition-colors pointer-coarse:min-h-11 ${
+              selected ? "bg-purple-100 font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-200" : "text-ink-900 hover:bg-purple-50 dark:hover:bg-purple-950/30"
             }`}
             style={indent}
           >
-            {row.kind === "folder" && row.path !== "" ? (
+            {row.kind === "folder" ? (
               <span
                 aria-hidden
-                className="grid h-7 w-7 shrink-0 place-items-center rounded hover:bg-purple-100 dark:hover:bg-purple-900/50 pointer-coarse:h-9 pointer-coarse:w-9"
+                className={`grid w-5 shrink-0 place-items-center self-stretch text-[13px] ${selected ? "" : "text-ink-500"}`}
                 onClick={(event) => {
+                  if (row.path === "") return;
                   event.stopPropagation();
                   store.toggle(row.path);
                 }}
               >
-                <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
+                {open ? "▾" : "▸"}
               </span>
             ) : (
-              <span aria-hidden className="w-1 shrink-0" />
-            )}
-            {row.kind === "more" ? (
-              <MoreHorizontal className="h-4 w-4 shrink-0 text-purple-700 dark:text-purple-300" aria-hidden />
-            ) : (
-              <RecordIcon recordType={row.recordType} root={row.path === ""} className="h-4 w-4 shrink-0 text-purple-700 dark:text-purple-300" />
+              <span aria-hidden className="w-5 shrink-0 text-center text-ink-500">
+                …
+              </span>
             )}
             <span className="min-w-0 flex-1 truncate">{row.name}</span>
             {row.kind === "folder" && row.count !== null && !busy ? (
-              <span className="shrink-0 text-xs tabular-nums text-ink-500" aria-hidden>
+              <span className={`shrink-0 text-xs tabular-nums ${selected ? "" : "text-ink-500"}`} aria-hidden>
                 {row.count}
               </span>
             ) : null}

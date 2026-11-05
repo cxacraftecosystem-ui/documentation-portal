@@ -17,6 +17,7 @@ data class ExplorerPreflightPlan(
     val enoughSpace: Boolean,
     val location: String,
     val smaller: ExplorerSmaller?,
+    val totalBytes: Long? = null,
 )
 
 object ExplorerPreflight {
@@ -31,6 +32,7 @@ object ExplorerPreflight {
         speedBps: Long?,
         location: String,
         parallel: Int = ExplorerEngine.PARALLEL,
+        totalBytes: Long? = null,
     ): ExplorerPreflightPlan {
         val speed = speedBps?.takeIf { it > 0 } ?: if (link.metered) FALLBACK_MOBILE_BPS else FALLBACK_WIFI_BPS
         val needed = ExplorerBytes.spaceNeeded(size.bytes, size.largest, parallel)
@@ -49,6 +51,7 @@ object ExplorerPreflight {
             enoughSpace = enough,
             location = location,
             smaller = smaller(size, speed, ExplorerKind.VIDEOS),
+            totalBytes = totalBytes?.takeIf { it > 0 },
         )
     }
 

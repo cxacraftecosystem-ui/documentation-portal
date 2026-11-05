@@ -1,14 +1,12 @@
 "use client";
 
-import { Archive, BookOpen, FileText, RefreshCw, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { LoadFailed, Skeleton } from "@/components/dataExplorer/explorerUi";
+import { TAG_TONE } from "@/components/dataExplorer/FolderContents";
+import { LoadFailed, PillMenu, Skeleton } from "@/components/dataExplorer/explorerUi";
 import { EmptyState } from "@/components/EmptyState";
-import { ActionGroup } from "@/components/ui/ActionGroup";
-import { ProgressBar } from "@/components/ui/ProgressBar";
-import { SearchableSelect } from "@/components/ui/SearchableSelect";
-import { ROW_TONE_CLASS, type DownloadRequest } from "@/lib/dataExplorer/downloads";
+import type { DownloadRequest } from "@/lib/dataExplorer/downloads";
 import {
   fetchFolderTranscripts,
   fetchTranscriptSummaries,
@@ -29,7 +27,7 @@ import {
 import { apiUrl, type QueryParams } from "@/lib/dataExplorer/wire";
 import { TRANSCRIPT_ROUTES, retryTranscript } from "@/lib/transcript/api";
 
-export const TRANSCRIPTS_PAGE = 25;
+export const TRANSCRIPTS_FIRST = 5;
 const SEARCH_DEBOUNCE_MS = 350;
 const POLL_MS = 15_000;
 
@@ -39,19 +37,37 @@ type Row = FolderTranscript & { summary: TranscriptSummary | null; state: RowSta
 
 type Loaded = { key: string; items: FolderTranscript[]; total: number; truncated: boolean; nextOffset: number | null };
 
-const ROW_BUTTON =
-  "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-line-200 bg-card px-3 text-xs font-semibold text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 disabled:opacity-60 dark:hover:bg-purple-950/40 pointer-coarse:min-h-11";
+const BUTTON =
+  "min-h-10 rounded-md border border-line-200 bg-card px-3.5 text-[13px] text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 disabled:opacity-60 dark:hover:bg-purple-950/40 pointer-coarse:min-h-11";
 
-const PILL = "inline-flex min-h-6 items-center gap-1 rounded-full px-2 text-[11px] font-semibold";
+const ROW_GRID = "grid-cols-[44px_minmax(0,1fr)_140px_160px_220px] gap-3.5";
+const ROW_GRID_MD = "md:grid-cols-[44px_minmax(0,1fr)_140px_160px_220px]";
+
+const PILL = "inline-flex min-h-6 items-center rounded-full px-2 text-[11px] font-semibold";
+
+export function transcriptTitle(name: string): string {
+  const stem = name.replace(/\.[A-Za-z0-9]{1,5}$/, "");
+  if (!/[_-]/.test(stem) || /\s/.test(stem)) return stem || name;
+  return stem
+    .split("_")
+    .map((part) => part.replace(/-/g, " ").trim())
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function workingLine(summary: TranscriptSummary | null): string {
+  if (summary?.status === "TRANSCRIBING") return "Transcribing";
+  return "Transcribed · translating to English";
+}
 
 function StatePill({ row }: { row: Row }) {
   switch (row.state) {
     case "ready":
-      return <span className={`${PILL} bg-success-100 text-success-600`}>✓ Ready</span>;
+      return <span className={`${PILL} bg-success-100 text-success-600 dark:bg-[#123b25] dark:text-green-200`}>✓ Ready</span>;
     case "working":
-      return <span className={`${PILL} bg-purple-50 text-purple-800 dark:bg-purple-950/50 dark:text-purple-200`}>{translatingLabel(row.summary)}</span>;
+      return <span className={`${PILL} bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200`}>{translatingLabel(row.summary)}</span>;
     case "failed":
-      return <span className={`${PILL} border border-red-300 bg-card text-red-900`}>Failed</span>;
+      return <span className={`${PILL} bg-card text-red-700 dark:text-red-200`}>Failed</span>;
     case "waiting":
       return <span className={`${PILL} bg-surface-50 text-ink-700`}>Waiting</span>;
     default:
@@ -84,7 +100,8 @@ export function TranscriptsTab({
   onRead,
   onDownload,
   zipUrl,
-  onCount
+  onCount,
+  trail
 }: {
   path: string;
   folderName: string;
@@ -93,6 +110,7 @@ export function TranscriptsTab({
   onDownload: (request: DownloadRequest) => void;
   zipUrl: string;
   onCount?: (count: number) => void;
+  trail?: string;
 }) {
   const extraKey = JSON.stringify(extra);
   const [typed, setTyped] = useState("");
@@ -190,7 +208,7 @@ export function TranscriptsTab({
   const counts = stateCounts(rows);
   const languages = useMemo(() => languageOptions(rows), [rows]);
   const visible = rows.filter((row) => matchesState(row.state, filter) && (!language || (row.summary?.languages ?? []).some((entry) => entry.code === language)));
-  const shown = showAll ? visible : visible.slice(0, TRANSCRIPTS_PAGE);
+  const shown = showAll ? visible : visible.slice(0, TRANSCRIPTS_FIRST);
   const total = loaded?.total ?? 0;
 
   const retry = useCallback(async (row: Row) => {
@@ -231,72 +249,71 @@ export function TranscriptsTab({
   const stale = loaded !== null && loaded.key !== key;
 
   return (
-    <section className="panel overflow-hidden" aria-label="Transcripts" data-testid="transcripts-tab">
-      <div className="flex flex-wrap items-end gap-3 border-b border-line-200 px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs text-ink-500">{folderName}</p>
-          <h2 className="font-display text-lg font-bold text-ink-900">Transcripts</h2>
+    <section className="min-w-0" aria-label="Transcripts" data-testid="transcripts-tab">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-3">
+        <div className="min-w-0">
+          <p className="truncate text-xs text-ink-500">{trail || folderName}</p>
+          <h2 className="mt-1 font-display text-2xl font-extrabold text-ink-900">Transcripts</h2>
         </div>
         {total > 0 ? (
-          <ActionGroup align="end">
+          <div className="flex gap-2">
             <button
               type="button"
-              className="field-button-secondary"
+              className={BUTTON}
               onClick={() => onDownload({ kind: "transcript", label: `Transcripts (.docx) · ${folderName}`, url: apiUrl("/data/transcripts/export", { path, format: "docx", ...(JSON.parse(extraKey) as QueryParams) }), path })}
             >
-              <FileText className="h-4 w-4" aria-hidden />
               Export all (.docx)
             </button>
-            <button type="button" className="field-button-secondary" onClick={() => onDownload({ kind: "transcript", label: `Transcripts · ${folderName}`, url: zipUrl, path })}>
-              <Archive className="h-4 w-4" aria-hidden />
+            <button type="button" className="min-h-10 rounded-md bg-purple-700 px-3.5 text-[13px] font-semibold text-white hover:bg-purple-800 dark:bg-purple-300 dark:text-purple-950" onClick={() => onDownload({ kind: "transcript", label: `Transcripts · ${folderName}`, url: zipUrl, path })}>
               Transcripts (.zip) · {total.toLocaleString("en-IN")}
             </button>
-          </ActionGroup>
+          </div>
         ) : null}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-b border-line-200 px-4 py-3">
-        <label className="relative flex min-w-0 flex-[1_1_16rem] items-center">
-          <Search className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-ink-300" aria-hidden />
+      <div className="flex flex-wrap items-center gap-2 px-4 pb-4">
+        <label className="relative flex min-w-0 max-w-[520px] flex-[1_1_16rem] items-center">
+          <Search className="pointer-events-none absolute left-3 h-4 w-4 text-ink-500" aria-hidden />
           <input
             type="search"
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
             placeholder="Search inside these transcripts"
             aria-label="Search inside these transcripts"
-            className="field-input py-2 pl-8 text-sm"
+            className="min-h-11 w-full rounded-md border border-line-200 bg-card pr-3 pl-9 text-sm text-ink-900 outline-hidden placeholder:text-ink-300 focus:border-purple-600"
           />
         </label>
-        <div role="group" aria-label="Transcript status" className="flex flex-wrap gap-1.5">
+        <div role="group" aria-label="Transcript status" className="flex flex-wrap gap-2">
           {pills.map((pill) => (
             <button
               key={pill.value}
               type="button"
               aria-pressed={filter === pill.value}
               onClick={() => setFilter(pill.value)}
-              className={`min-h-9 rounded-full border px-3 text-xs font-semibold transition pointer-coarse:min-h-11 ${
-                filter === pill.value ? "border-purple-700 bg-purple-700 text-white" : "border-line-200 bg-card text-ink-700 hover:border-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40"
-              }`}
+              className={`min-h-10 rounded-full px-3.5 text-[13px] transition pointer-coarse:min-h-11 ${filter === pill.value ? "bg-ink-900 text-card" : "border border-line-200 bg-card text-ink-900 hover:border-purple-300"}`}
             >
               {pill.label} {counts[pill.value].toLocaleString("en-IN")}
             </button>
           ))}
         </div>
-        {languages.length > 2 ? (
-          <div className="w-44">
-            <SearchableSelect ariaLabel="Language" value={language} onChange={setLanguage} options={languages} placeholder="Any language" advanceOnSelect={false} />
-          </div>
-        ) : null}
+        <PillMenu
+          label={language ? (languages.find((option) => option.value === language)?.label ?? "Language") : "Language"}
+          ariaLabel="Language"
+          value={language}
+          options={languages}
+          onChange={setLanguage}
+          className="min-h-10 rounded-full border border-line-200 bg-card px-3.5 text-[13px] text-ink-900 hover:border-purple-300 pointer-coarse:min-h-11"
+        />
       </div>
 
       {error && !loaded ? (
-        <div className="p-4">
+        <div className="px-4 pb-4">
           <LoadFailed title="These transcripts didn't load" onRetry={() => setAttempt((value) => value + 1)}>
             {error}
           </LoadFailed>
         </div>
       ) : loading && !loaded ? (
-        <div className="grid gap-3 p-4" role="status" aria-label="Loading transcripts">
+        <div className="mx-4 mb-4 grid gap-3 rounded-lg border border-line-200 p-4" role="status" aria-label="Loading transcripts">
           {[0, 1, 2, 3].map((index) => (
             <div key={index} className="flex items-center gap-3">
               <Skeleton className="h-11 w-11 shrink-0" />
@@ -309,106 +326,106 @@ export function TranscriptsTab({
           ))}
         </div>
       ) : rows.length === 0 ? (
-        <div className="p-4">
+        <div className="px-4 pb-4">
           <EmptyState title={needle ? `Nothing matches “${needle}”` : "No transcripts here yet"} body={needle ? "Try other words." : "Recordings in this folder appear here once they're transcribed."} />
         </div>
       ) : (
         <>
           {error ? (
-            <p role="alert" className="flex flex-wrap items-center gap-2 border-b border-red-300 bg-error-100 px-4 py-2 text-sm text-red-900">
+            <p role="alert" className="mx-4 mb-3 flex flex-wrap items-center gap-2 rounded-md bg-error-100 px-4 py-2 text-sm text-red-900">
               <span className="flex-1">{error}</span>
-              <button type="button" className={ROW_BUTTON} onClick={() => setAttempt((value) => value + 1)}>
-                <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+              <button type="button" className={BUTTON} onClick={() => setAttempt((value) => value + 1)}>
                 Try now
               </button>
             </p>
           ) : null}
-          <div className="hidden grid-cols-[2.75rem_minmax(0,1fr)_5rem_8.5rem_12rem] gap-3 border-b border-line-200 bg-surface-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-500 md:grid" aria-hidden>
-            <span />
-            <span>Recording</span>
-            <span>Length</span>
-            <span>Status</span>
-            <span className="text-right">Get</span>
-          </div>
-          <ul className={`divide-y divide-line-200 ${stale || loading ? "opacity-70" : ""}`} aria-busy={loading || undefined} aria-label="Transcripts list" data-testid="transcript-rows">
-            {shown.map((row) => {
-              const sub = row.snippet && needle ? null : [languagesLine(row.summary?.languages ?? []), speakersLine(row.summary?.speakerCount ?? 0)].filter(Boolean).join(" · ");
-              const length = row.summary?.durationMs ? shortClock(row.summary.durationMs) : "";
-              const failed = row.state === "failed";
-              return (
-                <li
-                  key={row.mediaId}
-                  className={`grid grid-cols-[2.75rem_minmax(0,1fr)] items-center gap-3 px-4 py-3 md:grid-cols-[2.75rem_minmax(0,1fr)_5rem_8.5rem_12rem] ${failed ? ROW_TONE_CLASS.failed : ""}`}
-                  data-state={row.state}
-                  data-transcript-row=""
-                >
-                  <span
-                    className={`grid h-11 w-11 place-items-center rounded-md text-[11px] font-bold ${row.mediaType === "VIDEO" ? "bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-200" : "bg-amber-100 text-amber-800"}`}
-                    aria-hidden
+          <div className="mx-4 overflow-hidden rounded-lg border border-line-200 bg-card">
+            <div className={`hidden ${ROW_GRID} border-b border-line-200 px-[18px] py-2.5 text-xs text-ink-500 md:grid`} aria-hidden>
+              <span />
+              <span>Recording</span>
+              <span>Length</span>
+              <span>Status</span>
+              <span className="text-right">Get</span>
+            </div>
+            <ul className={`${stale || loading ? "opacity-70" : ""}`} aria-busy={loading || undefined} aria-label="Transcripts list" data-testid="transcript-rows">
+              {shown.map((row) => {
+                const sub = row.snippet && needle ? null : row.state === "failed" ? row.summary?.statusMessage?.trim() || "The transcript couldn't be made." : row.state === "working" ? workingLine(row.summary) : [languagesLine(row.summary?.languages ?? []), speakersLine(row.summary?.speakerCount ?? 0)].filter(Boolean).join(" · ");
+                const length = row.summary?.durationMs ? shortClock(row.summary.durationMs) : "";
+                const failed = row.state === "failed";
+                const tag = row.mediaType === "VIDEO" ? "VID" : "AUD";
+                return (
+                  <li
+                    key={row.mediaId}
+                    className={`grid grid-cols-[44px_minmax(0,1fr)] items-center gap-3.5 border-b px-[18px] py-3.5 last:border-b-0 ${ROW_GRID_MD} ${failed ? "border-red-200 bg-error-100 text-red-900 dark:border-red-900 dark:bg-[#4a1717] dark:text-red-100" : "border-line-200"}`}
+                    data-state={row.state}
+                    data-transcript-row=""
                   >
-                    {row.mediaType === "VIDEO" ? "VID" : "AUD"}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{row.name}</p>
-                    <p className={`text-xs ${failed ? "" : "text-ink-500"}`}>
-                      {row.snippet && needle ? <Snippet text={row.snippet} needle={needle} /> : null}
-                      {sub ? sub : null}
-                      {failed && !sub && !(row.snippet && needle) ? "The transcript couldn't be made." : null}
-                    </p>
-                    {row.state === "working" ? (
-                      <ProgressBar
-                        percent={row.summary?.translation?.percent ?? 33}
-                        className={`mt-1.5 h-1.5 w-40 max-w-full ${typeof row.summary?.translation?.percent === "number" ? "" : "animate-pulse"}`}
-                        aria-hidden
-                      />
-                    ) : null}
-                    <div className="mt-2 flex flex-wrap items-center gap-2 md:hidden">
-                      <StatePill row={row} />
-                      {length ? <span className="text-xs tabular-nums text-ink-500">{length}</span> : null}
+                    <span className={`grid h-11 w-11 place-items-center rounded-[10px] text-[11px] font-bold ${failed ? "bg-card text-red-700 dark:text-red-200" : TAG_TONE[tag]}`} aria-hidden>
+                      {tag}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{transcriptTitle(row.name)}</p>
+                      <p className={`truncate text-xs ${failed ? "text-red-800 dark:text-red-200" : "text-ink-500"}`}>
+                        {row.snippet && needle ? <Snippet text={row.snippet} needle={needle} /> : null}
+                        {sub ? sub : null}
+                        {failed && !sub && !(row.snippet && needle) ? "The transcript couldn't be made." : null}
+                      </p>
+                      {row.state === "working" ? (
+                        <div className="mt-1.5 h-1 max-w-60 overflow-hidden rounded-full bg-progress-track" aria-hidden>
+                          <div className={`h-full rounded-full bg-progress-fill ${typeof row.summary?.translation?.percent === "number" ? "" : "animate-pulse"}`} style={{ width: `${row.summary?.translation?.percent ?? 33}%` }} />
+                        </div>
+                      ) : null}
+                      <div className="mt-2 flex flex-wrap items-center gap-2 md:hidden">
+                        <StatePill row={row} />
+                        {length ? <span className="text-xs tabular-nums">{length}</span> : null}
+                      </div>
                     </div>
-                  </div>
-                  <span className="hidden text-sm tabular-nums text-ink-700 md:block">{length}</span>
-                  <span className="hidden md:block">
-                    <StatePill row={row} />
-                  </span>
-                  <div className="col-span-2 flex flex-wrap justify-end gap-2 md:col-span-1">
-                    {failed ? (
-                      <button type="button" className={ROW_BUTTON} disabled={retrying.has(row.mediaId)} onClick={() => void retry(row)}>
-                        <RefreshCw className={`h-3.5 w-3.5 ${retrying.has(row.mediaId) ? "animate-spin" : ""}`} aria-hidden />
-                        Try again
-                      </button>
-                    ) : null}
-                    {row.state === "ready" || ((row.state === "working" || row.state === "waiting") && row.hasText) ? (
-                      <button type="button" className={ROW_BUTTON} onClick={() => onRead({ mediaId: row.mediaId, name: row.name, mediaType: row.mediaType, find: needle || undefined })}>
-                        <BookOpen className="h-3.5 w-3.5" aria-hidden />
-                        {row.state === "ready" ? "Read" : "Read original"}
-                      </button>
-                    ) : null}
-                    {row.state === "ready" && row.summary ? (
-                      <button type="button" className={ROW_BUTTON} onClick={() => docx(row)}>
-                        <FileText className="h-3.5 w-3.5" aria-hidden />
-                        .docx
-                      </button>
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
-            {visible.length === 0 ? <li className="px-4 py-6 text-center text-sm text-ink-500">None with this status.</li> : null}
-          </ul>
-          <div className="flex flex-wrap items-center gap-2 border-t border-line-200 px-4 py-3 text-xs text-ink-500" role="status" aria-live="polite">
+                    <span className="hidden text-[13px] tabular-nums md:block">{length}</span>
+                    <span className="hidden md:block">
+                      <StatePill row={row} />
+                    </span>
+                    <div className="col-span-2 flex flex-wrap justify-end gap-1.5 md:col-span-1">
+                      {failed ? (
+                        <button type="button" className="min-h-10 rounded-md bg-red-700 px-3.5 text-[13px] font-semibold text-white hover:bg-red-800 disabled:opacity-60" disabled={retrying.has(row.mediaId)} onClick={() => void retry(row)}>
+                          Try again
+                        </button>
+                      ) : null}
+                      {row.state === "ready" || ((row.state === "working" || row.state === "waiting") && row.hasText) ? (
+                        <button type="button" className={BUTTON} onClick={() => onRead({ mediaId: row.mediaId, name: row.name, mediaType: row.mediaType, find: needle || undefined })}>
+                          {row.state === "ready" ? "Read" : "Read original"}
+                        </button>
+                      ) : null}
+                      {row.state === "ready" && row.summary ? (
+                        <button type="button" className={BUTTON} onClick={() => docx(row)}>
+                          .docx
+                        </button>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+              {visible.length === 0 ? <li className="px-4 py-6 text-center text-sm text-ink-500">None with this status.</li> : null}
+            </ul>
+          </div>
+          <div className="flex flex-wrap items-center gap-1 px-4 pt-3 pb-4 text-xs text-ink-500" role="status" aria-live="polite">
             <span>
               Showing {shown.length.toLocaleString("en-IN")} of {visible.length.toLocaleString("en-IN")}
               {loaded?.truncated ? ` · the first ${rows.length.toLocaleString("en-IN")} of ${total.toLocaleString("en-IN")} recordings` : ""}
             </span>
             {!showAll && visible.length > shown.length ? (
-              <button type="button" className="min-h-9 font-semibold text-purple-700 hover:underline dark:text-purple-300 pointer-coarse:min-h-11" onClick={() => setShowAll(true)}>
-                Show all
-              </button>
+              <>
+                <span aria-hidden>·</span>
+                <button type="button" className="font-semibold text-purple-700 underline underline-offset-2 dark:text-purple-300 pointer-coarse:min-h-11" onClick={() => setShowAll(true)}>
+                  Show all
+                </button>
+              </>
             ) : loaded?.nextOffset !== null && loaded?.nextOffset !== undefined ? (
-              <button type="button" className="min-h-9 font-semibold text-purple-700 hover:underline dark:text-purple-300 pointer-coarse:min-h-11" data-testid="transcripts-more" disabled={loadingMore} onClick={() => void loadMore()}>
-                {loadingMore ? "Loading…" : "Load more recordings"}
-              </button>
+              <>
+                <span aria-hidden>·</span>
+                <button type="button" className="font-semibold text-purple-700 underline underline-offset-2 dark:text-purple-300 pointer-coarse:min-h-11" data-testid="transcripts-more" disabled={loadingMore} onClick={() => void loadMore()}>
+                  {loadingMore ? "Loading…" : "Load more recordings"}
+                </button>
+              </>
             ) : null}
             {retryNote ? <span className="ml-auto">{retryNote}</span> : null}
           </div>

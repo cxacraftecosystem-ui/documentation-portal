@@ -1,11 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { LoadFailed, Skeleton } from "@/components/dataExplorer/explorerUi";
-import { ProgressBar } from "@/components/ui/ProgressBar";
-import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { fetchOverview } from "@/lib/dataExplorer/api";
 import type { CoverageState, FolderVisit, WorkshopOverview as Overview } from "@/lib/dataExplorer/contract";
 import { formatBytes } from "@/lib/dataExplorer/plan";
@@ -13,19 +11,92 @@ import { completeness, percentLabel, sortArtisans, type OverviewSort } from "@/l
 import type { QueryParams } from "@/lib/dataExplorer/wire";
 
 const SQUARE: Record<CoverageState, string> = {
-  complete: "bg-purple-700",
-  partial: "bg-purple-300",
-  missing: "border border-line-200 bg-card"
+  complete: "bg-purple-700 dark:bg-purple-400",
+  partial: "bg-progress-track",
+  missing: "border border-red-300 bg-error-100 dark:border-[#b91c1c] dark:bg-[#4a1717]"
 };
 
 const SQUARE_WORD: Record<CoverageState, string> = { complete: "complete", partial: "partly recorded", missing: "missing" };
 
-function Card({ label, big, small }: { label: string; big: string; small: React.ReactNode }) {
+const SORTS: { value: OverviewSort; label: string; short: string }[] = [
+  { value: "least", label: "Least complete first", short: "least complete" },
+  { value: "most", label: "Most complete first", short: "most complete" },
+  { value: "name", label: "By name", short: "by name" }
+];
+
+function barTone(share: number): string {
+  if (share >= 1) return "bg-success-600 dark:bg-green-400";
+  if (share < 0.5) return "bg-red-700 dark:bg-red-400";
+  if (share < 0.8) return "bg-purple-500";
+  return "bg-purple-700 dark:bg-purple-300";
+}
+
+function Card({ label, big, small, fresh = false }: { label: string; big: string; small: React.ReactNode; fresh?: boolean }) {
   return (
-    <div className="grid gap-0.5 rounded-md border border-line-200 bg-card p-3">
-      <span className="text-xs text-ink-500">{label}</span>
-      <span className="font-display text-2xl font-extrabold tabular-nums text-ink-900">{big}</span>
-      <span className="text-xs text-ink-500">{small}</span>
+    <div className={`grid content-start rounded-lg border p-4 ${fresh ? "border-[#d6b6fb] bg-purple-100 text-purple-800 dark:border-purple-800 dark:bg-purple-950/60 dark:text-purple-200" : "border-line-200 bg-card text-ink-900"}`}>
+      <span className={`text-xs ${fresh ? "" : "text-ink-500"}`}>{label}</span>
+      <span className="font-display text-[28px] leading-[34px] font-extrabold tabular-nums">{big}</span>
+      <span className={`text-xs ${fresh ? "" : "text-ink-500"}`}>{small}</span>
+    </div>
+  );
+}
+
+function SortMenu({ value, onChange }: { value: OverviewSort; onChange: (value: OverviewSort) => void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: PointerEvent) => {
+      if (!box.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("pointerdown", away);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("pointerdown", away);
+      window.removeEventListener("keydown", key);
+    };
+  }, [open]);
+  const current = SORTS.find((sort) => sort.value === value) ?? SORTS[0];
+  return (
+    <div className="relative" ref={box}>
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={`Sort artisans: ${current.short}`}
+        onClick={() => setOpen((shown) => !shown)}
+        className="min-h-8 rounded-md border border-line-200 bg-card px-3.5 text-[13px] text-ink-900 hover:border-purple-300 pointer-coarse:min-h-11"
+      >
+        Sort: {current.short} ▾
+      </button>
+      {open ? (
+        <ul role="listbox" aria-label="Sort artisans" className="absolute right-0 top-10 z-20 grid w-52 gap-0.5 rounded-md border border-line-200 bg-card p-1 shadow-md">
+          {SORTS.map((sort) => (
+            <li
+              key={sort.value}
+              role="option"
+              aria-selected={sort.value === value}
+              tabIndex={0}
+              onClick={() => {
+                onChange(sort.value);
+                setOpen(false);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                onChange(sort.value);
+                setOpen(false);
+              }}
+              className={`flex min-h-10 cursor-pointer items-center rounded-sm px-3 text-sm ${sort.value === value ? "bg-purple-100 font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-200" : "text-ink-900 hover:bg-purple-50 dark:hover:bg-purple-950/40"}`}
+            >
+              {sort.label}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
@@ -54,23 +125,26 @@ export function WorkshopOverview({ path, extra, visit, onOpen, onShowNew }: { pa
   if (!overview) {
     if (state) return null;
     return (
-      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-5" aria-hidden>
+      <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-5" aria-hidden>
         {[0, 1, 2, 3, 4].map((tile) => (
-          <Skeleton key={tile} className="h-24" />
+          <Skeleton key={tile} className="h-[98px]" />
         ))}
       </div>
     );
   }
   const totals = overview.totals;
   const fresh = visit && visit.previousVisitAt ? visit.newFiles : null;
+  const sectionsLabel = overview.sections.length > 1 ? `Sections ${overview.sections[0].label.charAt(0)}–${overview.sections[overview.sections.length - 1].label.charAt(0)}` : "Sections";
+  const lettered = overview.sections.every((section) => /^[A-Z]$/.test(section.label.charAt(0))) && overview.sections.length <= 26;
   return (
-    <section aria-label="Workshop overview" className="grid gap-4" data-testid="workshop-overview">
-      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-5">
+    <section aria-label="Workshop overview" className="grid gap-[18px]" data-testid="workshop-overview">
+      <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-5">
         <Card label="Files" big={totals.files.toLocaleString("en-IN")} small={formatBytes(totals.bytes)} />
         <Card label="Recorded fields" big={percentLabel(totals.fields)} small={`${totals.fields.filled.toLocaleString("en-IN")} of ${totals.fields.total.toLocaleString("en-IN")}`} />
         <Card label="Transcripts" big={totals.transcripts.total.toLocaleString("en-IN")} small={`${totals.transcripts.ready} ready · ${totals.transcripts.translating} translating · ${totals.transcripts.failed} failed`} />
         <Card label="Review" big={`${totals.review.approved} / ${totals.review.total}`} small={`approved · ${totals.review.pending} pending`} />
         <Card
+          fresh={fresh !== null}
           label="New since you looked"
           big={fresh === null ? "-" : `+${fresh.toLocaleString("en-IN")}`}
           small={
@@ -82,7 +156,7 @@ export function WorkshopOverview({ path, extra, visit, onOpen, onShowNew }: { pa
                 {fresh > 0 ? (
                   <>
                     {" · "}
-                    <button type="button" className="font-semibold text-purple-700 hover:underline dark:text-purple-300" onClick={onShowNew}>
+                    <button type="button" className="font-semibold underline underline-offset-2" onClick={onShowNew}>
                       Show
                     </button>
                   </>
@@ -93,117 +167,115 @@ export function WorkshopOverview({ path, extra, visit, onOpen, onShowNew }: { pa
         />
       </div>
       {overview.artisans.length ? (
-        <div className="panel overflow-hidden">
-          <div className="flex flex-wrap items-center gap-3 border-b border-line-200 px-4 py-3">
-            <h3 className="mr-auto font-display text-base font-bold text-ink-900">Artisans · what&apos;s been captured</h3>
-            <span className="flex items-center gap-3 text-xs text-ink-500" aria-hidden>
-              <span className="flex items-center gap-1">
-                <span className={`h-3 w-3 rounded-[3px] ${SQUARE.complete}`} />
-                Complete
-              </span>
-              <span className="flex items-center gap-1">
-                <span className={`h-3 w-3 rounded-[3px] ${SQUARE.partial}`} />
-                Partial
-              </span>
-              <span className="flex items-center gap-1">
-                <span className={`h-3 w-3 rounded-[3px] ${SQUARE.missing}`} />
-                Missing
-              </span>
-            </span>
-            <div className="w-48">
-              <SearchableSelect
-                ariaLabel="Sort artisans"
-                value={sort}
-                onChange={(value) => setSort(value as OverviewSort)}
-                options={[
-                  { value: "least", label: "Least complete first" },
-                  { value: "most", label: "Most complete first" },
-                  { value: "name", label: "By name" }
-                ]}
-              />
+        <>
+          <div className="panel overflow-hidden shadow-none">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line-200 px-4 py-3.5">
+              <h3 className="text-base font-bold text-ink-900">Artisans · what&apos;s been captured</h3>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-ink-500">
+                <span className="flex items-center gap-1" aria-hidden>
+                  <span className={`h-3 w-3 rounded-full ${SQUARE.complete}`} />
+                  Complete
+                </span>
+                <span className="flex items-center gap-1" aria-hidden>
+                  <span className={`h-3 w-3 rounded-full ${SQUARE.partial}`} />
+                  Partial
+                </span>
+                <span className="flex items-center gap-1" aria-hidden>
+                  <span className={`h-3 w-3 rounded-full ${SQUARE.missing}`} />
+                  Missing
+                </span>
+                <SortMenu value={sort} onChange={setSort} />
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[13px]">
+                <thead className="text-xs text-ink-500">
+                  <tr className="border-b border-line-200">
+                    <th scope="col" className="px-3 py-2.5 font-medium">
+                      Artisan
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">
+                      {lettered ? sectionsLabel : "Sections"}
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">
+                      Fields
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">
+                      Media
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">
+                      Transcripts
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">
+                      Review
+                    </th>
+                    <th scope="col" className="px-3 py-2.5">
+                      <span className="sr-only">Open</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line-200">
+                  {artisans.map((artisan) => {
+                    const share = completeness(artisan.fields);
+                    return (
+                      <tr key={artisan.id} className="align-middle">
+                        <td className="px-3 py-2.5">
+                          <strong className="block font-semibold text-ink-900">{artisan.name}</strong>
+                          {artisan.craft ? <span className="text-xs text-ink-500">{artisan.craft}</span> : null}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex gap-[3px]">
+                            {artisan.sections.map((section) => {
+                              const label = overview.sections.find((candidate) => candidate.key === section.key)?.label ?? section.key;
+                              const title = `${label}: ${SQUARE_WORD[section.state]}${section.missing.length ? `. Still to record: ${section.missing.join("; ")}` : ""}`;
+                              const look = `block h-[22px] w-[22px] shrink-0 rounded-[6px] pointer-coarse:h-7 pointer-coarse:w-7 ${SQUARE[section.state]}`;
+                              return section.href ? (
+                                <Link key={section.key} href={section.href} title={title} aria-label={title} className={look} />
+                              ) : (
+                                <button key={section.key} type="button" title={title} aria-label={title} onClick={() => onOpen(artisan.path)} className={look} />
+                              );
+                            })}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="block h-1.5 w-[120px] overflow-hidden rounded-full bg-surface-200" aria-hidden>
+                              <span className={`block h-full ${barTone(share)}`} style={{ width: `${Math.round(share * 100)}%` }} />
+                            </span>
+                            <span className="tabular-nums text-ink-900">
+                              {artisan.fields.filled} / {artisan.fields.total}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 tabular-nums text-ink-900">
+                          {artisan.media.files} · {formatBytes(artisan.media.bytes)}
+                        </td>
+                        <td className="px-3 py-2.5 tabular-nums text-ink-900">{artisan.transcripts}</td>
+                        <td className="px-3 py-2.5">
+                          {artisan.review ? (
+                            <span className={`font-semibold ${artisan.review === "APPROVED" ? "text-success-600 dark:text-green-300" : artisan.review === "REJECTED" ? "text-red-700 dark:text-red-300" : "text-amber-800 dark:text-amber-300"}`}>
+                              {artisan.review.charAt(0) + artisan.review.slice(1).toLowerCase().replace(/_/g, " ")}
+                            </span>
+                          ) : (
+                            <span className="text-ink-500">-</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <button type="button" className="font-semibold text-purple-700 underline underline-offset-2 dark:text-purple-300 pointer-coarse:min-h-11" onClick={() => onOpen(artisan.path)}>
+                            Open
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-surface-50 text-xs uppercase tracking-wide text-ink-500">
-                <tr>
-                  <th scope="col" className="px-4 py-2.5 font-semibold">
-                    Artisan
-                  </th>
-                  <th scope="col" className="px-3 py-2.5 font-semibold">
-                    Sections
-                  </th>
-                  <th scope="col" className="px-3 py-2.5 font-semibold">
-                    Fields
-                  </th>
-                  <th scope="col" className="px-3 py-2.5 font-semibold">
-                    Media
-                  </th>
-                  <th scope="col" className="px-3 py-2.5 font-semibold">
-                    Transcripts
-                  </th>
-                  <th scope="col" className="px-3 py-2.5 font-semibold">
-                    Review
-                  </th>
-                  <th scope="col" className="px-4 py-2.5">
-                    <span className="sr-only">Open</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line-200">
-                {artisans.map((artisan) => (
-                  <tr key={artisan.id} className="align-middle">
-                    <td className="px-4 py-3">
-                      <strong className="block text-ink-900">{artisan.name}</strong>
-                      {artisan.craft ? <span className="text-xs text-ink-500">{artisan.craft}</span> : null}
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {artisan.sections.map((section) => {
-                          const label = overview.sections.find((candidate) => candidate.key === section.key)?.label ?? section.key;
-                          const title = `${label}: ${SQUARE_WORD[section.state]}${section.missing.length ? `. Still to record: ${section.missing.join("; ")}` : ""}`;
-                          const look = `block h-5 w-5 rounded-[4px] pointer-coarse:h-7 pointer-coarse:w-7 ${SQUARE[section.state]}`;
-                          return section.href ? (
-                            <Link key={section.key} href={section.href} title={title} aria-label={title} className={look} />
-                          ) : (
-                            <button key={section.key} type="button" title={title} aria-label={title} onClick={() => onOpen(artisan.path)} className={look} />
-                          );
-                        })}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex items-center gap-2">
-                        <ProgressBar percent={completeness(artisan.fields) * 100} className="h-1.5 w-20" aria-hidden />
-                        <span className="tabular-nums text-ink-700">
-                          {artisan.fields.filled} / {artisan.fields.total}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 tabular-nums text-ink-700">
-                      {artisan.media.files} · {formatBytes(artisan.media.bytes)}
-                    </td>
-                    <td className="px-3 py-3 tabular-nums text-ink-700">{artisan.transcripts}</td>
-                    <td className="px-3 py-3">
-                      {artisan.review ? (
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${artisan.review === "APPROVED" ? "bg-success-100 text-success-600" : "bg-amber-100 text-amber-800"}`}>
-                          {artisan.review.charAt(0) + artisan.review.slice(1).toLowerCase().replace(/_/g, " ")}
-                        </span>
-                      ) : (
-                        <span className="text-ink-500">-</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button type="button" className="min-h-9 font-semibold text-purple-700 hover:underline dark:text-purple-300 pointer-coarse:min-h-11" onClick={() => onOpen(artisan.path)}>
-                        Open
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="border-t border-line-200 px-4 py-2.5 text-xs text-ink-500">Tap a square to open that section. Missing squares list what&apos;s still to record.{overview.truncated ? " Showing the first artisans only." : ""}</p>
-        </div>
+          <p className="text-xs text-ink-500">
+            Tap a square to jump to that section. Missing squares list what&apos;s still to record, so the team knows before leaving the village.{overview.truncated ? " Showing the first artisans only." : ""}
+          </p>
+        </>
       ) : null}
     </section>
   );

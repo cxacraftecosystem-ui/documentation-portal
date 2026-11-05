@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Android downloads and notification</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #1b1830; font-family: Inter, system-ui, sans-serif; color: #1e1b2e; padding: 16px; display: flex; flex-direction: column; gap: 8px; overflow: hidden;">
+  <div style="font-size: 12px; color: #cfcbe0; padding: 0 4px;">Notifications</div>
+  <article aria-label="Download notification" style="background: #2a2640; color: #f2f0f9; border-radius: 20px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #cfcbe0;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #762cb1;"></span>Field Repository · Downloads</div>
+    <div style="font-size: 14px; font-weight: 600;">3rd Craft Toolkit · 62%</div>
+    <div style="font-size: 13px; color: #d0cbdf;">4.43 of 7.15 GB · file 574 of 926 · 7 min left</div>
+    <div style="font-size: 12px; color: #a7a3bc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Interview_Dabu-mud-resist_Take-1.mp4 · 6.2 MB/s</div>
+    <div style="height: 6px; border-radius: 999px; background: #4c3b63; overflow: hidden;"><div style="width: 62%; height: 100%; background: #c090f5;"></div></div>
+    <div style="display: flex; gap: 18px; font-size: 13px; font-weight: 600; color: #c090f5; padding-top: 2px;"><span>Pause</span><span>Cancel</span><span>Open</span></div>
+  </article>
+  <article aria-label="Saved notification" style="background: #123b25; border: 1px solid #15803d; color: #eafbf0; border-radius: 20px; padding: 14px; display: flex; flex-direction: column; gap: 6px;">
+    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #b7e4c7;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #22c55e; color: #052e16; display: grid; place-items: center; font-size: 11px; font-weight: 800;">✓</span>Field Repository · Saved</div>
+    <div style="font-size: 14px; font-weight: 600;">Saved Giriraj Prasad Chhipa</div>
+    <div style="font-size: 13px; color: #c9eed6;">47 files · 1.23 GB</div>
+    <div style="display: flex; gap: 18px; font-size: 13px; font-weight: 600; color: #86efac; padding-top: 2px;"><span>Open</span><span>Share</span></div>
+  </article>
+  <article aria-label="Failed notification" style="background: #4a1717; border: 1px solid #b91c1c; color: #fdeaea; border-radius: 20px; padding: 14px; display: flex; flex-direction: column; gap: 6px;">
+    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #f5b5b5;"><span style="width: 18px; height: 18px; border-radius: 5px; background: #ef4444; color: #450a0a; display: grid; place-items: center; font-size: 11px; font-weight: 800;">!</span>Field Repository · Failed</div>
+    <div style="font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Kiln-firing_wide_07.mov didn’t download</div>
+    <div style="display: flex; gap: 18px; font-size: 13px; font-weight: 600; color: #fca5a5;"><span>Retry</span><span>Details</span></div>
+  </article>
+
+  <section aria-label="Downloads" style="margin-top: auto; background: #fff; border-radius: 24px 24px 16px 16px; padding: 10px 16px 16px; display: flex; flex-direction: column; gap: 12px;">
+    <div aria-hidden="true" style="width: 40px; height: 4px; border-radius: 2px; background: #e4e2ef; align-self: center;"></div>
+    <h2 style="margin: 0; font-family: 'Plus Jakarta Sans'; font-size: 18px; font-weight: 800;">Downloads</h2>
+    <div style="border: 1px solid #e4e2ef; border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 6px;">
+      <div style="display: flex; justify-content: space-between; font-size: 14px;"><strong>3rd Craft Toolkit</strong><span style="color: #762cb1; font-weight: 700;">62%</span></div>
+      <div style="height: 6px; border-radius: 999px; background: #d9c4e9; overflow: hidden;"><div style="width: 62%; height: 100%; background: #762cb1;"></div></div>
+      <div style="font-size: 12px; color: #615d7a;">4.43 of 7.15 GB · 574 of 926 files · 7 min left</div>
+    </div>
+    <div style="border: 1px solid #86efac; background: #dcfce7; border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px; color: #14532d;">
+      <div style="display: flex; justify-content: space-between; font-size: 14px;"><strong>Giriraj Prasad Chhipa</strong><span style="color: #15803d; font-weight: 700;">✓ Saved</span></div>
+      <div style="font-size: 12px; color: #166534;">47 files · 1.23 GB · Downloads/FieldRepository/</div>
+      <div style="display: flex; gap: 8px;"><button style="flex: 1; min-height: 44px; border-radius: 12px; border: 1px solid #86efac; background: #fff; color: #14532d; font: inherit; font-size: 13px;">Share</button><button style="flex: 1; min-height: 44px; border-radius: 12px; border: 0; background: #15803d; color: #fff; font: inherit; font-size: 13px; font-weight: 600;">Open</button></div>
+    </div>
+    <div style="border: 1px solid #fca5a5; background: #fee2e2; border-radius: 14px; padding: 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; color: #7f1d1d;"><div style="min-width: 0;"><strong style="font-size: 14px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Kiln-firing_wide_07.mov</strong><div style="font-size: 12px; color: #991b1b;">Failed · connection lost</div></div><button style="flex: none; min-height: 44px; padding: 0 14px; border-radius: 12px; border: 0; background: #b91c1c; color: #fff; font: inherit; font-size: 13px; font-weight: 600;">Retry</button></div>
+    <div style="border: 1px solid #86efac; background: #dcfce7; border-radius: 14px; padding: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: #14532d;"><div><strong>✓ Report (.xlsx)</strong><div style="font-size: 12px; color: #166534;">7 sheets · 2.1 MB</div></div><button style="min-height: 44px; padding: 0 14px; border-radius: 12px; border: 0; background: #15803d; color: #fff; font: inherit; font-size: 13px; font-weight: 600;">Open</button></div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

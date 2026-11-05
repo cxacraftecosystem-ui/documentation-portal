@@ -195,7 +195,7 @@ function InsightBody({ view }: { view: TranscriptInsightView }) {
           <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Key quotes</div>
           <ul className="grid gap-2">
             {insight.quotes.map((quote, index) => (
-              <li key={index} className="border-l-2 border-purple-200 pl-3 text-sm">
+              <li key={index} className="rounded-lg bg-purple-50 px-3 py-2 text-sm dark:bg-purple-950/30">
                 <p className="text-ink-900">
                   {quote.speaker ? <span className="font-medium">{quote.speaker}: </span> : null}“{quote.original}”
                 </p>

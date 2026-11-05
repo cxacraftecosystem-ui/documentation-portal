@@ -25,7 +25,10 @@ data class ExplorerCrumb(val name: String = "", val path: String = "")
 data class ExplorerInfoField(val label: String = "", val value: String = "")
 
 @Serializable
-data class ExplorerInfo(val title: String = "", val fields: List<ExplorerInfoField> = emptyList())
+data class ExplorerCounts(val tools: Int? = null)
+
+@Serializable
+data class ExplorerInfo(val title: String = "", val fields: List<ExplorerInfoField> = emptyList(), val counts: ExplorerCounts? = null)
 
 @Serializable
 data class ExplorerTaxonomy(
@@ -35,6 +38,9 @@ data class ExplorerTaxonomy(
     val description: String = "",
     @SerialName("default") val isDefault: Boolean = false,
 )
+
+@Serializable
+data class ExplorerPixels(val width: Int = 0, val height: Int = 0)
 
 @Serializable
 data class ExplorerEntry(
@@ -57,6 +63,8 @@ data class ExplorerEntry(
     val capturedAt: String? = null,
     val count: Int? = null,
     val bytes: Long? = null,
+    val pixels: ExplorerPixels? = null,
+    val pages: Int? = null,
 ) {
     val isFolder: Boolean get() = kind == "folder"
     val key: String get() = if (isFolder) "folder:$path" else "file:${mediaId ?: path}"

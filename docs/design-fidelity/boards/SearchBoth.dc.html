@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Search across both portals</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+mark{background:#f2e9fe;color:#5f2491;border-radius:4px;padding:0 2px}
+li{background:#fff;border:1px solid #e4e2ef;border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:6px}
+.m{font-size:12px;color:#615d7a}
+.dr{display:inline-flex;align-items:center;gap:4px;min-height:22px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:700;background:#f2e9fe;color:#5f2491}
+.fr{display:inline-flex;align-items:center;gap:4px;min-height:22px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:700;background:#ccfbf1;color:#115e59}
+.btn{flex:1;min-height:44px;border-radius:12px;border:1px solid #e4e2ef;background:#fff;font:inherit;font-size:13px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #f7f6fb; font-family: Inter, system-ui, sans-serif; color: #1e1b2e; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden;">
+  <div style="display: flex; gap: 8px; align-items: center; min-height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid #9148d2; background: #fff;"><input aria-label="Search everything" value="indigo vat" style="flex: 1; border: 0; outline: 0; font: inherit; font-size: 15px;"><span style="font-size: 18px; color: #615d7a;">✕</span></div>
+  <div role="group" aria-label="Where" style="display: flex; padding: 3px; border-radius: 12px; background: #fff; border: 1px solid #e4e2ef;">
+    <button style="flex: 1; min-height: 40px; border-radius: 9px; border: 0; background: transparent; font: inherit; font-size: 13px; color: #3a3651;">This app</button>
+    <button style="flex: 1; min-height: 40px; border-radius: 9px; border: 0; background: #762cb1; color: #fff; font: inherit; font-size: 13px; font-weight: 600;">Both portals</button>
+  </div>
+  <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #3a3651;"><span class="dr">● Design Workshop 14</span><span class="fr">● Field Repository 23</span></div>
+  <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px;">
+    <li>
+      <div style="display: flex; justify-content: space-between; align-items: center;"><span class="fr">● Field Repository</span><span class="m">Transcript · 03:12</span></div>
+      <div style="font-size: 15px; font-weight: 600;">Bagru dyers · group interview</div>
+      <p style="margin: 0; font-size: 13px; color: #3a3651;">“…the <mark>indigo</mark> <mark>vat</mark> has to rest for three days…”</p>
+      <div style="display: flex; gap: 8px;"><button class="btn">Play from 03:12</button><button class="btn">Open in Field Repository ↗</button></div>
+    </li>
+    <li>
+      <div style="display: flex; justify-content: space-between; align-items: center;"><span class="dr">● Design Workshop</span><span class="m">Tool</span></div>
+      <div style="font-size: 15px; font-weight: 600;"><mark>Indigo</mark> <mark>vat</mark> stirrer</div>
+      <div class="m">2 artisans · 2 workshops</div>
+    </li>
+    <li style="border-style: dashed;">
+      <div style="display: flex; justify-content: space-between; align-items: center;"><span style="display: flex; gap: 4px;"><span class="dr">● DW</span><span class="fr">● FR</span></span><span class="m">Artisan · in both</span></div>
+      <div style="font-size: 15px; font-weight: 600;">Giriraj Prasad Chhipa</div>
+      <div class="m">Same person in both portals · 48 files here, 31 in Field Repository</div>
+    </li>
+  </ul>
+  <div class="m" style="text-align: center;">Opening a Field Repository result signs you in there if you have access.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

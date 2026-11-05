@@ -66,34 +66,36 @@ export const TurnRow = memo(function TurnRow(props: Props) {
   const originalPane = (
     <div className="min-w-0" lang={turn.language} data-pane="original">
       <OriginalText turn={turn} activeWord={active ? activeWord : null} onSeek={props.onSeek} />
-      <span className="mt-1 inline-flex">
-        <Badge tone={turn.textSource === "EDITED" ? "accent" : "neutral"}>{turn.textSource === "EDITED" ? ts("sourceEdited") : ts("sourceMachine")}</Badge>
-      </span>
+      {turn.textSource === "EDITED" ? (
+        <span className="mt-1 inline-flex">
+          <Badge tone="accent">{ts("sourceEdited")}</Badge>
+        </span>
+      ) : null}
     </div>
   );
 
   const status = turn.translation.status;
   const englishPane = (
     <div
-      className={`min-w-0 ${tab === "side" ? "rounded-sm px-3 max-md:mt-2" : ""} ${tab === "side" && active ? "bg-purple-50 dark:bg-purple-950/30" : tab === "side" ? "bg-surface-50" : ""}`}
+      className={`min-w-0 ${tab === "side" ? "rounded-lg px-3 max-md:mt-2" : ""} ${tab === "side" && !active ? "bg-surface-50" : ""}`}
       lang="en"
       data-pane="english"
       data-active-english={active ? "true" : undefined}
     >
       {alreadyEnglish ? (
         <>
-          <p className="whitespace-pre-wrap text-sm leading-7 text-ink-900">{turn.text}</p>
+          <p className="whitespace-pre-wrap text-[15px] leading-[1.6] text-ink-900">{turn.text}</p>
           <Badge>{ts("alreadyEnglish")}</Badge>
         </>
       ) : turn.translation.text ? (
         <>
-          <p className="whitespace-pre-wrap text-sm leading-7 text-ink-900">{turn.translation.text}</p>
-          <span className="mt-1 inline-flex flex-wrap gap-1.5">
-            <Badge tone={turn.translation.source === "EDITED" ? "accent" : "neutral"}>
-              {turn.translation.source === "EDITED" ? ts("sourceEdited") : ts("sourceMachine")}
-            </Badge>
-            {status === "STALE" ? <Badge tone="warn">{ts("translationStale")}</Badge> : null}
-          </span>
+          <p className="whitespace-pre-wrap text-[15px] leading-[1.6] text-ink-900">{turn.translation.text}</p>
+          {turn.translation.source === "EDITED" || status === "STALE" ? (
+            <span className="mt-1 inline-flex flex-wrap gap-1.5">
+              {turn.translation.source === "EDITED" ? <Badge tone="accent">{ts("sourceEdited")}</Badge> : null}
+              {status === "STALE" ? <Badge tone="warn">{ts("translationStale")}</Badge> : null}
+            </span>
+          ) : null}
         </>
       ) : (
         <p className="text-sm italic text-ink-500">{status === "FAILED" ? ts("translationFailed") : ts("translationPending")}</p>
@@ -115,9 +117,7 @@ export const TurnRow = memo(function TurnRow(props: Props) {
       data-turn-id={turn.id}
       data-follow-turn={turn.id}
       data-active={active ? "true" : undefined}
-      className={`scroll-mt-28 rounded-lg border px-3 py-3 transition-colors sm:px-4 ${
-        active ? "border-purple-300 bg-purple-50/60 dark:border-purple-800 dark:bg-purple-950/30" : "border-transparent"
-      } ${selected ? "ring-2 ring-purple-600/30" : ""}`}
+      className={`scroll-mt-28 rounded-md px-3 py-3 transition-colors sm:px-4 ${active ? "bg-[#f2e9fe] dark:bg-purple-950/60" : ""} ${selected ? "ring-2 ring-purple-600/30" : ""}`}
     >
       <div className="flex items-start gap-2">
         {selecting ? (
@@ -132,7 +132,7 @@ export const TurnRow = memo(function TurnRow(props: Props) {
         ) : null}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className={`font-semibold ${SPEAKER_TEXT}`} style={speakerStyle(colorKey)} data-speaker data-color-key={colorKey}>
+            <span className={`text-[13px] font-bold ${SPEAKER_TEXT}`} style={speakerStyle(colorKey)} data-speaker data-color-key={colorKey}>
               {speaker}
             </span>
             <span className="text-ink-300" aria-hidden>
@@ -209,7 +209,7 @@ function OriginalText({ turn, activeWord, onSeek }: { turn: TranscriptTurn; acti
   const parts = pieces(turn);
   return (
     <p
-      className="whitespace-pre-wrap text-sm leading-7 text-ink-900"
+      className="whitespace-pre-wrap text-[15px] leading-[1.6] text-ink-900"
       data-karaoke={turn.words.length ? "true" : undefined}
       onClick={(event) => {
         const target = (event.target as HTMLElement).closest<HTMLElement>("[data-ms]");

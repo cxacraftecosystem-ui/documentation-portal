@@ -32,7 +32,7 @@ const components: Components = {
     <pre className="mb-2 overflow-x-auto rounded-md border border-line-200 bg-surface-50 p-3 text-xs leading-5 last:mb-0">{children}</pre>
   ),
   blockquote: ({ children }) => (
-    <blockquote className="mb-2 border-l-2 border-line-200 pl-3 italic text-ink-500 last:mb-0">{children}</blockquote>
+    <blockquote className="mb-2 rounded-lg bg-surface-50 px-3 py-1.5 italic text-ink-500 last:mb-0">{children}</blockquote>
   ),
   table: ({ children }) => (
     <div className="mb-2 overflow-x-auto last:mb-0">

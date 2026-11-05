@@ -173,6 +173,41 @@ export function downsample(peaks: readonly number[], bars: number = PEAK_BARS): 
   return out;
 }
 
+export function baseName(name: string): string {
+  return name.replace(/\.[A-Za-z0-9]{1,5}$/, "");
+}
+
+export function prettyTitle(name: string): string {
+  const base = baseName(name).trim();
+  if (!/[_-]/.test(base) || /\s/.test(base)) return base || name;
+  return base
+    .split("_")
+    .map((part) => part.replace(/-/g, " ").trim())
+    .filter(Boolean)
+    .join(" · ");
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export function dayLabel(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return null;
+  const local = new Date(at.getTime() + 330 * 60_000);
+  return `${local.getUTCDate()} ${MONTHS[local.getUTCMonth()]} ${local.getUTCFullYear()}`;
+}
+
+export function hitBars(markers: readonly number[], bars: number): Set<number> {
+  const out = new Set<number>();
+  if (bars <= 0) return out;
+  for (const at of markers) {
+    const bar = Math.min(bars - 1, Math.max(0, Math.floor(at * bars)));
+    out.add(bar);
+    if (bar + 1 < bars) out.add(bar + 1);
+  }
+  return out;
+}
+
 export function fractionOf(clientX: number, rect: { left: number; width: number }): number {
   if (rect.width <= 0) return 0;
   return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
@@ -249,6 +284,7 @@ export type TranscriptSummary = {
   durationMs: number | null;
   speakerCount: number;
   translation?: { done: number; total: number; percent: number | null } | null;
+  statusMessage?: string | null;
 };
 
 export function translatingLabel(summary: Pick<TranscriptSummary, "status" | "translation"> | null | undefined): string {
@@ -320,7 +356,7 @@ export function speakersLine(count: number): string | null {
 
 export type PaletteHit = { id: string; title: string; subtitle?: string; type: string; path?: string | null };
 
-export type PaletteAction = { key: string; label: string; run: (hit: PaletteHit) => void };
+export type PaletteAction = { key: string; label: string; icon?: string; run: (hit: PaletteHit) => void };
 
 export type ShortcutName =
   | "search"

@@ -74,15 +74,27 @@ data class ExplorerSize(
 object ExplorerBytes {
     fun format(size: Long?): String? {
         if (size == null || size < 0) return null
-        if (size < 1024) return "$size B"
-        val units = listOf("KB", "MB", "GB", "TB")
-        var value = size.toDouble() / 1024.0
+        val (number, unit) = parts(size)
+        return "$number $unit"
+    }
+
+    private fun parts(size: Long): Pair<String, String> {
+        if (size < 1024) return "$size" to "B"
+        if (size < 100L * 1024) return String.format(Locale.ROOT, "%.1f", size / 1024.0).removeSuffix(".0") to "KB"
+        val units = listOf("MB", "GB", "TB")
+        var value = size.toDouble() / (1024.0 * 1024.0)
         var unit = 0
         while (value >= 1024.0 && unit < units.lastIndex) {
             value /= 1024.0
             unit++
         }
-        return String.format(Locale.ROOT, if (value >= 100) "%.0f %s" else "%.1f %s", value, units[unit])
+        val text = when {
+            value >= 100 -> String.format(Locale.ROOT, "%.0f", value)
+            unit == 0 -> String.format(Locale.ROOT, "%.1f", value).removeSuffix(".0")
+            value >= 10 -> String.format(Locale.ROOT, "%.1f", value)
+            else -> String.format(Locale.ROOT, "%.2f", value).let { if (it.endsWith("0")) it.dropLast(1) else it }
+        }
+        return text to units[unit]
     }
 
     fun count(n: Int, one: String, many: String = one + "s"): String =
@@ -98,9 +110,10 @@ object ExplorerBytes {
     fun line(size: ExplorerSize): String = line(size.files, size.bytes, size.unknown)
 
     fun progress(done: Long, total: Long): String {
-        val d = format(done) ?: "0 B"
-        val t = format(total)
-        return if (t == null || total <= 0) d else "$d of $t"
+        if (total <= 0) return format(done.coerceAtLeast(0)) ?: "0 B"
+        val (d, du) = parts(done.coerceAtLeast(0))
+        val (t, tu) = parts(total)
+        return if (du == tu) "$d of $t $tu" else "$d $du of $t $tu"
     }
 
     fun remaining(doneBytes: Long, totalBytes: Long, elapsedMs: Long): String? {

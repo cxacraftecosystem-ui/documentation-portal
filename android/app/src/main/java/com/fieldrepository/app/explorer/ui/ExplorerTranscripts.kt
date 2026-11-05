@@ -82,6 +82,7 @@ data class TranscriptRowModel(
     val status: TranscriptStatus,
     val percent: Int?,
     val hasText: Boolean,
+    val message: String? = null,
 )
 
 object ExplorerTranscriptStatus {
@@ -131,6 +132,7 @@ object ExplorerTranscriptStatus {
         status = if (summary == null && item.hasText) TranscriptStatus.READY else of(summary?.status),
         percent = summary?.translation?.percent,
         hasText = item.hasText,
+        message = summary?.statusMessage?.takeIf { it.isNotBlank() },
     )
 }
 
@@ -363,7 +365,7 @@ private fun TranscriptRow(
             Column(Modifier.weight(1f)) {
                 Text(r.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = content, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 val line = when (r.status) {
-                    TranscriptStatus.FAILED -> ExplorerUiText.noSpeech
+                    TranscriptStatus.FAILED -> r.message ?: ExplorerUiText.noSpeech
                     TranscriptStatus.TRANSLATING -> ExplorerUiText.translating
                     TranscriptStatus.TRANSCRIBING -> ExplorerUiText.transcribing
                     TranscriptStatus.READY -> listOfNotNull(

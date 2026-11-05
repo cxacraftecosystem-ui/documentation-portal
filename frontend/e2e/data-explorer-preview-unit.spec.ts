@@ -1,6 +1,9 @@
 import { expect, test } from "@playwright/test";
 
 import {
+  dayLabel as boardDay,
+  hitBars as boardHitBars,
+  prettyTitle as boardTitle,
   chunks,
   downsample,
   findHits,
@@ -238,4 +241,23 @@ test("a translating transcript says how far it has got", async () => {
   expect(translatingLabel({ status: "TRANSLATING", translation: { done: 7, total: 10, percent: 70 } })).toBe("Translating 70%");
   expect(translatingLabel({ status: "TRANSLATING", translation: null })).toBe("Translating");
   expect(translatingLabel({ status: "TRANSCRIBING" })).toBe("Transcribing");
+});
+
+test("a recording's title reads like the boards: underscores become dots, hyphens spaces, no extension", () => {
+  expect(boardTitle("Section-D_Materials_Group-of-3.m4a")).toBe("Section D · Materials · Group of 3");
+  expect(boardTitle("interview.m4a")).toBe("interview");
+  expect(boardTitle("Kiln firing wide.mov")).toBe("Kiln firing wide");
+});
+
+test("a capture date reads 22 Sep 2026 in India time", () => {
+  expect(boardDay("2026-09-22T10:00:00Z")).toBe("22 Sep 2026");
+  expect(boardDay("2026-09-22T20:00:00Z")).toBe("23 Sep 2026");
+  expect(boardDay(null)).toBeNull();
+  expect(boardDay("nonsense")).toBeNull();
+});
+
+test("a search hit colours its waveform bar and the next one", () => {
+  expect([...boardHitBars([0.5], 10)].sort()).toEqual([5, 6]);
+  expect([...boardHitBars([1], 10)]).toEqual([9]);
+  expect(boardHitBars([0.3], 0).size).toBe(0);
 });

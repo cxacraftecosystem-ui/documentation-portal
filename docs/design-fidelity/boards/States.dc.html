@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Empty, loading, offline and error states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.p{background:#fff;border:1px solid #e4e2ef;border-radius:20px;padding:24px;display:flex;flex-direction:column;gap:14px}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#615d7a;font-weight:600}
+.ic{width:56px;height:56px;border-radius:16px;display:grid;place-items:center;font-size:24px}
+h3{margin:0;font-family:'Plus Jakarta Sans';font-size:18px;font-weight:800}
+p{margin:0;font-size:14px;color:#3a3651;line-height:1.5}
+.btn{min-height:44px;padding:0 16px;border-radius:12px;border:1px solid #e4e2ef;background:#fff;font:inherit;font-size:14px;color:#1e1b2e}
+.pri{border:0;background:#762cb1;color:#fff;font-weight:600}
+.sk{background:linear-gradient(90deg,#efedf6,#f7f6fb,#efedf6);border-radius:8px}
+.mid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:12px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 640px; box-sizing: border-box; background: #f7f6fb; font-family: Inter, system-ui, sans-serif; color: #1e1b2e; padding: 32px 40px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px;">
+  <section class="p">
+    <div class="lbl">Loading</div>
+    <div style="display: flex; flex-direction: column; gap: 12px; flex: 1;">
+      <div class="sk" style="height: 22px; width: 70%;"></div>
+      <div class="sk" style="height: 14px; width: 50%;"></div>
+      <div style="display: flex; gap: 8px;"><div class="sk" style="height: 40px; flex: 1;"></div><div class="sk" style="height: 40px; flex: 1;"></div></div>
+      <div style="display: flex; gap: 10px; align-items: center;"><div class="sk" style="width: 44px; height: 44px;"></div><div style="flex: 1; display: flex; flex-direction: column; gap: 6px;"><div class="sk" style="height: 12px;"></div><div class="sk" style="height: 10px; width: 60%;"></div></div></div>
+      <div style="display: flex; gap: 10px; align-items: center;"><div class="sk" style="width: 44px; height: 44px;"></div><div style="flex: 1; display: flex; flex-direction: column; gap: 6px;"><div class="sk" style="height: 12px;"></div><div class="sk" style="height: 10px; width: 40%;"></div></div></div>
+      <div style="display: flex; gap: 10px; align-items: center;"><div class="sk" style="width: 44px; height: 44px;"></div><div style="flex: 1; display: flex; flex-direction: column; gap: 6px;"><div class="sk" style="height: 12px;"></div><div class="sk" style="height: 10px; width: 55%;"></div></div></div>
+    </div>
+    <p style="font-size: 12px; color: #615d7a;">Shaped like the page it replaces, so nothing jumps when data arrives. Refreshing keeps the old data on screen.</p>
+  </section>
+  <section class="p">
+    <div class="lbl">Empty folder</div>
+    <div class="mid">
+      <div class="ic" style="background: #f2e9fe; color: #762cb1;">▢</div>
+      <h3>Nothing recorded here yet</h3>
+      <p>Files appear as soon as someone records for Giriraj Prasad Chhipa.</p>
+      <button class="btn pri">Record now</button>
+    </div>
+  </section>
+  <section class="p">
+    <div class="lbl">No results</div>
+    <div class="mid">
+      <div class="ic" style="background: #faf9fd; color: #615d7a;">⌕</div>
+      <h3>No matches for “indgo”</h3>
+      <p>Did you mean <a href="#" style="color: #762cb1; font-weight: 600;">indigo</a>? 38 results.</p>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;"><button class="btn">Clear 2 filters</button><button class="btn">Search both portals</button></div>
+    </div>
+  </section>
+  <section class="p" style="background: #fef3c7; border-color: #fcd34d;">
+    <div class="lbl" style="color: #92400e;">Offline (Android)</div>
+    <div class="mid">
+      <div class="ic" style="background: #fff; color: #92400e;">⌁</div>
+      <h3 style="color: #78350f;">You’re offline</h3>
+      <p style="color: #78350f;">Showing what was loaded 14 min ago. Downloads pause and pick up again by themselves when you’re back online.</p>
+      <div style="font-size: 12px; color: #92400e; font-weight: 600;">Saved files still open</div>
+    </div>
+  </section>
+  <section class="p" style="background: #fee2e2; border-color: #fca5a5;">
+    <div class="lbl" style="color: #991b1b;">Couldn’t load</div>
+    <div class="mid">
+      <div class="ic" style="background: #fff; color: #b91c1c;">!</div>
+      <h3 style="color: #7f1d1d;">This folder didn’t load</h3>
+      <p style="color: #7f1d1d;">Trying again in 8 s. Your selection and filters are kept.</p>
+      <button class="btn" style="border: 0; background: #b91c1c; color: #fff; font-weight: 600;">Try now</button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":640}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

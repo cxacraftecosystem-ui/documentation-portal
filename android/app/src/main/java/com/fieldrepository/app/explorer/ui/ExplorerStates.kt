@@ -37,6 +37,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.delay
 
@@ -45,21 +46,16 @@ internal fun StatusCard(status: ExplorerStatus, text: String, action: String? = 
     val tone = explorerTone(status)
     Row(
         Modifier.fillMaxWidth()
-            .background(tone?.container ?: MaterialTheme.colorScheme.surface, MaterialTheme.shapes.large)
-            .border(1.dp, tone?.border ?: MaterialTheme.field.hairline, MaterialTheme.shapes.large)
+            .explorerCard(tone?.container ?: MaterialTheme.colorScheme.surface, tone?.border ?: MaterialTheme.field.hairline)
             .padding(horizontal = 14.dp, vertical = 10.dp)
             .semantics { liveRegion = LiveRegionMode.Polite }
             .let { if (tag != null) it.testTag(tag) else it },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(text, style = MaterialTheme.typography.bodySmall, color = tone?.content ?: MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = tone?.content ?: MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
         if (action != null && onAction != null) {
-            Button(
-                onClick = onAction,
-                colors = ButtonDefaults.buttonColors(containerColor = tone?.accent ?: MaterialTheme.colorScheme.primary, contentColor = tone?.onAccent ?: MaterialTheme.colorScheme.onPrimary),
-                modifier = Modifier.heightIn(min = 40.dp),
-            ) { Text(action) }
+            ExplorerPrimaryButton(action, onClick = onAction, container = tone?.accent ?: MaterialTheme.colorScheme.primary, content = tone?.onAccent ?: MaterialTheme.colorScheme.onPrimary, minHeight = 40.dp, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
@@ -74,22 +70,22 @@ private fun StateCard(
     content: Color,
     iconTint: Color,
     tag: String,
+    tile: Color = MaterialTheme.colorScheme.surface,
     footer: @Composable () -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxWidth()
-            .background(container, MaterialTheme.shapes.extraLarge)
-            .border(1.dp, border, MaterialTheme.shapes.extraLarge)
-            .padding(24.dp)
+            .explorerCard(container, border)
+            .padding(horizontal = 24.dp, vertical = 32.dp)
             .semantics { liveRegion = LiveRegionMode.Polite }
             .testTag(tag),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.size(56.dp).background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.large), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(26.dp))
+        Box(Modifier.size(56.dp).background(tile, ExplorerShapes.card), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(24.dp))
         }
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = content, textAlign = TextAlign.Center, modifier = Modifier.semantics { heading() })
+        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = content, textAlign = TextAlign.Center, modifier = Modifier.semantics { heading() })
         Text(body, style = MaterialTheme.typography.bodyMedium, color = content, textAlign = TextAlign.Center)
         footer()
     }
@@ -106,8 +102,9 @@ internal fun EmptyFolderCard(name: String, onRecord: (() -> Unit)?) {
         content = MaterialTheme.colorScheme.onSurface,
         iconTint = MaterialTheme.colorScheme.primary,
         tag = "explorer.empty",
+        tile = MaterialTheme.colorScheme.primaryContainer,
     ) {
-        if (onRecord != null) Button(onClick = onRecord, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.empty.record")) { Text(ExplorerUiText.recordNow) }
+        if (onRecord != null) ExplorerPrimaryButton(ExplorerUiText.recordNow, onClick = onRecord, minHeight = 44.dp, modifier = Modifier.padding(top = 4.dp).testTag("explorer.empty.record"))
     }
 }
 
@@ -124,7 +121,7 @@ internal fun OfflineCard(age: String?) {
         iconTint = tone.muted,
         tag = "explorer.offline.card",
     ) {
-        Text(ExplorerUiText.savedStillOpen, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = tone.muted)
+        Text(ExplorerUiText.savedStillOpen, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = tone.muted)
     }
 }
 
@@ -149,11 +146,7 @@ internal fun LoadFailedCard(key: Any, seconds: Int = 8, onRetry: () -> Unit) {
         iconTint = tone.accent,
         tag = "explorer.error",
     ) {
-        Button(
-            onClick = onRetry,
-            colors = ButtonDefaults.buttonColors(containerColor = tone.accent, contentColor = tone.onAccent),
-            modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.error.retry"),
-        ) { Text(ExplorerUiText.tryNow) }
+        ExplorerPrimaryButton(ExplorerUiText.tryNow, onClick = onRetry, container = tone.accent, content = tone.onAccent, minHeight = 44.dp, modifier = Modifier.padding(top = 4.dp).testTag("explorer.error.retry"))
     }
 }
 
@@ -161,9 +154,10 @@ internal fun LoadFailedCard(key: Any, seconds: Int = 8, onRetry: () -> Unit) {
 internal fun FolderSkeleton() {
     Column(Modifier.fillMaxWidth().testTag("explorer.loading"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(
-            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.large).padding(14.dp),
+            Modifier.fillMaxWidth().explorerCard().padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            SkeletonBar(0.45f, 12)
             SkeletonBar(0.7f, 22)
             SkeletonBar(0.5f, 14)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -173,11 +167,11 @@ internal fun FolderSkeleton() {
         }
         repeat(3) { i ->
             Row(
-                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.large).padding(12.dp),
+                Modifier.fillMaxWidth().explorerCard().padding(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(44.dp).background(MaterialTheme.field.surface100, MaterialTheme.shapes.small))
+                Box(Modifier.size(44.dp).background(MaterialTheme.field.surface100, ExplorerShapes.tile))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     SkeletonBar(1f, 12)
                     SkeletonBar(listOf(0.6f, 0.4f, 0.55f)[i], 10)

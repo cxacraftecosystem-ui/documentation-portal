@@ -82,10 +82,10 @@ class ExplorerPartsTest {
                 byType = mapOf("videos" to ExplorerTypeStats(57, 3_650_000_000), "images" to ExplorerTypeStats(800, 3_000_000_000)),
             ),
         )
-        assertEquals("926 files · 6.7 GB", ExplorerBytes.line(size))
+        assertEquals("926 files · 6.66 GB", ExplorerBytes.line(size))
         assertEquals(57, size.byKind[ExplorerKind.VIDEOS]?.files)
         assertEquals("1 file", ExplorerBytes.line(1, 0, 1))
-        assertEquals("3 files · at least 1.0 KB", ExplorerBytes.line(3, 1024, 1))
+        assertEquals("3 files · at least 1 KB", ExplorerBytes.line(3, 1024, 1))
     }
 
     @Test fun `space needed covers the archive and the files being fetched`() {

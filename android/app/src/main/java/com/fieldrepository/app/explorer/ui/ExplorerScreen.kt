@@ -11,6 +11,26 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -137,7 +157,7 @@ private sealed interface DownloadTarget {
 
 private class Pending(val title: String, val plan: ExplorerPreflightPlan, val start: (wifiOnly: Boolean, include: String?) -> Unit, val replan: () -> ExplorerPreflightPlan)
 
-private class Viewing(val entries: List<ExplorerEntry>, val index: Int, val startSeconds: Double = 0.0, val total: Int = entries.size)
+private class Viewing(val entries: List<ExplorerEntry>, val index: Int, val startSeconds: Double = 0.0, val total: Int = entries.size, val find: String = "")
 
 internal object ExplorerTapMemory {
     @Volatile var handled: Long = 0
@@ -196,7 +216,7 @@ fun rememberExplorerState(api: ExplorerApi): ExplorerState {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ExplorerScreen(
     onBack: () -> Unit,
@@ -237,6 +257,7 @@ fun ExplorerScreen(
     val stats = remember { mutableStateMapOf<String, SizeLoad>() }
     val visits = remember { mutableStateMapOf<String, ExplorerVisit>() }
     val overviews = remember { mutableStateMapOf<String, ExplorerOverview>() }
+    val sheetCounts = remember { mutableStateMapOf<String, Int>() }
     var selectionSize by remember { mutableStateOf<Long?>(null) }
     var shareIds by rememberSaveable { mutableStateOf(setOf<String>()) }
     var hidden by rememberSaveable { mutableStateOf(setOf<String>()) }
@@ -295,6 +316,9 @@ fun ExplorerScreen(
             }
         }
         runCatching { extras.visit(ExplorerVisitBody(at)) }.getOrNull()?.let { visits[at] = it }
+        if (sheetCounts[at] == null) {
+            runCatching { extras.reportSheets(at, state.statusParam) }.getOrNull()?.let { got -> sheetCounts[at] = got.sheets.count { (it.count ?: 0) > 0 } }
+        }
         if (isWorkshopFolder(at) && overviews[at] == null) {
             runCatching { extras.overview(at, state.statusParam) }.getOrNull()?.let { overviews[at] = it }
         }
@@ -345,6 +369,7 @@ fun ExplorerScreen(
                 freeBytes = ExplorerSaver.freeBytes(app),
                 speedBps = ExplorerSpeedMemory.read(app, link.metered),
                 location = ExplorerSaver.location(fileName),
+                totalBytes = ExplorerSaver.totalBytes(app),
             )
         }
         val plan = replan()
@@ -620,6 +645,19 @@ fun ExplorerScreen(
             request.path != null -> state.open(request.path)
         }
     }
+    fun tableCsv(sheet: String) {
+        begin(
+            ExplorerRequest(
+                title = "${state.folderName} · $sheet",
+                fileName = Naming.exportFilename("Dataset", "Export", "csv", withTime = true, subject = "${state.folderName} $sheet"),
+                kind = ExplorerJobKind.REPORT,
+                single = true,
+                mimeType = "text/csv",
+                items = listOf(ExplorerItem(path = "", url = ExplorerPaths.reportCsv(state.path, sheet))),
+            ),
+        )
+    }
+
     fun play(entries: List<ExplorerEntry>, entry: ExplorerEntry) {
         val list = entries.filter(::playable)
         val index = list.indexOfFirst { it.key == entry.key }
@@ -632,14 +670,17 @@ fun ExplorerScreen(
             viewing != null -> viewing = null
             searchQuery != null -> searchQuery = null
             state.selecting -> state.endSelect()
+            state.tab == ExplorerTab.TABLES -> state.tab = ExplorerTab.FILES
             state.canGoUp && state.goUp() -> Unit
             else -> onBack()
         }
     }
 
     val headline = jobs.firstOrNull { (it.active || it.state == ExplorerJobState.PAUSED) && it.request.kind != ExplorerJobKind.FILE }
-    val finished = jobs.firstOrNull { !it.active && it.state != ExplorerJobState.PAUSED && it.state != ExplorerJobState.CANCELLED && it.request.kind != ExplorerJobKind.FILE && it.createdAt >= openedAt && it.id !in hidden }
-        ?.takeIf { headline == null }
+    val finished = jobs.filter {
+        !it.active && it.state != ExplorerJobState.PAUSED && it.state != ExplorerJobState.CANCELLED &&
+            (it.request.kind != ExplorerJobKind.FILE || it.state == ExplorerJobState.FAILED) && it.createdAt >= openedAt && it.id !in hidden
+    }.take(3).takeIf { headline == null }.orEmpty()
     val activeCount = jobs.count { it.active }
     val saveJobs = remember(jobs) { jobs.filter { it.active && it.request.kind == ExplorerJobKind.FILE }.associateBy { it.request.source.orEmpty() } }
     val savedJobs = remember(jobs) {
@@ -660,7 +701,17 @@ fun ExplorerScreen(
             (fileQuery == null || f.name.contains(fileQuery, ignoreCase = true))
     }
 
-    val fileRow: @Composable (ExplorerEntry) -> Unit = { file ->
+    val audio by com.fieldrepository.app.explorer.data.ExplorerAudio.state.collectAsState()
+    val playingLine: (ExplorerEntry) -> String? = { file ->
+        val item = audio.item
+        if (item != null && file.mediaId != null && item.mediaId == file.mediaId) {
+            ExplorerUiText.playing(com.fieldrepository.app.explorer.data.ExplorerAudioLines.clock(audio.positionMs), audio.durationMs.takeIf { it > 0 }?.let { com.fieldrepository.app.explorer.data.ExplorerAudioLines.clock(it) })
+        } else {
+            null
+        }
+    }
+
+    val fileRow: @Composable (ExplorerEntry, Boolean, Boolean, Boolean) -> Unit = { file, first, last, cell ->
         FileRow(
             entry = file,
             selecting = state.selecting,
@@ -688,11 +739,15 @@ fun ExplorerScreen(
             onCancelSave = { saveJobs[file.key]?.let { ExplorerDownloads.cancel(app, it.id) } },
             savedJob = savedJobs[file.key],
             onOpenSaved = { savedJobs[file.key]?.let { if (!ExplorerOpen.open(context, it)) onMessage(ExplorerText.previewFailed) } },
+            first = first,
+            last = last,
+            cell = cell,
+            playing = playingLine(file),
             extra = {
                 val mediaId = file.mediaId
                 if (mediaId != null && (file.transcriptFiles.isNotEmpty() || file.transcriptAvailable)) {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 8.dp).horizontalScroll(rememberScrollState()),
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(bottom = 8.dp).horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -704,19 +759,21 @@ fun ExplorerScreen(
         )
     }
 
+    val known = (size as? SizeLoad.Known)?.size
     val folderCard: @Composable (Modifier) -> Unit = { m ->
         FolderCard(
             state = state,
             size = size,
-            visit = visits[state.path],
+            visit = visits[state.path].takeIf { overviews[state.path] == null },
             showAll = showAllInfo,
             onToggleAll = { showAllInfo = !showAllInfo },
+            large = large,
             modifier = m,
         )
     }
     val downloadCard: @Composable (Modifier) -> Unit = { m ->
         DownloadCard(
-            size = (size as? SizeLoad.Known)?.size,
+            size = known,
             include = include,
             onInclude = { token -> include = if (token in include) include - token else include + token },
             online = link.online,
@@ -724,16 +781,16 @@ fun ExplorerScreen(
             large = large,
             onReport = { reportOpen = true; tables.show(state.path) },
             onDownload = ::downloadFolder,
-            onTranscripts = if ((size as? SizeLoad.Known)?.size?.byKind?.get(ExplorerKind.TRANSCRIPTS)?.files?.let { it > 0 } != false) ({ transcriptBundle() }) else null,
             modifier = m,
         )
     }
     val jobCards: @Composable () -> Unit = {
-        headline?.let { job ->
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            headline?.let { job ->
                 ProgressCard(
                     job,
                     network = network,
+                    large = large,
                     onPause = { ExplorerDownloads.pause(app, job.id) },
                     onResume = { ExplorerDownloads.resume(app, job.id) },
                     onCancel = { ExplorerDownloads.cancel(app, job.id) },
@@ -741,137 +798,157 @@ fun ExplorerScreen(
                 RecentFilesCard(job, onAll = { allFilesFor = job.id })
                 Text(
                     ExplorerText.savingTo(ExplorerSaver.location(job.request.fileName)),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().testTag("explorer.progress.where"),
                 )
             }
-        }
-        finished?.let { job ->
-            ResultCard(
-                job,
-                onOpen = { if (!ExplorerOpen.open(context, job)) onMessage(ExplorerText.previewFailed) },
-                onShare = { if (!ExplorerOpen.share(context, job)) onMessage(ExplorerText.previewFailed) },
-                onRetry = { ExplorerDownloads.retry(app, job.id) },
-                onDismiss = { hidden = hidden + job.id },
-            )
+            finished.forEach { job ->
+                ResultCard(
+                    job,
+                    onOpen = { if (!ExplorerOpen.open(context, job)) onMessage(ExplorerText.previewFailed) },
+                    onRetry = { ExplorerDownloads.retry(app, job.id); hidden = hidden + job.id },
+                )
+            }
         }
     }
 
+    fun LazyListScope.block(key: String, content: @Composable () -> Unit) {
+        item(key) { Box(Modifier.fillMaxWidth().padding(bottom = 12.dp)) { content() } }
+    }
+
     val content: LazyListScope.(Boolean) -> Unit = { wide ->
-        if (state.locating != null) item("locating") { LoadingLine(ExplorerText.preparing) }
-        state.unfiled?.let { text -> item("unfiled") { Notice(text, warn = true) } }
+        if (state.locating != null) block("locating") { LoadingLine(ExplorerText.preparing) }
+        state.unfiled?.let { text -> block("unfiled") { Notice(text, warn = true) } }
         if (!link.online && state.tree != null) {
-            item("offline") { OfflineCard(state.cachedAt?.let { ExplorerUiText.ago((System.currentTimeMillis() - it) / 60_000) }) }
+            block("offline") { OfflineCard(state.cachedAt?.let { ExplorerUiText.ago((System.currentTimeMillis() - it) / 60_000) }) }
         } else {
-            state.cachedNote?.let { text -> item("cached") { CachedNote(text) } }
+            state.cachedNote?.let { text -> block("cached") { CachedNote(text) } }
         }
         val error = state.error
         when {
-            error != null && state.tree == null -> item("error") { LoadFailedCard(error + state.path, onRetry = { state.dismissError(); state.reload() }) }
-            error != null -> item("error") { StatusCard(ExplorerStatus.FAILED, error, action = ExplorerText.retry, tag = "explorer.error") { state.dismissError(); state.reload() } }
+            error != null && state.tree == null -> block("error") { LoadFailedCard(error + state.path, onRetry = { state.dismissError(); state.reload() }) }
+            error != null -> block("error") { StatusCard(ExplorerStatus.FAILED, error, action = ExplorerText.retry, tag = "explorer.error") { state.dismissError(); state.reload() } }
         }
         if (state.tree == null && state.loading && error == null) {
-            item("loading") { FolderSkeleton() }
+            block("loading") { FolderSkeleton() }
         }
         if (state.tree != null) {
-            if (!wide) {
-                item("folder") { folderCard(Modifier.fillMaxWidth()) }
-                item("download") { downloadCard(Modifier.fillMaxWidth()) }
-            } else {
-                item("cards") {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        folderCard(Modifier.weight(1f))
-                        downloadCard(Modifier.weight(1f))
+            if (!state.selecting) {
+                if (!wide) {
+                    block("folder") { folderCard(Modifier.fillMaxWidth()) }
+                    block("download") { downloadCard(Modifier.fillMaxWidth()) }
+                } else {
+                    block("cards") {
+                        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            folderCard(Modifier.weight(1f).fillMaxHeight())
+                            downloadCard(Modifier.weight(1f).fillMaxHeight())
+                        }
                     }
                 }
-            }
-            if (headline != null || finished != null) item("jobs") { jobCards() }
-            overviews[state.path]?.let { overview -> item("overview") { OverviewCard(overview, onOpen = { state.open(it) }, onSection = onOpenSection) } }
-            item("tabs") {
-                Tabs(
-                    tab = state.tab,
-                    files = state.total ?: state.entries.size,
-                    tables = tables.ready?.report?.sheets?.size,
-                    onTab = { state.tab = it },
-                )
+                if (headline != null || finished.isNotEmpty()) block("jobs") { jobCards() }
+                overviews[state.path]?.let { overview -> block("overview") { OverviewCard(overview, visit = visits[state.path], onOpen = { state.open(it) }, onSection = onOpenSection) } }
+                block("tabs") {
+                    Tabs(
+                        tab = state.tab,
+                        files = state.total ?: state.entries.size,
+                        tables = sheetCounts[state.path]?.takeIf { it > 0 } ?: tables.ready?.takeIf { it.path == state.path }?.report?.sheets?.count { (it.totalRows ?: it.rows.size) > 0 }?.takeIf { it > 0 },
+                        transcripts = known?.byKind?.get(ExplorerKind.TRANSCRIPTS)?.files,
+                        onTab = { state.tab = it },
+                    )
+                }
             }
             when (state.tab) {
                 ExplorerTab.FILES -> {
                     if (state.entries.isEmpty()) {
-                        item("empty") { EmptyFolderCard(state.folderName, onRecordNow?.let { record -> { record(state.path, state.folderName) } }) }
+                        block("empty") { EmptyFolderCard(state.folderName, onRecordNow?.let { record -> { record(state.path, state.folderName) } }) }
                     }
                     if (fileQuery != null) {
-                        item("filequery") {
-                            FilterChip(
+                        block("filequery") {
+                            ExplorerPill(
+                                text = "${ExplorerUiText.filteredBy(fileQuery)}  ✕",
                                 selected = true,
                                 onClick = { viewQuery = null },
-                                label = { Text(ExplorerUiText.filteredBy(fileQuery)) },
-                                trailingIcon = { Icon(Icons.Filled.Close, contentDescription = ExplorerText.clear, modifier = Modifier.size(16.dp)) },
-                                modifier = Modifier.heightIn(min = 40.dp).testTag("explorer.filequery"),
+                                modifier = Modifier.testTag("explorer.filequery"),
                             )
                         }
                     }
                     if (state.selecting) {
-                        item("kinds") { KindPills(state.files, kindFilter) { kindFilter = it } }
+                        block("kinds") { KindPills(state.files, kindFilter) { kindFilter = it } }
                     }
+                    val folders = if (wide) emptyList() else state.folders
+                    val more = state.cursor != null
                     if (!wide) {
-                        items(state.folders, key = { it.key }) { folder ->
-                            FolderRow(
-                                folder = folder,
-                                selecting = state.selecting,
-                                selected = folder.key in state.selected,
-                                onOpen = { state.open(folder.path) },
-                                onLongPress = { state.beginSelect(folder) },
-                                onToggle = { state.toggleSelect(folder) },
-                            )
-                        }
-                        items(shownFiles, key = { it.key }) { file -> fileRow(file) }
-                    } else {
-                        val pairs = shownFiles.chunked(2)
-                        items(pairs, key = { pair -> pair.joinToString("|") { it.key } }) { pair ->
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                pair.forEach { file -> Box(Modifier.weight(1f)) { fileRow(file) } }
-                                if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        val total = folders.size + shownFiles.size
+                        itemsIndexed(folders, key = { _, f -> f.key }) { index, folder ->
+                            Box(Modifier.fillMaxWidth().padding(bottom = if (index == total - 1) 12.dp else 0.dp)) {
+                                FolderRow(
+                                    folder = folder,
+                                    selecting = state.selecting,
+                                    selected = folder.key in state.selected,
+                                    onOpen = { state.open(folder.path) },
+                                    onLongPress = { state.beginSelect(folder) },
+                                    onToggle = { state.toggleSelect(folder) },
+                                    first = index == 0,
+                                    last = index == total - 1,
+                                )
                             }
                         }
-                    }
-                    if (state.cursor != null) {
-                        item("more") {
-                            LaunchedEffect(state.entries.size) { state.loadMore() }
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                OutlinedButton(onClick = state::loadMore, enabled = !state.loadingMore, modifier = Modifier.heightIn(min = 48.dp).testTag("explorer.more")) {
-                                    if (state.loadingMore) {
-                                        FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                                        Spacer(Modifier.width(8.dp))
-                                    }
-                                    Text(ExplorerText.loadMore)
+                        itemsIndexed(shownFiles, key = { _, f -> f.key }) { index, file ->
+                            val at = folders.size + index
+                            Box(Modifier.fillMaxWidth().padding(bottom = if (at == total - 1) 12.dp else 0.dp)) {
+                                fileRow(file, at == 0, at == total - 1, true)
+                            }
+                        }
+                    } else {
+                        val pairs = shownFiles.chunked(2)
+                        itemsIndexed(pairs, key = { _, pair -> pair.joinToString("|") { it.key } }) { index, pair ->
+                            val first = index == 0
+                            val last = index == pairs.lastIndex
+                            Box(Modifier.fillMaxWidth().padding(bottom = if (last) 12.dp else 0.dp)) {
+                                Row(Modifier.fillMaxWidth().explorerCell(first, last), verticalAlignment = Alignment.CenterVertically) {
+                                    pair.forEach { file -> Box(Modifier.weight(1f)) { fileRow(file, first, last, false) } }
+                                    if (pair.size == 1) Spacer(Modifier.weight(1f))
                                 }
                             }
                         }
                     }
+                    val total = state.total
+                    if (total != null && total > state.entries.size) {
+                        block("shown") {
+                            Text(
+                                ExplorerText.showing(state.entries.size, total),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().testTag("explorer.shown"),
+                            )
+                        }
+                    }
+                    if (more) {
+                        block("more") {
+                            LaunchedEffect(state.entries.size) { state.loadMore() }
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                ExplorerSecondaryButton(
+                                    text = if (state.loadingMore) ExplorerText.preparing else ExplorerText.loadMore,
+                                    onClick = state::loadMore,
+                                    enabled = !state.loadingMore,
+                                    modifier = Modifier.testTag("explorer.more"),
+                                )
+                            }
+                        }
+                    }
                 }
-                ExplorerTab.TABLES -> item("tables") {
+                ExplorerTab.TABLES -> block("tables") {
                     ExplorerTables(
                         state = tables,
                         online = link.online,
-                        onCsv = { sheet ->
-                            begin(
-                                ExplorerRequest(
-                                    title = "${state.folderName} · $sheet",
-                                    fileName = Naming.exportFilename("Dataset", "Export", "csv", withTime = true, subject = "${state.folderName} $sheet"),
-                                    kind = ExplorerJobKind.REPORT,
-                                    single = true,
-                                    mimeType = "text/csv",
-                                    items = listOf(ExplorerItem(path = "", url = ExplorerPaths.reportCsv(state.path, sheet))),
-                                ),
-                            )
-                        },
+                        onCsv = ::tableCsv,
                         onReport = { reportOpen = true },
                     )
                 }
-                ExplorerTab.TRANSCRIPTS -> item("transcripts") {
+                ExplorerTab.TRANSCRIPTS -> block("transcripts") {
                     ExplorerTranscriptsTab(
                         path = state.path,
                         initialQuery = viewQuery?.takeIf { it.first == state.path }?.second.orEmpty(),
@@ -892,102 +969,116 @@ fun ExplorerScreen(
         }
     }
 
+    val searchSlot: @Composable () -> Unit = { search { type, id, title -> state.locate(type, id, title) } }
+    val refresh: () -> Unit = { state.reload(); tables.reload() }
+
     CompositionLocalProvider(LocalExplorerSearchAll provides searchScreen?.let { { q: String -> searchQuery = q } }) {
-        Column(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).testTag("explorer.screen")) {
-            TopBar(
-                selecting = state.selecting,
-                selectedCount = state.selected.size,
-                selectedSize = ExplorerBytes.format((selectionSize ?: state.selectedBytes).takeIf { it > 0 }),
-                selectableCount = state.entries.count { ExplorerState.selectable(it) },
-                loading = state.loading,
-                activeDownloads = activeCount,
-                canSearch = searchScreen != null,
-                onBack = { if (state.selecting) state.endSelect() else if (!state.canGoUp || !state.goUp()) onBack() },
-                onDownloads = { showDownloads = true },
-                onSearch = { searchQuery = "" },
-                onReload = { state.reload(); tables.reload() },
-                onSelectAll = { state.selectAll(if (kindFilter == null) state.entries else shownFiles) },
-            )
-            if (state.restricted) {
-                Restricted()
-                return@Column
-            }
-            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                val wide = maxWidth >= 840.dp
-                if (!wide) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize().testTag("explorer.tree"),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 24.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        stickyHeader("toolbar") { Toolbar(search = { search { type, id, title -> state.locate(type, id, title) } }) }
-                        item("organise") { OrganiseCard(state) }
-                        content(false)
-                    }
-                } else {
-                    Row(Modifier.fillMaxSize().testTag("explorer.tablet")) {
-                        LazyColumn(
-                            modifier = Modifier.width(360.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surface).testTag("explorer.pane.tree"),
-                            contentPadding = PaddingValues(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            item("toolbar") { Toolbar(search = { search { type, id, title -> state.locate(type, id, title) } }) }
-                            item("organise") { OrganiseCard(state) }
-                            if (state.canGoUp) {
-                                item("up") {
-                                    TextButton(onClick = { state.goUp() }, modifier = Modifier.heightIn(min = 44.dp)) {
-                                        Text("‹ " + (state.crumbs.getOrNull(state.crumbs.size - 2)?.name ?: ExplorerText.back))
-                                    }
-                                }
-                            }
-                            items(state.folders, key = { it.key }) { folder ->
-                                FolderRow(
-                                    folder = folder,
-                                    selecting = state.selecting,
-                                    selected = folder.key in state.selected,
-                                    onOpen = { state.open(folder.path) },
-                                    onLongPress = { state.beginSelect(folder) },
-                                    onToggle = { state.toggleSelect(folder) },
-                                )
-                            }
-                        }
+        BoxWithConstraints(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).testTag("explorer.screen")) {
+            val wide = maxWidth >= 840.dp
+            val tablesScreen = !wide && state.tab == ExplorerTab.TABLES && state.tree != null && !state.selecting
+            Column(Modifier.fillMaxSize()) {
+                if (state.restricted) {
+                    TopBar(selecting = false, selectedCount = 0, selectedSize = null, selectableCount = 0, loading = state.loading, activeDownloads = activeCount, onBack = onBack, onDownloads = { showDownloads = true }, onSelectAll = {})
+                    Restricted()
+                    return@Column
+                }
+                if (tablesScreen) {
+                    TablesScreen(
+                        folder = state.folderName,
+                        tables = tables,
+                        online = link.online,
+                        onBack = { state.tab = ExplorerTab.FILES },
+                        onCsv = ::tableCsv,
+                        onReport = { reportOpen = true },
+                        modifier = Modifier.weight(1f),
+                    )
+                } else if (!wide) {
+                    TopBar(
+                        selecting = state.selecting,
+                        selectedCount = state.selected.size,
+                        selectedSize = ExplorerBytes.format((selectionSize ?: state.selectedBytes).takeIf { it > 0 }),
+                        selectableCount = state.entries.count { ExplorerState.selectable(it) },
+                        loading = state.loading,
+                        activeDownloads = activeCount,
+                        onBack = { if (state.selecting) state.endSelect() else if (!state.canGoUp || !state.goUp()) onBack() },
+                        onDownloads = { showDownloads = true },
+                        onSelectAll = { state.selectAll(if (kindFilter == null) state.entries else shownFiles) },
+                    )
+                    PullToRefreshBox(isRefreshing = state.loading && state.tree != null, onRefresh = refresh, modifier = Modifier.weight(1f).fillMaxWidth()) {
                         LazyColumn(
                             state = listState,
-                            modifier = Modifier.weight(1f).fillMaxHeight().testTag("explorer.tree"),
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) { content(true) }
+                            modifier = Modifier.fillMaxSize().testTag("explorer.tree"),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = if (state.selecting) 10.dp else 0.dp, bottom = 24.dp),
+                        ) {
+                            if (!state.selecting) {
+                                block("toolbar") { Toolbar(search = searchSlot) }
+                                if (hasOrganise(state)) block("organise") { OrganiseCard(state) }
+                            }
+                            content(false)
+                        }
+                    }
+                } else {
+                    Row(Modifier.weight(1f).fillMaxWidth().testTag("explorer.tablet")) {
+                        TreePane(
+                            state = state,
+                            api = explorerApi,
+                            activeDownloads = activeCount,
+                            onDownloads = { showDownloads = true },
+                            search = searchSlot,
+                            modifier = Modifier.width(340.dp).fillMaxHeight(),
+                        )
+                        Column(Modifier.weight(1f).fillMaxHeight()) {
+                            if (state.selecting) {
+                                TopBar(
+                                    selecting = true,
+                                    selectedCount = state.selected.size,
+                                    selectedSize = ExplorerBytes.format((selectionSize ?: state.selectedBytes).takeIf { it > 0 }),
+                                    selectableCount = state.entries.count { ExplorerState.selectable(it) },
+                                    loading = state.loading,
+                                    activeDownloads = activeCount,
+                                    onBack = { state.endSelect() },
+                                    onDownloads = { showDownloads = true },
+                                    onSelectAll = { state.selectAll(if (kindFilter == null) state.entries else shownFiles) },
+                                )
+                            }
+                            PullToRefreshBox(isRefreshing = state.loading && state.tree != null, onRefresh = refresh, modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                LazyColumn(
+                                    state = listState,
+                                    modifier = Modifier.fillMaxSize().testTag("explorer.tree"),
+                                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 24.dp),
+                                ) { content(true) }
+                            }
+                        }
                     }
                 }
-            }
-            if (media == null && !state.selecting) {
-                MiniPlayer(onOpen = {
-                    val item = com.fieldrepository.app.explorer.data.ExplorerAudio.state.value.item
-                    if (item != null) {
-                        val entry = state.files.firstOrNull { it.mediaId == item.mediaId }
-                            ?: ExplorerEntry(name = item.title, path = item.mediaId, mediaId = item.mediaId, mediaType = "AUDIO", transcriptAvailable = item.lines.isNotEmpty())
-                        media = Viewing(listOf(entry), 0)
-                    }
-                })
-            }
-            if (state.selecting) {
-                SelectBar(
-                    count = state.selected.size,
-                    breakdown = selectionBreakdown(state.selected.values),
-                    size = ExplorerBytes.format((selectionSize ?: state.selectedBytes).takeIf { it > 0 }),
-                    online = link.online,
-                    large = large,
-                    onShare = { downloadSelection(share = true) },
-                    onDownload = { downloadSelection(share = false) },
-                )
-            } else if (!link.online) {
-                Text(
-                    ExplorerText.offline,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = explorerWarnTone().content,
-                    modifier = Modifier.fillMaxWidth().background(explorerWarnTone().container).padding(horizontal = 16.dp, vertical = 8.dp).testTag("explorer.offline"),
-                )
+                if (media == null && !state.selecting && !tablesScreen) {
+                    MiniPlayer(onOpen = {
+                        val item = com.fieldrepository.app.explorer.data.ExplorerAudio.state.value.item
+                        if (item != null) {
+                            val entry = state.files.firstOrNull { it.mediaId == item.mediaId }
+                                ?: ExplorerEntry(name = item.title, path = item.mediaId, mediaId = item.mediaId, mediaType = "AUDIO", transcriptAvailable = item.lines.isNotEmpty())
+                            media = Viewing(listOf(entry), 0)
+                        }
+                    })
+                }
+                if (state.selecting) {
+                    SelectBar(
+                        count = state.selected.size,
+                        breakdown = selectionBreakdown(state.selected.values),
+                        size = ExplorerBytes.format((selectionSize ?: state.selectedBytes).takeIf { it > 0 }),
+                        online = link.online,
+                        large = large,
+                        onShare = { downloadSelection(share = true) },
+                        onDownload = { downloadSelection(share = false) },
+                    )
+                } else if (!link.online && state.tree == null) {
+                    Text(
+                        ExplorerText.offline,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = explorerWarnTone().content,
+                        modifier = Modifier.fillMaxWidth().background(explorerWarnTone().container).padding(horizontal = 16.dp, vertical = 8.dp).testTag("explorer.offline"),
+                    )
+                }
             }
         }
     }
@@ -1057,6 +1148,7 @@ fun ExplorerScreen(
             start = v.index,
             startSeconds = v.startSeconds,
             total = v.total,
+            find = v.find,
             onSave = { saveEntry(it) },
             onDismiss = { media = null },
         )
@@ -1072,10 +1164,36 @@ fun ExplorerScreen(
                     { mediaId, title, mediaType, seconds ->
                         val entry = state.files.firstOrNull { it.mediaId == mediaId }
                             ?: ExplorerEntry(name = title, path = mediaId, mediaId = mediaId, mediaType = mediaType?.uppercase()?.takeIf { it == "VIDEO" || it == "AUDIO" } ?: "VIDEO", transcriptAvailable = true)
-                        media = Viewing(listOf(entry), 0, seconds)
+                        media = Viewing(listOf(entry), 0, seconds, find = query.trim())
                     },
                     { searchQuery = null },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadsButton(count: Int, size: Dp, onClick: () -> Unit) {
+    Box(Modifier.padding(top = 6.dp, end = 6.dp)) {
+        Box(
+            Modifier.size(size)
+                .clip(ExplorerShapes.control)
+                .background(MaterialTheme.colorScheme.surface, ExplorerShapes.control)
+                .border(1.dp, explorerControlLine(), ExplorerShapes.control)
+                .clickable(role = Role.Button, onClickLabel = ExplorerText.downloads, onClick = onClick)
+                .semantics { contentDescription = if (count > 0) "${ExplorerText.downloads}, $count running" else ExplorerText.downloads }
+                .testTag("explorer.downloads"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Filled.Download, contentDescription = null, tint = MaterialTheme.field.body, modifier = Modifier.size(18.dp))
+        }
+        if (count > 0) {
+            Box(
+                Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp).heightIn(min = 18.dp).widthIn(min = 18.dp).background(MaterialTheme.colorScheme.primary, CircleShape).padding(horizontal = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("$count", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
             }
         }
     }
@@ -1089,27 +1207,41 @@ private fun TopBar(
     selectableCount: Int,
     loading: Boolean,
     activeDownloads: Int,
-    canSearch: Boolean,
     onBack: () -> Unit,
     onDownloads: () -> Unit,
-    onSearch: () -> Unit,
-    onReload: () -> Unit,
     onSelectAll: () -> Unit,
 ) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onBack, modifier = Modifier.testTag("explorer.back")) {
-            Icon(if (selecting) Icons.Filled.Close else Icons.AutoMirrored.Filled.ArrowBack, contentDescription = if (selecting) ExplorerUiText.stopSelecting else ExplorerText.back, tint = MaterialTheme.colorScheme.primary)
-        }
-        if (selecting) {
-            Column(Modifier.weight(1f)) {
-                Text(ExplorerText.selected(selectedCount), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semantics { heading() })
-                Text(listOfNotNull(selectedSize, ExplorerUiText.selectHint).joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (selecting) {
+        val line = if (MaterialTheme.field.isDark) com.fieldrepository.app.ui.FieldPalette.Purple800 else com.fieldrepository.app.ui.FieldPalette.Purple300
+        Row(
+            Modifier.fillMaxWidth()
+                .background(MaterialTheme.colorScheme.primaryContainer)
+                .drawBehind { drawLine(line, Offset(0f, size.height - 0.5f), Offset(size.width, size.height - 0.5f), 1.dp.toPx()) }
+                .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp)
+                .testTag("explorer.selectbar.top"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(44.dp).testTag("explorer.back")) {
+                Icon(Icons.Filled.Close, contentDescription = ExplorerUiText.stopSelecting, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
             }
-            TextButton(onClick = onSelectAll, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.selectall")) { Text(ExplorerUiText.selectAll(selectableCount)) }
-            return@Row
+            val large = LocalDensity.current.fontScale >= 1.5f
+            Column(Modifier.weight(1f)) {
+                Text(ExplorerText.selected(selectedCount), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.semantics { heading() })
+                Text(listOfNotNull(selectedSize, ExplorerUiText.selectHint).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (large) ExplorerLinkButton(ExplorerUiText.selectAll(selectableCount), onClick = onSelectAll, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.selectall"))
+            }
+            if (!large) ExplorerLinkButton(ExplorerUiText.selectAll(selectableCount), onClick = onSelectAll, modifier = Modifier.heightIn(min = 40.dp).padding(horizontal = 4.dp).testTag("explorer.selectall"))
+        }
+        return
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 10.dp, top = 8.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        IconButton(onClick = onBack, modifier = Modifier.size(44.dp).testTag("explorer.back")) {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = ExplorerText.back, tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(26.dp))
         }
         Text(
             ExplorerText.title,
@@ -1118,30 +1250,23 @@ private fun TopBar(
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.weight(1f).semantics { heading() },
         )
-        if (loading) FieldCircularProgressIndicator(modifier = Modifier.size(18.dp).padding(end = 4.dp), strokeWidth = 2.dp)
-        if (canSearch) {
-            IconButton(onClick = onSearch, modifier = Modifier.testTag("explorer.searchall")) {
-                Icon(Icons.Filled.Search, contentDescription = ExplorerUiText.searchEverything, tint = MaterialTheme.colorScheme.primary)
-            }
-        }
-        IconButton(onClick = onDownloads, modifier = Modifier.testTag("explorer.downloads")) {
-            BadgedBox(badge = { if (activeDownloads > 0) Badge { Text("$activeDownloads") } }) {
-                Icon(Icons.Filled.Download, contentDescription = ExplorerText.downloads, tint = MaterialTheme.colorScheme.primary)
-            }
-        }
-        IconButton(onClick = onReload, modifier = Modifier.testTag("explorer.reload")) {
-            Icon(Icons.Filled.Refresh, contentDescription = ExplorerText.reload, tint = MaterialTheme.colorScheme.primary)
-        }
+        if (loading) FieldCircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        DownloadsButton(activeDownloads, 44.dp, onDownloads)
     }
 }
 
 @Composable
 private fun Toolbar(search: @Composable () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxWidth().testTag("explorer.toolbar")) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            search()
-        }
+    Column(Modifier.fillMaxWidth().testTag("explorer.toolbar"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        search()
     }
+}
+
+private fun hasOrganise(state: ExplorerState): Boolean = state.taxonomies.size > 1 || ExplorerPortal.statusOptions.isNotEmpty()
+
+@Composable
+private fun Eyebrow(text: String) {
+    Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, letterSpacing = 0.06.em, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1149,25 +1274,20 @@ private fun Toolbar(search: @Composable () -> Unit) {
 private fun OrganiseCard(state: ExplorerState) {
     val taxonomies = state.taxonomies
     val statuses = ExplorerPortal.statusOptions
-    if (taxonomies.size <= 1 && statuses.isEmpty()) return
     Column(
-        Modifier.fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.large)
-            .border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.large)
-            .padding(14.dp)
-            .testTag("explorer.organise"),
+        Modifier.fillMaxWidth().explorerCard().padding(14.dp).testTag("explorer.organise"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (taxonomies.size > 1) {
-            Text(ExplorerUiText.organiseBy.uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Eyebrow(ExplorerUiText.organiseBy)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 taxonomies.forEach { t ->
-                    FilterChip(
+                    ExplorerPill(
+                        text = t.name,
                         selected = t.id == state.activeTaxonomy?.id,
                         onClick = { state.open(t.path) },
-                        label = { Text(t.name) },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary),
-                        modifier = Modifier.heightIn(min = 40.dp).testTag("explorer.taxonomy.${t.id}"),
+                        role = Role.RadioButton,
+                        modifier = Modifier.testTag("explorer.taxonomy.${t.id}"),
                     )
                 }
             }
@@ -1179,14 +1299,15 @@ private fun OrganiseCard(state: ExplorerState) {
             )
         }
         if (statuses.isNotEmpty()) {
-            Text(ExplorerUiText.reviewStatus.uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Eyebrow(ExplorerUiText.reviewStatus)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 statuses.forEach { (value, label) ->
-                    FilterChip(
+                    ExplorerPill(
+                        text = label,
                         selected = value == state.status,
                         onClick = { state.changeStatus(value) },
-                        label = { Text(label) },
-                        modifier = Modifier.heightIn(min = 40.dp).testTag("explorer.status.$value"),
+                        role = Role.RadioButton,
+                        modifier = Modifier.testTag("explorer.status.$value"),
                     )
                 }
             }
@@ -1194,49 +1315,82 @@ private fun OrganiseCard(state: ExplorerState) {
     }
 }
 
+@Composable
+private fun reviewColor(value: String): Color? {
+    val v = value.trim().lowercase()
+    return when {
+        v.startsWith("approved") -> explorerTone(ExplorerStatus.SAVED)?.accent
+        v.startsWith("rejected") -> explorerTone(ExplorerStatus.FAILED)?.accent
+        v.startsWith("pending") || v.startsWith("needs") || v.startsWith("in review") -> explorerWarnTone().muted
+        else -> null
+    }
+}
+
+@Composable
+private fun DetailCell(label: String, value: String, modifier: Modifier, large: Boolean) {
+    val tint = reviewColor(value)
+    Column(modifier) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = tint ?: MaterialTheme.colorScheme.onSurface,
+            fontWeight = if (tint != null) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = if (large) Int.MAX_VALUE else 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FolderCard(state: ExplorerState, size: SizeLoad?, visit: ExplorerVisit?, showAll: Boolean, onToggleAll: () -> Unit, modifier: Modifier) {
+private fun FolderCard(state: ExplorerState, size: SizeLoad?, visit: ExplorerVisit?, showAll: Boolean, onToggleAll: () -> Unit, large: Boolean, modifier: Modifier) {
     val info: ExplorerInfo? = state.info
     val fields = info?.fields.orEmpty().filter { it.value.isNotBlank() }
     Column(
-        modifier
-            .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.large)
-            .border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.large)
-            .padding(14.dp)
-            .testTag("explorer.folder.card"),
+        modifier.explorerCard().padding(14.dp).testTag("explorer.folder.card"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        FlowRow(Modifier.fillMaxWidth().testTag("explorer.crumbs"), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            state.crumbs.dropLast(1).forEachIndexed { index, crumb ->
-                if (index > 0) Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp).align(Alignment.CenterVertically))
-                Text(
-                    crumb.name,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.align(Alignment.CenterVertically).heightIn(min = 40.dp).clickable(role = Role.Button) { state.open(crumb.path) }.padding(vertical = 10.dp, horizontal = 2.dp),
-                )
+        val trail = state.crumbs.dropLast(1).filter { it.name.isNotBlank() }.let { all -> if (all.size > 1 && all.first().path.isEmpty()) all.drop(1) else all }
+        if (trail.isNotEmpty()) {
+            FlowRow(Modifier.fillMaxWidth().testTag("explorer.crumbs"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                trail.forEachIndexed { index, crumb ->
+                    if (index > 0) Text(" › ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        crumb.name,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clickable(role = Role.Button) { state.open(crumb.path) },
+                    )
+                }
             }
         }
-        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(info?.title?.ifBlank { null } ?: state.folderName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semantics { heading() })
-            val line = when (size) {
+        val title: @Composable (Modifier) -> Unit = { m ->
+            Text(
+                info?.title?.ifBlank { null } ?: state.folderName,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = m.semantics { heading() },
+            )
+        }
+        val line = listOfNotNull(
+            when (size) {
                 is SizeLoad.Known -> ExplorerUiText.filesSize(size.size.files, size.size.bytes)
                 else -> ExplorerText.folderCount(state.folders.size, state.files.size)
-            }
-            Text(line, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterVertically).testTag("explorer.count"))
+            },
+            info?.counts?.tools?.takeIf { it > 0 }?.let { ExplorerBytes.count(it, "tool") },
+        ).joinToString(" · ")
+        val count: @Composable (Modifier) -> Unit = { m ->
+            Text(line, style = if (large) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall, color = if (large) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, modifier = m.testTag("explorer.count"))
         }
-        val total = state.total
-        if (total != null && total > state.entries.size) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(ExplorerText.showing(state.entries.size, total), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f).testTag("explorer.showing"))
-                if (state.cursor != null) {
-                    TextButton(
-                        onClick = { state.tab = ExplorerTab.FILES; state.loadMore() },
-                        enabled = !state.loadingMore,
-                        modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.showing.more"),
-                    ) { Text(ExplorerText.loadMore) }
-                }
+        if (large) {
+            title(Modifier)
+            count(Modifier)
+        } else {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                title(Modifier.weight(1f))
+                count(Modifier)
             }
         }
         NewSinceChip(visit)
@@ -1244,19 +1398,26 @@ private fun FolderCard(state: ExplorerState, size: SizeLoad?, visit: ExplorerVis
             if (showAll) {
                 RecordInfoTable(info!!)
             } else {
-                FlowRow(Modifier.fillMaxWidth().testTag("explorer.details"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    fields.take(4).forEach { f ->
-                        Column(Modifier.width(150.dp)) {
-                            Text(f.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(f.value, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                val shown = fields.take(4)
+                Column(Modifier.fillMaxWidth().testTag("explorer.details"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (large) {
+                        shown.forEach { f -> DetailCell(f.label, f.value, Modifier.fillMaxWidth(), true) }
+                    } else {
+                        shown.chunked(2).forEach { pair ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                pair.forEach { f -> DetailCell(f.label, f.value, Modifier.weight(1f), false) }
+                                if (pair.size == 1) Spacer(Modifier.weight(1f))
+                            }
                         }
                     }
                 }
             }
             if (fields.size > 4 || showAll) {
-                TextButton(onClick = onToggleAll, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.details.all")) {
-                    Text(if (showAll) ExplorerUiText.showFewer else ExplorerUiText.showAllFields(fields.size))
-                }
+                ExplorerLinkButton(
+                    if (showAll) ExplorerUiText.showFewer else ExplorerUiText.showAllFields(fields.size),
+                    onClick = onToggleAll,
+                    modifier = Modifier.testTag("explorer.details.all"),
+                )
             }
         }
     }
@@ -1273,22 +1434,17 @@ private fun DownloadCard(
     large: Boolean,
     onReport: () -> Unit,
     onDownload: () -> Unit,
-    onTranscripts: (() -> Unit)?,
     modifier: Modifier,
 ) {
     Column(
-        modifier
-            .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.large)
-            .border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.large)
-            .padding(14.dp)
-            .testTag("explorer.download.card"),
+        modifier.explorerCard().padding(14.dp).testTag("explorer.download.card"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(ExplorerUiText.download, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f).semantics { heading() })
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(ExplorerUiText.download, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f).semantics { heading() })
             size?.let { s ->
                 ExplorerBytes.format(includedSize(s, include).bytes.takeIf { it > 0 })?.let {
-                    Text(ExplorerUiText.selectedSize(it), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.download.selected"))
+                    Text(ExplorerUiText.selectedSize(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.download.selected"))
                 }
             }
         }
@@ -1297,22 +1453,22 @@ private fun DownloadCard(
                 val on = kind.token in include
                 val stats: ExplorerTypeStats? = size?.byKind?.get(kind)
                 val bytes = stats?.bytes?.takeIf { it > 0 && kind in setOf(ExplorerKind.IMAGES, ExplorerKind.VIDEOS, ExplorerKind.AUDIOS) }?.let { ExplorerBytes.format(it) }
-                FilterChip(
+                ExplorerPill(
+                    text = listOfNotNull(if (on) "✓ ${kind.label}" else kind.label, bytes).joinToString(" "),
                     selected = on,
                     onClick = { onInclude(kind.token) },
-                    label = { Text(listOfNotNull(if (on) "✓ ${kind.label}" else kind.label, bytes).joinToString(" ")) },
-                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary),
-                    modifier = Modifier.heightIn(min = 40.dp).semantics { role = Role.Checkbox; selected = on }.testTag("explorer.include.${kind.token}"),
+                    minHeight = 34.dp,
+                    style = MaterialTheme.typography.bodySmall,
+                    horizontal = 10.dp,
+                    modifier = Modifier.testTag("explorer.include.${kind.token}"),
                 )
             }
         }
         val report: @Composable (Modifier) -> Unit = { m ->
-            OutlinedButton(onClick = onReport, enabled = online && ready, modifier = m.heightIn(min = 48.dp).testTag("explorer.report")) { Text(ExplorerUiText.report, maxLines = if (large) 3 else 1, overflow = TextOverflow.Ellipsis) }
+            ExplorerSecondaryButton(ExplorerUiText.report, onClick = onReport, enabled = online && ready, modifier = m.testTag("explorer.report"))
         }
         val folder: @Composable (Modifier) -> Unit = { m ->
-            Button(onClick = onDownload, enabled = online && ready && include.isNotEmpty(), modifier = m.heightIn(min = 48.dp).testTag("explorer.download")) {
-                Text(ExplorerUiText.downloadFolder, maxLines = if (large) 3 else 1, overflow = TextOverflow.Ellipsis)
-            }
+            ExplorerPrimaryButton(ExplorerUiText.downloadFolder, onClick = onDownload, enabled = online && ready && include.isNotEmpty(), modifier = m.testTag("explorer.download"))
         }
         if (large) {
             folder(Modifier.fillMaxWidth())
@@ -1323,32 +1479,32 @@ private fun DownloadCard(
                 folder(Modifier.weight(1f))
             }
         }
-        if (onTranscripts != null) {
-            TextButton(onClick = onTranscripts, enabled = online && ready, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.download.transcripts")) { Text(ExplorerUiText.allTranscripts) }
-        }
     }
 }
 
 @Composable
-private fun Tabs(tab: ExplorerTab, files: Int, tables: Int?, onTab: (ExplorerTab) -> Unit) {
+private fun Tabs(tab: ExplorerTab, files: Int, tables: Int?, transcripts: Int?, onTab: (ExplorerTab) -> Unit) {
+    val line = MaterialTheme.field.hairline
     Row(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.medium).border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.medium).padding(3.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).drawBehind { drawLine(line, Offset(0f, size.height - 0.5f), Offset(size.width, size.height - 0.5f), 1.dp.toPx()) },
     ) {
         listOf(
             Triple(ExplorerTab.FILES, "${ExplorerUiText.files} $files", "explorer.tab.files"),
             Triple(ExplorerTab.TABLES, listOfNotNull(ExplorerText.tables, tables?.toString()).joinToString(" "), "explorer.tables.toggle"),
-            Triple(ExplorerTab.TRANSCRIPTS, ExplorerText.transcripts, "data.transcripts.toggle"),
+            Triple(ExplorerTab.TRANSCRIPTS, listOfNotNull(ExplorerText.transcripts, transcripts?.takeIf { it > 0 }?.toString()).joinToString(" "), "data.transcripts.toggle"),
         ).forEach { (key, label, tag) ->
             val on = key == tab
+            val accent = MaterialTheme.colorScheme.primary
             Box(
-                Modifier.weight(1f).heightIn(min = 44.dp)
-                    .background(if (on) MaterialTheme.colorScheme.primary else Color.Transparent, MaterialTheme.shapes.small)
-                    .clickable { onTab(key) }
-                    .semantics { role = Role.Tab; selected = on }
+                Modifier.heightIn(min = 48.dp)
+                    .clickable(role = Role.Tab) { onTab(key) }
+                    .semantics { selected = on }
+                    .drawBehind { if (on) drawRect(accent, Offset(0f, size.height - 2.dp.toPx()), androidx.compose.ui.geometry.Size(size.width, 2.dp.toPx())) }
+                    .padding(horizontal = 16.dp)
                     .testTag(tag),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface, maxLines = 2, textAlign = TextAlign.Center)
+                Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium, color = if (on) accent else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -1358,37 +1514,162 @@ private fun Tabs(tab: ExplorerTab, files: Int, tables: Int?, onTab: (ExplorerTab
 private fun KindPills(files: List<ExplorerEntry>, current: String?, onPick: (String?) -> Unit) {
     val counts = files.groupingBy { ExplorerKind.ofMediaType(it.mediaType) }.eachCount()
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(selected = current == null, onClick = { onPick(null) }, label = { Text("${ExplorerUiText.all} ${files.size}") }, modifier = Modifier.heightIn(min = 40.dp).testTag("explorer.kind.all"))
+        ExplorerPill("${ExplorerUiText.all} ${files.size}", selected = current == null, onClick = { onPick(null) }, ink = true, minHeight = 32.dp, style = MaterialTheme.typography.bodySmall, role = Role.RadioButton, modifier = Modifier.testTag("explorer.kind.all"))
         listOf(ExplorerKind.VIDEOS, ExplorerKind.IMAGES, ExplorerKind.AUDIOS, ExplorerKind.DOCUMENTS, ExplorerKind.OTHER).forEach { kind ->
             val n = counts[kind] ?: 0
-            if (n > 0) FilterChip(selected = current == kind.token, onClick = { onPick(kind.token) }, label = { Text("${kind.label} $n") }, modifier = Modifier.heightIn(min = 40.dp).testTag("explorer.kind.${kind.token}"))
+            if (n > 0) ExplorerPill("${kind.label} $n", selected = current == kind.token, onClick = { onPick(kind.token) }, ink = true, minHeight = 32.dp, style = MaterialTheme.typography.bodySmall, role = Role.RadioButton, modifier = Modifier.testTag("explorer.kind.${kind.token}"))
         }
     }
 }
 
 @Composable
 private fun SelectBar(count: Int, breakdown: String, size: String?, online: Boolean, large: Boolean, onShare: () -> Unit, onDownload: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth().testTag("explorer.selectbar")) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (breakdown.isNotBlank()) Text(breakdown, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.select.breakdown"))
-            if (!online) Text(ExplorerText.offline, style = MaterialTheme.typography.labelSmall, color = explorerWarnTone().content)
+    val dark = MaterialTheme.field.isDark
+    val bar = if (dark) Color(0xFF2A2640) else ExplorerInk.lightInk
+    Box(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp, top = 4.dp)) {
+        Column(
+            Modifier.fillMaxWidth()
+                .shadow(16.dp, RoundedCornerShape(20.dp), ambientColor = ExplorerInk.lightInk, spotColor = ExplorerInk.lightInk)
+                .background(bar, RoundedCornerShape(20.dp))
+                .padding(12.dp)
+                .testTag("explorer.selectbar"),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (breakdown.isNotBlank()) Text(breakdown, style = MaterialTheme.typography.bodySmall, color = Color(0xFFCFCBE0), modifier = Modifier.testTag("explorer.select.breakdown"))
+            if (!online) Text(ExplorerText.offline, style = MaterialTheme.typography.bodySmall, color = ExplorerTones.warnDark.content)
             val share: @Composable (Modifier) -> Unit = { m ->
-                OutlinedButton(onClick = onShare, enabled = online && count > 0, modifier = m.heightIn(min = 48.dp).testTag("explorer.select.share")) { Text(ExplorerUiText.share) }
+                ExplorerSecondaryButton(ExplorerUiText.share, onClick = onShare, enabled = online && count > 0, line = ExplorerInk.darkControlLine, content = Color.White, container = Color.Transparent, modifier = m.testTag("explorer.select.share"))
             }
             val download: @Composable (Modifier) -> Unit = { m ->
-                Button(onClick = onDownload, enabled = online && count > 0, modifier = m.heightIn(min = 48.dp).testTag("explorer.select.download")) {
-                    Text(ExplorerUiText.downloadN(count, size), maxLines = if (large) 3 else 1, overflow = TextOverflow.Ellipsis)
-                }
+                ExplorerPrimaryButton(ExplorerUiText.downloadN(count, size), onClick = onDownload, enabled = online && count > 0, container = com.fieldrepository.app.ui.FieldPalette.Purple400, content = com.fieldrepository.app.ui.FieldPalette.OnPurple400Dark, bold = true, modifier = m.testTag("explorer.select.download"))
             }
             if (large) {
                 download(Modifier.fillMaxWidth())
                 share(Modifier.fillMaxWidth())
             } else {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     share(Modifier.weight(1f))
                     download(Modifier.weight(2f))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TreePane(
+    state: ExplorerState,
+    api: ExplorerApi,
+    activeDownloads: Int,
+    onDownloads: () -> Unit,
+    search: @Composable () -> Unit,
+    modifier: Modifier,
+) {
+    val outline = remember(api) { mutableStateMapOf<String, List<ExplorerEntry>>() }
+    val chain = state.crumbs.map { it.path }.filter { it.isNotEmpty() }
+    val status = state.statusParam
+    LaunchedEffect(chain, status) {
+        chain.dropLast(1).forEach { at ->
+            if (outline[at] == null) {
+                runCatching { api.tree(at, status, null) }.getOrNull()?.let { t -> outline[at] = t.entries.filter { it.isFolder } }
+            }
+        }
+    }
+    val levelOf: (Int) -> List<ExplorerEntry>? = { level ->
+        val at = chain.getOrNull(level)
+        when {
+            at == null -> null
+            at == state.path -> state.folders
+            else -> outline[at]
+        }
+    }
+    val line = MaterialTheme.field.hairline
+    Column(
+        modifier.background(MaterialTheme.colorScheme.surface).drawBehind { drawLine(line, Offset(size.width - 0.5f, 0f), Offset(size.width - 0.5f, size.height), 1.dp.toPx()) },
+    ) {
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 10.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(ExplorerText.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f).semantics { heading() })
+            if (state.loading) FieldCircularProgressIndicator(modifier = Modifier.size(16.dp).padding(end = 4.dp), strokeWidth = 2.dp)
+            DownloadsButton(activeDownloads, 40.dp, onDownloads)
+        }
+        LazyColumn(Modifier.fillMaxSize().testTag("explorer.pane.tree"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
+            item("search") { Box(Modifier.fillMaxWidth().padding(bottom = 12.dp)) { search() } }
+            if (state.taxonomies.size > 1) {
+                item("segments") {
+                    Row(
+                        Modifier.fillMaxWidth().padding(bottom = 12.dp).border(1.dp, explorerControlLine(), ExplorerShapes.control).padding(4.dp).testTag("explorer.organise"),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        state.taxonomies.forEach { t ->
+                            val on = t.id == state.activeTaxonomy?.id
+                            Box(
+                                Modifier.weight(1f).heightIn(min = 40.dp)
+                                    .clip(ExplorerShapes.tile)
+                                    .background(if (on) MaterialTheme.colorScheme.primary else Color.Transparent, ExplorerShapes.tile)
+                                    .clickable(role = Role.RadioButton) { state.open(t.path) }
+                                    .semantics { selected = on }
+                                    .testTag("explorer.taxonomy.${t.id}"),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(t.name, style = MaterialTheme.typography.bodyMedium, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    }
+                }
+            }
+            if (ExplorerPortal.statusOptions.isNotEmpty()) {
+                item("statuses") {
+                    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ExplorerPortal.statusOptions.forEach { (value, label) ->
+                            ExplorerPill(label, selected = value == state.status, onClick = { state.changeStatus(value) }, role = Role.RadioButton, minHeight = 32.dp, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("explorer.status.$value"))
+                        }
+                    }
+                }
+            }
+            fun LazyListScope.level(index: Int) {
+                val list = levelOf(index) ?: return
+                list.forEach { folder ->
+                    val open = chain.getOrNull(index + 1) == folder.path
+                    val here = folder.path == state.path
+                    item("tree:${folder.key}") {
+                        TreeRow(folder, depth = index, open = open, here = here, branch = index + 1 < chain.size || here || folder.recordType !in setOf("artisan", "record", "interview")) { state.open(folder.path) }
+                    }
+                    if (open) level(index + 1)
+                }
+            }
+            level(0)
+        }
+    }
+}
+
+@Composable
+private fun TreeRow(folder: ExplorerEntry, depth: Int, open: Boolean, here: Boolean, branch: Boolean, onOpen: () -> Unit) {
+    val accent = MaterialTheme.colorScheme.primary
+    Row(
+        Modifier.fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .padding(vertical = 4.dp)
+            .clip(ExplorerShapes.tile)
+            .background(if (here) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, ExplorerShapes.tile)
+            .clickable(role = Role.Button, onClick = onOpen)
+            .semantics { selected = here }
+            .padding(start = 12.dp + (depth * 20).dp, end = 12.dp)
+            .testTag("explorer.folder.${folder.path}"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (branch && depth == 0) Icon(if (open) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+        Text(
+            folder.name,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (open || here) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (here) accent else MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        folder.count?.let {
+            Text(String.format(java.util.Locale.ROOT, "%,d", it), style = MaterialTheme.typography.bodySmall, fontWeight = if (here || open) FontWeight.SemiBold else FontWeight.Normal, color = if (here) accent else MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -1400,11 +1681,11 @@ private fun Restricted() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(Modifier.size(44.dp).background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.extraLarge), contentAlignment = Alignment.Center) {
-            Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(20.dp))
+        Box(Modifier.size(56.dp).background(MaterialTheme.colorScheme.primaryContainer, ExplorerShapes.card), contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(22.dp))
         }
-        Text(ExplorerText.restrictedTitle, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
-        Text(ExplorerText.restrictedBody, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        Text(ExplorerText.restrictedTitle, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground, textAlign = TextAlign.Center)
+        Text(ExplorerText.restrictedBody, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
     }
 }
 

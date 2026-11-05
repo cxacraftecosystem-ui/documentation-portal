@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Data explorer, tables and report</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f7f6fb}
+a{color:#762cb1}a:hover{color:#5f2491}
+</style>
+</helmet>
+<div style="min-height: 1000px; background: #f7f6fb; font-family: Inter, system-ui, sans-serif; color: #1e1b2e; padding: 32px 24px 40px; box-sizing: border-box;">
+  <div style="max-width: 1360px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px;">
+    <section aria-label="Tables" style="background: #fff; border: 1px solid #e4e2ef; border-radius: 16px; box-shadow: 0 1px 2px rgba(46,16,101,.06); overflow: hidden;">
+      <div role="tablist" aria-label="Contents" style="display: flex; gap: 4px; padding: 8px 12px 0; border-bottom: 1px solid #e4e2ef; flex-wrap: wrap;">
+        <button role="tab" aria-selected="false" style="min-height: 44px; padding: 0 14px; border: 0; background: transparent; font: inherit; font-size: 14px; color: #3a3651;">Files 926</button>
+        <button role="tab" aria-selected="true" style="min-height: 44px; padding: 0 14px; border: 0; background: transparent; font: inherit; font-size: 14px; font-weight: 600; color: #5f2491; box-shadow: inset 0 -2px 0 #762cb1;">Tables 7</button>
+        <button role="tab" aria-selected="false" style="min-height: 44px; padding: 0 14px; border: 0; background: transparent; font: inherit; font-size: 14px; color: #3a3651;">Transcripts 214</button>
+      </div>
+
+      <div style="display: flex; gap: 12px; padding: 16px; border-bottom: 1px solid #e4e2ef; flex-wrap: wrap; align-items: center;">
+        <div style="display: flex; flex-direction: column; gap: 2px; margin-right: auto;">
+          <h2 style="margin: 0; font-size: 18px; font-weight: 700;">3rd Craft Toolkit Workshop</h2>
+          <span style="font-size: 13px; color: #615d7a;">7 tables · built 2 min ago · updates when the folder changes</span>
+        </div>
+        <label for="tq" style="position: absolute; left: -9999px;">Search every row</label>
+        <div style="display: flex; align-items: center; gap: 8px; min-height: 44px; width: 320px; padding: 0 12px; border-radius: 12px; border: 1px solid #e4e2ef;">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#615d7a" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+          <input id="tq" placeholder="Search every row" value="indigo" style="flex: 1; border: 0; outline: 0; font: inherit; font-size: 14px;">
+        </div>
+        <button style="min-height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid #e4e2ef; background: #fff; font: inherit; font-size: 14px;">This table (.csv)</button>
+        <button style="min-height: 44px; padding: 0 18px; border-radius: 12px; border: 0; background: #762cb1; color: #fff; font: inherit; font-size: 14px; font-weight: 600;">Full report (.xlsx)</button>
+      </div>
+
+      <div style="display: flex; min-height: 560px;">
+        <nav aria-label="Tables" style="width: 240px; flex: none; border-right: 1px solid #e4e2ef; padding: 12px; display: flex; flex-direction: column; gap: 4px;">
+          <button style="min-height: 44px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; font: inherit; font-size: 14px; color: #3a3651; text-align: left;"><span>Artisans</span><span style="font-size: 12px; color: #615d7a;">24</span></button>
+          <button aria-current="true" style="min-height: 44px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; border-radius: 10px; border: 0; background: #f2e9fe; font: inherit; font-size: 14px; color: #5f2491; font-weight: 600; text-align: left;"><span>Tools</span><span style="font-size: 12px;">3 of 120</span></button>
+          <button style="min-height: 44px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; font: inherit; font-size: 14px; color: #3a3651; text-align: left;"><span>Products</span><span style="font-size: 12px; color: #615d7a;">58</span></button>
+          <button style="min-height: 44px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; font: inherit; font-size: 14px; color: #3a3651; text-align: left;"><span>Processes</span><span style="font-size: 12px; color: #615d7a;">31</span></button>
+          <button style="min-height: 44px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; font: inherit; font-size: 14px; color: #3a3651; text-align: left;"><span>Media</span><span style="font-size: 12px; color: #615d7a;">926</span></button>
+          <button style="min-height: 44px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; font: inherit; font-size: 14px; color: #3a3651; text-align: left;"><span>Transcript recordings</span><span style="font-size: 12px; color: #615d7a;">214</span></button>
+          <button style="min-height: 44px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; font: inherit; font-size: 14px; color: #3a3651; text-align: left;"><span>Transcript turns</span><span style="font-size: 12px; color: #615d7a;">7,992</span></button>
+        </nav>
+
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
+          <div style="padding: 12px 16px; font-size: 13px; color: #3a3651; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #e4e2ef;">
+            <span style="padding: 3px 10px; border-radius: 999px; background: #f2e9fe; color: #5f2491; font-weight: 600;">3 rows match “indigo”</span>
+            <span style="color: #615d7a;">across all 120 tools, not just the preview</span>
+          </div>
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+              <thead>
+                <tr style="background: #faf9fd; color: #615d7a; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; text-align: left;">
+                  <th style="padding: 10px 16px; font-weight: 600;">Tool</th>
+                  <th style="padding: 10px 8px; font-weight: 600;">Linked artisans</th>
+                  <th style="padding: 10px 8px; font-weight: 600;">Linked workshops</th>
+                  <th style="padding: 10px 8px; font-weight: 600;">Craft</th>
+                  <th style="padding: 10px 16px; font-weight: 600;">Review</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="border-top: 1px solid #e4e2ef;"><td style="padding: 12px 16px; font-weight: 600;">Indigo vat stirrer</td><td style="padding: 12px 8px;">Giriraj Prasad Chhipa, Manisha Verma</td><td style="padding: 12px 8px;">3rd Craft Toolkit, Jaipur Blue Pottery</td><td style="padding: 12px 8px;">Dabu printing</td><td style="padding: 12px 16px;"><span style="padding: 2px 8px; border-radius: 999px; background: #dcfce7; color: #15803d; font-size: 12px; font-weight: 600;">Approved</span></td></tr>
+                <tr style="border-top: 1px solid #e4e2ef;"><td style="padding: 12px 16px; font-weight: 600;">Indigo dipping frame</td><td style="padding: 12px 8px;">Giriraj Prasad Chhipa</td><td style="padding: 12px 8px;">3rd Craft Toolkit</td><td style="padding: 12px 8px;">Dabu printing</td><td style="padding: 12px 16px;"><span style="padding: 2px 8px; border-radius: 999px; background: #fef3c7; color: #92400e; font-size: 12px; font-weight: 600;">Pending</span></td></tr>
+                <tr style="border-top: 1px solid #e4e2ef;"><td style="padding: 12px 16px; font-weight: 600;">Indigo sieve</td><td style="padding: 12px 8px;">Nandkishor Kumawat</td><td style="padding: 12px 8px;">3rd Craft Toolkit</td><td style="padding: 12px 8px;">Blue pottery</td><td style="padding: 12px 16px;"><span style="padding: 2px 8px; border-radius: 999px; background: #dcfce7; color: #15803d; font-size: 12px; font-weight: 600;">Approved</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="margin: 16px; padding: 14px 16px; border-radius: 12px; background: #faf9fd; border: 1px dashed #d6b6fb; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <div style="width: 40px; height: 40px; border-radius: 12px; background: #f2e9fe; display: grid; place-items: center;"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#762cb1" stroke-width="2" stroke-linecap="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 19h16"></path></svg></div>
+            <div style="flex: 1; min-width: 220px;"><div style="font-size: 14px; font-weight: 600;">Full report (.xlsx) is being prepared</div><div style="font-size: 13px; color: #615d7a;">7 sheets · about 30 s. The file downloads by itself when it’s ready.</div></div>
+            <div style="width: 200px; height: 8px; border-radius: 999px; background: #d9c4e9; overflow: hidden;"><div style="width: 45%; height: 100%; background: #762cb1;"></div></div>
+          </div>
+          <div style="margin: 0 16px 16px; padding: 14px 16px; border-radius: 12px; background: #fee2e2; color: #7f1d1d; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 220px; font-size: 13px;"><strong>Example error state:</strong> the report couldn’t be built. Nothing was saved. We’ll try again automatically in 20 s.</div>
+            <button style="min-height: 40px; padding: 0 14px; border-radius: 10px; border: 0; background: #fff; color: #7f1d1d; font: inherit; font-size: 13px; font-weight: 600;">Try now</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

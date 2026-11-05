@@ -145,7 +145,7 @@ function silentWav(seconds: number): Buffer {
   return out;
 }
 
-const WAV = silentWav(1);
+const WAV = silentWav(40);
 
 export const BIG_FILES = 60;
 export const BIG_FILE_BYTES = 256 * 1024;

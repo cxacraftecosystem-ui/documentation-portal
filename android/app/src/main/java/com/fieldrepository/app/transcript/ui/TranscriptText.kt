@@ -3,15 +3,10 @@ package com.fieldrepository.app.transcript.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -131,15 +126,12 @@ fun TranscriptMarkdownText(markdown: String, modifier: Modifier = Modifier) {
                     )
                 }
             }
-            is TranscriptMarkdown.Block.Quote -> Row(Modifier.height(IntrinsicSize.Min)) {
-                Box(Modifier.width(3.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(2.dp)))
-                Text(
-                    block.inline.annotated(code),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.field.muted,
-                    modifier = Modifier.padding(start = 10.dp)
-                )
-            }
+            is TranscriptMarkdown.Block.Quote -> Text(
+                block.inline.annotated(code),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.field.muted,
+                modifier = Modifier.fillMaxWidth().background(MaterialTheme.field.surface100, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 8.dp)
+            )
             is TranscriptMarkdown.Block.Paragraph -> Text(block.inline.annotated(code), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.body)
         }
     }

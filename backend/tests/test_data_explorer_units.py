@@ -753,3 +753,42 @@ def test_a_folder_transcript_zip_reads_texts_in_batches_and_renders_off_the_even
     assert sum(calls) == 250
     assert len(calls) <= -(-250 // transcript_zip.TEXT_WINDOW)
     assert threads == [False]
+
+
+def test_file_facts_read_from_extra_metadata_and_only_when_whole() -> None:
+    from app.services.data_explorer import facts
+
+    image = SimpleNamespace(id="m1", mediaType="IMAGE", mimeType="image/jpeg", objectKey="k", extraMetadata={"facts": {"width": 4032, "height": 3024}})
+    assert facts.entry_facts(image) == {"pixels": {"width": 4032, "height": 3024}}
+    pdf = SimpleNamespace(id="m2", mediaType="PDF", mimeType="application/pdf", objectKey="k", extraMetadata='{"facts": {"pages": 2}}')
+    assert facts.entry_facts(pdf) == {"pages": 2}
+    assert facts.entry_facts(SimpleNamespace(extraMetadata={"facts": {"width": 0}})) == {}
+    assert facts.entry_facts(SimpleNamespace(extraMetadata=None)) == {}
+
+
+def test_only_unmeasured_images_and_pdfs_are_measured() -> None:
+    from app.services.data_explorer import facts
+
+    fresh = SimpleNamespace(id="a", mediaType="IMAGE", mimeType="image/png", objectKey="k", extraMetadata=None)
+    done = SimpleNamespace(id="b", mediaType="IMAGE", mimeType="image/png", objectKey="k", extraMetadata={"facts": {}})
+    svg = SimpleNamespace(id="c", mediaType="IMAGE", mimeType="image/svg+xml", objectKey="k", extraMetadata=None)
+    doc = SimpleNamespace(id="d", mediaType="OTHER", mimeType="application/pdf", objectKey="k", extraMetadata=None)
+    audio = SimpleNamespace(id="e", mediaType="AUDIO", mimeType="audio/mp4", objectKey="k", extraMetadata=None)
+    assert [facts.measurable(m) for m in (fresh, done, svg, doc, audio)] == [True, False, False, True, False]
+
+
+def test_image_size_and_pdf_pages_are_read_from_the_file() -> None:
+    from PIL import Image
+    from pypdf import PdfWriter
+
+    from app.services.data_explorer import facts
+
+    picture = io.BytesIO()
+    Image.new("RGB", (64, 48)).save(picture, format="PNG")
+    assert facts.image_size(picture.getvalue()) == {"width": 64, "height": 48}
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    writer.add_blank_page(width=200, height=200)
+    document = io.BytesIO()
+    writer.write(document)
+    assert facts.pdf_pages(document.getvalue()) == {"pages": 2}

@@ -63,7 +63,15 @@ export function formatBytes(value: number): string {
     size /= 1024;
     unit += 1;
   }
-  return `${size >= 100 ? Math.round(size) : size.toFixed(1)} ${units[unit]}`;
+  return `${size >= 100 ? Math.round(size) : Number(size.toPrecision(3))} ${units[unit]}`;
+}
+
+export function bytesOf(done: number, total: number): string {
+  const whole = formatBytes(total);
+  const part = formatBytes(done);
+  const unit = whole.split(" ")[1];
+  const [number, partUnit] = part.split(" ");
+  return partUnit === unit ? `${number} of ${whole}` : `${part} of ${whole}`;
 }
 
 export function countLabel(count: number, one: string, many: string): string {
@@ -154,12 +162,18 @@ export function secondsLeft(done: number, total: number, rate: number | null): n
 
 export function timeLeftLabel(seconds: number | null): string | null {
   if (seconds === null) return null;
-  if (seconds < 60) return "Less than a minute left";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `About ${minutes} min left`;
+  const whole = Math.max(1, Math.round(seconds));
+  if (whole < 60) return `${whole} s left`;
+  if (whole < 600) {
+    const minutes = Math.floor(whole / 60);
+    const rest = whole % 60;
+    return rest ? `${minutes} min ${rest} s left` : `${minutes} min left`;
+  }
+  const minutes = Math.round(whole / 60);
+  if (minutes < 60) return `${minutes} min left`;
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  return rest ? `About ${hours} h ${rest} min left` : `About ${hours} h left`;
+  return rest ? `${hours} h ${rest} min left` : `${hours} h left`;
 }
 
 export function percentOf(done: number, total: number): number {

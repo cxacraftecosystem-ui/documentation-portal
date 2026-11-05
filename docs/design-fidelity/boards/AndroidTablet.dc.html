@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Android tablet, two panes</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.card{background:#fff;border:1px solid #e4e2ef;border-radius:16px}
+.k{font-size:12px;color:#615d7a}
+.t{display:flex;align-items:center;gap:10px;min-height:48px;padding:0 12px;border-radius:12px;font-size:14px}
+.n{margin-left:auto;font-size:12px;color:#615d7a}
+.f{display:flex;gap:12px;align-items:center;padding:10px 14px;border-bottom:1px solid #e4e2ef}
+.th{flex:none;width:48px;height:48px;border-radius:10px;display:grid;place-items:center;font-size:11px;font-weight:700}
+.chip{min-height:34px;padding:0 10px;border-radius:999px;border:0;background:#762cb1;color:#fff;font-size:12px;font-weight:600}
+</style>
+</helmet>
+<div style="width: 1280px; height: 800px; box-sizing: border-box; background: #f7f6fb; font-family: Inter, system-ui, sans-serif; color: #1e1b2e; display: grid; grid-template-columns: 340px minmax(0, 1fr); overflow: hidden;">
+  <aside style="border-right: 1px solid #e4e2ef; padding: 16px; display: flex; flex-direction: column; gap: 12px; background: #fff;">
+    <div style="display: flex; align-items: center; gap: 8px;"><h1 style="margin: 0; font-family: 'Plus Jakarta Sans'; font-size: 20px; font-weight: 800; flex: 1;">View data</h1><span style="width: 40px; height: 40px; border-radius: 12px; border: 1px solid #e4e2ef; display: grid; place-items: center; position: relative;">↓<span style="position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; border-radius: 9px; background: #762cb1; color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center;">1</span></span></div>
+    <div style="display: flex; gap: 8px; align-items: center; min-height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid #e4e2ef;"><span class="k" style="font-size: 15px;">⌕ Jump to a record</span></div>
+    <div style="display: flex; padding: 3px; border-radius: 12px; background: #faf9fd; border: 1px solid #e4e2ef;"><span style="flex: 1; min-height: 36px; border-radius: 9px; background: #762cb1; color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 600;">Workshop</span><span style="flex: 1; display: grid; place-items: center; font-size: 13px;">Craft</span><span style="flex: 1; display: grid; place-items: center; font-size: 13px;">Type</span></div>
+    <div class="t">▸ Bagru workshop<span class="n">212</span></div>
+    <div class="t" style="font-weight: 600;">▾ 3rd Craft Toolkit<span class="n">926</span></div>
+    <div class="t" style="padding-left: 32px;">Ramesh Chhipa<span class="n">97</span></div>
+    <div class="t" style="padding-left: 32px; background: #f2e9fe; color: #5f2491; font-weight: 600;">Giriraj Prasad Chhipa<span class="n" style="color: #5f2491;">48</span></div>
+    <div class="t" style="padding-left: 32px;">Sunita Devi<span class="n">61</span></div>
+    <div class="t" style="padding-left: 32px;">Mohan Lal Chhipa<span class="n">22</span></div>
+    <div class="t">▸ Sanganer cluster<span class="n">1,408</span></div>
+  </aside>
+  <main style="padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; overflow: hidden;">
+    <div style="display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px;">
+      <section class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+        <div class="k">All workshops › 3rd Craft Toolkit</div>
+        <div style="display: flex; justify-content: space-between; align-items: center;"><h2 style="margin: 0; font-family: 'Plus Jakarta Sans'; font-size: 20px; font-weight: 800;">Giriraj Prasad Chhipa</h2><span class="k">48 files · 1.24 GB</span></div>
+        <dl style="margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; font-size: 13px;"><div><dt class="k">Craft</dt><dd style="margin: 0;">Dabu printing</dd></div><div><dt class="k">Location</dt><dd style="margin: 0;">Bagru, Rajasthan</dd></div><div><dt class="k">Recorded fields</dt><dd style="margin: 0;">34 of 40</dd></div><div><dt class="k">Review</dt><dd style="margin: 0; color: #15803d; font-weight: 600;">Approved</dd></div></dl>
+      </section>
+      <section class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; justify-content: space-between;"><strong style="font-size: 15px;">Download</strong><span class="k">1.24 GB</span></div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;"><button class="chip">✓ Text</button><button class="chip">✓ Images 61 MB</button><button class="chip">✓ Videos 980 MB</button><button class="chip">✓ Audio 196 MB</button><button class="chip">✓ Transcripts</button><button class="chip">✓ Documents</button><button class="chip">✓ Other</button></div>
+        <div style="display: flex; gap: 8px;"><button style="flex: 1; min-height: 48px; border-radius: 12px; border: 1px solid #e4e2ef; background: #fff; font: inherit; font-size: 14px;">Report (.xlsx)</button><button style="flex: 1; min-height: 48px; border-radius: 12px; border: 0; background: #762cb1; color: #fff; font: inherit; font-size: 14px; font-weight: 600;">Download folder</button></div>
+      </section>
+    </div>
+    <div style="display: flex; gap: 4px; border-bottom: 1px solid #e4e2ef;"><span style="min-height: 44px; padding: 0 16px; display: grid; place-items: center; border-bottom: 3px solid #762cb1; color: #762cb1; font-weight: 600; font-size: 14px;">Files 48</span><span style="min-height: 44px; padding: 0 16px; display: grid; place-items: center; font-size: 14px; color: #615d7a;">Tables 7</span><span style="min-height: 44px; padding: 0 16px; display: grid; place-items: center; font-size: 14px; color: #615d7a;">Transcripts 12</span></div>
+    <section class="card" style="overflow: hidden; display: grid; grid-template-columns: 1fr 1fr;">
+      <div class="f"><span class="th" style="background: #e7d5fe; color: #5f2491;">VID</span><div style="flex: 1; min-width: 0;"><div style="font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Interview_Dabu-mud-resist_Take-1</div><div class="k">Video · 701 MB · transcript</div></div></div>
+      <div class="f"><span class="th" style="background: linear-gradient(135deg,#c9b2a1,#8c6d5a);"></span><div style="flex: 1;"><div style="font-weight: 600; font-size: 14px;">Block-carving_close-up_03</div><div class="k">Image · 3.4 MB</div></div></div>
+      <div class="f"><span class="th" style="background: #fef3c7; color: #92400e;">AUD</span><div style="flex: 1; min-width: 0;"><div style="font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Section-D_Materials_Group-of-3</div><div class="k">Audio · 14.2 MB · transcript</div></div></div>
+      <div class="f"><span class="th" style="background: linear-gradient(135deg,#b7c4cf,#5d6f80);"></span><div style="flex: 1;"><div style="font-weight: 600; font-size: 14px;">Kiln-firing_wide_07</div><div class="k">Video · 220 MB</div></div></div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

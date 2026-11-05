@@ -15,6 +15,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaController
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -129,6 +130,11 @@ object ExplorerAudio {
         }
     }
 
+    internal fun stage(state: ExplorerAudioState) {
+        current = state.item
+        mutable.value = state
+    }
+
     fun toggle() {
         val player = controller ?: return
         if (player.isPlaying) player.pause() else player.play()
@@ -228,7 +234,7 @@ object ExplorerAudio {
         .build()
 
     private fun playable(context: Context, url: String): String {
-        if (ExplorerPaths.absolute(url)) return url
+        if (ExplorerPaths.absolute(url) || url.startsWith("file:")) return url
         return ExplorerDownloads.resolveSigned(context, url) ?: ExplorerPaths.resolve(ExplorerPortal.baseUrl(), url)
     }
 
@@ -247,6 +253,7 @@ class ExplorerAudioService : MediaSessionService() {
         }
     }
 
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
         val player = ExoPlayer.Builder(this)
@@ -260,6 +267,7 @@ class ExplorerAudioService : MediaSessionService() {
             .build()
         val builder = MediaSession.Builder(this, player)
         launchIntent()?.let { builder.setSessionActivity(it) }
+        builder.setMediaButtonPreferences(stepButtons())
         session = builder.build()
         main.post(lines)
     }
@@ -282,6 +290,20 @@ class ExplorerAudioService : MediaSessionService() {
         val next = now.buildUpon().setMediaMetadata(ExplorerAudio.metadata(item, spoken)).build()
         runCatching { player.replaceMediaItem(player.currentMediaItemIndex, next) }
     }
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun stepButtons(): com.google.common.collect.ImmutableList<CommandButton> = com.google.common.collect.ImmutableList.of(
+        CommandButton.Builder(CommandButton.ICON_SKIP_BACK_10)
+            .setPlayerCommand(Player.COMMAND_SEEK_BACK)
+            .setDisplayName("Back 10 seconds")
+            .setSlots(CommandButton.SLOT_BACK)
+            .build(),
+        CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD_10)
+            .setPlayerCommand(Player.COMMAND_SEEK_FORWARD)
+            .setDisplayName("Forward 10 seconds")
+            .setSlots(CommandButton.SLOT_FORWARD)
+            .build(),
+    )
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 

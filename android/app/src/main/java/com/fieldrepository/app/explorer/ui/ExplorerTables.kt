@@ -1,5 +1,21 @@
 package com.fieldrepository.app.explorer.ui
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -331,42 +347,70 @@ class ExplorerTablesState(
 }
 
 @Composable
+internal fun TablesScreen(
+    folder: String,
+    tables: ExplorerTablesState,
+    online: Boolean,
+    onBack: () -> Unit,
+    onCsv: (sheet: String) -> Unit,
+    onReport: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val large = LocalDensity.current.fontScale >= 1.5f
+    val ready = tables.ready
+    val sheet = ready?.let { ExplorerTablesState.picked(it.report, tables.sheetName, it.query.isNotBlank()) }
+    Column(modifier.fillMaxWidth().testTag("explorer.tables.screen")) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(44.dp).testTag("explorer.tables.back")) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = ExplorerText.back, tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(26.dp))
+            }
+            Text(ExplorerText.tables, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f).semantics { heading() })
+            Text(folder, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End, modifier = Modifier.widthIn(max = 180.dp))
+        }
+        LazyColumn(
+            Modifier.weight(1f).fillMaxWidth().testTag("explorer.tree"),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+        ) {
+            item("tables") { ExplorerTables(tables, online, onCsv, onReport, buttons = false) }
+        }
+        if (sheet != null) {
+            val csv: @Composable (Modifier) -> Unit = { m -> ExplorerSecondaryButton(ExplorerUiText.thisTable, onClick = { onCsv(sheet.name) }, enabled = online, modifier = m.testTag("explorer.csv.${sheet.name}")) }
+            val full: @Composable (Modifier) -> Unit = { m -> ExplorerPrimaryButton(ExplorerUiText.fullReport, onClick = onReport, enabled = online, modifier = m.testTag("explorer.tables.report")) }
+            if (large) {
+                Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    full(Modifier.fillMaxWidth())
+                    csv(Modifier.fillMaxWidth())
+                }
+            } else {
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    csv(Modifier.weight(1f))
+                    full(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 internal fun ExplorerTables(
     state: ExplorerTablesState,
     online: Boolean,
     onCsv: (sheet: String) -> Unit,
     onReport: () -> Unit,
+    buttons: Boolean = true,
 ) {
     val ready = state.ready
     val searching = state.query.isNotBlank()
     val sheet = ready?.let { ExplorerTablesState.picked(it.report, state.sheetName, it.query.isNotBlank()) }
-    Column(Modifier.fillMaxWidth().testTag("explorer.tables"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxWidth().testTag("explorer.tables"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (ready != null && ready.report.sheets.isNotEmpty() && sheet != null) {
             SheetPicker(ready.report.sheets, sheet, ready.query.isNotBlank(), onPick = state::pick)
         }
-        OutlinedTextField(
-            value = state.query,
-            onValueChange = state::search,
-            singleLine = true,
-            placeholder = { Text(ExplorerUiText.searchRows) },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
-            trailingIcon = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (searching && sheet != null && ready?.query?.isNotBlank() == true) {
-                        Text(
-                            ExplorerUiText.matchCount(ExplorerTablesState.count(sheet, true), sheet.totalRows ?: sheet.rows.size),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.testTag("explorer.tables.count"),
-                        )
-                    }
-                    if (state.query.isNotEmpty()) {
-                        IconButton(onClick = { state.search("") }) { Icon(Icons.Filled.Close, contentDescription = ExplorerText.clear, modifier = Modifier.size(18.dp)) }
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth().testTag("explorer.tables.search"),
-        )
+        TableSearch(state, sheet, searching && sheet != null && ready?.query?.isNotBlank() == true)
         state.busySeconds?.let { seconds ->
             Text(
                 ExplorerText.busy(seconds),
@@ -379,14 +423,14 @@ internal fun ExplorerTables(
         if (state.refreshFailed) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(ExplorerText.tablesFailed, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
-                TextButton(onClick = state::retry, modifier = Modifier.heightIn(min = 44.dp)) { Text(ExplorerText.retry) }
+                ExplorerLinkButton(ExplorerText.retry, onClick = state::retry)
             }
         }
         when (val now = state.load) {
             TablesLoad.Idle, TablesLoad.Loading -> if (state.busySeconds == null) TableSkeleton()
             TablesLoad.Failed -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 HintLine(ExplorerText.tablesFailed)
-                SheetButtons(primary = ExplorerText.retry, onPrimary = state::retry, primaryTag = "explorer.tables.retry")
+                ExplorerPrimaryButton(ExplorerText.retry, onClick = state::retry, modifier = Modifier.fillMaxWidth().testTag("explorer.tables.retry"))
             }
             is TablesLoad.Ready -> {
                 if (now.report.sheets.isEmpty() || sheet == null) {
@@ -396,27 +440,28 @@ internal fun ExplorerTables(
                     val searchingRows = words.isNotBlank()
                     val rows = ExplorerTablesState.window(sheet, searchingRows, state.shown)
                     if (rows.isEmpty()) HintLine(if (searchingRows) ExplorerText.matches(0, sheet.totalRows ?: 0) else ExplorerText.noRows)
-                    rows.forEachIndexed { index, (row, number) ->
-                        RowCard(sheet.headers, row, words, number ?: if (words.isBlank()) index + 1 else null, "${sheet.name}.$index")
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        rows.forEachIndexed { index, (row, number) ->
+                            RowCard(sheet.headers, row, words, number ?: if (words.isBlank()) index + 1 else null, "${sheet.name}.$index", startOpen = index == 0)
+                        }
                     }
                     val shown = rows.count { it.second != 0 }
                     val total = ExplorerTablesState.count(sheet, searchingRows)
-                    if (total > shown) Text(ExplorerUiText.showingRows(shown, total), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.tables.showing"))
+                    if (total > shown) Text(ExplorerUiText.showingRows(shown, total), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().testTag("explorer.tables.showing"))
                     if (ExplorerTablesState.canShowMore(sheet, searchingRows, state.shown)) {
                         val next = if (total > shown) minOf(TABLE_MORE_ROWS, total - shown) else TABLE_MORE_ROWS
-                        OutlinedButton(
+                        ExplorerSecondaryButton(
+                            text = if (state.loadingRows) ExplorerUiText.loadingRows else ExplorerUiText.moreRows(next),
                             onClick = { state.more(sheet) },
                             enabled = !state.loadingRows,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("explorer.tables.more"),
-                        ) { Text(if (state.loadingRows) ExplorerUiText.loadingRows else ExplorerUiText.moreRows(next)) }
+                            modifier = Modifier.fillMaxWidth().testTag("explorer.tables.more"),
+                        )
                     }
                     if (state.rowsFailed) HintLine(ExplorerUiText.rowsFailed)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { onCsv(sheet.name) }, enabled = online, modifier = Modifier.weight(1f).heightIn(min = 44.dp).testTag("explorer.csv.${sheet.name}")) {
-                            Text(ExplorerUiText.thisTable, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        OutlinedButton(onClick = onReport, enabled = online, modifier = Modifier.weight(1f).heightIn(min = 44.dp).testTag("explorer.tables.report")) {
-                            Text(ExplorerUiText.fullReport, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (buttons) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ExplorerSecondaryButton(ExplorerUiText.thisTable, onClick = { onCsv(sheet.name) }, enabled = online, modifier = Modifier.weight(1f).testTag("explorer.csv.${sheet.name}"))
+                            ExplorerPrimaryButton(ExplorerUiText.fullReport, onClick = onReport, enabled = online, modifier = Modifier.weight(1f).testTag("explorer.tables.report"))
                         }
                     }
                 }
@@ -426,28 +471,69 @@ internal fun ExplorerTables(
 }
 
 @Composable
+private fun TableSearch(state: ExplorerTablesState, sheet: ExplorerSheet?, showCount: Boolean) {
+    var focused by remember { mutableStateOf(false) }
+    val line = if (focused || state.query.isNotEmpty()) (if (MaterialTheme.field.isDark) MaterialTheme.colorScheme.primary else ExplorerInk.focus) else explorerControlLine()
+    BasicTextField(
+        value = state.query,
+        onValueChange = state::search,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.testTag("explorer.tables.search"),
+        decorationBox = { field ->
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp).background(MaterialTheme.colorScheme.surface, ExplorerShapes.control).border(1.dp, line, ExplorerShapes.control).padding(start = 12.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                Box(Modifier.weight(1f)) {
+                    if (state.query.isEmpty()) Text(ExplorerUiText.searchRows, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.field.placeholder)
+                    field()
+                }
+                if (showCount && sheet != null) {
+                    Text(
+                        ExplorerUiText.matchCount(ExplorerTablesState.count(sheet, true), sheet.totalRows ?: sheet.rows.size),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = if (state.query.isEmpty()) 8.dp else 0.dp).testTag("explorer.tables.count"),
+                    )
+                }
+                if (state.query.isNotEmpty()) {
+                    IconButton(onClick = { state.search("") }, modifier = Modifier.size(40.dp)) { Icon(Icons.Filled.Close, contentDescription = ExplorerText.clear, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) }
+                }
+            }
+        },
+    )
+}
+
+@Composable
 private fun SheetPicker(sheets: List<ExplorerSheet>, current: ExplorerSheet, searching: Boolean, onPick: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        Surface(
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.medium)
-                .clickable { open = true }.testTag("explorer.tables.sheet"),
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                .clip(ExplorerShapes.control)
+                .background(MaterialTheme.colorScheme.surface, ExplorerShapes.control)
+                .border(1.dp, explorerControlLine(), ExplorerShapes.control)
+                .clickable(role = Role.DropdownList) { open = true }
+                .padding(horizontal = 14.dp, vertical = 6.dp)
+                .testTag("explorer.tables.sheet"),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(ExplorerUiText.sheet, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        "${current.name} · ${ExplorerText.rows(current.totalRows ?: current.rows.size)}",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+            Column(Modifier.weight(1f)) {
+                Text(ExplorerUiText.sheet, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(fontSize = MaterialTheme.typography.bodyLarge.fontSize, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)) { append(current.name) }
+                        withStyle(SpanStyle(fontSize = MaterialTheme.typography.bodyMedium.fontSize, color = MaterialTheme.colorScheme.onSurfaceVariant)) { append(" · ${ExplorerText.rows(current.totalRows ?: current.rows.size)}") }
+                    },
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
+            Icon(Icons.Filled.ArrowDropDown, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             sheets.forEach { s ->
@@ -461,66 +547,69 @@ private fun SheetPicker(sheets: List<ExplorerSheet>, current: ExplorerSheet, sea
     }
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         sheets.forEach { s ->
-            val on = s.name == current.name
-            Surface(
-                shape = MaterialTheme.shapes.extraLarge,
-                color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surface,
-                contentColor = if (on) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.heightIn(min = 36.dp)
-                    .border(if (on) 0.dp else 1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.extraLarge)
-                    .clickable { onPick(s.name) }.testTag("explorer.tables.pill.${s.name}"),
-            ) {
-                Box(Modifier.heightIn(min = 36.dp).padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                    Text("${s.name} ${ExplorerTablesState.count(s, searching)}", style = MaterialTheme.typography.labelLarge)
-                }
-            }
+            ExplorerPill(
+                "${s.name} ${ExplorerTablesState.count(s, searching)}",
+                selected = s.name == current.name,
+                onClick = { onPick(s.name) },
+                ink = true,
+                minHeight = 32.dp,
+                style = MaterialTheme.typography.bodySmall,
+                role = Role.RadioButton,
+                modifier = Modifier.testTag("explorer.tables.pill.${s.name}"),
+            )
         }
     }
 }
 
 @Composable
-private fun RowCard(headers: List<String>, row: List<kotlinx.serialization.json.JsonElement>, query: String, number: Int?, key: String) {
-    var open by remember(key) { mutableStateOf(false) }
+private fun RowCard(headers: List<String>, row: List<kotlinx.serialization.json.JsonElement>, query: String, number: Int?, key: String, startOpen: Boolean) {
+    var open by remember(key) { mutableStateOf(startOpen) }
+    var every by remember(key) { mutableStateOf(false) }
     val cells = row.map { ExplorerCells.text(it) }
     val (markBg, markFg) = explorerMark()
+    val large = LocalDensity.current.fontScale >= 1.5f
+    val rest = headers.drop(1).mapIndexedNotNull { i, label -> cells.getOrNull(i + 1)?.takeIf { it.isNotBlank() }?.let { label to it } }
     Column(
         Modifier.fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.large)
-            .border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.large)
+            .clip(ExplorerShapes.card)
+            .explorerCard()
+            .clickable(role = Role.Button) { open = !open; if (!open) every = false }
             .padding(14.dp)
             .testTag("explorer.tables.row.$key"),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(if (open) 8.dp else 6.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                highlighted(cells.firstOrNull().orEmpty().ifBlank { "—" }, query, markBg, markFg),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+                markWords(cells.firstOrNull().orEmpty().ifBlank { "—" }, query, markBg, markFg),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             number?.let { Text(ExplorerUiText.row(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         if (open) {
-            headers.drop(1).forEachIndexed { i, label ->
-                val value = cells.getOrNull(i + 1).orEmpty()
-                if (value.isNotBlank()) {
-                    Column {
-                        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(highlighted(value, query, markBg, markFg), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.body)
+            val shown = if (every) rest else rest.take(4)
+            val perRow = if (large) 1 else 2
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                shown.chunked(perRow).forEach { pair ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        pair.forEach { (label, value) ->
+                            Column(Modifier.weight(1f)) {
+                                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(markWords(value, query, markBg, markFg), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                        repeat(perRow - pair.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
-        } else {
-            val summary = cells.drop(1).filter { it.isNotBlank() }.take(4).joinToString(" · ")
-            if (summary.isNotBlank()) Text(highlighted(summary, query, markBg, markFg), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-        if (headers.size > 2) {
-            TextButton(onClick = { open = !open }, modifier = Modifier.heightIn(min = 40.dp)) {
-                Text(if (open) ExplorerUiText.showFewer else ExplorerUiText.allColumns(headers.size))
+            if (rest.size > 4 || every) {
+                ExplorerLinkButton(if (every) ExplorerUiText.showFewer else ExplorerUiText.allColumns(headers.size), onClick = { every = !every })
             }
+        } else {
+            val summary = rest.map { it.second }.take(4).joinToString(" · ")
+            if (summary.isNotBlank()) Text(markWords(summary, query, markBg, markFg), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.body, maxLines = if (large) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -528,9 +617,10 @@ private fun RowCard(headers: List<String>, row: List<kotlinx.serialization.json.
 @Composable
 private fun TableSkeleton() {
     Column(Modifier.fillMaxWidth().testTag("explorer.tables.loading"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SkeletonBar(0.6f, 20)
+        SkeletonBar(1f, 52)
+        SkeletonBar(0.6f, 32)
         repeat(3) {
-            Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.large).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.fillMaxWidth().explorerCard().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SkeletonBar(0.7f, 14)
                 SkeletonBar(0.45f, 10)
             }
@@ -540,10 +630,10 @@ private fun TableSkeleton() {
 
 @Composable
 internal fun SkeletonBar(fraction: Float, height: Int, modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxWidth(fraction).height(height.dp).background(MaterialTheme.field.surface100, MaterialTheme.shapes.small))
+    Box(modifier.fillMaxWidth(fraction).height(height.dp).background(MaterialTheme.field.surface100, RoundedCornerShape(8.dp)))
 }
 
-internal fun highlighted(text: String, query: String, background: Color, foreground: Color): AnnotatedString {
+internal fun markWords(text: String, query: String, background: Color, foreground: Color): AnnotatedString {
     val words = query.trim().split(Regex("\\s+")).filter { it.length >= 2 }
     if (words.isEmpty()) return AnnotatedString(text)
     val lower = text.lowercase()
