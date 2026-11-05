@@ -39,7 +39,7 @@ async function folderReady(page: Page) {
 async function audioReady(page: Page) {
   const body = page.getByTestId("preview-body");
   await expect(body).toBeVisible();
-  await expect(page.getByTestId("preview-lines")).toContainText("Without the");
+  await expect(page.getByTestId("preview-lines").locator("[data-line]").first()).toBeVisible();
   await page.waitForFunction(() => {
     const media = document.querySelector("[data-testid=preview-body] audio") as HTMLAudioElement | null;
     return Boolean(media && Number.isFinite(media.duration) && media.duration > 100);

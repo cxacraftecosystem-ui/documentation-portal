@@ -90,22 +90,39 @@ class DesignShotsTest {
         )
     }
 
+    @Composable
     private fun audioPreview() {
-        stageAudio()
         val entries = DesignBoards.files()
         ExplorerMediaContent(entries, entries.indexOf(DesignBoards.audioEntry), 0.0, 48, onSave = {}, onDismiss = {}, loader = loader)
     }
 
-    @Test fun androidAudio() = shoot("AndroidAudio") { audioPreview() }
-
-    @Test fun androidAudioDark() = shoot("AndroidAudio", "dark", dark = true) { audioPreview() }
-
-    @Test fun androidAudioLargeText() = shoot("AndroidAudio", "font2", fontScale = 2f) { audioPreview() }
-
-    @Test fun androidAudioTablet() = shoot("AndroidAudio", "tablet", widthDp = 1280, heightDp = 800, density = 1f) { audioPreview() }
-
-    @Test fun androidAudioPlayerMini() = shoot("AndroidAudioPlayer") {
+    @Test fun androidAudio() {
         stageAudio()
+        shoot("AndroidAudio") { audioPreview() }
+    }
+
+    @Test fun androidAudioDark() {
+        stageAudio()
+        shoot("AndroidAudio", "dark", dark = true) { audioPreview() }
+    }
+
+    @Test fun androidAudioLargeText() {
+        stageAudio()
+        shoot("AndroidAudio", "font2", fontScale = 2f) { audioPreview() }
+    }
+
+    @Test fun androidAudioTablet() {
+        stageAudio()
+        shoot("AndroidAudio", "tablet", widthDp = 1280, heightDp = 800, density = 1f) { audioPreview() }
+    }
+
+    @Test fun androidAudioPlayerMini() {
+        stageAudio()
+        shoot("AndroidAudioPlayer") { miniOverList() }
+    }
+
+    @Composable
+    private fun miniOverList() {
         Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f))
             MiniPlayer(onOpen = {})
