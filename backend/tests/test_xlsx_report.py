@@ -289,3 +289,46 @@ def test_prose_cells_are_wrapped_and_given_room(workbook_bytes: bytes) -> None:
     assert ws.column_dimensions["B"].width >= 60, "the transcript column is too narrow to read"
     assert (ws.row_dimensions[2].height or 0) > 15, "the transcript row was left one line tall"
     assert (ws.row_dimensions[2].height or 0) <= 409, "Excel rejects a row taller than 409"
+
+
+def _tricky_workbook() -> bytes:
+    sheets = [
+        {
+            "name": "Numbers",
+            "color": "#ZZZ999",
+            "columns": ["Value", "Note"],
+            "rows": [
+                [float("nan"), "not a number"],
+                [float("inf"), "infinite"],
+                [True, "a flag"],
+                [3.5, CellRichText([TextBlock(InlineFont(), "plain "), TextBlock(InlineFont(b=True), "bold")])],
+            ],
+            "prose": [],
+        },
+        {"name": "Tools", "color": "not a colour", "columns": ["Tool"], "rows": [["Charkha"]], "prose": []},
+    ]
+    return build_report_workbook(sheets, "Tricky report")
+
+
+def test_a_tricky_workbook_round_trips_through_openpyxl() -> None:
+    payload = _tricky_workbook()
+    wb = load_workbook(BytesIO(payload), rich_text=True)
+    assert wb.sheetnames == ["Overview", "Numbers", "Tools"]
+    values = [row[0] for row in wb["Numbers"].iter_rows(min_row=2, values_only=True)]
+    assert values[0] is None and values[1] is None
+    assert values[2] is True and values[3] == 3.5
+    note = wb["Numbers"]["B5"].value
+    assert "".join(str(part.text if isinstance(part, TextBlock) else part) for part in note) == "plain bold"
+    links = [c.hyperlink.location for c in wb["Overview"]["A"] if c.hyperlink]
+    assert links == ["'Numbers'!A1", "'Tools'!A1"]
+
+
+def test_no_run_carries_an_empty_font() -> None:
+    archive = zipfile.ZipFile(BytesIO(_tricky_workbook()))
+    for name in archive.namelist():
+        if name.startswith("xl/worksheets/sheet"):
+            tree = ET.fromstring(archive.read(name))
+            for props in tree.iter(f"{MAIN}rPr"):
+                assert len(props), f"{name} carries an empty <rPr/>, which Excel repairs"
+            for value in tree.iter(f"{MAIN}v"):
+                assert value.text not in {"nan", "inf", "-inf"}, f"{name} wrote {value.text}"

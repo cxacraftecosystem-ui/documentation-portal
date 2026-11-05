@@ -27,6 +27,7 @@ class Scope:
     date_from: datetime | None = None
     date_to: datetime | None = None
     workshop_ids: list[str] = field(default_factory=list)
+    artisan_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -76,6 +77,8 @@ def _where(scope: Scope, p: _Params) -> str:
     if scope.place:
         like = p.add(_like(scope.place))
         clauses.append(f'(d."place" ILIKE {like} OR d."subtitle" ILIKE {like})')
+    if scope.artisan_ids:
+        clauses.append(f'd."artisanIds" && {p.array(scope.artisan_ids)}')
     if scope.date_from:
         clauses.append(f'd."recordDate" >= {p.add(scope.date_from.isoformat())}::timestamptz')
     if scope.date_to:
@@ -214,3 +217,75 @@ async def run(
         items.setdefault(item["type"], []).append(item)
     totals = {str(k): int(v) for k, v in _decode(row.get("totals"), {}).items()}
     return Result(mode="hybrid" if qvec else "text", items=items, totals=totals)
+
+
+_TURN_SQL = """
+SELECT DISTINCT ON (t."mediaFileId") t."mediaFileId" AS id, t."startMs" AS "startMs"
+  FROM "TranscriptTurn" t
+  JOIN "TranscriptVersion" v ON v."id" = t."versionId" AND v."supersededAt" IS NULL
+ WHERE t."mediaFileId" = ANY($1::text[])
+   AND coalesce(t."editedText", t."machineText") ILIKE ANY($2::text[])
+ ORDER BY t."mediaFileId", t."position"
+"""
+
+_KIND_SQL = (
+    'SELECT "id", "mediaType"::text AS "mediaType" FROM "MediaFile" WHERE "id" = ANY($1::text[])'
+)
+
+_SUGGEST_SQL = """
+SELECT w AS word, similarity(w, $1) AS score
+  FROM (SELECT DISTINCT lower(part) AS w
+          FROM "SearchDocument" d, regexp_split_to_table(d."title", '[^[:alnum:]]+') AS part
+         WHERE d."audience" = 'ALL' AND length(part) >= 3) words
+ WHERE similarity(w, $1) >= 0.35
+ ORDER BY score DESC, w
+ LIMIT 1
+"""
+
+
+def query_terms(q: str) -> list[str]:
+    return [t for t in (w.lower() for w in _WORD.findall(q)) if len(t) >= 2]
+
+
+async def transcript_moments(items: list[dict[str, Any]], q: str) -> None:
+    ids = [str(item["id"]) for item in items if item.get("id")]
+    if not ids:
+        return
+    patterns = [_like(term) for term in query_terms(q)] or [_like(q.strip())]
+    moments: dict[str, int] = {}
+    kinds: dict[str, str] = {}
+    try:
+        for row in await db.query_raw(_TURN_SQL, ids, patterns):
+            moments[str(row["id"])] = int(row.get("startMs") or 0)
+        for row in await db.query_raw(_KIND_SQL, ids):
+            kinds[str(row["id"])] = str(row.get("mediaType") or "")
+    except Exception:  # noqa: BLE001
+        return
+    for item in items:
+        key = str(item.get("id"))
+        if key in moments:
+            item["startMs"] = moments[key]
+        if kinds.get(key):
+            item["mediaType"] = kinds[key]
+
+
+async def did_you_mean(q: str) -> str | None:
+    words = _WORD.findall(q)
+    if not words:
+        return None
+    changed = False
+    out: list[str] = []
+    for word in words:
+        best = None
+        if len(word) >= 3:
+            try:
+                rows = await db.query_raw(_SUGGEST_SQL, word.lower())
+            except Exception:  # noqa: BLE001
+                return None
+            best = str(rows[0]["word"]) if rows else None
+        if best and best != word.lower():
+            out.append(best)
+            changed = True
+        else:
+            out.append(word)
+    return " ".join(out) if changed else None

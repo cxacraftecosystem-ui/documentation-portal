@@ -671,3 +671,12 @@ image, switchable per print) and `aadhaarLast4` as `XXXX XXXX 9012` — never th
 address, date of birth or Pehchan number. Cards are issued by `backend/scripts/backfill_artisan_cards.py`
 at deploy (dry run by default, `--apply` to write, idempotent) and lazily on first read.
 
+## Data explorer memory — added 2026-11-05
+
+**`DataReportPreference`** is one user's remembered report choices (`options`: sheets, answers, rows,
+links). **`DataFolderVisit`** is when a user last opened one folder (`userId`, `path`, unique
+together); `POST /data/visits` reads it before overwriting it, to say what is new. **`DataSavedView`**
+is a saved `/data` screen (`path`, `state` with tab, sheet, search and filters) that its owner may
+share; a shared view opens only for people who can see its folder. **`MediaWaveform`** keeps the
+800 peaks of one recording, made once. All four cascade away with their user or file.
+Migration `20261210090000_data_explorer_memory`, additive, with row-level security on like every other server-only table. See [DATA_EXPLORER.md](DATA_EXPLORER.md).

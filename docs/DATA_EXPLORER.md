@@ -1,4 +1,4 @@
-# Data explorer: the server side (0.0.12)
+# Data explorer: the server side (0.0.12, 0.0.13)
 
 The `/data` page and the Android data screen read the repository through one API, the same in both
 portals. Its routes, fields and limits are written once, in
@@ -23,6 +23,19 @@ clients build against that file. This page explains what each part does and why.
 | A13 | A signed download link is reused for half its life, so a browser can cache a repeat play or download (`backend/app/services/data_explorer/signing.py`) |
 | A14 | `backend/tests/test_data_explorer_db.py` fails if a folder listing, a zip walk or a stats call makes more statements as a folder grows, or if a 300-file manifest uses more than a fixed amount of memory |
 
+## What changed in 0.0.13
+
+| Item | What the server does now |
+|---|---|
+| Report queue | `GET /data/report` (with its `status` filter) waits in a queue of eight instead of refusing at once. One build per folder and data version is cached and serves the preview, every table search, the CSV and the `.xlsx`; the JSON says `builtAt` and `cached` |
+| Report options | The `.xlsx` takes `sheets`, `answers` (`original` drops the English and translation columns, `english` drops `Original` where an `English` column sits beside it), `rows=filtered` (the rows matching `q`, no preview cap), `links=0` (drops `URL` and `Media URLs`) and `name`. Only the default workbook is kept in the cache; any other choice is rendered through the queue (`backend/app/services/data_explorer/report_options.py`) |
+| Remembered choices | `GET` and `PUT /data/report-options`, one row per user in `DataReportPreference` |
+| New since you looked | `POST /data/visits` keeps one `DataFolderVisit` row per user and folder and counts the files and transcripts that arrived under the folder since the previous visit. The count walks the folder like `/data/stats`, and gives up (answering 0) after 10 s |
+| Saved views | `/data/views` keeps `DataSavedView` rows. A view opens for its owner, or for anyone who can list its folder when it is shared; otherwise `404` |
+| Waveform | `GET /data/media/{media_id}/peaks` decodes the recording once with ffmpeg (mono, 2 kHz, one decode at a time, two minutes at most), keeps 800 peaks in `MediaWaveform`, and answers `404` for anything that is not audio or video |
+| Workshop overview | `GET /data/overview?path=by-workshop/<id>` gives totals and, per artisan, recorded fields, media, transcripts, review and one state per questionnaire section (`backend/app/services/data_explorer/overview.py`). Its statement count does not grow with the number of files |
+| Transcripts export | `GET /data/transcripts/export?path=&format=docx` puts every readable transcript of the folder into one `.docx`, one per page, through the report queue |
+
 ## Routes
 
 All routes sit under `/api/data` and need dataset-download access, like the rest of the page. Downloads, stats, the multi-select manifest and Browse by type include every review status (owner decision of 4 Nov 2026, W6 dropped).
@@ -41,6 +54,13 @@ All routes sit under `/api/data` and need dataset-download access, like the rest
 | `GET /data/transcripts/languages` | The languages the transcripts this user may read are in, with counts |
 | `GET /data/browse`, `GET /data/browse/{type}/{record_id}/media` | Browse by type, paged, searched on the server, with a `truncated` flag |
 | `GET /data/report` | New: `q` searches every row of every sheet on the server, `sheet` picks one sheet, and `format=csv` streams one sheet |
+| `GET /data/report-options`, `PUT /data/report-options` | The report choices a user asked to remember |
+| `GET /data/transcripts/list` | The Transcripts tab: the recordings of a folder, with a snippet when `q` is given |
+| `GET /data/transcripts/export` | Every readable transcript of a folder in one `.docx` |
+| `GET /data/media/{media_id}/peaks` | 800 waveform peaks between 0 and 1, and the length |
+| `POST /data/visits` | Record a visit; how many files and transcripts are new since the last one |
+| `GET /data/overview` | Workshop coverage: totals and per-artisan section states |
+| `GET /data/views`, `POST /data/views`, `GET`, `PATCH`, `DELETE /data/views/{view_id}` | Saved views: folder, tab, sheet, search and filters, private or shared |
 
 ## Access
 

@@ -8,9 +8,9 @@ from typing import Any
 
 import pytest
 from fastapi import HTTPException
-from fastapi.responses import JSONResponse
 
 from app.api.routes import data_browser
+from app.services.data_explorer import report_cache
 
 ADMIN = SimpleNamespace(id="admin-1", role="MASTER_ADMIN", canDownloadDataset=True)
 
@@ -127,43 +127,158 @@ def test_the_transcripts_sheet_prints_the_words_it_was_handed_not_a_column(monke
 
 
 
-def test_a_second_report_while_one_is_building_is_answered_at_once(monkeypatch):
-    async def story() -> tuple[HTTPException, Any, Any]:
+def _material_stub(monkeypatch, slow: Any) -> None:
+    async def version(_db: Any) -> str:
+        return "v1"
+
+    async def scope(_user: Any, *_args: Any) -> Any:
+        return data_browser.Scope(records={}, media={})
+
+    monkeypatch.setattr(data_browser.report_cache, "data_version", version)
+    monkeypatch.setattr(data_browser, "_scope_for", scope)
+    monkeypatch.setattr(data_browser, "_report_material", slow)
+
+
+def _built(rows: int = 3) -> dict[str, Any]:
+    sheet = data_browser._sheet("Tools", "#000000", ["Tool"], [[f"tool {i}"] for i in range(rows)])
+    return {"sheets": [sheet], "level": "Repository", "builtAt": "2026-11-05T10:00:00+05:30"}
+
+
+def test_a_second_report_for_another_folder_waits_its_turn_instead_of_failing(monkeypatch):
+    monkeypatch.setattr(data_browser, "REPORT_QUEUE", report_cache.ReportQueue(wait=5))
+    calls: list[str] = []
+
+    async def story() -> tuple[Any, Any]:
         started = asyncio.Event()
         release = asyncio.Event()
 
-        async def slow(*_args: Any, **_kwargs: Any) -> Any:
+        async def slow(norm: str, *_args: Any) -> Any:
+            calls.append(norm)
+            if norm == "by-workshop/a":
+                started.set()
+                await release.wait()
+            return _built()
+
+        _material_stub(monkeypatch, slow)
+        first = asyncio.create_task(_report(path="by-workshop/a"))
+        await started.wait()
+        second = asyncio.create_task(_report(path="by-workshop/b", format="xlsx"))
+        await asyncio.sleep(0.05)
+        assert not second.done()
+        assert data_browser.REPORT_QUEUE.waiting == 1
+        release.set()
+        return await first, await second
+
+    done, queued = asyncio.run(story())
+    assert done.status_code == 200 and queued.status_code == 200
+    assert queued.body[:2] == b"PK"
+    assert calls == ["by-workshop/a", "by-workshop/b"]
+    assert not data_browser.REPORT_QUEUE.locked()
+
+
+def test_a_full_queue_says_when_to_come_back(monkeypatch):
+    monkeypatch.setattr(data_browser, "REPORT_QUEUE", report_cache.ReportQueue(depth=0, wait=5))
+
+    async def story() -> HTTPException:
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow(*_args: Any) -> Any:
             started.set()
             await release.wait()
-            return JSONResponse({"sheets": []})
+            return _built()
 
-        monkeypatch.setattr(data_browser, "_build_report", slow)
-        first = asyncio.create_task(_report())
+        _material_stub(monkeypatch, slow)
+        first = asyncio.create_task(_report(path="by-workshop/a"))
         await started.wait()
         with pytest.raises(HTTPException) as refused:
-            await _report(format="xlsx")
+            await _report(path="by-workshop/b")
         release.set()
-        done = await first
-        again = await _report()
-        return refused.value, done, again
+        await first
+        return refused.value
 
-    refused, done, again = asyncio.run(story())
+    refused = asyncio.run(story())
     assert refused.status_code == 503
-    assert refused.detail == data_browser.REPORT_BUSY == "A report is already being prepared. Try again in a minute."
-    assert refused.headers == {"Retry-After": "60"}
-    assert done.status_code == 200 and again.status_code == 200
-    assert not data_browser._REPORT_BUILD.locked()
+    assert refused.detail == data_browser.REPORT_BUSY
+    assert refused.headers == {"Retry-After": str(report_cache.RETRY_AFTER_SECONDS)}
 
 
-def test_a_failed_build_releases_the_lock(monkeypatch):
+def test_one_build_serves_the_preview_every_search_the_csv_and_the_xlsx(monkeypatch):
+    builds: list[str] = []
+
+    async def build(norm: str, *_args: Any) -> Any:
+        builds.append(norm)
+        return _built(250)
+
+    _material_stub(monkeypatch, build)
+
+    async def story() -> list[Any]:
+        return [
+            await _report(path="by-workshop/a"),
+            await _report(path="by-workshop/a", q="tool 24"),
+            await _report(path="by-workshop/a", q="tool 7", sheet="Tools"),
+            await _report(path="by-workshop/a", format="csv", sheet="Tools"),
+            await _report(path="by-workshop/a", format="xlsx"),
+            await _report(path="by-workshop/a", format="xlsx"),
+        ]
+
+    preview, searched, picked, as_csv, xlsx, again = asyncio.run(story())
+    assert builds == ["by-workshop/a"]
+    assert preview.status_code == 200 and searched.status_code == 200 and picked.status_code == 200
+    assert as_csv.status_code == 200
+    assert xlsx.body == again.body and xlsx.body[:2] == b"PK"
+
+
+def test_concurrent_asks_for_one_folder_share_one_build(monkeypatch):
+    builds: list[str] = []
+
+    async def build(norm: str, *_args: Any) -> Any:
+        builds.append(norm)
+        await asyncio.sleep(0.05)
+        return _built()
+
+    _material_stub(monkeypatch, build)
+
+    async def story() -> list[Any]:
+        return list(await asyncio.gather(*(_report(path="p", q=f"tool {i}") for i in range(4))))
+
+    answers = asyncio.run(story())
+    assert builds == ["p"]
+    assert all(a.status_code == 200 for a in answers)
+
+
+def test_new_data_rebuilds_the_report(monkeypatch):
+    builds: list[str] = []
+    versions = iter(["v1", "v1", "v2"])
+
+    async def build(norm: str, *_args: Any) -> Any:
+        builds.append(norm)
+        return _built()
+
+    _material_stub(monkeypatch, build)
+
+    async def version(_db: Any) -> str:
+        return next(versions)
+
+    monkeypatch.setattr(data_browser.report_cache, "data_version", version)
+
+    async def story() -> None:
+        for _ in range(3):
+            await _report(path="p")
+
+    asyncio.run(story())
+    assert builds == ["p", "p"]
+
+
+def test_a_failed_build_releases_the_queue(monkeypatch):
     async def broken(*_args: Any, **_kwargs: Any) -> Any:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(data_browser, "_build_report", broken)
+    _material_stub(monkeypatch, broken)
     with pytest.raises(RuntimeError):
         asyncio.run(_report())
-    assert not data_browser._REPORT_BUILD.locked()
-
+    assert not data_browser.REPORT_QUEUE.locked()
+    assert data_browser.REPORT_QUEUE.waiting == 0
 
 
 def test_trimming_the_heap_never_fails_a_request(monkeypatch):

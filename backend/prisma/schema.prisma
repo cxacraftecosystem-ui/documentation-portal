@@ -431,6 +431,9 @@ model User {
 
   @@index([role])
   usageEvents UsageEvent[] @relation("UsageEventUser")
+  dataReportPreference DataReportPreference? @relation("DataReportPreferenceUser")
+  dataFolderVisits     DataFolderVisit[]     @relation("DataFolderVisitUser")
+  dataSavedViews       DataSavedView[]       @relation("DataSavedViewOwner")
 }
 
 enum CredentialLinkPurpose {
@@ -1694,6 +1697,7 @@ model MediaFile {
   insights       TranscriptInsight[]
   /// The transcript pipeline (migration 20261110090000_transcript_turns).
   transcriptVersions       TranscriptVersion[]          @relation("MediaTranscriptVersions")
+  waveform                 MediaWaveform?               @relation("MediaWaveformMedia")
   transcriptSpeakers       TranscriptSpeaker[]          @relation("MediaTranscriptSpeakers")
   transcriptSpend          TranscriptSpend[]            @relation("MediaTranscriptSpend")
   transcriptGlossary       TranscriptGlossarySighting[] @relation("MediaTranscriptGlossary")
@@ -3515,4 +3519,48 @@ model UsageEvent {
 
   @@index([userId, createdAt])
   @@index([routeTemplate, createdAt])
+}
+
+model DataReportPreference {
+  userId    String   @id
+  options   Json
+  updatedAt DateTime @updatedAt
+
+  user User @relation("DataReportPreferenceUser", fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DataFolderVisit {
+  id        String   @id @default(cuid())
+  userId    String
+  path      String
+  visitedAt DateTime @default(now())
+
+  user User @relation("DataFolderVisitUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, path])
+}
+
+model DataSavedView {
+  id        String   @id @default(cuid())
+  ownerId   String
+  name      String
+  path      String
+  state     Json
+  shared    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation("DataSavedViewOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, updatedAt])
+  @@index([shared, updatedAt])
+}
+
+model MediaWaveform {
+  mediaFileId String   @id
+  peaks       Json
+  durationMs  Int?
+  createdAt   DateTime @default(now())
+
+  mediaFile MediaFile @relation("MediaWaveformMedia", fields: [mediaFileId], references: [id], onDelete: Cascade)
 }

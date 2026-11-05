@@ -151,6 +151,8 @@ def _local_item(item: dict[str, Any]) -> dict[str, Any]:
         "recordDate": item.get("recordDate"),
         "href": item.get("openPath"),
         "openUrl": None,
+        **({"startMs": item["startMs"]} if isinstance(item.get("startMs"), int) else {}),
+        **({"mediaType": item["mediaType"]} if item.get("mediaType") else {}),
     }
 
 
@@ -185,7 +187,9 @@ def merge(
     remote_groups: list[dict[str, Any]],
     *,
     limit: int,
+    links: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
+    linked = {remote: local for local, remote in (links or {}).items()}
     remote_by_type: dict[str, dict[str, Any]] = {}
     for group in remote_groups or []:
         if isinstance(group, dict) and group.get("type") in cross_portal.SEARCH_TYPES:
@@ -198,9 +202,22 @@ def merge(
             entry["score"] = round(1.0 / (RRF_K + pos), 6)
             ranked.append((-entry["score"], 0, pos, entry))
         remote = remote_by_type.get(kind) or {}
+        local_by_id = {r[3]["id"]: r[3] for r in ranked}
+        merged = 0
         for pos, item in enumerate(remote.get("items") or [], start=1):
             entry = _remote_item(item, kind) if isinstance(item, dict) else None
             if entry is None:
+                continue
+            twin = local_by_id.get(linked.get(entry["id"], "")) if kind == "artisans" else None
+            if twin is not None:
+                twin["alsoIn"] = {
+                    "portal": entry["portal"],
+                    "id": entry["id"],
+                    "href": entry["href"],
+                    "openUrl": entry.get("openUrl"),
+                    "subtitle": entry.get("subtitle"),
+                }
+                merged += 1
                 continue
             entry["score"] = round(1.0 / (RRF_K + pos), 6)
             ranked.append((-entry["score"], 1, pos, entry))
@@ -208,7 +225,7 @@ def merge(
             continue
         ranked.sort(key=lambda r: (r[0], r[1], r[2]))
         local_total = int(local_totals.get(kind, 0))
-        remote_total = int(remote.get("total") or 0)
+        remote_total = max(0, int(remote.get("total") or 0) - merged)
         groups.append(
             {
                 "type": kind,
@@ -220,3 +237,15 @@ def merge(
             }
         )
     return groups
+
+
+async def artisan_links(local_ids: list[str]) -> dict[str, str]:
+    if not local_ids:
+        return {}
+    from app.core.db import db
+
+    try:
+        rows = await db.crossportalartisanlink.find_many(where={"artisanId": {"in": local_ids}})
+    except Exception:  # noqa: BLE001
+        return {}
+    return {str(r.artisanId): str(r.remoteArtisanId) for r in rows if r.remoteArtisanId}
