@@ -200,7 +200,7 @@ export async function fetchPeaks(mediaId: string, signal?: AbortSignal): Promise
     const answer = await apiFetch<Peaks>(`/data/media/${encodeURIComponent(mediaId)}/peaks`, { signal });
     return Array.isArray(answer?.peaks) && answer.peaks.length ? { peaks: answer.peaks, durationMs: answer.durationMs ?? null } : null;
   } catch (error) {
-    if (error instanceof ApiError && (error.status === 404 || error.status === 405 || error.status === 501)) return null;
+    if (error instanceof ApiError && (error.status === 404 || error.status === 405)) return null;
     throw error;
   }
 }

@@ -918,7 +918,7 @@ test.describe("@qf:X2 workshop overview", () => {
       const rows = overview.locator("tbody tr");
       await expect(rows.first()).toContainText("Mohan Lal");
       await expect(rows.nth(1)).toContainText("Kamla Devi");
-      await overview.getByRole("combobox", { name: /Sort artisans/ }).click();
+      await overview.getByRole("combobox", { name: /Sort artisans/ }).or(overview.getByRole("button", { name: /Sort artisans/ })).click();
       await page.getByRole("option", { name: "By name" }).click();
       await expect(rows.first()).toContainText("Kamla Devi");
       await overview.getByRole("button", { name: "Tools: partly recorded. Still to record: Tool names" }).click();

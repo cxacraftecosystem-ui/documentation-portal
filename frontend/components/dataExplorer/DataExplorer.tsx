@@ -370,7 +370,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   }, [url.preview, url.kind, files, previewEntry, current]);
 
   const closePreview = useCallback(() => {
-    dismissedPreview.current = latest.current.preview || null;
+    dismissedPreview.current = latest.current.preview || dismissedPreview.current;
     setPreviewEntry(null);
     navigate({ preview: "", t: 0, find: "", kind: "" });
   }, [navigate]);

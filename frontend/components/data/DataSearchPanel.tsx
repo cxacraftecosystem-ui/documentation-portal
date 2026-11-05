@@ -22,6 +22,7 @@ import {
   type UnifiedResponse,
   type UnifiedType
 } from "@/lib/unifiedSearch";
+import { OpenableBlock } from "@/components/records/OpenableRow";
 import { activeFilters, clock, EMPTY_STATE, flattenGroups, legacyRows, portalCounts, rangeBounds, type DateRange, type LegacyResult, type Row, type Scope, type SearchState } from "@/lib/dataSearch";
 import { workshopDisplayTitle } from "@/lib/workshopTitle";
 
@@ -73,6 +74,17 @@ const LOCATE_TYPE: Partial<Record<UnifiedType, string>> = {
   media: "media",
   transcripts: "media"
 };
+
+function ResultCard({ href, external, className, children }: { href: string | null | undefined; external: boolean; className: string; children: React.ReactNode }) {
+  if (!href) return <li className={className}>{children}</li>;
+  return (
+    <li>
+      <OpenableBlock href={href} external={external} className={className}>
+        {children}
+      </OpenableBlock>
+    </li>
+  );
+}
 
 function Snippet({ text, ranges }: { text: string; ranges?: number[][] }) {
   return (
@@ -476,7 +488,7 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
                   const both = Boolean(row.alsoIn);
                   const time = typeof row.startMs === "number" ? clock(row.startMs) : null;
                   return (
-                    <li key={`${row.portal}:${row.type}:${row.id}`} className="panel flex flex-wrap gap-3.5 p-4 sm:flex-nowrap">
+                    <ResultCard key={`${row.portal}:${row.type}:${row.id}`} href={external ? openUrl : row.href} external={external} className="panel flex flex-wrap gap-3.5 p-4 sm:flex-nowrap">
                       <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-md text-[11px] font-bold ${row.type === "transcripts" && row.mediaType === "VIDEO" ? "bg-purple-100 text-purple-800" : tile.tone}`} aria-hidden>
                         {row.type === "transcripts" && row.mediaType === "VIDEO" ? "VID" : tile.tag}
                       </span>
@@ -536,7 +548,7 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
                           </a>
                         ) : null}
                       </ActionGroup>
-                    </li>
+                    </ResultCard>
                   );
                 })}
               </ul>

@@ -39,7 +39,7 @@ export async function fetchDownload(url: string, options: FetchOptions): Promise
     if (resume.etag) headers.set("If-Range", resume.etag);
   }
   const response = await fetch(url, { signal: options.signal, headers, credentials: "same-origin", cache: "no-store" });
-  if (!response.ok) throw await refusalOf(response, response.status === 503 ? "Busy right now." : "The download didn't start.");
+  if (!response.ok) throw await refusalOf(response, "The download didn't start.");
   const continuing = Boolean(resume && resume.bytes > 0 && response.status === 206);
   const chunks: Uint8Array[] = continuing && resume ? [...resume.chunks] : [];
   let bytes = continuing && resume ? resume.bytes : 0;
