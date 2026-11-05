@@ -760,6 +760,7 @@ interface FieldRepositoryApi {
         @Query("scope") scope: String? = null,
         @Query("type") type: String? = null,
         @Query("page") page: Int? = null,
+        @Query("artisanIds") artisanIds: String? = null,
     ): UnifiedSearchResponse
 
     @GET("search/remote/{type}/{id}")

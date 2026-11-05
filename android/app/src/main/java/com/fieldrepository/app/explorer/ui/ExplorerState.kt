@@ -43,6 +43,8 @@ sealed interface TranscriptLoad {
     data object Failed : TranscriptLoad
 }
 
+enum class ExplorerTab { FILES, TABLES, TRANSCRIPTS }
+
 private class Level(val tree: ExplorerTree, val entries: List<ExplorerEntry>, val cursor: String?, val cachedAt: Long?)
 
 @Stable
@@ -90,6 +92,13 @@ class ExplorerState(
     var openText by mutableStateOf<Set<String>>(emptySet())
         private set
     var showInfo by mutableStateOf(false)
+    var tab by mutableStateOf(ExplorerTab.FILES)
+    var cachedAt by mutableStateOf<Long?>(null)
+        private set
+    var loadingTarget: String? = null
+        private set
+    var loads = 0
+        private set
 
     val transcripts = mutableStateMapOf<String, TranscriptLoad>()
 
@@ -97,6 +106,7 @@ class ExplorerState(
     private var loadJob: Job? = null
     private var locateJob: Job? = null
     private var landed = false
+    private var started = false
 
     val statusParam: String? get() = statusParamOf(status)
 
@@ -133,6 +143,8 @@ class ExplorerState(
     }
 
     fun start(saved: String?) {
+        if (started) return
+        started = true
         if (!saved.isNullOrBlank()) {
             landed = true
             open(saved)
@@ -150,10 +162,12 @@ class ExplorerState(
     }
 
     fun open(target: String) {
+        if (target == path && loadingTarget == target && loadJob?.isActive == true) return
         if (target != path) {
             openTranscripts = emptySet()
             openText = emptySet()
             showInfo = false
+            tab = ExplorerTab.FILES
         }
         error = null
         unfiled = null
@@ -167,8 +181,16 @@ class ExplorerState(
             entries = emptyList()
             cursor = null
             cachedNote = null
+            cachedAt = null
         }
-        loadJob = scope.launch { load(target, memory != null) }
+        loadingTarget = target
+        loadJob = scope.launch {
+            try {
+                load(target, memory != null)
+            } finally {
+                if (loadingTarget == target) loadingTarget = null
+            }
+        }
     }
 
     private fun show(level: Level) {
@@ -176,6 +198,7 @@ class ExplorerState(
         entries = level.entries
         cursor = level.cursor
         cachedNote = level.cachedAt?.let { ExplorerText.cachedCopy(stamp(it)) }
+        cachedAt = level.cachedAt
     }
 
     private suspend fun load(target: String, haveMemory: Boolean) {
@@ -190,6 +213,7 @@ class ExplorerState(
             return
         }
         val got = coroutineScope {
+            loads++
             val fetch = async { runCatching { api.tree(target, statusParam, null) } }
             val early = if (disk != null) withTimeoutOrNull(fallbackMs) { fetch.await() } else fetch.await()
             if (early == null && disk != null && path == target) show(Level(disk.tree, disk.tree.entries, null, disk.fetchedAt))
@@ -227,8 +251,18 @@ class ExplorerState(
 
     fun reload() {
         levels.remove(key(path))
+        loadJob?.cancel()
+        loadingTarget = null
         open(path)
     }
+
+    fun selectAll(entries: List<ExplorerEntry>) {
+        selected = selected + entries.filter { selectable(it) }.associateBy { it.key }
+    }
+
+    val selectedBytes: Long get() = selected.values.sumOf { it.sizeBytes ?: 0L }
+
+    val selectedFolders: Int get() = selected.values.count { it.isFolder }
 
     fun loadMore() {
         val at = cursor ?: return

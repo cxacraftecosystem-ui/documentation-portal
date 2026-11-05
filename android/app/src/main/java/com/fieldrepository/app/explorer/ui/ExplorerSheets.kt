@@ -53,6 +53,10 @@ import com.fieldrepository.app.explorer.data.ExplorerText
 import com.fieldrepository.app.ui.FieldCircularProgressIndicator
 import com.fieldrepository.app.ui.FieldLinearProgressIndicator
 import com.fieldrepository.app.ui.field
+import androidx.compose.foundation.border
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.heading
 
 enum class DownloadChoice { EVERYTHING, TRANSCRIPTS, REPORT }
 
@@ -208,21 +212,32 @@ internal fun DownloadsSheet(
     onDismissJob: (ExplorerJob) -> Unit,
     onClearFinished: () -> Unit,
     onDismiss: () -> Unit,
+    onPause: (ExplorerJob) -> Unit = {},
+    onResume: (ExplorerJob) -> Unit = {},
 ) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).navigationBarsPadding().testTag("explorer.sheet.downloads")) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding().testTag("explorer.sheet.downloads")) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(ExplorerText.downloads, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-                if (jobs.any { !it.active }) TextButton(onClick = onClearFinished, modifier = Modifier.heightIn(min = 44.dp)) { Text(ExplorerText.clearFinished) }
+                Text(ExplorerText.downloads, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f).semantics { heading() })
+                if (jobs.any { !it.active && it.state != ExplorerJobState.PAUSED }) TextButton(onClick = onClearFinished, modifier = Modifier.heightIn(min = 44.dp)) { Text(ExplorerText.clearFinished) }
             }
             Spacer(Modifier.height(8.dp))
             if (jobs.isEmpty()) {
                 Text(ExplorerText.noDownloads, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp))
             } else {
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 600.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(jobs, key = { it.id }) { job ->
-                        JobCard(job, onCancel = { onCancel(job) }, onRetry = { onRetry(job) }, onOpen = { onOpen(job) }, onShare = { onShare(job) }, onDismiss = { onDismissJob(job) })
+                        JobCard(
+                            job,
+                            onCancel = { onCancel(job) },
+                            onRetry = { onRetry(job) },
+                            onOpen = { onOpen(job) },
+                            onShare = { onShare(job) },
+                            onDismiss = { onDismissJob(job) },
+                            onPause = { onPause(job) },
+                            onResume = { onResume(job) },
+                        )
                     }
                     item { Spacer(Modifier.height(16.dp)) }
                 }
@@ -232,66 +247,105 @@ internal fun DownloadsSheet(
 }
 
 @Composable
-private fun JobCard(job: ExplorerJob, onCancel: () -> Unit, onRetry: () -> Unit, onOpen: () -> Unit, onShare: () -> Unit, onDismiss: () -> Unit) {
+internal fun JobCard(
+    job: ExplorerJob,
+    onCancel: () -> Unit,
+    onRetry: () -> Unit,
+    onOpen: () -> Unit,
+    onShare: () -> Unit,
+    onDismiss: () -> Unit,
+    onPause: () -> Unit = {},
+    onResume: () -> Unit = {},
+) {
     var showFailed by remember(job.id) { mutableStateOf(false) }
+    val tone = explorerTone(jobStatus(job))
+    val content = tone?.content ?: MaterialTheme.colorScheme.onSurface
+    val muted = tone?.muted ?: MaterialTheme.colorScheme.onSurfaceVariant
     Column(
-        Modifier.fillMaxWidth().background(MaterialTheme.field.surface50, MaterialTheme.shapes.medium).padding(14.dp).testTag("explorer.job.${job.id}"),
+        Modifier.fillMaxWidth()
+            .background(tone?.container ?: MaterialTheme.colorScheme.surface, MaterialTheme.shapes.large)
+            .border(1.dp, tone?.border ?: MaterialTheme.field.hairline, MaterialTheme.shapes.large)
+            .padding(12.dp)
+            .testTag("explorer.job.${job.id}"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (job.state == ExplorerJobState.RUNNING) FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-            Text(job.request.title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(job.request.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = content, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            val end = when (job.state) {
+                ExplorerJobState.RUNNING, ExplorerJobState.QUEUED -> jobPercent(job)?.let { ExplorerUiText.percent(it) }
+                ExplorerJobState.PAUSED -> ExplorerText.paused
+                ExplorerJobState.DONE -> ExplorerUiText.saved
+                ExplorerJobState.FAILED -> ExplorerUiText.failed
+                ExplorerJobState.CANCELLED -> ExplorerText.cancelled
+            }
+            end?.let { Text(it, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = tone?.accent ?: MaterialTheme.colorScheme.primary) }
         }
-        Text(job.request.fileName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         when (job.state) {
-            ExplorerJobState.QUEUED, ExplorerJobState.RUNNING -> {
+            ExplorerJobState.QUEUED, ExplorerJobState.RUNNING, ExplorerJobState.PAUSED -> {
                 val fraction = job.fraction
-                if (fraction != null && job.state == ExplorerJobState.RUNNING) {
+                if (fraction != null && job.state != ExplorerJobState.QUEUED) {
                     FieldLinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().height(6.dp).testTag("explorer.job.progress"))
-                } else {
+                } else if (job.state != ExplorerJobState.PAUSED) {
                     FieldLinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(6.dp))
                 }
                 Text(
-                    listOfNotNull(jobLine(job), job.current?.takeIf { it != ExplorerText.resuming && it != ExplorerText.waitingForNetwork }?.substringAfterLast('/')).joinToString(" · "),
+                    jobLine(job),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    color = muted,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }.testTag("explorer.job.status"),
                 )
-                SheetButtons(primary = ExplorerText.cancel, onPrimary = onCancel, primaryTag = "explorer.job.cancel")
+                if (job.retrying > 0) Text(ExplorerText.retryNote(job.retrying), style = MaterialTheme.typography.bodySmall, color = explorerWarnTone().muted)
+                when {
+                    job.state == ExplorerJobState.PAUSED -> SheetButtons(primary = ExplorerText.resume, onPrimary = onResume, secondary = ExplorerText.cancel, onSecondary = onCancel, primaryTag = "explorer.job.resume")
+                    job.pausable -> SheetButtons(primary = ExplorerText.cancel, onPrimary = onCancel, secondary = ExplorerText.pause, onSecondary = onPause, primaryTag = "explorer.job.cancel")
+                    else -> SheetButtons(primary = ExplorerText.cancel, onPrimary = onCancel, primaryTag = "explorer.job.cancel")
+                }
             }
             ExplorerJobState.DONE -> {
-                Text(ExplorerText.doneLine(job.result), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body, modifier = Modifier.testTag("explorer.job.done"))
+                Text(jobSavedLine(job), style = MaterialTheme.typography.bodySmall, color = muted, modifier = Modifier.testTag("explorer.job.done"))
                 val result = job.result
                 if (result != null && result.failedCount > 0) {
                     TextButton(onClick = { showFailed = !showFailed }, modifier = Modifier.heightIn(min = 44.dp)) {
-                        Text("${ExplorerText.failedFiles(result.failedCount)} · ${if (showFailed) ExplorerText.hide else ExplorerText.show}")
+                        Text("${ExplorerText.failedFiles(result.failedCount)} · ${if (showFailed) ExplorerText.hide else ExplorerText.show}", color = content)
                     }
                     if (showFailed) {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.testTag("explorer.job.failed")) {
-                            result.failed.forEach { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                            if (result.failedCount > result.failed.size) Text("…", style = MaterialTheme.typography.labelSmall)
+                            result.failed.forEach { Text(it, style = MaterialTheme.typography.labelSmall, color = muted) }
+                            if (result.failedCount > result.failed.size) Text("…", style = MaterialTheme.typography.labelSmall, color = muted)
                         }
                     }
                 }
                 if (result?.truncated == true) Notice(ExplorerText.partOfArchive, warn = true)
                 if (result?.uri != null || result?.location != null) {
-                    SheetButtons(primary = ExplorerText.open, onPrimary = onOpen, secondary = ExplorerText.share, onSecondary = onShare, primaryTag = "explorer.job.open")
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = onShare,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = content),
+                            modifier = Modifier.weight(1f).heightIn(min = 44.dp).testTag("explorer.job.share"),
+                        ) { Text(ExplorerText.share) }
+                        Button(
+                            onClick = onOpen,
+                            colors = ButtonDefaults.buttonColors(containerColor = tone?.accent ?: MaterialTheme.colorScheme.primary, contentColor = tone?.onAccent ?: MaterialTheme.colorScheme.onPrimary),
+                            modifier = Modifier.weight(1f).heightIn(min = 44.dp).testTag("explorer.job.open"),
+                        ) { Text(ExplorerText.open) }
+                    }
                 } else {
                     SheetButtons(primary = ExplorerText.dismiss, onPrimary = onDismiss)
                 }
             }
             ExplorerJobState.FAILED -> {
-                Text(job.error ?: ExplorerText.fileFailed, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("explorer.job.error"))
-                SheetButtons(primary = ExplorerText.retry, onPrimary = onRetry, secondary = ExplorerText.dismiss, onSecondary = onDismiss, primaryTag = "explorer.job.retry")
-            }
-            ExplorerJobState.PAUSED -> {
-                Text(ExplorerText.paused, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                SheetButtons(primary = ExplorerText.resume, onPrimary = onRetry, secondary = ExplorerText.cancel, onSecondary = onCancel, primaryTag = "explorer.job.resume")
+                Text("${ExplorerUiText.failed} · ${job.error ?: ExplorerText.fileFailed}", style = MaterialTheme.typography.bodySmall, color = muted, modifier = Modifier.testTag("explorer.job.error"))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onDismiss, colors = ButtonDefaults.outlinedButtonColors(contentColor = content), modifier = Modifier.weight(1f).heightIn(min = 44.dp)) { Text(ExplorerText.dismiss) }
+                    Button(
+                        onClick = onRetry,
+                        colors = ButtonDefaults.buttonColors(containerColor = tone?.accent ?: MaterialTheme.colorScheme.error, contentColor = tone?.onAccent ?: MaterialTheme.colorScheme.onError),
+                        modifier = Modifier.weight(1f).heightIn(min = 44.dp).testTag("explorer.job.retry"),
+                    ) { Text(ExplorerText.retry) }
+                }
             }
             ExplorerJobState.CANCELLED -> {
-                Text(ExplorerText.cancelled, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(ExplorerText.cancelled, style = MaterialTheme.typography.bodySmall, color = muted)
                 SheetButtons(primary = ExplorerText.retry, onPrimary = onRetry, secondary = ExplorerText.dismiss, onSecondary = onDismiss, primaryTag = "explorer.job.retry")
             }
         }

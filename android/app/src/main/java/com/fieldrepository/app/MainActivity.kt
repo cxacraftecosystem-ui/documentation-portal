@@ -1368,7 +1368,7 @@ private fun HomeScreen(
     }
     val downloadsOpenRequest by com.fieldrepository.app.explorer.data.ExplorerDownloadsTap.requests.collectAsState()
     LaunchedEffect(downloadsOpenRequest) {
-        if (downloadsOpenRequest > 0L) screen = Screen.DataBrowser
+        if (downloadsOpenRequest > com.fieldrepository.app.explorer.ui.ExplorerTapMemory.handled && screen !is Screen.DataBrowser) screen = Screen.DataBrowser
     }
     val notificationInbox by NotificationState.inbox.collectAsState()
     val unreadNotifications = notificationInbox?.takeIf { it.userId == user.id }?.let { NotificationInboxRules.unread(it) } ?: 0
@@ -1659,7 +1659,7 @@ private fun HomeScreen(
         is Screen.Appearance -> "Appearance & accessibility"
         is Screen.MyAiKeys -> null
         is Screen.TwoStepVerification -> null
-        is Screen.DataBrowser -> "Data Browser"
+        is Screen.DataBrowser -> "Data"
         is Screen.RemoteRecord -> null
         is Screen.AdminHub -> if (s.section == AdminHubEntry.REVIEWS && !(isAdmin && adminChrome)) {
             AdminHubEntry.REVIEWS.label
@@ -1810,7 +1810,12 @@ private fun HomeScreen(
                         repository = repository,
                         onBack = { attemptExit { goBack() } },
                         onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
-                        onOpenMedia = { mediaId -> openRecordView(EntryMode.MEDIA, mediaId) }
+                        onOpenMedia = { mediaId -> openRecordView(EntryMode.MEDIA, mediaId) },
+                        onOpenRemote = { type, id -> screen = Screen.RemoteRecord(type, id, from = Screen.DataBrowser) },
+                        onRecordNow = { path, name ->
+                            val artisanId = dataFolderArtisan(path)
+                            screen = Screen.Create(EntryMode.MEDIA, artisanId?.let { Prefill(artisanId = it, artisanName = name) }, fresh = ++createNonce)
+                        }
                     )
 
                     is Screen.Appearance -> AppearanceScreen(
@@ -2566,7 +2571,7 @@ private fun AdminViewHiddenCard(
 
 @Composable
 private fun DataBrowserEntryCard(onOpen: () -> Unit) {
-    RecordCard(title = "Data Browser", icon = Icons.Filled.Storage) {
+    RecordCard(title = "Data", icon = Icons.Filled.Storage) {
         Text(
             "Browse records as folders, preview files, download as zip.",
             color = Muted,
@@ -2575,7 +2580,7 @@ private fun DataBrowserEntryCard(onOpen: () -> Unit) {
         Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Filled.Storage, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Open the Data Browser")
+            Text("Open Data")
         }
     }
 }

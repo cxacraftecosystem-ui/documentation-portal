@@ -20,16 +20,7 @@ data class UnifiedSearchItemDto(
     val score: Double = 0.0,
     val startMs: Long? = null,
     val mediaType: String? = null,
-    val alsoIn: List<UnifiedAlsoInDto> = emptyList(),
-)
-
-@Serializable
-data class UnifiedAlsoInDto(
-    val portal: String = "designer",
-    val id: String = "",
-    val href: String? = null,
-    val openUrl: String? = null,
-    val subtitle: String? = null,
+    val alsoIn: kotlinx.serialization.json.JsonElement? = null,
 )
 
 @Serializable
@@ -59,7 +50,6 @@ data class UnifiedSearchResponse(
     val suggestion: String? = null,
     val type: String? = null,
     val page: Int? = null,
-    val limit: Int? = null,
 )
 
 @Serializable
