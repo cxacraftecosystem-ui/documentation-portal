@@ -13,8 +13,7 @@ log = logging.getLogger(__name__)
 FACTS_KEY = "facts"
 MEASURE_MAX_BYTES = 64 * 1024 * 1024
 MEASURE_PER_LISTING = 12
-_SLOTS = asyncio.Semaphore(2)
-_pending: set[str] = set()
+_SLOTS = asyncio.Semaphore(1)
 
 
 def _meta(media: Any) -> dict[str, Any]:
@@ -123,32 +122,40 @@ async def measure(media: Any) -> dict[str, int]:
     return found
 
 
-async def _measure_quietly(media: Any) -> None:
-    media_id = str(media.id)
-    try:
-        async with _SLOTS:
-            await measure(media)
-    except Exception:
-        log.info("facts: background measure failed for %s", media_id, exc_info=True)
-    finally:
-        _pending.discard(media_id)
+SWEEP_DELAY_SECONDS = 3.0
+_queue: dict[str, Any] = {}
+_sweeper: list[asyncio.Task[None]] = []
+
+
+async def _sweep() -> None:
+    await asyncio.sleep(SWEEP_DELAY_SECONDS)
+    while _queue:
+        media_id, media = next(iter(_queue.items()))
+        try:
+            async with _SLOTS:
+                await measure(media)
+        except Exception:
+            log.info("facts: background measure failed for %s", media_id, exc_info=True)
+        finally:
+            _queue.pop(media_id, None)
+    _sweeper.clear()
 
 
 def schedule(media_rows: list[Any], limit: int = MEASURE_PER_LISTING) -> int:
-    started = 0
+    added = 0
     for media in media_rows:
-        if started >= limit:
+        if added >= limit:
             break
         if media is None or not measurable(media):
             continue
         media_id = str(media.id)
-        if media_id in _pending:
+        if media_id in _queue:
             continue
-        _pending.add(media_id)
+        _queue[media_id] = media
+        added += 1
+    if added and not _sweeper:
         try:
-            asyncio.get_running_loop().create_task(_measure_quietly(media))
+            _sweeper.append(asyncio.get_running_loop().create_task(_sweep()))
         except RuntimeError:
-            _pending.discard(media_id)
-            break
-        started += 1
-    return started
+            _queue.clear()
+    return added
