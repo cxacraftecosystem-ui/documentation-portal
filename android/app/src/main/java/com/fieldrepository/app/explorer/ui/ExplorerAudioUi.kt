@@ -141,7 +141,7 @@ internal fun findIn(texts: List<String>, needle: String, at: Int): AudioFind {
 }
 
 @Composable
-internal fun highlighted(text: String, needle: String, mark: Color, onMark: Color): AnnotatedString {
+internal fun audioHighlight(text: String, needle: String, mark: Color, onMark: Color): AnnotatedString {
     val wanted = needle.trim()
     if (wanted.isEmpty()) return AnnotatedString(text)
     return buildAnnotatedString {
@@ -304,7 +304,7 @@ internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, star
                         clock = ExplorerAudioLines.clock(turn.startMs),
                         speaker = lines.getOrNull(i)?.speaker,
                         speakerColor = speakerColor(turn.colorKey ?: view?.speakers?.firstOrNull { it.speakerKey == turn.speakerKey }?.colorKey),
-                        text = highlighted(texts.getOrElse(i) { turn.text }, needle, mark.first, mark.second),
+                        text = audioHighlight(texts.getOrElse(i) { turn.text }, needle, mark.first, mark.second),
                         current = i == active,
                         markBg = markBg,
                         textSize = 15,
