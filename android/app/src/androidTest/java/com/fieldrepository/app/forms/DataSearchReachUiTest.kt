@@ -1,22 +1,27 @@
-package com.fieldrepository.app.ui
+package com.fieldrepository.app.forms
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.fieldrepository.app.data.ApiClient
-import com.fieldrepository.app.data.TokenStore
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.FieldRepositoryApi
+import com.fieldrepository.app.data.TokenStore
+import com.fieldrepository.app.ui.AppSearchPanel
+import com.fieldrepository.app.ui.DataRecordSearch
+import com.fieldrepository.app.ui.DataUnifiedSearch
+import com.fieldrepository.app.ui.appSearchAllLine
+import java.util.Collections
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -27,7 +32,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.Collections
 
 @RunWith(AndroidJUnit4::class)
 class DataSearchReachUiTest {
