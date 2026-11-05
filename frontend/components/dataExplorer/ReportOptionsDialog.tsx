@@ -1,15 +1,16 @@
 "use client";
 
-import { CheckCircle2, FileSpreadsheet, Package } from "lucide-react";
+import { CheckCircle2, FileSpreadsheet, Filter, Package } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Skeleton } from "@/components/dataExplorer/explorerUi";
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import { Toggle } from "@/components/ui/Toggle";
 import { fetchReport, fetchReportOptions, fetchReportSheets, saveReportOptions } from "@/lib/dataExplorer/api";
-import { DEFAULT_REPORT_OPTIONS, withReportDefaults, type ReportLocale, type ReportOptions, type ReportResponse, type ReportSheetList } from "@/lib/dataExplorer/contract";
+import { DEFAULT_REPORT_OPTIONS, withReportDefaults, type ReportLocale, type ReportOptions, type ReportResponse, type ReportSheetList, type ReportStatusFilter } from "@/lib/dataExplorer/contract";
 import { exportFilename } from "@/lib/naming";
 import { estimateLine } from "@/lib/dataExplorer/explorerView";
+import { filtersLeaveNothing, recordLine, reportFilterChips, withoutStatus } from "@/lib/dataExplorer/reportFilters";
 import type { QueryParams } from "@/lib/dataExplorer/wire";
 
 import { sheetCount } from "@/components/dataExplorer/DataTables";
@@ -60,6 +61,7 @@ export function ReportOptionsDialog({
   folderName,
   subtitle,
   extra,
+  statusFilter,
   query,
   onMake,
   onPack
@@ -70,35 +72,56 @@ export function ReportOptionsDialog({
   folderName: string;
   subtitle: string;
   extra: QueryParams;
+  statusFilter?: ReportStatusFilter;
   query: string;
-  onMake: (options: ReportOptions, name: string) => void;
-  onPack?: (options: ReportOptions, name: string) => void;
+  onMake: (options: ReportOptions, name: string, extra: QueryParams) => void;
+  onPack?: (options: ReportOptions, name: string, extra: QueryParams) => void;
 }) {
   const [report, setReport] = useState<{ path: string; report: ReportResponse | null; error: boolean } | null>(null);
-  const [list, setList] = useState<{ path: string; list: ReportSheetList | null } | null>(null);
+  const [list, setList] = useState<{ path: string; key: string; list: ReportSheetList | null } | null>(null);
+  const [unfiltered, setUnfiltered] = useState<{ path: string; list: ReportSheetList | null } | null>(null);
   const [options, setOptions] = useState<ReportOptions>(DEFAULT_REPORT_OPTIONS);
   const [name, setName] = useState("");
   const [saved, setSaved] = useState<"idle" | "saving" | "saved" | "failed">("idle");
-  const extraKey = JSON.stringify(extra);
+  const statusActive = Boolean(statusFilter?.active);
+  const [allStatuses, setAllStatuses] = useState(!statusActive);
+  const search = options.rows === "filtered" ? query.trim() : "";
+  const chosenExtra = useMemo(() => (allStatuses ? withoutStatus(extra) : extra), [allStatuses, extra]);
+  const extraKey = JSON.stringify(chosenExtra);
+  const baseKey = JSON.stringify(withoutStatus(extra));
+  const listKey = `${extraKey}|${search}`;
+  const chips = reportFilterChips(statusFilter, allStatuses, search);
+  const filtered = chips.length > 0;
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setName(defaultReportName(folderName));
     setSaved("idle");
+    setAllStatuses(!statusActive);
     fetchReportOptions()
       .then((remembered) => {
         if (!cancelled && remembered) setOptions(withReportDefaults(remembered));
       })
       .catch(() => undefined);
-    fetchReportSheets(path, JSON.parse(extraKey) as QueryParams)
+    return () => {
+      cancelled = true;
+    };
+  }, [open, folderName, statusActive]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const key = `${extraKey}|${search}`;
+    const chosen = JSON.parse(extraKey) as QueryParams;
+    fetchReportSheets(path, chosen, undefined, search || undefined)
       .then((answer) => {
-        if (!cancelled) setList({ path, list: answer });
+        if (!cancelled) setList({ path, key, list: answer });
       })
       .catch(() => {
-        if (!cancelled) setList({ path, list: null });
+        if (!cancelled) setList({ path, key, list: null });
       });
-    fetchReport({ path, extra: JSON.parse(extraKey) as QueryParams })
+    fetchReport({ path, extra: chosen })
       .then((answer) => {
         if (!cancelled) setReport({ path, report: answer, error: false });
       })
@@ -108,9 +131,29 @@ export function ReportOptionsDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, path, extraKey, folderName]);
+  }, [open, path, extraKey, search]);
 
+  const listed = list?.path === path && list.key === listKey ? list.list : null;
+  const empty = filtersLeaveNothing(listed, filtered);
+
+  useEffect(() => {
+    if (!open || !empty) return;
+    let cancelled = false;
+    fetchReportSheets(path, JSON.parse(baseKey) as QueryParams)
+      .then((answer) => {
+        if (!cancelled) setUnfiltered({ path, list: answer });
+      })
+      .catch(() => {
+        if (!cancelled) setUnfiltered({ path, list: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, empty, path, baseKey]);
+
+  const refreshing = list?.path === path && list.key !== listKey;
   const server = list?.path === path ? list.list : null;
+  const everything = unfiltered?.path === path ? unfiltered.list : null;
   const preview = report?.path === path ? report.report : null;
   const sheets = useMemo(() => sheetRows(server, preview), [server, preview]);
   const extras = server?.extras ?? [];
@@ -133,6 +176,10 @@ export function ReportOptionsDialog({
     }
   };
   const blocked = chosen.length === 0 && sheets.length > 0;
+  const makeUnfiltered = () => {
+    onMake({ ...options, rows: "all" }, fileName, withoutStatus(extra));
+    onClose();
+  };
 
   return (
     <FieldDialog
@@ -156,7 +203,7 @@ export function ReportOptionsDialog({
               className="field-button-secondary"
               disabled={blocked}
               onClick={() => {
-                onPack(options, fileName);
+                onPack(options, fileName, chosenExtra);
                 onClose();
               }}
             >
@@ -169,7 +216,7 @@ export function ReportOptionsDialog({
             className="field-button"
             disabled={blocked}
             onClick={() => {
-              onMake(options, fileName);
+              onMake(options, fileName, chosenExtra);
               onClose();
             }}
           >
@@ -179,6 +226,34 @@ export function ReportOptionsDialog({
       }
     >
       <div className="grid gap-5">
+        <section aria-label="Filters" className="grid gap-2.5 rounded-md border border-line-200 p-3" data-testid="report-filters">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="field-label inline-flex items-center gap-1.5">
+              <Filter className="h-3.5 w-3.5" aria-hidden />
+              Filters
+            </span>
+            {chips.length ? (
+              chips.map((chip) => (
+                <span key={chip.label} className="inline-flex min-h-7 items-center rounded-full bg-purple-50 px-2.5 text-xs font-semibold text-purple-800 dark:bg-purple-950/40 dark:text-purple-200">
+                  {chip.label}: {chip.value}
+                </span>
+              ))
+            ) : (
+              <span className="text-sm text-ink-500">None. Every record you can see.</span>
+            )}
+          </div>
+          {statusFilter ? <Toggle label="Include all statuses" checked={allStatuses} onChange={setAllStatuses} /> : null}
+        </section>
+        {empty ? (
+          <div role="alert" className="grid gap-2 rounded-md border border-amber-500/30 bg-amber-100 p-3 text-sm text-amber-800" data-testid="report-empty">
+            <p className="font-semibold">No records match these filters.</p>
+            {recordLine(listed) ? <p>{recordLine(listed)}</p> : null}
+            {recordLine(everything) ? <p>Without filters: {recordLine(everything)}</p> : null}
+            <button type="button" className="field-button justify-self-start" onClick={makeUnfiltered}>
+              Make the unfiltered report
+            </button>
+          </div>
+        ) : null}
         <div className="grid gap-1.5">
           <span className="field-label">Sheets</span>
           {loading ? (
@@ -188,7 +263,7 @@ export function ReportOptionsDialog({
               ))}
             </div>
           ) : sheets.length ? (
-            <ul className="grid gap-1 sm:grid-cols-2" aria-label="Sheets">
+            <ul className={`grid gap-1 transition-opacity sm:grid-cols-2 ${refreshing ? "opacity-60" : ""}`} aria-label="Sheets" aria-busy={refreshing}>
               {sheets.map((sheet) => {
                 const on = !options.sheets || options.sheets.includes(sheet.name);
                 return (
@@ -199,7 +274,7 @@ export function ReportOptionsDialog({
                     >
                       <input type="checkbox" checked={on} onChange={() => toggleSheet(sheet.name)} className="h-4.5 w-4.5 accent-purple-700" />
                       <span className="min-w-0 flex-1 truncate">{sheet.name}</span>
-                      {sheet.count ? <span className="text-xs tabular-nums text-ink-500">{sheet.count}</span> : null}
+                      {sheet.count !== null ? <span className="text-xs tabular-nums text-ink-500">{sheet.count}</span> : null}
                     </label>
                   </li>
                 );
@@ -260,14 +335,14 @@ export function ReportOptionsDialog({
           <input id="report-file-name" className="field-input" value={name} onChange={(event) => setName(event.target.value)} />
         </div>
         {estimateLine(preview, chosen.length) ? (
-          <p className="flex items-center gap-1.5 text-sm text-success-600">
+          <p className="flex items-center gap-1.5 rounded-md border border-success-600/30 bg-success-100 px-3 py-2 text-sm text-success-600">
             <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
             {estimateLine(preview, chosen.length)}
           </p>
         ) : null}
         {saved === "failed" ? <p className="text-sm text-error-600">Your choices weren&apos;t remembered. They still apply to this report.</p> : null}
         <div className="border-t border-line-200 pt-4">
-          <ReportShareControls path={path} options={options} extra={extra} />
+          <ReportShareControls path={path} options={options} extra={chosenExtra} />
         </div>
       </div>
     </FieldDialog>

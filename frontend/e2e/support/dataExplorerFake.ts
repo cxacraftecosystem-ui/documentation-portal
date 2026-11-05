@@ -452,9 +452,11 @@ export class DataExplorerFake {
         json: {
           path: query.get("path") ?? "",
           sheets: [
-            { key: "artisans", name: "Artisans", plugin: "core", count: 201, files: 3, group: null, description: "Every artisan in this folder." },
-            { key: "products", name: "Products", plugin: "core", count: 1, files: 0, group: null, description: "Products recorded here." }
+            { key: "artisans", name: "Artisans", plugin: "core", count: query.has("status") ? 0 : 201, files: 3, group: null, description: "Every artisan in this folder.", record: true },
+            { key: "products", name: "Products", plugin: "core", count: query.has("status") ? 0 : 1, files: 0, group: null, description: "Products recorded here.", record: true },
+            { key: "questionBank", name: "Question bank", plugin: "core", count: 365, files: 0, group: null, description: "Every question.", record: false }
           ],
+          records: query.has("status") ? 0 : 202,
           extras: [
             { key: "quotes", title: "Quotes sheet" },
             { key: "glossary", title: "Glossary sheet" }

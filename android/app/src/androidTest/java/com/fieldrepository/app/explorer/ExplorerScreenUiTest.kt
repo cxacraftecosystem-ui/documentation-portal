@@ -94,7 +94,7 @@ class ExplorerScreenUiTest {
         override suspend fun views() = ExplorerViews()
         override suspend fun saveView(body: ExplorerViewBody) = ExplorerView(id = "v1", name = body.name, path = body.path)
         override suspend fun transcripts(path: String, q: String?, status: String?) = ExplorerTranscriptList()
-        override suspend fun reportSheets(path: String, status: String?) = com.fieldrepository.app.explorer.data.ExplorerReportSheets(
+        override suspend fun reportSheets(path: String, status: String?, q: String?) = com.fieldrepository.app.explorer.data.ExplorerReportSheets(
             path = path,
             sheets = listOf(com.fieldrepository.app.explorer.data.ExplorerReportSheetInfo(key = "tools", name = "Tools", count = 120, group = "Records", description = "Every tool")),
             extras = listOf(com.fieldrepository.app.explorer.data.ExplorerReportExtra("quotes", "Quotes")),

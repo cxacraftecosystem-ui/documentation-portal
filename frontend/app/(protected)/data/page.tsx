@@ -166,6 +166,7 @@ function Explorer({ user }: { user: User }) {
     extra: { status: statusParam },
     downloadExtra: {},
     statusKey: reviewStatus,
+    statusFilter: { active: Boolean(statusParam), label: dataStatusLabel(reviewStatus) },
     viewer: user.id,
     fileHref: mediaHref,
     renderSearch: (reveal, openPreview) => <DataSearchPanel onReveal={reveal} onPreview={openPreview} />,

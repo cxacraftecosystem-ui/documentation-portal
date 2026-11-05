@@ -9,6 +9,7 @@ import { completionVerdictLabel, nextCompletionStatus } from "@/lib/completionVe
 import {
   bulkReceipt,
   DATA_STATUS_OPTIONS,
+  DEFAULT_DATA_STATUS,
   dataStatusLabel,
   decisionBody,
   isReturned,
@@ -187,6 +188,15 @@ test.describe("the wiring", () => {
     expect(data).toContain("status: statusParam");
     expect(data).toContain("Show all statuses");
     expect(DATA_STATUS_OPTIONS.map((option) => option.value)).toEqual(["ALL", "APPROVED", "PENDING", "NEEDS_REVISION", "REJECTED"]);
+  });
+
+  test("Data shows every review status until someone narrows it, and the report dialog is told which one is active", () => {
+    expect(DEFAULT_DATA_STATUS).toBe("ALL");
+    expect(statusQuery(DEFAULT_DATA_STATUS)).toBeUndefined();
+    expect(dataStatusLabel(DEFAULT_DATA_STATUS)).toBe("All");
+    const data = read("app/(protected)/data/page.tsx");
+    expect(data).toContain('params.get("status") || DEFAULT_DATA_STATUS');
+    expect(data).toContain("statusFilter: { active: Boolean(statusParam), label: dataStatusLabel(reviewStatus) }");
   });
 
   test("downloads carry every review status whatever the page shows", () => {

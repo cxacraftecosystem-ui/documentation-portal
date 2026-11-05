@@ -104,6 +104,15 @@ object ReportText {
     const val noViews = "No saved views yet."
     const val viewSaved = "View saved"
     const val linkFailed = "That didn't work. Try again."
+    const val filters = "Filters"
+    const val noFilters = "None. Every record you can see."
+    const val allStatuses = "Include all statuses"
+    const val nothingMatches = "No records match these filters."
+    const val makeUnfiltered = "Make the unfiltered report"
+    const val reviewStatus = "Review status"
+    const val search = "Search"
+
+    fun withoutFilters(line: String) = "Without filters: $line"
 
     fun filtered(q: String) = "Only what's filtered ($q)"
 
@@ -120,6 +129,21 @@ object ReportText {
     }
 }
 
+internal object ReportFilters {
+    fun chips(statusLabel: String?, allStatuses: Boolean, search: String): List<Pair<String, String>> = buildList {
+        if (statusLabel != null && !allStatuses) add(ReportText.reviewStatus to statusLabel)
+        if (search.isNotBlank()) add(ReportText.search to search.trim())
+    }
+
+    fun statusLabel(status: String?, options: List<Pair<String, String>>): String? =
+        status?.let { value -> options.firstOrNull { it.first == value }?.second ?: value }
+
+    fun recordLine(list: ExplorerReportSheets?): String =
+        list?.sheets.orEmpty().filter { it.record && it.count != null }.joinToString(" · ") { "${it.name} ${it.count}" }
+
+    fun leavesNothing(list: ExplorerReportSheets?, filtered: Boolean): Boolean = filtered && list != null && list.records == 0
+}
+
 internal data class ReportSheetChoice(val key: String, val name: String, val count: Int?, val group: String?, val description: String?)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -132,17 +156,20 @@ internal fun ReportOptionsSheet(
     query: String,
     tab: ExplorerTab,
     more: ExplorerMore,
-    onMake: (options: ExplorerReportOptions, name: String) -> Unit,
+    onMake: (options: ExplorerReportOptions, name: String, status: String?) -> Unit,
     onOpenView: (ExplorerView) -> Unit,
     onMessage: (String) -> Unit,
     onDismiss: () -> Unit,
     status: String? = null,
-    onMakePack: ((options: ExplorerReportOptions, name: String) -> Unit)? = null,
+    onMakePack: ((options: ExplorerReportOptions, name: String, status: String?) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var listed by remember(path) { mutableStateOf<ExplorerReportSheets?>(null) }
+    var unfiltered by remember(path) { mutableStateOf<ExplorerReportSheets?>(null) }
+    var allStatuses by remember(path, status) { mutableStateOf(status == null) }
+    val statusLabel = ReportFilters.statusLabel(status, ExplorerPortal.statusOptions)
     val choices = listed?.sheets?.map { ReportSheetChoice(it.key.ifBlank { it.name }, it.name, it.count, it.group, it.description) }
         ?: sheets.map { ReportSheetChoice(it.name, it.name, it.totalRows ?: it.rows.size, null, null) }
     var picked by remember(choices.map { it.key }) { mutableStateOf(choices.map { it.key }.toSet()) }
@@ -158,9 +185,19 @@ internal fun ReportOptionsSheet(
     var expiry by remember { mutableStateOf("7") }
     var copied by remember { mutableStateOf<String?>(null) }
     var saved by remember { mutableStateOf<ExplorerReportOptions?>(null) }
+    val chosenStatus = if (allStatuses) null else status
+    val search = if (rows == "filtered") query.trim() else ""
+    val chips = ReportFilters.chips(statusLabel, allStatuses, search)
+    val empty = ReportFilters.leavesNothing(listed, chips.isNotEmpty())
 
-    LaunchedEffect(path, status) {
-        listed = try { more.reportSheets(path, status) } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Throwable) { null }
+    LaunchedEffect(path, chosenStatus, search) {
+        listed = try { more.reportSheets(path, chosenStatus, search.ifBlank { null }) } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Throwable) { null }
+    }
+    LaunchedEffect(path, empty) {
+        if (!empty || unfiltered != null) return@LaunchedEffect
+        unfiltered = try { more.reportSheets(path, null, null) } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Throwable) { null }
+    }
+    LaunchedEffect(path) {
         saved = runCatching { more.reportOptions().options }.getOrNull()
         shares = try { more.shares(path).items } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Throwable) { null }
         views = try { more.views() } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Throwable) { null }
@@ -194,6 +231,45 @@ internal fun ReportOptionsSheet(
             Column {
                 Text(com.fieldrepository.app.explorer.data.ExplorerText.report, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semantics { heading() })
                 Text(folderTitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Column(
+                Modifier.fillMaxWidth().border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.large).padding(12.dp).testTag("explorer.report.filters"),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Label(ReportText.filters)
+                if (chips.isEmpty()) {
+                    Text(ReportText.noFilters, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        chips.forEach { (label, value) ->
+                            Text(
+                                "$label: $value",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.extraLarge).padding(horizontal = 10.dp, vertical = 6.dp).testTag("explorer.report.filter.$label"),
+                            )
+                        }
+                    }
+                }
+                if (status != null) {
+                    com.fieldrepository.app.ui.AppToggle(label = ReportText.allStatuses, checked = allStatuses, onCheckedChange = { allStatuses = it }, modifier = Modifier.fillMaxWidth().testTag("explorer.report.allStatuses"))
+                }
+            }
+            if (empty) {
+                val tone = explorerWarnTone()
+                Column(
+                    Modifier.fillMaxWidth().background(tone.container, MaterialTheme.shapes.large).border(1.dp, tone.border, MaterialTheme.shapes.large).padding(12.dp).testTag("explorer.report.empty"),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(ReportText.nothingMatches, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = tone.content)
+                    ReportFilters.recordLine(listed).takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tone.content) }
+                    ReportFilters.recordLine(unfiltered).takeIf { it.isNotBlank() }?.let { Text(ReportText.withoutFilters(it), style = MaterialTheme.typography.bodySmall, color = tone.content) }
+                    Button(
+                        onClick = { onMake(options().copy(rows = "all"), name, null) },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("explorer.report.unfiltered"),
+                    ) { Text(ReportText.makeUnfiltered) }
+                }
             }
             if (choices.isNotEmpty()) {
                 Label(ReportText.sheets)
@@ -268,11 +344,11 @@ internal fun ReportOptionsSheet(
             ) { Text(ReportText.remember) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text(ReportText.cancel) }
-                Button(onClick = { onMake(options(), name) }, enabled = choices.isEmpty() || picked.isNotEmpty(), modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("explorer.report.make")) { Text(ReportText.make, maxLines = 2) }
+                Button(onClick = { onMake(options(), name, chosenStatus) }, enabled = choices.isEmpty() || picked.isNotEmpty(), modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("explorer.report.make")) { Text(ReportText.make, maxLines = 2) }
             }
             if (onMakePack != null) {
                 OutlinedButton(
-                    onClick = { onMakePack(options(), name.removeSuffix(".xlsx")) },
+                    onClick = { onMakePack(options(), name.removeSuffix(".xlsx"), chosenStatus) },
                     enabled = choices.isEmpty() || picked.isNotEmpty(),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("explorer.report.pack"),
                 ) { Text(ReportText.pack) }
@@ -308,7 +384,7 @@ internal fun ReportOptionsSheet(
             Button(
                 onClick = {
                     scope.launch {
-                        runCatching { more.createShare(ExplorerShareBody(path = path, options = options(), filters = status?.let { mapOf("status" to it) }, expiresInDays = expiry.toInt())) }
+                        runCatching { more.createShare(ExplorerShareBody(path = path, options = options(), filters = chosenStatus?.let { mapOf("status" to it) }, expiresInDays = expiry.toInt())) }
                             .onSuccess { made -> shares = listOf(made) + shares.orEmpty(); copy(context, made.url); copied = made.url }
                             .onFailure { if (it is CancellationException) throw it; onMessage(ReportText.linkFailed) }
                     }

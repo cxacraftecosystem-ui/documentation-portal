@@ -212,13 +212,15 @@ fun MediaRejectAction(mediaId: String, label: String) {
 }
 
 object DataStatusChoice {
-    const val DEFAULT = "APPROVED"
     const val ALL = "ALL"
+    const val DEFAULT = ALL
 
     val options: List<SelectOption> = listOf(
+        SelectOption(ALL, "All"),
         SelectOption("APPROVED", "Approved"),
-        SelectOption("PENDING", "Pending review"),
-        SelectOption(ALL, "All statuses")
+        SelectOption("PENDING", "Pending"),
+        SelectOption("NEEDS_REVISION", "Needs revision"),
+        SelectOption("REJECTED", "Rejected")
     )
 
     fun param(choice: String): String? = choice.takeIf { it.isNotBlank() && it != ALL }

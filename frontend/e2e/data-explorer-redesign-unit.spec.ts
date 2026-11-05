@@ -6,6 +6,7 @@ import { DEFAULT_REPORT_OPTIONS, withReportDefaults, type ReportResponse, type T
 import { fileNameFrom, looksLikeZip, nextToStart, retryDelaySeconds, ROW_TONE_CLASS, TONE_CLASS, toneOf, trayHeadline, type DownloadItem } from "@/lib/dataExplorer/downloads";
 import { builtAgo, estimateLine, filterOf, highlightParts, mergeNavigation, pageOf, percentLabel, sortArtisans, viewLink, viewSummary } from "@/lib/dataExplorer/explorerView";
 import { fetchDownload, NotAFile } from "@/lib/dataExplorer/fetchDownload";
+import { filtersLeaveNothing, recordLine, reportFilterChips, withoutStatus } from "@/lib/dataExplorer/reportFilters";
 import { DEFAULT_URL_STATE } from "@/lib/dataExplorer/urlState";
 
 function item(status: DownloadItem["status"], kind: DownloadItem["kind"] = "file"): DownloadItem {
@@ -219,4 +220,33 @@ test.describe("@qf:X16 the command palette's search", () => {
       ["tools", "Vat stirrer", "Tool"]
     ]);
   });
+});
+
+test("report filters: chips name what narrows the report, and an empty result is spotted before any download", () => {
+  const rejected = { active: true, label: "Rejected" };
+  expect(reportFilterChips(undefined, true, "")).toEqual([]);
+  expect(reportFilterChips({ active: false, label: "All" }, true, "")).toEqual([]);
+  expect(reportFilterChips(rejected, false, " indigo ")).toEqual([
+    { label: "Review status", value: "Rejected" },
+    { label: "Search", value: "indigo" }
+  ]);
+  expect(reportFilterChips(rejected, true, "")).toEqual([]);
+  expect(withoutStatus({ status: "REJECTED", path: "x" })).toEqual({ path: "x" });
+  const list = {
+    path: "",
+    extras: [],
+    locales: ["en"],
+    records: 0,
+    sheets: [
+      { key: "workshops", name: "Workshops", count: 0, record: true },
+      { key: "crafts", name: "Crafts", count: 460, record: false },
+      { key: "media", name: "Media", count: 0, record: true },
+      { key: "transcripts", name: "Transcripts", count: null, record: true }
+    ]
+  };
+  expect(recordLine(list)).toBe("Workshops 0 · Media 0");
+  expect(filtersLeaveNothing(list, true)).toBe(true);
+  expect(filtersLeaveNothing(list, false)).toBe(false);
+  expect(filtersLeaveNothing({ ...list, records: 3 }, true)).toBe(false);
+  expect(filtersLeaveNothing(null, true)).toBe(false);
 });
