@@ -27,7 +27,7 @@ Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType
 
 ## API surface
 
-**377 operations** in the working tree — 180 GET, 123 POST, 29 DELETE,
+**382 operations** in the working tree — 183 GET, 124 POST, 30 DELETE,
 22 PATCH, 23 PUT. 2 of them (`/health`, `/health/ready`) are declared
 on the app rather than on a router; the rest are spread across `backend/app/api/routes/`:
 
@@ -59,6 +59,7 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `answer_drafts.py` | 5 |
 | `artisan_duplicates.py` | 5 |
 | `artisan_merge.py` | 5 |
+| `data_report_share.py` | 5 |
 | `datasets.py` | 5 |
 | `processes.py` | 5 |
 | `products.py` | 5 |
@@ -139,7 +140,7 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 337 | 85,058 | 337 | 85,058 |
+| `backend/app` | 338 | 85,284 | 338 | 85,284 |
 | `frontend/app` | 83 | 16,996 | 83 | 16,996 |
 | `frontend/components` | 327 | 61,679 | 327 | 61,679 |
 | `frontend/lib` | 186 | 36,032 | 186 | 36,032 |
