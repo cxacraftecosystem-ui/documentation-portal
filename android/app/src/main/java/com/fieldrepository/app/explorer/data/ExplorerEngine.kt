@@ -33,6 +33,7 @@ data class ExplorerTick(
     val currentTotal: Long = 0,
     val finished: ExplorerRecent? = null,
     val retrying: Int = 0,
+    val resumedFrom: Int = 0,
 )
 
 class ExplorerEngine(
@@ -45,6 +46,7 @@ class ExplorerEngine(
     private val backoffMs: Long = 2_000,
     private val parallel: Int = PARALLEL,
     private val busyTickMs: Long = 1_000,
+    private val reopen: (handle: String, at: Long) -> ExplorerOutput? = { _, _ -> null },
 ) {
     private class Spool(val file: File, val prefix: String?, val ndjson: Boolean)
 
@@ -55,7 +57,7 @@ class ExplorerEngine(
     suspend fun run(id: String, request: ExplorerRequest, resume: Boolean = false, tick: (ExplorerTick) -> Unit): ExplorerResult = withContext(Dispatchers.IO) {
         val keepPart = request.single && !request.rebuilt
         val work = File(workRoot, id).apply {
-            if (!(resume && keepPart)) deleteRecursively()
+            if (!resume || request.rebuilt) deleteRecursively()
             mkdirs()
         }
         var output: ExplorerOutput? = null
@@ -118,13 +120,40 @@ class ExplorerEngine(
                 tick(ExplorerTick(length, maxOf(totalBytes, length), 1, 1, null))
                 return@withContext ExplorerResult(location, uri, mime, saved = 1, total = 1, bytes = length)
             }
-            val out = saver(request.fileName, request.mimeType)
+            val checkpoint = ExplorerCheckpoint(work, json)
+            var restored = if (resume) checkpoint.read() else null
+            restored?.let { saved ->
+                val current = HashMap<String, String?>()
+                items(request, gathered).forEach { current[it.path] = it.sha256 }
+                val cut = saved.records.indexOfFirst { r -> !current.containsKey(r.source) || current[r.source] != r.tag }
+                if (cut >= 0) restored = checkpoint.trim(saved, cut)
+            }
+            var out: ExplorerOutput? = restored?.let { reopen(it.handle, it.committed) }
+            if (out == null) {
+                restored = null
+                checkpoint.clear()
+                out = saver(request.fileName, request.mimeType)
+                out.handle?.let { checkpoint.start(it) }
+            }
             output = out
+            val done = restored?.records.orEmpty().associateBy { it.source }
+            fun alreadyZipped(item: ExplorerItem): Boolean = done[item.path]?.let { it.tag == item.sha256 } == true
             val failed = ArrayList<String>()
             var failedCount = 0
             var saved = 0
             var doneFiles = 0
             val completed = AtomicLong(0)
+            var skipped = 0
+            if (done.isNotEmpty()) {
+                items(request, gathered).forEach { item ->
+                    if (alreadyZipped(item)) {
+                        skipped++
+                        completed.addAndGet(sizeOf(item))
+                    }
+                }
+                saved = skipped
+                doneFiles = skipped
+            }
             val inflight = ConcurrentHashMap<String, Long>()
             val retry = ArrayList<ExplorerItem>()
             fun report(current: String?, currentBytes: Long = 0, currentTotal: Long = 0, finished: ExplorerRecent? = null) {
@@ -133,10 +162,20 @@ class ExplorerEngine(
                     ExplorerTick(
                         bytes, maxOf(totalBytes, bytes), doneFiles, totalFiles, current,
                         currentBytes = currentBytes, currentTotal = currentTotal, finished = finished, retrying = retry.size,
+                        resumedFrom = skipped,
                     ),
                 )
             }
-            ExplorerZipWriter(out.stream).use { zip ->
+            report(null)
+            val resumable = out.handle != null
+            val zip = ExplorerZipWriter(
+                out.stream,
+                start = restored?.committed ?: 0L,
+                restored = restored?.records.orEmpty(),
+                scratch = work,
+                onEntry = { record, end -> if (resumable) checkpoint.append(record, end) },
+            )
+            try {
                 coroutineScope {
                     val slots = Semaphore(parallel)
                     val outstanding = MutableStateFlow(0)
@@ -144,6 +183,7 @@ class ExplorerEngine(
                     launch {
                         var index = 0
                         for (item in items(request, gathered)) {
+                            if (alreadyZipped(item)) continue
                             val big = sizeOf(item) >= BIG_BYTES
                             if (big) outstanding.first { it == 0 }
                             if (item.content != null) {
@@ -180,12 +220,12 @@ class ExplorerEngine(
                                 retry += pending.item
                                 ExplorerRecent(ExplorerProgress.leaf(pending.item.path), pending.item.sizeBytes, ExplorerRecentStatus.RETRYING)
                             } else if (pending.text) {
-                                zip.text(pending.item.path, pending.item.content.orEmpty())
+                                zip.text(pending.item.path, pending.item.content.orEmpty(), tag = pending.item.sha256)
                                 saved++
                                 ExplorerRecent(ExplorerProgress.leaf(pending.item.path), sizeOf(pending.item), ExplorerRecentStatus.SAVED, 1f)
                             } else {
                                 val temp = pending.temp!!
-                                zip.file(name, temp, ExplorerZipWriter.compressible(ExplorerKind.ofMediaType(pending.item.mediaType)))
+                                zip.file(name, temp, ExplorerZipWriter.compressible(ExplorerKind.ofMediaType(pending.item.mediaType)), origin = pending.item.path, tag = pending.item.sha256)
                                 saved++
                                 ExplorerRecent(ExplorerProgress.leaf(name), sizeOf(pending.item), ExplorerRecentStatus.SAVED, 1f)
                             }
@@ -221,7 +261,7 @@ class ExplorerEngine(
                         if (failed.size < ExplorerJobStore.FAILED_NAMES) failed += item.path
                         ExplorerRecent(ExplorerProgress.leaf(item.path), item.sizeBytes, ExplorerRecentStatus.FAILED)
                     } else {
-                        zip.file(name, temp, ExplorerZipWriter.compressible(ExplorerKind.ofMediaType(item.mediaType)))
+                        zip.file(name, temp, ExplorerZipWriter.compressible(ExplorerKind.ofMediaType(item.mediaType)), origin = item.path, tag = item.sha256)
                         saved++
                         ExplorerRecent(ExplorerProgress.leaf(name), sizeOf(item), ExplorerRecentStatus.SAVED, 1f)
                     }
@@ -230,9 +270,21 @@ class ExplorerEngine(
                     completed.addAndGet(sizeOf(item))
                     report(null, finished = finished)
                 }
+                zip.close()
+            } catch (stopped: Throwable) {
+                if (resumable && stopped !is ExplorerSpaceException) {
+                    zip.detach()
+                    runCatching { out.stream.close() }
+                    output = null
+                    keepWork = true
+                } else {
+                    runCatching { zip.detach() }
+                }
+                throw stopped
             }
             val (location, uri) = out.finish()
             output = null
+            checkpoint.clear()
             ExplorerResult(
                 location = location,
                 uri = uri,
@@ -244,6 +296,9 @@ class ExplorerEngine(
                 truncated = gathered.truncated,
                 bytes = completed.get(),
             )
+        } catch (failure: Throwable) {
+            if (!request.single && failure !is ExplorerSpaceException && output == null && ExplorerCheckpoint(work, json).handle() != null) keepWork = true
+            throw failure
         } finally {
             output?.abort()
             if (!keepWork) work.deleteRecursively()
@@ -313,6 +368,7 @@ class ExplorerEngine(
         originalPath = f.originalPath?.let { ExplorerZipNames.prefixed(prefix, it) },
         originalFilename = f.originalFilename,
         sizeBytes = f.sizeBytes,
+        sha256 = f.sha256,
     )
 
     suspend fun fetch(item: ExplorerItem, temp: File, onBytes: (Long) -> Unit): String = fetchNamed(item, temp, onBytes = onBytes).first
@@ -456,5 +512,62 @@ class ExplorerEngine(
 }
 
 class ExplorerSpaceException(message: String) : IllegalStateException(message)
+
+class ExplorerCheckpoint(private val dir: File, private val json: Json = ExplorerJson) {
+    @kotlinx.serialization.Serializable
+    private data class Line(val record: ExplorerZipRecord, val end: Long)
+
+    data class Saved(val handle: String, val committed: Long, val records: List<ExplorerZipRecord>)
+
+    private val handleFile get() = File(dir, HANDLE)
+    private val entriesFile get() = File(dir, ENTRIES)
+
+    fun start(handle: String) {
+        dir.mkdirs()
+        entriesFile.delete()
+        handleFile.writeText(handle, Charsets.UTF_8)
+    }
+
+    fun append(record: ExplorerZipRecord, end: Long) {
+        entriesFile.appendText(json.encodeToString(Line.serializer(), Line(record, end)) + "\n", Charsets.UTF_8)
+    }
+
+    fun handle(): String? = runCatching { handleFile.takeIf { it.isFile }?.readText(Charsets.UTF_8)?.trim()?.takeIf { it.isNotEmpty() } }.getOrNull()
+
+    fun read(): Saved? {
+        val handle = handle() ?: return null
+        val records = ArrayList<ExplorerZipRecord>()
+        var committed = 0L
+        if (entriesFile.isFile) {
+            entriesFile.bufferedReader(Charsets.UTF_8).useLines { lines ->
+                for (raw in lines) {
+                    if (raw.isBlank()) continue
+                    val line = runCatching { json.decodeFromString(Line.serializer(), raw) }.getOrNull() ?: break
+                    records += line.record
+                    committed = line.end
+                }
+            }
+        }
+        return Saved(handle, committed, records)
+    }
+
+    fun trim(saved: Saved, keep: Int): Saved {
+        val kept = saved.records.take(keep)
+        val committed = saved.records.getOrNull(keep)?.offset ?: saved.committed
+        entriesFile.delete()
+        kept.forEachIndexed { i, r -> append(r, kept.getOrNull(i + 1)?.offset ?: committed) }
+        return Saved(saved.handle, committed, kept)
+    }
+
+    fun clear() {
+        handleFile.delete()
+        entriesFile.delete()
+    }
+
+    companion object {
+        const val HANDLE = "zip.handle"
+        const val ENTRIES = "zip.entries"
+    }
+}
 
 class ExplorerInvalidException(message: String) : IllegalStateException(message)

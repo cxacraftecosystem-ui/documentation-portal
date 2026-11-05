@@ -126,6 +126,7 @@ data class ExplorerManifestFile(
     val convertToMp4: Boolean = false,
     val originalPath: String? = null,
     val originalFilename: String? = null,
+    val sha256: String? = null,
 )
 
 @Serializable
@@ -146,6 +147,7 @@ data class ExplorerSheet(
     val totalRows: Int? = null,
     val matchedRows: Int? = null,
     val truncated: Boolean = false,
+    val rowNumbers: List<Int>? = null,
 ) {
     val headers: List<String> get() = columns.map { ExplorerCells.text(it) }
 }

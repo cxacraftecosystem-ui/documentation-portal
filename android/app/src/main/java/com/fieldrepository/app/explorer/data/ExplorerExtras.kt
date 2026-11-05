@@ -90,7 +90,7 @@ data class ExplorerOverview(
 )
 
 @Serializable
-data class ExplorerPeaks(val peaks: List<Float> = emptyList(), val durationMs: Long? = null)
+data class ExplorerPeaks(val peaks: List<Float> = emptyList(), val durationMs: Long? = null, val isolated: Boolean = false)
 
 @Serializable
 data class ExplorerViewState(
@@ -159,6 +159,9 @@ interface ExplorerMore {
 
     @GET("data/views")
     suspend fun views(): ExplorerViews
+
+    @GET("data/views/{id}")
+    suspend fun view(@Path("id") id: String): ExplorerView
 
     @POST("data/views")
     suspend fun saveView(@Body body: ExplorerViewBody): ExplorerView

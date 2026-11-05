@@ -37,8 +37,10 @@ class ExplorerWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 currentTotal = 0,
                 retrying = 0,
                 recent = if (resume) it.recent else emptyList(),
+                resumedFrom = 0,
             )
         }
+        if (!resume) runCatching { ExplorerDownloads.fileLog(app).delete(id) }
         runCatching { setForeground(foreground(store.get(id) ?: job)) }
         val engine = ExplorerDownloads.engine(app, ExplorerEnvironment.api(app))
         return try {
@@ -72,6 +74,7 @@ class ExplorerWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 val paused = now?.state == ExplorerJobState.PAUSED
                 if (byUser) {
                     store.change(id) { it.copy(state = ExplorerJobState.CANCELLED, current = null, busySeconds = null, speedBps = null) }
+                    ExplorerDownloads.discard(app, id)
                     ExplorerNotifications.cancel(app, id)
                 } else if (paused) {
                     store.change(id) { it.copy(speedBps = null, busySeconds = null) }
@@ -119,8 +122,10 @@ class ExplorerWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 speedBps = speed ?: it.speedBps,
                 retrying = tick.retrying,
                 recent = recent,
+                resumedFrom = tick.resumedFrom,
             )
         }
+        tick.finished?.let { entry -> runCatching { ExplorerDownloads.fileLog(app).append(id, entry) } }
         if (now - lastSaved > SAVE_MS) {
             lastSaved = now
             store.flush()

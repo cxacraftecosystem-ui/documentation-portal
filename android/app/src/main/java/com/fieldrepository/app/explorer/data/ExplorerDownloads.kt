@@ -21,6 +21,7 @@ object ExplorerDownloads {
     const val KEY_ID = "jobId"
     const val WORK_DIR = "explorer"
     const val PREVIEW_DIR = "explorer-preview"
+    const val FILES_DIR = "files"
 
     @Volatile private var storeInstance: ExplorerJobStore? = null
 
@@ -39,7 +40,24 @@ object ExplorerDownloads {
             workRoot = workRoot(app),
             saver = { name, mime -> ExplorerSaver.open(app, name, mime) },
             freeBytes = { ExplorerSaver.freeBytes(app) },
+            reopen = { handle, at -> ExplorerSaver.reopen(app, handle, at) },
         )
+    }
+
+    fun fileLog(context: Context): ExplorerFileLog = ExplorerFileLog(File(File(context.applicationContext.filesDir, WORK_DIR), FILES_DIR))
+
+    fun files(context: Context, id: String): List<ExplorerRecent> = fileLog(context).read(id)
+
+    fun discard(context: Context, id: String) {
+        val app = context.applicationContext
+        val work = File(workRoot(app), id)
+        ExplorerCheckpoint(work).handle()?.let { runCatching { ExplorerSaver.discard(app, it) } }
+        runCatching { work.deleteRecursively() }
+    }
+
+    private fun forgetJob(context: Context, id: String) {
+        discard(context, id)
+        fileLog(context).delete(id)
     }
 
     fun start(context: Context, request: ExplorerRequest): String {
@@ -112,6 +130,7 @@ object ExplorerDownloads {
             ExplorerSystemDownloads.remove(app, systemId)
         } else {
             WorkManager.getInstance(app).cancelUniqueWork(id)
+            if (job.state == ExplorerJobState.PAUSED) discard(app, id)
         }
         ExplorerNotifications.cancel(app, id)
     }
@@ -127,7 +146,7 @@ object ExplorerDownloads {
                 error = null,
                 doneBytes = 0,
                 doneFiles = 0,
-                current = if (it.request.single && !it.request.rebuilt) ExplorerText.resuming else null,
+                current = if (!it.request.rebuilt) ExplorerText.resuming else null,
                 busySeconds = null,
                 systemId = null,
                 speedBps = null,
@@ -146,6 +165,7 @@ object ExplorerDownloads {
         if (job.active) return
         store(app).remove(id)
         ExplorerNotifications.cancel(app, id)
+        forgetJob(app, id)
     }
 
     fun forgetFiles(filesDir: File, cacheDir: File) {
@@ -163,7 +183,9 @@ object ExplorerDownloads {
             runCatching { ExplorerNotifications.cancel(app, job.id) }
         }
         runCatching { WorkManager.getInstance(app).cancelAllWorkByTag(TAG) }
+        jobs.forEach { job -> runCatching { discard(app, job.id) } }
         store(app).clear()
+        runCatching { fileLog(app).clear() }
         ExplorerMoreApi.forget()
         runCatching { android.os.Handler(android.os.Looper.getMainLooper()).post { runCatching { ExplorerAudio.stop() } } }
         forgetFiles(app.filesDir, app.cacheDir)
@@ -171,7 +193,10 @@ object ExplorerDownloads {
 
     fun clearFinished(context: Context) {
         val app = context.applicationContext
-        store(app).jobs.value.filterNot { it.active }.forEach { ExplorerNotifications.cancel(app, it.id) }
+        store(app).jobs.value.filterNot { it.active || it.state == ExplorerJobState.PAUSED }.forEach {
+            ExplorerNotifications.cancel(app, it.id)
+            forgetJob(app, it.id)
+        }
         store(app).clearFinished()
     }
 
@@ -226,8 +251,12 @@ object ExplorerDownloads {
     fun sweep(context: Context) {
         val app = context.applicationContext
         val running = store(app).jobs.value.filter { it.active || it.state == ExplorerJobState.PAUSED || it.state == ExplorerJobState.FAILED }.map { it.id }.toSet()
-        workRoot(app).listFiles()?.forEach { dir -> if (dir.name !in running) dir.deleteRecursively() }
-        ExplorerSaver.sweep(app)
+        val keep = HashSet<String>()
+        workRoot(app).listFiles()?.forEach { dir ->
+            if (dir.name !in running) dir.deleteRecursively() else ExplorerCheckpoint(dir).handle()?.let { keep += it }
+        }
+        ExplorerSaver.sweep(app, keep)
+        fileLog(app).keepOnly(store(app).jobs.value.map { it.id }.toSet())
     }
 }
 

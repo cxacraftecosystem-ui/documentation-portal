@@ -25,6 +25,7 @@ data class ExplorerItem(
     val originalPath: String? = null,
     val originalFilename: String? = null,
     val sizeBytes: Long? = null,
+    val sha256: String? = null,
 )
 
 @Serializable
@@ -93,6 +94,7 @@ data class ExplorerJob(
     val speedBps: Long? = null,
     val retrying: Int = 0,
     val recent: List<ExplorerRecent> = emptyList(),
+    val resumedFrom: Int = 0,
 ) {
     val active: Boolean get() = state == ExplorerJobState.QUEUED || state == ExplorerJobState.RUNNING
     val pausable: Boolean get() = active && systemId == null

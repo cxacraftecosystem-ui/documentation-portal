@@ -1,5 +1,8 @@
 package com.fieldrepository.app.explorer.data
 
+import kotlinx.serialization.json.Json
+import java.io.File
+
 class ExplorerRate(private val windowMs: Long = WINDOW_MS) {
     private val samples = ArrayDeque<Pair<Long, Long>>()
     private var smoothed: Double? = null
@@ -68,5 +71,65 @@ object ExplorerProgress {
         job.totalBytes > 0 -> (job.doneBytes.coerceAtLeast(0) * 100 / job.totalBytes).toInt().coerceIn(0, 100)
         job.totalFiles > 0 -> (job.doneFiles.coerceAtLeast(0) * 100 / job.totalFiles).coerceIn(0, 100)
         else -> null
+    }
+}
+
+class ExplorerFileLog(private val dir: File, private val json: Json = ExplorerJson) {
+    private val lock = Any()
+    private val counts = HashMap<String, Int>()
+
+    private fun fileOf(id: String) = File(dir, ExplorerCache.hash(id).take(32) + ".ndjson")
+
+    fun append(id: String, entry: ExplorerRecent) {
+        synchronized(lock) {
+            val file = fileOf(id)
+            val count = counts.getOrPut(id) { if (file.isFile) file.useLines { it.count() } else 0 }
+            if (count >= MAX_LINES) return
+            dir.mkdirs()
+            file.appendText(json.encodeToString(ExplorerRecent.serializer(), entry) + "\n", Charsets.UTF_8)
+            counts[id] = count + 1
+        }
+    }
+
+    fun read(id: String): List<ExplorerRecent> = synchronized(lock) {
+        val file = fileOf(id)
+        if (!file.isFile) return emptyList()
+        val byName = LinkedHashMap<String, ExplorerRecent>()
+        file.bufferedReader(Charsets.UTF_8).useLines { lines ->
+            for (raw in lines) {
+                if (raw.isBlank()) continue
+                val entry = runCatching { json.decodeFromString(ExplorerRecent.serializer(), raw) }.getOrNull() ?: continue
+                byName.remove(entry.name)
+                byName[entry.name] = entry
+            }
+        }
+        byName.values.toList().takeLast(MAX_FILES)
+    }
+
+    fun delete(id: String) {
+        synchronized(lock) {
+            counts.remove(id)
+            fileOf(id).delete()
+        }
+    }
+
+    fun keepOnly(ids: Set<String>) {
+        synchronized(lock) {
+            val wanted = ids.map { fileOf(it).name }.toSet()
+            dir.listFiles()?.forEach { if (it.name !in wanted) it.delete() }
+            counts.keys.retainAll(ids)
+        }
+    }
+
+    fun clear() {
+        synchronized(lock) {
+            counts.clear()
+            dir.deleteRecursively()
+        }
+    }
+
+    companion object {
+        const val MAX_FILES = 20_000
+        const val MAX_LINES = 60_000
     }
 }
