@@ -1,6 +1,7 @@
 package com.fieldrepository.app.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -155,6 +156,7 @@ internal fun rememberSearchAll(filters: SearchFilters, fetch: SearchPageFetch): 
     return state
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun SearchAllList(
     state: SearchAllState,
@@ -164,19 +166,21 @@ internal fun SearchAllList(
 ) {
     val scope = rememberCoroutineScope()
     Column(modifier.fillMaxWidth()) {
-        if (state.sections.isNotEmpty()) {
-            Text(
-                SearchAllText.shown(state.shown, state.total),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.field.muted,
-                modifier = Modifier.padding(start = gutter, end = gutter, bottom = 4.dp).testTag("search.all.shown"),
-            )
-        }
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f).testTag("search.all.list"),
             contentPadding = PaddingValues(start = gutter, end = gutter, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (state.sections.isNotEmpty()) {
+                stickyHeader("shown") {
+                    Text(
+                        SearchAllText.shown(state.shown, state.total),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.field.muted,
+                        modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(vertical = 4.dp).testTag("search.all.shown"),
+                    )
+                }
+            }
             if (state.loading && state.sections.isEmpty()) {
                 item("loading") { Text(SearchAllText.searching, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
