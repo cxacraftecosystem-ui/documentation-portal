@@ -131,18 +131,19 @@ jobs:
           ram-size: 4096M
           working-directory: android
           script: |
-            ./gradlew :app:connectedDebugAndroidTest --console=plain -Pandroid.testInstrumentationRunnerArguments.package=$APP_ID.explorer.shots || echo "$?" > "$RUNNER_TEMP/shots-exit"
-            mkdir -p "$SHOTS" && "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" pull "/sdcard/Android/data/$APP_ID/files/design-fidelity/." "$SHOTS/" || true
-            test ! -e "$RUNNER_TEMP/shots-exit"
+            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t app/build/outputs/apk/debug/app-debug.apk
+            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package $APP_ID.explorer.shots $APP_ID.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/shots.txt" 2>&1; cat "$RUNNER_TEMP/shots.txt"
+            mkdir -p "$SHOTS" && "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" pull "/sdcard/Android/data/$APP_ID/files/design-fidelity/." "$SHOTS/"
+            ls -R "$SHOTS"
+            grep -q "^OK (" "$RUNNER_TEMP/shots.txt"
 
       - name: Keep the Android screens
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: design-fidelity-android
-          path: |
-            design-fidelity
-            android/app/build/reports/androidTests/
+          path: design-fidelity
           if-no-files-found: warn
 
   pairs:
@@ -192,7 +193,7 @@ jobs:
           DESIGN_OUT: ${{ github.workspace }}/design-fidelity
         run: |
           set -euo pipefail
-          if [ -d ../android-shots/design-fidelity ]; then cp -r ../android-shots/design-fidelity/. ../design-fidelity/; fi
+          if [ -d ../android-shots ]; then cp -r ../android-shots/. ../design-fidelity/; fi
           npx playwright test e2e/fidelity-pairs.spec.ts --workers=4
 
       - name: Keep every pair
