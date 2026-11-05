@@ -194,11 +194,11 @@ class ExplorerState(
     }
 
     private fun show(level: Level) {
-        tree = level.tree
-        entries = level.entries
-        cursor = level.cursor
         cachedNote = level.cachedAt?.let { ExplorerText.cachedCopy(stamp(it)) }
         cachedAt = level.cachedAt
+        cursor = level.cursor
+        tree = level.tree
+        entries = level.entries
     }
 
     private suspend fun load(target: String, haveMemory: Boolean) {
