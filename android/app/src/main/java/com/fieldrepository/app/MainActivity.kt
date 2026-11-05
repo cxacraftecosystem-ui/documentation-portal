@@ -8390,7 +8390,7 @@ private fun ArtisanQuestionnaireData(repository: FieldRepository, artisanId: Str
     if (v2Config?.v2Enabled == true) {
         var artisanName by remember(artisanId) { mutableStateOf("") }
         LaunchedEffect(artisanId) { runCatching { repository.artisan(artisanId) }.onSuccess { artisanName = it.name } }
-        FieldArtisanQuestionnaireRecord(artisanId, artisanName) {
+        FieldArtisanQuestionnaireRecord(artisanId, artisanName, focusSection = focusSection) {
             android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show()
         }
         return
