@@ -10,6 +10,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.printToLog
 import androidx.compose.ui.semantics.SemanticsActions
@@ -243,7 +244,8 @@ class DataSearchReachUiTest {
         compose.waitUntil(30_000) { compose.onAllNodes(hasTestTag("explorer.search.all").and(hasText("Show all 31"))).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("explorer.search.all", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
         if (runCatching { waitFor("search.all.shown") }.isFailure) {
-            compose.onRoot(useUnmergedTree = true).printToLog("quick-search")
+            compose.onAllNodes(isRoot()).fetchSemanticsNodes().indices.forEach { compose.onAllNodes(isRoot())[it].printToLog("quick-search", maxDepth = 40) }
+            android.util.Log.i("quick-search", "asked: " + asked.joinToString(" | "))
             waitFor("search.all.shown")
         }
         reach("search.all.list", "search.all.more.artisan", "search.all.shown", "All 31 shown")
