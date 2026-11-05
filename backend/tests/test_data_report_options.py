@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from app.api.routes import data_browser
 from app.services.data_explorer import report_options
+from tests import report_fixtures
 
 ADMIN = SimpleNamespace(id="admin-1", role="MASTER_ADMIN", canDownloadDataset=True)
 
@@ -45,9 +46,17 @@ def test_parse_reads_every_option_and_refuses_nonsense():
             report_options.parse(**bad)
 
 
-def test_stored_options_keep_only_the_four_choices():
+def test_stored_options_keep_only_the_known_choices():
     stored = report_options.stored_options({"sheets": ["Tools"], "answers": "original", "rows": "all", "links": True, "x": 1})
-    assert stored == {"sheets": ["Tools"], "answers": "original", "rows": "all", "links": True}
+    assert stored == {"sheets": ["Tools"], "answers": "original", "rows": "all", "links": True, "thumbnails": False, "locale": "en", "extras": {}}
+    richer = report_options.stored_options({"thumbnails": True, "locale": "hi", "extras": {"quotes": True, "map": False}})
+    assert richer["thumbnails"] is True and richer["locale"] == "hi" and richer["extras"] == {"quotes": True}
+    assert report_options.parse(extras="map,quotes,map").extras == ("map", "quotes")
+    assert not report_options.parse(locale="hi").default
+    with pytest.raises(report_options.OptionsInvalid):
+        report_options.parse(locale="fr")
+    with pytest.raises(report_options.OptionsInvalid):
+        report_options.parse(extras="bad key!")
     assert report_options.stored_options({})["sheets"] is None
     with pytest.raises(report_options.OptionsInvalid):
         report_options.stored_options([])
@@ -112,9 +121,16 @@ def _stub(monkeypatch: pytest.MonkeyPatch, builds: list[str]) -> None:
         builds.append(norm)
         return {"sheets": [_tools(), _turns()], "level": "Repository", "builtAt": "2026-11-05T10:00:00+05:30"}
 
+    async def records(_segs: Any, _scope: Any) -> dict[str, list[Any]]:
+        found: dict[str, list[Any]] = {key: [] for key in data_browser._REPORT_KEYS}
+        found["tools"] = [SimpleNamespace(id=f"t{i}", toolkitName=f"tool {i}", status="APPROVED") for i in range(3)]
+        return found
+
     monkeypatch.setattr(data_browser.report_cache, "data_version", version)
     monkeypatch.setattr(data_browser, "_scope_for", scope)
     monkeypatch.setattr(data_browser, "_report_material", material)
+    monkeypatch.setattr(data_browser, "_report_records", records)
+    monkeypatch.setattr(data_browser, "db", report_fixtures.FakeDB())
 
 
 def _report(**kwargs: Any) -> Any:
@@ -130,7 +146,15 @@ def _workbook(body: bytes) -> Any:
     return load_workbook(io.BytesIO(body))
 
 
+def _data_rows(ws: Any) -> list[tuple[Any, ...]]:
+    from app.services.datareport import writer
+
+    return [r for r in ws.iter_rows(min_row=writer.TOP + 2, values_only=True) if r[0] not in (None, "Total")]
+
+
 def test_the_xlsx_follows_the_options_and_reuses_one_build(monkeypatch):
+    from app.services.datareport import writer
+
     builds: list[str] = []
     _stub(monkeypatch, builds)
 
@@ -139,28 +163,34 @@ def test_the_xlsx_follows_the_options_and_reuses_one_build(monkeypatch):
             await _report(format="json"),
             await _report(format="json"),
             await _report(),
-            await _report(sheets="Transcript turns", answers="original", links="0", name="Kamla dyes"),
+            await _report(sheets="Tools", answers="original", links="0", name="Kamla dyes"),
             await _report(sheets="Tools", rows="filtered", q="tool 1"),
+            await _report(),
         ]
 
-    first, second, full, slim_book, filtered = asyncio.run(story())
+    first, second, full, slim_book, filtered, again = asyncio.run(story())
     assert builds == ["p"]
     assert first.status_code == 200
     import json
 
     assert json.loads(first.body)["cached"] is False
     assert json.loads(second.body)["cached"] is True
-    assert "Transcript turns" in _workbook(full.body).sheetnames
+    names = _workbook(full.body).sheetnames
+    assert names[0] == "Overview" and names[-1] == "Data dictionary"
+    assert "Tools" in names and "Transcripts" in names
     book = _workbook(slim_book.body)
-    assert book.sheetnames[1:] == ["Transcript turns"]
-    header = [c.value for c in book["Transcript turns"][1]]
-    assert header == ["Media ID", "File", "Language", "Original"]
+    assert book.sheetnames == ["Overview", "Tools", "Data dictionary"]
+    header = [c.value for c in book["Tools"][writer.TOP + 1] if c.value is not None]
+    assert "Open" not in header and "Toolkit name" in header
     assert 'filename="Kamla-dyes.xlsx"' in slim_book.headers["content-disposition"]
-    rows = list(_workbook(filtered.body)["Tools"].iter_rows(min_row=2, values_only=True))
-    assert rows == [("tool 1", "https://t/1")]
+    tools = _workbook(filtered.body)["Tools"]
+    header = [c.value for c in tools[writer.TOP + 1]]
+    picked = [row[header.index("Toolkit name")] for row in _data_rows(tools)]
+    assert picked == ["tool 1"]
+    assert again.body == full.body
     cache = data_browser.REPORT_CACHE
     key = next(iter(cache._entries))
-    assert set(cache._entries[key].files) == {"xlsx"}
+    assert all(name.startswith("xlsx2:") for name in cache._entries[key].files)
 
 
 def test_unknown_options_are_a_422_and_an_empty_pick_is_a_404(monkeypatch):

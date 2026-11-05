@@ -373,6 +373,59 @@
       "path": "/data/media/{media_id}/isolate",
       "response": "202 {status: queued | running | ready, isolated: bool}",
       "notes": "Queues the existing audio-isolation job for one recording. 403 when canIsolate is false, 404 when the file is not visible or not audio."
+    },
+    {
+      "id": "report-schedules-list",
+      "method": "GET",
+      "path": "/data/report/schedules",
+      "response": "{items: Schedule[], enabled, mailAvailable, maxPerOwner, attachMaxBytes, defaultTimezone}",
+      "notes": "The caller's own scheduled reports. Schedule = {id, savedViewId, viewName, path, weekday (0 Monday..6 Sunday), hourLocal (0..23), timezone, label, options, paused, nextRunAt, lastSentAt, lastError, lastFile: {fileName, sizeBytes, attached} | null, createdAt}."
+    },
+    {
+      "id": "report-schedules-create",
+      "method": "POST",
+      "path": "/data/report/schedules",
+      "body": "{savedViewId, weekday?, hourLocal?, timezone?, options?}",
+      "response": "Schedule",
+      "notes": "Any saved view the caller may open (their own, or shared with a visible folder); else 404. Defaults Monday 08:00 Asia/Kolkata. The first e-mail goes at the next occurrence."
+    },
+    {
+      "id": "report-schedules-update",
+      "method": "PATCH",
+      "path": "/data/report/schedules/{schedule_id}",
+      "body": "{weekday?, hourLocal?, timezone?, options?, paused?}",
+      "response": "Schedule",
+      "notes": "Owner only. Resuming never sends a missed week at once."
+    },
+    {
+      "id": "report-schedules-delete",
+      "method": "DELETE",
+      "path": "/data/report/schedules/{schedule_id}",
+      "response": "204",
+      "notes": "Owner only."
+    },
+    {
+      "id": "report-schedules-file",
+      "method": "GET",
+      "path": "/data/report/schedules/{schedule_id}/file",
+      "response": "{url, fileName, sizeBytes, sentAt, viewName}",
+      "notes": "The last workbook sent, as a 15-minute signed link. Owner only, and only while the owner can still see the folder; else 404. Web page: /data/report-schedules/<id>."
+    },
+    {
+      "id": "report-schedules-unsubscribe-lookup",
+      "method": "POST",
+      "path": "/report-schedule/unsubscribe/lookup",
+      "body": "{token}",
+      "response": "{viewName, label, paused}",
+      "notes": "No sign-in: the e-mailed token is the credential. 404 for an unknown token. Web page: /report-schedule/unsubscribe?token=<token>."
+    },
+    {
+      "id": "report-schedules-unsubscribe",
+      "method": "POST",
+      "path": "/report-schedule/unsubscribe",
+      "body": "{token}",
+      "response": "{viewName, label, paused}",
+      "notes": "No sign-in. Pauses the schedule the token names; the owner can resume it in Saved views."
     }
   ],
   "clientRules": [

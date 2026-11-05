@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     mail_batch_size: int = Field(default=10, alias="MAIL_BATCH_SIZE")
 
     weekly_digest_enabled: bool = Field(default=True, alias="WEEKLY_DIGEST_ENABLED")
+    report_schedules_enabled: bool = Field(default=True, alias="REPORT_SCHEDULES_ENABLED")
+    report_schedule_attach_max_bytes: int = Field(
+        default=7 * 1024 * 1024, alias="REPORT_SCHEDULE_ATTACH_MAX_BYTES"
+    )
 
     next_public_app_url: AnyHttpUrl | str = Field(
         default="http://localhost:3000", alias="NEXT_PUBLIC_APP_URL"

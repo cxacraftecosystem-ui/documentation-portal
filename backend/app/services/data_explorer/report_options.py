@@ -9,6 +9,9 @@ from app.services.data_explorer import report_tools
 
 ANSWERS = ("original", "english", "both")
 ROWS = ("all", "filtered")
+LOCALES = ("en", "hi")
+EXTRAS_MAX = 40
+EXTRA_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
 SHEETS_MAX = 60
 SHEET_NAME_MAX = 120
 NAME_MAX = 120
@@ -33,6 +36,9 @@ class ReportOptions:
     rows: str = "all"
     links: bool = True
     q: str | None = None
+    thumbnails: bool = False
+    locale: str = "en"
+    extras: tuple[str, ...] = ()
 
     @property
     def filters_rows(self) -> bool:
@@ -45,6 +51,23 @@ class ReportOptions:
             and self.answers == "both"
             and not self.filters_rows
             and self.links
+            and not self.thumbnails
+            and self.locale == "en"
+            and not self.extras
+        )
+
+    def signature(self) -> str:
+        return "|".join(
+            (
+                ",".join(sorted(n.lower() for n in self.sheets)) if self.sheets is not None else "*",
+                self.answers,
+                self.rows,
+                " ".join(report_tools.words(self.q)) if self.filters_rows else "",
+                "1" if self.links else "0",
+                "1" if self.thumbnails else "0",
+                self.locale,
+                ",".join(sorted(self.extras)),
+            )
         )
 
     def stored(self) -> dict[str, Any]:
@@ -53,6 +76,9 @@ class ReportOptions:
             "answers": self.answers,
             "rows": self.rows,
             "links": self.links,
+            "thumbnails": self.thumbnails,
+            "locale": self.locale,
+            "extras": dict.fromkeys(self.extras, True),
         }
 
 
@@ -66,7 +92,7 @@ def _flag(value: Any, default: bool) -> bool:
         return True
     if text in ("0", "false", "no", "off"):
         return False
-    raise OptionsInvalid("links takes 1 or 0")
+    raise OptionsInvalid("links and thumbnails take 1 or 0")
 
 
 def _sheet_names(value: Any) -> tuple[str, ...] | None:
@@ -98,6 +124,29 @@ def _choice(value: Any, allowed: tuple[str, ...], label: str, default: str) -> s
     return text
 
 
+def _extras(value: Any) -> tuple[str, ...]:
+    if value is None or value == "":
+        return ()
+    if isinstance(value, dict):
+        items = [str(k) for k, v in value.items() if v is True or str(v).strip().lower() in ("1", "true", "yes", "on")]
+    elif isinstance(value, (list, tuple)):
+        items = [str(v) for v in value]
+    else:
+        items = str(value).split(",")
+    picked: list[str] = []
+    for item in items:
+        key = item.strip()
+        if not key:
+            continue
+        if not EXTRA_KEY.match(key):
+            raise OptionsInvalid("extras takes option keys")
+        if key not in picked:
+            picked.append(key)
+    if len(picked) > EXTRAS_MAX:
+        raise OptionsInvalid(f"Pick at most {EXTRAS_MAX} extras.")
+    return tuple(sorted(picked))
+
+
 def parse(
     *,
     sheets: Any = None,
@@ -105,6 +154,9 @@ def parse(
     rows: Any = None,
     links: Any = None,
     q: str | None = None,
+    thumbnails: Any = None,
+    locale: Any = None,
+    extras: Any = None,
 ) -> ReportOptions:
     return ReportOptions(
         sheets=_sheet_names(sheets),
@@ -112,6 +164,9 @@ def parse(
         rows=_choice(rows, ROWS, "rows", "all"),
         links=_flag(links, True),
         q=q,
+        thumbnails=_flag(thumbnails, False),
+        locale=_choice(locale, LOCALES, "locale", "en"),
+        extras=_extras(extras),
     )
 
 
@@ -123,6 +178,9 @@ def stored_options(body: Any) -> dict[str, Any]:
         answers=body.get("answers"),
         rows=body.get("rows"),
         links=body.get("links"),
+        thumbnails=body.get("thumbnails"),
+        locale=body.get("locale"),
+        extras=body.get("extras"),
     )
     return picked.stored()
 

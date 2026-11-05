@@ -42,6 +42,8 @@ REPORT_TABLES = (
     "TranscriptTurnEdit",
     "TranscriptSpeaker",
     "TranscriptSpend",
+    "TranscriptGlossaryTerm",
+    "TranscriptGlossarySighting",
     "QuestionnaireInterview",
     "QuestionnaireInterviewArtisan",
     "QuestionnaireResponse",

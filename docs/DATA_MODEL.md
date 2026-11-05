@@ -680,3 +680,14 @@ is a saved `/data` screen (`path`, `state` with tab, sheet, search and filters) 
 share; a shared view opens only for people who can see its folder. **`MediaWaveform`** keeps the
 800 peaks of one recording, made once. All four cascade away with their user or file.
 Migration `20261210090000_data_explorer_memory`, additive, with row-level security on like every other server-only table. See [DATA_EXPLORER.md](DATA_EXPLORER.md).
+
+## Live report links — added 2026-11-05
+
+**`DataReportShare`** is one read-only report link: its owner, folder `path`, `title`, the report
+`options` and `filters` it was made with, and the `snapshot` (cover KPIs and chart series, numbers
+only, computed when the link was made under the owner's scope and consent). `tokenHash` is the
+sha256 of the link token, never the token. `expiresAt` (1 to 30 days) and `revokedAt` end it.
+**`DataReportShareView`** is one open of a link: `viewerId` when the visitor was signed in (set to
+null if that account goes), an HMAC `ipHash` of the address, the `userAgent` and `openedAt`. Both
+cascade away with the owner; views go with their link.
+Migration `20261211200000_data_report_share`, additive, with row-level security on like every other server-only table. See [DATA_EXPLORER.md](DATA_EXPLORER.md).

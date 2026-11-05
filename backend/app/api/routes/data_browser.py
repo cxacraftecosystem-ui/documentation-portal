@@ -94,7 +94,7 @@ from app.services.tool_scope import (
     with_tool_scope,
 )
 from app.services.transcript_format import transcript_cell
-from app.services.xlsx_report import XLSX_MIME, build_report_workbook
+from app.services.xlsx_report import XLSX_MIME
 
 router = APIRouter(
     prefix="/data",
@@ -2536,6 +2536,9 @@ async def data_report(
     rows: str | None = None,
     links: str | None = None,
     name: str | None = None,
+    thumbnails: str | None = None,
+    locale: str | None = None,
+    extras: str | None = None,
     current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
     fmt = (format or "xlsx").strip().lower()
@@ -2545,7 +2548,10 @@ async def data_report(
         raise HTTPException(status_code=422, detail="Name the sheet to download as CSV.")
     status_filter = data_status(status_value)
     try:
-        options = report_options.parse(sheets=sheets, answers=answers, rows=rows, links=links, q=q)
+        options = report_options.parse(
+            sheets=sheets, answers=answers, rows=rows, links=links, q=q,
+            thumbnails=thumbnails, locale=locale, extras=extras,
+        )
     except report_options.OptionsInvalid as bad:
         raise HTTPException(status_code=422, detail=str(bad)) from None
     try:
@@ -2675,10 +2681,10 @@ async def _build_report(
     searching = fmt == "json" and bool(report_tools.words(q))
     norm = _norm(path)
     sees_spend = transcript_portal.may_see_spend(current_user)
-    key, material, cached = await _material(norm, scope, sees_spend)
+    _key, material, cached = await _material(norm, scope, sees_spend)
     sheets: list[dict[str, Any]] = material["sheets"]
     level_name: str = material["level"]
-    if sheet and sheet.strip():
+    if sheet and sheet.strip() and fmt != "xlsx":
         sheets = report_tools.pick(sheets, sheet)
         if not sheets:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such sheet")
@@ -2709,31 +2715,17 @@ async def _build_report(
             }
         )
 
-    payload = REPORT_CACHE.file(key, "xlsx") if options.default else None
-    if payload is None:
-        chosen_sheets = report_options.apply(sheets, options)
-        if not chosen_sheets:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such sheet")
-
-        async def render() -> bytes:
-            return await asyncio.to_thread(
-                build_report_workbook, _rendered(chosen_sheets), f"{level_name} report"
-            )
-
-        if options.default:
-            payload = await REPORT_CACHE.once(f"{key}:xlsx", lambda: _queued(render))
-            REPORT_CACHE.put_file(key, "xlsx", payload)
-        else:
-            payload = await _queued(render)
     del sheets, material
-    report_name = file_name or naming.export_filename(
-        "Dataset",
-        "Report",
-        "xlsx",
-        subject="All Records" if level_name == "Repository" else level_name,
-    )
+    from app.services.datareport import build as report_build
+
+    chosen = report_build.from_parsed(options, name=file_name)
+    if sheet and sheet.strip() and chosen.sheets is None:
+        chosen.sheets = [sheet.strip()]
+    built = await report_build.build_report(current_user, path, chosen, status=status_filter)
+    for hook in built.ctx.delivered:
+        await hook()
     return Response(
-        content=payload,
+        content=built.payload,
         media_type=XLSX_MIME,
-        headers={"Content-Disposition": _content_disposition(report_name)},
+        headers={"Content-Disposition": _content_disposition(built.file_name)},
     )

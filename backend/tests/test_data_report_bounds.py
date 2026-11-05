@@ -11,6 +11,7 @@ from fastapi import HTTPException
 
 from app.api.routes import data_browser
 from app.services.data_explorer import report_cache
+from tests import report_fixtures
 
 ADMIN = SimpleNamespace(id="admin-1", role="MASTER_ADMIN", canDownloadDataset=True)
 
@@ -137,9 +138,14 @@ def _material_stub(monkeypatch, slow: Any) -> None:
     async def scope(_user: Any, *_args: Any) -> Any:
         return data_browser.Scope(records={}, media={})
 
+    async def records(_segs: Any, _scope: Any) -> dict[str, list[Any]]:
+        return {key: [] for key in data_browser._REPORT_KEYS}
+
     monkeypatch.setattr(data_browser.report_cache, "data_version", version)
     monkeypatch.setattr(data_browser, "_scope_for", scope)
     monkeypatch.setattr(data_browser, "_report_material", slow)
+    monkeypatch.setattr(data_browser, "_report_records", records)
+    monkeypatch.setattr(data_browser, "db", report_fixtures.FakeDB())
 
 
 def _built(rows: int = 3) -> dict[str, Any]:
