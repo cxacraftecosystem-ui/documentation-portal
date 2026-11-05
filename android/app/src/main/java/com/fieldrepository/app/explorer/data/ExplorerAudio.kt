@@ -92,8 +92,8 @@ object ExplorerAudio {
     @Volatile internal var current: ExplorerAudioItem? = null
         private set
 
-    private val main = Handler(Looper.getMainLooper())
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val main by lazy { Handler(Looper.getMainLooper()) }
+    private val scope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     private var controller: MediaController? = null
     private var pending: ListenableFuture<MediaController>? = null
 
