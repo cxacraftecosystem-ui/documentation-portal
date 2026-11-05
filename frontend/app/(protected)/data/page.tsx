@@ -183,7 +183,7 @@ function Explorer({ user }: { user: User }) {
       <>
         {reviewStatus !== "ALL" ? (
           <button type="button" className="field-button-secondary" onClick={() => changeReviewStatus("ALL")}>
-            Show every status
+            Show all statuses
           </button>
         ) : null}
         {canCreateRecords(user) ? (

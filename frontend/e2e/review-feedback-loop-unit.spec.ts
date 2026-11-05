@@ -8,6 +8,7 @@ import { statusFilterParam } from "@/components/review/RecordStatusFilter";
 import { completionVerdictLabel, nextCompletionStatus } from "@/lib/completionVerdict";
 import {
   bulkReceipt,
+  DATA_STATUS_OPTIONS,
   dataStatusLabel,
   decisionBody,
   isReturned,
@@ -185,6 +186,7 @@ test.describe("the wiring", () => {
     const data = read("app/(protected)/data/page.tsx");
     expect(data).toContain("status: statusParam");
     expect(data).toContain("Show all statuses");
+    expect(DATA_STATUS_OPTIONS.map((option) => option.value)).toEqual(["ALL", "APPROVED", "PENDING", "NEEDS_REVISION", "REJECTED"]);
   });
 
   test("downloads carry every review status whatever the page shows", () => {
