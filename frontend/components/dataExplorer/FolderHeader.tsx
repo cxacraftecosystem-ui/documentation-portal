@@ -176,22 +176,15 @@ export function FolderHeader({
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-700" data-testid="folder-size">
             {typeLabel ? <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-200">{typeLabel}</span> : null}
             {sized ? (
-              <>
-                <span>
-                  {sized.files.toLocaleString("en-IN")} {sized.files === 1 ? "file" : "files"}
-                  {sized.truncated ? "+" : ""}
-                </span>
-                <span aria-hidden>·</span>
-                <span>{formatBytes(sized.bytes)}</span>
-                {transcripts !== null ? (
-                  <>
-                    <span aria-hidden>·</span>
-                    <span>
-                      {transcripts.toLocaleString("en-IN")} {transcripts === 1 ? "transcript" : "transcripts"}
-                    </span>
-                  </>
-                ) : null}
-              </>
+              <span>
+                {[
+                  `${sized.files.toLocaleString("en-IN")} ${sized.files === 1 ? "file" : "files"}${sized.truncated ? "+" : ""}`,
+                  formatBytes(sized.bytes),
+                  transcripts !== null ? `${transcripts.toLocaleString("en-IN")} ${transcripts === 1 ? "transcript" : "transcripts"}` : null
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
             ) : size.error ? (
               <span>Size unknown</span>
             ) : (

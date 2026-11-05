@@ -72,6 +72,51 @@ export const TRANSCRIPT_AUD1 = {
   updatedAt: "2026-09-22T10:00:00Z"
 };
 
+const OVERVIEW = {
+  path: "workshops/bagru",
+  title: "Bagru 2026",
+  subtitle: "Hand block printing",
+  totals: { files: 7, bytes: 186_000, fields: { filled: 10, total: 20 }, transcripts: { total: 2, ready: 1, translating: 0, failed: 1 }, review: { approved: 1, pending: 1, total: 2 } },
+  sections: [
+    { key: "identity", label: "Identity" },
+    { key: "tools", label: "Tools" },
+    { key: "process", label: "Process" }
+  ],
+  artisans: [
+    {
+      id: "a-kamla",
+      name: "Kamla Devi",
+      craft: "Dabu printing",
+      path: "workshops/bagru/kamla",
+      fields: { filled: 8, total: 10 },
+      media: { files: 1, bytes: 20_000 },
+      transcripts: 1,
+      review: "APPROVED",
+      sections: [
+        { key: "identity", state: "complete", missing: [] },
+        { key: "tools", state: "partial", missing: ["Tool names"] },
+        { key: "process", state: "complete", missing: [] }
+      ]
+    },
+    {
+      id: "a-mohan",
+      name: "Mohan Lal",
+      craft: "Dabu printing",
+      path: "workshops/bagru/kamla",
+      fields: { filled: 2, total: 10 },
+      media: { files: 0, bytes: 0 },
+      transcripts: 0,
+      review: "PENDING",
+      sections: [
+        { key: "identity", state: "partial", missing: ["Phone"] },
+        { key: "tools", state: "missing", missing: ["Tool names", "Materials"] },
+        { key: "process", state: "missing", missing: ["Dye recipe"] }
+      ]
+    }
+  ],
+  truncated: false
+};
+
 export const BIG_FILES = 60;
 export const BIG_FILE_BYTES = 256 * 1024;
 
@@ -106,6 +151,10 @@ export class DataExplorerFake {
   reportBusy = 0;
   xlsxFailures = 0;
   transcriptStatus: Record<string, string> = { aud1: "READY", vid1: "NEEDS_ATTENTION" };
+  reportOptions: Json | null = null;
+  views: Json[] = [];
+  sharedViews: Json[] = [{ id: "v-shared", name: "Sanganer tables", path: "workshops/sanganer", state: { view: "tables", sheet: "", q: "", filters: {} }, shared: true, mine: false, ownerName: "Ravi Kumar", createdAt: "2026-11-01T10:00:00Z", updatedAt: "2026-11-01T10:00:00Z" }];
+  visit: Json = { previousVisitAt: "2026-11-01T10:00:00Z", newFiles: 3, newTranscripts: 1 };
   treeFailures = new Map<string, number>();
   folders = new Map<string, FakeFolder>();
 
@@ -357,6 +406,35 @@ export class DataExplorerFake {
       return { status: 200, raw: ZIP, contentType: "application/zip", headers: { "content-disposition": 'attachment; filename="Transcripts.zip"' } };
     }
     if (path === "/data/media/aud1/peaks") return { status: 200, json: { peaks: Array.from({ length: 800 }, (_, index) => ((index * 37) % 100) / 100), durationMs: 754_000 } };
+    if (path === "/data/overview") return query.get("path") === "workshops/bagru" ? { status: 200, json: OVERVIEW } : { status: 404, json: { detail: "Not a workshop folder." } };
+    if (path === "/data/visits" && method === "POST") return { status: 200, json: { path: body?.path, visitedAt: "2026-11-05T10:00:00Z", ...this.visit } };
+    if (path === "/data/report-options") {
+      if (method === "PUT") {
+        this.reportOptions = (body?.options as Json) ?? null;
+        return { status: 200, json: { options: this.reportOptions } };
+      }
+      return { status: 200, json: { options: this.reportOptions } };
+    }
+    if (path === "/data/views" && method === "GET") return { status: 200, json: { mine: this.views, shared: this.sharedViews } };
+    if (path === "/data/views" && method === "POST") {
+      const view = { id: `v${this.views.length + 1}`, name: body?.name, path: body?.path, state: body?.state, shared: Boolean(body?.shared), mine: true, ownerName: "Nandini Rao", createdAt: "2026-11-05T10:00:00Z", updatedAt: "2026-11-05T10:00:00Z" };
+      this.views.push(view);
+      return { status: 201, json: view };
+    }
+    const viewMatch = /^\/data\/views\/([^/]+)$/.exec(path);
+    if (viewMatch) {
+      const id = decodeURIComponent(viewMatch[1]);
+      const found = [...this.views, ...this.sharedViews].find((view) => view.id === id);
+      if (method === "DELETE") {
+        this.views = this.views.filter((view) => view.id !== id);
+        return { status: 204 };
+      }
+      if (method === "PATCH" && found) {
+        Object.assign(found, body ?? {});
+        return { status: 200, json: found };
+      }
+      return found ? { status: 200, json: found } : { status: 404, json: { detail: "Not Found" } };
+    }
     if (path === "/data/transcripts/languages") return { status: 200, json: { languages: [{ code: "hi", label: "Hindi", count: 3 }, { code: "raj", label: "Rajasthani", count: 1 }] } };
     if (path === "/data/transcripts") return { status: 200, json: { items: [], nextCursor: null } };
     if (path === "/data/transcripts/list") {
@@ -422,6 +500,7 @@ export class DataExplorerFake {
         this.calls.push({ method: request.method(), path, query: url.searchParams, body, at: Date.now(), headers: request.headers() });
         const out = this.answer(request.method(), path, url.searchParams, body);
         if (!out) return route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Not Found" }) });
+        if (out.status === 204) return route.fulfill({ status: 204 });
         if (out.raw) return route.fulfill({ status: out.status, contentType: out.contentType, headers: out.headers, body: out.raw });
         return route.fulfill({ status: out.status, contentType: "application/json", headers: { date: new Date().toUTCString(), ...(out.headers ?? {}) }, body: JSON.stringify(out.json ?? null) });
       }

@@ -320,8 +320,17 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
           <button type="submit" className="field-button min-h-12 px-5 max-sm:hidden">
             Search
           </button>
+          <button
+            type="button"
+            className="field-button-secondary min-h-12 px-3 sm:hidden"
+            aria-expanded={filtersOpen}
+            aria-controls="data-search-filters"
+            onClick={() => setFiltersOpen((value) => !value)}
+          >
+            {activeFilters(state) ? `Filters · ${activeFilters(state)}` : "Filters"}
+          </button>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div id="data-search-filters" className={`flex-wrap items-center gap-2 ${filtersOpen ? "flex" : "hidden sm:flex"}`}>
           {canBoth ? (
             <div role="radiogroup" aria-label="Where" className="flex rounded-full border border-line-200 bg-surface-50 p-0.5">
               {(["local", "all"] as Scope[]).map((scope) => (
@@ -338,16 +347,6 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
               ))}
             </div>
           ) : null}
-          <button
-            type="button"
-            aria-expanded={filtersOpen}
-            aria-controls="data-search-filters"
-            onClick={() => setFiltersOpen((value) => !value)}
-            className={`min-h-11 rounded-full border px-3.5 text-sm font-semibold sm:hidden ${filters ? "border-purple-300 bg-purple-100 text-purple-800" : "border-line-200 bg-card text-ink-700"}`}
-          >
-            {filters ? `Filters · ${filters}` : "Filters"}
-          </button>
-          <div id="data-search-filters" className={`flex flex-wrap items-center gap-2 max-sm:w-full ${filtersOpen ? "" : "max-sm:hidden"}`}>
           <span className="text-xs text-ink-500">Filter</span>
           <div className="w-44">
             <SearchableMultiSelect ariaLabel="Workshop" placeholder="Workshop" options={workshops.options} values={state.workshopIds} onChange={(workshopIds) => setState((previous) => ({ ...previous, workshopIds }))} searchable onSearch={workshops.onSearch} showChips={false} bulk={false} />
@@ -385,7 +384,6 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
               Clear {filters} {filters === 1 ? "filter" : "filters"}
             </button>
           ) : null}
-          </div>
         </div>
       </form>
 

@@ -173,6 +173,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const restored = useRef<string | null>(null);
   const latest = useRef(url);
   const visited = useRef(new Set<string>());
+  const dismissedPreview = useRef<string | null>(null);
 
   useEffect(() => {
     latest.current = url;
@@ -349,6 +350,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const openPreview = useCallback(
     (target: { mediaId: string; name: string; mediaType: string | null; startMs?: number | null; find?: string }) => {
       const known = files.find((entry) => entry.mediaId === target.mediaId);
+      dismissedPreview.current = null;
       setPreviewEntry(known ?? { name: target.name, path: `media:${target.mediaId}`, kind: "file", mediaId: target.mediaId, mediaType: target.mediaType ?? undefined });
       navigate({ preview: target.mediaId, t: target.startMs ? Math.round(target.startMs / 1000) : 0, find: target.find ?? "", kind: target.mediaType ?? "" });
     },
@@ -356,7 +358,11 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   );
 
   useEffect(() => {
-    if (!url.preview || (previewEntry && previewEntry.mediaId === url.preview)) return;
+    if (!url.preview) {
+      dismissedPreview.current = null;
+      return;
+    }
+    if (url.preview === dismissedPreview.current || (previewEntry && previewEntry.mediaId === url.preview)) return;
     const known = files.find((entry) => entry.mediaId === url.preview);
     if (known) setPreviewEntry(known);
     else if (!current) return;
@@ -364,6 +370,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   }, [url.preview, url.kind, files, previewEntry, current]);
 
   const closePreview = useCallback(() => {
+    dismissedPreview.current = latest.current.preview || null;
     setPreviewEntry(null);
     navigate({ preview: "", t: 0, find: "", kind: "" });
   }, [navigate]);

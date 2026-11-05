@@ -100,9 +100,11 @@ function fileRow(page: Page, name: string): Locator {
 
 async function rowAction(page: Page, name: string, action: string | RegExp): Promise<Locator> {
   const row = fileRow(page, name);
-  const more = row.getByRole("button", { name: `More for ${name}` });
-  if (await more.isVisible()) await more.click();
-  return row.getByRole("button", { name: action });
+  await expect(row).toBeVisible();
+  if ((page.viewportSize()?.width ?? 1280) < 640) await row.getByRole("button", { name: `More for ${name}` }).click();
+  const button = row.getByRole("button", { name: action });
+  await button.evaluate((node) => node.scrollIntoView({ block: "center" }));
+  return button;
 }
 
 function tray(page: Page): Locator {
@@ -147,7 +149,7 @@ test.describe("@qf:X1 layout", () => {
           }
           await noSidewaysScroll(page);
           if (size.mobile) {
-            for (const target of [folderDownload(page), page.getByRole("button", { name: /Folders/ }), page.getByRole("treeitem", { name: "Bagru 2026", exact: true })]) {
+            for (const target of [folderDownload(page), page.getByRole("button", { name: /folders/i }), page.getByRole("treeitem", { name: "Bagru 2026", exact: true })]) {
               const box = await target.boundingBox();
               expect(box!.height, "touch target").toBeGreaterThanOrEqual(44);
             }
@@ -325,7 +327,7 @@ test.describe("@qf:X2 sizes before download", () => {
   test("the folder shows its file count and size, and each type its own tile that can be left out", async ({ browser }) => {
     const { context, page } = await openExplorer(browser, { path: "workshops/bagru" });
     try {
-      await expect(page.getByTestId("folder-size")).toContainText(/7 files · \d/);
+      await expect(page.getByTestId("folder-size")).toContainText(/7 files\s*·\s*\d/);
       const tiles = page.getByRole("group", { name: "Include in the download" });
       const videos = tiles.getByRole("button", { name: /Videos.*1 · 87\.9 KB/ });
       await expect(videos).toHaveAttribute("aria-pressed", "true");
@@ -897,6 +899,112 @@ test.describe("@qf:X9 transcript language filter", () => {
       await toggle.click();
       await page.locator('button[aria-label="Language"]').click();
       await expect(page.getByRole("option", { name: "Hindi · 3" })).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+});
+
+test.describe("@qf:X2 workshop overview", () => {
+  test("a workshop shows its totals, what is new since the last visit and each artisan's coverage, least complete first", async ({ browser }) => {
+    const { context, page } = await openExplorer(browser, { path: "workshops/bagru" });
+    try {
+      const overview = page.getByTestId("workshop-overview");
+      await expect(overview).toContainText("Recorded fields");
+      await expect(overview).toContainText("50%");
+      await expect(overview).toContainText("1 ready · 0 translating · 1 failed");
+      await expect(overview).toContainText("+3", { timeout: 10_000 });
+      await expect(page.getByText("+3 new since you looked")).toBeVisible();
+      const rows = overview.locator("tbody tr");
+      await expect(rows.first()).toContainText("Mohan Lal");
+      await expect(rows.nth(1)).toContainText("Kamla Devi");
+      await overview.getByRole("combobox", { name: /Sort artisans/ }).click();
+      await page.getByRole("option", { name: "By name" }).click();
+      await expect(rows.first()).toContainText("Kamla Devi");
+      await overview.getByRole("button", { name: "Tools: partly recorded. Still to record: Tool names" }).click();
+      await expect(page).toHaveURL(/path=workshops%2Fbagru%2Fkamla/);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("a folder that is not a workshop shows no overview", async ({ browser }) => {
+    const { context, page } = await openExplorer(browser, { path: "workshops/sanganer" });
+    try {
+      await expect(page.getByTestId("download-folder").getByRole("heading", { name: "Sanganer", exact: true })).toBeVisible();
+      await expect(page.getByTestId("workshop-overview")).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+});
+
+test.describe("@qf:X1 saved views", () => {
+  test("a view saves the folder, tab and search, copies its link, lists as yours and can be removed", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru", query: "view=tables" });
+    try {
+      await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+      await page.getByRole("button", { name: "Saved views" }).click();
+      const dialog = page.getByRole("dialog", { name: "Saved views" });
+      await expect(dialog.getByRole("list", { name: "Saved views" })).toContainText("Shared by Ravi Kumar");
+      await expect(dialog.getByLabel("Save this screen as")).toHaveValue("Bagru 2026");
+      await dialog.getByRole("button", { name: "Save and copy link" }).click();
+      await expect(dialog.getByRole("button", { name: "Link copied" })).toBeVisible();
+      const posted = fake.calledWith("POST", "/data/views")[0].body as { path: string; state: { view: string } };
+      expect(posted.path).toBe("workshops/bagru");
+      expect(posted.state.view).toBe("tables");
+      const copied = await page.evaluate(() => navigator.clipboard.readText());
+      expect(copied).toMatch(/\/data\?viewId=v1$/);
+      const mine = dialog.getByRole("listitem").filter({ hasText: "Yours" });
+      await expect(mine).toContainText("Bagru 2026");
+      await mine.getByRole("button", { name: "Remove" }).click();
+      await expect(dialog.getByRole("listitem").filter({ hasText: "Yours" })).toHaveCount(0);
+      expect(fake.calledWith("DELETE", "/data/views/v1")).toHaveLength(1);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("a shared link restores the exact screen, and one the reader cannot open says so", async ({ browser }) => {
+    const { context, page } = await openExplorer(browser, { query: "viewId=v-shared" });
+    try {
+      await expect(page).toHaveURL(/path=workshops%2Fsanganer/);
+      await expect(page).toHaveURL(/view=tables/);
+      await expect(page.getByRole("tab", { name: /Tables/ })).toHaveAttribute("aria-selected", "true");
+      await expect(page).not.toHaveURL(/viewId=/);
+      await page.goto("/data?viewId=nobody");
+      await expect(page.getByText("That saved view isn't available to you.")).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+});
+
+test.describe("@qf:X6 report options", () => {
+  test("remembered choices come back, and the report asks for exactly those sheets, answers and links", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
+    try {
+      fake.reportOptions = { sheets: ["Artisans"], answers: "english", rows: "all", links: false };
+      await page.getByTestId("download-folder").getByRole("button", { name: "Report (.xlsx)" }).click();
+      const dialog = page.getByRole("dialog", { name: "Report (.xlsx)" });
+      await expect(dialog.getByRole("radiogroup", { name: "Answers in" }).getByRole("radio", { name: "English" })).toHaveAttribute("aria-checked", "true");
+      const sheets = dialog.getByRole("list", { name: "Sheets" });
+      await expect(sheets.getByRole("checkbox").first()).toBeChecked();
+      await expect(sheets.getByRole("checkbox").nth(1)).not.toBeChecked();
+      await expect(dialog.getByRole("radio", { name: /Only what’s filtered/ })).toBeDisabled();
+      await expect(dialog.getByRole("switch", { name: "Links to files open in the portal" })).toHaveAttribute("aria-checked", "false");
+      await dialog.getByRole("radio", { name: "Both" }).click();
+      await dialog.getByRole("button", { name: "Remember these choices" }).click();
+      await expect(dialog.getByRole("button", { name: "Remembered" })).toBeVisible();
+      expect(fake.reportOptions).toMatchObject({ answers: "both", links: false, sheets: ["Artisans"] });
+      await dialog.getByLabel("File name").fill("Bagru tools");
+      await dialog.getByRole("button", { name: "Make report" }).click();
+      await expect(trayItem(page, "Report (.xlsx) · Bagru 2026")).toHaveAttribute("data-status", "saved");
+      const asked = fake.calls.filter((call) => call.path === "/data/report" && call.query.get("format") === "xlsx")[0];
+      expect(asked.query.get("sheets")).toBe("Artisans");
+      expect(asked.query.get("links")).toBe("0");
+      expect(asked.query.get("answers")).toBeNull();
+      expect(asked.query.get("name")).toBe("Bagru tools.xlsx");
     } finally {
       await context.close();
     }

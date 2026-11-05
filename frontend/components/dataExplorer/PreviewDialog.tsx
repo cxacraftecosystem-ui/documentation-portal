@@ -787,7 +787,7 @@ function PreviewBody({
           {tab !== "details" ? legend : null}
           <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${tab}`} className="min-w-0">
             {tabPanel}
-            {tab !== "details" && !lines.length && !loaded.text ? (
+            {!lines.length && !loaded.text ? (
               <p className="text-sm text-ink-500">{loaded.error ?? (transcript && transcript.status !== "READY" ? (transcript.statusMessage ?? "The transcript isn't ready yet.") : "No transcript for this file.")}</p>
             ) : null}
           </div>

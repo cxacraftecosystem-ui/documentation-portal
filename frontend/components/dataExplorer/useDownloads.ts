@@ -72,6 +72,7 @@ export function useDownloads() {
   const paused = useRef(new Set<string>());
   const zipActive = useRef<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [announcement, setAnnouncement] = useState("");
 
   const patch = useCallback((id: string, change: Partial<DownloadItem> | ((item: DownloadItem) => Partial<DownloadItem>)) => {
     setItems((previous) => {
@@ -218,6 +219,7 @@ export function useDownloads() {
     }
     if (state.phase === "done" || state.phase === "cancelled" || state.phase === "error") {
       zipActive.current = null;
+      setAnnouncement(state.announcement);
       const failed = state.outcome?.failed ?? [];
       const outcome = state.outcome;
       const status: DownloadStatus = state.phase === "done" ? (failed.length && outcome && outcome.filesSaved === 0 && outcome.filesTotal > 0 ? "failed" : "saved") : state.phase === "cancelled" ? "cancelled" : "failed";
@@ -386,7 +388,7 @@ export function useDownloads() {
     now,
     capabilities,
     measure,
-    announcement: jobState.announcement,
+    announcement: jobState.phase === "idle" ? announcement : jobState.announcement,
     zipBusy,
     enqueue,
     enqueueZip,
