@@ -162,6 +162,7 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
   const [attempt, setAttempt] = useState(0);
   const [locating, setLocating] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const workshops = useOptions("/workshops", (row: Workshop) => ({ value: row.id, label: workshopDisplayTitle(row) }));
@@ -337,6 +338,16 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
               ))}
             </div>
           ) : null}
+          <button
+            type="button"
+            aria-expanded={filtersOpen}
+            aria-controls="data-search-filters"
+            onClick={() => setFiltersOpen((value) => !value)}
+            className={`min-h-11 rounded-full border px-3.5 text-sm font-semibold sm:hidden ${filters ? "border-purple-300 bg-purple-100 text-purple-800" : "border-line-200 bg-card text-ink-700"}`}
+          >
+            {filters ? `Filters · ${filters}` : "Filters"}
+          </button>
+          <div id="data-search-filters" className={`flex flex-wrap items-center gap-2 max-sm:w-full ${filtersOpen ? "" : "max-sm:hidden"}`}>
           <span className="text-xs text-ink-500">Filter</span>
           <div className="w-44">
             <SearchableMultiSelect ariaLabel="Workshop" placeholder="Workshop" options={workshops.options} values={state.workshopIds} onChange={(workshopIds) => setState((previous) => ({ ...previous, workshopIds }))} searchable onSearch={workshops.onSearch} showChips={false} bulk={false} />
@@ -374,6 +385,7 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
               Clear {filters} {filters === 1 ? "filter" : "filters"}
             </button>
           ) : null}
+          </div>
         </div>
       </form>
 
