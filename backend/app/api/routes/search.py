@@ -253,9 +253,14 @@ async def unified_search(
         links=links,
     )
     suggestion = None if any(g["items"] for g in groups) else await search_query.did_you_mean(text)
+    suggestion_total = 0
+    if suggestion:
+        suggested = await search_query.run(suggestion, local_scope, limit=1)
+        suggestion_total = sum(int(n) for n in suggested.totals.values())
     return {
         "query": text,
         "suggestion": suggestion,
+        "suggestionTotal": suggestion_total,
         "mode": local.mode,
         "groups": groups,
         "remote": {"portal": us.PEER_PORTAL, "label": us.PEER_LABEL, "status": remote_status},

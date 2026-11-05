@@ -567,6 +567,9 @@ export class DataExplorerFake {
         .map(({ text, ...item }) => (q ? { ...item, snippet: text } : item));
       return { status: 200, json: { items, total: items.length, truncated: false, query: q || null } };
     }
+    if (path === "/search/unified" && this.unifiedSearch && this.searchCorpus.length && query.get("q") === "indgo") {
+      return { status: 200, json: { query: "indgo", mode: "text", suggestion: "indigo", suggestionTotal: 38, groups: [], remote: { portal: "fieldRepository", label: "Field Repository", status: "off" }, typesRefused: [], page: 1, limit: 5 } };
+    }
     if (path === "/search/unified" && this.unifiedSearch && this.searchCorpus.length) {
       const type = query.get("type");
       const limit = Number(query.get("limit") ?? 5);

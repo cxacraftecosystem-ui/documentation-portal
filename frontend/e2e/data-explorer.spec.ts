@@ -1355,6 +1355,18 @@ test.describe("@qf:X6 links inside the report", () => {
 });
 
 test.describe("search reaches every record", () => {
+  test("a suggestion says how many results it brings", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser);
+    fake.searchCorpus = [{ type: "artisans", label: "Artisans", singular: "Artisan", total: 31 }];
+    try {
+      await page.getByRole("searchbox", { name: "Search all data" }).fill("indgo");
+      await expect(page.getByText("No matches for “indgo”")).toBeVisible();
+      await expect(page.getByText(/Did you mean\s*indigo\s*\?\s*38 results\./)).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+
   test("All pages past the first five, and Show all reaches the last artisan", async ({ browser }) => {
     const { context, page, fake } = await openExplorer(browser);
     fake.searchCorpus = [

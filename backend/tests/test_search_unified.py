@@ -310,3 +310,18 @@ async def test_a_workshop_filter_finds_a_tool_through_its_linked_artisan(world, 
         await db.tooldocumentation.delete(where={"id": tool.id})
         await db.artisan.delete(where={"id": artisan.id})
         await db.workshop.delete(where={"id": other.id})
+
+
+@needs_search_db
+async def test_a_suggestion_carries_its_own_result_count(world, settings, monkeypatch):
+    async def suggest(_text):
+        return world.stamp
+
+    monkeypatch.setattr(routes.search_query, "did_you_mean", suggest)
+    result = await _search(world.professor, "zzqxnomatchzz", scope="local")
+    assert result["groups"] == [] or not any(g["items"] for g in result["groups"])
+    assert result["suggestion"] == world.stamp
+    direct = await _search(world.professor, world.stamp, scope="local")
+    assert result["suggestionTotal"] == sum(g["total"] for g in direct["groups"]) > 0
+    plain = await _search(world.professor, world.stamp, scope="local")
+    assert plain["suggestion"] is None and plain["suggestionTotal"] == 0

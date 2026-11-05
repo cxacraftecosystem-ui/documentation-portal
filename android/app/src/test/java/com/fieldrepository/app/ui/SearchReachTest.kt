@@ -149,4 +149,12 @@ class SearchReachTest {
         assertEquals(649, loaded.size)
         assertEquals(33, pages)
     }
+
+    @Test fun `a suggestion says how many results it would bring`() {
+        val r = ApiClient.json.decodeFromString(UnifiedSearchResponse.serializer(), """{"query":"indgo","suggestion":"indigo","suggestionTotal":38,"groups":[]}""")
+        assertEquals(38, r.suggestionTotal)
+        assertEquals("Did you mean indigo? 38 results.", DataSearchText.didYouMean("indigo") + DataSearchText.suggestionCount(r.suggestionTotal))
+        assertEquals(" 1 result.", DataSearchText.suggestionCount(1))
+        assertEquals("", DataSearchText.suggestionCount(0))
+    }
 }

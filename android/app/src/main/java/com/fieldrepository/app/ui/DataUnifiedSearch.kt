@@ -119,6 +119,7 @@ object DataSearchText {
     fun playFrom(clock: String) = "Play from $clock"
     fun noMatches(q: String) = "No matches for “$q”"
     fun didYouMean(s: String) = "Did you mean $s?"
+    fun suggestionCount(n: Int) = if (n == 1) " 1 result." else if (n > 1) " $n results." else ""
     fun showMore(n: Int) = "Show $n more"
     const val loadMore = "Load more"
     fun showAll(total: Int, label: String) = "Show all $total ${label.lowercase()}"
@@ -356,6 +357,7 @@ internal fun DataUnifiedSearch(
                     NoMatches(
                         query = query.trim(),
                         suggestion = now.response.suggestion,
+                        suggestionTotal = now.response.suggestionTotal,
                         filtered = type != null,
                         canWiden = scope == "local" && !blocked,
                         onSuggest = { query = it; page = 1 },
@@ -593,14 +595,14 @@ private fun Modifier.dashedBorder(color: Color, radius: Dp): Modifier = drawBehi
 }
 
 @Composable
-private fun NoMatches(query: String, suggestion: String?, filtered: Boolean, canWiden: Boolean, onSuggest: (String) -> Unit, onClear: () -> Unit, onWiden: () -> Unit) {
+private fun NoMatches(query: String, suggestion: String?, suggestionTotal: Int, filtered: Boolean, canWiden: Boolean, onSuggest: (String) -> Unit, onClear: () -> Unit, onWiden: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(vertical = 24.dp).testTag("data.search.none"), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(Modifier.size(56.dp).background(MaterialTheme.field.surface50, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
             Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(26.dp))
         }
         Text(DataSearchText.noMatches(query), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, modifier = Modifier.semantics { heading() })
         suggestion?.takeIf { it.isNotBlank() && !it.equals(query, ignoreCase = true) }?.let { s ->
-            val line = DataSearchText.didYouMean(s)
+            val line = DataSearchText.didYouMean(s) + DataSearchText.suggestionCount(suggestionTotal)
             val at = line.indexOf(s)
             TextButton(onClick = { onSuggest(s) }, modifier = Modifier.heightIn(min = 44.dp).testTag("data.search.suggestion")) {
                 Text(

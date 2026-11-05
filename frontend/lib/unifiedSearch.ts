@@ -79,6 +79,7 @@ export type UnifiedResponse = {
   remote: { portal: Portal; label: string; status: RemoteStatus };
   typesRefused: string[];
   suggestion?: string | null;
+  suggestionTotal?: number;
   type?: UnifiedType;
   page?: number;
   limit?: number;

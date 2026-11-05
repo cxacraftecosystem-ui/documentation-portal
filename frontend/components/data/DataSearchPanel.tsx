@@ -218,6 +218,11 @@ function useOptions(endpoint: string, map: (row: never) => SelectOption) {
   return { options, onSearch: setTerm, pending, truncated };
 }
 
+function suggestionCount(total: number | undefined): string {
+  if (!total || total < 1) return "";
+  return total === 1 ? " 1 result." : ` ${total.toLocaleString("en-IN")} results.`;
+}
+
 export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal: (path: string) => void; onPreview: (target: PreviewTarget) => void; ask?: SearchAsk | null }) {
   const [draft, setDraft] = useState("");
   const [state, setState] = useState<SearchState>(EMPTY_STATE);
@@ -523,7 +528,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
                   >
                     {data.suggestion}
                   </button>
-                  ?
+                  ?{suggestionCount(data.suggestionTotal)}
                 </p>
               ) : null}
               <ActionGroup>
