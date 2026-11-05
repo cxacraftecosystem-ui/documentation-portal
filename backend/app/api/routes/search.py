@@ -154,6 +154,8 @@ def _clean_query(q: str) -> str:
 
 
 def _split(values: list[str] | None) -> list[str]:
+    if not isinstance(values, list | tuple):
+        return []
     return [
         plain(part.strip())
         for value in values or []
