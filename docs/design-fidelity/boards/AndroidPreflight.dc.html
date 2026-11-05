@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Before a big download</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.k{font-size:12px;color:#615d7a}
+.row{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid #e4e2ef;border-radius:14px}
+.sw{flex:none;width:44px;height:26px;border-radius:13px;position:relative}
+.sw span{position:absolute;top:3px;width:20px;height:20px;border-radius:10px;background:#fff}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: rgba(30,27,46,.5); font-family: Inter, system-ui, sans-serif; color: #1e1b2e; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden;">
+  <section role="dialog" aria-label="Before you download" style="background: #fff; border-radius: 24px 24px 0 0; padding: 10px 16px 20px; display: flex; flex-direction: column; gap: 12px;">
+    <div aria-hidden="true" style="width: 40px; height: 4px; border-radius: 2px; background: #e4e2ef; align-self: center;"></div>
+    <h2 style="margin: 0; font-family: 'Plus Jakarta Sans'; font-size: 20px; font-weight: 800;">Download 3rd Craft Toolkit</h2>
+    <div class="k" style="font-size: 13px;">926 files · 7.15 GB · about 20 min on this Wi-Fi</div>
+    <div class="row" style="background: #fef3c7; border-color: #fcd34d; color: #78350f;"><span style="font-size: 20px;">⌁</span><div style="flex: 1;"><strong style="font-size: 14px;">You’re on mobile data</strong><div style="font-size: 12px; color: #92400e;">7.15 GB could use most of a monthly pack.</div></div></div>
+    <div class="row"><div style="flex: 1;"><strong style="font-size: 14px;">Wait for Wi-Fi</strong><div class="k">Starts by itself when you’re on Wi-Fi</div></div><span class="sw" style="background: #762cb1;"><span style="right: 3px;"></span></span></div>
+    <div class="row" style="flex-direction: column; align-items: stretch; gap: 8px;">
+      <div style="display: flex; justify-content: space-between; font-size: 14px;"><strong>Phone storage</strong><span style="color: #15803d; font-weight: 600;">Enough space</span></div>
+      <div style="height: 10px; border-radius: 999px; background: #ece9f5; overflow: hidden; display: flex;"><span style="width: 58%; background: #a7a3bc;"></span><span style="width: 14%; background: #762cb1;"></span></div>
+      <div class="k">This download 7.15 GB · 21.4 GB free after</div>
+    </div>
+    <div class="row"><div style="flex: 1;"><strong style="font-size: 14px;">Save to</strong><div class="k">Downloads/DesignWorkshop/3rd-Craft-Toolkit.zip</div></div><span style="color: #762cb1; font-weight: 600; font-size: 13px;">Change</span></div>
+    <div class="row"><div style="flex: 1;"><strong style="font-size: 14px;">Smaller download</strong><div class="k">Skip videos · 1.9 GB · 6 min</div></div><span class="sw" style="background: #d9d6e5;"><span style="left: 3px;"></span></span></div>
+    <div style="display: flex; gap: 8px; padding-top: 4px;"><button style="flex: 1; min-height: 52px; border-radius: 14px; border: 1px solid #e4e2ef; background: #fff; font: inherit; font-size: 15px;">Not now</button><button style="flex: 2; min-height: 52px; border-radius: 14px; border: 0; background: #762cb1; color: #fff; font: inherit; font-size: 15px; font-weight: 700;">Download on Wi-Fi</button></div>
+    <div class="k" style="text-align: center;">Shown only for downloads over 500 MB or on mobile data.</div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

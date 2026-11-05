@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Audio preview on touch</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+mark{background:#fde68a;color:#78350f;border-radius:4px;padding:0 2px}
+.seg{display:flex;gap:10px;padding:10px 12px;border-radius:12px;font-size:15px;line-height:1.55}
+.ts{flex:none;width:40px;font-size:12px;font-weight:600;color:#762cb1;padding-top:2px}
+.sp{font-size:12px;font-weight:700}
+.wv{display:flex;align-items:center;gap:2px;height:48px}
+.wv i{display:block;width:3px;border-radius:2px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #fff; font-family: Inter, system-ui, sans-serif; color: #1e1b2e; display: flex; flex-direction: column; overflow: hidden;">
+  <div style="padding: 10px 8px; display: flex; align-items: center; gap: 4px;">
+    <button aria-label="Close" style="width: 44px; height: 44px; border-radius: 12px; border: 0; background: transparent; font-size: 18px;">✕</button>
+    <div style="flex: 1; min-width: 0;"><div style="font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Section D · Materials · Group of 3</div><div style="font-size: 12px; color: #615d7a;">Audio · 14.2 MB · 41:02 · 7 of 48</div></div>
+    <button style="min-height: 40px; padding: 0 14px; border-radius: 12px; border: 0; background: #762cb1; color: #fff; font: inherit; font-size: 13px; font-weight: 600;">Save</button>
+  </div>
+  <section style="margin: 0 12px; padding: 14px; border-radius: 20px; background: linear-gradient(160deg, #f2e9fe, #fff7ed); display: flex; flex-direction: column; gap: 10px;">
+    <div class="wv" aria-label="Waveform">
+      <i style="height:14px;background:#762cb1"></i><i style="height:26px;background:#762cb1"></i><i style="height:38px;background:#762cb1"></i><i style="height:22px;background:#762cb1"></i><i style="height:44px;background:#762cb1"></i><i style="height:30px;background:#762cb1"></i><i style="height:18px;background:#762cb1"></i><i style="height:40px;background:#fbbf24"></i><i style="height:32px;background:#762cb1"></i><i style="height:20px;background:#762cb1"></i><i style="height:42px;background:#762cb1"></i><i style="height:28px;background:#762cb1"></i><i style="height:14px;background:#762cb1"></i><i style="height:36px;background:#762cb1"></i><i style="height:46px;background:#762cb1"></i><i style="height:30px;background:#762cb1"></i><i style="width:2px;height:48px;background:#1e1b2e"></i><i style="height:20px;background:#d9c4e9"></i><i style="height:38px;background:#d9c4e9"></i><i style="height:44px;background:#fbbf24"></i><i style="height:26px;background:#d9c4e9"></i><i style="height:16px;background:#d9c4e9"></i><i style="height:40px;background:#d9c4e9"></i><i style="height:30px;background:#d9c4e9"></i><i style="height:46px;background:#d9c4e9"></i><i style="height:22px;background:#d9c4e9"></i><i style="height:36px;background:#d9c4e9"></i><i style="height:18px;background:#d9c4e9"></i><i style="height:42px;background:#d9c4e9"></i><i style="height:32px;background:#d9c4e9"></i><i style="height:24px;background:#d9c4e9"></i><i style="height:44px;background:#fbbf24"></i><i style="height:28px;background:#d9c4e9"></i><i style="height:14px;background:#d9c4e9"></i><i style="height:38px;background:#d9c4e9"></i><i style="height:34px;background:#d9c4e9"></i><i style="height:20px;background:#d9c4e9"></i><i style="height:40px;background:#d9c4e9"></i><i style="height:26px;background:#d9c4e9"></i><i style="height:46px;background:#d9c4e9"></i><i style="height:18px;background:#d9c4e9"></i><i style="height:36px;background:#d9c4e9"></i><i style="height:28px;background:#d9c4e9"></i><i style="height:42px;background:#d9c4e9"></i><i style="height:22px;background:#d9c4e9"></i><i style="height:32px;background:#d9c4e9"></i><i style="height:16px;background:#d9c4e9"></i><i style="height:38px;background:#d9c4e9"></i><i style="height:24px;background:#d9c4e9"></i><i style="height:44px;background:#d9c4e9"></i><i style="height:30px;background:#d9c4e9"></i><i style="height:20px;background:#d9c4e9"></i>
+    </div>
+    <div style="display: flex; justify-content: space-between; font-size: 12px; color: #615d7a;"><strong style="color: #1e1b2e;">18:20</strong><span>Sunita speaking</span><span>41:02</span></div>
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <button style="min-height: 40px; padding: 0 10px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font: inherit; font-size: 12px;">1.25×</button>
+      <button aria-label="Back 10 seconds" style="width: 48px; height: 48px; border-radius: 24px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">↺10</button>
+      <button aria-label="Pause" style="width: 64px; height: 64px; border-radius: 32px; border: 0; background: #762cb1; color: #fff; font-size: 20px;">❚❚</button>
+      <button aria-label="Forward 10 seconds" style="width: 48px; height: 48px; border-radius: 24px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">10↻</button>
+      <button style="min-height: 40px; padding: 0 10px; border-radius: 999px; border: 0; background: #762cb1; color: #fff; font: inherit; font-size: 12px; font-weight: 600;">✓ Clear</button>
+    </div>
+  </section>
+  <div style="padding: 12px 16px 6px; display: flex; flex-direction: column; gap: 8px;">
+    <div role="tablist" style="display: flex; padding: 3px; border-radius: 12px; background: #faf9fd; border: 1px solid #e4e2ef;">
+      <button role="tab" style="flex: 1; min-height: 40px; border-radius: 9px; border: 0; background: transparent; font: inherit; font-size: 13px;">Marwari</button>
+      <button role="tab" aria-selected="true" style="flex: 1; min-height: 40px; border-radius: 9px; border: 0; background: #762cb1; color: #fff; font: inherit; font-size: 13px; font-weight: 600;">English</button>
+      <button role="tab" style="flex: 1; min-height: 40px; border-radius: 9px; border: 0; background: transparent; font: inherit; font-size: 13px;">Find ⌕</button>
+    </div>
+    <div style="display: flex; gap: 6px; overflow: hidden;">
+      <span style="flex: none; min-height: 28px; padding: 0 10px; border-radius: 999px; background: #f2e9fe; color: #762cb1; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;"><span style="width: 8px; height: 8px; border-radius: 4px; background: #762cb1;"></span>Interviewer</span>
+      <span style="flex: none; min-height: 28px; padding: 0 10px; border-radius: 999px; background: #ccfbf1; color: #0f766e; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;"><span style="width: 8px; height: 8px; border-radius: 4px; background: #0f766e;"></span>Sunita</span>
+      <span style="flex: none; min-height: 28px; padding: 0 10px; border-radius: 999px; background: #ffedd5; color: #b45309; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;"><span style="width: 8px; height: 8px; border-radius: 4px; background: #b45309;"></span>Kamla</span>
+      <span style="flex: none; min-height: 28px; padding: 0 10px; border-radius: 999px; background: #fce7f3; color: #be185d; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;"><span style="width: 8px; height: 8px; border-radius: 4px; background: #be185d;"></span>Meera</span>
+    </div>
+  </div>
+  <div style="flex: 1; overflow: hidden; padding: 0 8px; display: flex; flex-direction: column; gap: 2px;">
+    <div class="seg"><span class="ts">17:49</span><div><div class="sp" style="color: #0f766e;">Sunita</div>Black clay from the pond, <mark>lime</mark>, gum and wheat husk.</div></div>
+    <div class="seg" style="background: #f2e9fe;"><span class="ts">18:14</span><div><div class="sp" style="color: #0f766e;">Sunita</div>Without the <mark>lime</mark> it cracks when it dries, so we soak it the night before.</div></div>
+    <div class="seg"><span class="ts">18:36</span><div><div class="sp" style="color: #b45309;">Kamla</div>My mother used less gum. It washes out easier but the edge is not as sharp.</div></div>
+    <div class="seg"><span class="ts">18:58</span><div><div class="sp" style="color: #762cb1;">Interviewer</div>Where do you buy the <mark>lime</mark>?</div></div>
+  </div>
+  <div style="padding: 10px 16px 16px; border-top: 1px solid #e4e2ef; display: flex; gap: 8px;">
+    <button aria-label="Previous file" style="width: 48px; min-height: 48px; border-radius: 12px; border: 1px solid #e4e2ef; background: #fff;">‹</button>
+    <button style="flex: 1; min-height: 48px; border-radius: 12px; border: 1px solid #e4e2ef; background: #fff; font: inherit; font-size: 13px;">Transcript (.docx)</button>
+    <button style="flex: 1; min-height: 48px; border-radius: 12px; border: 1px solid #e4e2ef; background: #fff; font: inherit; font-size: 13px;">Share</button>
+    <button aria-label="Next file" style="width: 48px; min-height: 48px; border-radius: 12px; border: 1px solid #e4e2ef; background: #fff;">›</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

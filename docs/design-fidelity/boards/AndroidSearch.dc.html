@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Android unified search</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+mark{background:#f2e9fe;color:#5f2491;border-radius:4px;padding:0 2px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #f7f6fb; font-family: Inter, system-ui, sans-serif; color: #1e1b2e; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden;">
+  <div style="display: flex; gap: 8px; align-items: center;">
+    <button aria-label="Back" style="width: 44px; height: 44px; border-radius: 12px; border: 0; background: transparent; font-size: 20px;">‹</button>
+    <div style="flex: 1; display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid #9148d2; background: #fff; box-shadow: 0 0 0 4px rgba(145,72,210,.15);">
+      <label for="sq" style="position: absolute; left: -9999px;">Search everything</label>
+      <input id="sq" value="indigo mud resist" style="flex: 1; border: 0; outline: 0; font: inherit; font-size: 15px;">
+      <button aria-label="Clear" style="width: 32px; height: 32px; border-radius: 16px; border: 0; background: #faf9fd;">✕</button>
+    </div>
+  </div>
+  <div role="group" aria-label="Where" style="display: flex; padding: 3px; border-radius: 12px; background: #fff; border: 1px solid #e4e2ef;">
+    <button style="flex: 1; min-height: 40px; border-radius: 9px; border: 0; background: #762cb1; color: #fff; font: inherit; font-size: 13px; font-weight: 600;">This app</button>
+    <button style="flex: 1; min-height: 40px; border-radius: 9px; border: 0; background: transparent; font: inherit; font-size: 13px; color: #3a3651;">Both portals</button>
+  </div>
+  <div style="display: flex; gap: 8px; overflow: hidden;">
+    <button style="flex: none; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 0; background: #1e1b2e; color: #fff; font-size: 13px; font-weight: 600;">All 38</button>
+    <button style="flex: none; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Transcripts 21</button>
+    <button style="flex: none; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Tools 3</button>
+    <button style="flex: none; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Processes 6</button>
+  </div>
+  <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px;">
+    <li style="background: #fff; border: 1px solid #e4e2ef; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 6px;">
+      <div style="display: flex; justify-content: space-between; font-size: 12px; color: #615d7a;"><span>Transcript · 12:04</span><span>22 Sep</span></div>
+      <div style="font-size: 15px; font-weight: 600;">Section D · Materials</div>
+      <p style="margin: 0; font-size: 13px; color: #3a3651;">“…the <mark>mud</mark> <mark>resists</mark> the <mark>indigo</mark> where we press the block…”</p>
+      <div style="font-size: 12px; color: #615d7a;">Giriraj Prasad Chhipa · 3rd Craft Toolkit</div>
+      <div style="display: flex; gap: 8px;"><button style="flex: 1; min-height: 44px; border-radius: 12px; border: 1px solid #e4e2ef; background: #fff; font: inherit; font-size: 13px;">Play from 12:04</button><button style="flex: 1; min-height: 44px; border-radius: 12px; border: 1px solid #e4e2ef; background: #fff; font: inherit; font-size: 13px;">Open in data</button></div>
+    </li>
+    <li style="background: #fff; border: 1px solid #e4e2ef; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 6px;">
+      <div style="font-size: 12px; color: #615d7a;">Tool</div>
+      <div style="font-size: 15px; font-weight: 600;"><mark>Indigo</mark> vat stirrer</div>
+      <div style="font-size: 12px; color: #615d7a;">2 artisans · 2 workshops</div>
+    </li>
+    <li style="background: #fff; border: 1px solid #e4e2ef; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 6px;">
+      <div style="font-size: 12px; color: #615d7a;">Process · step 4 of 9</div>
+      <div style="font-size: 15px; font-weight: 600;">Dabu <mark>mud resist</mark> application</div>
+      <div style="font-size: 12px; color: #615d7a;">Giriraj Prasad Chhipa</div>
+    </li>
+  </ul>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

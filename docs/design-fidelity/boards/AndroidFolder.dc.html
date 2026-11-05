@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Android data screen, folder</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #f7f6fb; font-family: Inter, system-ui, sans-serif; color: #1e1b2e; display: flex; flex-direction: column; position: relative; overflow: hidden;">
+  <div style="padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 10px; background: #f7f6fb;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <button aria-label="Back" style="width: 44px; height: 44px; border-radius: 12px; border: 0; background: transparent; font-size: 20px;">‹</button>
+      <h1 style="margin: 0; font-family: 'Plus Jakarta Sans'; font-size: 20px; font-weight: 800; flex: 1;">View data</h1>
+      <button aria-label="Downloads, 1 running" style="position: relative; width: 44px; height: 44px; border-radius: 12px; border: 1px solid #e4e2ef; background: #fff;"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3a3651" stroke-width="2" stroke-linecap="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 19h16"></path></svg><span style="position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; border-radius: 9px; background: #762cb1; color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center;">1</span></button>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center; min-height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid #e4e2ef; background: #fff;">
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#615d7a" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+      <label for="aq" style="position: absolute; left: -9999px;">Jump to a record</label>
+      <input id="aq" placeholder="Jump to a record" style="flex: 1; border: 0; outline: 0; font: inherit; font-size: 15px;">
+    </div>
+    <div style="display: flex; gap: 8px; overflow: hidden;">
+      <button style="flex: none; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Workshop ▾</button>
+      <button style="flex: none; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Artisan ▾</button>
+      <button style="flex: none; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Craft ▾</button>
+      <button style="flex: none; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Type ▾</button>
+    </div>
+  </div>
+
+  <div style="flex: 1; overflow: hidden; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 12px;">
+    <section style="background: #fff; border: 1px solid #e4e2ef; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+      <div style="font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #615d7a; font-weight: 600;">Organise by</div>
+      <div role="group" aria-label="Organise by" style="display: flex; gap: 6px;">
+        <button style="min-height: 36px; padding: 0 12px; border-radius: 999px; border: 0; background: #762cb1; color: #fff; font-size: 13px; font-weight: 600;">Workshop</button>
+        <button style="min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Craft</button>
+        <button style="min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Type</button>
+      </div>
+      <div style="font-size: 12px; color: #615d7a;">Workshop › artisan › record. A tool shows under every artisan it’s linked to.</div>
+    </section>
+
+    <section style="background: #fff; border: 1px solid #e4e2ef; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+      <nav aria-label="Breadcrumb" style="font-size: 12px; color: #615d7a;">All workshops › 3rd Craft Toolkit</nav>
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2 style="margin: 0; font-family: 'Plus Jakarta Sans'; font-size: 18px; font-weight: 800;">Giriraj Prasad Chhipa</h2>
+        <span style="font-size: 12px; color: #615d7a;">48 files · 1.24 GB</span>
+      </div>
+      <dl style="margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; font-size: 13px;">
+        <div><dt style="font-size: 11px; color: #615d7a;">Craft</dt><dd style="margin: 0;">Dabu printing</dd></div>
+        <div><dt style="font-size: 11px; color: #615d7a;">Location</dt><dd style="margin: 0;">Bagru, Rajasthan</dd></div>
+        <div><dt style="font-size: 11px; color: #615d7a;">Recorded fields</dt><dd style="margin: 0;">34 of 40</dd></div>
+        <div><dt style="font-size: 11px; color: #615d7a;">Review</dt><dd style="margin: 0; color: #15803d; font-weight: 600;">Approved</dd></div>
+      </dl>
+      <button style="align-self: flex-start; min-height: 36px; padding: 0; border: 0; background: transparent; color: #762cb1; font: inherit; font-size: 13px; font-weight: 600;">Show all 34 fields</button>
+    </section>
+
+    <section style="background: #fff; border: 1px solid #e4e2ef; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;"><h3 style="margin: 0; font-size: 15px; font-weight: 700;">Download</h3><span style="font-size: 12px; color: #615d7a;">1.24 GB selected</span></div>
+      <div role="group" aria-label="Include" style="display: flex; gap: 6px; flex-wrap: wrap;">
+        <button aria-pressed="true" style="min-height: 34px; padding: 0 10px; border-radius: 999px; border: 0; background: #762cb1; color: #fff; font-size: 12px; font-weight: 600;">✓ Text</button>
+        <button aria-pressed="true" style="min-height: 34px; padding: 0 10px; border-radius: 999px; border: 0; background: #762cb1; color: #fff; font-size: 12px; font-weight: 600;">✓ Images 61 MB</button>
+        <button aria-pressed="true" style="min-height: 34px; padding: 0 10px; border-radius: 999px; border: 0; background: #762cb1; color: #fff; font-size: 12px; font-weight: 600;">✓ Videos 980 MB</button>
+        <button aria-pressed="true" style="min-height: 34px; padding: 0 10px; border-radius: 999px; border: 0; background: #762cb1; color: #fff; font-size: 12px; font-weight: 600;">✓ Audio 196 MB</button>
+        <button aria-pressed="true" style="min-height: 34px; padding: 0 10px; border-radius: 999px; border: 0; background: #762cb1; color: #fff; font-size: 12px; font-weight: 600;">✓ Transcripts</button>
+        <button aria-pressed="true" style="min-height: 34px; padding: 0 10px; border-radius: 999px; border: 0; background: #762cb1; color: #fff; font-size: 12px; font-weight: 600;">✓ Documents</button>
+        <button aria-pressed="true" style="min-height: 34px; padding: 0 10px; border-radius: 999px; border: 0; background: #762cb1; color: #fff; font-size: 12px; font-weight: 600;">✓ Other</button>
+      </div>
+      <div style="display: flex; gap: 8px;"><button style="flex: 1; min-height: 48px; border-radius: 12px; border: 1px solid #e4e2ef; background: #fff; font: inherit; font-size: 14px;">Report (.xlsx)</button><button style="flex: 1; min-height: 48px; border-radius: 12px; border: 0; background: #762cb1; color: #fff; font: inherit; font-size: 14px; font-weight: 600;">Download folder</button></div>
+    </section>
+
+    <section style="background: #fff; border: 1px solid #e4e2ef; border-radius: 16px; overflow: hidden;">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid #e4e2ef;"><h3 style="margin: 0; font-size: 15px; font-weight: 700;">Files</h3><span style="font-size: 12px; color: #615d7a;">48</span></div>
+      <div style="display: flex; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid #e4e2ef;"><div style="width: 48px; height: 48px; border-radius: 10px; background: #e7d5fe; display: grid; place-items: center; color: #5f2491; font-size: 11px; font-weight: 700;">VID</div><div style="flex: 1; min-width: 0;"><div style="font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Interview_Dabu-mud-resist_Take-1</div><div style="font-size: 12px; color: #615d7a;">Video · 701 MB · transcript</div></div><button style="min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Save</button></div>
+      <div style="display: flex; gap: 12px; align-items: center; padding: 10px 14px;"><div style="width: 48px; height: 48px; border-radius: 10px; background: linear-gradient(135deg,#c9b2a1,#8c6d5a);"></div><div style="flex: 1; min-width: 0;"><div style="font-weight: 600; font-size: 14px;">Block-carving_close-up_03</div><div style="font-size: 12px; color: #615d7a;">Image · 3.4 MB</div></div><button style="min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Save</button></div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

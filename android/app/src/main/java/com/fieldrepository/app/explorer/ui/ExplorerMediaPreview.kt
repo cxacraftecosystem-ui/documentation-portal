@@ -97,6 +97,11 @@ private sealed interface TranscriptState {
 internal fun playable(entry: ExplorerEntry): Boolean =
     entry.mediaType in setOf("VIDEO", "AUDIO", "IMAGE") && (entry.mediaId != null || !entry.url.isNullOrBlank())
 
+interface ExplorerMediaLoader {
+    suspend fun source(entry: ExplorerEntry): String?
+    suspend fun transcript(mediaId: String): Transcript?
+}
+
 @Composable
 internal fun ExplorerMediaDialog(
     entries: List<ExplorerEntry>,
@@ -106,23 +111,38 @@ internal fun ExplorerMediaDialog(
     onSave: ((ExplorerEntry) -> Unit)?,
     onDismiss: () -> Unit,
 ) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        ExplorerMediaContent(entries, start, startSeconds, total, onSave, onDismiss, Modifier.safeDrawingPadding())
+    }
+}
+
+@Composable
+internal fun ExplorerMediaContent(
+    entries: List<ExplorerEntry>,
+    start: Int,
+    startSeconds: Double = 0.0,
+    total: Int = entries.size,
+    onSave: ((ExplorerEntry) -> Unit)?,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    loader: ExplorerMediaLoader? = null,
+) {
     var index by rememberSaveable { mutableStateOf(start.coerceIn(0, (entries.size - 1).coerceAtLeast(0))) }
     val entry = entries.getOrNull(index) ?: return
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Surface(Modifier.fillMaxSize().testTag("explorer.preview.media"), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-                MediaPane(
-                    entry = entry,
-                    position = ExplorerUiText.positionOf(entries.indexOf(entry) + 1, maxOf(total, entries.size)),
-                    startSeconds = if (index == start) startSeconds else 0.0,
-                    onSave = onSave?.let { save -> { save(entry) } },
-                    onDismiss = onDismiss,
-                    canPrevious = index > 0,
-                    canNext = index < entries.lastIndex,
-                    onPrevious = { if (index > 0) index-- },
-                    onNext = { if (index < entries.lastIndex) index++ },
-                )
-            }
+    Surface(Modifier.fillMaxSize().testTag("explorer.preview.media"), color = MaterialTheme.colorScheme.background) {
+        Column(Modifier.fillMaxSize().then(modifier)) {
+            MediaPane(
+                entry = entry,
+                position = ExplorerUiText.positionOf(entries.indexOf(entry) + 1, maxOf(total, entries.size)),
+                startSeconds = if (index == start) startSeconds else 0.0,
+                onSave = onSave?.let { save -> { save(entry) } },
+                onDismiss = onDismiss,
+                canPrevious = index > 0,
+                canNext = index < entries.lastIndex,
+                onPrevious = { if (index > 0) index-- },
+                onNext = { if (index < entries.lastIndex) index++ },
+                loader = loader,
+            )
         }
     }
 }
@@ -138,11 +158,12 @@ private fun ColumnScope.MediaPane(
     canNext: Boolean,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    loader: ExplorerMediaLoader? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val url by produceState<String?>(initialValue = null, entry.key) {
-        value = withContext(Dispatchers.IO) {
+        value = if (loader != null) loader.source(entry) else withContext(Dispatchers.IO) {
             ExplorerPaths.preview(entry)?.let { ExplorerDownloads.resolveSigned(context, it) } ?: entry.url?.takeIf { it.isNotBlank() }
         }
     }
@@ -152,7 +173,7 @@ private fun ColumnScope.MediaPane(
             TranscriptState.None
         } else {
             try {
-                withContext(Dispatchers.IO) { TranscriptPortal.repository(context)?.load(id)?.view }
+                (if (loader != null) loader.transcript(id) else withContext(Dispatchers.IO) { TranscriptPortal.repository(context)?.load(id)?.view })
                     ?.takeIf { it.turns.isNotEmpty() }?.let { TranscriptState.Ready(it) } ?: TranscriptState.None
             } catch (cancelled: CancellationException) {
                 throw cancelled

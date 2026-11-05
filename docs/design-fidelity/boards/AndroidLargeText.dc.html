@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Android at largest text size</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.c{background:#fff;border:1px solid #e4e2ef;border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.k{font-size:16px;color:#615d7a}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #f7f6fb; font-family: Inter, system-ui, sans-serif; color: #1e1b2e; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden;">
+  <div style="display: flex; align-items: center; gap: 8px;"><button aria-label="Back" style="width: 48px; height: 48px; border-radius: 12px; border: 0; background: transparent; font-size: 26px;">‹</button><h1 style="margin: 0; font-family: 'Plus Jakarta Sans'; font-size: 28px; font-weight: 800;">View data</h1></div>
+  <section class="c">
+    <div class="k">All workshops › 3rd Craft Toolkit</div>
+    <h2 style="margin: 0; font-family: 'Plus Jakarta Sans'; font-size: 26px; font-weight: 800; line-height: 1.2;">Giriraj Prasad Chhipa</h2>
+    <div style="font-size: 18px;">48 files · 1.24 GB</div>
+    <dl style="margin: 0; display: flex; flex-direction: column; gap: 10px; font-size: 18px;">
+      <div><dt class="k">Craft</dt><dd style="margin: 0;">Dabu printing</dd></div>
+      <div><dt class="k">Review</dt><dd style="margin: 0; color: #15803d; font-weight: 600;">Approved</dd></div>
+    </dl>
+  </section>
+  <section class="c">
+    <h3 style="margin: 0; font-size: 20px; font-weight: 700;">Download</h3>
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <button style="min-height: 56px; border-radius: 14px; border: 0; background: #762cb1; color: #fff; font: inherit; font-size: 19px; font-weight: 600;">Download folder</button>
+      <button style="min-height: 56px; border-radius: 14px; border: 1px solid #e4e2ef; background: #fff; font: inherit; font-size: 19px;">Report (.xlsx)</button>
+    </div>
+  </section>
+  <section class="c" style="border-color: #d6b6fb;">
+    <div style="display: flex; justify-content: space-between; align-items: baseline;"><strong style="font-size: 19px;">Downloading</strong><span style="font-size: 24px; font-weight: 800; color: #762cb1;">62%</span></div>
+    <div style="height: 12px; border-radius: 999px; background: #d9c4e9; overflow: hidden;"><div style="width: 62%; height: 100%; background: #762cb1;"></div></div>
+    <div style="font-size: 18px;">770 MB of 1.24 GB</div>
+    <div style="font-size: 18px;">File 30 of 48 · 1 min left</div>
+  </section>
+  <div class="k" style="font-size: 14px; text-align: center;">At 200% text, rows stack instead of squeezing, buttons go full width, and nothing is cut off.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

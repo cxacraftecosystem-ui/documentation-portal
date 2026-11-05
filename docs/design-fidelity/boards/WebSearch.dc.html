@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Unified search</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f7f6fb}
+a{color:#762cb1}a:hover{color:#5f2491}
+mark{background:#f2e9fe;color:#5f2491;border-radius:4px;padding:0 2px}
+</style>
+</helmet>
+<div style="min-height: 900px; background: #f7f6fb; font-family: Inter, system-ui, sans-serif; color: #1e1b2e; padding: 32px 24px 40px; box-sizing: border-box;">
+  <div style="max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px;">
+    <form role="search" style="display: flex; flex-direction: column; gap: 10px; background: #fff; border: 1px solid #e4e2ef; border-radius: 16px; padding: 12px; box-shadow: 0 4px 16px rgba(46,16,101,.08);">
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <label for="uq" style="position: absolute; left: -9999px;">Search everything</label>
+        <div style="flex: 1; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 14px; border-radius: 12px; border: 1px solid #9148d2; box-shadow: 0 0 0 4px rgba(145,72,210,.15);">
+          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#615d7a" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+          <input id="uq" value="indigo mud resist" style="flex: 1; border: 0; outline: 0; font: inherit; font-size: 16px; background: transparent;">
+        </div>
+        <button type="submit" style="min-height: 52px; padding: 0 22px; border-radius: 12px; border: 0; background: #762cb1; color: #fff; font: inherit; font-weight: 600; font-size: 15px;">Search</button>
+      </div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+        <div role="group" aria-label="Where" style="display: flex; padding: 3px; border-radius: 999px; background: #faf9fd; border: 1px solid #e4e2ef;">
+          <button style="min-height: 32px; padding: 0 12px; border-radius: 999px; border: 0; background: #762cb1; color: #fff; font-size: 12px; font-weight: 600;">This portal</button>
+          <button style="min-height: 32px; padding: 0 12px; border-radius: 999px; border: 0; background: transparent; color: #3a3651; font-size: 12px;">Both portals</button>
+        </div>
+        <button style="min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid #d6b6fb; background: #f2e9fe; color: #5f2491; font-size: 13px; font-weight: 600;">Workshop: 3rd Craft Toolkit ✕</button>
+        <button style="min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px; color: #3a3651;">Artisan ▾</button>
+        <button style="min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px; color: #3a3651;">Craft ▾</button>
+        <button style="min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px; color: #3a3651;">Type ▾</button>
+        <button style="min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px; color: #3a3651;">Date ▾</button>
+      </div>
+    </form>
+
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px;">
+      <span style="color: #615d7a; margin-right: 4px; align-self: center;">38 results</span>
+      <button style="min-height: 34px; padding: 0 12px; border-radius: 999px; border: 0; background: #1e1b2e; color: #fff; font-size: 13px; font-weight: 600;">All 38</button>
+      <button style="min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Transcripts 21</button>
+      <button style="min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Tools 3</button>
+      <button style="min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Processes 6</button>
+      <button style="min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Artisans 4</button>
+      <button style="min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Media 4</button>
+    </div>
+
+    <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px;">
+      <li style="background: #fff; border: 1px solid #e4e2ef; border-radius: 16px; padding: 16px; display: flex; gap: 14px;">
+        <div style="width: 44px; height: 44px; flex: none; border-radius: 12px; background: #fef3c7; display: grid; place-items: center; color: #92400e; font-size: 11px; font-weight: 700;">AUD</div>
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px;">
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;"><a href="#" style="font-weight: 600; font-size: 15px; text-decoration: none;">Section D · Materials · Group of 3</a><span style="font-size: 12px; color: #615d7a;">Transcript · 12:04</span></div>
+          <p style="margin: 0; font-size: 14px; color: #3a3651;">“We mix the <mark>mud</mark> with gum and lime so it <mark>resists</mark> the <mark>indigo</mark> where we press the block…”</p>
+          <div style="font-size: 12px; color: #615d7a;">Giriraj Prasad Chhipa · 3rd Craft Toolkit Workshop · 22 Sep 2026</div>
+        </div>
+        <div style="display: flex; gap: 6px; align-items: flex-start;"><button style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Play from 12:04</button><button style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Open in Data</button></div>
+      </li>
+      <li style="background: #fff; border: 1px solid #e4e2ef; border-radius: 16px; padding: 16px; display: flex; gap: 14px;">
+        <div style="width: 44px; height: 44px; flex: none; border-radius: 12px; background: #f2e9fe; display: grid; place-items: center; color: #5f2491; font-size: 11px; font-weight: 700;">TOOL</div>
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px;">
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;"><a href="#" style="font-weight: 600; font-size: 15px; text-decoration: none;"><mark>Indigo</mark> vat stirrer</a><span style="font-size: 12px; color: #615d7a;">Tool</span></div>
+          <p style="margin: 0; font-size: 14px; color: #3a3651;">Used after the <mark>mud resist</mark> dries, to keep the vat even.</p>
+          <div style="font-size: 12px; color: #615d7a;">Giriraj Prasad Chhipa, Manisha Verma · 3rd Craft Toolkit, Jaipur Blue Pottery</div>
+        </div>
+        <div style="display: flex; gap: 6px; align-items: flex-start;"><button style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Open in Data</button></div>
+      </li>
+      <li style="background: #fff; border: 1px solid #e4e2ef; border-radius: 16px; padding: 16px; display: flex; gap: 14px;">
+        <div style="width: 44px; height: 44px; flex: none; border-radius: 12px; background: #e7d5fe; display: grid; place-items: center; color: #5f2491; font-size: 11px; font-weight: 700;">PROC</div>
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px;">
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;"><a href="#" style="font-weight: 600; font-size: 15px; text-decoration: none;">Dabu <mark>mud resist</mark> application</a><span style="font-size: 12px; color: #615d7a;">Process</span></div>
+          <p style="margin: 0; font-size: 14px; color: #3a3651;">Step 4 of 9 · before the <mark>indigo</mark> dip.</p>
+          <div style="font-size: 12px; color: #615d7a;">Giriraj Prasad Chhipa · 3rd Craft Toolkit Workshop</div>
+        </div>
+        <div style="display: flex; gap: 6px; align-items: flex-start;"><button style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #e4e2ef; background: #fff; font-size: 13px;">Open in Data</button></div>
+      </li>
+    </ul>
+    <div style="display: flex; justify-content: center;"><button style="min-height: 44px; padding: 0 20px; border-radius: 12px; border: 1px solid #e4e2ef; background: #fff; font: inherit; font-size: 14px;">Show 20 more</button></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

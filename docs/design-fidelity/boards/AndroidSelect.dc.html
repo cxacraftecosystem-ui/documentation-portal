@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Selecting files on touch</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+li{display:flex;gap:12px;align-items:center;padding:10px 14px;border-bottom:1px solid #e4e2ef;min-height:56px}
+.cb{flex:none;width:24px;height:24px;border-radius:7px;border:2px solid #a7a3bc;display:grid;place-items:center;font-size:13px;color:#fff;box-sizing:border-box}
+.on{background:#762cb1;border-color:#762cb1}
+.th{flex:none;width:44px;height:44px;border-radius:10px;display:grid;place-items:center;font-size:11px;font-weight:700}
+.n{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m{font-size:12px;color:#615d7a}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #f7f6fb; font-family: Inter, system-ui, sans-serif; color: #1e1b2e; display: flex; flex-direction: column; position: relative; overflow: hidden;">
+  <div style="padding: 14px 16px 12px; display: flex; align-items: center; gap: 8px; background: #f2e9fe; border-bottom: 1px solid #d6b6fb;">
+    <button aria-label="Stop selecting" style="width: 44px; height: 44px; border-radius: 12px; border: 0; background: transparent; font-size: 18px;">✕</button>
+    <div style="flex: 1;"><div style="font-size: 17px; font-weight: 700;">3 selected</div><div class="m">718 MB · long-press or tap boxes</div></div>
+    <button style="min-height: 40px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: #762cb1; font: inherit; font-size: 13px; font-weight: 600;">Select all 48</button>
+  </div>
+  <div style="padding: 10px 16px; display: flex; gap: 8px; overflow: hidden;">
+    <span style="flex: none; min-height: 32px; padding: 0 12px; border-radius: 999px; background: #1e1b2e; color: #fff; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center;">All 48</span>
+    <span style="flex: none; min-height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 12px; display: inline-flex; align-items: center;">Videos 9</span>
+    <span style="flex: none; min-height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 12px; display: inline-flex; align-items: center;">Images 31</span>
+    <span style="flex: none; min-height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid #e4e2ef; background: #fff; font-size: 12px; display: inline-flex; align-items: center;">Audio 6</span>
+  </div>
+  <ul style="list-style: none; margin: 0 16px; padding: 0; background: #fff; border: 1px solid #e4e2ef; border-radius: 16px; overflow: hidden;">
+    <li style="background: #faf5ff;"><span class="cb on">✓</span><span class="th" style="background: #e7d5fe; color: #5f2491;">VID</span><div style="flex: 1; min-width: 0;"><div class="n">Interview_Dabu-mud-resist_Take-1</div><div class="m">Video · 701 MB · transcript</div></div></li>
+    <li style="background: #faf5ff;"><span class="cb on">✓</span><span class="th" style="background: linear-gradient(135deg,#c9b2a1,#8c6d5a);"></span><div style="flex: 1; min-width: 0;"><div class="n">Block-carving_close-up_03</div><div class="m">Image · 3.4 MB</div></div></li>
+    <li><span class="cb"></span><span class="th" style="background: linear-gradient(135deg,#b7c4cf,#5d6f80);"></span><div style="flex: 1; min-width: 0;"><div class="n">Kiln-firing_wide_07</div><div class="m">Video · 220 MB</div></div></li>
+    <li style="background: #faf5ff;"><span class="cb on">✓</span><span class="th" style="background: #fef3c7; color: #92400e;">AUD</span><div style="flex: 1; min-width: 0;"><div class="n">Section-D_Materials_Group-of-3</div><div class="m">Audio · 14.2 MB · transcript</div></div></li>
+    <li><span class="cb"></span><span class="th" style="background: linear-gradient(135deg,#d9c7a8,#94794f);"></span><div style="flex: 1; min-width: 0;"><div class="n">Dye-vat_overhead_01</div><div class="m">Image · 4.1 MB</div></div></li>
+    <li style="border-bottom: 0;"><span class="cb"></span><span class="th" style="background: #e0f2fe; color: #075985;">DOC</span><div style="flex: 1; min-width: 0;"><div class="n">Consent_form_signed.pdf</div><div class="m">Document · 0.8 MB</div></div></li>
+  </ul>
+  <div style="position: absolute; left: 12px; right: 12px; bottom: 12px; padding: 12px; border-radius: 20px; background: #1e1b2e; color: #fff; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 8px 32px rgba(30,27,46,.3);">
+    <div style="display: flex; gap: 8px; font-size: 12px; color: #cfcbe0;"><span>1 video</span>·<span>1 image</span>·<span>1 audio</span>·<span>+ 2 transcripts</span></div>
+    <div style="display: flex; gap: 8px;">
+      <button style="flex: 1; min-height: 48px; border-radius: 12px; border: 1px solid #3a3651; background: transparent; color: #fff; font: inherit; font-size: 14px;">Share</button>
+      <button style="flex: 2; min-height: 48px; border-radius: 12px; border: 0; background: #c090f5; color: #2a0f47; font: inherit; font-size: 14px; font-weight: 700;">Download 3 · 718 MB</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

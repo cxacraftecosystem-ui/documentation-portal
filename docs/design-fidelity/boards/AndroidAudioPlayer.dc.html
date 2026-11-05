@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Audio keeps playing while you browse</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.half{height:422px;box-sizing:border-box;position:relative;overflow:hidden}
+.k{font-size:12px;color:#615d7a}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; font-family: Inter, system-ui, sans-serif; color: #1e1b2e; display: flex; flex-direction: column; overflow: hidden;">
+  <div class="half" style="background: #f7f6fb; padding: 14px 16px;">
+    <div class="k" style="font-weight: 600; text-transform: uppercase; letter-spacing: .06em; font-size: 11px;">While browsing</div>
+    <div style="margin-top: 8px; background: #fff; border: 1px solid #e4e2ef; border-radius: 16px; overflow: hidden;">
+      <div style="display: flex; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid #e4e2ef;"><span style="width: 44px; height: 44px; border-radius: 10px; background: linear-gradient(135deg,#c9b2a1,#8c6d5a);"></span><div><div style="font-weight: 600; font-size: 14px;">Block-carving_close-up_03</div><div class="k">Image · 3.4 MB</div></div></div>
+      <div style="display: flex; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid #e4e2ef; background: #faf5ff;"><span style="width: 44px; height: 44px; border-radius: 10px; background: #fef3c7; color: #92400e; display: grid; place-items: center; font-size: 11px; font-weight: 700;">♪</span><div style="flex: 1;"><div style="font-weight: 600; font-size: 14px; color: #5f2491;">Section-D_Materials_Group-of-3</div><div class="k">Playing · 18:20 of 41:02</div></div></div>
+      <div style="display: flex; gap: 12px; align-items: center; padding: 10px 14px;"><span style="width: 44px; height: 44px; border-radius: 10px; background: #e0f2fe; color: #075985; display: grid; place-items: center; font-size: 11px; font-weight: 700;">DOC</span><div><div style="font-weight: 600; font-size: 14px;">Consent_form_signed.pdf</div><div class="k">Document · 0.8 MB</div></div></div>
+    </div>
+    <div style="position: absolute; left: 12px; right: 12px; bottom: 12px; border-radius: 18px; background: #1e1b2e; color: #fff; overflow: hidden; box-shadow: 0 8px 28px rgba(30,27,46,.3);">
+      <div style="height: 3px; background: #3a3651;"><div style="width: 45%; height: 100%; background: #c090f5;"></div></div>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 10px 12px;">
+        <span style="width: 40px; height: 40px; border-radius: 10px; background: #fef3c7; color: #92400e; display: grid; place-items: center; font-weight: 700;">♪</span>
+        <div style="flex: 1; min-width: 0;"><div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Section D · Materials</div><div style="font-size: 12px; color: #cfcbe0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Sunita: “Without the lime it cracks…”</div></div>
+        <button aria-label="Back 10 seconds" style="width: 40px; height: 40px; border-radius: 20px; border: 0; background: transparent; color: #fff; font-size: 12px;">↺10</button>
+        <button aria-label="Pause" style="width: 44px; height: 44px; border-radius: 22px; border: 0; background: #c090f5; color: #2a0f47; font-size: 14px;">❚❚</button>
+      </div>
+    </div>
+  </div>
+  <div class="half" style="background: linear-gradient(180deg, #2a1a40, #120e1d); color: #f2f0f9; padding: 20px 16px; display: flex; flex-direction: column; gap: 12px;">
+    <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #cfcbe0;">Lock screen</div>
+    <div style="text-align: center; font-family: 'Plus Jakarta Sans'; font-size: 48px; font-weight: 700; line-height: 1;">9:41</div>
+    <article aria-label="Now playing" style="background: rgba(255,255,255,.1); border-radius: 22px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; gap: 10px; align-items: center;"><span style="width: 44px; height: 44px; border-radius: 10px; background: #fef3c7; color: #92400e; display: grid; place-items: center; font-weight: 700;">♪</span><div style="flex: 1; min-width: 0;"><div style="font-size: 14px; font-weight: 600;">Section D · Materials · Group of 3</div><div style="font-size: 12px; color: #cfcbe0;">Design Workshop · Sunita Devi</div></div></div>
+      <div style="font-size: 13px; color: #e6e3f2; background: rgba(0,0,0,.25); border-radius: 10px; padding: 8px 10px;">“Without the lime it cracks when it dries…”</div>
+      <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #cfcbe0;"><span>18:20</span><div style="flex: 1; height: 4px; border-radius: 999px; background: rgba(255,255,255,.2);"><div style="width: 45%; height: 100%; border-radius: 999px; background: #c090f5;"></div></div><span>41:02</span></div>
+      <div style="display: flex; justify-content: space-around; align-items: center; font-size: 15px;"><span>⏮</span><span>↺10</span><span style="width: 48px; height: 48px; border-radius: 24px; background: #f2f0f9; color: #1e1b2e; display: grid; place-items: center;">❚❚</span><span>10↻</span><span>⏭</span></div>
+    </article>
+    <div style="font-size: 12px; color: #a7a3bc; text-align: center;">Keeps playing with the screen off or in another app. Headphone buttons work.</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

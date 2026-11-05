@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Android folder in dark mode</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.c{background:#1e1b2e;border:1px solid #2f2b45;border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.k{font-size:11px;color:#a7a3bc}
+.chip{flex:none;min-height:36px;padding:0 12px;border-radius:999px;border:1px solid #3a3651;background:#1e1b2e;color:#e6e3f2;font-size:13px}
+.on{border:0;background:#c090f5;color:#2a0f47;font-weight:600}
+.btn{flex:1;min-height:48px;border-radius:12px;border:1px solid #3a3651;background:#1e1b2e;color:#f2f0f9;font:inherit;font-size:14px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #14121f; font-family: Inter, system-ui, sans-serif; color: #f2f0f9; display: flex; flex-direction: column; overflow: hidden;">
+  <div style="padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 10px;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <button aria-label="Back" style="width: 44px; height: 44px; border-radius: 12px; border: 0; background: transparent; color: #f2f0f9; font-size: 20px;">‹</button>
+      <h1 style="margin: 0; font-family: 'Plus Jakarta Sans'; font-size: 20px; font-weight: 800; flex: 1;">View data</h1>
+      <button aria-label="Downloads, 1 running" style="position: relative; width: 44px; height: 44px; border-radius: 12px; border: 1px solid #3a3651; background: #1e1b2e;"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e6e3f2" stroke-width="2" stroke-linecap="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 19h16"></path></svg><span style="position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; border-radius: 9px; background: #c090f5; color: #2a0f47; font-size: 11px; font-weight: 700; display: grid; place-items: center;">1</span></button>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center; min-height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid #3a3651; background: #1e1b2e;"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a7a3bc" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><span style="font-size: 15px; color: #a7a3bc;">Jump to a record</span></div>
+    <div style="display: flex; gap: 8px; overflow: hidden;"><button class="chip">Workshop ▾</button><button class="chip">Artisan ▾</button><button class="chip">Craft ▾</button><button class="chip">Type ▾</button></div>
+  </div>
+  <div style="flex: 1; overflow: hidden; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 12px;">
+    <section class="c">
+      <nav aria-label="Breadcrumb" class="k" style="font-size: 12px;">All workshops › 3rd Craft Toolkit</nav>
+      <div style="display: flex; justify-content: space-between; align-items: center;"><h2 style="margin: 0; font-family: 'Plus Jakarta Sans'; font-size: 18px; font-weight: 800;">Giriraj Prasad Chhipa</h2><span class="k" style="font-size: 12px;">48 files · 1.24 GB</span></div>
+      <dl style="margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; font-size: 13px;">
+        <div><dt class="k">Craft</dt><dd style="margin: 0;">Dabu printing</dd></div>
+        <div><dt class="k">Location</dt><dd style="margin: 0;">Bagru, Rajasthan</dd></div>
+        <div><dt class="k">Recorded fields</dt><dd style="margin: 0;">34 of 40</dd></div>
+        <div><dt class="k">Review</dt><dd style="margin: 0; color: #86efac; font-weight: 600;">Approved</dd></div>
+      </dl>
+    </section>
+    <section class="c">
+      <div style="display: flex; justify-content: space-between; align-items: center;"><h3 style="margin: 0; font-size: 15px; font-weight: 700;">Download</h3><span class="k" style="font-size: 12px;">1.24 GB selected</span></div>
+      <div style="display: flex; gap: 6px; flex-wrap: wrap;"><button class="chip on" style="min-height: 34px; font-size: 12px;">✓ Text</button><button class="chip on" style="min-height: 34px; font-size: 12px;">✓ Images 61 MB</button><button class="chip on" style="min-height: 34px; font-size: 12px;">✓ Videos 980 MB</button><button class="chip on" style="min-height: 34px; font-size: 12px;">✓ Audio 196 MB</button><button class="chip" style="min-height: 34px; font-size: 12px;">Transcripts</button><button class="chip on" style="min-height: 34px; font-size: 12px;">✓ Documents</button></div>
+      <div style="display: flex; gap: 8px;"><button class="btn">Report (.xlsx)</button><button class="btn" style="border: 0; background: #c090f5; color: #2a0f47; font-weight: 700;">Download folder</button></div>
+    </section>
+    <section class="c" style="background: #123b25; border-color: #15803d;">
+      <div style="display: flex; justify-content: space-between; font-size: 14px;"><strong style="color: #eafbf0;">✓ Saved Bagru workshop</strong><span style="color: #86efac; font-weight: 700;">Open</span></div>
+      <div style="font-size: 12px; color: #c9eed6;">212 files · 3.8 GB · Downloads/DesignWorkshop/</div>
+    </section>
+    <section class="c" style="background: #4a1717; border-color: #b91c1c;">
+      <div style="display: flex; justify-content: space-between; font-size: 14px;"><strong style="color: #fdeaea;">Kiln-firing_wide_07.mov</strong><span style="color: #fca5a5; font-weight: 700;">Retry</span></div>
+      <div style="font-size: 12px; color: #f5b5b5;">Failed · connection lost</div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

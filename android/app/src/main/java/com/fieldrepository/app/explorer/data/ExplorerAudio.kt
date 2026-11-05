@@ -129,6 +129,11 @@ object ExplorerAudio {
         }
     }
 
+    internal fun stage(state: ExplorerAudioState) {
+        current = state.item
+        mutable.value = state
+    }
+
     fun toggle() {
         val player = controller ?: return
         if (player.isPlaying) player.pause() else player.play()

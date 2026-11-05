@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Report options and saved views</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.k{font-size:12px;color:#615d7a}
+.lbl{font-size:13px;font-weight:600}
+.row{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 12px;border:1px solid #e4e2ef;border-radius:12px;font-size:14px}
+.cb{flex:none;width:20px;height:20px;border-radius:6px;background:#762cb1;color:#fff;display:grid;place-items:center;font-size:12px}
+.off{background:#fff;border:2px solid #a7a3bc;box-sizing:border-box}
+.seg{display:flex;padding:3px;border-radius:12px;background:#faf9fd;border:1px solid #e4e2ef}
+.seg button{flex:1;min-height:36px;border-radius:9px;border:0;background:transparent;font:inherit;font-size:13px}
+.seg .on{background:#762cb1;color:#fff;font-weight:600}
+.btn{min-height:44px;padding:0 16px;border-radius:12px;border:1px solid #e4e2ef;background:#fff;font:inherit;font-size:14px;color:#1e1b2e}
+.p{background:#fff;border-radius:20px;box-shadow:0 24px 64px rgba(30,27,46,.3);display:flex;flex-direction:column}
+</style>
+</helmet>
+<div style="width: 1440px; height: 860px; box-sizing: border-box; background: rgba(30,27,46,.45); font-family: Inter, system-ui, sans-serif; color: #1e1b2e; padding: 40px; display: flex; gap: 32px; justify-content: center; align-items: flex-start;">
+  <section role="dialog" aria-label="Report options" class="p" style="width: 620px;">
+    <header style="padding: 18px 20px; border-bottom: 1px solid #e4e2ef;"><h2 style="margin: 0; font-family: 'Plus Jakarta Sans'; font-size: 20px; font-weight: 800;">Report (.xlsx)</h2><div class="k" style="margin-top: 2px;">3rd Craft Toolkit · Giriraj Prasad Chhipa</div></header>
+    <div style="padding: 16px 20px; display: flex; flex-direction: column; gap: 14px;">
+      <div style="display: flex; flex-direction: column; gap: 8px;"><span class="lbl">Sheets</span>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <div class="row"><span class="cb">✓</span>Overview<span class="k" style="margin-left: auto;">1</span></div>
+          <div class="row"><span class="cb">✓</span>Responses<span class="k" style="margin-left: auto;">34</span></div>
+          <div class="row"><span class="cb">✓</span>Tools<span class="k" style="margin-left: auto;">120</span></div>
+          <div class="row"><span class="cb">✓</span>Processes<span class="k" style="margin-left: auto;">9</span></div>
+          <div class="row"><span class="cb">✓</span>Materials<span class="k" style="margin-left: auto;">22</span></div>
+          <div class="row"><span class="cb off"></span>Transcripts<span class="k" style="margin-left: auto;">12</span></div>
+          <div class="row"><span class="cb">✓</span>Files<span class="k" style="margin-left: auto;">48</span></div>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;"><span class="lbl">Answers in</span><div class="seg"><button>Original</button><button class="on">English</button><button>Both</button></div></div>
+      <div style="display: flex; flex-direction: column; gap: 8px;"><span class="lbl">Rows</span><div class="seg"><button class="on">Everything</button><button>Only what’s filtered (indigo)</button></div></div>
+      <div class="row" style="justify-content: space-between;"><span>Links to files open in the portal</span><span style="width: 44px; height: 26px; border-radius: 13px; background: #762cb1; position: relative;"><span style="position: absolute; right: 3px; top: 3px; width: 20px; height: 20px; border-radius: 10px; background: #fff;"></span></span></div>
+      <div style="display: flex; flex-direction: column; gap: 6px;"><label for="fn" class="lbl">File name</label><input id="fn" value="3rd-Craft-Toolkit_Giriraj-Prasad-Chhipa_2026-11-05.xlsx" style="min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid #e4e2ef; font: inherit; font-size: 14px;"></div>
+      <div class="k" style="background: #dcfce7; color: #14532d; border-radius: 10px; padding: 8px 10px;">✓ Ready in about 4 s · 6 sheets · ~2 MB · checked to open in Excel, Numbers and Google Sheets</div>
+    </div>
+    <footer style="padding: 14px 20px; border-top: 1px solid #e4e2ef; display: flex; gap: 8px; justify-content: flex-end;"><button class="btn" style="margin-right: auto; border: 0; color: #762cb1; font-weight: 600;">Remember these choices</button><button class="btn">Cancel</button><button class="btn" style="border: 0; background: #762cb1; color: #fff; font-weight: 600;">Make report</button></footer>
+  </section>
+  <section aria-label="Saved views" class="p" style="width: 420px; padding: 18px; gap: 12px;">
+    <h2 style="margin: 0; font-size: 16px; font-weight: 700;">Saved views</h2>
+    <div class="k">A view keeps the folder, filters, search and tab. Share the link and others land on exactly the same screen, if they have access.</div>
+    <div class="row" style="background: #f2e9fe; border-color: #d6b6fb;"><span style="flex: 1;"><strong>Indigo tools · all workshops</strong><div class="k">Tables · Tools · “indigo” · Approved</div></span><span class="k">Yours</span></div>
+    <div class="row"><span style="flex: 1;"><strong>Pending review · Bagru</strong><div class="k">Files · Pending · Bagru workshop</div></span><span class="k">Shared</span></div>
+    <div class="row"><span style="flex: 1;"><strong>Hindi interviews, no translation</strong><div class="k">Transcripts · Hindi · Translating</div></span><span class="k">Yours</span></div>
+    <div style="display: flex; gap: 8px;"><button class="btn" style="flex: 1;">Save current view</button><button class="btn" style="flex: 1; border: 0; background: #762cb1; color: #fff; font-weight: 600;">Copy link</button></div>
+    <div class="k" style="background: #dcfce7; color: #14532d; border-radius: 10px; padding: 8px 10px;">✓ Link copied</div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":860}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
