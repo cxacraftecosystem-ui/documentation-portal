@@ -11,7 +11,21 @@ def transcript_path(media_id: str) -> str:
     return f"/data/media/{media_id}/transcript"
 
 
+def captured_at(media: Any) -> str | None:
+    if media is None:
+        return None
+    for key in ("recordedAt", "createdAt"):
+        value = getattr(media, key, None) if not isinstance(media, dict) else media.get(key)
+        if value is None:
+            continue
+        return value.isoformat() if hasattr(value, "isoformat") else str(value)
+    return None
+
+
 def _links(entry: dict[str, Any]) -> None:
+    if entry.get("kind") == "file":
+        stored = "content" not in entry and not entry.get("_txMedia")
+        entry["capturedAt"] = captured_at(entry.get("_media")) if stored else None
     mid = entry.get("mediaId")
     if not mid or entry.get("kind") != "file":
         return

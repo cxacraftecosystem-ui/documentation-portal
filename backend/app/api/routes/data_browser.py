@@ -25,6 +25,7 @@ from app.services import (
 )
 from app.services.concurrency import gather_reads
 from app.services.data_explorer import (
+    counts as explorer_counts,
     report_cache,
     report_options,
     report_tools,
@@ -1507,6 +1508,7 @@ async def data_tree(
     norm = _norm(path)
     entries, info = await _list_level(norm, scope)
     entries = await transcript_export.settle_tree(entries, pipeline_on=transcript_pipeline.enabled())
+    await explorer_counts.fill(norm, entries, scope)
     crumbs = await _resolve_crumbs(norm)
     cut = len(entries) >= TAKE
     public, total, next_cursor = await explorer_tree.shape(
