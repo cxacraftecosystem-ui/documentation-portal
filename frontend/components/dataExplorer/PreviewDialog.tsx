@@ -361,21 +361,16 @@ function PreviewBody({
   const hasEnglish = lines.some((line) => (line.english ?? "").trim() !== "");
   const originalLabel = transcript?.languages?.find((language) => language.code !== "en")?.label ?? transcript?.languages?.[0]?.label ?? "Transcript";
   const tabs: { value: Tab; label: string }[] = useMemo(() => {
-    const out: { value: Tab; label: string }[] = [];
-    const hasText = lines.length > 0 || Boolean(loaded?.text);
+    const out: { value: Tab; label: string }[] = [{ value: "original", label: audio ? originalLabel : "Transcript" }];
+    if (hasEnglish) out.push({ value: "english", label: "English" });
     if (audio) {
-      if (hasText) out.push({ value: "original", label: originalLabel });
-      if (hasEnglish) out.push({ value: "english", label: "English" });
       if (hasEnglish && !narrow) out.push({ value: "side", label: "Side by side" });
       if (narrow && lines.length) out.push({ value: "find", label: "Find ⌕" });
-      if (!out.length) out.push({ value: "details", label: "Details" });
       return out;
     }
-    if (hasText) out.push({ value: "original", label: "Transcript" });
-    if (hasEnglish) out.push({ value: "english", label: "English" });
     out.push({ value: "details", label: "Details" });
     return out;
-  }, [lines.length, loaded?.text, hasEnglish, originalLabel, audio, narrow]);
+  }, [lines.length, hasEnglish, originalLabel, audio, narrow]);
   const [chosenTab, setTab] = useState<Tab | null>(null);
   const [lastText, setLastText] = useState<Tab>("original");
   const tab: Tab = chosenTab && tabs.some((candidate) => candidate.value === chosenTab) ? chosenTab : (tabs[0]?.value ?? "details");
