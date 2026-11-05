@@ -1,8 +1,10 @@
 package com.fieldrepository.app.explorer
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -91,7 +93,7 @@ class ReportOptionsSheetUiTest {
     @Test fun withNoFilterTheSheetSaysSoAndOffersNoStatusSwitch() {
         show(null)
         compose.onNodeWithTag("explorer.report.filters").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithTag("explorer.report.filters").assert(androidx.compose.ui.test.hasAnyDescendant(hasText("None. Every record you can see.")))
+        compose.onNodeWithTag("explorer.report.filters").assert(hasAnyDescendant(hasText("None. Every record you can see.")))
         compose.onAllNodesWithTag("explorer.report.allStatuses").assertCountEquals(0)
         compose.onAllNodesWithTag("explorer.report.empty").assertCountEquals(0)
     }
@@ -102,10 +104,10 @@ class ReportOptionsSheetUiTest {
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("explorer.report.empty").fetchSemanticsNodes().isNotEmpty() }
         val card = compose.onNodeWithTag("explorer.report.empty").performScrollTo()
         card.assertIsDisplayed()
-        card.assert(androidx.compose.ui.test.hasAnyDescendant(hasText("No records match these filters.")))
-        card.assert(androidx.compose.ui.test.hasAnyDescendant(hasText("Artisans 0 · Media 0")))
+        card.assert(hasAnyDescendant(hasText("No records match these filters.")))
+        card.assert(hasAnyDescendant(hasText("Artisans 0 · Media 0")))
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("Without filters: Artisans 201 · Media 955")).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("explorer.report.filters").assert(androidx.compose.ui.test.hasAnyDescendant(hasText("Review status", substring = true)))
+        compose.onNodeWithTag("explorer.report.filters").assert(hasAnyDescendant(hasText("Review status", substring = true)))
         assertTrue(made.isEmpty())
         compose.onNodeWithTag("explorer.report.unfiltered").performScrollTo().performClick()
         compose.waitForIdle()
@@ -121,7 +123,7 @@ class ReportOptionsSheetUiTest {
         compose.onNodeWithTag("explorer.report.allStatuses").performScrollTo().performClick()
         compose.waitUntil(5_000) { synchronized(asked) { asked.contains(null) } }
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("explorer.report.empty").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithTag("explorer.report.filters").assert(androidx.compose.ui.test.hasAnyDescendant(hasText("None. Every record you can see.")))
+        compose.onNodeWithTag("explorer.report.filters").assert(hasAnyDescendant(hasText("None. Every record you can see.")))
         compose.onNodeWithTag("explorer.report.make").performScrollTo().performClick()
         compose.waitForIdle()
         assertEquals(1, made.size)
