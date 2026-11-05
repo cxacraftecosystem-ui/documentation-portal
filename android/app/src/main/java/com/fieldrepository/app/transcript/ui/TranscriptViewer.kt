@@ -809,11 +809,11 @@ private fun PlayerBar(
     val dark = MaterialTheme.field.isDark
     Surface(color = MaterialTheme.colorScheme.background) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
-                .clip(RoundedCornerShape(20.dp))
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)
+                .clip(RoundedCornerShape(16.dp))
                 .background(androidx.compose.ui.graphics.Brush.linearGradient(if (dark) listOf(Color(0xFF2A1A40), Color(0xFF1E1B2E)) else listOf(Color(0xFFF2E9FE), Color(0xFFFFF7ED))))
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             if (cleaned && onPlayOriginal != null) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -823,27 +823,28 @@ private fun PlayerBar(
                 }
             }
             val duration = playback.durationSeconds
-            TimelineSeekBar(playback, duration, marked, Modifier.fillMaxWidth())
-            Row(Modifier.fillMaxWidth()) {
-                Text(TranscriptFormat.length((playback.positionSeconds * 1000).toLong()), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                Spacer(Modifier.weight(1f))
-                Text(TranscriptFormat.length((duration * 1000).toLong()), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.field.muted)
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StepButton("↺10", TranscriptUiText.back10) { playback.seek((playback.positionSeconds - 10).coerceAtLeast(0.0), play = playback.playing) }
                 Box(
-                    Modifier.size(64.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary)
+                    Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary)
                         .clickable(enabled = playback.available, role = androidx.compose.ui.semantics.Role.Button, onClick = playback::toggle)
                         .semantics { contentDescription = if (playback.playing) TranscriptUiText.pause else TranscriptUiText.play }
                         .testTag("transcript.play"),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(if (playback.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(28.dp))
+                    Icon(if (playback.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(24.dp))
                 }
                 StepButton("10↻", TranscriptUiText.forward10) {
                     val end = if (duration > 0) duration else Double.MAX_VALUE
                     playback.seek((playback.positionSeconds + 10).coerceAtMost(end), play = playback.playing)
                 }
+                TimelineSeekBar(playback, duration, marked, Modifier.weight(1f))
+                Text(
+                    TranscriptFormat.length((playback.positionSeconds * 1000).toLong()),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
             }
         }
     }
@@ -852,7 +853,7 @@ private fun PlayerBar(
 @Composable
 private fun StepButton(label: String, description: String, onClick: () -> Unit) {
     Box(
-        Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface).border(1.dp, MaterialTheme.field.hairline, CircleShape)
+        Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface).border(1.dp, MaterialTheme.field.hairline, CircleShape)
             .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
             .semantics { this.contentDescription = description },
         contentAlignment = Alignment.Center,
