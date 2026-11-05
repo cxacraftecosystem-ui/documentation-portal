@@ -14,7 +14,6 @@ object ExplorerText {
     const val reviewStatus = "Review status"
     const val folderEmpty = "This folder is empty."
     const val loadingFolder = "Loading folder…"
-    const val partlyShown = "Showing part of this folder. Open subfolders for the rest."
     const val loadMore = "Load more"
     const val restrictedTitle = "Dataset access is restricted"
     const val restrictedBody = "Ask an admin for dataset access."

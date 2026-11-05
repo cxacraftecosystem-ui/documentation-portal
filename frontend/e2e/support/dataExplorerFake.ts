@@ -15,6 +15,8 @@ type FakeFile = {
   broken?: boolean;
 };
 
+const MANY_FILES = 1234;
+
 type FakeFolder = { name: string; path: string; recordType?: string; folders: string[]; files: FakeFile[] };
 
 export type SearchCorpusGroup = { type: string; label: string; singular: string; total: number };
@@ -227,6 +229,19 @@ export class DataExplorerFake {
       recordType: "workshop",
       folders: [],
       files: ["a", "b", "c"].map((letter) => ({ path: `workshops/sanganer/${letter}.jpg`, name: `${letter}.jpg`, mediaId: `s${letter}`, mediaType: "IMAGE", bytes: 5000 }))
+    });
+    this.folder({
+      name: "Many photos",
+      path: "workshops/many",
+      recordType: "workshop",
+      folders: [],
+      files: Array.from({ length: MANY_FILES }, (_, index) => ({
+        path: `workshops/many/photo-${String(index + 1).padStart(4, "0")}.jpg`,
+        name: `photo-${String(index + 1).padStart(4, "0")}.jpg`,
+        mediaId: `many${index + 1}`,
+        mediaType: "IMAGE",
+        bytes: 1000
+      }))
     });
     this.folder({
       name: "Big archive",

@@ -141,11 +141,12 @@ class ExplorerScreenUiTest {
         )
 
         var long: Int? = null
+        var pageSize = 10
         var tableTotal: Int? = null
 
         private fun longPage(path: String, cursor: String?, n: Int): ExplorerTree {
             val from = cursor?.toInt() ?: 0
-            val until = minOf(from + 10, n)
+            val until = minOf(from + pageSize, n)
             val entries = ((from + 1)..until).map { ExplorerEntry(name = "Photo $it.jpg", path = "w/q$it", mediaId = "q$it", mediaType = "IMAGE") }
             return ExplorerTree(path = path, crumbs = crumbs, info = info, entries = entries, nextCursor = if (until < n) "$until" else null, total = n, taxonomies = taxonomies, taxonomy = "workshop")
         }
@@ -234,6 +235,18 @@ class ExplorerScreenUiTest {
 
     private fun scrollTo(tag: String) {
         compose.onNodeWithTag("explorer.tree").performScrollToNode(hasTestTag(tag))
+    }
+
+    private fun reach(tag: String, timeoutMillis: Long = 60_000) {
+        compose.waitUntil(timeoutMillis) {
+            if (runCatching { scrollTo(tag) }.isSuccess) {
+                true
+            } else {
+                runCatching { scrollTo("explorer.more") }
+                compose.waitForIdle()
+                false
+            }
+        }
     }
 
     @QFeature("X1")
@@ -360,13 +373,9 @@ class ExplorerScreenUiTest {
     @Test fun aLongFolderPagesWithLoadMore() {
         val fake = Fake()
         show(fake)
-        compose.onNodeWithText("Showing 4 of 5", substring = true).assertExists()
-        scrollTo("explorer.more")
-        compose.onNodeWithTag("explorer.more").performClick()
-        compose.waitUntil(5_000) { fake.calls.any { it == "tree:w:next:1" } }
-        compose.waitForIdle()
-        scrollTo("explorer.file.p2")
+        reach("explorer.file.p2")
         compose.onNodeWithTag("explorer.file.p2").assertExists()
+        assertTrue(fake.calls.any { it == "tree:w:next:1" })
     }
 
     @QFeature("X1")
@@ -375,16 +384,15 @@ class ExplorerScreenUiTest {
         show(fake)
         scrollTo("explorer.folder.card")
         compose.waitUntil(15_000) { compose.onAllNodes(hasTestTag("explorer.showing"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
-        repeat(3) {
+        runCatching {
             scrollTo("explorer.showing.more")
             compose.onNodeWithTag("explorer.showing.more").performSemanticsAction(SemanticsActions.OnClick)
-            compose.waitUntil(15_000) { fake.calls.any { call -> call == "tree:w:${(it + 1) * 10}:1" } }
-            compose.waitForIdle()
         }
-        compose.onNodeWithTag("explorer.showing", useUnmergedTree = true).assertDoesNotExist()
-        compose.onNodeWithTag("explorer.showing.more").assertDoesNotExist()
-        scrollTo("explorer.file.q31")
+        reach("explorer.file.q31")
         compose.onNodeWithTag("explorer.file.q31").assertExists()
+        assertTrue(listOf(10, 20, 30).all { at -> fake.calls.contains("tree:w:$at:1") })
+        scrollTo("explorer.folder.card")
+        compose.onNodeWithTag("explorer.showing", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @QFeature("X1")
@@ -398,8 +406,18 @@ class ExplorerScreenUiTest {
         compose.onNodeWithTag("explorer.showing.more").performSemanticsAction(SemanticsActions.OnClick)
         compose.waitUntil(15_000) { fake.calls.contains("tree:w:10:1") }
         compose.waitForIdle()
-        scrollTo("explorer.file.q11")
+        reach("explorer.file.q11")
         compose.onNodeWithTag("explorer.file.q11").assertExists()
+    }
+
+    @QFeature("X1")
+    @Test fun aFolderOfTwelveHundredThirtyFourPagesByScrollToItsLastEntry() {
+        val fake = Fake().apply { long = 1234; pageSize = 100 }
+        show(fake)
+        reach("explorer.file.q1234", timeoutMillis = 180_000)
+        compose.onNodeWithTag("explorer.file.q1234").assertExists()
+        assertTrue(fake.calls.contains("tree:w:1200:1"))
+        compose.onNodeWithTag("explorer.more").assertDoesNotExist()
     }
 
     @QFeature("X6")

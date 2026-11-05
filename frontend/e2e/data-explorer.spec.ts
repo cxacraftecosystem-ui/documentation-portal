@@ -237,13 +237,32 @@ test.describe("@qf:X1 the tree", () => {
     }
   });
 
+  test("a folder of 1,234 files pages to its last file", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/many" });
+    try {
+      const next = page.getByRole("button", { name: "Next", exact: true });
+      const last = page.getByText("photo-1234.jpg", { exact: true });
+      for (let i = 0; i < 200 && !(await last.isVisible()); i += 1) {
+        const more = page.getByTestId("folder-more");
+        if (await more.count()) await more.scrollIntoViewIfNeeded();
+        if (await next.isEnabled().catch(() => false)) await next.click();
+        await expect(page.getByText(/^Showing /)).toBeVisible();
+      }
+      await expect(last).toBeVisible();
+      await expect(page.getByText(/of 1,234$/)).toBeVisible();
+      const trees = fake.calls.filter((call) => call.path === "/data/tree" && call.query.get("path") === "workshops/many");
+      expect(trees.length).toBeGreaterThanOrEqual(3);
+    } finally {
+      await context.close();
+    }
+  });
+
   test("a long folder pages in with Load more", async ({ browser }) => {
     const { context, page } = await openExplorer(browser, { path: "workshops/sanganer" });
     try {
       const files = page.getByRole("list", { name: "Files" }).locator("[data-file-row]");
-      await expect(files).toHaveCount(2);
-      await page.getByRole("button", { name: "Load more" }).click();
       await expect(files).toHaveCount(3);
+      await expect(page.getByTestId("folder-more")).toHaveCount(0);
     } finally {
       await context.close();
     }

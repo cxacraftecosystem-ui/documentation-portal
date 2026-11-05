@@ -128,7 +128,6 @@ class ExplorerState(
 
     val files: List<ExplorerEntry> get() = entries.filterNot { it.isFolder }
 
-    val truncated: Boolean get() = tree?.truncated == true && cursor == null
 
     val total: Int? get() = tree?.total
 

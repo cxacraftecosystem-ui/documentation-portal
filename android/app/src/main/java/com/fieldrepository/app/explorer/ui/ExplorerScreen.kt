@@ -839,6 +839,7 @@ fun ExplorerScreen(
                     }
                     if (state.cursor != null) {
                         item("more") {
+                            LaunchedEffect(state.entries.size) { state.loadMore() }
                             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                                 OutlinedButton(onClick = state::loadMore, enabled = !state.loadingMore, modifier = Modifier.heightIn(min = 48.dp).testTag("explorer.more")) {
                                     if (state.loadingMore) {
@@ -850,7 +851,6 @@ fun ExplorerScreen(
                             }
                         }
                     }
-                    if (state.truncated) item("truncated") { Notice(ExplorerText.partlyShown, warn = true, tag = "explorer.truncated") }
                 }
                 ExplorerTab.TABLES -> item("tables") {
                     ExplorerTables(
