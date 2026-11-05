@@ -444,6 +444,7 @@ import com.fieldrepository.app.ui.rememberCarryPrefill
 import com.fieldrepository.app.ui.Coral
 import com.fieldrepository.app.ui.ConsolidatedQuestionnaireScreen
 import com.fieldrepository.app.ui.DataBrowserScreen
+import com.fieldrepository.app.ui.dataFolderArtisan
 import com.fieldrepository.app.ui.FieldRepositoryTheme
 import com.fieldrepository.app.ui.MapScreen
 import com.fieldrepository.app.ui.RecordProseField
