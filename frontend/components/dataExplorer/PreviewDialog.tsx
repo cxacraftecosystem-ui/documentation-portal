@@ -33,6 +33,9 @@ import {
   downsample,
   fetchPeaks,
   findHits,
+  ISOLATE_POLL_MS,
+  isolateMedia,
+  isolatedPreviewUrl,
   fractionOf,
   highlightRanges,
   hitLabel,
@@ -49,6 +52,7 @@ import {
   talkTime,
   timeLink,
   type FindHit,
+  type Peaks,
   type TimedLine
 } from "@/lib/dataExplorer/preview";
 import { apiUrl } from "@/lib/dataExplorer/wire";
@@ -147,20 +151,20 @@ function useTranscript(entry: TreeEntry): Loaded | null {
   return answer && answer.id === mediaId ? answer.loaded : null;
 }
 
-function usePeaks(mediaId: string | undefined, wanted: boolean): number[] | null | undefined {
-  const [answer, setAnswer] = useState<{ id: string; peaks: number[] | null } | null>(null);
+function usePeaks(mediaId: string | undefined, wanted: boolean, round: number): Peaks | null | undefined {
+  const [answer, setAnswer] = useState<{ id: string; peaks: Peaks | null } | null>(null);
   useEffect(() => {
     if (!mediaId || !wanted) return;
     const abort = new AbortController();
     fetchPeaks(mediaId, abort.signal)
       .then((found) => {
-        if (!abort.signal.aborted) setAnswer({ id: mediaId, peaks: found ? found.peaks : null });
+        if (!abort.signal.aborted) setAnswer({ id: mediaId, peaks: found });
       })
       .catch(() => {
-        if (!abort.signal.aborted) setAnswer({ id: mediaId, peaks: null });
+        if (!abort.signal.aborted) setAnswer((previous) => (previous && previous.id === mediaId ? previous : { id: mediaId, peaks: null }));
       });
     return () => abort.abort();
-  }, [mediaId, wanted]);
+  }, [mediaId, wanted, round]);
   if (!mediaId || !wanted) return null;
   return answer && answer.id === mediaId ? answer.peaks : undefined;
 }
@@ -277,8 +281,13 @@ function PreviewBody({
   const lines = useMemo(() => linesOf(transcript), [transcript]);
   const timed = entry.mediaType === "AUDIO" || entry.mediaType === "VIDEO";
   const audio = entry.mediaType === "AUDIO";
-  const peaks = usePeaks(entry.mediaId, audio);
+  const [peaksRound, setPeaksRound] = useState(0);
+  const [isolating, setIsolating] = useState<"idle" | "asking" | "waiting" | "failed">("idle");
+  const peakInfo = usePeaks(entry.mediaId, audio, peaksRound);
+  const peaks = peakInfo && peakInfo.peaks.length ? peakInfo.peaks : null;
   const bars = useMemo(() => (peaks ? downsample(peaks) : null), [peaks]);
+  const isolatedCopy = Boolean(peakInfo?.isolated && entry.mediaId);
+  const canIsolate = Boolean(peakInfo?.canIsolate && !peakInfo.isolated && entry.mediaId);
   const mediaRef = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const seeded = useRef(false);
@@ -331,8 +340,17 @@ function PreviewBody({
   const next = index >= 0 ? nextIndex(siblings.length, index, 1) : null;
   const size = sizeOf(entry.sizeBytes);
   const fileUrl = downloadUrl(entry);
-  const cleanable = Boolean(transcript?.audio?.cleaned && transcript.audio.url && transcript.audio.originalUrl);
-  const baseSource = cleanable ? (clean ? transcript!.audio.url! : transcript!.audio.originalUrl!) : previewSource(entry);
+  const cleanedByTranscript = Boolean(transcript?.audio?.cleaned && transcript.audio.url && transcript.audio.originalUrl);
+  const cleanable = isolatedCopy || cleanedByTranscript;
+  const baseSource = isolatedCopy
+    ? clean
+      ? isolatedPreviewUrl(entry.mediaId!)
+      : previewSource(entry)
+    : cleanedByTranscript
+      ? clean
+        ? transcript!.audio.url!
+        : transcript!.audio.originalUrl!
+      : previewSource(entry);
   const fallback = entry.url && entry.url !== baseSource ? entry.url : null;
   const source = broken && fallback ? fallback : baseSource;
   const [fragment] = useState(() => (startMs && startMs > 0 ? `#t=${Math.floor(startMs / 1000)}` : ""));
@@ -388,6 +406,30 @@ function PreviewBody({
     const timer = window.setTimeout(() => setCopied(null), 2500);
     return () => window.clearTimeout(timer);
   }, [copied]);
+
+  useEffect(() => {
+    if (isolating !== "waiting") return;
+    if (isolatedCopy) {
+      setIsolating("idle");
+      return;
+    }
+    const timer = window.setTimeout(() => setPeaksRound((value) => value + 1), ISOLATE_POLL_MS);
+    return () => window.clearTimeout(timer);
+  }, [isolating, isolatedCopy, peaksRound]);
+
+  const askIsolate = async () => {
+    if (!entry.mediaId) return;
+    setIsolating("asking");
+    try {
+      const answer = await isolateMedia(entry.mediaId);
+      if (answer.isolated) {
+        setIsolating("idle");
+        setPeaksRound((value) => value + 1);
+      } else setIsolating("waiting");
+    } catch {
+      setIsolating("failed");
+    }
+  };
 
   const switchSource = () => {
     const media = mediaRef.current;
@@ -593,6 +635,11 @@ function PreviewBody({
           >
             <span className="hidden sm:inline">Speed</span> {rate}×
           </button>
+          {!cleanable && canIsolate ? (
+            <button type="button" className={BUTTON} disabled={isolating === "asking" || isolating === "waiting"} onClick={() => void askIsolate()}>
+              {isolating === "waiting" || isolating === "asking" ? "Making a clear-voices copy…" : isolating === "failed" ? "Try the clear-voices copy again" : "Make a clear-voices copy"}
+            </button>
+          ) : null}
           {cleanable ? (
             <button type="button" role="switch" aria-checked={clean} className={`${BUTTON} ${clean ? "border-purple-300 bg-purple-50 text-purple-800 dark:bg-purple-950/40 dark:text-purple-200" : ""}`} onClick={switchSource}>
               Clear voices

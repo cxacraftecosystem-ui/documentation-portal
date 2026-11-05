@@ -193,17 +193,30 @@ export function nextIndex(count: number, index: number, delta: 1 | -1): number |
   return next >= 0 && next < count ? next : null;
 }
 
-export type Peaks = { peaks: number[]; durationMs: number | null };
+export type Peaks = { peaks: number[]; durationMs: number | null; isolated: boolean; canIsolate: boolean };
 
 export async function fetchPeaks(mediaId: string, signal?: AbortSignal): Promise<Peaks | null> {
   try {
-    const answer = await apiFetch<Peaks>(`/data/media/${encodeURIComponent(mediaId)}/peaks`, { signal });
-    return Array.isArray(answer?.peaks) && answer.peaks.length ? { peaks: answer.peaks, durationMs: answer.durationMs ?? null } : null;
+    const answer = await apiFetch<Partial<Peaks>>(`/data/media/${encodeURIComponent(mediaId)}/peaks`, { signal });
+    const peaks = Array.isArray(answer?.peaks) ? answer.peaks : [];
+    return { peaks, durationMs: answer?.durationMs ?? null, isolated: answer?.isolated === true, canIsolate: answer?.canIsolate === true };
   } catch (error) {
     if (error instanceof ApiError && (error.status === 404 || error.status === 405)) return null;
     throw error;
   }
 }
+
+export type IsolateStatus = { status: "queued" | "running" | "ready"; isolated: boolean };
+
+export function isolateMedia(mediaId: string): Promise<IsolateStatus> {
+  return apiFetch<IsolateStatus>(`/data/media/${encodeURIComponent(mediaId)}/isolate`, { method: "POST" });
+}
+
+export function isolatedPreviewUrl(mediaId: string): string {
+  return `/api/data/media/${encodeURIComponent(mediaId)}/preview?variant=isolated`;
+}
+
+export const ISOLATE_POLL_MS = 10_000;
 
 export type FolderTranscript = {
   mediaId: string;

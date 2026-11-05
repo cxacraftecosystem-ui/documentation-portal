@@ -409,6 +409,25 @@ test.describe("@qf:X5 previews", () => {
     }
   });
 
+  test("Clear voices is offered only once a clear copy can exist, and plays it once made", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
+    try {
+      await (await rowAction(page, "interview.m4a", "Play")).click();
+      const dialog = page.getByRole("dialog", { name: "interview.m4a" });
+      await expect(dialog.getByRole("switch", { name: "Clear voices" })).toHaveCount(0);
+      await dialog.getByRole("button", { name: "Make a clear-voices copy" }).click();
+      expect(fake.isolateAsked).toBe(1);
+      const clear = dialog.getByRole("switch", { name: "Clear voices" });
+      await expect(clear).toHaveAttribute("aria-checked", "true", { timeout: 25_000 });
+      await expect(dialog.locator("audio")).toHaveAttribute("src", /variant=isolated/);
+      await clear.click();
+      await expect(clear).toHaveAttribute("aria-checked", "false");
+      await expect(dialog.locator("audio")).not.toHaveAttribute("src", /variant=isolated/);
+    } finally {
+      await context.close();
+    }
+  });
+
   test("a time link opens the file at that second and a file without a transcript says so", async ({ browser }) => {
     const { context, page } = await openExplorer(browser, { path: "workshops/bagru", query: "preview=vid1&t=12" });
     try {
@@ -706,7 +725,9 @@ test.describe("@qf:X6 tables", () => {
       expect(fake.calls.some((call) => call.path === "/data/report" && call.query.get("format") === "csv" && call.query.get("sheet") === "Artisans")).toBe(true);
       await tables.getByRole("searchbox", { name: "Search every row of Artisans" }).fill("rare weaver");
       await expect(tables.getByText("1 row matches “rare weaver”")).toBeVisible();
-      await expect(tables.getByRole("region", { name: "Artisans rows" })).toContainText("Kaithoon");
+      const region = tables.getByRole("region", { name: "Artisans rows" });
+      await expect(region).toContainText("Kaithoon");
+      await expect(region.locator("tbody tr").first().locator("td").first()).toHaveText("201");
       const searched = fake.calls.filter((call) => call.path === "/data/report" && call.query.get("q") === "rare weaver");
       expect(searched.length).toBeGreaterThan(0);
       expect(searched.every((call) => !call.query.has("sheet"))).toBe(true);
@@ -726,6 +747,8 @@ test.describe("@qf:X6 tables", () => {
       const tables = page.getByRole("region", { name: "Data tables" });
       await expect(tables.getByRole("button", { name: /Sheet/ }).first()).toBeVisible();
       await expect(tables.getByText("Row 1", { exact: true })).toBeVisible();
+      await tables.getByRole("searchbox", { name: /Search every row/ }).fill("rare weaver");
+      await expect(tables.getByText("Row 201", { exact: true })).toBeVisible();
       await noSidewaysScroll(page);
     } finally {
       await context.close();
@@ -921,7 +944,8 @@ test.describe("@qf:X2 workshop overview", () => {
       await overview.getByRole("combobox", { name: /Sort artisans/ }).or(overview.getByRole("button", { name: /Sort artisans/ })).click();
       await page.getByRole("option", { name: "By name" }).click();
       await expect(rows.first()).toContainText("Kamla Devi");
-      await overview.getByRole("button", { name: "Tools: partly recorded. Still to record: Tool names" }).click();
+      await expect(overview.getByRole("link", { name: "Tools: partly recorded. Still to record: Tool names" })).toHaveAttribute("href", "/questionnaire/sessions/s-kamla/view?section=tools");
+      await overview.getByRole("button", { name: "Process: missing. Still to record: Dye recipe" }).click();
       await expect(page).toHaveURL(/path=workshops%2Fbagru%2Fkamla/);
     } finally {
       await context.close();

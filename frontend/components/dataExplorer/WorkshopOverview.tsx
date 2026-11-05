@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { LoadFailed, Skeleton } from "@/components/dataExplorer/explorerUi";
@@ -161,7 +162,12 @@ export function WorkshopOverview({ path, extra, visit, onOpen, onShowNew }: { pa
                         {artisan.sections.map((section) => {
                           const label = overview.sections.find((candidate) => candidate.key === section.key)?.label ?? section.key;
                           const title = `${label}: ${SQUARE_WORD[section.state]}${section.missing.length ? `. Still to record: ${section.missing.join("; ")}` : ""}`;
-                          return <button key={section.key} type="button" title={title} aria-label={title} onClick={() => onOpen(artisan.path)} className={`h-5 w-5 rounded-[4px] pointer-coarse:h-7 pointer-coarse:w-7 ${SQUARE[section.state]}`} />;
+                          const look = `block h-5 w-5 rounded-[4px] pointer-coarse:h-7 pointer-coarse:w-7 ${SQUARE[section.state]}`;
+                          return section.href ? (
+                            <Link key={section.key} href={section.href} title={title} aria-label={title} className={look} />
+                          ) : (
+                            <button key={section.key} type="button" title={title} aria-label={title} onClick={() => onOpen(artisan.path)} className={look} />
+                          );
                         })}
                       </div>
                     </td>
@@ -196,7 +202,7 @@ export function WorkshopOverview({ path, extra, visit, onOpen, onShowNew }: { pa
               </tbody>
             </table>
           </div>
-          <p className="border-t border-line-200 px-4 py-2.5 text-xs text-ink-500">Tap a square to open that artisan. Missing squares list what&apos;s still to record.{overview.truncated ? " Showing the first artisans only." : ""}</p>
+          <p className="border-t border-line-200 px-4 py-2.5 text-xs text-ink-500">Tap a square to open that section. Missing squares list what&apos;s still to record.{overview.truncated ? " Showing the first artisans only." : ""}</p>
         </div>
       ) : null}
     </section>

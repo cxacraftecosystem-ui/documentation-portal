@@ -94,7 +94,7 @@ const OVERVIEW = {
       review: "APPROVED",
       sections: [
         { key: "identity", state: "complete", missing: [] },
-        { key: "tools", state: "partial", missing: ["Tool names"] },
+        { key: "tools", state: "partial", missing: ["Tool names"], href: "/questionnaire/sessions/s-kamla/view?section=tools" },
         { key: "process", state: "complete", missing: [] }
       ]
     },
@@ -152,6 +152,8 @@ export class DataExplorerFake {
   xlsxFailures = 0;
   transcriptStatus: Record<string, string> = { aud1: "READY", vid1: "NEEDS_ATTENTION" };
   reportOptions: Json | null = null;
+  isolated = false;
+  isolateAsked = 0;
   views: Json[] = [];
   sharedViews: Json[] = [{ id: "v-shared", name: "Sanganer tables", path: "workshops/sanganer", state: { view: "tables", sheet: "", q: "", filters: {} }, shared: true, mine: false, ownerName: "Ravi Kumar", createdAt: "2026-11-01T10:00:00Z", updatedAt: "2026-11-01T10:00:00Z" }];
   visit: Json = { previousVisitAt: "2026-11-01T10:00:00Z", newFiles: 3, newTranscripts: 1 };
@@ -330,12 +332,12 @@ export class DataExplorerFake {
     const artisans = Array.from({ length: 200 }, (_, index) => [`Artisan ${index + 1}`, index % 2 ? "Bagru" : "Sanganer"]);
     artisans.push(["Rare Weaver", "Kaithoon"]);
     const q = (query.get("q") ?? "").trim().toLowerCase();
-    const sheet = { name: "Artisans", color: "FF58068C", columns: ["Name", "Place"], rows: artisans.slice(0, 200), preview: true, totalRows: artisans.length };
+    const sheet = { name: "Artisans", color: "FF58068C", columns: ["Name", "Place"], rows: artisans.slice(0, 200), rowNumbers: artisans.slice(0, 200).map((_row, index) => index + 1), preview: true, totalRows: artisans.length };
     if (q) {
-      const matched = artisans.filter((row) => row.join(" ").toLowerCase().includes(q));
-      return { status: 200, json: { sheets: [{ ...sheet, rows: matched.slice(0, 200), matchedRows: matched.length }], query: query.get("q") } };
+      const matched = artisans.map((row, index) => ({ row, number: index + 1 })).filter(({ row }) => row.join(" ").toLowerCase().includes(q));
+      return { status: 200, json: { sheets: [{ ...sheet, rows: matched.slice(0, 200).map((hit) => hit.row), rowNumbers: matched.slice(0, 200).map((hit) => hit.number), matchedRows: matched.length }], query: query.get("q") } };
     }
-    return { status: 200, json: { sheets: [sheet, { name: "Products", columns: ["Product"], rows: [["Indigo saree"]], totalRows: 1 }], previewRows: 200 } };
+    return { status: 200, json: { sheets: [sheet, { name: "Products", columns: ["Product"], rows: [["Indigo saree"]], rowNumbers: [1], totalRows: 1 }], previewRows: 200 } };
   }
 
   answer(method: string, path: string, query: URLSearchParams, body: Json | null): { status: number; json?: unknown; raw?: Buffer; contentType?: string; headers?: Record<string, string> } | null {
@@ -405,7 +407,12 @@ export class DataExplorerFake {
     if (/^\/transcripts\/[^/]+\/download$/.test(path) || path === "/data/transcript-bundle" || path === "/data/transcripts/export") {
       return { status: 200, raw: ZIP, contentType: "application/zip", headers: { "content-disposition": 'attachment; filename="Transcripts.zip"' } };
     }
-    if (path === "/data/media/aud1/peaks") return { status: 200, json: { peaks: Array.from({ length: 800 }, (_, index) => ((index * 37) % 100) / 100), durationMs: 754_000 } };
+    if (path === "/data/media/aud1/peaks") return { status: 200, json: { peaks: Array.from({ length: 800 }, (_, index) => ((index * 37) % 100) / 100), durationMs: 754_000, isolated: this.isolated, canIsolate: !this.isolated } };
+    if (path === "/data/media/aud1/isolate" && method === "POST") {
+      this.isolateAsked += 1;
+      this.isolated = true;
+      return { status: 202, json: { status: "queued", isolated: false } };
+    }
     if (path === "/data/overview") return query.get("path") === "workshops/bagru" ? { status: 200, json: OVERVIEW } : { status: 404, json: { detail: "Not a workshop folder." } };
     if (path === "/data/visits" && method === "POST") return { status: 200, json: { path: body?.path, visitedAt: "2026-11-05T10:00:00Z", ...this.visit } };
     if (path === "/data/report-options") {

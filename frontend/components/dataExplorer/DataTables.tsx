@@ -54,6 +54,32 @@ export function localMatches(sheet: ReportSheet, needle: string): ReportSheet["r
   });
 }
 
+export function rowNumbersOf(sheet: Pick<ReportSheet, "rows" | "rowNumbers">): number[] {
+  const given = sheet.rowNumbers;
+  if (Array.isArray(given) && given.length === sheet.rows.length) return given;
+  return sheet.rows.map((_row, index) => index + 1);
+}
+
+export function localMatchNumbers(sheet: Pick<ReportSheet, "rows" | "rowNumbers">, needle: string): { rows: ReportSheet["rows"]; numbers: number[] } {
+  const words = needle.toLowerCase().split(/\s+/).filter(Boolean);
+  const numbers = rowNumbersOf(sheet);
+  if (!words.length) return { rows: sheet.rows, numbers };
+  const rows: ReportSheet["rows"] = [];
+  const kept: number[] = [];
+  sheet.rows.forEach((row, index) => {
+    const text = row.map((cell) => String(cell ?? "")).join(" ").toLowerCase();
+    if (words.every((word) => text.includes(word))) {
+      rows.push(row);
+      kept.push(numbers[index]);
+    }
+  });
+  return { rows, numbers: kept };
+}
+
+export function rowLabel(number: number | undefined): string {
+  return number && number > 0 ? String(number) : "";
+}
+
 function Marked({ text, needle }: { text: string; needle: string }) {
   return (
     <>
@@ -76,7 +102,7 @@ function cellText(value: unknown): string {
 
 type Found = { key: string; report: ReportResponse | null; failed: boolean };
 
-function RowCard({ sheet, row, index, needle }: { sheet: ReportSheet; row: ReportSheet["rows"][number]; index: number; needle: string }) {
+function RowCard({ sheet, row, number, needle }: { sheet: ReportSheet; row: ReportSheet["rows"][number]; number: number | undefined; needle: string }) {
   const [open, setOpen] = useState(false);
   const columns = open ? sheet.columns : sheet.columns.slice(0, CARD_FIELDS);
   return (
@@ -85,7 +111,7 @@ function RowCard({ sheet, row, index, needle }: { sheet: ReportSheet; row: Repor
         <strong className="min-w-0 text-sm font-semibold text-ink-900">
           <Marked text={cellText(row[0])} needle={needle} />
         </strong>
-        <span className="shrink-0 text-xs text-ink-500">Row {index + 1}</span>
+        {rowLabel(number) ? <span className="shrink-0 text-xs text-ink-500">Row {rowLabel(number)}</span> : null}
       </div>
       <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
         {columns.slice(1).map((column, offset) => (
@@ -263,12 +289,12 @@ export function DataTables({
     },
     [result]
   );
-  const rows = useMemo(() => {
-    if (!sheet) return [];
-    if (!needle) return sheet.rows;
+  const { rows, numbers } = useMemo(() => {
+    if (!sheet) return { rows: [] as ReportSheet["rows"], numbers: [] as number[] };
+    if (!needle) return { rows: sheet.rows, numbers: rowNumbersOf(sheet) };
     const hit = result?.report?.sheets.find((candidate) => candidate.name === sheet.name);
-    if (hit) return hit.rows;
-    return localMatches(sheet, needle);
+    if (hit) return { rows: hit.rows, numbers: rowNumbersOf(hit) };
+    return localMatchNumbers(sheet, needle);
   }, [sheet, needle, result]);
   const serverSearch = Boolean(needle && result?.report);
   const matched = sheet ? matchOf(sheet.name) : null;
@@ -463,7 +489,7 @@ export function DataTables({
                   </div>
                 ) : null}
                 <div className="grid gap-2 p-3 sm:hidden" aria-label={`${sheet.name} rows`}>
-                  {rows.length === 0 ? <p className="py-6 text-center text-sm text-ink-500">No rows match “{needle}”.</p> : rows.map((row, rowIndex) => <RowCard key={rowIndex} sheet={sheet} row={row} index={rowIndex} needle={needle} />)}
+                  {rows.length === 0 ? <p className="py-6 text-center text-sm text-ink-500">No rows match “{needle}”.</p> : rows.map((row, rowIndex) => <RowCard key={rowIndex} sheet={sheet} row={row} number={numbers[rowIndex]} needle={needle} />)}
                 </div>
                 <div className="max-h-128 overflow-auto max-sm:hidden" tabIndex={0} role="region" aria-label={`${sheet.name} rows`}>
                   <table className="w-full text-left text-sm">
@@ -489,7 +515,7 @@ export function DataTables({
                       ) : (
                         rows.map((row, rowIndex) => (
                           <tr key={rowIndex} className="align-top hover:bg-surface-50">
-                            <td className="px-3 py-2.5 text-right text-xs text-ink-500">{rowIndex + 1}</td>
+                            <td className="px-3 py-2.5 text-right text-xs tabular-nums text-ink-500">{rowLabel(numbers[rowIndex])}</td>
                             {sheet.columns.map((_column, cellIndex) => (
                               <td key={cellIndex} className={`max-w-md px-3 py-2.5 text-ink-700 ${cellIndex === 0 ? "font-semibold text-ink-900" : ""}`}>
                                 <div className="max-h-32 overflow-y-auto whitespace-pre-line wrap-break-word">

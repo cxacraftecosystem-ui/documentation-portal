@@ -55,6 +55,8 @@ export type ManifestFile = {
   convertToMp4?: boolean;
   convertedUrl?: string | null;
   sizeBytes?: number | string | null;
+  sha256?: string | null;
+  originalSha256?: string | null;
 };
 
 export type Manifest = {
@@ -101,6 +103,7 @@ export type ReportSheet = {
   truncatedNote?: string | null;
   group?: string | null;
   matchedRows?: number | null;
+  rowNumbers?: number[] | null;
 };
 
 export type ReportResponse = {
@@ -161,7 +164,7 @@ export type WorkshopOverview = {
     media: { files: number; bytes: number };
     transcripts: number;
     review: string | null;
-    sections: { key: string; state: CoverageState; missing: string[] }[];
+    sections: { key: string; state: CoverageState; missing: string[]; href?: string | null }[];
   }[];
   truncated: boolean;
 };
