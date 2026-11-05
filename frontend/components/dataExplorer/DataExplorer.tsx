@@ -520,7 +520,6 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
 
   const tabTrailing = (
     <>
-      {newHere && url.view === "files" ? <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-200">+{newHere} new since you looked</span> : null}
       {url.view === "files" ? (
         <div className="flex gap-1.5" role="group" aria-label="Layout">
           <button type="button" aria-pressed={layout === "list"} aria-label="List view" onClick={() => setLayout("list")} className={iconToggle(layout === "list")}>
@@ -609,6 +608,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
               loading={!current && tree.loading.has(url.path)}
               onWholeDataset={wholeRepository ? () => downloadDataset("zip") : null}
               info={current?.info ?? null}
+              fresh={newHere ? `+${newHere} new since you looked` : null}
               parent={shownCrumbs.length > 1 ? shownCrumbs[shownCrumbs.length - 2] : null}
               foldersButton={
                 <button type="button" className="inline-flex min-h-11 items-center rounded-full border border-line-200 bg-card px-3 text-[13px] text-ink-700 hover:border-purple-300" aria-expanded={showTree} onClick={() => setShowTree((value) => !value)}>
@@ -619,10 +619,10 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
             {tooBig ? <Note tone="warn">Too big for one zip in this browser. Use Save to a folder or leave some types out.</Note> : null}
             {!caps.stream && !caps.saveFile && limitSentence(caps) ? <p className="text-xs text-ink-500">{limitSentence(caps)}</p> : null}
             {config.datasetLine && wholeRepository ? <p className="text-xs text-ink-500">{config.datasetLine}</p> : null}
-            {current?.info && !isWorkshop ? <RecordDetails info={current.info} recordHref={current.info.record && config.recordHref ? config.recordHref(current.info.record.kind, current.info.record.id) : null} /> : null}
+            {current?.info ? <RecordDetails info={current.info} recordHref={current.info.record && config.recordHref ? config.recordHref(current.info.record.kind, current.info.record.id) : null} /> : null}
             {isWorkshop ? <WorkshopOverview path={url.path} extra={config.extra} visit={visit && visit.path === url.path ? visit : null} onOpen={open} onShowNew={() => navigate({ view: "files" })} /> : null}
             <section className="panel overflow-hidden max-sm:grid max-sm:gap-3 max-sm:overflow-visible max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:shadow-none" aria-label="Contents">
-              <ViewTabs view={url.view} counts={{ files: filesCount, transcripts: transcriptsKnown !== null ? transcriptsKnown.toLocaleString("en-IN") : null }} onView={(view) => navigate({ view })} trailing={tabTrailing} />
+              <ViewTabs view={url.view} counts={{ files: folderSize.sized ? `${folderSize.sized.files.toLocaleString("en-IN")}${folderSize.sized.truncated ? "+" : ""}` : filesCount, transcripts: transcriptsKnown !== null ? transcriptsKnown.toLocaleString("en-IN") : null }} onView={(view) => navigate({ view })} trailing={tabTrailing} />
               <div id="explorer-view" role="tabpanel" aria-label={VIEW_TABS.find((tab) => tab.value === url.view)?.label} className="min-w-0">
                 <div hidden={url.view !== "files"}>
                   <FolderContents

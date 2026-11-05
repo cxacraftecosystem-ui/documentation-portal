@@ -243,7 +243,6 @@ internal fun DownloadsSheetBody(
             Text(
                 ExplorerText.downloads,
                 style = MaterialTheme.typography.titleLarge,
-                lineHeight = 24.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f).semantics { heading() },
@@ -306,7 +305,7 @@ internal fun JobCard(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         val title: @Composable (String, Modifier) -> Unit = { text, m ->
-            Text(text, style = MaterialTheme.typography.bodyMedium, lineHeight = 19.sp, fontWeight = FontWeight.Bold, color = content, maxLines = if (large) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis, modifier = m)
+            Text(text, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = content, maxLines = if (large) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis, modifier = m)
         }
         val accent = tone?.accent ?: MaterialTheme.colorScheme.primary
         val openButton: @Composable (Modifier) -> Unit = { m ->
@@ -323,7 +322,6 @@ internal fun JobCard(
                 Text(
                     jobLine(job),
                     style = MaterialTheme.typography.bodySmall,
-                    lineHeight = 16.sp,
                     color = muted,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }.testTag("explorer.job.status"),
                 )
@@ -342,7 +340,7 @@ internal fun JobCard(
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             title("✓ ${job.request.title}", Modifier)
-                            Text(jobSavedLine(job), style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = muted, modifier = Modifier.testTag("explorer.job.done"))
+                            Text(jobSavedLine(job), style = MaterialTheme.typography.bodySmall, color = muted, modifier = Modifier.testTag("explorer.job.done"))
                         }
                         openButton(Modifier)
                     }
@@ -351,7 +349,7 @@ internal fun JobCard(
                         title(job.request.title, Modifier.weight(1f))
                         Text(ExplorerUiText.saved, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = accent)
                     }
-                    Text(jobSavedLine(job), style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = muted, modifier = Modifier.testTag("explorer.job.done"))
+                    Text(jobSavedLine(job), style = MaterialTheme.typography.bodySmall, color = muted, modifier = Modifier.testTag("explorer.job.done"))
                     if (result != null && result.failedCount > 0) {
                         ExplorerLinkButton("${ExplorerText.failedFiles(result.failedCount)} · ${if (showFailed) ExplorerText.hide else ExplorerText.show}", onClick = { showFailed = !showFailed }, color = content)
                         if (showFailed) {
@@ -385,11 +383,10 @@ internal fun JobCard(
                 val failed = job.state == ExplorerJobState.FAILED
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(job.request.title, style = MaterialTheme.typography.bodyMedium, lineHeight = 19.sp, fontWeight = FontWeight.Bold, color = content, maxLines = if (large) Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis)
+                        Text(job.request.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = content, maxLines = if (large) Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis)
                         Text(
                             if (failed) "${ExplorerUiText.failed} · ${job.error ?: ExplorerText.fileFailed}" else ExplorerText.cancelled,
                             style = MaterialTheme.typography.bodySmall,
-                            lineHeight = 16.sp,
                             color = muted,
                             modifier = Modifier.testTag(if (failed) "explorer.job.error" else "explorer.job.cancelled"),
                         )

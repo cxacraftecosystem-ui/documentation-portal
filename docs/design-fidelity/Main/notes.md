@@ -1,0 +1,12 @@
+# Main · web desktop folder view
+
+Was off: a back button and icon in the page header; filters as wide selects; tree with Dataset root / By workshop levels, icons and a FOLDERS header with reload; three folder buttons (Report, Save to a folder, Download); sizes like 1.2 GB / 61.0 MB; no "Record details" heading, Open record link or Approved pill; tabs with icons and a Saved views label; "Select all" and layout toggles in the type row; names with extensions; All formats buttons; 2-line row metadata; a tray that was always the full queue.
+Fixed: plain "Data" header (30px) and description; page widened to the board's 1360px; Organise by chips named Workshop/Craft/Record type; the tree starts at the chosen organisation ("All workshops 3,412"), ▾/▸ markers, no icons, 40px rows, full-tint selection; breadcrumb "All workshops / … / …" with "/" separators; folder card with type pill, "48 files · 1.24 GB · 12 transcripts", Report (.xlsx) + Download folder · 1.24 GB; sizes to three figures (1.24 GB, 61 MB, 3 MB); tiles Images/Videos/Audio/Documents; Record details card with Open record and the review pill; tabs "Files 48 · Tables · Transcripts 12" with the list/grid toggles on the tab row; table header with the select-all checkbox, NAME/TYPE/SIZE/CAPTURED/ACTIONS, 48×36 VID/AUD/PDF tags, file stems, "Transcript · Hindi → English" / "Transcript ready · 41:02", Preview/Play, Transcript, download icon; "23 Sep 2026"; dark selection bar "2 selected · 704 MB · Clear · Download selected"; single running download shows the compact tray card.
+Still different, and why:
+- The DR nav and the search card come from elsewhere: the global nav differs by portal; the search card is DataSearchPanel, restyled on fix-0014 by ac290e23 (see WebSearch/notes.md).
+- Review status (All/Approved/Pending) is Field Repository only; DR records have no data review filter.
+- "6 tools" and image size "4032 × 3024" / "2 pages": the API sends no tool count, pixel size or page count, so those words are left out rather than invented.
+- A "…" menu next to Download holds Save to a folder and Whole dataset (both real features the board has no room for), and a bookmark icon on the tab row opens Saved views.
+- Tray numbers are KB/MB, not GB: CI streams real bytes from the fixture; the file counter and current file come from a live run.
+- The board tints only the first checked row; the build tints every checked row.
+- "+38 new since you looked" shows as a pill in the folder facts when the visit API reports new files (the board has no slot for it).

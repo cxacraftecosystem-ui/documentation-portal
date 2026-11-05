@@ -10,6 +10,10 @@ const TEXT_BUTTON = "min-h-8 rounded-sm px-2.5 text-xs font-semibold transition 
 
 const ORDER: Record<DownloadStatus, number> = { running: 0, waiting: 1, saved: 2, cancelled: 3, failed: 4 };
 
+function baseName(path: string): string {
+  return path.split("/").filter(Boolean).pop() ?? path;
+}
+
 export function trayOrder(items: readonly DownloadItem[]): DownloadItem[] {
   return items
     .map((item, index) => ({ item, index }))
@@ -39,14 +43,16 @@ export function itemLine(item: DownloadItem): string {
 
 function savedLine(item: DownloadItem, now: number): string {
   const parts: string[] = [];
-  if (item.kind === "zip" && item.filesDone !== null) parts.push(`${item.filesDone.toLocaleString("en-IN")} files`);
+  const savedNote = item.kind === "zip" && item.note && /^Saved \d/.test(item.note) ? item.note : null;
+  if (savedNote) parts.push(savedNote);
+  else if (item.kind === "zip" && item.filesDone !== null) parts.push(`${item.filesDone.toLocaleString("en-IN")} files`);
   if (item.kind === "report" || item.kind === "pack") {
     const sheets = sheetCount(item);
     if (sheets) parts.push(`${sheets} ${sheets === 1 ? "sheet" : "sheets"}`);
   }
   if (item.bytesDone) parts.push(formatBytes(item.bytesDone));
   if (item.note && item.kind !== "zip") parts.push(item.note.charAt(0).toLowerCase() + item.note.slice(1));
-  else if (item.note && item.kind === "zip" && !/^Saved \d/.test(item.note)) parts.push(item.note);
+  else if (item.note && item.kind === "zip" && !savedNote) parts.push(item.note);
   if (item.finishedAt && item.kind !== "report" && item.kind !== "pack") {
     const minutes = Math.round((now - item.finishedAt) / 60000);
     parts.push(minutes < 1 ? "just now" : `${minutes} min ago`);
@@ -103,7 +109,7 @@ function Job({ item, downloads, zipRunning }: { item: DownloadItem; downloads: D
             <div className="h-full bg-progress-fill" style={{ width: `${percent ?? 0}%` }} />
           </div>
           <p className="text-xs tabular-nums text-ink-500">{paused ? ["Paused", itemLine(item)].filter(Boolean).join(" · ") : (item.note ?? itemLine(item))}</p>
-          {item.current ? <p className="truncate text-xs text-ink-500">Now: {item.current}</p> : null}
+          {item.current ? <p className="truncate text-xs text-ink-500">Now: {baseName(item.current)}</p> : null}
           {item.failedFiles.length ? <p className="text-xs text-amber-800 dark:text-amber-200">{item.failedFiles.length} {item.failedFiles.length === 1 ? "file" : "files"} will retry.</p> : null}
           <div className="flex gap-1">
             {item.kind !== "report" && item.kind !== "pack" ? (
@@ -229,7 +235,7 @@ function Solo({ item, downloads, minimised, onMinimise }: { item: DownloadItem; 
           </div>
           {item.current || (zip && item.filesTotal !== null) ? (
             <p className="truncate text-xs text-ink-500 max-sm:hidden">
-              {[zip && item.filesTotal !== null && item.filesDone !== null ? `File ${Math.min(item.filesTotal, item.filesDone + 1).toLocaleString("en-IN")} of ${item.filesTotal.toLocaleString("en-IN")}` : null, item.current].filter(Boolean).join(" · ")}
+              {[zip && item.filesTotal !== null && item.filesDone !== null ? `File ${Math.min(item.filesTotal, item.filesDone + 1).toLocaleString("en-IN")} of ${item.filesTotal.toLocaleString("en-IN")}` : null, item.current ? baseName(item.current) : null].filter(Boolean).join(" · ")}
             </p>
           ) : null}
           <p className="rounded-sm bg-amber-100 px-2.5 py-1.5 text-xs text-amber-800 max-sm:hidden dark:bg-amber-950/50 dark:text-amber-200">

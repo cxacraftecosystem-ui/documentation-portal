@@ -436,7 +436,7 @@ export function DataTables({
   );
 
   return (
-    <section aria-label="Data tables" className="min-w-0 max-sm:fixed max-sm:inset-0 max-sm:z-50 max-sm:flex max-sm:flex-col max-sm:gap-3 max-sm:overflow-y-auto max-sm:bg-bg-0 max-sm:px-4 max-sm:pt-3.5 max-sm:pb-4">
+    <section aria-label="Data tables" className="min-w-0 max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-50 max-sm:w-screen max-sm:overflow-x-hidden max-sm:flex max-sm:flex-col max-sm:gap-3 max-sm:overflow-y-auto max-sm:bg-bg-0 max-sm:px-4 max-sm:pt-3.5 max-sm:pb-4">
       <div className="flex items-center gap-2 sm:hidden">
         {onBack ? (
           <button type="button" aria-label="Back" className="grid h-11 w-11 place-items-center rounded-md text-xl text-ink-900" onClick={onBack}>

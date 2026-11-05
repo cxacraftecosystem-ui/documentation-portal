@@ -212,7 +212,7 @@ export class DesignFidelityWebFake extends DesignFidelityFake {
 
   private workshopManifest(): Json[] {
     return Array.from({ length: QUEUE_FILES }, (_, index) => ({
-      path: index >= 573 && index < 613 ? `Giriraj Prasad Chhipa/Take ${index - 572}/Interview_Dabu-mud-resist_Take-1.mp4` : `Artisan ${(index % 12) + 1}/Clip_${String(index + 1).padStart(3, "0")}.jpg`,
+      path: index >= 500 && index < 613 ? `Giriraj Prasad Chhipa/Take ${index - 499}/Interview_Dabu-mud-resist_Take-1.mp4` : `Artisan ${(index % 12) + 1}/Clip_${String(index + 1).padStart(3, "0")}.jpg`,
       url: `/e2e-files/wk-${index}`,
       mediaId: `wk-${index}`,
       mediaType: "IMAGE",
@@ -234,7 +234,10 @@ export class DesignFidelityWebFake extends DesignFidelityFake {
       const base = super.answer(method, path, query, body);
       const json = base?.json as Json | undefined;
       if (!json) return base;
-      const entries = (json.entries as Json[]).map((entry) => (entry.mediaId === KILN_ID ? { ...entry, name: KILN_NAME, path: `${GIRIRAJ}/${KILN_NAME}`, sizeBytes: KILN_BYTES } : entry));
+      const renamed = (json.entries as Json[]).map((entry) => (entry.mediaId === KILN_ID ? { ...entry, name: KILN_NAME, path: `${GIRIRAJ}/${KILN_NAME}`, sizeBytes: KILN_BYTES } : entry));
+      const kiln = renamed.filter((entry) => entry.mediaId === KILN_ID);
+      const rest = renamed.filter((entry) => entry.mediaId !== KILN_ID);
+      const entries = [...rest.slice(0, 8), ...kiln, ...rest.slice(8)];
       return { status: 200, json: { ...json, entries, info: json.info ? { ...(json.info as Json), record: { kind: "artisan", id: "a-giriraj" } } : null } };
     }
     if (path === "/data/stats" && method === "GET" && at === GIRIRAJ) {
@@ -328,7 +331,7 @@ export class DesignFidelityWebFake extends DesignFidelityFake {
       async (route: Route) => {
         const index = Number(new URL(route.request().url()).pathname.replace("/e2e-files/wk-", ""));
         if (index === this.failingFile) return route.fulfill({ status: 404, body: "gone" });
-        if (index >= this.holdFrom) await new Promise<void>((resolve) => this.held.push(resolve));
+        if (index >= this.holdFrom && index < QUEUE_FILES) await new Promise<void>((resolve) => this.held.push(resolve));
         else await new Promise((resolve) => setTimeout(resolve, 6));
         return route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "accept-ranges": "bytes" }, body: Buffer.alloc(QUEUE_FILE_BYTES, index & 0xff) });
       }

@@ -222,7 +222,7 @@ internal fun ExplorerCheck(checked: Boolean, onToggle: () -> Unit, tag: String, 
                 .let { if (checked) it else it.border(2.dp, if (dark) MaterialTheme.field.placeholder else Color(0xFFA7A3BC), RoundedCornerShape(7.dp)) },
             contentAlignment = Alignment.Center,
         ) {
-            if (checked) Text("✓", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+            if (checked) ExplorerGlyph { Text("✓", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary) }
         }
     }
 }
@@ -263,9 +263,9 @@ internal fun FolderRow(
             Icon(recordIcon(folder.recordType), contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(20.dp))
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(folder.name, style = MaterialTheme.typography.bodyMedium, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+            Text(folder.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
             folderMeta(folder)?.let { line ->
-                Text(line, style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.folder.meta.${folder.path}"))
+                Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.folder.meta.${folder.path}"))
             }
         }
         if (!selecting) Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
@@ -348,7 +348,6 @@ internal fun FileRow(
                 Text(
                     displayName(entry),
                     style = MaterialTheme.typography.bodyMedium,
-                    lineHeight = 19.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = tone?.content ?: if (playing != null) markFg else MaterialTheme.colorScheme.onSurface,
                     maxLines = if (large) Int.MAX_VALUE else 1,
@@ -357,7 +356,6 @@ internal fun FileRow(
                 Text(
                     playing ?: fileMeta(entry),
                     style = MaterialTheme.typography.bodySmall,
-                    lineHeight = 16.sp,
                     color = tone?.muted ?: MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = if (playing != null) Modifier.testTag("explorer.playing.$id") else Modifier,
                 )
@@ -528,7 +526,7 @@ internal fun TextPanel(content: @Composable () -> Unit) {
 
 @Composable
 internal fun PlainTextBody(text: String) {
-    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body, lineHeight = 18.sp)
+    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body)
 }
 
 @Composable
@@ -550,9 +548,9 @@ internal fun TranscriptBody(markdown: String) {
                 }
                 line.trimStart().startsWith("- ") || line.trimStart().startsWith("* ") -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("•", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body)
-                    Text(inlineMarkdown(line.trimStart().drop(2)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body, lineHeight = 18.sp)
+                    Text(inlineMarkdown(line.trimStart().drop(2)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body)
                 }
-                else -> Text(inlineMarkdown(line), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body, lineHeight = 18.sp)
+                else -> Text(inlineMarkdown(line), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body)
             }
         }
     }
@@ -611,7 +609,6 @@ private fun InfoRow(label: String, value: String, labelWidth: Dp) {
                 value,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.field.body,
-                lineHeight = 20.sp,
                 maxLines = if (expanded) Int.MAX_VALUE else INFO_VALUE_COLLAPSED_LINES,
                 overflow = TextOverflow.Ellipsis,
                 onTextLayout = { layout -> if (!expanded && layout.hasVisualOverflow) foldable = true },

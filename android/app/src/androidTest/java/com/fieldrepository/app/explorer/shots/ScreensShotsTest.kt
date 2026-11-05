@@ -176,7 +176,7 @@ class ScreensShotsTest {
 
     @Test fun androidFolderLargeText() = folderShot("AndroidFolder", "font2", fontScale = 2f)
 
-    @Test fun androidFolderFiles() = folderShot("AndroidFolder", "files") { scrollTo("explorer.tab.files") }
+    @Test fun androidFolderFiles() = folderShot("AndroidFolder", "files") { scrollTo("explorer.file.d1") }
 
     @Test fun androidDark() {
         stage(ScreenBoards.saved(later, "Bagru workshop", 212, (3.8 * 1024 * 1024 * 1024).toLong()), ScreenBoards.failed(later + 1))
@@ -185,22 +185,22 @@ class ScreensShotsTest {
 
     @Test fun androidDarkResults() {
         stage(ScreenBoards.saved(later, "Bagru workshop", 212, (3.8 * 1024 * 1024 * 1024).toLong()), ScreenBoards.failed(later + 1))
-        folderShot("AndroidDark", "results", dark = true) { scrollTo("explorer.download.card") }
+        folderShot("AndroidDark", "results", dark = true) { scrollTo("explorer.result") }
     }
 
     @Test fun androidDownload() {
         stage(ScreenBoards.running(later))
-        folderShot("AndroidDownload") { scrollTo("explorer.progress") }
+        folderShot("AndroidDownload") { scrollTo("explorer.progress.where") }
     }
 
     @Test fun androidDownloadDark() {
         stage(ScreenBoards.running(later))
-        folderShot("AndroidDownload", "dark", dark = true) { scrollTo("explorer.progress") }
+        folderShot("AndroidDownload", "dark", dark = true) { scrollTo("explorer.progress.where") }
     }
 
     @Test fun androidDownloadLargeText() {
         stage(ScreenBoards.running(later))
-        folderShot("AndroidDownload", "font2", fontScale = 2f) { scrollTo("explorer.progress") }
+        folderShot("AndroidDownload", "font2", fontScale = 2f) { scrollTo("explorer.progress.where") }
     }
 
     @Test fun androidLargeText() {
@@ -210,7 +210,7 @@ class ScreensShotsTest {
 
     @Test fun androidLargeTextDownload() {
         stage(ScreenBoards.runningSmall(later))
-        folderShot("AndroidLargeText", "download", fontScale = 2f) { scrollTo("explorer.progress") }
+        folderShot("AndroidLargeText", "download", fontScale = 2f) { scrollTo("explorer.progress.where") }
     }
 
     @Test fun androidLargeTextDark() {
@@ -302,7 +302,7 @@ class ScreensShotsTest {
     @Composable
     private fun sheetFrame(scrim: Boolean, top: @Composable () -> Unit = {}, content: @Composable () -> Unit) {
         Column(Modifier.fillMaxSize().background(if (scrim) Color(0x801E1B2E) else Color(0xFF1B1830))) {
-            Box(Modifier.weight(1f).fillMaxWidth()) { top() }
+            if (scrim) Box(Modifier.weight(1f).fillMaxWidth()) { top() } else Box(Modifier.fillMaxWidth()) { top() }
             Surface(color = MaterialTheme.colorScheme.surface, shape = ExplorerShapes.sheet, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth()) {
                     ExplorerSheetHandle()

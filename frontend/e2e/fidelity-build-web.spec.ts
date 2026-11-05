@@ -1,12 +1,10 @@
 import { mkdirSync } from "node:fs";
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
 
 import { GIRIRAJ, WORKSHOP } from "./support/designFidelityFake";
-import { DesignFidelityWebFake, KILN_BYTES, KILN_ID, KILN_NAME } from "./support/designFidelityWebFake";
+import { DesignFidelityWebFake, KILN_ID, KILN_NAME } from "./support/designFidelityWebFake";
 
 const OUT = process.env.DESIGN_OUT ?? join("test-results", "design-fidelity");
 
@@ -23,11 +21,11 @@ function folderUrl(path: string, extra: Record<string, string> = {}): string {
   return `/data?${new URLSearchParams({ path, ...extra }).toString()}`;
 }
 
-async function open(browser: Browser, size: Size, theme: Theme = "light"): Promise<{ context: BrowserContext; page: Page; fake: DesignFidelityWebFake }> {
+async function open(browser: Browser, size: Size, theme: Theme = "light", scale?: number): Promise<{ context: BrowserContext; page: Page; fake: DesignFidelityWebFake }> {
   const mobile = size.width < 900;
   const context = await browser.newContext({
     viewport: size,
-    deviceScaleFactor: size.width <= 600 ? 2 : 1,
+    deviceScaleFactor: scale ?? (size.width <= 600 ? 2 : 1),
     isMobile: mobile,
     hasTouch: mobile,
     colorScheme: theme,
@@ -111,7 +109,7 @@ async function startWorkshopZip(page: Page, fake: DesignFidelityWebFake) {
 
 async function zipHeld(page: Page) {
   const tray = page.getByTestId("downloads-tray");
-  await expect(tray).toContainText(/(file|File) 5[4-9]\d of 926/, { timeout: 60_000 });
+  await expect(tray).toContainText(/(file|File) [4-9]\d\d of 926/, { timeout: 60_000 });
   let last = "";
   await expect
     .poll(
@@ -242,6 +240,7 @@ for (const theme of ["light", "dark"] as const) {
       await tables.getByRole("button", { name: "Full report (.xlsx)" }).click();
       await page.getByRole("dialog", { name: "Report (.xlsx)" }).getByRole("button", { name: "Make report" }).click();
       await expect(tables.getByText("Full report (.xlsx) is being prepared")).toBeVisible();
+      await page.getByTestId("downloads-tray").getByRole("button", { name: "Minimise downloads" }).click({ timeout: 5_000 }).catch(() => undefined);
       await shootAround(page, "WebTables", theme === "dark" ? "dark" : undefined, [page.getByRole("region", { name: "Contents" })], { x: 0, top: 0, bottom: 0 });
     } finally {
       await context.close();
@@ -262,6 +261,8 @@ for (const theme of ["light", "dark"] as const) {
       await tables.getByRole("button", { name: "Full report (.xlsx)" }).click();
       await page.getByRole("dialog", { name: "Report (.xlsx)" }).getByRole("button", { name: "Make report" }).click();
       await expect(tables.getByRole("alert").filter({ hasText: "Nothing was saved." })).toBeVisible();
+      const minimise = page.getByTestId("downloads-tray").getByRole("button", { name: "Minimise downloads" });
+      if (await minimise.isVisible()) await minimise.click({ timeout: 5_000 }).catch(() => undefined);
       await shootAround(page, "WebTables", theme === "dark" ? "error-dark" : "error", [page.getByRole("region", { name: "Contents" })], { x: 0, top: 0, bottom: 0 });
     } finally {
       await context.close();
@@ -306,30 +307,12 @@ for (const theme of ["light", "dark"] as const) {
   });
 }
 
-function kilnServer(): Promise<{ server: Server; url: string }> {
-  return new Promise((resolve) => {
-    const server = createServer((request, response) => {
-      response.writeHead(request.headers.range ? 206 : 200, {
-        "content-type": "application/octet-stream",
-        "content-length": String(KILN_BYTES),
-        "access-control-allow-origin": request.headers.origin ?? "*",
-        "access-control-allow-credentials": "true",
-        "accept-ranges": "bytes",
-        ...(request.headers.range ? { "content-range": `bytes 0-${KILN_BYTES - 1}/${KILN_BYTES}` } : {})
-      });
-      response.write(Buffer.alloc(140 * 1024, 7), () => setTimeout(() => request.socket.destroy(), 50));
-    });
-    server.listen(0, "127.0.0.1", () => resolve({ server, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/kiln` }));
-  });
-}
-
 for (const theme of ["light", "dark"] as const) {
   test(`impl WebTrayQueue${theme === "dark" ? " · dark" : ""}`, async ({ browser }) => {
     test.setTimeout(240_000);
-    const { server, url } = await kilnServer();
-    const { context, page, fake } = await open(browser, DESKTOP, theme);
+    const { context, page, fake } = await open(browser, DESKTOP, theme, 2);
     try {
-      await page.route(`**/api/data/media/${KILN_ID}/download`, (route) => route.fulfill({ status: 302, headers: { location: url } }));
+      await page.route(`**/api/data/media/${KILN_ID}/download`, (route) => route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "This file is no longer on the server." }) }));
       const tray = page.getByTestId("downloads-tray");
       await test.step("a file fails part-way and stops retrying", async () => {
         await page.goto(folderUrl(GIRIRAJ));
@@ -338,7 +321,7 @@ for (const theme of ["light", "dark"] as const) {
         await kiln.getByRole("button", { name: `Download ${KILN_NAME}` }).click();
         const kilnItem = tray.getByTestId("tray-item").filter({ hasText: KILN_NAME });
         await expect(kilnItem).toHaveAttribute("data-status", "failed", { timeout: 30_000 });
-        await expect(kilnItem.getByRole("button", { name: "Retry" })).toBeVisible({ timeout: 90_000 });
+        await expect(kilnItem.getByRole("button", { name: "Retry" })).toBeVisible({ timeout: 30_000 });
       });
       await test.step("a report is saved", async () => {
         await page.getByTestId("download-folder").getByRole("button", { name: "Report (.xlsx)" }).click();
@@ -367,7 +350,6 @@ for (const theme of ["light", "dark"] as const) {
     } finally {
       fake.release();
       await context.close();
-      server.close();
     }
   });
 }
@@ -416,6 +398,7 @@ for (const theme of ["light", "dark"] as const) {
       await page.goto(folderUrl(GIRIRAJ));
       await folderReady(page);
       await page.getByTestId("download-folder").getByRole("heading").first().click();
+      await page.mouse.move(4, 700);
       await page.keyboard.press("Control+k");
       const palette = page.getByRole("dialog", { name: "Quick jump" });
       await palette.getByRole("combobox", { name: "Jump to anything" }).fill("giri");

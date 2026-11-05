@@ -101,14 +101,13 @@ internal fun ProgressCard(
                 Text(
                     if (paused) "${job.request.title} · ${ExplorerText.paused}" else if (large) ExplorerUiText.downloading else ExplorerUiText.downloading(job.request.title),
                     style = MaterialTheme.typography.bodyLarge,
-                    lineHeight = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 val summary = jobSummary(job)
-                if (summary.isNotBlank() && !large) Text(summary, style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (summary.isNotBlank() && !large) Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            percent?.let { Text(ExplorerUiText.percent(it), style = MaterialTheme.typography.headlineSmall, lineHeight = 26.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("explorer.progress.percent")) }
+            percent?.let { Text(ExplorerUiText.percent(it), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("explorer.progress.percent")) }
         }
         ExplorerBar(job.fraction, height = 10.dp)
         busyOrWaiting(job)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -119,9 +118,9 @@ internal fun ProgressCard(
         val speedLine = listOfNotNull(speed ?: "—", network?.takeIf { speed != null }).joinToString(" · ")
         val left = job.secondsLeft()?.takeIf { !paused }?.let { ExplorerText.aboutLeft(it) }
         if (large) {
-            Text(bytes, style = MaterialTheme.typography.bodyMedium, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurface)
-            Text(listOfNotNull(job.totalFiles.takeIf { it > 0 }?.let { ExplorerUiText.fileOf(job.doneFiles, it) }, job.secondsLeft()?.takeIf { !paused }?.let { ExplorerText.timeLeft(it) }).joinToString(" · ").ifBlank { "—" }, style = MaterialTheme.typography.bodyMedium, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurface)
-            if (speed != null) Text(speedLine, style = MaterialTheme.typography.bodyMedium, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text(bytes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+            Text(listOfNotNull(job.totalFiles.takeIf { it > 0 }?.let { ExplorerUiText.fileOf(job.doneFiles, it) }, job.secondsLeft()?.takeIf { !paused }?.let { ExplorerText.timeLeft(it) }).joinToString(" · ").ifBlank { "—" }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+            if (speed != null) Text(speedLine, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -144,17 +143,16 @@ internal fun ProgressCard(
                     .testTag("explorer.progress.now"),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text(ExplorerUiText.now, style = MaterialTheme.typography.labelSmall, lineHeight = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(current.substringAfterLast('/'), style = MaterialTheme.typography.bodyMedium, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = if (large) Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis)
+                Text(ExplorerUiText.now, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(current.substringAfterLast('/'), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = if (large) Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis)
                 ExplorerBar(job.currentFraction, height = 6.dp, fill = if (MaterialTheme.field.isDark) MaterialTheme.colorScheme.primary else com.fieldrepository.app.ui.FieldPalette.Purple600)
-                if (job.currentTotal > 0) Text(ExplorerBytes.progress(job.currentBytes, job.currentTotal), style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (job.currentTotal > 0) Text(ExplorerBytes.progress(job.currentBytes, job.currentTotal), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         val warn = explorerWarnTone()
         Text(
             listOfNotNull(job.retrying.takeIf { it > 0 }?.let { ExplorerText.retryNote(it) }, ExplorerText.keepsGoing).joinToString(" "),
             style = MaterialTheme.typography.bodySmall,
-            lineHeight = 16.sp,
             color = if (job.retrying > 0) warn.muted else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.fillMaxWidth()
                 .let { if (job.retrying > 0) it.background(warn.container, ExplorerShapes.tile).padding(horizontal = 10.dp, vertical = 8.dp) else it }
@@ -196,8 +194,8 @@ private fun busyOrWaiting(job: ExplorerJob): String? = when {
 @Composable
 private fun Fact(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier) {
-        Text(label, style = MaterialTheme.typography.labelSmall, lineHeight = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyMedium, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -220,7 +218,7 @@ internal fun RecentFilesCard(job: ExplorerJob, onAll: (() -> Unit)? = null) {
                 .heightIn(min = 36.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(ExplorerUiText.recentFiles, style = MaterialTheme.typography.bodyLarge, lineHeight = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+            Text(ExplorerUiText.recentFiles, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
             if (onAll != null && job.totalFiles > 0) {
                 ExplorerLinkButton(ExplorerUiText.allN(job.totalFiles), onClick = onAll, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.recent.all"))
             } else if (job.totalFiles > 0) {
@@ -259,16 +257,16 @@ internal fun RecentRow(file: ExplorerRecent, active: Boolean, last: Boolean = fa
             Modifier.size(22.dp).background(if (tone != null) MaterialTheme.colorScheme.surface else markBg, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Text(mark, style = MaterialTheme.typography.bodySmall, lineHeight = 14.sp, textAlign = TextAlign.Center, color = tone?.accent ?: markFg)
+            ExplorerGlyph { Text(mark, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center, color = tone?.accent ?: markFg) }
         }
-        Text(file.name.substringAfterLast('/'), style = MaterialTheme.typography.bodyMedium, lineHeight = 18.sp, color = tone?.content ?: MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Text(file.name.substringAfterLast('/'), style = MaterialTheme.typography.bodyMedium, color = tone?.content ?: MaterialTheme.colorScheme.onSurface, maxLines = if (androidx.compose.ui.platform.LocalDensity.current.fontScale >= 1.5f) Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         val end = when (file.status) {
             ExplorerRecentStatus.SAVED -> ExplorerBytes.format(file.sizeBytes)
             ExplorerRecentStatus.RETRYING -> if (active) ExplorerUiText.retrying else ExplorerUiText.failed
             ExplorerRecentStatus.FAILED -> ExplorerUiText.failed
             ExplorerRecentStatus.RUNNING -> file.fraction?.let { ExplorerUiText.percent((it * 100).toInt()) }
         }
-        end?.let { Text(it, style = MaterialTheme.typography.bodyMedium, lineHeight = 18.sp, color = when (status) { ExplorerStatus.FAILED -> tone!!.accent; ExplorerStatus.SAVED -> tone!!.muted; else -> MaterialTheme.colorScheme.onSurfaceVariant }) }
+        end?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = when (status) { ExplorerStatus.FAILED -> tone!!.accent; ExplorerStatus.SAVED -> tone!!.muted; else -> MaterialTheme.colorScheme.onSurfaceVariant }) }
     }
 }
 
@@ -291,7 +289,6 @@ internal fun ResultCard(job: ExplorerJob, onOpen: () -> Unit, onRetry: () -> Uni
             Text(
                 if (saved) (if (count > 1 && job.request.kind != ExplorerJobKind.FOLDER) "✓ ${ExplorerText.savedFiles(count)}" else "✓ ${ExplorerText.savedShort} ${job.request.title}") else job.request.title,
                 style = MaterialTheme.typography.bodyMedium,
-                lineHeight = 19.sp,
                 fontWeight = FontWeight.Bold,
                 color = tone.content,
                 maxLines = 2,
@@ -309,7 +306,7 @@ internal fun ResultCard(job: ExplorerJob, onOpen: () -> Unit, onRetry: () -> Uni
         } else {
             "${ExplorerUiText.failed} · ${job.error ?: ExplorerText.fileFailed}"
         }
-        Text(detail, style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = tone.muted)
+        Text(detail, style = MaterialTheme.typography.bodySmall, color = tone.muted)
     }
 }
 

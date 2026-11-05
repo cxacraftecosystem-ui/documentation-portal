@@ -126,7 +126,7 @@ function trayItem(page: Page, label: string | RegExp): Locator {
 }
 
 function folderDownload(page: Page): Locator {
-  return page.getByTestId("download-folder").getByRole("button", { name: /^Download( folder| workshop|$)/ });
+  return page.getByTestId("download-folder").getByRole("button", { name: /^Download( folder| workshop|$| ·)/ });
 }
 
 async function noSidewaysScroll(page: Page) {

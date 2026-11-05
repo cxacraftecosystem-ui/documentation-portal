@@ -101,7 +101,7 @@ internal fun NewSinceChip(visit: ExplorerVisit?) {
     if (n <= 0) return
     val (bg, fg) = explorerMark()
     Box(Modifier.background(bg, ExplorerShapes.pill).padding(horizontal = 10.dp, vertical = 4.dp).testTag("explorer.newsince")) {
-        Text(OverviewText.newSince(n), style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold, color = fg)
+        Text(OverviewText.newSince(n), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = fg)
     }
 }
 
@@ -115,10 +115,10 @@ private fun Tile(label: String, value: String, sub: String?, modifier: Modifier,
         modifier.explorerCard(if (accent) markBg else MaterialTheme.colorScheme.surface, line, ExplorerShapes.inner).padding(12.dp).let { if (tag != null) it.testTag(tag) else it },
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(label, style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = if (accent) markFg else MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.headlineSmall, lineHeight = 32.sp, fontWeight = FontWeight.ExtraBold, color = if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+        Text(label, style = MaterialTheme.typography.bodySmall, color = if (accent) markFg else MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
         if (sub != null) {
-            Text(sub, style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = if (accent) markFg else MaterialTheme.colorScheme.onSurfaceVariant, modifier = if (onSub != null) Modifier.clickable(role = Role.Button, onClick = onSub) else Modifier)
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = if (accent) markFg else MaterialTheme.colorScheme.onSurfaceVariant, modifier = if (onSub != null) Modifier.clickable(role = Role.Button, onClick = onSub) else Modifier)
         }
     }
 }
@@ -152,7 +152,7 @@ internal fun OverviewCard(overview: ExplorerOverview, onOpen: (path: String) -> 
         Modifier.fillMaxWidth().explorerCard().padding(14.dp).testTag("explorer.overview"),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(OverviewText.title, style = MaterialTheme.typography.bodyLarge, lineHeight = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.semantics { heading() })
+        Text(OverviewText.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.semantics { heading() })
         val tiles = listOfNotNull(
             TileData(OverviewText.files, String.format(java.util.Locale.ROOT, "%,d", t.files), ExplorerBytes.format(t.bytes.takeIf { it > 0 })),
             TileData(OverviewText.fields, OverviewText.percent(t.fields.filled, t.fields.total), "${t.fields.filled} of ${t.fields.total}"),
@@ -171,7 +171,7 @@ internal fun OverviewCard(overview: ExplorerOverview, onOpen: (path: String) -> 
         }
         if (overview.artisans.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(OverviewText.artisansTitle, style = MaterialTheme.typography.bodyLarge, lineHeight = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text(OverviewText.artisansTitle, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Legend("complete", OverviewText.completeLabel)
                     Legend("partial", OverviewText.partialLabel)
@@ -187,7 +187,7 @@ internal fun OverviewCard(overview: ExplorerOverview, onOpen: (path: String) -> 
             if (sorted.size > 6) {
                 ExplorerLinkButton(if (all) OverviewText.showFewer else "${OverviewText.showAll} ${sorted.size}", onClick = { all = !all })
             }
-            if (onSection != null) Text(OverviewText.note, style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (onSection != null) Text(OverviewText.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -216,8 +216,8 @@ private fun ArtisanRow(a: ExplorerOverviewArtisan, overview: ExplorerOverview, o
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f)) {
-                Text(a.name, style = MaterialTheme.typography.bodyMedium, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                a.craft?.let { Text(it, style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                Text(a.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                a.craft?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             a.review?.let { r -> Text(r, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = reviewTint(r) ?: MaterialTheme.colorScheme.onSurface) }
             ExplorerLinkButton(OverviewText.open, onClick = { onOpen(a.path) }, modifier = Modifier.padding(start = 4.dp))
@@ -257,7 +257,6 @@ private fun ArtisanRow(a: ExplorerOverviewArtisan, overview: ExplorerOverview, o
         Text(
             listOfNotNull(ExplorerUiText.filesSize(a.media.files, a.media.bytes), a.transcripts.takeIf { it > 0 }?.let { ExplorerBytes.count(it, "transcript") }).joinToString(" · "),
             style = MaterialTheme.typography.bodySmall,
-            lineHeight = 16.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

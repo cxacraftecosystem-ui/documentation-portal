@@ -97,7 +97,7 @@ export function useSelectionSize(selection: Selection, extra: QueryParams, downl
   return useSized(`selection:${keyText}:${extraKey}`, load);
 }
 
-const TYPE_TILE_KEYS: IncludeKey[] = ["images", "videos", "audios", "documents", "transcripts", "text", "other"];
+const TYPE_TILE_KEYS: IncludeKey[] = ["images", "videos", "audios", "documents", "text", "other"];
 
 export function recordTypeLabel(recordType: string | null | undefined): string | null {
   if (!recordType) return null;
@@ -239,6 +239,7 @@ export function FolderHeader({
   info,
   parent,
   foldersButton,
+  fresh = null,
   busy,
   loading
 }: {
@@ -257,6 +258,7 @@ export function FolderHeader({
   info?: FolderInfo | null;
   parent?: Crumb | null;
   foldersButton?: ReactNode;
+  fresh?: string | null;
   busy: boolean;
   loading: boolean;
 }) {
@@ -309,6 +311,7 @@ export function FolderHeader({
                   <span>{fact}</span>
                 </span>
               ))}
+              {fresh ? <span className="rounded-full bg-purple-100 px-2.5 py-1 font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-200">{fresh}</span> : null}
             </p>
           </div>
           <div className="flex gap-2 max-sm:w-full">

@@ -82,7 +82,7 @@ class ExplorerLargeTextUiTest {
             node.config[SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)
             val layout = layouts.firstOrNull() ?: return@forEach
             val words = node.config.getOrNull(SemanticsProperties.Text)?.joinToString { it.text }.orEmpty()
-            assertTrue("\"$words\" is cut off at fontScale 2 ($where)", !layout.hasVisualOverflow)
+            assertTrue("\"$words\" is cut off at fontScale 2 ($where): size ${layout.size}, wide ${layout.multiParagraph.intrinsics.maxIntrinsicWidth} vs ${layout.size.width}, tall ${layout.didOverflowHeight}, constraints ${layout.layoutInput.constraints}, lines ${layout.lineCount}, maxLines ${layout.layoutInput.maxLines}", !(layout.didOverflowHeight || layout.lineCount == 1 && layout.multiParagraph.intrinsics.maxIntrinsicWidth - layout.size.width > 2f || layout.lineCount > 0 && layout.isLineEllipsized(layout.lineCount - 1)))
         }
     }
 

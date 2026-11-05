@@ -225,11 +225,17 @@ internal fun tileColors(kind: TileKind): Pair<Color, Color> {
 }
 
 @Composable
+internal fun ExplorerGlyph(content: @Composable () -> Unit) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 1f)) { content() }
+}
+
+@Composable
 internal fun ExplorerTypeTile(entry: ExplorerEntry, size: Dp = 48.dp) {
     val kind = tileKind(entry)
     val (bg, fg) = tileColors(kind)
     Box(Modifier.size(size).background(bg, ExplorerShapes.tile).testTag("explorer.tile.${kind.label.lowercase()}"), contentAlignment = Alignment.Center) {
-        Text(kind.label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = fg)
+        ExplorerGlyph { Text(kind.label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = fg) }
     }
 }
 

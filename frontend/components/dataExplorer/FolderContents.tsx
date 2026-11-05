@@ -126,6 +126,16 @@ function statusWord(status: DownloadStatus | undefined): string | null {
   return null;
 }
 
+function FileName({ entry }: { entry: TreeEntry }) {
+  const stem = displayName(entry);
+  return (
+    <>
+      {stem}
+      {stem !== entry.name ? <span className="sr-only">{entry.name.slice(stem.length)}</span> : null}
+    </>
+  );
+}
+
 export function displayName(entry: TreeEntry): string {
   if (entry.kind !== "file" || entry.content != null) return entry.name;
   const stem = entry.name.replace(/\.[A-Za-z0-9]{1,5}$/, "");
@@ -452,7 +462,9 @@ export function FolderContents({
                     <div className="flex items-start gap-2">
                       <input type="checkbox" checked={checked} onChange={() => onToggle(file)} aria-label={`Select ${file.name}`} className="mt-0.5 h-[18px] w-[18px] shrink-0 accent-purple-700" />
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-ink-900">{displayName(file)}</p>
+                        <p className="truncate text-sm font-semibold text-ink-900">
+                          <FileName entry={file} />
+                        </p>
                         <p className="text-xs text-ink-500">{[entryMeta(file), statusWord(status)].filter(Boolean).join(" · ")}</p>
                       </div>
                     </div>
@@ -512,11 +524,11 @@ export function FolderContents({
                           <div className="min-w-0 flex-1">
                             <div className={`truncate text-sm font-semibold ${isPlaying ? "text-purple-800 dark:text-purple-100" : "text-ink-900"}`}>
                               {href ? (
-                                <Link href={href} className="hover:text-purple-700 hover:underline">
-                                  {displayName(file)}
+                                <Link href={href} aria-label={file.name} className="hover:text-purple-700 hover:underline">
+                                  <FileName entry={file} />
                                 </Link>
                               ) : (
-                                displayName(file)
+                                <FileName entry={file} />
                               )}
                             </div>
                             <div className={`truncate text-xs ${isPlaying ? "text-purple-800 dark:text-purple-200" : "text-ink-500"}`}>
