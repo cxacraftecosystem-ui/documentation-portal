@@ -176,6 +176,7 @@ async def unified_search(
     dateFrom: datetime | None = None,
     dateTo: datetime | None = None,
     workshopIds: list[str] | None = Query(None),
+    artisanIds: list[str] | None = Query(None),
 ) -> dict[str, Any]:
     settings = _unified_settings_or_404()
     text = _clean_query(q)
@@ -194,6 +195,7 @@ async def unified_search(
     local_scope.date_from = dateFrom
     local_scope.date_to = dateTo
     local_scope.workshop_ids = workshops
+    local_scope.artisan_ids = _split(artisanIds)
     offset = (page - 1) * limit if type else 0
 
     remote_status = us.STATUS_OFF
@@ -201,7 +203,7 @@ async def unified_search(
     if scope == "all" and cross_portal.search_active(settings):
         if not us.may_search_across(current_user):
             remote_status = us.STATUS_NOT_PERMITTED
-        elif workshops:
+        elif workshops or local_scope.artisan_ids:
             remote_status = us.STATUS_FILTERED_OUT
         else:
             remote_status = us.STATUS_OK
@@ -239,11 +241,19 @@ async def unified_search(
 
     local, (remote_status, peer) = await asyncio.gather(_local(), _remote())
     remote_groups = await us.drop_unconsented(peer.get("groups") or []) if peer else []
+    await search_query.transcript_moments(local.items.get("transcripts", []), text)
+    links = await us.artisan_links([str(i["id"]) for i in local.items.get("artisans", [])])
     groups = us.merge(
-        local.items, local.totals, remote_groups, limit=limit * 2 if type else limit
+        local.items,
+        local.totals,
+        remote_groups,
+        limit=limit * 2 if type else limit,
+        links=links,
     )
+    suggestion = None if any(g["items"] for g in groups) else await search_query.did_you_mean(text)
     return {
         "query": text,
+        "suggestion": suggestion,
         "mode": local.mode,
         "groups": groups,
         "remote": {"portal": us.PEER_PORTAL, "label": us.PEER_LABEL, "status": remote_status},

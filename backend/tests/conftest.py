@@ -23,6 +23,20 @@ def _fresh_account_credential_budget():
 
 
 @pytest.fixture(autouse=True)
+def _no_report_survives_a_test():
+    import sys
+
+    def forget() -> None:
+        cached = sys.modules.get("app.services.data_explorer.report_cache")
+        if cached is not None:
+            cached.CACHE.clear()
+
+    forget()
+    yield
+    forget()
+
+
+@pytest.fixture(autouse=True)
 def _fresh_aadhaar_legacy_answer():
     from app.services.aadhaar_fingerprint import reset_legacy_pending
 

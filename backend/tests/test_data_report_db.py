@@ -101,7 +101,7 @@ async def _preview_and_download(monkeypatch: Any) -> dict[str, Any]:
     handed: dict[str, Any] = {}
     real_build = data_browser.build_report_workbook
 
-    def capture(sheets: list[dict[str, Any]], title: str) -> bytes:
+    def capture(sheets: list[dict[str, Any]], title: str, **_kwargs: Any) -> bytes:
         handed["sheets"] = sheets
         return real_build(sheets, title)
 
@@ -114,7 +114,7 @@ async def _preview_and_download(monkeypatch: Any) -> dict[str, Any]:
     try:
         shown = await data_browser.data_report(path="", format="json", status_value=None, current_user=seed["admin"])
         download = await data_browser.data_report(path="", format="xlsx", status_value=None, current_user=seed["admin"])
-        body = b"".join([chunk async for chunk in download.body_iterator])
+        body = bytes(download.body)
         return {"json": json.loads(shown.body), "xlsx": body, "sheets": handed["sheets"]}
     finally:
         await _cleanup(client, seed)
