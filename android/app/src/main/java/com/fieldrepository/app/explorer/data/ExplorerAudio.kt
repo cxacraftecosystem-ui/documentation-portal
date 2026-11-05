@@ -233,7 +233,7 @@ object ExplorerAudio {
         .build()
 
     private fun playable(context: Context, url: String): String {
-        if (ExplorerPaths.absolute(url)) return url
+        if (ExplorerPaths.absolute(url) || url.startsWith("file:")) return url
         return ExplorerDownloads.resolveSigned(context, url) ?: ExplorerPaths.resolve(ExplorerPortal.baseUrl(), url)
     }
 

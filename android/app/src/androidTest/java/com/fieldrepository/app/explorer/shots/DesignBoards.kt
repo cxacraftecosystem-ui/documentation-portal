@@ -145,6 +145,17 @@ object DesignBoards {
         )
     }
 
+    fun silentWav(seconds: Long): ByteArray {
+        val rate = 3000
+        val samples = (rate * seconds).toInt()
+        val out = java.nio.ByteBuffer.allocate(44 + samples).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        out.put("RIFF".toByteArray()).putInt(36 + samples).put("WAVE".toByteArray()).put("fmt ".toByteArray())
+        out.putInt(16).putShort(1).putShort(1).putInt(rate).putInt(rate).putShort(1).putShort(8)
+        out.put("data".toByteArray()).putInt(samples)
+        repeat(samples) { out.put(128.toByte()) }
+        return out.array()
+    }
+
     fun peaks(): List<Float> = (0 until 1600).map { i ->
         (0.55f + 0.3f * sin(i / 7f) * cos(i / 19f) + 0.15f * sin(i / 3.3f)).coerceIn(0.12f, 1f)
     }

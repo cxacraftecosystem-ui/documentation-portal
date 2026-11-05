@@ -124,7 +124,7 @@ jobs:
           arch: x86_64
           profile: Nexus 6
           emulator-options: >-
-            -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+            -no-window -gpu swiftshader_indirect -no-boot-anim
             -no-snapshot-save -no-snapshot-load -camera-back none -camera-front none
           disable-animations: true
           disk-size: 8G
