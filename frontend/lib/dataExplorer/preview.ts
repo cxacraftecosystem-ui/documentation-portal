@@ -247,7 +247,14 @@ export type TranscriptSummary = {
   languages: { code: string; label: string }[];
   durationMs: number | null;
   speakerCount: number;
+  translation?: { done: number; total: number; percent: number | null } | null;
 };
+
+export function translatingLabel(summary: Pick<TranscriptSummary, "status" | "translation"> | null | undefined): string {
+  if (summary?.status === "TRANSCRIBING") return "Transcribing";
+  const percent = summary?.translation?.percent;
+  return typeof percent === "number" ? `Translating ${percent}%` : "Translating";
+}
 
 export function chunks<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];

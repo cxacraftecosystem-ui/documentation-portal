@@ -232,3 +232,10 @@ test.describe("keyboard shortcuts", () => {
     expect(paletteEntries([], actions, "")).toEqual([]);
   });
 });
+
+test("a translating transcript says how far it has got", async () => {
+  const { translatingLabel } = await import("@/lib/dataExplorer/preview");
+  expect(translatingLabel({ status: "TRANSLATING", translation: { done: 7, total: 10, percent: 70 } })).toBe("Translating 70%");
+  expect(translatingLabel({ status: "TRANSLATING", translation: null })).toBe("Translating");
+  expect(translatingLabel({ status: "TRANSCRIBING" })).toBe("Transcribing");
+});

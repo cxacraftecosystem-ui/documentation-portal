@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LoadFailed, Skeleton } from "@/components/dataExplorer/explorerUi";
 import { EmptyState } from "@/components/EmptyState";
 import { ActionGroup } from "@/components/ui/ActionGroup";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { ROW_TONE_CLASS, type DownloadRequest } from "@/lib/dataExplorer/downloads";
 import {
@@ -19,6 +20,7 @@ import {
   rowState,
   shortClock,
   speakersLine,
+  translatingLabel,
   type FolderTranscript,
   type RowState,
   type StateFilter,
@@ -47,7 +49,7 @@ function StatePill({ row }: { row: Row }) {
     case "ready":
       return <span className={`${PILL} bg-success-100 text-success-600`}>✓ Ready</span>;
     case "working":
-      return <span className={`${PILL} bg-purple-50 text-purple-800 dark:bg-purple-950/50 dark:text-purple-200`}>{row.summary?.status === "TRANSCRIBING" ? "Transcribing" : "Translating"}</span>;
+      return <span className={`${PILL} bg-purple-50 text-purple-800 dark:bg-purple-950/50 dark:text-purple-200`}>{translatingLabel(row.summary)}</span>;
     case "failed":
       return <span className={`${PILL} border border-red-300 bg-card text-red-900`}>Failed</span>;
     case "waiting":
@@ -331,9 +333,11 @@ export function TranscriptsTab({
                       {failed && !sub && !(row.snippet && needle) ? "The transcript couldn't be made." : null}
                     </p>
                     {row.state === "working" ? (
-                      <div className="mt-1.5 h-1.5 w-40 max-w-full overflow-hidden rounded-full bg-progress-track" aria-hidden>
-                        <div className="h-full w-1/3 animate-pulse rounded-full bg-progress-fill" />
-                      </div>
+                      <ProgressBar
+                        percent={row.summary?.translation?.percent ?? 33}
+                        className={`mt-1.5 h-1.5 w-40 max-w-full ${typeof row.summary?.translation?.percent === "number" ? "" : "animate-pulse"}`}
+                        aria-hidden
+                      />
                     ) : null}
                     <div className="mt-2 flex flex-wrap items-center gap-2 md:hidden">
                       <StatePill row={row} />
