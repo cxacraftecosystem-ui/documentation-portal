@@ -44,6 +44,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -300,6 +301,8 @@ internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, star
             LaunchedEffect(focus, lines.size) {
                 if (focus < 0) return@LaunchedEffect
                 snapshotFlow { list.layoutInfo.totalItemsCount }.first { it > 0 }
+                runCatching { list.scrollToItem((focus - 1).coerceAtLeast(0)) }
+                withFrameNanos { }
                 runCatching { list.scrollToItem((focus - 1).coerceAtLeast(0)) }
             }
             val (markBg, _) = explorerMark()
