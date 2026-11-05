@@ -169,13 +169,12 @@ internal fun ReportOptionsSheet(
                 Label(ReportText.rows)
                 Segmented(listOf("all" to ReportText.everything, "filtered" to ReportText.filtered(query)), rows, "rows") { rows = it }
             }
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(value = links, role = Role.Switch) { links = it }.testTag("explorer.report.links"),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(ReportText.links, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                Switch(checked = links, onCheckedChange = null)
-            }
+            com.fieldrepository.app.ui.AppToggle(
+                label = ReportText.links,
+                checked = links,
+                onCheckedChange = { links = it },
+                modifier = Modifier.fillMaxWidth().testTag("explorer.report.links"),
+            )
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
@@ -213,7 +212,7 @@ internal fun ReportOptionsSheet(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text(v.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(v.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(viewLine(v), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Text(if (v.mine) ReportText.yours else ReportText.shared, style = MaterialTheme.typography.labelMedium, color = if (v.mine) MaterialTheme.colorScheme.primary else Color(0xFF115E59))

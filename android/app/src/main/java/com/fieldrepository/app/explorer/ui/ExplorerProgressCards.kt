@@ -91,7 +91,7 @@ internal fun ProgressCard(
             Column(Modifier.weight(1f)) {
                 Text(
                     if (paused) "${job.request.title} · ${ExplorerText.paused}" else ExplorerUiText.downloading(job.request.title),
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -99,7 +99,7 @@ internal fun ProgressCard(
                 val summary = jobSummary(job)
                 if (summary.isNotBlank()) Text(summary, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            percent?.let { Text(ExplorerUiText.percent(it), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("explorer.progress.percent")) }
+            percent?.let { Text(ExplorerUiText.percent(it), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("explorer.progress.percent")) }
         }
         val fraction = job.fraction
         if (fraction != null) {
@@ -189,7 +189,7 @@ internal fun RecentFilesCard(job: ExplorerJob) {
             .testTag("explorer.recent"),
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(ExplorerUiText.recentFiles, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text(ExplorerUiText.recentFiles, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             if (job.totalFiles > 0) Text(ExplorerText.filesOf(job.doneFiles, job.totalFiles), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         recent.reversed().forEach { RecentRow(it, job.active) }
@@ -221,7 +221,7 @@ private fun RecentRow(file: ExplorerRecent, active: Boolean) {
             Modifier.size(22.dp).background(if (tone != null) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.extraLarge),
             contentAlignment = Alignment.Center,
         ) {
-            Text(mark, fontSize = 12.sp, textAlign = TextAlign.Center, color = tone?.accent ?: MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(mark, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, color = tone?.accent ?: MaterialTheme.colorScheme.onPrimaryContainer)
         }
         Text(file.name.substringAfterLast('/'), style = MaterialTheme.typography.bodySmall, color = tone?.content ?: MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         val end = when (file.status) {
@@ -251,7 +251,7 @@ internal fun ResultCard(job: ExplorerJob, onOpen: () -> Unit, onShare: () -> Uni
             val saved = job.result?.saved ?: 0
             Text(
                 if (saved > 1) "✓ ${ExplorerText.savedFiles(saved)}" else "✓ ${ExplorerText.savedShort} ${job.request.title}",
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = tone.content,
             )
@@ -267,7 +267,7 @@ internal fun ResultCard(job: ExplorerJob, onOpen: () -> Unit, onShare: () -> Uni
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 44.dp)) { Text(ExplorerUiText.dismiss) }
             }
         } else {
-            Text(job.request.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = tone.content, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(job.request.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = tone.content, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("${ExplorerUiText.failed} · ${job.error ?: ExplorerText.fileFailed}", style = MaterialTheme.typography.bodySmall, color = tone.muted)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onDismiss, colors = ButtonDefaults.outlinedButtonColors(contentColor = tone.content), modifier = Modifier.weight(1f).heightIn(min = 44.dp)) { Text(ExplorerUiText.dismiss) }

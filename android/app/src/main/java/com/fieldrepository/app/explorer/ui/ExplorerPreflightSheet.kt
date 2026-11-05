@@ -108,7 +108,7 @@ internal fun PreflightSheet(
                     Modifier.fillMaxWidth().background(warn.container, MaterialTheme.shapes.large).border(1.dp, warn.border, MaterialTheme.shapes.large).padding(12.dp).testTag("explorer.preflight.metered"),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    Text(PreflightText.metered, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = warn.content)
+                    Text(PreflightText.metered, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = warn.content)
                     ExplorerBytes.format(bytes)?.let { Text(PreflightText.pack(it), style = MaterialTheme.typography.bodySmall, color = warn.content) }
                 }
             }
@@ -118,7 +118,7 @@ internal fun PreflightSheet(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(PreflightText.storage, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text(PreflightText.storage, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                     val ok = plan.enoughSpace
                     val tone = explorerTone(if (ok) ExplorerStatus.SAVED else ExplorerStatus.FAILED)!!
                     Text(if (ok) PreflightText.enough else PreflightText.notEnough, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = tone.accent)
@@ -130,7 +130,7 @@ internal fun PreflightSheet(
                 Text(PreflightText.storageLine(ExplorerBytes.format(bytes), free?.let { ExplorerBytes.format(it.coerceAtLeast(0)) }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Column(Modifier.fillMaxWidth().background(MaterialTheme.field.surface50, MaterialTheme.shapes.large).padding(12.dp)) {
-                Text(PreflightText.saveTo, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(PreflightText.saveTo, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(plan.location, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.preflight.location"))
             }
             if (skip != null) {
@@ -152,19 +152,11 @@ internal fun PreflightSheet(
 
 @Composable
 private fun SwitchRow(title: String, note: String, on: Boolean, tag: String, onChange: (Boolean) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth()
-            .background(MaterialTheme.field.surface50, MaterialTheme.shapes.large)
-            .toggleable(value = on, role = Role.Switch, onValueChange = onChange)
-            .padding(12.dp)
-            .testTag(tag),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(checked = on, onCheckedChange = null)
-    }
+    com.fieldrepository.app.ui.AppToggle(
+        label = title,
+        checked = on,
+        onCheckedChange = onChange,
+        description = note,
+        modifier = Modifier.fillMaxWidth().background(MaterialTheme.field.surface50, MaterialTheme.shapes.large).testTag(tag),
+    )
 }

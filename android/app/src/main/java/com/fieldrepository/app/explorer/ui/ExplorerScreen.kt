@@ -1126,7 +1126,7 @@ private fun DownloadCard(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(ExplorerUiText.download, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f).semantics { heading() })
+            Text(ExplorerUiText.download, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f).semantics { heading() })
             size?.let { s ->
                 ExplorerBytes.format(includedSize(s, include).bytes.takeIf { it > 0 })?.let {
                     Text(ExplorerUiText.selectedSize(it), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.download.selected"))

@@ -339,7 +339,7 @@ private fun TranscriptRow(
                 Text(if (video) "VID" else "AUD", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = tone?.accent ?: if (video) MaterialTheme.colorScheme.onPrimaryContainer else warn.muted)
             }
             Column(Modifier.weight(1f)) {
-                Text(r.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = content, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(r.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = content, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 val line = when (r.status) {
                     TranscriptStatus.FAILED -> ExplorerUiText.noSpeech
                     TranscriptStatus.TRANSLATING -> ExplorerUiText.translating

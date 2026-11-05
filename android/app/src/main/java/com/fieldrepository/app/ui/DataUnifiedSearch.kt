@@ -379,7 +379,7 @@ private fun ResultCard(
             )
             DataSearchRules.date(item.recordDate)?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
-        Text(item.title.ifBlank { item.id }, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(item.title.ifBlank { item.id }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
         item.snippet?.takeIf { it.isNotBlank() }?.let { snippet ->
             Text(
                 marked(snippet, DataSearchRules.ranges(item, snippet), markBg, markFg),
@@ -432,7 +432,7 @@ private fun LegacyHits(repository: FieldRepository, query: String, onOpen: (Stri
     if (search.loading && search.hits.isEmpty()) Text(DataSearchText.searching, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     search.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
     if (search.searched && !search.loading && search.hits.isEmpty() && search.error == null) {
-        Text(DataSearchText.noMatches(query.trim()), style = MaterialTheme.typography.titleSmall)
+        Text(DataSearchText.noMatches(query.trim()), style = MaterialTheme.typography.titleMedium)
     }
     search.hits.forEach { hit -> SearchResultRow(row = hit, onOpen = { onOpen(hit.recordType, hit.id, hit.title) }) }
 }

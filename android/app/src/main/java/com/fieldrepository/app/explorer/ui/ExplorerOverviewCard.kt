@@ -93,7 +93,7 @@ internal fun OverviewCard(overview: ExplorerOverview, onOpen: (path: String) -> 
             .testTag("explorer.overview"),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(OverviewText.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.semantics { heading() })
+        Text(OverviewText.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.semantics { heading() })
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Tile(OverviewText.files, ExplorerUiText.filesSize(t.files, t.bytes))
             Tile(OverviewText.fields, OverviewText.percent(t.fields.filled, t.fields.total))
@@ -135,7 +135,7 @@ private fun ArtisanRow(a: ExplorerOverviewArtisan, overview: ExplorerOverview, o
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(a.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(a.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
                     listOfNotNull(a.craft, OverviewText.fieldsOf(a.fields.filled, a.fields.total), ExplorerUiText.filesSize(a.media.files, a.media.bytes)).joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall,

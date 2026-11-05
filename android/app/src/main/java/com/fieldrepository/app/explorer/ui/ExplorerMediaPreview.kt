@@ -168,7 +168,7 @@ private fun ColumnScope.MediaPane(
     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onDismiss, modifier = Modifier.testTag("explorer.preview.close")) { Icon(Icons.Filled.Close, contentDescription = ExplorerUiText.close) }
         Column(Modifier.weight(1f)) {
-            Text(entry.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(entry.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(listOf(fileMeta(entry), position).joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (onSave != null) {

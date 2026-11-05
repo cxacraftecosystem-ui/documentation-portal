@@ -270,7 +270,7 @@ internal fun JobCard(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(job.request.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = content, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(job.request.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = content, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             val end = when (job.state) {
                 ExplorerJobState.RUNNING, ExplorerJobState.QUEUED -> jobPercent(job)?.let { ExplorerUiText.percent(it) }
                 ExplorerJobState.PAUSED -> ExplorerText.paused

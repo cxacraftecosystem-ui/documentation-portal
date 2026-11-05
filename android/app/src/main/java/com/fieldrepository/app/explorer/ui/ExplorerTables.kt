@@ -337,7 +337,7 @@ private fun SheetPicker(sheets: List<ExplorerSheet>, current: ExplorerSheet, sea
                     Text(ExplorerUiText.sheet, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
                         "${current.name} · ${ExplorerText.rows(current.totalRows ?: current.rows.size)}",
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -391,7 +391,7 @@ private fun RowCard(headers: List<String>, row: List<kotlinx.serialization.json.
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 highlighted(cells.firstOrNull().orEmpty().ifBlank { "—" }, query, markBg, markFg),
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
