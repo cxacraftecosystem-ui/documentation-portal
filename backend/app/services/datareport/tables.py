@@ -414,7 +414,10 @@ async def load_store(ctx: ReportContext, db: Any) -> Store:
                 found = await _find(db, table.model, load.fk, record_ids)
             elif load.kind == "unbound":
                 delegate = _delegate(db, table.model)
-                found = await delegate.find_many(where={load.fk: None}, take=TABLE_CAP) if delegate is not None else []
+                spec = schema.load(ctx.portal).get(table.model)
+                column = spec.field(load.fk) if spec is not None else None
+                nullable = column is not None and column.optional
+                found = await delegate.find_many(where={load.fk: None}, take=TABLE_CAP) if delegate is not None and nullable else []
             else:
                 wanted: list[str] = []
                 for model, name in load.fields:
