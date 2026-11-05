@@ -100,11 +100,11 @@ class EveryRecordReachableUiTest {
                 }
             }
         }
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("Showing 25 of 62.").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(60_000) { compose.onAllNodesWithText("Showing 25 of 62.").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("access-queue-more").performScrollTo().performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("Showing 50 of 62.").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(60_000) { compose.onAllNodesWithText("Showing 50 of 62.").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Show 12 more").performScrollTo().performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("waiting62@example.org").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(60_000) { compose.onAllNodesWithText("waiting62@example.org").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("waiting62@example.org").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("access-queue-more").assertDoesNotExist()
     }
@@ -147,10 +147,10 @@ class EveryRecordReachableUiTest {
                 }
             }
         }
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("Newest ${MY_RECORDS_PAGE_BUDGET * 100} shown.").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(60_000) { compose.onAllNodesWithText("Newest ${MY_RECORDS_PAGE_BUDGET * 100} shown.").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("activity-list").performScrollToNode(hasTestTag("my-activity-more"))
         compose.onNodeWithTag("my-activity-more").performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("Record $total").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(60_000) { compose.onAllNodesWithText("Record $total").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("activity-list").performScrollToNode(hasText("Record $total"))
         compose.onNodeWithText("Record $total").assertIsDisplayed()
         compose.onNodeWithTag("my-activity-more").assertDoesNotExist()

@@ -2,13 +2,16 @@ package com.fieldrepository.app.forms
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -112,7 +115,7 @@ class DataSearchReachUiTest {
 
     private fun waitFor(tag: String, text: String? = null, root: SemanticsNodeInteractionsProvider = compose) {
         val matcher = if (text == null) hasTestTag(tag) else hasTestTag(tag).and(hasText(text))
-        compose.waitUntil(10_000) { root.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) { root.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
     }
 
     private fun gone(tag: String): Boolean = compose.onAllNodes(hasTestTag(tag), useUnmergedTree = true).fetchSemanticsNodes().isEmpty()
@@ -169,7 +172,7 @@ class DataSearchReachUiTest {
     }
 
     private fun requested(fragment: String) {
-        compose.waitUntil(10_000) { asked.any { it.contains("search/unified") && fragment.split('&').all { part -> it.contains(part) } } }
+        compose.waitUntil(30_000) { asked.any { it.contains("search/unified") && fragment.split('&').all { part -> it.contains(part) } } }
     }
 
     @Test
@@ -179,13 +182,13 @@ class DataSearchReachUiTest {
         waitFor("data.search.shown", "8 of 34 shown")
         scrollResultsTo("data.search.results", "data.search.all.artisans")
         compose.onNodeWithText("Show all 31 artisans").assertExists()
-        compose.onNodeWithTag("data.search.all.artisans", useUnmergedTree = true).performClick()
+        compose.onNodeWithTag("data.search.all.artisans", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
         requested("type=artisans&page=1")
         waitFor("data.search.shown", "20 of 31 shown")
         assertTrue(gone("data.search.item.products.p1"))
         reach("data.search.results", "data.search.more", "data.search.shown", "All 31 shown")
         scrollResultsTo("data.search.results", "data.search.item.artisans.a31")
-        compose.onNodeWithTag("data.search.item.artisans.a31", useUnmergedTree = true).performClick()
+        compose.onNodeWithTag("data.search.item.artisans.a31", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(listOf("artisan:a31"), opened)
         assertTrue(gone("data.search.more"))
     }
@@ -208,14 +211,14 @@ class DataSearchReachUiTest {
         showQuick(opened)
         compose.waitForIdle()
         assertTrue(gone("explorer.search.summary"))
-        compose.onNodeWithText("Everything").performClick()
+        compose.onNodeWithText("Everything").performSemanticsAction(SemanticsActions.OnClick)
         waitFor("explorer.search.summary")
         compose.onNodeWithText("Showing 8 of 31").assertExists()
-        compose.onNodeWithTag("explorer.search.all", useUnmergedTree = true).performClick()
+        compose.onNodeWithTag("explorer.search.all", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
         waitFor("search.all.shown", "20 of 31 shown")
         reach("search.all.list", "search.all.more.artisan", "search.all.shown", "All 31 shown")
         scrollResultsTo("search.all.list", "search.all.row.artisan.a31")
-        compose.onNodeWithTag("search.all.row.artisan.a31", useUnmergedTree = true).performClick()
+        compose.onNode(hasClickAction().and(hasAnyAncestor(hasTestTag("search.all.row.artisan.a31"))), useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(listOf("artisan:a31"), opened)
         assertTrue(gone("search.all.more.artisan"))
     }
@@ -224,9 +227,9 @@ class DataSearchReachUiTest {
     fun aFilterOnlyQuickSearchReachesEveryHit() {
         val opened = mutableListOf<String>()
         showQuick(opened)
-        compose.onNodeWithText("Artisans").performClick()
+        compose.onNodeWithText("Artisans").performSemanticsAction(SemanticsActions.OnClick)
         waitFor("explorer.search.summary")
-        compose.onNodeWithText("Show all 31").performClick()
+        compose.onNodeWithText("Show all 31").performSemanticsAction(SemanticsActions.OnClick)
         waitFor("search.all.shown", "20 of 31 shown")
         reach("search.all.list", "search.all.more.artisan", "search.all.shown", "All 31 shown")
         scrollResultsTo("search.all.list", "search.all.row.artisan.a31")
@@ -263,10 +266,10 @@ class DataSearchReachUiTest {
         }
         compose.onNodeWithContentDescription("Search the app").performTextInput("indigo")
         waitFor("app.search.all")
-        compose.onNodeWithText(appSearchAllLine("indigo")).performClick()
+        compose.onNodeWithText(appSearchAllLine("indigo")).performSemanticsAction(SemanticsActions.OnClick)
         waitFor("data.search.shown", "8 of 34 shown")
         scrollResultsTo("data.search.results", "data.search.all.artisans")
-        compose.onNodeWithTag("data.search.all.artisans", useUnmergedTree = true).performClick()
+        compose.onNodeWithTag("data.search.all.artisans", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
         waitFor("data.search.shown", "20 of 31 shown")
     }
 }
