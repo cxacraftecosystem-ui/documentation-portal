@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { includeKeyOf, type ManifestFile } from "@/lib/dataExplorer/contract";
-import { sourcesOf, writeFolder, writeZip, type JobProgress } from "@/lib/dataExplorer/engine";
+import { PauseGate, sourcesOf, writeFolder, writeZip, type JobProgress } from "@/lib/dataExplorer/engine";
 import {
   announceStep,
   CONVERSION_CONCURRENCY,
@@ -619,5 +619,80 @@ test.describe("@qf:X1 url state and table memory", () => {
     expect(recallTables({ path: "p0", status: "", viewer: "u1" }, 3000)).toBeNull();
     expect(recallTables({ path: `p${TABLE_MEMORY_ENTRIES + 4}`, status: "", viewer: "u1" }, 3000)).toEqual(report);
     forgetTables();
+  });
+});
+
+test.describe("@qf:X10 pause and resume", () => {
+  function slowServer(files: Record<string, Uint8Array>) {
+    const ranges: string[] = [];
+    let calls = 0;
+    const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls += 1;
+      const url = String(input);
+      const range = new Headers(init?.headers).get("Range");
+      if (range) ranges.push(range);
+      const from = range ? Number(/bytes=(\d+)-/.exec(range)?.[1] ?? 0) : 0;
+      const data = files[url].subarray(from);
+      let at = 0;
+      const signal = init?.signal;
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          await new Promise((resolve) => setTimeout(resolve, 3));
+          if (signal?.aborted) {
+            controller.error(new DOMException("Aborted", "AbortError"));
+            return;
+          }
+          if (at >= data.length) {
+            controller.close();
+            return;
+          }
+          controller.enqueue(data.slice(at, at + 4096));
+          at += 4096;
+        }
+      });
+      return new Response(body, { status: range ? 206 : 200 });
+    }) as typeof fetch;
+    return { fetcher, ranges, calls: () => calls };
+  }
+
+  test("a paused zip stops fetching, then resumes the open file from its byte and finishes intact", async () => {
+    const files: Record<string, Uint8Array> = {};
+    const manifest: ManifestFile[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const url = `https://slow.example/f${i}`;
+      files[url] = bytesOf(65_536, i + 3);
+      manifest.push({ path: `clip-${i}.bin`, url, sizeBytes: files[url].length });
+    }
+    const { fetcher, ranges, calls } = slowServer(files);
+    const gate = new PauseGate();
+    const out = collectSink();
+    const done = writeZip(manifest, out.sink, { progress: () => undefined, signal: new AbortController().signal, fetcher, sleep: noSleep, gate });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    gate.pause();
+    expect(gate.paused).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const whilePaused = calls();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(calls(), "nothing new is fetched while paused").toBe(whilePaused);
+    gate.resume();
+    const outcome = await done;
+    expect(outcome.failed).toEqual([]);
+    expect(ranges.length, "the interrupted file resumes with a byte range").toBeGreaterThan(0);
+    const entries = readZip(out.bytes());
+    for (let i = 0; i < 3; i += 1) expect(entries[i].data).toEqual(files[`https://slow.example/f${i}`]);
+  });
+
+  test("cancelling a paused job ends it at once", async () => {
+    const files = { "https://slow.example/a": bytesOf(65_536, 9) };
+    const { fetcher } = slowServer(files);
+    const gate = new PauseGate();
+    const controller = new AbortController();
+    const out = collectSink();
+    const done = writeZip([{ path: "a.bin", url: "https://slow.example/a", sizeBytes: 65_536 }], out.sink, { progress: () => undefined, signal: controller.signal, fetcher, sleep: noSleep, gate });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    gate.pause();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    controller.abort();
+    await expect(done).rejects.toMatchObject({ name: "AbortError" });
   });
 });

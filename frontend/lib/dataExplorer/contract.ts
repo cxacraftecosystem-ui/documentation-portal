@@ -19,6 +19,9 @@ export type TreeEntry = {
   previewPath?: string | null;
   downloadPath?: string | null;
   reviewStatus?: string | null;
+  capturedAt?: string | null;
+  count?: number | null;
+  bytes?: number | null;
 };
 
 export type Crumb = { name: string; path: string };

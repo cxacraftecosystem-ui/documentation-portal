@@ -1034,3 +1034,89 @@ test.describe("@qf:X6 report options", () => {
     }
   });
 });
+
+test.describe("@qf:X10 pause and resume", () => {
+  async function hide(page: Page, hidden: boolean) {
+    await page.evaluate((value) => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (value ? "hidden" : "visible") });
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => value });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, hidden);
+  }
+
+  test("a folder zip pauses and resumes in the tray and still arrives whole", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/big" });
+    try {
+      fake.fileDelayMs = 250;
+      await folderDownload(page).click();
+      await expect.poll(() => fake.servedFiles.length, { timeout: 20_000 }).toBeGreaterThan(4);
+      const item = trayItem(page, "Big archive");
+      await item.getByRole("button", { name: "Pause" }).click();
+      await expect(item).toContainText("Paused");
+      await expect(item).toHaveAttribute("data-status", "running");
+      await page.waitForTimeout(600);
+      const stopped = fake.servedFiles.length;
+      await hide(page, true);
+      await page.waitForTimeout(1500);
+      await hide(page, false);
+      expect(fake.servedFiles.length, "nothing new is fetched while paused").toBeLessThanOrEqual(stopped + 4);
+      await expect(item).toContainText("Paused");
+      fake.fileDelayMs = 0;
+      await item.getByRole("button", { name: "Resume" }).click();
+      await expect(item).toContainText(`Saved ${BIG_FILES} files`, { timeout: 60_000 });
+      const entries = readZip(await savedZip(page));
+      expect(entries).toHaveLength(BIG_FILES);
+      expect(entries.every((entry) => entry.size === BIG_FILE_BYTES)).toBe(true);
+      expect(entries.find((entry) => entry.name === "clip-07.mp4")!.data.equals(expectedBytes("big7", BIG_FILE_BYTES))).toBe(true);
+      for (const asked of fake.rangeRequests) expect(asked.from).toBeGreaterThan(0);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("Save to a folder pauses and resumes too", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/big" });
+    try {
+      fake.fileDelayMs = 250;
+      await page.getByTestId("download-folder").getByRole("button", { name: "Save to a folder" }).click();
+      await expect.poll(() => fake.servedFiles.length, { timeout: 20_000 }).toBeGreaterThan(4);
+      const item = trayItem(page, "Big archive");
+      await item.getByRole("button", { name: "Pause" }).click();
+      await expect(item).toContainText("Paused");
+      await page.waitForTimeout(600);
+      const stopped = fake.servedFiles.length;
+      await page.waitForTimeout(1500);
+      expect(fake.servedFiles.length).toBeLessThanOrEqual(stopped + 4);
+      fake.fileDelayMs = 0;
+      await item.getByRole("button", { name: "Resume" }).click();
+      await expect(item).toHaveAttribute("data-status", "saved", { timeout: 60_000 });
+      const names = await page.evaluate(async () => {
+        const root = await navigator.storage.getDirectory();
+        const folder = await root.getDirectoryHandle("saved-folder");
+        const out: string[] = [];
+        for await (const [name] of (folder as unknown as { entries(): AsyncIterable<[string, unknown]> }).entries()) out.push(name);
+        return out;
+      });
+      expect(names.filter((name) => name.endsWith(".mp4"))).toHaveLength(BIG_FILES);
+    } finally {
+      await context.close();
+    }
+  });
+});
+
+test.describe("@qf:X2 counts and capture dates", () => {
+  test("a tree folder shows its count before it is opened, and a file row shows when it was captured", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops" });
+    try {
+      const sanganer = page.getByRole("treeitem", { name: "Sanganer", exact: true });
+      await expect(sanganer).toHaveAttribute("aria-expanded", "false");
+      await expect(sanganer).toContainText("3");
+      expect(fake.calls.some((call) => call.path === "/data/tree" && call.query.get("path") === "workshops/sanganer")).toBe(false);
+      await openFolder(page, "Bagru 2026");
+      await expect(fileRow(page, "photo.jpg").locator("[data-captured]")).toHaveText(/^23 Sept? 2026$/);
+      await expect(fileRow(page, "loom.mp4").locator("[data-captured]")).toHaveText("-");
+    } finally {
+      await context.close();
+    }
+  });
+});

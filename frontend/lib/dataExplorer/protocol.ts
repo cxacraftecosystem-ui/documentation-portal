@@ -31,7 +31,9 @@ export type MeasureMessage = { type: "measure"; id: string; source: JobSource; i
 
 export type CancelMessage = { type: "cancel"; id: string };
 
-export type ToWorker = StartMessage | MeasureMessage | CancelMessage;
+export type PauseMessage = { type: "pause" | "resume"; id: string };
+
+export type ToWorker = StartMessage | MeasureMessage | CancelMessage | PauseMessage;
 
 export type ManifestNotice = { files: number; summary: ManifestSummary; truncated: boolean };
 
@@ -41,4 +43,5 @@ export type FromWorker =
   | { type: "measured"; id: string; manifest: ManifestNotice }
   | { type: "done"; id: string; outcome: JobOutcome; blob: Blob | null; truncated: boolean }
   | { type: "cancelled"; id: string }
+  | { type: "paused"; id: string; paused: boolean }
   | { type: "error"; id: string; message: string; limit: number | null };

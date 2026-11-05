@@ -12,7 +12,8 @@ type Row =
   | { kind: "loading"; path: string; level: number; parent: string };
 
 export function visibleRows(store: Pick<TreeStore, "trees" | "expanded" | "loading">, rootName: string): Row[] {
-  const countOf = (path: string): string | null => {
+  const countOf = (path: string, known?: number | null): string | null => {
+    if (typeof known === "number") return known.toLocaleString("en-IN");
     const tree = store.trees[path];
     if (!tree) return null;
     return `${tree.entries.length.toLocaleString("en-IN")}${tree.nextCursor ? "+" : ""}`;
@@ -28,7 +29,7 @@ export function visibleRows(store: Pick<TreeStore, "trees" | "expanded" | "loadi
     const folders = tree.entries.filter((entry) => entry.kind === "folder");
     const size = folders.length + (tree.nextCursor ? 1 : 0);
     folders.forEach((folder, index) => {
-      rows.push({ kind: "folder", path: folder.path, name: folder.name, recordType: folder.recordType ?? null, level, parent, size, position: index + 1, count: countOf(folder.path) });
+      rows.push({ kind: "folder", path: folder.path, name: folder.name, recordType: folder.recordType ?? null, level, parent, size, position: index + 1, count: countOf(folder.path, folder.count) });
       walk(folder.path, level + 1);
     });
     if (tree.nextCursor) rows.push({ kind: "more", path: `${parent}#more`, name: "Load more", level, parent, size, position: size });

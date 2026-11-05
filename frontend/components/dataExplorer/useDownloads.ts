@@ -177,7 +177,7 @@ export function useDownloads() {
     [patch]
   );
 
-  const { start: startJob, busy: zipBusy, state: jobState, dismiss: dismissJob, cancel: cancelJob, measure } = job;
+  const { start: startJob, busy: zipBusy, state: jobState, dismiss: dismissJob, cancel: cancelJob, pause: pauseJob, resume: resumeJob, measure } = job;
 
   const startZip = useCallback(
     (id: string) => {
@@ -205,14 +205,14 @@ export function useDownloads() {
     if (state.phase === "running") {
       patch(id, {
         status: "running",
-        note: null,
+        note: state.paused ? "Paused" : null,
         bytesDone: progress?.bytesDone ?? 0,
         bytesTotal: progress?.bytesTotal ?? state.manifest?.summary.bytes ?? null,
         filesDone: progress?.filesDone ?? 0,
         filesTotal: progress?.filesTotal ?? state.manifest?.summary.files ?? null,
         current: progress?.current ?? null,
-        rate: state.rate,
-        timeLeft: state.timeLeft,
+        rate: state.paused ? null : state.rate,
+        timeLeft: state.paused ? null : state.timeLeft,
         failedFiles: progress?.failed ?? []
       });
       return;
@@ -324,20 +324,28 @@ export function useDownloads() {
   const startNow = useCallback(
     (id: string) => {
       const item = itemsRef.current.find((candidate) => candidate.id === id);
+      if (item && item.kind === "zip" && item.status === "running" && zipActive.current === id) {
+        resumeJob();
+        return;
+      }
       if (!item || (item.status !== "waiting" && item.status !== "failed")) return;
       if (item.kind === "zip") {
         if (item.status === "failed") return;
         startZip(id);
       } else void runFetch(id);
     },
-    [runFetch, startZip]
+    [runFetch, startZip, resumeJob]
   );
 
   const pause = useCallback((id: string) => {
+    if (zipActive.current === id) {
+      pauseJob();
+      return;
+    }
     if (!controllers.current.has(id)) return;
     paused.current.add(id);
     controllers.current.get(id)?.abort();
-  }, []);
+  }, [pauseJob]);
 
   const cancel = useCallback(
     (id: string) => {

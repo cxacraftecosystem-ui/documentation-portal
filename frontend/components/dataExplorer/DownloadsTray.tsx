@@ -44,7 +44,7 @@ function Row({ item, downloads, zipRunning }: { item: DownloadItem; downloads: D
         {item.status === "saved" ? <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden /> : null}
         <strong className="min-w-0 flex-1 truncate font-semibold">{item.label}</strong>
         <span className="shrink-0 text-xs font-semibold">
-          {item.status === "running" ? (percent !== null ? `${percent}%` : "Working") : item.status === "waiting" ? (item.note === "Paused" ? "Paused" : "Waiting") : item.status === "saved" ? "Saved" : item.status === "failed" ? "Failed" : "Cancelled"}
+          {item.status === "running" ? (item.note === "Paused" ? "Paused" : percent !== null ? `${percent}%` : "Working") : item.status === "waiting" ? (item.note === "Paused" ? "Paused" : "Waiting") : item.status === "saved" ? "Saved" : item.status === "failed" ? "Failed" : "Cancelled"}
         </span>
       </div>
       {item.status === "running" ? (
@@ -58,14 +58,20 @@ function Row({ item, downloads, zipRunning }: { item: DownloadItem; downloads: D
             aria-valuemax={100}
             aria-valuenow={percent ?? undefined}
           />
-          <p className="text-xs text-ink-700 tabular-nums">{item.note ?? itemLine(item)}</p>
+          <p className="text-xs text-ink-700 tabular-nums">{item.note === "Paused" ? ["Paused", itemLine(item)].filter(Boolean).join(" · ") : (item.note ?? itemLine(item))}</p>
           {item.current ? <p className="truncate text-xs text-ink-500">Now: {item.current}</p> : null}
           {item.failedFiles.length ? <p className="rounded-sm bg-amber-100 px-2 py-1 text-xs text-amber-800">{item.failedFiles.length} {item.failedFiles.length === 1 ? "file" : "files"} will be listed as failed.</p> : null}
           <ActionGroup align="start">
-            {item.kind === "file" || item.kind === "transcript" || item.kind === "csv" ? (
-              <button type="button" className={TRAY_BUTTON} onClick={() => downloads.pause(item.id)}>
-                Pause
-              </button>
+            {item.kind !== "report" ? (
+              item.note === "Paused" ? (
+                <button type="button" className={TRAY_BUTTON} onClick={() => downloads.startNow(item.id)}>
+                  Resume
+                </button>
+              ) : (
+                <button type="button" className={TRAY_BUTTON} onClick={() => downloads.pause(item.id)}>
+                  Pause
+                </button>
+              )
             ) : null}
             <button type="button" className={TRAY_BUTTON} data-danger="" onClick={() => downloads.cancel(item.id)}>
               Cancel

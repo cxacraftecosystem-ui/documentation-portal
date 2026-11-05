@@ -12,7 +12,7 @@ import { ActionGroup } from "@/components/ui/ActionGroup";
 import { apiFetch, buildQuery } from "@/lib/api";
 import { fetchTranscriptText, mediaDownloadUrl, mediaThumbnailUrl, transcriptZipUrl } from "@/lib/dataExplorer/api";
 import { sizeOf, type Manifest, type TreeEntry, type TreeResponse } from "@/lib/dataExplorer/contract";
-import { filterOf, pageOf, TYPE_FILTERS, type TypeFilter } from "@/lib/dataExplorer/explorerView";
+import { capturedLabel, filterOf, pageOf, TYPE_FILTERS, type TypeFilter } from "@/lib/dataExplorer/explorerView";
 import { ROW_TONE_CLASS, toneOf, type DownloadRequest, type DownloadStatus } from "@/lib/dataExplorer/downloads";
 import { formatBytes } from "@/lib/dataExplorer/plan";
 import { selectionKey, type Selection } from "@/lib/dataExplorer/selection";
@@ -409,6 +409,16 @@ export function FolderContents({
               })}
             </ul>
           ) : (
+            <>
+            <div className="flex items-center gap-3 border-b border-line-200 bg-surface-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-500 max-md:hidden" aria-hidden>
+              <span className="w-11 shrink-0" />
+              <span className="w-12 shrink-0" />
+              <span className="min-w-0 flex-1">Name</span>
+              <span className="w-20 shrink-0">Type</span>
+              <span className="w-20 shrink-0">Size</span>
+              <span className="w-28 shrink-0 max-lg:hidden">Captured</span>
+              <span className="w-40 shrink-0 text-right">Actions</span>
+            </div>
             <ul className="divide-y divide-line-200" aria-label="Files">
               {paged.items.map((file) => {
                 const key = selectionKey(file);
@@ -454,6 +464,7 @@ export function FolderContents({
                       </div>
                       <span className="w-20 shrink-0 text-sm text-ink-700 max-md:hidden">{kindLabel(file)}</span>
                       <span className="w-20 shrink-0 text-sm tabular-nums text-ink-700 max-md:hidden">{sizeOf(file.sizeBytes) !== null ? formatBytes(sizeOf(file.sizeBytes)!) : "-"}</span>
+                      <span className="w-28 shrink-0 text-sm tabular-nums text-ink-700 max-lg:hidden" data-captured="">{capturedLabel(file.capturedAt)}</span>
                       <div className="flex shrink-0 items-center gap-1.5 max-sm:hidden" data-row-ignore="">
                         {rowActions}
                       </div>
@@ -479,6 +490,7 @@ export function FolderContents({
                 );
               })}
             </ul>
+            </>
           )}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line-200 px-4 py-3 text-sm text-ink-500">
             <span>

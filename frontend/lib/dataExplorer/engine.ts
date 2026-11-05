@@ -37,7 +37,67 @@ export type EngineHooks = {
   signal: AbortSignal;
   fetcher?: typeof fetch;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  gate?: PauseGate;
 };
+
+export type Lane = { signal: AbortSignal; paused(): boolean; done(): void };
+
+export class PauseGate {
+  private pausedNow = false;
+  private readonly waiters = new Set<() => void>();
+  private readonly lanes = new Set<AbortController>();
+
+  get paused(): boolean {
+    return this.pausedNow;
+  }
+
+  pause(): void {
+    if (this.pausedNow) return;
+    this.pausedNow = true;
+    for (const lane of this.lanes) lane.abort();
+  }
+
+  resume(): void {
+    if (!this.pausedNow) return;
+    this.pausedNow = false;
+    const waiting = [...this.waiters];
+    this.waiters.clear();
+    for (const wake of waiting) wake();
+  }
+
+  wait(signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return Promise.reject(abortError());
+    if (!this.pausedNow) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const wake = () => {
+        signal.removeEventListener("abort", stop);
+        resolve();
+      };
+      const stop = () => {
+        this.waiters.delete(wake);
+        reject(abortError());
+      };
+      this.waiters.add(wake);
+      signal.addEventListener("abort", stop, { once: true });
+    });
+  }
+
+  lane(signal: AbortSignal): Lane {
+    const controller = new AbortController();
+    const relay = () => controller.abort();
+    signal.addEventListener("abort", relay, { once: true });
+    if (this.pausedNow) controller.abort();
+    this.lanes.add(controller);
+    return {
+      signal: controller.signal,
+      paused: () => controller.signal.aborted && !signal.aborted,
+      done: () => {
+        this.lanes.delete(controller);
+        signal.removeEventListener("abort", relay);
+      }
+    };
+  }
+}
 
 const encoder = new TextEncoder();
 
@@ -131,10 +191,12 @@ async function streamWithResume(
   let lastError = "The file couldn't be downloaded.";
   for (let attempt = 1; attempt <= FILE_ATTEMPTS; attempt += 1) {
     if (hooks.signal.aborted) throw abortError();
+    if (hooks.gate) await hooks.gate.wait(hooks.signal);
     const from = entry?.written() ?? 0;
+    const lane = hooks.gate ? hooks.gate.lane(hooks.signal) : null;
     try {
       const headers: Record<string, string> = from > 0 ? { Range: `bytes=${from}-` } : {};
-      const response = await fetcher(source.url, { signal: hooks.signal, headers, credentials: "same-origin" });
+      const response = await fetcher(source.url, { signal: lane?.signal ?? hooks.signal, headers, credentials: "same-origin" });
       if (from > 0 && response.status !== 206) {
         response.body?.cancel().catch(() => undefined);
         throw new FileFailed("Stopped part-way and couldn't resume.", true);
@@ -168,10 +230,17 @@ async function streamWithResume(
       }
       return { path: entry.path, bytes: entry.written() };
     } catch (error) {
-      if (isAbort(error) || hooks.signal.aborted) throw abortError();
+      if (hooks.signal.aborted) throw abortError();
+      if (lane?.paused()) {
+        attempt -= 1;
+        continue;
+      }
+      if (isAbort(error)) throw abortError();
       if (error instanceof FileFailed) throw error;
       lastError = error instanceof Error && error.message && !/fetch|network/i.test(error.message) ? error.message : "The connection dropped.";
       if (attempt < FILE_ATTEMPTS) await sleep(retryDelay(attempt), hooks.signal);
+    } finally {
+      lane?.done();
     }
   }
   throw new FileFailed(lastError, Boolean(entry && entry.written() > 0));
@@ -275,6 +344,7 @@ export async function writeZip(files: ManifestFile[], sink: ByteSink, hooks: Eng
   try {
     for (let index = 0; index < files.length; index += 1) {
       if (hooks.signal.aborted) throw abortError();
+      if (hooks.gate) await hooks.gate.wait(hooks.signal);
       fill(index);
       const file = files[index];
       progress.current = file.path;
@@ -389,6 +459,7 @@ export async function writeFolder(files: ManifestFile[], folder: FolderSink, hoo
     const release = await lanes.acquire();
     try {
       if (hooks.signal.aborted) throw abortError();
+      if (hooks.gate) await hooks.gate.wait(hooks.signal);
       const already = folder.done[file.path];
       if (typeof already === "number") {
         progress.skipped += 1;

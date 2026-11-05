@@ -170,6 +170,8 @@ export class DataExplorerFake {
   calls: Call[] = [];
   servedFiles: string[] = [];
   fileDelayMs = 0;
+  fileDelays = new Map<string, number>();
+  rangeRequests: { id: string; from: number }[] = [];
   reportBusy = 0;
   xlsxFailures = 0;
   transcriptStatus: Record<string, string> = { aud1: "READY", vid1: "NEEDS_ATTENTION" };
@@ -289,6 +291,7 @@ export class DataExplorerFake {
       kind: "file",
       name: file.name,
       path: file.path,
+      capturedAt: file.mediaId === "img1" ? "2026-09-23T10:00:00Z" : null,
       mediaId: file.mediaId,
       mediaType: file.mediaType,
       sizeBytes: file.bytes,
@@ -314,7 +317,10 @@ export class DataExplorerFake {
       crumbs.push({ name: this.folders.get(at)?.name ?? at, path: at });
     }
     const all = [
-      ...folder.folders.map((child) => ({ kind: "folder", name: this.folders.get(child)!.name, path: child, recordType: this.folders.get(child)!.recordType })),
+      ...folder.folders.map((child) => {
+        const inner = this.walk(child).filter((item) => item.content == null);
+        return { kind: "folder", name: this.folders.get(child)!.name, path: child, recordType: this.folders.get(child)!.recordType, count: inner.length, bytes: inner.reduce((sum, item) => sum + (item.bytes ?? 0), 0) };
+      }),
       ...folder.files.map((file) => this.entry(file))
     ];
     const pageSize = path === "workshops/sanganer" ? 2 : 500;
@@ -507,12 +513,26 @@ export class DataExplorerFake {
       (url) => url.pathname.startsWith("/e2e-files/"),
       async (route: Route) => {
         const id = new URL(route.request().url()).pathname.replace("/e2e-files/", "");
-        if (this.fileDelayMs) await new Promise((resolve) => setTimeout(resolve, this.fileDelayMs));
+        const delay = this.fileDelays.get(id) ?? this.fileDelayMs;
+        if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
         this.servedFiles.push(id);
         const file = [...this.folders.values()].flatMap((folder) => folder.files).find((candidate) => candidate.mediaId === id);
         if (!file || file.broken) return route.fulfill({ status: 404, body: "gone" });
         if (id === "pdf1") return route.fulfill({ status: 200, contentType: "application/pdf", body: PDF });
-        return route.fulfill({ status: 200, contentType: "application/octet-stream", body: bytesFor(id, file.bytes ?? 1000) });
+        const whole = bytesFor(id, file.bytes ?? 1000);
+        const range = /^bytes=(\d+)-$/.exec(route.request().headers()["range"] ?? "");
+        if (range) {
+          const from = Number(range[1]);
+          this.rangeRequests.push({ id, from });
+          if (from >= whole.length) return route.fulfill({ status: 416, headers: { "content-range": `bytes */${whole.length}` }, body: "" });
+          return route.fulfill({
+            status: 206,
+            contentType: "application/octet-stream",
+            headers: { "content-range": `bytes ${from}-${whole.length - 1}/${whole.length}`, "accept-ranges": "bytes" },
+            body: whole.subarray(from)
+          });
+        }
+        return route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "accept-ranges": "bytes" }, body: whole });
       }
     );
     await context.route(

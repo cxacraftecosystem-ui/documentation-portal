@@ -1,5 +1,5 @@
 import { includeKeyOf, type IncludeKey, type ManifestFile } from "@/lib/dataExplorer/contract";
-import { writeFolder, writeZip, type JobProgress } from "@/lib/dataExplorer/engine";
+import { writeFolder, writeZip, type JobProgress, type PauseGate } from "@/lib/dataExplorer/engine";
 import { prefixed, summarise, uniquePaths } from "@/lib/dataExplorer/plan";
 import type { FromWorker, JobSource, ManifestNotice, MeasureMessage, StartMessage } from "@/lib/dataExplorer/protocol";
 import { fileSink, folderSink, isAbort, memorySink, portSink, SizeLimitReached } from "@/lib/dataExplorer/sinks";
@@ -74,7 +74,8 @@ export async function runJob(
   signal: AbortSignal,
   post: (message: FromWorker) => void,
   clock: () => number = () => Date.now(),
-  fetcher: typeof fetch = fetch
+  fetcher: typeof fetch = fetch,
+  gate?: PauseGate
 ): Promise<void> {
   const { id, target } = message;
   let lastPost = 0;
@@ -87,7 +88,7 @@ export async function runJob(
       post({ type: "progress", id, progress: next });
     }
   };
-  const hooks = { progress, signal, fetcher };
+  const hooks = { progress, signal, fetcher, gate };
   try {
     const { files, notice } = await resolveSource(message.source, message.include, signal, fetcher);
     post({ type: "manifest", id, manifest: notice });
