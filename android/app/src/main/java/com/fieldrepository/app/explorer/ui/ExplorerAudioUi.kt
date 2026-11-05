@@ -43,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -83,6 +84,7 @@ import com.fieldrepository.app.explorer.data.ExplorerPeaks
 import com.fieldrepository.app.transcript.data.Transcript
 import com.fieldrepository.app.transcript.ui.speakerColor
 import com.fieldrepository.app.ui.field
+import kotlinx.coroutines.flow.first
 
 internal fun audioLines(view: Transcript?): List<ExplorerAudioLine> =
     view?.turns.orEmpty().sortedBy { it.startMs }.map { t ->
@@ -158,7 +160,7 @@ internal fun audioHighlight(text: String, needle: String, mark: Color, onMark: C
 }
 
 @Composable
-internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, startSeconds: Double) {
+internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, startSeconds: Double, find: String = "") {
     val context = LocalContext.current
     val audio by ExplorerAudio.state.collectAsState()
     val lines = audioLines(view)
@@ -180,15 +182,16 @@ internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, star
     LaunchedEffect(wave.isolated) { if (wave.isolated) clear = true }
     var tab by rememberSaveable(entry.key) { mutableStateOf(if (view?.turns?.any { !it.translation.text.isNullOrBlank() } == true) AudioTab.ENGLISH else AudioTab.ORIGINAL) }
     var text by rememberSaveable(entry.key) { mutableStateOf(tab) }
-    var needle by rememberSaveable(entry.key) { mutableStateOf("") }
+    var needle by rememberSaveable(entry.key) { mutableStateOf(find) }
+    var stepped by rememberSaveable(entry.key) { mutableStateOf(false) }
     var hitAt by rememberSaveable(entry.key) { mutableIntStateOf(0) }
     val position = if (mine) audio.positionMs else 0L
     val duration = if (mine && audio.durationMs > 0) audio.durationMs else (view?.durationMs ?: 0L)
     val turns = view?.turns.orEmpty().sortedBy { it.startMs }
     val english = text == AudioTab.ENGLISH
     val texts = turns.map { if (english) it.translation.text?.ifBlank { null } ?: it.text else it.text }
-    val find = findIn(texts, needle, hitAt)
-    val markers = if (duration > 0) find.hits.map { (turns[it].startMs.toFloat() / duration).coerceIn(0f, 1f) } else emptyList()
+    val found = findIn(texts, needle, hitAt)
+    val markers = if (duration > 0) found.hits.map { (turns[it].startMs.toFloat() / duration).coerceIn(0f, 1f) } else emptyList()
     val active = if (mine) ExplorerAudioLines.index(lines, position) else -1
     val speaking = lines.getOrNull(active)?.speaker
     val big = LocalDensity.current.fontScale >= 1.6f
@@ -269,7 +272,7 @@ internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, star
             tab = picked
         }
         if (tab == AudioTab.FIND) {
-            FindField(needle, find.label, onChange = { needle = it; hitAt = 0 }, onStep = { delta -> hitAt += delta })
+            FindField(needle, found.label, onChange = { needle = it; hitAt = 0; stepped = true }, onStep = { delta -> hitAt += delta; stepped = true })
         }
         val speakers = view?.speakers.orEmpty()
         if (speakers.isNotEmpty()) {
@@ -294,8 +297,12 @@ internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, star
             HintLine(ExplorerUiText.noTranscript)
         } else {
             val list = rememberLazyListState()
-            val focus = find.current ?: active
-            LaunchedEffect(focus) { if (focus >= 0) runCatching { list.animateScrollToItem((focus - 1).coerceAtLeast(0)) } }
+            val focus = (if (stepped) found.current else null) ?: active
+            LaunchedEffect(focus, lines.size) {
+                if (focus < 0) return@LaunchedEffect
+                snapshotFlow { list.layoutInfo.totalItemsCount }.first { it > 0 }
+                runCatching { list.scrollToItem((focus - 1).coerceAtLeast(0)) }
+            }
             val (markBg, _) = explorerMark()
             val mark = if (dark) AudioColors.markDark to AudioColors.onMarkDark else AudioColors.markLight to AudioColors.onMarkLight
             LazyColumn(state = list, modifier = Modifier.fillMaxSize().testTag("explorer.audio.lines"), verticalArrangement = Arrangement.spacedBy(2.dp)) {

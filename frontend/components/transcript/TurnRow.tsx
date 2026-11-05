@@ -117,7 +117,7 @@ export const TurnRow = memo(function TurnRow(props: Props) {
       data-turn-id={turn.id}
       data-follow-turn={turn.id}
       data-active={active ? "true" : undefined}
-      className={`scroll-mt-28 rounded-xl px-3 py-3 transition-colors sm:px-4 ${active ? "bg-[#f2e9fe] dark:bg-purple-950/60" : ""} ${selected ? "ring-2 ring-purple-600/30" : ""}`}
+      className={`scroll-mt-28 rounded-md px-3 py-3 transition-colors sm:px-4 ${active ? "bg-[#f2e9fe] dark:bg-purple-950/60" : ""} ${selected ? "ring-2 ring-purple-600/30" : ""}`}
     >
       <div className="flex items-start gap-2">
         {selecting ? (

@@ -98,7 +98,7 @@ class DesignShotsTest {
     @Composable
     private fun audioPreview() {
         val entries = DesignBoards.files()
-        ExplorerMediaContent(entries, entries.indexOf(DesignBoards.audioEntry), 0.0, 48, onSave = {}, onDismiss = {}, loader = loader)
+        ExplorerMediaContent(entries, entries.indexOf(DesignBoards.audioEntry), 0.0, 48, onSave = {}, onDismiss = {}, loader = loader, find = "lime")
     }
 
     @Test fun androidAudio() {
@@ -124,7 +124,7 @@ class DesignShotsTest {
     @Composable
     private fun videoPreview() {
         val entries = DesignBoards.videoFiles()
-        ExplorerMediaContent(entries, entries.indexOf(DesignBoards.videoEntry), 0.0, 48, onSave = {}, onDismiss = {}, loader = loader)
+        ExplorerMediaContent(entries, entries.indexOf(DesignBoards.videoEntry), 0.0, 48, onSave = {}, onDismiss = {}, loader = loader, find = "indigo")
     }
 
     @Test fun androidPreview() = shoot("AndroidPreview") { videoPreview() }

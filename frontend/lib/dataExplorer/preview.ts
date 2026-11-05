@@ -187,12 +187,14 @@ export function prettyTitle(name: string): string {
     .join(" · ");
 }
 
-const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export function dayLabel(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const at = new Date(iso);
-  return Number.isNaN(at.getTime()) ? null : DAY.format(at);
+  if (Number.isNaN(at.getTime())) return null;
+  const local = new Date(at.getTime() + 330 * 60_000);
+  return `${local.getUTCDate()} ${MONTHS[local.getUTCMonth()]} ${local.getUTCFullYear()}`;
 }
 
 export function hitBars(markers: readonly number[], bars: number): Set<number> {

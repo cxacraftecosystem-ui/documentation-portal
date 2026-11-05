@@ -57,7 +57,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -112,9 +111,10 @@ internal fun ExplorerMediaDialog(
     total: Int = entries.size,
     onSave: ((ExplorerEntry) -> Unit)?,
     onDismiss: () -> Unit,
+    find: String = "",
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        ExplorerMediaContent(entries, start, startSeconds, total, onSave, onDismiss, Modifier.safeDrawingPadding())
+        ExplorerMediaContent(entries, start, startSeconds, total, onSave, onDismiss, Modifier.safeDrawingPadding(), find = find)
     }
 }
 
@@ -128,6 +128,7 @@ internal fun ExplorerMediaContent(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     loader: ExplorerMediaLoader? = null,
+    find: String = "",
 ) {
     var index by rememberSaveable { mutableStateOf(start.coerceIn(0, (entries.size - 1).coerceAtLeast(0))) }
     val entry = entries.getOrNull(index) ?: return
@@ -145,6 +146,7 @@ internal fun ExplorerMediaContent(
                     onPrevious = { if (index > 0) index-- },
                     onNext = { if (index < entries.lastIndex) index++ },
                     loader = loader,
+                    find = if (index == start) find else "",
                 )
             }
         }
@@ -163,6 +165,7 @@ private fun ColumnScope.MediaPane(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     loader: ExplorerMediaLoader? = null,
+    find: String = "",
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -251,7 +254,7 @@ private fun ColumnScope.MediaPane(
         if (transcript is TranscriptState.Loading) {
             Box(Modifier.fillMaxWidth().weight(1f)) { LoadingLine(ExplorerUiText.loadingTranscript) }
         } else {
-            AudioPane(entry, ready?.view, startSeconds)
+            AudioPane(entry, ready?.view, startSeconds, find)
         }
         bottomBar()
         return
@@ -343,7 +346,7 @@ private fun ColumnScope.MediaPane(
                 LaunchedEffect(active, follow) {
                     if (follow && active != null) runCatching { list.animateScrollToItem((active - 1).coerceAtLeast(0)) }
                 }
-                val (markBg, _) = explorerMark()
+                val (markBg, onMark) = explorerMark()
                 LazyColumn(state = list, modifier = Modifier.fillMaxSize().testTag("explorer.preview.segments"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     itemsIndexed(turns, key = { _, t -> t.id }) { i, turn ->
                         val who = ready.view.speakers.firstOrNull { it.speakerKey == turn.speakerKey }
@@ -352,7 +355,7 @@ private fun ColumnScope.MediaPane(
                             clock = ExplorerUiText.clock(turn.startMs / 1000.0),
                             speaker = turn.speakerName.ifBlank { who?.name ?: who?.label.orEmpty() },
                             speakerColor = speakerColor(turn.colorKey ?: who?.colorKey),
-                            text = AnnotatedString(text),
+                            text = audioHighlight(text, find, markBg, onMark),
                             current = i == active,
                             markBg = markBg,
                             textSize = 14,

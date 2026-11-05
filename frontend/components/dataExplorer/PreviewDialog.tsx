@@ -64,13 +64,13 @@ export type MiniTrack = { mediaId: string; name: string; src: string; startMs?: 
 type Tab = "original" | "english" | "side" | "details" | "find";
 
 const BTN =
-  "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-line-200 bg-card px-3.5 text-[13px] text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-purple-950/40";
+  "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md border border-line-200 bg-card px-3.5 text-[13px] text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-purple-950/40";
 
 const SQUARE =
-  "grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-line-200 bg-card text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-purple-950/40";
+  "grid h-10 w-10 shrink-0 place-items-center rounded-md border border-line-200 bg-card text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-purple-950/40";
 
 const PRIMARY =
-  "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-purple-700 px-3.5 text-[13px] font-semibold text-white transition hover:bg-purple-800 disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md bg-purple-700 px-3.5 text-[13px] font-semibold text-white transition hover:bg-purple-800 disabled:cursor-not-allowed disabled:opacity-60";
 
 const ROUND =
   "grid shrink-0 place-items-center rounded-full border border-line-200 bg-card text-[13px] text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40";
@@ -81,7 +81,6 @@ const MARK_AMBER = "rounded bg-[#fde68a] px-0.5 text-[#78350f] dark:bg-amber-900
 
 const MARK_PURPLE = "rounded bg-[#f2e9fe] px-0.5 text-[#5f2491] dark:bg-purple-900 dark:text-purple-100";
 
-const RING = "ring-2 ring-amber-500";
 
 function lessMotion(): boolean {
   if (typeof window === "undefined") return true;
@@ -214,7 +213,7 @@ function Highlighted({ text, needle, current, mark }: { text: string; needle: st
       {parts.map((part, index) => {
         if (!part.hit) return <span key={index}>{part.text}</span>;
         return (
-          <mark key={index} className={current && index === first ? `${mark} ${RING}` : mark}>
+          <mark key={index} className={mark} data-current-hit={current && index === first ? "true" : undefined}>
             {part.text}
           </mark>
         );
@@ -467,17 +466,29 @@ function PreviewBody({
     seeded.current = true;
   }, [startMs]);
 
-  useEffect(() => {
-    if (!follow || currentLine < 0) return;
-    const node = listRef.current?.querySelector<HTMLElement>(`[data-line="${currentLine}"]`);
-    node?.scrollIntoView({ block: "nearest", behavior: lessMotion() ? "auto" : "smooth" });
-  }, [currentLine, follow]);
+  const lead = narrow ? 1 : 2;
+
+  const bringUp = useCallback(
+    (line: number) => {
+      const list = listRef.current;
+      const node = list?.querySelector<HTMLElement>(`[data-line="${Math.max(0, line - lead)}"]`);
+      if (!list || !node) return;
+      list.scrollTo({ top: Math.max(0, node.offsetTop - (parseFloat(getComputedStyle(list).paddingTop) || 0)), behavior: lessMotion() ? "auto" : "smooth" });
+    },
+    [lead]
+  );
 
   useEffect(() => {
-    if (!hit) return;
-    const node = listRef.current?.querySelector<HTMLElement>(`[data-line="${hit.line}"]`);
-    node?.scrollIntoView({ block: "center", behavior: lessMotion() ? "auto" : "smooth" });
-  }, [hit]);
+    if (!follow || currentLine < 0) return;
+    bringUp(currentLine);
+  }, [currentLine, follow, bringUp]);
+
+  const [stepped, setStepped] = useState(false);
+
+  useEffect(() => {
+    if (!hit || !stepped) return;
+    bringUp(hit.line);
+  }, [hit, stepped, bringUp]);
 
   useEffect(() => {
     if (!copied) return;
@@ -609,6 +620,7 @@ function PreviewBody({
   const onFindKey = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter") return;
     event.preventDefault();
+    setStepped(true);
     setHitIndex((value) => stepHit(hits.length, value, event.shiftKey ? -1 : 1));
   };
 
@@ -674,6 +686,7 @@ function PreviewBody({
         onChange={(event) => {
           setNeedle(event.target.value);
           setHitIndex(0);
+          setStepped(true);
         }}
         onKeyDown={onFindKey}
         placeholder="Find in transcript"
@@ -683,17 +696,23 @@ function PreviewBody({
       <span className="shrink-0 text-xs tabular-nums text-ink-500" role="status" aria-live="polite">
         {findCount}
       </span>
-      <button type="button" className="grid h-8 w-6 place-items-center text-ink-700 disabled:opacity-40" aria-label="Previous match" disabled={!hits.length} onClick={() => setHitIndex((value) => stepHit(hits.length, value, -1))}>
+      <button type="button" className="grid h-8 w-6 place-items-center text-ink-700 disabled:opacity-40" aria-label="Previous match" disabled={!hits.length} onClick={() => {
+          setStepped(true);
+          setHitIndex((value) => stepHit(hits.length, value, -1));
+        }}>
         ↑
       </button>
-      <button type="button" className="grid h-8 w-6 place-items-center text-ink-700 disabled:opacity-40" aria-label="Next match" disabled={!hits.length} onClick={() => setHitIndex((value) => stepHit(hits.length, value, 1))}>
+      <button type="button" className="grid h-8 w-6 place-items-center text-ink-700 disabled:opacity-40" aria-label="Next match" disabled={!hits.length} onClick={() => {
+          setStepped(true);
+          setHitIndex((value) => stepHit(hits.length, value, 1));
+        }}>
         ↓
       </button>
     </div>
   );
 
   const tabStrip = (height: string, text: string) => (
-    <div role="tablist" aria-label="Transcript view" className="flex rounded-xl border border-line-200 bg-surface-50 p-[3px]">
+    <div role="tablist" aria-label="Transcript view" className="flex rounded-md border border-line-200 bg-surface-50 p-[3px]">
       {tabs.map((option, at) => (
         <button
           key={option.value}
@@ -736,7 +755,7 @@ function PreviewBody({
   const lineList = (variant: "wide" | "stacked" | "phone") => (
     <div
       ref={listRef}
-      className={`flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain ${variant === "wide" ? "px-4 py-2.5" : variant === "phone" ? "px-2" : "p-2"}`}
+      className={`relative flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain ${variant === "wide" ? "px-4 py-2.5" : variant === "phone" ? "px-2" : "p-2"}`}
       role="list"
       aria-label="Transcript"
       tabIndex={0}
@@ -754,17 +773,22 @@ function PreviewBody({
               aria-current={isCurrent ? "true" : undefined}
               className={
                 variant === "wide"
-                  ? `grid w-full grid-cols-[56px_120px_minmax(0,1fr)] gap-3.5 rounded-xl px-4 py-3 text-left text-[15px] leading-[1.6] text-ink-900 transition ${isCurrent ? CURRENT : "hover:bg-surface-50"}`
-                  : `flex w-full gap-2.5 rounded-xl px-3 py-2.5 text-left ${variant === "phone" ? "text-[15px] leading-[1.55]" : "text-sm leading-normal gap-3"} text-ink-900 transition ${isCurrent ? CURRENT : "hover:bg-surface-50"}`
+                  ? `grid w-full grid-cols-[48px_minmax(0,1fr)] gap-3 lg:grid-cols-[56px_120px_minmax(0,1fr)] lg:gap-3.5 rounded-md px-4 py-3 text-left text-[15px] leading-[1.6] text-ink-900 transition ${isCurrent ? CURRENT : "hover:bg-surface-50"}`
+                  : `flex w-full gap-2.5 rounded-md px-3 py-2.5 text-left ${variant === "phone" ? "text-[15px] leading-[1.55]" : "text-sm leading-normal gap-3"} text-ink-900 transition ${isCurrent ? CURRENT : "hover:bg-surface-50"}`
               }
             >
               <span className={`${variant === "wide" ? "pt-[3px]" : variant === "phone" ? "w-10 flex-none pt-0.5" : "w-11 flex-none"} text-xs font-semibold tabular-nums text-purple-700 dark:text-purple-300`}>{shortClock(line.startMs)}</span>
               {variant === "wide" ? (
                 <>
-                  <span className={`truncate pt-px text-[13px] font-bold ${SPEAKER_TEXT}`} style={speakerStyle(colorKey)}>
+                  <span className={`hidden truncate pt-px text-[13px] font-bold lg:block ${SPEAKER_TEXT}`} style={speakerStyle(colorKey)}>
                     {line.speakerName}
                   </span>
-                  <span className="min-w-0">{lineText(line, isHit)}</span>
+                  <span className="min-w-0">
+                    <span className={`block text-[13px] font-bold lg:hidden ${SPEAKER_TEXT}`} style={speakerStyle(colorKey)}>
+                      {line.speakerName}
+                    </span>
+                    {lineText(line, isHit)}
+                  </span>
                 </>
               ) : (
                 <span className="min-w-0">
@@ -872,7 +896,7 @@ function PreviewBody({
 
   const phoneHeader = (
     <header className="flex items-center gap-1 px-2 py-2.5">
-      <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-ink-900" aria-label="Close" onClick={requestClose}>
+      <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-md text-ink-900" aria-label="Close" onClick={requestClose}>
         <X className="h-[18px] w-[18px]" aria-hidden />
       </button>
       <div className="min-w-0 flex-1">
@@ -893,7 +917,7 @@ function PreviewBody({
 
   const phoneBar = (
     <div className="flex items-center gap-2 border-t border-line-200 px-4 pb-4 pt-2.5" data-testid="preview-actions">
-      <button type="button" className="grid min-h-12 w-12 shrink-0 place-items-center rounded-xl border border-line-200 bg-card text-ink-900 disabled:opacity-40" aria-label="Previous file" disabled={previous === null} onClick={() => previous !== null && onNavigate(siblings[previous])}>
+      <button type="button" className="grid min-h-12 w-12 shrink-0 place-items-center rounded-md border border-line-200 bg-card text-ink-900 disabled:opacity-40" aria-label="Previous file" disabled={previous === null} onClick={() => previous !== null && onNavigate(siblings[previous])}>
         <ChevronLeft className="h-4 w-4" aria-hidden />
       </button>
       {timed && reachable ? (
@@ -908,7 +932,7 @@ function PreviewBody({
           Share
         </button>
       ) : null}
-      <button type="button" className="grid min-h-12 w-12 shrink-0 place-items-center rounded-xl border border-line-200 bg-card text-ink-900 disabled:opacity-40" aria-label="Next file" disabled={next === null} onClick={() => next !== null && onNavigate(siblings[next])}>
+      <button type="button" className="grid min-h-12 w-12 shrink-0 place-items-center rounded-md border border-line-200 bg-card text-ink-900 disabled:opacity-40" aria-label="Next file" disabled={next === null} onClick={() => next !== null && onNavigate(siblings[next])}>
         <ChevronRight className="h-4 w-4" aria-hidden />
       </button>
     </div>
@@ -925,7 +949,9 @@ function PreviewBody({
           className={
             phone
               ? `min-h-10 rounded-full px-2.5 text-xs ${clean ? "bg-purple-700 font-semibold text-white" : "border border-line-200 bg-card text-ink-900"}`
-              : `${BTN} ${clean ? "border-[#d6b6fb] bg-[#f2e9fe] font-semibold text-[#5f2491] dark:border-purple-700 dark:bg-purple-950/60 dark:text-purple-100" : ""}`
+              : clean
+                ? "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md border border-[#d6b6fb] bg-[#f2e9fe] px-3.5 text-[13px] font-semibold text-[#5f2491] transition hover:bg-purple-100 dark:border-purple-700 dark:bg-purple-950/60 dark:text-purple-100"
+                : BTN
           }
         >
           <span aria-hidden>{clean ? "✓ " : ""}</span>
@@ -1201,17 +1227,17 @@ function PreviewBody({
             {status}
             <div className="flex gap-2">
               {reachable ? (
-                <button type="button" className={`${BTN} flex-1`} onClick={() => transcriptFile("docx")}>
+                <button type="button" className={`${BTN} flex-1 whitespace-nowrap px-2`} onClick={() => transcriptFile("docx")}>
                   Transcript (.docx)
                 </button>
               ) : null}
               {reachable && lines.length ? (
-                <button type="button" className={`${BTN} flex-1`} onClick={() => transcriptFile("srt")}>
+                <button type="button" className={`${BTN} flex-1 whitespace-nowrap px-2`} onClick={() => transcriptFile("srt")}>
                   Subtitles (.srt)
                 </button>
               ) : null}
               {lines.length || loaded?.text ? (
-                <button type="button" className={`${BTN} flex-1`} onClick={() => void copyAll()}>
+                <button type="button" className={`${BTN} flex-1 whitespace-nowrap px-2`} onClick={() => void copyAll()}>
                   Copy
                 </button>
               ) : null}

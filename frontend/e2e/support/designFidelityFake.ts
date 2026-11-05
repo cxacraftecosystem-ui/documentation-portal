@@ -18,7 +18,7 @@ export const VIDEO_MS = 1_458_000;
 type Seed = { name: string; mediaId: string; mediaType: string; bytes: number; capturedAt: string; transcript?: boolean };
 
 const BOARD_FILES: Seed[] = [
-  { name: "Interview_Dabu-mud-resist_Take-1.mp4", mediaId: VIDEO_ID, mediaType: "VIDEO", bytes: 701 * MB, capturedAt: "2026-09-23T10:00:00Z", transcript: true },
+  { name: "Interview_Dabu-mud-resist_Take-1.mp4", mediaId: VIDEO_ID, mediaType: "VIDEO", bytes: 701 * MB, capturedAt: "2026-09-22T10:00:00Z", transcript: true },
   { name: "Block-carving_close-up_03.jpg", mediaId: "img-carve-03", mediaType: "IMAGE", bytes: Math.round(3.4 * MB), capturedAt: "2026-09-23T11:00:00Z" },
   { name: "Section-D_Materials_Group-of-3.m4a", mediaId: AUDIO_ID, mediaType: "AUDIO", bytes: Math.round(14.2 * MB), capturedAt: "2026-09-22T10:00:00Z", transcript: true },
   { name: "Consent-form_signed.pdf", mediaId: "pdf-consent", mediaType: "PDF", bytes: 412 * 1024, capturedAt: "2026-09-21T10:00:00Z" }
@@ -38,7 +38,7 @@ function giraFiles(): Seed[] {
   const all = [...BOARD_FILES, ...fillers()];
   const audio = all.filter((file) => file.mediaType === "AUDIO");
   const others = all.filter((file) => file.mediaType !== "AUDIO");
-  const ordered = [...others.slice(0, 2), ...audio.slice(1, 5), audio[0], ...others.slice(2), ...audio.slice(5)];
+  const ordered = [...BOARD_FILES, ...others.filter((file) => !BOARD_FILES.includes(file)), ...audio.filter((file) => !BOARD_FILES.includes(file))];
   return ordered;
 }
 

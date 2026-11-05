@@ -391,7 +391,7 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
             type="button"
             onClick={() => audio.setRate(RATES[(RATES.indexOf(audio.rate as (typeof RATES)[number]) + 1) % RATES.length])}
             aria-label={ts("speedLabel", { rate: audio.rate })}
-            className="inline-flex min-h-10 shrink-0 items-center rounded-xl border border-line-200 bg-card px-3.5 text-[13px] text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40"
+            className="inline-flex min-h-10 shrink-0 items-center rounded-md border border-line-200 bg-card px-3.5 text-[13px] text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40"
             data-testid="transcript-speed"
           >
             {ts("speed", { rate: audio.rate })}
