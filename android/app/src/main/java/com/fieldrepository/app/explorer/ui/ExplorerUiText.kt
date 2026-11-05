@@ -85,6 +85,9 @@ object ExplorerUiText {
     fun allN(n: Int) = "All ${String.format(java.util.Locale.ROOT, "%,d", n)}"
 
     fun pickingUp(n: Int) = "Picking up at file ${String.format(java.util.Locale.ROOT, "%,d", n)}"
+    const val reportPack = "Report pack (.zip)"
+    const val linkUnknown = "This link isn't one the app can open."
+    const val linkFailed = "That link didn't open. Try again, or open it on the web."
     const val viewMissing = "That saved view isn't available to you."
 
     fun filteredBy(q: String) = "Filtered: “$q”"

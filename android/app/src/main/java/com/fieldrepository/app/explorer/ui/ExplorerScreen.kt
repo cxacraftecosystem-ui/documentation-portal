@@ -209,6 +209,7 @@ fun ExplorerScreen(
     searchScreen: (@Composable (query: String, onOpenInData: (type: String, id: String, title: String) -> Unit, onPlay: (mediaId: String, title: String, mediaType: String?, startSeconds: Double) -> Unit, onClose: () -> Unit) -> Unit)? = null,
     onRecordNow: ((folderPath: String, folderName: String) -> Unit)? = null,
     onOpenSection: ((artisanId: String, sectionKey: String) -> Unit)? = null,
+    onOpenRecord: ((kind: String, id: String) -> Unit)? = null,
     more: ExplorerMore? = null,
 ) {
     val context = LocalContext.current
@@ -503,6 +504,79 @@ fun ExplorerScreen(
         reportOpen = false
     }
 
+    fun makePack(options: ExplorerReportOptions, name: String) {
+        val folder = state.folderName
+        val file = name.trim().removeSuffix(".xlsx").ifBlank { Naming.exportFilename("Dataset", "Report", "zip", withTime = true, subject = folder).removeSuffix(".zip") }.let { if (it.endsWith(".zip")) it else "$it.zip" }
+        begin(
+            ExplorerRequest(
+                title = "$folder · ${ExplorerUiText.reportPack}",
+                fileName = file,
+                kind = ExplorerJobKind.REPORT,
+                single = true,
+                mimeType = "application/zip",
+                items = listOf(ExplorerItem(path = "", url = ExplorerMoreApi.reportUrl(state.path, options, tables.query.ifBlank { null }, file, state.statusParam, pack = true))),
+            ),
+        )
+        reportOpen = false
+    }
+
+    suspend fun previewMedia(mediaId: String, seconds: Double?) {
+        val known = state.files.firstOrNull { it.mediaId == mediaId }
+        val entry = known ?: run {
+            val got = runCatching { extras.goMedia(mediaId) }.getOrNull()
+            val name = got?.fileName ?: mediaId
+            ExplorerEntry(name = name, path = mediaId, mediaId = mediaId, mediaType = mediaTypeOf(name) ?: "VIDEO", transcriptAvailable = true)
+        }
+        if (entry.mediaType in setOf("VIDEO", "AUDIO", "IMAGE")) media = Viewing(listOf(entry), 0, seconds ?: 0.0) else viewing = entry
+    }
+
+    suspend fun startBundle(id: String) {
+        val b = extras.bundle(id)
+        val label = b.label.ifBlank { state.folderName }
+        begin(
+            ExplorerRequest(
+                title = label,
+                fileName = Naming.exportFilename("Dataset", "Export", "zip", withTime = true, subject = label),
+                kind = ExplorerJobKind.FOLDER,
+                sources = listOf(ExplorerSource(path = b.path, manifestUrl = b.manifestPath ?: "/api/data/bundles/$id/manifest?stream=1")),
+                expectedBytes = b.bytes.takeIf { it > 0 },
+            ),
+        )
+        showDownloads = true
+    }
+
+    suspend fun followGo(parts: List<String>) {
+        when (parts.firstOrNull()) {
+            "media" -> {
+                val id = parts.getOrNull(1) ?: return
+                val got = extras.goMedia(id)
+                val name = got.fileName ?: id
+                saveEntry(ExplorerEntry(name = name, path = id, mediaId = id, mediaType = mediaTypeOf(name)))
+            }
+            "open" -> {
+                val kind = parts.getOrNull(1) ?: return
+                val id = parts.getOrNull(2) ?: return
+                val got = extras.goOpen(kind, id)
+                when {
+                    got.kind == "media" && onOpenMedia != null -> onOpenMedia(got.id.ifBlank { id })
+                    got.kind == "media" -> previewMedia(got.id.ifBlank { id }, null)
+                    onOpenRecord != null -> onOpenRecord(got.kind.ifBlank { kind }, got.id.ifBlank { id })
+                    else -> state.locate(got.kind.ifBlank { kind }, got.id.ifBlank { id }, "")
+                }
+            }
+            "transcript" -> {
+                val id = parts.getOrNull(1) ?: return
+                val format = parts.getOrNull(2)?.lowercase()?.takeIf { it == "docx" || it == "srt" } ?: return
+                val file = withContext(Dispatchers.IO) {
+                    val got = com.fieldrepository.app.transcript.portal.TranscriptPortal.backend(app).download(id, format, com.fieldrepository.app.transcript.data.CopyTrack.BOTH)
+                    java.io.File(com.fieldrepository.app.transcript.ui.shareDir(app), got.name ?: "transcript.$format").also { it.writeBytes(got.bytes) }
+                }
+                com.fieldrepository.app.transcript.ui.shareFiles(context, listOf(file), null)
+            }
+            else -> onMessage(ExplorerUiText.linkUnknown)
+        }
+    }
+
     fun openView(view: ExplorerView) {
         reportOpen = false
         view.state.filters["status"]?.takeIf { it != state.status && ExplorerPortal.statusOptions.any { o -> o.first == it } }?.let { state.changeStatus(it) }
@@ -522,6 +596,18 @@ fun ExplorerScreen(
         val request = linkRequest ?: return@LaunchedEffect
         ExplorerViewLinks.consume()
         val id = request.viewId
+        try {
+            when {
+                request.go.isNotEmpty() -> { followGo(request.go); return@LaunchedEffect }
+                request.bundle != null -> { startBundle(request.bundle); return@LaunchedEffect }
+                request.preview != null -> { request.path?.let { state.open(it) }; previewMedia(request.preview, request.seconds); return@LaunchedEffect }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            onMessage(ExplorerUiText.linkFailed)
+            return@LaunchedEffect
+        }
         when {
             id != null -> try {
                 openView(extras.view(id))
@@ -930,6 +1016,8 @@ fun ExplorerScreen(
             tab = state.tab,
             more = extras,
             onMake = ::makeReport,
+            onMakePack = ::makePack,
+            status = state.statusParam,
             onOpenView = ::openView,
             onMessage = onMessage,
             onDismiss = { reportOpen = false },
@@ -1308,5 +1396,16 @@ private fun Restricted() {
         }
         Text(ExplorerText.restrictedTitle, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
         Text(ExplorerText.restrictedBody, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+    }
+}
+
+internal fun mediaTypeOf(name: String): String? {
+    val mime = com.fieldrepository.app.explorer.data.ExplorerEngine.mimeFor(name)
+    return when {
+        mime.startsWith("video/") -> "VIDEO"
+        mime.startsWith("audio/") -> "AUDIO"
+        mime.startsWith("image/") -> "IMAGE"
+        mime == "application/pdf" -> "PDF"
+        else -> null
     }
 }

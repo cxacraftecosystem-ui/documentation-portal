@@ -37,4 +37,24 @@ class ExplorerLinksTest {
         assertNull(got?.path)
         assertEquals(true, got != null)
     }
+
+    @QFeature("X1")
+    @Test fun `durable report links are ours and split into their parts`() {
+        assertEquals(listOf("media", "m1", "download"), ExplorerViewLinks.parse("https://portal.example.org/data/go/media/m1/download", web)?.go)
+        assertEquals(listOf("open", "artisan", "a 1"), ExplorerViewLinks.parse("https://portal.example.org/data/go/open/artisan/a%201", web)?.go)
+        assertEquals(listOf("transcript", "m2", "srt"), ExplorerViewLinks.parse("https://portal.example.org/data/go/transcript/m2/srt", web)?.go)
+        assertNull(ExplorerViewLinks.parse("https://portal.example.org/data/go/", web))
+        assertNull(ExplorerViewLinks.parse("https://portal.example.org/data/gone/x", web))
+    }
+
+    @QFeature("X1")
+    @Test fun `preview, play-from and bundle links carry their values`() {
+        val p = ExplorerViewLinks.parse("https://portal.example.org/data?preview=m9&t=12:04", web)
+        assertEquals("m9", p?.preview)
+        assertEquals(724.0, p?.seconds ?: -1.0, 0.0)
+        assertEquals(90.5, ExplorerViewLinks.parse("https://portal.example.org/data?preview=m9&t=90.5", web)?.seconds ?: -1.0, 0.0)
+        assertEquals(3723.0, ExplorerViewLinks.seconds("1:02:03") ?: -1.0, 0.0)
+        assertNull(ExplorerViewLinks.seconds("soon"))
+        assertEquals("b7", ExplorerViewLinks.parse("https://portal.example.org/data?bundle=b7", web)?.bundle)
+    }
 }

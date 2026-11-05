@@ -1819,6 +1819,10 @@ private fun HomeScreen(
                         onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
                         onOpenMedia = { mediaId -> openRecordView(EntryMode.MEDIA, mediaId) },
                         onOpenRemote = { type, id -> screen = Screen.RemoteRecord(type, id, from = Screen.DataBrowser) },
+                        onOpenRecord = { kind, id ->
+                            val mode = searchRecordEntryMode(kind) ?: recentSubmissionEntryMode(kind)
+                            if (mode == null) showMessage(unroutableRecordLine(kind)) else screen = Screen.View(mode, id, back = Screen.DataBrowser)
+                        },
                         onOpenSection = { artisanId, sectionKey ->
                             screen = Screen.View(EntryMode.ARTISAN, artisanId, back = Screen.DataBrowser, section = sectionKey)
                         },

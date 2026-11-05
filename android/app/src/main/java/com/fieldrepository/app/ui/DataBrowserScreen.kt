@@ -42,6 +42,7 @@ fun DataBrowserScreen(
     onOpenRemote: ((type: String, id: String) -> Unit)? = null,
     onRecordNow: ((folderPath: String, folderName: String) -> Unit)? = null,
     onOpenSection: ((artisanId: String, sectionKey: String) -> Unit)? = null,
+    onOpenRecord: ((kind: String, id: String) -> Unit)? = null,
 ) {
     ExplorerScreen(
         onBack = onBack,
@@ -62,6 +63,7 @@ fun DataBrowserScreen(
         },
         onRecordNow = onRecordNow,
         onOpenSection = onOpenSection,
+        onOpenRecord = onOpenRecord,
     )
 }
 

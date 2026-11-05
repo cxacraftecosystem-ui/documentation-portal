@@ -94,6 +94,23 @@ class ExplorerScreenUiTest {
         override suspend fun views() = ExplorerViews()
         override suspend fun saveView(body: ExplorerViewBody) = ExplorerView(id = "v1", name = body.name, path = body.path)
         override suspend fun transcripts(path: String, q: String?, status: String?) = ExplorerTranscriptList()
+        override suspend fun reportSheets(path: String, status: String?) = com.fieldrepository.app.explorer.data.ExplorerReportSheets(
+            path = path,
+            sheets = listOf(com.fieldrepository.app.explorer.data.ExplorerReportSheetInfo(key = "tools", name = "Tools", count = 120, group = "Records", description = "Every tool")),
+            extras = listOf(com.fieldrepository.app.explorer.data.ExplorerReportExtra("quotes", "Quotes")),
+            locales = listOf("en", "hi"),
+        )
+        val shared = mutableListOf<com.fieldrepository.app.explorer.data.ExplorerShareBody>()
+        override suspend fun createShare(body: com.fieldrepository.app.explorer.data.ExplorerShareBody): com.fieldrepository.app.explorer.data.ExplorerShare {
+            shared += body
+            return com.fieldrepository.app.explorer.data.ExplorerShare(id = "s1", url = "https://portal.example.org/report-share/tok", expiresAt = "2026-11-12T00:00:00Z")
+        }
+        override suspend fun shares(path: String) = com.fieldrepository.app.explorer.data.ExplorerShares()
+        override suspend fun revokeShare(id: String): Response<Unit> = Response.success(Unit)
+        override suspend fun goMedia(id: String, form: String) = com.fieldrepository.app.explorer.data.ExplorerGoMedia(fileName = "$id.m4a", mediaId = id)
+        override suspend fun goOpen(kind: String, id: String) = com.fieldrepository.app.explorer.data.ExplorerGoOpen(kind, id)
+        override suspend fun goTranscript(id: String, format: String) = com.fieldrepository.app.explorer.data.ExplorerGoTranscript(id, format)
+        override suspend fun bundle(id: String) = com.fieldrepository.app.explorer.data.ExplorerBundle(id = id, label = "Bundle $id", path = "w", fileCount = 3, bytes = 3_000)
     }
 
     private class Fake : ExplorerApi {
@@ -473,5 +490,35 @@ class ExplorerScreenUiTest {
         compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("explorer.audio.waveform")).fetchSemanticsNodes().isNotEmpty() }
         compose.onAllNodes(hasTestTag("explorer.audio.clear")).assertCountEquals(0)
         compose.runOnUiThread { com.fieldrepository.app.explorer.data.ExplorerAudio.stop() }
+    }
+
+    @QFeature("X6")
+    @Test fun reportOptionsListTheServerSheetsExtrasAndLanguageAndMakeALiveLink() {
+        val fake = Fake()
+        show(fake)
+        scrollTo("explorer.report")
+        compose.onNodeWithTag("explorer.report").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("explorer.report.extra.quotes")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("explorer.report.sheet.Tools").assertExists()
+        compose.onNodeWithTag("explorer.seg.locale.hi").assertExists()
+        compose.onNodeWithTag("explorer.report.pack").assertExists()
+        compose.onNodeWithTag("explorer.report.sheet").performScrollToNode(hasTestTag("explorer.share.create"))
+        compose.onNodeWithTag("explorer.share.create").performClick()
+        compose.waitUntil(5_000) { more.shared.isNotEmpty() }
+        assertEquals("w", more.shared.first().path)
+        assertEquals(7, more.shared.first().expiresInDays)
+    }
+
+    @QFeature("X10")
+    @Test fun aBundleLinkStartsItsDownload() {
+        val fake = Fake()
+        show(fake)
+        val app = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        com.fieldrepository.app.explorer.ui.ExplorerViewLinks.request(com.fieldrepository.app.explorer.ui.ExplorerLinkRequest(null, null, bundle = "b1"))
+        compose.waitUntil(5_000) { com.fieldrepository.app.explorer.data.ExplorerDownloads.store(app).jobs.value.any { it.request.title == "Bundle b1" } }
+        val job = com.fieldrepository.app.explorer.data.ExplorerDownloads.store(app).jobs.value.first { it.request.title == "Bundle b1" }
+        assertEquals("/api/data/bundles/b1/manifest?stream=1", job.request.sources.first().manifestUrl)
+        com.fieldrepository.app.explorer.data.ExplorerDownloads.cancel(app, job.id)
+        com.fieldrepository.app.explorer.data.ExplorerDownloads.dismiss(app, job.id)
     }
 }
