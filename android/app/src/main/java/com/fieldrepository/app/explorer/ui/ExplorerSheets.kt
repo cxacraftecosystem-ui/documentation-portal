@@ -286,6 +286,10 @@ private fun JobCard(job: ExplorerJob, onCancel: () -> Unit, onRetry: () -> Unit,
                 Text(job.error ?: ExplorerText.fileFailed, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("explorer.job.error"))
                 SheetButtons(primary = ExplorerText.retry, onPrimary = onRetry, secondary = ExplorerText.dismiss, onSecondary = onDismiss, primaryTag = "explorer.job.retry")
             }
+            ExplorerJobState.PAUSED -> {
+                Text(ExplorerText.paused, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SheetButtons(primary = ExplorerText.resume, onPrimary = onRetry, secondary = ExplorerText.cancel, onSecondary = onCancel, primaryTag = "explorer.job.resume")
+            }
             ExplorerJobState.CANCELLED -> {
                 Text(ExplorerText.cancelled, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 SheetButtons(primary = ExplorerText.retry, onPrimary = onRetry, secondary = ExplorerText.dismiss, onSecondary = onDismiss, primaryTag = "explorer.job.retry")

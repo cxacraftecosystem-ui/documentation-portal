@@ -15,12 +15,13 @@ class Opened(
     val conversion: String? = null,
     val filename: String? = null,
     val retryAfter: String? = null,
+    val contentType: String? = null,
     val closer: () -> Unit = {},
 )
 
 class TransferFailed(val code: Int, message: String) : IOException(message)
 
-data class Fetched(val bytes: Long, val conversion: String?, val filename: String?, val head: ByteArray)
+data class Fetched(val bytes: Long, val conversion: String?, val filename: String?, val head: ByteArray, val contentType: String? = null)
 
 object ExplorerTransfer {
     const val ATTEMPTS = 3
@@ -30,13 +31,14 @@ object ExplorerTransfer {
     suspend fun fetchTo(
         target: File,
         resumable: Boolean,
+        keep: Boolean = false,
         attempts: Int = ATTEMPTS,
         backoffMs: Long = 2_000,
         open: suspend (offset: Long) -> Opened,
         onBytes: (Long) -> Unit = {},
     ): Fetched {
         var lastError: Throwable? = null
-        if (target.exists()) target.delete()
+        if (!(keep && resumable) && target.exists()) target.delete()
         for (attempt in 1..attempts) {
             currentCoroutineContext().ensureActive()
             val offset = if (resumable && target.isFile) target.length() else 0L
@@ -63,7 +65,7 @@ object ExplorerTransfer {
                             onBytes(written)
                         }
                     }
-                    return Fetched(written, opened.conversion, opened.filename, head(target))
+                    return Fetched(written, opened.conversion, opened.filename, head(target), opened.contentType)
                 } finally {
                     runCatching { opened.closer() }
                 }
@@ -119,4 +121,31 @@ object ExplorerSniff {
     }
 
     fun isMp4(head: ByteArray): Boolean = extension(head) == ".mp4"
+
+    fun isZip(head: ByteArray): Boolean =
+        head.size >= 4 && head[0] == 0x50.toByte() && head[1] == 0x4B.toByte() && head[2] == 0x03.toByte() && head[3] == 0x04.toByte()
+
+    fun looksLikeError(head: ByteArray): Boolean {
+        val first = head.firstOrNull { it != 0x20.toByte() && it != 0x0A.toByte() && it != 0x0D.toByte() && it != 0x09.toByte() } ?: return false
+        return first == '{'.code.toByte() || first == '<'.code.toByte()
+    }
+
+    private val ZIPPED = setOf(
+        "application/zip",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+    private val TEXTUAL = setOf("text/csv", "text/plain", "text/vtt", "application/x-subrip")
+
+    fun valid(mimeType: String, head: ByteArray, contentType: String?): Boolean {
+        val served = contentType?.substringBefore(';')?.trim()?.lowercase()
+        val wanted = mimeType.substringBefore(';').trim().lowercase()
+        if (wanted in ZIPPED) return isZip(head)
+        if (served == "application/json" || served == "text/html" || served == "application/problem+json") {
+            return wanted == "application/json" || wanted == "text/html"
+        }
+        if (wanted in TEXTUAL && head.isNotEmpty() && looksLikeError(head) && served != null && served !in TEXTUAL) return false
+        return true
+    }
 }

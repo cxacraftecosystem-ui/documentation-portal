@@ -40,10 +40,23 @@ data class ExplorerRequest(
     val expectedBytes: Long? = null,
     val source: String? = null,
     val mimeType: String = if (single) "application/octet-stream" else "application/zip",
-)
+) {
+    val rebuilt: Boolean get() = kind == ExplorerJobKind.REPORT || kind == ExplorerJobKind.TRANSCRIPTS
+}
 
 @Serializable
-enum class ExplorerJobState { QUEUED, RUNNING, DONE, FAILED, CANCELLED }
+enum class ExplorerJobState { QUEUED, RUNNING, DONE, FAILED, CANCELLED, PAUSED }
+
+@Serializable
+enum class ExplorerRecentStatus { RUNNING, SAVED, RETRYING, FAILED }
+
+@Serializable
+data class ExplorerRecent(
+    val name: String,
+    val sizeBytes: Long? = null,
+    val status: ExplorerRecentStatus,
+    val fraction: Float? = null,
+)
 
 @Serializable
 data class ExplorerResult(
@@ -56,6 +69,7 @@ data class ExplorerResult(
     val failedCount: Int = failed.size,
     val truncated: Boolean = false,
     val message: String? = null,
+    val bytes: Long = 0,
 )
 
 @Serializable
@@ -74,8 +88,18 @@ data class ExplorerJob(
     val current: String? = null,
     val busySeconds: Int? = null,
     val startedAt: Long? = null,
+    val currentBytes: Long = 0,
+    val currentTotal: Long = 0,
+    val speedBps: Long? = null,
+    val retrying: Int = 0,
+    val recent: List<ExplorerRecent> = emptyList(),
 ) {
     val active: Boolean get() = state == ExplorerJobState.QUEUED || state == ExplorerJobState.RUNNING
+    val pausable: Boolean get() = active && systemId == null
+    val currentFraction: Float?
+        get() = if (currentTotal > 0) (currentBytes.toFloat() / currentTotal.toFloat()).coerceIn(0f, 1f) else null
+
+    fun secondsLeft(now: Long = System.currentTimeMillis()): Long? = ExplorerProgress.secondsLeft(this, now)
     val fraction: Float?
         get() = when {
             totalBytes > 0 -> (doneBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
@@ -104,7 +128,7 @@ class ExplorerJobStore(private val file: File) {
 
     fun remove(id: String) = update { list -> list.filterNot { it.id == id } }
 
-    fun clearFinished() = update { list -> list.filter { it.active } }
+    fun clearFinished() = update { list -> list.filter { it.active || it.state == ExplorerJobState.PAUSED } }
 
     fun clear() = update { emptyList() }
 
@@ -135,8 +159,8 @@ class ExplorerJobStore(private val file: File) {
         const val FAILED_NAMES = 200
 
         fun trim(list: List<ExplorerJob>): List<ExplorerJob> {
-            val active = list.filter { it.active }.map { it.id }.toSet()
-            val finished = list.filterNot { it.active }.take((KEEP - active.size).coerceAtLeast(0)).map { it.id }.toSet()
+            val active = list.filter { it.active || it.state == ExplorerJobState.PAUSED }.map { it.id }.toSet()
+            val finished = list.filterNot { it.id in active }.take((KEEP - active.size).coerceAtLeast(0)).map { it.id }.toSet()
             return list.filter { it.id in active || it.id in finished }
         }
     }

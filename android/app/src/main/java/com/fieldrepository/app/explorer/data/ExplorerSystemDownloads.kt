@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Environment
+import com.fieldrepository.app.explorer.portal.ExplorerPortal
 
 data class ExplorerSystemStatus(
     val status: Int,
@@ -27,7 +28,7 @@ object ExplorerSystemDownloads {
             .setTitle(title)
             .setDescription(name)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, ExplorerPortal.DOWNLOAD_FOLDER + "/" + name)
             .setAllowedOverMetered(!wifiOnly)
             .setAllowedOverRoaming(!wifiOnly)
             .setMimeType(ExplorerEngine.mimeFor(name))

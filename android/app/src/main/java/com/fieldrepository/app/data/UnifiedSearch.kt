@@ -18,6 +18,18 @@ data class UnifiedSearchItemDto(
     val href: String? = null,
     val openUrl: String? = null,
     val score: Double = 0.0,
+    val startMs: Long? = null,
+    val mediaType: String? = null,
+    val alsoIn: List<UnifiedAlsoInDto> = emptyList(),
+)
+
+@Serializable
+data class UnifiedAlsoInDto(
+    val portal: String = "designer",
+    val id: String = "",
+    val href: String? = null,
+    val openUrl: String? = null,
+    val subtitle: String? = null,
 )
 
 @Serializable
@@ -44,6 +56,10 @@ data class UnifiedSearchResponse(
     val groups: List<UnifiedSearchGroupDto> = emptyList(),
     val remote: UnifiedRemoteDto = UnifiedRemoteDto(),
     val typesRefused: List<String> = emptyList(),
+    val suggestion: String? = null,
+    val type: String? = null,
+    val page: Int? = null,
+    val limit: Int? = null,
 )
 
 @Serializable

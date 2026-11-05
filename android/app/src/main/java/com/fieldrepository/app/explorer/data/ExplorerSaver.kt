@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.provider.MediaStore
+import com.fieldrepository.app.explorer.portal.ExplorerPortal
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -36,6 +37,7 @@ object ExplorerSaver {
                 put(MediaStore.Downloads.DISPLAY_NAME, name)
                 put(MediaStore.Downloads.MIME_TYPE, mimeType)
                 put(MediaStore.Downloads.IS_PENDING, 1)
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/" + ExplorerPortal.DOWNLOAD_FOLDER)
             }
             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                 ?: throw IllegalStateException(ExplorerText.saveFailed)
@@ -58,7 +60,7 @@ object ExplorerSaver {
                             if (c.moveToFirst()) c.getString(0) else null
                         }
                     }.getOrNull() ?: name
-                    "Downloads/$stored" to uri.toString()
+                    location(stored) to uri.toString()
                 },
                 onAbort = {
                     runCatching { stream.close() }
@@ -71,7 +73,7 @@ object ExplorerSaver {
             android.content.pm.PackageManager.PERMISSION_GRANTED
         val folder = if (legacy) {
             @Suppress("DEPRECATION")
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), ExplorerPortal.DOWNLOAD_FOLDER)
         } else {
             File(context.getExternalFilesDir(null) ?: context.filesDir, "downloads")
         }
@@ -93,6 +95,10 @@ object ExplorerSaver {
             },
         )
     }
+
+    fun folder(): String = "Downloads/${ExplorerPortal.DOWNLOAD_FOLDER}/"
+
+    fun location(name: String): String = folder() + name
 
     fun uniqueFile(folder: File, name: String): File {
         var candidate = File(folder, name)

@@ -1220,6 +1220,9 @@ class FieldRepository(
     suspend fun unifiedSearch(query: String, limit: Int = 5): UnifiedSearchResponse =
         api.unifiedSearch(q = query.trim(), limit = limit)
 
+    suspend fun unifiedSearchPage(query: String, bothPortals: Boolean, type: String?, page: Int, limit: Int): UnifiedSearchResponse =
+        api.unifiedSearch(q = query.trim(), limit = limit, scope = if (bothPortals) "all" else "local", type = type, page = page.takeIf { type != null })
+
     suspend fun remoteRecord(type: String, id: String): RemoteRecord = api.remoteRecord(type, id)
 
     suspend fun searchCrafts(query: String, pageSize: Int = 10): List<CraftDto> {

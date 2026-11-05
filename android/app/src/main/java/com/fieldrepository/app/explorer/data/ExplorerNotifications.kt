@@ -38,28 +38,78 @@ object ExplorerNotifications {
         return PendingIntent.getActivity(context, 0x4E01, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
+    fun progressText(job: ExplorerJob, now: Long = System.currentTimeMillis()): String = when {
+        job.busySeconds != null -> ExplorerText.busy(job.busySeconds)
+        job.totalBytes > 0 || job.totalFiles > 1 -> ExplorerText.progressLine(job, now)
+        job.totalFiles > 0 -> ExplorerText.fetching(job.doneFiles, job.totalFiles)
+        else -> ExplorerText.preparing
+    }
+
+    fun currentText(job: ExplorerJob): String? {
+        val name = job.current?.takeIf { it != ExplorerText.resuming && it != ExplorerText.waitingForNetwork }?.let { ExplorerProgress.leaf(it) }
+        val speed = job.speedBps?.takeIf { it > 0 }?.let { ExplorerText.speed(it) }
+        return listOfNotNull(name, speed).joinToString(" · ").ifBlank { null }
+    }
+
     fun progress(context: Context, job: ExplorerJob, cancel: PendingIntent?): Notification {
         ensureChannels(context)
         val fraction = job.fraction
-        val text = when {
-            job.busySeconds != null -> ExplorerText.busy(job.busySeconds)
-            job.totalBytes > 0 -> ExplorerBytes.progress(job.doneBytes, job.totalBytes) + (ExplorerText.eta(job)?.let { " · $it" } ?: "")
-            job.totalFiles > 0 -> ExplorerText.fetching(job.doneFiles, job.totalFiles)
-            else -> ExplorerText.preparing
-        }
+        val text = progressText(job)
+        val detail = currentText(job)
         val builder = NotificationCompat.Builder(context, CHANNEL_PROGRESS)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle(job.request.title)
+            .setContentTitle(ExplorerText.percentOf(job.request.title, ExplorerProgress.percent(job)))
             .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(listOfNotNull(text, detail).joinToString("\n")))
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setProgress(1000, ((fraction ?: 0f) * 1000).toInt(), fraction == null)
-        launch(context)?.let { builder.setContentIntent(it) }
+        val open = launch(context)
+        open?.let { builder.setContentIntent(it) }
+        if (job.pausable) builder.addAction(0, ExplorerText.pause, ExplorerCancelReceiver.pause(context, job.id))
         cancel?.let { builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, ExplorerText.cancel, it) }
+        open?.let { builder.addAction(0, ExplorerText.open, it) }
         return builder.build()
+    }
+
+    fun paused(context: Context, job: ExplorerJob) {
+        if (!allowed(context)) return
+        ensureChannels(context)
+        val builder = NotificationCompat.Builder(context, CHANNEL_PROGRESS)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle(ExplorerText.percentOf(job.request.title, ExplorerProgress.percent(job)))
+            .setContentText("${ExplorerText.paused} · ${progressText(job)}")
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setProgress(1000, ((job.fraction ?: 0f) * 1000).toInt(), false)
+            .addAction(0, ExplorerText.resume, ExplorerCancelReceiver.resume(context, job.id))
+            .addAction(0, ExplorerText.cancel, ExplorerCancelReceiver.intent(context, job.id))
+        launch(context)?.let { builder.setContentIntent(it) }
+        try {
+            NotificationManagerCompat.from(context).notify(idFor(job.id) + DONE_OFFSET, builder.build())
+        } catch (denied: SecurityException) {
+            return
+        }
+    }
+
+    fun finishedTitle(job: ExplorerJob): String =
+        if (job.state == ExplorerJobState.DONE) "${ExplorerText.savedShort} ${job.request.title}" else job.request.title
+
+    fun finishedText(job: ExplorerJob): String {
+        val result = job.result
+        if (job.state != ExplorerJobState.DONE) {
+            val name = if (job.request.single) job.request.fileName else null
+            return name?.let { ExplorerText.didntDownload(it) } ?: job.error ?: ExplorerText.fileFailed
+        }
+        if (result == null) return ExplorerText.doneLine(null)
+        result.message?.let { return it }
+        val size = ExplorerBytes.format(result.bytes.takeIf { it > 0 } ?: job.totalBytes.takeIf { it > 0 })
+        val head = listOfNotNull(ExplorerBytes.count(result.saved, "file"), size).joinToString(" · ")
+        val failed = if (result.failedCount > 0) ExplorerText.failedFiles(result.failedCount) else null
+        return listOfNotNull(head, failed).joinToString(" · ")
     }
 
     fun finished(context: Context, job: ExplorerJob) {
@@ -68,10 +118,8 @@ object ExplorerNotifications {
         val done = job.state == ExplorerJobState.DONE
         val builder = NotificationCompat.Builder(context, CHANNEL_DONE)
             .setSmallIcon(if (done) android.R.drawable.stat_sys_download_done else android.R.drawable.stat_notify_error)
-            .setContentTitle(job.request.title)
-            .setContentText(
-                if (done) ExplorerText.doneLine(job.result) else job.error ?: ExplorerText.fileFailed,
-            )
+            .setContentTitle(finishedTitle(job))
+            .setContentText(finishedText(job))
             .setAutoCancel(true)
         val uri = job.result?.let { ExplorerSaver.shareUri(context, it.location, it.uri) }
         val mime = job.result?.mimeType ?: job.request.mimeType
@@ -81,7 +129,12 @@ object ExplorerNotifications {
             builder.addAction(0, ExplorerText.open, PendingIntent.getActivity(context, idFor(job.id) + 1, view, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
             builder.addAction(0, ExplorerText.share, PendingIntent.getActivity(context, idFor(job.id) + 2, ExplorerOpen.shareIntent(uri, mime), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
         } else {
-            launch(context)?.let { builder.setContentIntent(it) }
+            val open = launch(context)
+            open?.let { builder.setContentIntent(it) }
+            if (!done) {
+                builder.addAction(0, ExplorerText.retry, ExplorerCancelReceiver.retry(context, job.id))
+                open?.let { builder.addAction(0, ExplorerText.details, it) }
+            }
         }
         try {
             NotificationManagerCompat.from(context).notify(idFor(job.id) + DONE_OFFSET, builder.build())

@@ -627,6 +627,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         takePasswordLink(intent)
         LocalAlerts.takeTap(intent)
+        com.fieldrepository.app.explorer.data.ExplorerDownloadsTap.take(intent)
         com.fieldrepository.app.forms.FormBundleInbox.take(applicationContext, intent)
     }
 
@@ -635,6 +636,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         takePasswordLink(intent, restored = savedInstanceState != null)
         if (savedInstanceState == null) LocalAlerts.takeTap(intent)
+        if (savedInstanceState == null) com.fieldrepository.app.explorer.data.ExplorerDownloadsTap.take(intent)
         if (savedInstanceState == null) com.fieldrepository.app.forms.FormBundleInbox.take(applicationContext, intent)
         val tokenStore = TokenStore(applicationContext)
         val repository = FieldRepository(ApiClient.create(tokenStore, OutboxSyncWorker.readCacheDir(applicationContext)), tokenStore)
@@ -1363,6 +1365,10 @@ private fun HomeScreen(
     val notificationOpenRequest by NotificationState.openRequests.collectAsState()
     LaunchedEffect(notificationOpenRequest) {
         if (notificationOpenRequest > 0L) screen = Screen.Notifications
+    }
+    val downloadsOpenRequest by com.fieldrepository.app.explorer.data.ExplorerDownloadsTap.requests.collectAsState()
+    LaunchedEffect(downloadsOpenRequest) {
+        if (downloadsOpenRequest > 0L) screen = Screen.DataBrowser
     }
     val notificationInbox by NotificationState.inbox.collectAsState()
     val unreadNotifications = notificationInbox?.takeIf { it.userId == user.id }?.let { NotificationInboxRules.unread(it) } ?: 0

@@ -4,7 +4,10 @@ import com.fieldrepository.app.explorer.FakeExplorerApi.Companion.bytes
 import com.fieldrepository.app.explorer.FakeExplorerApi.Companion.error
 import com.fieldrepository.app.explorer.FakeExplorerApi.Companion.ndjson
 import com.fieldrepository.app.explorer.data.ExplorerEngine
+import com.fieldrepository.app.explorer.data.ExplorerInvalidException
 import com.fieldrepository.app.explorer.data.ExplorerItem
+import com.fieldrepository.app.explorer.data.ExplorerJobKind
+import com.fieldrepository.app.explorer.data.ExplorerRecentStatus
 import com.fieldrepository.app.explorer.data.ExplorerJson
 import com.fieldrepository.app.explorer.data.ExplorerManifestFile
 import com.fieldrepository.app.explorer.data.ExplorerOutput
@@ -75,7 +78,7 @@ class ExplorerEngineTest {
     private fun folder(path: String = "Workshop") = ExplorerRequest(title = "W", fileName = "FieldRepository_Dataset_Export.zip", sources = listOf(ExplorerSource(path)))
 
     @QFeature("X10")
-    @Test fun `a folder zip holds every file and lists the one that failed three times`() = runBlocking {
+    @Test fun `a folder zip holds every file and lists the one that still failed after the retry at the end`() = runBlocking {
         val api = FakeExplorerApi()
         api.manifest = {
             ndjson(
@@ -101,7 +104,7 @@ class ExplorerEngineTest {
         assertEquals(1, result.failedCount)
         assertEquals(2, result.saved)
         assertEquals(3, result.total)
-        assertEquals(3, brokenTries)
+        assertEquals(6, brokenTries)
         assertTrue(sink.finished)
         assertTrue(ticks.last().doneFiles == 3)
     }
@@ -275,6 +278,87 @@ class ExplorerEngineTest {
         assertEquals("DesignWorkshop_Dataset_2026-11-05_Report.xlsx", sink.name)
         assertTrue(ticks.any { it.busySeconds == 2 })
         assertEquals(1, result.saved)
+    }
+
+    @Test fun `a file that fails is tried again at the end and saved`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.manifest = {
+            ndjson(
+                listOf(
+                    line(ExplorerManifestFile(path = "W/a.jpg", url = "/api/media/a", mediaId = "a", mediaType = "IMAGE", sizeBytes = 3)),
+                    line(ExplorerManifestFile(path = "W/b.jpg", url = "/api/media/b", mediaId = "b", mediaType = "IMAGE", sizeBytes = 3)),
+                ),
+            )
+        }
+        var tries = 0
+        api.paths = { path, _ ->
+            if (path.endsWith("/b") && ++tries <= 3) error(502) else bytes(byteArrayOf(4, 5, 6))
+        }
+        val sink = Sink()
+        val ticks = mutableListOf<ExplorerTick>()
+        val result = engine(api, sink).run("job-retry", folder()) { ticks += it }
+        assertEquals(setOf("W/a.jpg", "W/b.jpg"), sink.entries().keys)
+        assertEquals(0, result.failedCount)
+        assertEquals(2, result.saved)
+        assertTrue(ticks.any { it.retrying == 1 && it.finished?.status == ExplorerRecentStatus.RETRYING })
+        assertEquals(ExplorerRecentStatus.SAVED, ticks.last().finished?.status)
+        assertEquals("b.jpg", ticks.last().finished?.name)
+    }
+
+    @Test fun `a report is never resumed with a range, because a rebuilt report differs`() = runBlocking {
+        val api = FakeExplorerApi()
+        val whole = byteArrayOf(0x50, 0x4B, 0x03, 0x04) + ByteArray(120_000) { (it % 251).toByte() }
+        val ranges = mutableListOf<String?>()
+        api.paths = { _, range ->
+            ranges += range
+            if (ranges.size == 1) {
+                val ok = bytes(ByteArray(0))
+                val failing = object : ResponseBody() {
+                    override fun contentType() = null
+                    override fun contentLength() = whole.size.toLong()
+                    override fun source(): BufferedSource = object : ForwardingSource(Buffer().write(whole, 0, 70_000)) {
+                        override fun read(sink: Buffer, byteCount: Long): Long {
+                            val read = super.read(sink, byteCount)
+                            if (read < 0) throw IOException("reset")
+                            return read
+                        }
+                    }.buffer()
+                }
+                Response.success(failing, ok.raw())
+            } else {
+                bytes(whole)
+            }
+        }
+        val sink = Sink()
+        val request = ExplorerRequest(
+            title = "Report",
+            fileName = "Report.xlsx",
+            kind = ExplorerJobKind.REPORT,
+            single = true,
+            mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            items = listOf(ExplorerItem(path = "", url = "/api/data/report?format=xlsx")),
+        )
+        engine(api, sink).run("job-report", request) { }
+        assertEquals(listOf<String?>(null, null), ranges)
+        assertTrue(whole.contentEquals(sink.bytes.toByteArray()))
+    }
+
+    @Test fun `a report that comes back as an error is never saved as a file`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.paths = { _, _ -> bytes("{\"detail\":\"Report busy\"}".toByteArray(), headers = mapOf("Content-Type" to "application/json")) }
+        val sink = Sink()
+        val request = ExplorerRequest(
+            title = "Report",
+            fileName = "Report.xlsx",
+            kind = ExplorerJobKind.REPORT,
+            single = true,
+            mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            items = listOf(ExplorerItem(path = "", url = "/api/data/report?format=xlsx")),
+        )
+        val failure = runCatching { engine(api, sink).run("job-bad", request) { } }.exceptionOrNull()
+        assertTrue("got $failure", failure is ExplorerInvalidException)
+        assertEquals(null, sink.name)
+        assertFalse(sink.finished)
     }
 
     @Test fun `a manifest of twenty thousand rows streams without holding them`() = runBlocking {
