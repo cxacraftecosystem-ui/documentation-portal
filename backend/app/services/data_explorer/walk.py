@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.services import transcript_export, transcript_pipeline
-from app.services.data_explorer import slim, stats
+from app.services.data_explorer import slim, stats, tree
 from app.services.media_naming import unique_name
 
 MAX_MANIFEST_FILES = 20000
@@ -143,6 +143,7 @@ class Walk:
                 "mediaId": mid,
                 "mediaType": media_type,
                 "sizeBytes": size,
+                "capturedAt": tree.captured_at(e.get("_media")),
             }
             if media_type == "AUDIO":
                 entry["originalPath"] = join(rel, name)
@@ -244,10 +245,12 @@ async def fill_digests(files: list[dict[str, Any] | None]) -> None:
             continue
         content = entry.get("content")
         if isinstance(content, str):
+            entry["capturedAt"] = None
             raw = content.encode("utf-8")
             entry["sha256"] = hashlib.sha256(raw).hexdigest()
             entry["sizeBytes"] = len(raw)
             continue
+        entry.setdefault("capturedAt", None)
         digest = found.get(str(entry.get("mediaId"))) if _stored_file(entry) else None
         if entry.get("convertToMp4"):
             entry["sha256"] = None

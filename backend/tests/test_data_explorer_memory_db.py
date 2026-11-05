@@ -350,3 +350,57 @@ def test_the_workshop_overview_counts_coverage_and_costs_the_same_at_any_size(mo
     assert section["state"] == "partial"
     assert section["missing"] == ["Prompt 1", "Prompt 2"]
     assert artisan["path"].endswith(f"/artisans/{artisan['id']}")
+
+
+def test_tree_counts_and_capture_times_cost_the_same_at_any_size(monkeypatch):
+    async def work() -> dict[str, Any]:
+        seed = await _seed()
+        try:
+            headers = _auth(seed["admin"])
+            wid = seed["workshop"].id
+            costs: dict[int, int] = {}
+            listed: dict[str, Any] = {}
+            async with asgi_client() as client:
+                for size in (2, 8):
+                    while len(seed["media"]) < size:
+                        n = len(seed["media"])
+                        await _media(seed, "IMAGE" if n % 2 else "AUDIO", f"c{n}.bin", 10)
+                    path = f"by-uploader/{wid}"
+                    await client.get("/api/data/tree", params={"path": path, "slim": "1"}, headers=headers)
+                    async with count_statements() as counted:
+                        answer = await client.get("/api/data/tree", params={"path": path, "slim": "1"}, headers=headers)
+                    assert answer.status_code == 200, answer.text
+                    costs[size] = counted.value
+                listed["people"] = answer.json()
+                listed["types"] = (
+                    await client.get(
+                        "/api/data/tree",
+                        params={"path": f"by-uploader/{wid}/{seed['admin'].id}/media", "slim": "1"},
+                        headers=headers,
+                    )
+                ).json()
+                listed["files"] = (
+                    await client.get(
+                        "/api/data/tree",
+                        params={"path": f"by-uploader/{wid}/{seed['admin'].id}/media/images", "slim": "1"},
+                        headers=headers,
+                    )
+                ).json()
+                listed["workshop"] = (
+                    await client.get("/api/data/tree", params={"path": f"by-workshop/{wid}", "slim": "1"}, headers=headers)
+                ).json()
+            return {"costs": costs, "listed": listed, "admin": seed["admin"].id}
+        finally:
+            await _cleanup(seed)
+
+    seen = _private(monkeypatch, work)
+    assert seen["costs"][2] == seen["costs"][8], seen["costs"]
+    person = next(e for e in seen["listed"]["people"]["entries"] if e["path"].endswith(seen["admin"]))
+    assert person["count"] == 8 and person["bytes"] == 80
+    types = {e["path"].rsplit("/", 1)[-1]: e for e in seen["listed"]["types"]["entries"]}
+    assert types["images"]["count"] == 4 and types["audios"]["count"] == 4
+    assert types["transcripts"]["count"] is None
+    files = [e for e in seen["listed"]["files"]["entries"] if e["kind"] == "file"]
+    assert files and all(isinstance(e["capturedAt"], str) for e in files)
+    folders = [e for e in seen["listed"]["workshop"]["entries"] if e["kind"] == "folder"]
+    assert all(e["count"] is None and e["bytes"] is None for e in folders)

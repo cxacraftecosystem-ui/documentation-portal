@@ -39,6 +39,8 @@ clients build against that file. This page explains what each part does and why.
 | Clear voices | `GET /data/media/{media_id}/peaks` says `isolated` and `canIsolate`; `GET /data/media/{media_id}/preview?variant=isolated` signs the isolated copy; `POST /data/media/{media_id}/isolate` queues the existing audio-isolation job when the admin switch is on and keyed, the caller uploaded the file or is a content admin, and consent allows (`backend/app/services/data_explorer/isolate.py`) |
 | Section links | Each overview square has `href`, the session view of the sitting that answered that section, with `?section=<code>` |
 | Resumable folders | Every manifest line carries `sizeBytes` and `sha256` (`MediaFile.contentSha256`, else a 64-hex `checksum`; for inline text, of its bytes; for audio sent as `.mp4`, `originalSha256` instead). The stored original is resumable with `Range` through `/data/media/{media_id}/download?format=original`, which redirects to storage; the converted `.mp4` stream is not |
+| Captured date | Every file in `GET /data/tree` and every manifest line carries `capturedAt`: `MediaFile.recordedAt`, else `createdAt`; `null` for text |
+| Folder counts | Every folder in `GET /data/tree` carries `count` and `bytes`, the stored files under it, from one grouped `MediaFile` query per listing (`backend/app/services/data_explorer/counts.py`). Numbers on `by-type` and every `by-uploader` level; `null` on the root, `by-workshop`, `by-design-workshop`, `users` and the `transcripts` folders, whose contents no single grouped query can express |
 
 ## Routes
 

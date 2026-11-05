@@ -98,7 +98,7 @@
         "status": "FR only: review status filter for the tree, unchanged"
       },
       "response": "{path, crumbs, entries: [TreeEntry], info, truncated: bool, total: int, nextCursor: string | null, taxonomies, taxonomy, designWorkshopsVisible (DR), designWorkshopsDownloadable (DR)}",
-      "notes": "Removed recordings (removedAt set) never appear (A1). truncated is true when a source list hit treeTake; nextCursor pages the entries of this level in their shown order."
+      "notes": "Removed recordings (removedAt set) never appear (A1). truncated is true when a source list hit treeTake; nextCursor pages the entries of this level in their shown order. 0.0.13: every file entry carries capturedAt (ISO; the recording's recordedAt, else createdAt; null for text entries). Every folder entry carries count and bytes: the stored files (photos, videos, recordings, documents; not transcripts or details text) under it, from one grouped query per listing. They are numbers on by-type, by-uploader and its workshop, person, branch and media levels, and null where one grouped query cannot express the subtree (the repository root, by-workshop, by-design-workshop, users)."
     },
     {
       "id": "transcript",
@@ -142,7 +142,7 @@
         "X-Dataset-Truncated": "true | false",
         "X-Dataset-Skipped": "int"
       },
-      "notes": "Android folder downloads include everything by default (owner decision 3): send no include. Every line carries sizeBytes and sha256 (hex, null when unknown; for a convertToMp4 line sha256 is null and originalSha256 describes the stored original). A client skips a file it already has with that digest and size, and Range-resumes the original through /data/media/{media_id}/download?format=original, which redirects to storage that honours Range. The converted .mp4 stream does not."
+      "notes": "Android folder downloads include everything by default (owner decision 3): send no include. Every line carries sizeBytes and sha256 (hex, null when unknown; for a convertToMp4 line sha256 is null and originalSha256 describes the stored original). A client skips a file it already has with that digest and size, and Range-resumes the original through /data/media/{media_id}/download?format=original, which redirects to storage that honours Range. The converted .mp4 stream does not. Every line also carries capturedAt (null for text)."
     },
     {
       "id": "manifest-selection",
@@ -150,7 +150,7 @@
       "path": "/data/manifest",
       "body": "{paths: [string] (<= manifestMaxPaths), mediaIds: [string] (<= manifestMaxMediaIds), include: [typeToken] | null, stream: bool}",
       "response": "as GET /data/manifest",
-      "notes": "Multi-select download (W11). Each selected folder becomes a top-level folder named as in the tree (made unique); selected files sit at the top level. A media file selected twice appears once. Every line carries sizeBytes and sha256 (hex, null when unknown; for a convertToMp4 line sha256 is null and originalSha256 describes the stored original). A client skips a file it already has with that digest and size, and Range-resumes the original through /data/media/{media_id}/download?format=original, which redirects to storage that honours Range. The converted .mp4 stream does not."
+      "notes": "Multi-select download (W11). Each selected folder becomes a top-level folder named as in the tree (made unique); selected files sit at the top level. A media file selected twice appears once. Every line carries sizeBytes and sha256 (hex, null when unknown; for a convertToMp4 line sha256 is null and originalSha256 describes the stored original). A client skips a file it already has with that digest and size, and Range-resumes the original through /data/media/{media_id}/download?format=original, which redirects to storage that honours Range. The converted .mp4 stream does not. Every line also carries capturedAt (null for text)."
     },
     {
       "id": "thumbnail",
