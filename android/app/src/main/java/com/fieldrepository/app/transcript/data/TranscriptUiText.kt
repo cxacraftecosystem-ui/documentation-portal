@@ -7,6 +7,8 @@ object TranscriptUiText {
     const val done = "Done"
     const val play = "Play"
     const val pause = "Pause"
+    const val back10 = "Back 10 seconds"
+    const val forward10 = "Forward 10 seconds"
     const val more = "More"
     const val accept = "Accept"
     const val dismiss = "Dismiss"

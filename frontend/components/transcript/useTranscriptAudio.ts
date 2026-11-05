@@ -10,6 +10,7 @@ export function useTranscriptAudio(src: string | null | undefined) {
   const frame = useRef<number | null>(null);
   const stopAt = useRef<number | null>(null);
   const [sampling, setSampling] = useState(false);
+  const [rate, setRateState] = useState(1);
 
   const reached = useCallback((ms: number) => {
     const audio = audioRef.current;
@@ -80,6 +81,12 @@ export function useTranscriptAudio(src: string | null | undefined) {
     else audio.pause();
   }, []);
 
+  const setRate = useCallback((next: number) => {
+    setRateState(next);
+    const audio = audioRef.current;
+    if (audio) audio.playbackRate = next;
+  }, []);
+
   const attach = useCallback((node: HTMLMediaElement | null) => {
     audioRef.current = node;
   }, []);
@@ -109,6 +116,7 @@ export function useTranscriptAudio(src: string | null | undefined) {
     onLoadedMetadata: () => {
       const audio = audioRef.current;
       if (audio && Number.isFinite(audio.duration)) setDurationMs(Math.round(audio.duration * 1000));
+      if (audio) audio.playbackRate = rate;
     },
     onDurationChange: () => {
       const audio = audioRef.current;
@@ -116,7 +124,7 @@ export function useTranscriptAudio(src: string | null | undefined) {
     }
   };
 
-  return { bind, playing, sampling, currentMs, durationMs, seek, toggle, playRange, hasAudio: Boolean(src) };
+  return { bind, playing, sampling, currentMs, durationMs, seek, toggle, playRange, rate, setRate, hasAudio: Boolean(src) };
 }
 
 export type TranscriptAudio = ReturnType<typeof useTranscriptAudio>;

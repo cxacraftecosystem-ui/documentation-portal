@@ -39,6 +39,8 @@ import { useTranscriptAudio } from "./useTranscriptAudio";
 
 const POLL_MS = 15_000;
 
+const RATES = [0.75, 1, 1.25, 1.5, 2] as const;
+
 const TABS: { id: ViewTab; key: "tabOriginal" | "tabEnglish" | "tabSideBySide" }[] = [
   { id: "original", key: "tabOriginal" },
   { id: "english", key: "tabEnglish" },
@@ -238,6 +240,8 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
   const allMarked = ready && transcript.turns.every((turn) => marks.has(turn.id));
   const duration = audio.durationMs || transcript.audio.durationMs || transcript.durationMs || 0;
   const filled = duration > 0 ? (100 * Math.min(audio.currentMs, duration)) / duration : 0;
+  const speakingName = position ? transcript.turns[position.turnIndex]?.speakerName : null;
+  const speaking = speakingName ? `${speakingName} speaking` : null;
 
   return (
     <section className="mt-2 grid gap-3" aria-label={ts("transcript")} data-transcript-viewer={transcript.mediaId}>
@@ -324,41 +328,74 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
       {audio.hasAudio ? (
         <div
           ref={playerRef}
-          className="relative flex items-center gap-3 rounded-md border border-line-200 bg-card px-3 py-2"
+          className="relative flex flex-wrap items-center gap-x-4 gap-y-2 rounded-[20px] border border-line-200 bg-linear-to-b from-[#faf5ff] to-card px-4 py-3.5 dark:from-purple-950/40"
           data-transcript-player
         >
           {(video ?? transcript.audio.video) ? null : <audio {...audio.bind} className="hidden" data-transcript-audio />}
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => audio.seek(Math.max(0, audio.currentMs - 10_000), false)}
+              aria-label={ts("back10")}
+              className="grid h-11 w-11 place-items-center rounded-full border border-line-200 bg-card text-[13px] text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40"
+            >
+              ↺10
+            </button>
+            <button
+              type="button"
+              onClick={audio.toggle}
+              aria-label={audio.playing ? ts("pause") : ts("play")}
+              className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-purple-700 text-white transition hover:bg-purple-800"
+              data-testid="transcript-play"
+            >
+              {audio.playing ? <Pause className="h-5 w-5" fill="currentColor" aria-hidden /> : <Play className="ml-0.5 h-5 w-5" fill="currentColor" aria-hidden />}
+            </button>
+            <button
+              type="button"
+              onClick={() => audio.seek(Math.min(duration || Infinity, audio.currentMs + 10_000), false)}
+              aria-label={ts("forward10")}
+              className="grid h-11 w-11 place-items-center rounded-full border border-line-200 bg-card text-[13px] text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40"
+            >
+              10↻
+            </button>
+          </div>
+          <div className="grid min-w-[12rem] flex-1 gap-1">
+            <div className="relative flex h-4 min-w-0 items-center" data-audio-timeline>
+              <input
+                type="range"
+                min={0}
+                max={Math.max(duration, 1)}
+                step={100}
+                value={Math.min(audio.currentMs, Math.max(duration, 1))}
+                onChange={(event) => audio.seek(Number(event.target.value), false)}
+                aria-label={ts("playFrom", { time: clock(audio.currentMs) })}
+                className="audio-range block h-4 w-full"
+                data-timeline-bar
+                style={
+                  {
+                    "--audio-range-fill": `linear-gradient(to right, rgb(var(--progress-fill)) 0%, rgb(var(--progress-fill)) ${filled}%, rgb(var(--progress-track)) ${filled}%, rgb(var(--progress-track)) 100%)`
+                  } as React.CSSProperties
+                }
+              />
+              <TimelineMarks turns={transcript.turns.filter((turn) => marks.has(turn.id))} durationMs={duration} onSeek={seek} rowRef={playerRef} />
+            </div>
+            <div className="flex justify-between gap-2 text-xs text-ink-500">
+              <span className="tabular-nums" data-audio-clock>
+                <strong className="font-semibold text-ink-900">{clock(audio.currentMs)}</strong>
+                {duration ? ` / ${clock(duration)}` : ""}
+              </span>
+              {speaking ? <span className="truncate">{speaking}</span> : null}
+            </div>
+          </div>
           <button
             type="button"
-            onClick={audio.toggle}
-            aria-label={audio.playing ? ts("pause") : ts("play")}
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-purple-700 text-white transition hover:bg-purple-800"
-            data-testid="transcript-play"
+            onClick={() => audio.setRate(RATES[(RATES.indexOf(audio.rate as (typeof RATES)[number]) + 1) % RATES.length])}
+            aria-label={ts("speedLabel", { rate: audio.rate })}
+            className="inline-flex min-h-10 shrink-0 items-center rounded-xl border border-line-200 bg-card px-3.5 text-[13px] text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40"
+            data-testid="transcript-speed"
           >
-            {audio.playing ? <Pause className="h-4 w-4" aria-hidden /> : <Play className="ml-0.5 h-4 w-4" aria-hidden />}
+            {ts("speed", { rate: audio.rate })}
           </button>
-          <div className="relative flex h-4 min-w-0 flex-1 items-center" data-audio-timeline>
-          <input
-            type="range"
-            min={0}
-            max={Math.max(duration, 1)}
-            step={100}
-            value={Math.min(audio.currentMs, Math.max(duration, 1))}
-            onChange={(event) => audio.seek(Number(event.target.value), false)}
-            aria-label={ts("playFrom", { time: clock(audio.currentMs) })}
-            className="audio-range block h-4 w-full"
-            data-timeline-bar
-            style={
-              {
-                "--audio-range-fill": `linear-gradient(to right, rgb(var(--progress-fill)) 0%, rgb(var(--progress-fill)) ${filled}%, rgb(var(--progress-track)) ${filled}%, rgb(var(--progress-track)) 100%)`
-              } as React.CSSProperties
-            }
-          />
-          <TimelineMarks turns={transcript.turns.filter((turn) => marks.has(turn.id))} durationMs={duration} onSeek={seek} rowRef={playerRef} />
-          </div>
-          <span className="shrink-0 font-mono text-xs tabular-nums text-ink-500" data-audio-clock>
-            {clock(audio.currentMs)}
-          </span>
         </div>
       ) : null}
       {audio.hasAudio && cleanedAudio ? (

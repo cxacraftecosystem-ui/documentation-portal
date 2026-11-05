@@ -33,7 +33,11 @@ const WEB = {
   copyView: "Copy this view",
   markAll: "Mark all",
   clearMarks: "Clear marks",
-  followAlong: "Follow along"
+  followAlong: "Follow along",
+  back10: "Back 10 seconds",
+  forward10: "Forward 10 seconds",
+  speed: "Speed {rate}×",
+  speedLabel: "Playback speed {rate}×"
 } as const;
 
 export type TranscriptStringKey = keyof typeof SHARED.strings | keyof typeof WEB;

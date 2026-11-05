@@ -122,7 +122,7 @@ import {
 import { Toggle } from "@/components/ui/Toggle";
 
 const PARAGRAPH_CLASS = "text-sm leading-6 text-ink-900";
-const QUOTE_CLASS = "border-l-2 border-purple-300 pl-3 text-sm italic leading-6 text-ink-700";
+const QUOTE_CLASS = "rounded-lg bg-purple-50 px-3 py-1.5 text-sm italic leading-6 text-ink-700 dark:bg-purple-950/30";
 
 const HEADING_CLASS: Record<number, string> = {
   1: "font-display text-3xl font-bold leading-9 text-purple-800 dark:text-purple-300 border-b border-line-300 pb-1 mt-4",
