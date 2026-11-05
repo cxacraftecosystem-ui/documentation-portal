@@ -35,6 +35,10 @@ clients build against that file. This page explains what each part does and why.
 | Waveform | `GET /data/media/{media_id}/peaks` decodes the recording once with ffmpeg (mono, 2 kHz, one decode at a time, two minutes at most), keeps 800 peaks in `MediaWaveform`, and answers `404` for anything that is not audio or video |
 | Workshop overview | `GET /data/overview?path=by-workshop/<id>` gives totals and, per artisan, recorded fields, media, transcripts, review and one state per questionnaire section (`backend/app/services/data_explorer/overview.py`). Its statement count does not grow with the number of files |
 | Transcripts export | `GET /data/transcripts/export?path=&format=docx` puts every readable transcript of the folder into one `.docx`, one per page, through the report queue |
+| Row numbers | Every JSON sheet carries `rowNumbers`, parallel to `rows`: each row's place in the whole sheet, so a search result says which row it is. A cap note row is `0` |
+| Clear voices | `GET /data/media/{media_id}/peaks` says `isolated` and `canIsolate`; `GET /data/media/{media_id}/preview?variant=isolated` signs the isolated copy; `POST /data/media/{media_id}/isolate` queues the existing audio-isolation job when the admin switch is on and keyed, the caller uploaded the file or is a content admin, and consent allows (`backend/app/services/data_explorer/isolate.py`) |
+| Section links | Each overview square has `href`, the session view of the sitting that answered that section, with `?section=<code>` |
+| Resumable folders | Every manifest line carries `sizeBytes` and `sha256` (`MediaFile.contentSha256`, else a 64-hex `checksum`; for inline text, of its bytes; for audio sent as `.mp4`, `originalSha256` instead). The stored original is resumable with `Range` through `/data/media/{media_id}/download?format=original`, which redirects to storage; the converted `.mp4` stream is not |
 
 ## Routes
 
@@ -58,6 +62,7 @@ All routes sit under `/api/data` and need dataset-download access, like the rest
 | `GET /data/transcripts/list` | The Transcripts tab: the recordings of a folder, with a snippet when `q` is given |
 | `GET /data/transcripts/export` | Every readable transcript of a folder in one `.docx` |
 | `GET /data/media/{media_id}/peaks` | 800 waveform peaks between 0 and 1, and the length |
+| `POST /data/media/{media_id}/isolate` | Queue a clear-voices copy of one recording |
 | `POST /data/visits` | Record a visit; how many files and transcripts are new since the last one |
 | `GET /data/overview` | Workshop coverage: totals and per-artisan section states |
 | `GET /data/views`, `POST /data/views`, `GET`, `PATCH`, `DELETE /data/views/{view_id}` | Saved views: folder, tab, sheet, search and filters, private or shared |

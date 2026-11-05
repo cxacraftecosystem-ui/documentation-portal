@@ -16,6 +16,7 @@ from app.services import naming, transcript_export, transcript_pipeline
 from app.services.data_explorer import (
     browse,
     downloads,
+    isolate,
     overview,
     peaks,
     report_options,
@@ -160,10 +161,11 @@ def manifest_headers(files: list[dict[str, Any]], totals: dict[str, Any], trunca
     }
 
 
-def manifest_response(files: list[dict[str, Any]], truncated: bool, *, stream: bool) -> Response:
+async def manifest_response(files: list[dict[str, Any]], truncated: bool, *, stream: bool) -> Response:
     totals = stats.totals(files, truncated=truncated)
     headers = manifest_headers(files, totals, truncated)
     if not stream:
+        await walk.fill_digests(files)
         return JSONResponse(
             {
                 "files": files,
@@ -181,6 +183,7 @@ def manifest_response(files: list[dict[str, Any]], truncated: bool, *, stream: b
         for start in range(0, count, STREAM_CHUNK):
             chunk = files[start : start + STREAM_CHUNK]
             await walk.fill_texts(chunk)
+            await walk.fill_digests(chunk)
             lines = [json.dumps(entry, ensure_ascii=False) for entry in chunk if entry is not None]
             for index in range(start, min(start + STREAM_CHUNK, count)):
                 files[index] = None  # type: ignore[call-overload]
@@ -234,7 +237,7 @@ async def selection_manifest(
         _include(body.get("include")),
         fill=not stream,
     )
-    return manifest_response(files, truncated, stream=stream)
+    return await manifest_response(files, truncated, stream=stream)
 
 
 @router.get("/media/{media_id}/transcript")
@@ -278,9 +281,14 @@ async def media_download(
 
 @router.get("/media/{media_id}/preview")
 async def media_preview(
-    media_id: str, current_user: Any = Depends(require_dataset_downloader)
+    media_id: str,
+    variant: str | None = Query(None, pattern="^(original|isolated)$"),
+    current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
-    return downloads.preview_redirect(await media_for(current_user, media_id))
+    media = await media_for(current_user, media_id)
+    if variant == "isolated":
+        return isolate.isolated_redirect(media)
+    return downloads.preview_redirect(media)
 
 
 @router.get("/media/{media_id}/thumbnail")
@@ -818,9 +826,10 @@ async def media_peaks(media_id: str, current_user: Any = Depends(require_dataset
     media = await media_for(current_user, media_id, named=False)
     if downloads.kind_of(media) not in peaks.KINDS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No waveform")
+    voices = {"isolated": isolate.isolated(media), "canIsolate": await isolate.can_isolate(current_user, media)}
     stored = await db.mediawaveform.find_unique(where={"mediaFileId": str(media.id)})
     if stored is not None and isinstance(stored.peaks, list) and stored.peaks:
-        return {"peaks": stored.peaks, "durationMs": stored.durationMs}
+        return {"peaks": stored.peaks, "durationMs": stored.durationMs, **voices}
     try:
         values, duration = await peaks.peaks_of(_peaks_source(media))
     except peaks.DecodeBusy:
@@ -839,7 +848,15 @@ async def media_peaks(media_id: str, current_user: Any = Depends(require_dataset
                 "update": {"peaks": Json(values), "durationMs": duration},
             },
         )
-    return {"peaks": values, "durationMs": duration}
+    return {"peaks": values, "durationMs": duration, **voices}
+
+
+@router.post("/media/{media_id}/isolate", status_code=status.HTTP_202_ACCEPTED)
+async def media_isolate(media_id: str, current_user: Any = Depends(require_dataset_downloader)) -> dict[str, Any]:
+    media = await media_for(current_user, media_id, named=False)
+    if downloads.kind_of(media) != "AUDIO":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not a recording")
+    return await isolate.request(current_user, media)
 
 
 @router.get("/overview")

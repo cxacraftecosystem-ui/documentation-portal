@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import hashlib
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -208,6 +210,51 @@ async def settle(files: list[dict[str, Any]], *, fill: bool) -> None:
         for start in range(0, len(files), FILL_CHUNK):
             await fill_texts(files[start : start + FILL_CHUNK])
     stats.annotate(files)
+
+
+_DIGEST_SQL = 'SELECT "id", "contentSha256", "checksum" FROM "MediaFile" WHERE "id" = ANY($1::text[])'
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+DIGEST_CHUNK = 500
+
+
+def _digest(row: dict[str, Any]) -> str | None:
+    for key in ("contentSha256", "checksum"):
+        value = str(row.get(key) or "").strip().lower()
+        if _HEX64.fullmatch(value):
+            return value
+    return None
+
+
+def _stored_file(entry: dict[str, Any]) -> bool:
+    return bool(entry.get("mediaId")) and entry.get("content") is None and not entry.get("_fill") and (
+        entry.get("mediaType") in TYPE_TOKEN
+    )
+
+
+async def fill_digests(files: list[dict[str, Any] | None]) -> None:
+    from app.core.db import db
+
+    wanted = list(dict.fromkeys(str(f["mediaId"]) for f in files if f is not None and _stored_file(f)))
+    found: dict[str, str | None] = {}
+    for start in range(0, len(wanted), DIGEST_CHUNK):
+        for row in await db.query_raw(_DIGEST_SQL, wanted[start : start + DIGEST_CHUNK]):
+            found[str(row["id"])] = _digest(row)
+    for entry in files:
+        if entry is None:
+            continue
+        content = entry.get("content")
+        if isinstance(content, str):
+            raw = content.encode("utf-8")
+            entry["sha256"] = hashlib.sha256(raw).hexdigest()
+            entry["sizeBytes"] = len(raw)
+            continue
+        digest = found.get(str(entry.get("mediaId"))) if _stored_file(entry) else None
+        if entry.get("convertToMp4"):
+            entry["sha256"] = None
+            entry["originalSha256"] = digest
+        else:
+            entry["sha256"] = digest
+        entry.setdefault("sizeBytes", None)
 
 
 def media_count(files: list[dict[str, Any]]) -> int:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import HTTPException, status
 
@@ -76,6 +77,26 @@ def coverage(sections: list[dict[str, Any]], answered: set[str]) -> tuple[dict[s
         missing = [prompt for k, prompt in keys if k not in answered][:MISSING_MAX]
         out.append({"key": section["key"], "state": state, "missing": missing})
     return {"filled": filled, "total": total}, out
+
+
+def section_href(interview_id: str, code: str) -> str:
+    return f"/questionnaire/sessions/{quote(interview_id, safe='')}/view?section={quote(code, safe='')}"
+
+
+def link_sections(
+    states: list[dict[str, Any]],
+    sections: list[dict[str, Any]],
+    interview_ids: list[str],
+    answered_by_interview: dict[str, set[str]],
+) -> None:
+    keys_of = {section["key"]: {k for k, _ in section["questions"]} for section in sections}
+    for state in states:
+        keys = keys_of.get(state["key"], set())
+        chosen = next(
+            (i for i in interview_ids if answered_by_interview.get(i, set()) & keys),
+            interview_ids[0] if interview_ids else None,
+        )
+        state["href"] = section_href(chosen, state["key"]) if chosen else None
 
 
 def transcript_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
@@ -172,6 +193,7 @@ async def workshop_overview(browser: Any, norm: str, scope: Any) -> dict[str, An
         await db.questionnaireinterview.find_many(
             where=_interview_where(browser, aids, scope),
             include={"artisans": True},
+            order=[{"createdAt": "desc"}, {"id": "desc"}],
             take=INTERVIEWS_MAX,
         )
         if aids
@@ -182,11 +204,13 @@ async def workshop_overview(browser: Any, norm: str, scope: Any) -> dict[str, An
     by_media = {str(r["id"]): r for r in rows}
 
     answered: dict[str, set[str]] = {aid: set() for aid in aids}
+    sittings: dict[str, list[str]] = {aid: [] for aid in aids}
     for interview in interviews:
         keys = answered_by_interview.get(str(interview.id), set())
         for link in getattr(interview, "artisans", None) or []:
             if str(link.artisanId) in answered:
                 answered[str(link.artisanId)] |= keys
+                sittings[str(link.artisanId)].append(str(interview.id))
 
     per_media: dict[str, list[dict[str, Any]]] = {aid: [] for aid in aids}
     per_bytes: dict[str, int] = dict.fromkeys(aids, 0)
@@ -204,6 +228,7 @@ async def workshop_overview(browser: Any, norm: str, scope: Any) -> dict[str, An
     for artisan in artisans:
         aid = str(artisan.id)
         fields, section_states = coverage(sections, answered.get(aid, set()))
+        link_sections(section_states, sections, sittings.get(aid, []), answered_by_interview)
         filled_total["filled"] += fields["filled"]
         filled_total["total"] += fields["total"]
         craft_id = getattr(artisan, "craftId", None) or NO_CRAFT

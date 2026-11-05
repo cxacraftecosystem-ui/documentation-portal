@@ -1596,7 +1596,7 @@ async def data_manifest(
     files, truncated = await explorer_walk.manifest_files(
         _list_level, scope, [(_norm(path), "")], include_set, fill=not stream
     )
-    return data_explorer.manifest_response(files, truncated, stream=stream)
+    return await data_explorer.manifest_response(files, truncated, stream=stream)
 
 
 _ARTISAN_INCLUDE = {
@@ -2578,8 +2578,10 @@ def _preview(sheets: list[dict[str, Any]], uncounted: set[int]) -> list[dict[str
         cut = len(data) > PREVIEW_ROWS or (not known and bool(sheet.get("truncated")))
         capped = bool(sheet.get("truncated")) and known
         entry = {k: v for k, v in sheet.items() if k not in ("rows", "noteRow")}
+        numbers = list(range(1, len(shown) + 1))
         entry.update(
             rows=[*shown, *note] if capped else shown,
+            rowNumbers=[*numbers, *([0] * len(note))] if capped else numbers,
             truncated=cut or capped,
             preview=cut,
             capped=capped,

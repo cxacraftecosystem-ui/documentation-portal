@@ -49,10 +49,12 @@ def search(
     wanted = words(query)
     out: list[dict[str, Any]] = []
     for sheet in sheets:
-        matched = [row for row in _data_rows(sheet) if row_matches(row, wanted)]
+        numbered = [(n, row) for n, row in enumerate(_data_rows(sheet), start=1) if row_matches(row, wanted)]
+        matched = [row for _n, row in numbered]
         entry = {k: v for k, v in sheet.items() if k not in ("rows", "noteRow")}
         entry.update(
             rows=matched[:limit],
+            rowNumbers=[n for n, _row in numbered[:limit]],
             matchedRows=len(matched),
             totalRows=len(_data_rows(sheet)),
             truncated=len(matched) > limit or bool(sheet.get("truncated")),
