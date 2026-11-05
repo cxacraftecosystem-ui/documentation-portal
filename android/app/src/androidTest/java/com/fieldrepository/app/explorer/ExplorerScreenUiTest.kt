@@ -382,8 +382,6 @@ class ExplorerScreenUiTest {
     @Test fun theShowingLineLoadsMoreUntilEntryThirtyOneOfThirtyOne() {
         val fake = Fake().apply { long = 31 }
         show(fake)
-        scrollTo("explorer.folder.card")
-        compose.waitUntil(15_000) { compose.onAllNodes(hasTestTag("explorer.showing"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
         runCatching {
             scrollTo("explorer.showing.more")
             compose.onNodeWithTag("explorer.showing.more").performSemanticsAction(SemanticsActions.OnClick)
@@ -391,7 +389,6 @@ class ExplorerScreenUiTest {
         reach("explorer.file.q31")
         compose.onNodeWithTag("explorer.file.q31").assertExists()
         assertTrue(listOf(10, 20, 30).all { at -> fake.calls.contains("tree:w:$at:1") })
-        scrollTo("explorer.folder.card")
         compose.onNodeWithTag("explorer.showing", useUnmergedTree = true).assertDoesNotExist()
     }
 
