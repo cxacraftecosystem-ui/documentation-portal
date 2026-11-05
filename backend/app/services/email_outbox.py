@@ -168,6 +168,29 @@ async def _send_one(row: Any, settings: Settings) -> str:
     except ValueError as exc:
         await _finish(row.id, FAILED, error=f"Could not be rendered: {exc}")
         return FAILED
+    extra: dict[str, Any] = {}
+    if rendered.headers:
+        extra["headers"] = rendered.headers
+    attachment_key = params.get("attachmentKey")
+    if isinstance(attachment_key, str) and attachment_key:
+        from app.services import s3
+
+        try:
+            blob = await asyncio.to_thread(s3.get_object_bytes, attachment_key)
+        except Exception as exc:  # noqa: BLE001 - any storage fault retries the message
+            error = f"The attachment could not be read: {type(exc).__name__}"
+            if attempts >= max(int(row.maxAttempts or 1), 1):
+                await _finish(row.id, FAILED, error=error)
+                return FAILED
+            await _retry_later(row, attempts, error)
+            return QUEUED
+        extra["attachments"] = (
+            mailer.Attachment(
+                file_name=str(params.get("fileName") or "Report.xlsx"),
+                mime_type=str(params.get("attachmentMime") or "application/octet-stream"),
+                data=blob,
+            ),
+        )
     try:
         message_id = await asyncio.to_thread(
             mailer.send,
@@ -176,6 +199,7 @@ async def _send_one(row: Any, settings: Settings) -> str:
             text=rendered.text,
             html_body=rendered.html,
             settings=settings,
+            **extra,
         )
     except mailer.SendFailed as exc:
         if exc.permanent or attempts >= max(int(row.maxAttempts or 1), 1):

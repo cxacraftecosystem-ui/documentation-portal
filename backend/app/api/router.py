@@ -22,6 +22,9 @@ from app.api.routes import (
     data_browser,
     data_explorer,
     data_report,
+    data_report_pack,
+    data_report_schedule,
+    data_report_share,
     datasets,
     export,
     feedback,
@@ -90,6 +93,9 @@ api_router.include_router(export.router)
 api_router.include_router(data_browser.router)
 api_router.include_router(data_explorer.router)
 api_router.include_router(data_report.router)
+api_router.include_router(data_report_share.router)
+api_router.include_router(data_report_schedule.router)
+api_router.include_router(data_report_pack.router)
 api_router.include_router(datasets.router)
 api_router.include_router(transcript_data.router)
 api_router.include_router(app_release.router)

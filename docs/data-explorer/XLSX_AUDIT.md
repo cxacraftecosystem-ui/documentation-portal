@@ -6,7 +6,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 
 ## Design Prototype Workshop
 
-138 models, 1733 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+141 models, 1768 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
 
 ### Models and fields
 
@@ -19,14 +19,14 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **AppRelease**: excluded. Android release catalogue, not collected data.
 - **AppSetting**: excluded. Platform settings (transcription switches, budgets), not collected data.
 - **Artisan**
-  - `id`: Artisans › Artisan ID
-  - `name`: Artisans › Name
+  - `id`: Artisans › Artisan ID; Completeness › Artisan ID; Coverage › Artisan ID; Profile › Artisan ID
+  - `name`: Artisans › Name; Both portals › Artisan here; Completeness › Artisan; Coverage › Artisan; Glossary › Artisan; Quotes › Artisan
   - `localName`: Artisans › Local name
   - `gender`: Artisans › Gender
   - `phone`: Artisans › Phone
   - `phoneCountryCode`: Artisans › Phone country code
   - `email`: Artisans › Email
-  - `place`: Artisans › Place
+  - `place`: Artisans › Place; Map › Place
   - `aadhaarFingerprint`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
   - `aadhaarLast4`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
   - `pehchanCardAvailable`: Artisans › Pehchan card available
@@ -39,18 +39,18 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `experienceMonths`: Artisans › Experience months
   - `dos`: Artisans › Do's
   - `donts`: Artisans › Don'ts
-  - `status`: Artisans › Status
-  - `reviewNotes`: Artisans › Review notes
-  - `reviewedById`: Artisans › Reviewed by; Artisans › Reviewed by ID
-  - `reviewedAt`: Artisans › Reviewed on
+  - `status`: Artisans › Status; Audit and trust › Status; Profile › Status
+  - `reviewNotes`: Artisans › Review notes; Audit and trust › Review notes
+  - `reviewedById`: Artisans › Reviewed by; Artisans › Reviewed by ID; Audit and trust › Reviewed by
+  - `reviewedAt`: Artisans › Reviewed on; Audit and trust › Reviewed
   - `extraMetadata`: Artisans › More details
-  - `recordedAt`: Artisans › Recorded on
+  - `recordedAt`: Artisans › Recorded on; Audit and trust › Recorded; Profile › When
   - `recordedTimezone`: Artisans › Time zone
-  - `createdAt`: Artisans › Created on
-  - `updatedAt`: Artisans › Updated on
+  - `createdAt`: Artisans › Created on; Audit and trust › Saved
+  - `updatedAt`: Artisans › Updated on; Audit and trust › Updated
   - `craftId`: Artisans › Craft; Artisans › Craft ID
   - `locationId`: Artisans › Location; Artisans › Location ID
-  - `createdById`: Artisans › Created by; Artisans › Created by ID
+  - `createdById`: Artisans › Created by; Artisans › Created by ID; Audit and trust › Recorded by
   - `workshopId`: Artisans › Workshop; Artisans › Workshop ID
   - `designWorkshopId`: Artisans › Design workshop; Artisans › Design workshop ID
   - `aadhaarVerifyStatus`: Artisans › Aadhaar verify status
@@ -126,7 +126,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `migratedFrom`: Consent ledger › Migrated from
 - **Craft**
   - `id`: Crafts › Craft ID
-  - `name`: Crafts › Name
+  - `name`: Completeness › Craft; Coverage › Craft; Crafts › Name
   - `localName`: Crafts › Local name
   - `category`: Crafts › Category
   - `description`: Crafts › Description
@@ -171,9 +171,9 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **CrossPortalAccessLog**: excluded. Audit log of cross-portal lookups, kept for administrators.
 - **CrossPortalArtisanLink**
   - `id`: Cross-portal links › Cross-portal link ID
-  - `artisanId`: Cross-portal links › Artisan; Cross-portal links › Artisan ID
-  - `remoteArtisanId`: Cross-portal links › Remote artisan ID
-  - `matchedBy`: Cross-portal links › Matched by
+  - `artisanId`: Both portals › Artisan ID; Cross-portal links › Artisan; Cross-portal links › Artisan ID
+  - `remoteArtisanId`: Both portals › Their artisan ID; Cross-portal links › Remote artisan ID
+  - `matchedBy`: Both portals › Matched by; Cross-portal links › Matched by
   - `consentRecordedById`: Cross-portal links › Consent recorded by; Cross-portal links › Consent recorded by ID
   - `consentRecordedAt`: Cross-portal links › Consent recorded on
   - `remoteAcknowledgedAt`: Cross-portal links › Remote acknowledged on
@@ -186,6 +186,9 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **DataBundle**: excluded. Download-bundle links created for reports.
 - **DataFolderVisit**: excluded. When each account last opened a folder.
 - **DataReportPreference**: excluded. Each account's remembered Report options.
+- **DataReportSchedule**: excluded. Scheduled-report settings of each account.
+- **DataReportShare**: excluded. Share-link and visitor metadata, not report data.
+- **DataReportShareView**: excluded. Share-link and visitor metadata, not report data.
 - **DataSavedView**: excluded. Saved views of the data explorer.
 - **DesignWorkshop**
   - `id`: Design workshops › Design workshop ID
@@ -492,42 +495,42 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **IdempotencyKey**: excluded. Request de-duplication cache.
 - **Location**
   - `id`: Locations › Location ID
-  - `latitude`: Locations › Latitude
-  - `longitude`: Locations › Longitude
+  - `latitude`: Locations › Latitude; Map › Latitude
+  - `longitude`: Locations › Longitude; Map › Longitude
   - `altitude`: Locations › Altitude
-  - `accuracy`: Locations › Accuracy
-  - `address`: Locations › Address
-  - `placeName`: Locations › Place name
-  - `state`: Locations › State
-  - `district`: Locations › District
-  - `village`: Locations › Village
-  - `pincode`: Locations › Pincode
-  - `subjectLatitude`: Locations › Subject latitude
-  - `subjectLongitude`: Locations › Subject longitude
+  - `accuracy`: Locations › Accuracy; Map › Accuracy (m)
+  - `address`: Locations › Address; Map › Place
+  - `placeName`: Locations › Place name; Map › Place
+  - `state`: Locations › State; Map by district › State; Map › State
+  - `district`: Locations › District; Map by district › District; Map › District
+  - `village`: Locations › Village; Map › Village
+  - `pincode`: Locations › Pincode; Map › PIN code
+  - `subjectLatitude`: Locations › Subject latitude; Map › Latitude
+  - `subjectLongitude`: Locations › Subject longitude; Map › Longitude
   - `capturedAt`: Locations › Captured on
   - `extraMetadata`: Locations › More details
   - `createdAt`: Locations › Created on
   - `updatedAt`: Locations › Updated on
 - **ManagedSecret**: excluded. Secret or credential material: never leaves the server.
 - **MediaFile**
-  - `id`: Media › Media ID
-  - `originalFilename`: Media › File name; Transcripts › File
+  - `id`: Completeness › Files; Media › Media ID; Profile › Download; Profile › Photo; Quotes › Media ID; Quotes › Recording
+  - `originalFilename`: Glossary › Heard in; Media › File name; Quotes › Recording; Transcripts › File
   - `mediaType`: Media › Media type
   - `mimeType`: Media › File format
-  - `sizeBytes`: Media › Size
+  - `sizeBytes`: Audit and trust › Size; Completeness › Size; Media › Size; Profile › Size
   - `bucket`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
   - `objectKey`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
   - `url`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
   - `caption`: Media › Caption
   - `checksum`: Media › Checksum
-  - `transcriptText`: Transcripts › Text
+  - `transcriptText`: Profile › Transcript; Transcripts › Text
   - `transcriptSummary`: Media › Transcript summary
   - `transcriptStatus`: Media › Transcript; Media › Transcript status; Transcripts › Status
   - `transcriptError`: Media › Transcript; Transcripts › Status
   - `removedAt`: Media › Removed on
   - `removedById`: Media › Removed by; Media › Removed by ID
-  - `contentSha256`: Media › SHA-256 checksum
-  - `shaVerifiedAt`: Media › Checksum verified on
+  - `contentSha256`: Audit and trust › SHA-256; Media › SHA-256 checksum
+  - `shaVerifiedAt`: Audit and trust › Checksum verified; Media › Checksum verified on
   - `consentAtSend`: Media › Consent at send
   - `transcriptEditedAt`: Media › Transcript edited on
   - `transcriptEditedById`: Media › Transcript edited by; Media › Transcript edited by ID
@@ -683,7 +686,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **QuestionnaireAnswerRevision**
   - `id`: Answer history › Answer history ID
   - `answerId`: Answer history › Answer ID
-  - `text`: Answer history › Text; Answers › Answer
+  - `text`: Answer history › Text; Answers › Answer; Completeness › Answered; Coverage › Answered
   - `languageCode`: Answer history › Language code; Answers › Language
   - `origin`: Answer history › Origin; Answers › Origin
   - `attribution`: Answer history › Attribution
@@ -752,7 +755,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `id`: Questionnaire sittings › Questionnaire sitting ID
   - `title`: Questionnaire sittings › Title
   - `interviewDate`: Questionnaire sittings › Interview date
-  - `place`: Questionnaire sittings › Place
+  - `place`: Map › Place; Questionnaire sittings › Place
   - `language`: Questionnaire sittings › Language
   - `notes`: Questionnaire sittings › Notes
   - `status`: Questionnaire sittings › Status
@@ -772,7 +775,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `deletedAt`: Questionnaire sittings › Deleted on
   - `deletedById`: Questionnaire sittings › Deleted by; Questionnaire sittings › Deleted by ID
   - `questionnaireId`: Questionnaire sittings › Questionnaire; Questionnaire sittings › Questionnaire ID
-  - `submittedAt`: Questionnaire sittings › Submitted on
+  - `submittedAt`: Audit and trust › Submitted; Questionnaire sittings › Submitted on
   - `clientKey`: Questionnaire sittings › Client key
   - `joinCode`: Questionnaire sittings › Join code
   - `sessionDate`: Questionnaire sittings › Session date
@@ -804,9 +807,9 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `role`: Sitting researchers › Role
   - `addedAt`: Sitting researchers › Added on
 - **QuestionnaireQuestion**
-  - `id`: Questions › Question ID
-  - `sectionCode`: Answers › Section; Questions › Section code
-  - `sectionTitle`: Answers › Section; Questions › Section title
+  - `id`: Completeness › Questions; Coverage › Questions; Questions › Question ID
+  - `sectionCode`: Answers › Section; Completeness › Section; Questions › Section code
+  - `sectionTitle`: Answers › Section; Coverage › Section; Questions › Section title
   - `prompt`: Answers › Question; Questions › Prompt
   - `sortOrder`: Questions › Sort order
   - `isActive`: Questions › Is active
@@ -890,7 +893,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `id`: Answers (sittings) › Answers (sittings) ID; Answers › Answer ID
   - `interviewId`: Answers (sittings) › Interview; Answers (sittings) › Interview ID; Answers › Sitting
   - `questionId`: Answers (sittings) › Question; Answers (sittings) › Question ID; Answers › Question ID
-  - `answerText`: Answers (sittings) › Answer text; Answers › Answer
+  - `answerText`: Answers (sittings) › Answer text; Answers › Answer; Completeness › Answered; Coverage › Answered
   - `notes`: Answers (sittings) › Notes; Answers › Notes
   - `createdAt`: Answers (sittings) › Created on
   - `updatedAt`: Answers (sittings) › Updated on; Answers › Answered on
@@ -932,22 +935,22 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **RecordAccessToken**: excluded. Access token, link secret or hash: never exported.
 - **RecordAccessTokenRedemption**: excluded. Access token, link secret or hash: never exported.
 - **RecordRevision**
-  - `id`: Edit history › Edit history ID
+  - `id`: Audit and trust › Edits; Edit history › Edit history ID
   - `recordType`: Edit history › Record type
   - `recordId`: Edit history › Record ID
-  - `editedById`: Edit history › Edited by; Edit history › Edited by ID
-  - `changes`: Edit history › Changes
-  - `createdAt`: Edit history › Created on
+  - `editedById`: Audit and trust › Last edited by; Edit history › Edited by; Edit history › Edited by ID
+  - `changes`: Audit trail › Detail; Edit history › Changes
+  - `createdAt`: Audit and trust › Last edited; Edit history › Created on
 - **RegionalDirectorState**: excluded. Programme administration settings (Ministry pages).
 - **ReviewLog**
-  - `id`: Review log › Review log ID
-  - `recordType`: Review log › Record type
-  - `recordId`: Review log › Record ID
-  - `status`: Review log › Status
+  - `id`: Audit and trust › Reviews; Review log › Review log ID
+  - `recordType`: Audit trail › Type; Review log › Record type
+  - `recordId`: Audit trail › Record ID; Review log › Record ID
+  - `status`: Audit trail › Outcome; Review log › Status; What changed › Detail
   - `notes`: Review log › Notes
   - `reason`: Review log › Reason
-  - `reviewerId`: Review log › Reviewer; Review log › Reviewer ID
-  - `createdAt`: Review log › Created on
+  - `reviewerId`: Audit and trust › Approved by; Audit trail › By; Review log › Reviewer; Review log › Reviewer ID; What changed › By
+  - `createdAt`: Audit and trust › Approved; Audit trail › When; Review log › Created on
 - **SanctionOrder**
   - `id`: Sanction orders › Sanction order ID
   - `sanctionOrderNo`: Sanction orders › Sanction order no
@@ -1043,20 +1046,20 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `createdAt`: Draft citations › Created on
 - **TranscriptGlossarySighting**
   - `id`: Glossary sightings › Glossary sighting ID
-  - `termId`: Glossary sightings › Term; Glossary sightings › Term ID
-  - `mediaFileId`: Glossary sightings › Media file; Glossary sightings › Media file ID
+  - `termId`: Glossary sightings › Term; Glossary sightings › Term ID; Glossary › Times in this report
+  - `mediaFileId`: Glossary sightings › Media file; Glossary sightings › Media file ID; Glossary › Media ID
   - `turnId`: Glossary sightings › Turn ID
-  - `startMs`: Glossary sightings › Start ms
+  - `startMs`: Glossary sightings › Start ms; Glossary › At; Glossary › Play from
   - `createdAt`: Glossary sightings › Created on
 - **TranscriptGlossaryTerm**
-  - `id`: Glossary terms › Glossary term ID
+  - `id`: Glossary terms › Glossary term ID; Glossary › Term ID
   - `scopeKey`: Glossary terms › Scope key
-  - `craftId`: Glossary terms › Craft; Glossary terms › Craft ID
+  - `craftId`: Glossary terms › Craft; Glossary terms › Craft ID; Glossary › Craft
   - `termKey`: Glossary terms › Term key
-  - `term`: Glossary terms › Term
-  - `gloss`: Glossary terms › Gloss
-  - `linkedCraftId`: Glossary terms › Linked craft; Glossary terms › Linked craft ID
-  - `occurrences`: Glossary terms › Occurrences
+  - `term`: Glossary terms › Term; Glossary › Term
+  - `gloss`: Glossary terms › Gloss; Glossary › English meaning
+  - `linkedCraftId`: Glossary terms › Linked craft; Glossary terms › Linked craft ID; Glossary › Names the craft
+  - `occurrences`: Glossary terms › Occurrences; Glossary › Times heard overall
   - `lastHeardAt`: Glossary terms › Last heard on
   - `createdAt`: Glossary terms › Created on
   - `updatedAt`: Glossary terms › Updated on
@@ -1067,7 +1070,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `sourceHash`: Transcript summaries › Source hash
   - `sourceLanguage`: Transcript summaries › Source language
   - `summaryLines`: Transcript summaries › Summary lines
-  - `quotes`: Transcript summaries › Quotes
+  - `quotes`: Quotes › English; Quotes › Original; Quotes › Quote; Quotes › Speaker; Transcript summaries › Quotes
   - `translationStatus`: Transcript summaries › Translation status
   - `translationText`: Transcript summaries › Translation text; Transcripts › Text
   - `translationNote`: Transcript summaries › Translation note
@@ -1110,7 +1113,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `mediaFileId`: Transcripts › Media ID
   - `position`: Transcripts › Segment
   - `speakerKey`: Transcripts › Speaker
-  - `startMs`: Transcripts › Start
+  - `startMs`: Quotes › At; Quotes › Play from; Transcripts › Start
   - `endMs`: Transcripts › End
   - `language`: Transcripts › Language
   - `machineText`: Transcripts › Text
@@ -1144,8 +1147,8 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `translationModel`: Transcript versions › Translation model
   - `promptVersion`: Transcript versions › Prompt version
   - `detectedLanguage`: Transcript versions › Detected language
-  - `languages`: Transcript versions › Languages; Transcripts › Language
-  - `durationMs`: Media › Duration; Transcript versions › Duration
+  - `languages`: Quotes › Language; Transcript versions › Languages; Transcripts › Language
+  - `durationMs`: Completeness › Talk time; Media › Duration; Transcript versions › Duration
   - `speakerCount`: Transcript versions › Speaker count
   - `turnCount`: Transcript versions › Turn count
   - `keytermCount`: Transcript versions › Keyterm count
@@ -1224,7 +1227,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `date`: Workshops › Date
   - `startDate`: Workshops › Start date
   - `endDate`: Workshops › End date
-  - `place`: Workshops › Place
+  - `place`: Map › Place; Workshops › Place
   - `description`: Workshops › Description
   - `notes`: Workshops › Notes
   - `status`: Workshops › Status
@@ -1277,12 +1280,48 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - Artisans › Files: Derived: number of files attached to this record.
 - Artisans › Files size: Derived: total size of the files attached to this record.
 - Artisans › Open: Opens this record in the portal after sign-in.
+- Audit and trust › Record: Opens the record or file in the portal.
+- Audit and trust › Record ID: The record's id.
+- Audit and trust › Type: What the record is.
+- Audit trail › Event: Review decision or edit.
+- Audit trail › Record: Opens the record in the portal.
+- Both portals › Date: Date recorded there.
+- Both portals › Details: What the other portal says about it.
+- Both portals › Place: Place recorded there.
+- Both portals › Portal: Where the record lives.
+- Both portals › Record: Opens the record in the other portal (sign in there).
+- Both portals › Snippet: A short extract shared under consent.
+- Both portals › Type: What the record is there.
+- Completeness › By section: Sparkline of the sections: top is complete, middle partial, bottom missing.
+- Completeness › Complete: Share of questions answered.
+- Coverage › Complete: Share of questions answered.
 - Crafts › Files: Derived: number of files attached to this record.
 - Crafts › Files size: Derived: total size of the files attached to this record.
 - Crafts › Open: Opens this record in the portal after sign-in.
 - Design workshops › Files: Derived: number of files attached to this record.
 - Design workshops › Files size: Derived: total size of the files attached to this record.
 - Design workshops › Open: Opens this record in the portal after sign-in.
+- Everything › Date: The value when it is a date.
+- Everything › Field: The field, or the question for an answer.
+- Everything › Number: The value when it is a number, for sums and averages.
+- Everything › Open: Opens the record in the portal.
+- Everything › Record: The record's name or title.
+- Everything › Record ID: The record's id; every row of one record shares it.
+- Everything › Record type: What the record is.
+- Everything › Section: Questionnaire section or process step, where it applies.
+- Everything › Source: Where the value is stored, as Model.field.
+- Everything › Value: The value as text.
+- Map › In district: How many places share this district.
+- Map › Map: Opens the point, or the place by name, in Google Maps.
+- Map › Record: Opens the record in the portal.
+- Map › Record ID: The record's id.
+- Map › Type: What the record is.
+- Map by district › Artisans: Artisans placed here.
+- Map by district › Files: Files captured here.
+- Map by district › Map: The district in Google Maps.
+- Map by district › Other records: Products, tools and sittings placed here.
+- Map by district › Places: Records and files with a place in this district.
+- Map by district › Workshops: Workshops placed here.
 - Media › Download: Downloads the file through the portal after sign-in; the link never expires.
 - Media › Map: Opens the capture location in Google Maps.
 - Media › Open: Opens this record in the portal after sign-in.
@@ -1296,6 +1335,10 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - Products › Files: Derived: number of files attached to this record.
 - Products › Files size: Derived: total size of the files attached to this record.
 - Products › Open: Opens this record in the portal after sign-in.
+- Profile › Detail: Its value or a short description.
+- Profile › Item: The fact, record or file.
+- Profile › Open: Opens the record or file in the portal.
+- Profile › Section: Which part of the profile the row belongs to.
 - Question bank › Definition file: The definition the portal seeds questions from.
 - Question bank › Question: The question as printed.
 - Question bank › Question no.: The question's place within its section.
@@ -1312,13 +1355,18 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - Transcripts › Row: Original speech, its English translation, or the whole transcript.
 - Transcripts › Subtitles (.srt): Subtitles with speakers.
 - Transcripts › Transcript (.docx): The bilingual transcript as a Word file.
+- What changed › Change: Added, Changed, Reviewed, Transcribed or Translated.
+- What changed › Record: Opens the record or file in the portal.
+- What changed › Record ID: The record's id.
+- What changed › Type: What the record is.
+- What changed › When: When the change happened.
 - Workshops › Files: Derived: number of files attached to this record.
 - Workshops › Files size: Derived: total size of the files attached to this record.
 - Workshops › Open: Opens this record in the portal after sign-in.
 
 ## Field Repository
 
-95 models, 1180 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+97 models, 1218 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
 
 ### Models and fields
 
@@ -1327,14 +1375,14 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **AppRelease**: excluded. Android release catalogue, not collected data.
 - **AppSetting**: excluded. Platform settings (transcription switches, budgets), not collected data.
 - **Artisan**
-  - `id`: Artisans › Artisan ID
-  - `name`: Artisans › Name
+  - `id`: Artisans › Artisan ID; Completeness › Artisan ID; Coverage › Artisan ID; Profile › Artisan ID
+  - `name`: Artisans › Name; Both portals › Artisan here; Completeness › Artisan; Coverage › Artisan; Glossary › Artisan; Quotes › Artisan
   - `localName`: Artisans › Local name
   - `gender`: Artisans › Gender
   - `phone`: Artisans › Phone
   - `phoneCountryCode`: Artisans › Phone country code
   - `email`: Artisans › Email
-  - `place`: Artisans › Place
+  - `place`: Artisans › Place; Map › Place
   - `aadhaarFingerprint`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
   - `aadhaarLast4`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
   - `pehchanCardAvailable`: Artisans › Pehchan card available
@@ -1348,19 +1396,19 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `experienceMonths`: Artisans › Experience months
   - `dos`: Artisans › Do's
   - `donts`: Artisans › Don'ts
-  - `status`: Artisans › Status
-  - `reviewNotes`: Artisans › Review notes
-  - `reviewedById`: Artisans › Reviewed by; Artisans › Reviewed by ID
-  - `reviewedAt`: Artisans › Reviewed on
+  - `status`: Artisans › Status; Audit and trust › Status; Profile › Status
+  - `reviewNotes`: Artisans › Review notes; Audit and trust › Review notes
+  - `reviewedById`: Artisans › Reviewed by; Artisans › Reviewed by ID; Audit and trust › Reviewed by
+  - `reviewedAt`: Artisans › Reviewed on; Audit and trust › Reviewed
   - `submittedAt`: Artisans › Submitted on
   - `extraMetadata`: Artisans › More details
-  - `recordedAt`: Artisans › Recorded on
+  - `recordedAt`: Artisans › Recorded on; Audit and trust › Recorded; Profile › When
   - `recordedTimezone`: Artisans › Time zone
-  - `createdAt`: Artisans › Created on
-  - `updatedAt`: Artisans › Updated on
+  - `createdAt`: Artisans › Created on; Audit and trust › Saved
+  - `updatedAt`: Artisans › Updated on; Audit and trust › Updated
   - `craftId`: Artisans › Craft; Artisans › Craft ID
   - `locationId`: Artisans › Location; Artisans › Location ID
-  - `createdById`: Artisans › Created by; Artisans › Created by ID
+  - `createdById`: Artisans › Created by; Artisans › Created by ID; Audit and trust › Recorded by
   - `workshopId`: Artisans › Workshop; Artisans › Workshop ID
 - **ArtisanCard**
   - `id`: Artisan cards › Artisan card ID
@@ -1427,7 +1475,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `migratedFrom`: Consent ledger › Migrated from
 - **Craft**
   - `id`: Crafts › Craft ID
-  - `name`: Crafts › Name
+  - `name`: Completeness › Craft; Coverage › Craft; Crafts › Name
   - `localName`: Crafts › Local name
   - `category`: Crafts › Category
   - `description`: Crafts › Description
@@ -1472,9 +1520,9 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **CrossPortalAccessLog**: excluded. Audit log of cross-portal lookups, kept for administrators.
 - **CrossPortalArtisanLink**
   - `id`: Cross-portal links › Cross-portal link ID
-  - `artisanId`: Cross-portal links › Artisan; Cross-portal links › Artisan ID
-  - `remoteArtisanId`: Cross-portal links › Remote artisan ID
-  - `matchedBy`: Cross-portal links › Matched by
+  - `artisanId`: Both portals › Artisan ID; Cross-portal links › Artisan; Cross-portal links › Artisan ID
+  - `remoteArtisanId`: Both portals › Their artisan ID; Cross-portal links › Remote artisan ID
+  - `matchedBy`: Both portals › Matched by; Cross-portal links › Matched by
   - `remoteCardCode`: Cross-portal links › Remote card code
   - `createdAt`: Cross-portal links › Created on
 - **DataAccessGrant**: excluded. Access-control grants, managed on the Sharing page.
@@ -1482,6 +1530,8 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **DataBundle**: excluded. Download-bundle links created for reports.
 - **DataFolderVisit**: excluded. When each account last opened a folder.
 - **DataReportPreference**: excluded. Each account's remembered Report options.
+- **DataReportShare**: excluded. Share-link and visitor metadata, not report data.
+- **DataReportShareView**: excluded. Share-link and visitor metadata, not report data.
 - **DataSavedView**: excluded. Saved views of the data explorer.
 - **EmailMessage**: excluded. Outgoing e-mail queue.
 - **EntryComment**
@@ -1497,35 +1547,35 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **IdempotencyKey**: excluded. Request de-duplication cache.
 - **Location**
   - `id`: Locations › Location ID
-  - `latitude`: Locations › Latitude
-  - `longitude`: Locations › Longitude
+  - `latitude`: Locations › Latitude; Map › Latitude
+  - `longitude`: Locations › Longitude; Map › Longitude
   - `altitude`: Locations › Altitude
-  - `accuracy`: Locations › Accuracy
-  - `address`: Locations › Address
-  - `placeName`: Locations › Place name
-  - `state`: Locations › State
-  - `district`: Locations › District
-  - `village`: Locations › Village
-  - `pincode`: Locations › Pincode
-  - `subjectLatitude`: Locations › Subject latitude
-  - `subjectLongitude`: Locations › Subject longitude
+  - `accuracy`: Locations › Accuracy; Map › Accuracy (m)
+  - `address`: Locations › Address; Map › Place
+  - `placeName`: Locations › Place name; Map › Place
+  - `state`: Locations › State; Map by district › State; Map › State
+  - `district`: Locations › District; Map by district › District; Map › District
+  - `village`: Locations › Village; Map › Village
+  - `pincode`: Locations › Pincode; Map › PIN code
+  - `subjectLatitude`: Locations › Subject latitude; Map › Latitude
+  - `subjectLongitude`: Locations › Subject longitude; Map › Longitude
   - `capturedAt`: Locations › Captured on
   - `extraMetadata`: Locations › More details
   - `createdAt`: Locations › Created on
   - `updatedAt`: Locations › Updated on
 - **ManagedSecret**: excluded. Secret or credential material: never leaves the server.
 - **MediaFile**
-  - `id`: Media › Media ID
-  - `originalFilename`: Media › File name; Transcripts › File
+  - `id`: Completeness › Files; Media › Media ID; Profile › Download; Profile › Photo; Quotes › Media ID; Quotes › Recording
+  - `originalFilename`: Glossary › Heard in; Media › File name; Quotes › Recording; Transcripts › File
   - `mediaType`: Media › Media type
   - `mimeType`: Media › File format
-  - `sizeBytes`: Media › Size
+  - `sizeBytes`: Audit and trust › Size; Completeness › Size; Media › Size; Profile › Size
   - `bucket`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
   - `objectKey`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
   - `url`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
   - `caption`: Media › Caption
   - `checksum`: Media › Checksum
-  - `transcriptText`: Transcripts › Text
+  - `transcriptText`: Profile › Transcript; Transcripts › Text
   - `transcriptSummary`: Media › Transcript summary
   - `transcriptStatus`: Media › Transcript; Media › Transcript status; Transcripts › Status
   - `transcriptError`: Media › Transcript; Transcripts › Status
@@ -1542,8 +1592,8 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `transcribeRequestedAt`: Media › Transcribe requested on
   - `removedAt`: Media › Removed on
   - `removedById`: Media › Removed by; Media › Removed by ID
-  - `contentSha256`: Media › SHA-256 checksum
-  - `shaVerifiedAt`: Media › Checksum verified on
+  - `contentSha256`: Audit and trust › SHA-256; Media › SHA-256 checksum
+  - `shaVerifiedAt`: Audit and trust › Checksum verified; Media › Checksum verified on
   - `consentAtSend`: Media › Consent at send
   - `linkedRecordType`: Media › Attached to; Media › Linked record type; Transcripts › Attached to
   - `linkedRecordId`: Media › Attached to; Media › Linked record ID; Transcripts › Attached to
@@ -1683,7 +1733,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **QuestionnaireAnswerRevision**
   - `id`: Answer history › Answer history ID
   - `answerId`: Answer history › Answer ID
-  - `text`: Answer history › Text; Answers › Answer
+  - `text`: Answer history › Text; Answers › Answer; Completeness › Answered; Coverage › Answered
   - `languageCode`: Answer history › Language code; Answers › Language
   - `origin`: Answer history › Origin; Answers › Origin
   - `attribution`: Answer history › Attribution
@@ -1709,14 +1759,14 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `id`: Questionnaire sittings › Questionnaire sitting ID
   - `title`: Questionnaire sittings › Title
   - `interviewDate`: Questionnaire sittings › Interview date
-  - `place`: Questionnaire sittings › Place
+  - `place`: Map › Place; Questionnaire sittings › Place
   - `language`: Questionnaire sittings › Language
   - `notes`: Questionnaire sittings › Notes
   - `status`: Questionnaire sittings › Status
   - `reviewNotes`: Questionnaire sittings › Review notes
   - `reviewedById`: Questionnaire sittings › Reviewed by; Questionnaire sittings › Reviewed by ID
   - `reviewedAt`: Questionnaire sittings › Reviewed on
-  - `submittedAt`: Questionnaire sittings › Submitted on
+  - `submittedAt`: Audit and trust › Submitted; Questionnaire sittings › Submitted on
   - `extraMetadata`: Questionnaire sittings › More details
   - `recordedAt`: Questionnaire sittings › Recorded on
   - `recordedTimezone`: Questionnaire sittings › Time zone
@@ -1761,10 +1811,10 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `role`: Sitting researchers › Role
   - `addedAt`: Sitting researchers › Added on
 - **QuestionnaireQuestion**
-  - `id`: Questions › Question ID
+  - `id`: Completeness › Questions; Coverage › Questions; Questions › Question ID
   - `questionnaireId`: Questions › Questionnaire; Questions › Questionnaire ID
-  - `sectionCode`: Answers › Section; Questions › Section code
-  - `sectionTitle`: Answers › Section; Questions › Section title
+  - `sectionCode`: Answers › Section; Completeness › Section; Questions › Section code
+  - `sectionTitle`: Answers › Section; Coverage › Section; Questions › Section title
   - `prompt`: Answers › Question; Questions › Prompt
   - `sortOrder`: Questions › Sort order
   - `isActive`: Questions › Is active
@@ -1847,7 +1897,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `id`: Answers (sittings) › Answers (sittings) ID; Answers › Answer ID
   - `interviewId`: Answers (sittings) › Interview; Answers (sittings) › Interview ID; Answers › Sitting
   - `questionId`: Answers (sittings) › Question; Answers (sittings) › Question ID; Answers › Question ID
-  - `answerText`: Answers (sittings) › Answer text; Answers › Answer
+  - `answerText`: Answers (sittings) › Answer text; Answers › Answer; Completeness › Answered; Coverage › Answered
   - `notes`: Answers (sittings) › Notes; Answers › Notes
   - `answerSource`: Answers (sittings) › Answer source
   - `createdAt`: Answers (sittings) › Created on
@@ -1888,12 +1938,12 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `setById`: Questionnaire defaults › Set by; Questionnaire defaults › Set by ID
   - `setAt`: Questionnaire defaults › Set on
 - **RecordRevision**
-  - `id`: Edit history › Edit history ID
+  - `id`: Audit and trust › Edits; Edit history › Edit history ID
   - `recordType`: Edit history › Record type
   - `recordId`: Edit history › Record ID
-  - `editedById`: Edit history › Edited by; Edit history › Edited by ID
-  - `changes`: Edit history › Changes
-  - `createdAt`: Edit history › Created on
+  - `editedById`: Audit and trust › Last edited by; Edit history › Edited by; Edit history › Edited by ID
+  - `changes`: Audit trail › Detail; Edit history › Changes
+  - `createdAt`: Audit and trust › Last edited; Edit history › Created on
 - **RecordingConsent**
   - `id`: Recording consent › Recording consent ID
   - `mediaFileId`: Recording consent › Media file; Recording consent › Media file ID
@@ -1905,14 +1955,14 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `note`: Recording consent › Note
   - `createdAt`: Recording consent › Created on
 - **ReviewLog**
-  - `id`: Review log › Review log ID
-  - `recordType`: Review log › Record type
-  - `recordId`: Review log › Record ID
-  - `status`: Review log › Status
+  - `id`: Audit and trust › Reviews; Review log › Review log ID
+  - `recordType`: Audit trail › Type; Review log › Record type
+  - `recordId`: Audit trail › Record ID; Review log › Record ID
+  - `status`: Audit trail › Outcome; Review log › Status; What changed › Detail
   - `reason`: Review log › Reason
   - `notes`: Review log › Notes
-  - `reviewerId`: Review log › Reviewer; Review log › Reviewer ID
-  - `createdAt`: Review log › Created on
+  - `reviewerId`: Audit and trust › Approved by; Audit trail › By; Review log › Reviewer; Review log › Reviewer ID; What changed › By
+  - `createdAt`: Audit and trust › Approved; Audit trail › When; Review log › Created on
 - **SearchDocument**: excluded. Search index, rebuilt from the records exported here.
 - **SearchIndexQueue**: excluded. Search index queue.
 - **SecretTestResult**: excluded. Secret or credential material: never leaves the server.
@@ -1984,20 +2034,20 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `createdAt`: Draft citations › Created on
 - **TranscriptGlossarySighting**
   - `id`: Glossary sightings › Glossary sighting ID
-  - `termId`: Glossary sightings › Term; Glossary sightings › Term ID
-  - `mediaFileId`: Glossary sightings › Media file; Glossary sightings › Media file ID
+  - `termId`: Glossary sightings › Term; Glossary sightings › Term ID; Glossary › Times in this report
+  - `mediaFileId`: Glossary sightings › Media file; Glossary sightings › Media file ID; Glossary › Media ID
   - `turnId`: Glossary sightings › Turn ID
-  - `startMs`: Glossary sightings › Start ms
+  - `startMs`: Glossary sightings › Start ms; Glossary › At; Glossary › Play from
   - `createdAt`: Glossary sightings › Created on
 - **TranscriptGlossaryTerm**
-  - `id`: Glossary terms › Glossary term ID
+  - `id`: Glossary terms › Glossary term ID; Glossary › Term ID
   - `scopeKey`: Glossary terms › Scope key
-  - `craftId`: Glossary terms › Craft; Glossary terms › Craft ID
+  - `craftId`: Glossary terms › Craft; Glossary terms › Craft ID; Glossary › Craft
   - `termKey`: Glossary terms › Term key
-  - `term`: Glossary terms › Term
-  - `gloss`: Glossary terms › Gloss
-  - `linkedCraftId`: Glossary terms › Linked craft; Glossary terms › Linked craft ID
-  - `occurrences`: Glossary terms › Occurrences
+  - `term`: Glossary terms › Term; Glossary › Term
+  - `gloss`: Glossary terms › Gloss; Glossary › English meaning
+  - `linkedCraftId`: Glossary terms › Linked craft; Glossary terms › Linked craft ID; Glossary › Names the craft
+  - `occurrences`: Glossary terms › Occurrences; Glossary › Times heard overall
   - `lastHeardAt`: Glossary terms › Last heard on
   - `createdAt`: Glossary terms › Created on
   - `updatedAt`: Glossary terms › Updated on
@@ -2008,7 +2058,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `sourceHash`: Transcript summaries › Source hash
   - `sourceLanguage`: Transcript summaries › Source language
   - `summaryLines`: Transcript summaries › Summary lines
-  - `quotes`: Transcript summaries › Quotes
+  - `quotes`: Quotes › English; Quotes › Original; Quotes › Quote; Quotes › Speaker; Transcript summaries › Quotes
   - `translationStatus`: Transcript summaries › Translation status
   - `translationText`: Transcript summaries › Translation text; Transcripts › Text
   - `translationNote`: Transcript summaries › Translation note
@@ -2051,7 +2101,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `mediaFileId`: Transcripts › Media ID
   - `position`: Transcripts › Segment
   - `speakerKey`: Transcripts › Speaker
-  - `startMs`: Transcripts › Start
+  - `startMs`: Quotes › At; Quotes › Play from; Transcripts › Start
   - `endMs`: Transcripts › End
   - `language`: Transcripts › Language
   - `machineText`: Transcripts › Text
@@ -2085,8 +2135,8 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `translationModel`: Transcript versions › Translation model
   - `promptVersion`: Transcript versions › Prompt version
   - `detectedLanguage`: Transcript versions › Detected language
-  - `languages`: Transcript versions › Languages; Transcripts › Language
-  - `durationMs`: Media › Duration; Transcript versions › Duration
+  - `languages`: Quotes › Language; Transcript versions › Languages; Transcripts › Language
+  - `durationMs`: Completeness › Talk time; Media › Duration; Transcript versions › Duration
   - `speakerCount`: Transcript versions › Speaker count
   - `turnCount`: Transcript versions › Turn count
   - `keytermCount`: Transcript versions › Keyterm count
@@ -2139,6 +2189,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `sessionsValidFrom`: excluded. Account security and permission settings, managed on the Users page, not collected data.
   - `createdAt`: People › Created on
   - `updatedAt`: People › Updated on
+  - `dataReportSchedules`: excluded. Account security and permission settings, managed on the Users page, not collected data.
 - **UserAiCredential**: excluded. Secret or credential material: never leaves the server.
 - **UserPreference**: excluded. Per-account display and e-mail preferences.
 - **WeeklyDigest**: excluded. Weekly digest e-mails to accounts.
@@ -2149,7 +2200,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `date`: Workshops › Date
   - `startDate`: Workshops › Start date
   - `endDate`: Workshops › End date
-  - `place`: Workshops › Place
+  - `place`: Map › Place; Workshops › Place
   - `description`: Workshops › Description
   - `notes`: Workshops › Notes
   - `status`: Workshops › Status
@@ -2202,9 +2253,45 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - Artisans › Files: Derived: number of files attached to this record.
 - Artisans › Files size: Derived: total size of the files attached to this record.
 - Artisans › Open: Opens this record in the portal after sign-in.
+- Audit and trust › Record: Opens the record or file in the portal.
+- Audit and trust › Record ID: The record's id.
+- Audit and trust › Type: What the record is.
+- Audit trail › Event: Review decision or edit.
+- Audit trail › Record: Opens the record in the portal.
+- Both portals › Date: Date recorded there.
+- Both portals › Details: What the other portal says about it.
+- Both portals › Place: Place recorded there.
+- Both portals › Portal: Where the record lives.
+- Both portals › Record: Opens the record in the other portal (sign in there).
+- Both portals › Snippet: A short extract shared under consent.
+- Both portals › Type: What the record is there.
+- Completeness › By section: Sparkline of the sections: top is complete, middle partial, bottom missing.
+- Completeness › Complete: Share of questions answered.
+- Coverage › Complete: Share of questions answered.
 - Crafts › Files: Derived: number of files attached to this record.
 - Crafts › Files size: Derived: total size of the files attached to this record.
 - Crafts › Open: Opens this record in the portal after sign-in.
+- Everything › Date: The value when it is a date.
+- Everything › Field: The field, or the question for an answer.
+- Everything › Number: The value when it is a number, for sums and averages.
+- Everything › Open: Opens the record in the portal.
+- Everything › Record: The record's name or title.
+- Everything › Record ID: The record's id; every row of one record shares it.
+- Everything › Record type: What the record is.
+- Everything › Section: Questionnaire section or process step, where it applies.
+- Everything › Source: Where the value is stored, as Model.field.
+- Everything › Value: The value as text.
+- Map › In district: How many places share this district.
+- Map › Map: Opens the point, or the place by name, in Google Maps.
+- Map › Record: Opens the record in the portal.
+- Map › Record ID: The record's id.
+- Map › Type: What the record is.
+- Map by district › Artisans: Artisans placed here.
+- Map by district › Files: Files captured here.
+- Map by district › Map: The district in Google Maps.
+- Map by district › Other records: Products, tools and sittings placed here.
+- Map by district › Places: Records and files with a place in this district.
+- Map by district › Workshops: Workshops placed here.
 - Media › Download: Downloads the file through the portal after sign-in; the link never expires.
 - Media › Map: Opens the capture location in Google Maps.
 - Media › Open: Opens this record in the portal after sign-in.
@@ -2218,6 +2305,10 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - Products › Files: Derived: number of files attached to this record.
 - Products › Files size: Derived: total size of the files attached to this record.
 - Products › Open: Opens this record in the portal after sign-in.
+- Profile › Detail: Its value or a short description.
+- Profile › Item: The fact, record or file.
+- Profile › Open: Opens the record or file in the portal.
+- Profile › Section: Which part of the profile the row belongs to.
 - Question bank › Definition file: The definition the portal seeds questions from.
 - Question bank › Question: The question as printed.
 - Question bank › Question no.: The question's place within its section.
@@ -2234,6 +2325,11 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - Transcripts › Row: Original speech, its English translation, or the whole transcript.
 - Transcripts › Subtitles (.srt): Subtitles with speakers.
 - Transcripts › Transcript (.docx): The bilingual transcript as a Word file.
+- What changed › Change: Added, Changed, Reviewed, Transcribed or Translated.
+- What changed › Record: Opens the record or file in the portal.
+- What changed › Record ID: The record's id.
+- What changed › Type: What the record is.
+- What changed › When: When the change happened.
 - Workshops › Files: Derived: number of files attached to this record.
 - Workshops › Files size: Derived: total size of the files attached to this record.
 - Workshops › Open: Opens this record in the portal after sign-in.

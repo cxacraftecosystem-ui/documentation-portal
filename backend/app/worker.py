@@ -12,6 +12,7 @@ from app.questionnaire.sessions import maybe_close_stale_sessions
 from app.services import artisan_duplicates, transcript_backfill
 from app.services.email_outbox import process_next_email_jobs
 from app.services.media_queue import process_next_media_jobs, queue_work_due, run_insights_lane
+from app.services.report_schedules import run_report_schedules
 from app.services.search_indexer import (
     compact_queue as compact_search_queue,
 )
@@ -94,6 +95,10 @@ async def _run() -> None:
                 await run_weekly_digests(settings=settings)
             except Exception:
                 logger.exception("Weekly digest pass failed")
+            try:
+                await run_report_schedules(settings=settings)
+            except Exception:
+                logger.exception("Scheduled report pass failed")
             if time.monotonic() - last_search_pass >= SEARCH_INDEX_INTERVAL_SECONDS:
                 last_search_pass = time.monotonic()
                 try:

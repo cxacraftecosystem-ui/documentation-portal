@@ -431,10 +431,13 @@ model User {
 
   @@index([role])
   usageEvents UsageEvent[] @relation("UsageEventUser")
+  dataReportSchedules  DataReportSchedule[]  @relation("DataReportScheduleOwner")
   dataReportPreference DataReportPreference? @relation("DataReportPreferenceUser")
   dataFolderVisits     DataFolderVisit[]     @relation("DataFolderVisitUser")
   dataSavedViews       DataSavedView[]       @relation("DataSavedViewOwner")
   dataBundles          DataBundle[]          @relation("DataBundleOwner")
+  dataReportShares     DataReportShare[]     @relation("DataReportShareOwner")
+  dataReportShareViews DataReportShareView[] @relation("DataReportShareViewer")
 }
 
 enum CredentialLinkPurpose {
@@ -3551,10 +3554,70 @@ model DataSavedView {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner User @relation("DataSavedViewOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  owner     User                 @relation("DataSavedViewOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  schedules DataReportSchedule[] @relation("DataReportScheduleView")
 
   @@index([ownerId, updatedAt])
   @@index([shared, updatedAt])
+}
+
+model DataReportShare {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  ownerId   String
+  path      String
+  title     String
+  options   Json
+  snapshot  Json
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  owner User                  @relation("DataReportShareOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  views DataReportShareView[] @relation("DataReportShareViews")
+
+  @@index([ownerId, createdAt])
+}
+
+model DataReportShareView {
+  id        String   @id @default(cuid())
+  shareId   String
+  viewerId  String?
+  ipHash    String
+  userAgent String?
+  openedAt  DateTime @default(now())
+
+  share  DataReportShare @relation("DataReportShareViews", fields: [shareId], references: [id], onDelete: Cascade)
+  viewer User?           @relation("DataReportShareViewer", fields: [viewerId], references: [id], onDelete: SetNull)
+
+  @@index([shareId, openedAt])
+model DataReportSchedule {
+  id                   String    @id @default(cuid())
+  ownerId              String
+  savedViewId          String
+  weekday              Int
+  hourLocal            Int
+  timezone             String    @default("Asia/Kolkata")
+  options              Json
+  pausedAt             DateTime?
+  lastSlotAt           DateTime?
+  retryAfter           DateTime?
+  lastSentAt           DateTime?
+  lastError            String?
+  lastFileKey          String?
+  lastFileName         String?
+  lastFileBytes        Int?
+  lastAttached         Boolean?
+  unsubscribeTokenHash String    @unique
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  owner     User          @relation("DataReportScheduleOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  savedView DataSavedView @relation("DataReportScheduleView", fields: [savedViewId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, createdAt])
+  @@index([pausedAt])
+  @@index([savedViewId])
 }
 
 model MediaWaveform {
