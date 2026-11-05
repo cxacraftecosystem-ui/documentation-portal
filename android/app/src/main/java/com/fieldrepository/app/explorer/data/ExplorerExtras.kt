@@ -140,7 +140,7 @@ data class ExplorerTranscriptList(
 
 interface ExplorerMore {
     @GET("data/transcripts/list")
-    suspend fun transcripts(@Query("path") path: String, @Query("q") q: String? = null): ExplorerTranscriptList
+    suspend fun transcripts(@Query("path") path: String, @Query("q") q: String? = null, @Query("status") status: String? = null): ExplorerTranscriptList
 
     @GET("data/report-options")
     suspend fun reportOptions(): ExplorerReportOptionsBody
@@ -152,7 +152,7 @@ interface ExplorerMore {
     suspend fun visit(@Body body: ExplorerVisitBody): ExplorerVisit
 
     @GET("data/overview")
-    suspend fun overview(@Query("path") path: String): ExplorerOverview
+    suspend fun overview(@Query("path") path: String, @Query("status") status: String? = null): ExplorerOverview
 
     @GET("data/media/{id}/peaks")
     suspend fun peaks(@Path("id") id: String): ExplorerPeaks
@@ -179,8 +179,13 @@ object ExplorerMoreApi {
             .also { made = it }
     }
 
-    fun reportUrl(path: String, options: ExplorerReportOptions, query: String?, name: String?): String {
+    fun forget() {
+        made = null
+    }
+
+    fun reportUrl(path: String, options: ExplorerReportOptions, query: String?, name: String?, status: String? = null): String {
         var url = ExplorerPaths.report(path)
+        status?.let { url = ExplorerPaths.withQuery(url, "status", it) }
         options.sheets?.takeIf { it.isNotEmpty() }?.let { url = ExplorerPaths.withQuery(url, "sheets", it.joinToString(",")) }
         url = ExplorerPaths.withQuery(url, "answers", options.answers)
         url = ExplorerPaths.withQuery(url, "rows", options.rows)

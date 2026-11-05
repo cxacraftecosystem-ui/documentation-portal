@@ -164,6 +164,8 @@ object ExplorerDownloads {
         }
         runCatching { WorkManager.getInstance(app).cancelAllWorkByTag(TAG) }
         store(app).clear()
+        ExplorerMoreApi.forget()
+        runCatching { android.os.Handler(android.os.Looper.getMainLooper()).post { runCatching { ExplorerAudio.stop() } } }
         forgetFiles(app.filesDir, app.cacheDir)
     }
 
