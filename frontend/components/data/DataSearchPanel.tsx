@@ -1,309 +1,547 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Search, X, Loader2, FolderTree, ExternalLink } from "lucide-react";
+import { ExternalLink, FolderOpen, Loader2, Play, Search, X } from "lucide-react";
 import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
+import type { PreviewTarget } from "@/components/dataExplorer/DataExplorer";
+import { LoadFailed } from "@/components/dataExplorer/explorerUi";
+import { ActionGroup } from "@/components/ui/ActionGroup";
+import { SearchableMultiSelect, SearchableSelect, type SelectOption } from "@/components/ui/SearchableSelect";
+import { apiFetch, buildQuery, listResource } from "@/lib/api";
+import type { Artisan, Craft, Workshop } from "@/lib/types";
 import {
-  EMPTY_SEARCH_FILTERS,
-  RECORD_TYPES,
-  SearchFilterBar,
-  filtersToLinkParams,
-  hasActiveFilters,
-  searchFilterParams,
-  typeVisible,
-  type SearchFilters
-} from "@/components/search/SearchFilters";
-import { OpenableBlock } from "@/components/records/OpenableRow";
-import { apiFetch, buildQuery } from "@/lib/api";
-import { recordViewHref } from "@/lib/recordView";
-import type { Artisan, MediaFile, ProductDocumentation, ToolDocumentation, Workshop } from "@/lib/types";
+  PORTAL_LABELS,
+  UNIFIED_LABELS,
+  UNIFIED_TYPES,
+  fetchUnified,
+  highlightSegments,
+  safeOpenUrl,
+  type Portal,
+  type UnifiedItem,
+  type UnifiedResponse,
+  type UnifiedType
+} from "@/lib/unifiedSearch";
+import { activeFilters, clock, EMPTY_STATE, flattenGroups, legacyRows, portalCounts, rangeBounds, type DateRange, type LegacyResult, type Row, type Scope, type SearchState } from "@/lib/dataSearch";
+import { workshopDisplayTitle } from "@/lib/workshopTitle";
 
-type SearchResult = {
-  artisans: Artisan[];
-  workshops: Workshop[];
-  products: ProductDocumentation[];
-  tools: ToolDocumentation[];
-  media: MediaFile[];
-  totals?: Record<(typeof RECORD_TYPES)[number], number>;
-  total?: number;
+export const PAGE_STEP = 20;
+const FIRST_LIMIT = 5;
+const OPTION_PAGE = 80;
+
+type Answer = { key: string; data: UnifiedResponse | null; rows: Row[]; legacy: boolean; error: string | null };
+
+const RANGE_OPTIONS: { value: DateRange; label: string }[] = [
+  { value: "any", label: "Any date" },
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+  { value: "90d", label: "Last 90 days" },
+  { value: "year", label: "This year" }
+];
+
+const TILE: Record<string, { tag: string; tone: string }> = {
+  transcripts: { tag: "AUD", tone: "bg-amber-100 text-amber-800" },
+  media: { tag: "FILE", tone: "bg-purple-100 text-purple-800" },
+  tools: { tag: "TOOL", tone: "bg-purple-50 text-purple-800" },
+  processes: { tag: "PROC", tone: "bg-purple-100 text-purple-800" },
+  artisans: { tag: "ART", tone: "bg-purple-50 text-purple-800" },
+  products: { tag: "PROD", tone: "bg-purple-100 text-purple-800" },
+  workshops: { tag: "WS", tone: "bg-purple-50 text-purple-800" },
+  crafts: { tag: "CRAFT", tone: "bg-purple-100 text-purple-800" },
+  interviews: { tag: "INT", tone: "bg-amber-100 text-amber-800" },
+  designWorkshops: { tag: "DW", tone: "bg-purple-100 text-purple-800" },
+  reports: { tag: "DOC", tone: "bg-purple-50 text-purple-800" },
+  clusters: { tag: "CL", tone: "bg-purple-50 text-purple-800" }
 };
 
-type LocateResult = { path: string | null };
-
-type Row = {
-  key: string;
-  kind: "Artisan" | "Workshop" | "Product" | "Tool" | "Media";
-  title: string;
-  subtitle: string;
-  href: string | null;
-  external?: boolean;
-  locate: { type: string; id: string } | null;
+const PORTAL_BADGE: Record<Portal, string> = {
+  designer: "bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-200",
+  fieldRepository: "bg-[#ccfbf1] text-[#115e59] dark:bg-[#134e4a] dark:text-[#99f6e4]"
 };
 
-const EMPTY: Row[] = [];
+const PORTAL_SHORT: Record<Portal, string> = { designer: "Design Workshop", fieldRepository: "Field Repository" };
 
-function rowsFrom(result: SearchResult, filters: SearchFilters): Row[] {
-  const rows: Row[] = [];
-  for (const a of typeVisible(filters, "artisans") ? (result.artisans ?? []) : []) {
-    rows.push({
-      key: `artisan-${a.id}`,
-      kind: "Artisan",
-      title: a.name,
-      subtitle: [a.craft?.name, a.place].filter(Boolean).join(" · "),
-      href: recordViewHref("artisan", a.id),
-      locate: { type: "artisan", id: a.id }
-    });
-  }
-  for (const p of typeVisible(filters, "products") ? (result.products ?? []) : []) {
-    rows.push({
-      key: `product-${p.id}`,
-      kind: "Product",
-      title: p.productName,
-      subtitle: p.artisanName ?? "",
-      href: recordViewHref("product", p.id),
-      locate: { type: "product", id: p.id }
-    });
-  }
-  for (const t of typeVisible(filters, "tools") ? (result.tools ?? []) : []) {
-    rows.push({
-      key: `tool-${t.id}`,
-      kind: "Tool",
-      title: t.toolkitName,
-      subtitle: t.artisanName ?? "",
-      href: recordViewHref("tool", t.id),
-      locate: { type: "tool", id: t.id }
-    });
-  }
-  for (const w of typeVisible(filters, "workshops") ? (result.workshops ?? []) : []) {
-    rows.push({
-      key: `workshop-${w.id}`,
-      kind: "Workshop",
-      title: w.title,
-      subtitle: [w.place, w.date ? new Date(w.date).toLocaleDateString() : ""].filter(Boolean).join(" · "),
-      href: recordViewHref("workshop", w.id),
-      locate: { type: "workshop", id: w.id }
-    });
-  }
-  for (const m of typeVisible(filters, "media") ? (result.media ?? []) : []) {
-    rows.push({
-      key: `media-${m.id}`,
-      kind: "Media",
-      title: m.caption || m.originalFilename,
-      subtitle: [m.mediaType, m.uploadedBy?.name].filter(Boolean).join(" · "),
-      href: m.url ?? null,
-      external: true,
-      locate: { type: "media", id: m.id }
-    });
-  }
-  return rows;
-}
-
-const KIND_CLASS: Record<Row["kind"], string> = {
-  Artisan: "bg-purple-100 text-purple-800",
-  Product: "bg-success-100 text-success-600",
-  Tool: "bg-amber-100 text-amber-800",
-  Workshop: "bg-purple-50 text-purple-700",
-  Media: "bg-surface-50 text-ink-700"
+const LOCATE_TYPE: Partial<Record<UnifiedType, string>> = {
+  artisans: "artisan",
+  workshops: "workshop",
+  products: "product",
+  tools: "tool",
+  processes: "process",
+  crafts: "craft",
+  interviews: "interview",
+  designWorkshops: "designWorkshop",
+  media: "media",
+  transcripts: "media"
 };
 
-export function DataSearchPanel({ onReveal, toolbar = false }: { onReveal: (path: string) => void; toolbar?: boolean }) {
-  const [query, setQuery] = useState("");
-  const [filters, setFilters] = useState<SearchFilters>(EMPTY_SEARCH_FILTERS);
-  const [rows, setRows] = useState<Row[]>(EMPTY);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [revealing, setRevealing] = useState<string | null>(null);
-  const timer = useRef<number | null>(null);
-  const generation = useRef(0);
-  const typedBefore = useRef({ q: "", place: "" });
-
-  const run = useCallback(async (text: string, active: SearchFilters) => {
-    const q = text.trim();
-    const mine = ++generation.current;
-    if (q.length < 2 && !hasActiveFilters(active)) {
-      setRows(EMPTY);
-      setTotal(0);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await apiFetch<SearchResult>(
-        `/search${buildQuery({ q: q || undefined, ...searchFilterParams(active), page: 1, pageSize: 8 })}`
-      );
-      if (mine !== generation.current) return;
-      setRows(rowsFrom(result, active));
-      const selected = result.totals
-        ? RECORD_TYPES.filter((type) => typeVisible(active, type)).reduce(
-            (sum, type) => sum + (result.totals?.[type] ?? 0),
-            0
-          )
-        : (result.total ?? 0);
-      setTotal(selected);
-    } catch (err) {
-      if (mine !== generation.current) return;
-      setError(err instanceof Error ? err.message : "Search failed");
-      setRows(EMPTY);
-    } finally {
-      if (mine === generation.current) setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const typed = query !== typedBefore.current.q || filters.place !== typedBefore.current.place;
-    typedBefore.current = { q: query, place: filters.place };
-    if (timer.current) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => run(query, filters), typed ? 300 : 0);
-    return () => {
-      if (timer.current) window.clearTimeout(timer.current);
-    };
-  }, [query, filters, run]);
-
-  async function reveal(row: Row) {
-    if (!row.locate) return;
-    setRevealing(row.key);
-    try {
-      const found = await apiFetch<LocateResult>(`/data/locate${buildQuery(row.locate)}`);
-      if (found.path) onReveal(found.path);
-      else setError(`"${row.title}" isn’t in a workshop folder.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not locate that record in the tree");
-    } finally {
-      setRevealing(null);
-    }
-  }
-
+function Snippet({ text, ranges }: { text: string; ranges?: number[][] }) {
   return (
-    <section role="search" aria-label="Search the repository" className={toolbar ? "grid gap-2" : "panel mb-4 grid gap-3 p-4"}>
-      {toolbar ? null : (
-      <div>
-        <h2 className="font-display text-base font-bold text-ink-900">Search records</h2>
-        <p className="mt-0.5 text-xs text-ink-500">
-          By name, place or caption.
-        </p>
-      </div>
+    <p className="text-sm text-ink-700">
+      {highlightSegments(text, ranges).map((segment, index) =>
+        segment.hit ? (
+          <mark key={index} className="rounded-sm bg-purple-100 px-0.5 text-ink-900 dark:bg-purple-900/60">
+            {segment.text}
+          </mark>
+        ) : (
+          <span key={index}>{segment.text}</span>
+        )
       )}
-
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" aria-hidden />
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search by name, place or caption"
-          aria-label="Search records"
-          className="field-input w-full pl-9 pr-9"
-        />
-        {query ? (
-          <button
-            type="button"
-            onClick={() => setQuery("")}
-            aria-label="Clear search"
-            className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded text-ink-500 hover:bg-purple-50 hover:text-purple-700"
-          >
-            <X className="h-3.5 w-3.5" aria-hidden />
-          </button>
-        ) : null}
-      </div>
-
-      {toolbar ? (
-        <details className="text-xs">
-          <summary className="min-h-9 cursor-pointer py-2 font-semibold text-purple-700 dark:text-purple-300 pointer-coarse:min-h-11">Filters</summary>
-          <SearchFilterBar value={filters} onChange={setFilters} className="" />
-        </details>
-      ) : (
-        <SearchFilterBar value={filters} onChange={setFilters} className="" />
-      )}
-
-      {error ? <p className="text-xs text-error-600">{error}</p> : null}
-
-      {loading ? (
-        <p className="flex items-center gap-2 text-xs text-ink-500">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-          Searching…
-        </p>
-      ) : null}
-
-      {!loading && rows.length === 0 && !error && (query.trim().length >= 2 || hasActiveFilters(filters)) ? (
-        <p className="text-xs text-ink-500">
-          {query.trim().length >= 2
-            ? `Nothing matches “${query.trim()}”${hasActiveFilters(filters) ? " with these filters" : ""}.`
-            : "Nothing matches these filters."}
-        </p>
-      ) : null}
-
-      {rows.length ? (
-        <>
-          <ul className="grid gap-1.5">
-            {rows.map((row) => (
-              <li key={row.key}>
-                <RowSurface href={row.href} external={row.external}>
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${KIND_CLASS[row.kind]}`}>
-                    {row.kind}
-                  </span>
-                  <span className="truncate text-sm font-medium text-ink-900">{row.title}</span>
-                  {row.subtitle ? <span className="truncate text-xs text-ink-500">{row.subtitle}</span> : null}
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-purple-700 dark:text-purple-300 disabled:opacity-50"
-                    disabled={revealing === row.key}
-                    onClick={() => reveal(row)}
-                  >
-                    <FolderTree className="h-3.5 w-3.5" aria-hidden />
-                    {revealing === row.key ? "Locating…" : "Show in folders"}
-                  </button>
-                  {row.href ? (
-                    row.external ? (
-                      <a
-                        href={row.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-purple-700 dark:text-purple-300"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                        Open
-                      </a>
-                    ) : (
-                      <Link href={row.href} className="text-xs font-semibold text-purple-700 dark:text-purple-300">
-                        Open
-                      </Link>
-                    )
-                  ) : null}
-                </div>
-                </RowSurface>
-              </li>
-            ))}
-          </ul>
-          {total > rows.length ? (
-            <p className="text-xs text-ink-500">
-              Showing {rows.length} of {total}.{" "}
-              <Link
-                href={`/search${buildQuery({ q: query.trim() || undefined, ...filtersToLinkParams(filters) })}`}
-                className="font-semibold text-purple-700 dark:text-purple-300"
-              >
-                See all results
-              </Link>
-            </p>
-          ) : null}
-        </>
-      ) : null}
-    </section>
+    </p>
   );
 }
 
-const ROW_CLASS = "flex flex-wrap items-center justify-between gap-2 rounded-md border border-line-200 bg-surface-50 px-3 py-2";
-
-function RowSurface({ href, external, children }: { href: string | null; external?: boolean; children: React.ReactNode }) {
-  if (!href) return <div className={ROW_CLASS}>{children}</div>;
+function TitleMarked({ title, q }: { title: string; q: string }) {
+  const words = q.toLowerCase().split(/\s+/).filter((word) => word.length >= 2);
+  const ranges: number[][] = [];
+  const lower = title.toLowerCase();
+  for (const word of words) {
+    let at = lower.indexOf(word);
+    while (at >= 0) {
+      ranges.push([at, at + word.length]);
+      at = lower.indexOf(word, at + word.length);
+    }
+  }
   return (
-    <OpenableBlock href={href} external={external} className={ROW_CLASS}>
-      {children}
-    </OpenableBlock>
+    <>
+      {highlightSegments(title, ranges).map((segment, index) =>
+        segment.hit ? (
+          <mark key={index} className="rounded-sm bg-purple-100 px-0.5 text-ink-900 dark:bg-purple-900/60">
+            {segment.text}
+          </mark>
+        ) : (
+          <span key={index}>{segment.text}</span>
+        )
+      )}
+    </>
+  );
+}
+
+function useOptions(endpoint: string, map: (row: never) => SelectOption) {
+  const [term, setTerm] = useState("");
+  const [options, setOptions] = useState<SelectOption[]>([]);
+  const [pending, setPending] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+  const mapRef = useRef(map);
+  useEffect(() => {
+    mapRef.current = map;
+  });
+  useEffect(() => {
+    let cancelled = false;
+    setPending(true);
+    const timer = window.setTimeout(() => {
+      listResource<never>(endpoint, { page: 1, pageSize: OPTION_PAGE, search: term || undefined })
+        .then((page) => {
+          if (cancelled) return;
+          setOptions(page.items.map((row) => mapRef.current(row)));
+          setTruncated(page.total > page.items.length);
+        })
+        .catch(() => {
+          if (!cancelled) setOptions([]);
+        })
+        .finally(() => {
+          if (!cancelled) setPending(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [endpoint, term]);
+  return { options, onSearch: setTerm, pending, truncated };
+}
+
+export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: string) => void; onPreview: (target: PreviewTarget) => void }) {
+  const [draft, setDraft] = useState("");
+  const [state, setState] = useState<SearchState>(EMPTY_STATE);
+  const [focus, setFocus] = useState<UnifiedType | null>(null);
+  const [limit, setLimit] = useState(FIRST_LIMIT);
+  const [pages, setPages] = useState(1);
+  const [answer, setAnswer] = useState<Answer | null>(null);
+  const [extra, setExtra] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [locating, setLocating] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const workshops = useOptions("/workshops", (row: Workshop) => ({ value: row.id, label: workshopDisplayTitle(row) }));
+  const artisans = useOptions("/artisans", (row: Artisan) => ({ value: row.id, label: row.name, hint: row.place ?? undefined }));
+  const crafts = useOptions("/crafts", (row: Craft) => ({ value: row.id, label: row.name, hint: row.place ?? undefined }));
+  const offered = UNIFIED_TYPES;
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.closest("input, textarea, select, [contenteditable='true']") || target.isContentEditable)) return;
+      event.preventDefault();
+      inputRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setState((previous) => (previous.q === draft ? previous : { ...previous, q: draft })), 300);
+    return () => window.clearTimeout(timer);
+  }, [draft]);
+
+  const q = state.q.trim();
+  const types = useMemo(() => (state.transcriptOnly ? (["transcripts"] as UnifiedType[]) : state.types), [state.transcriptOnly, state.types]);
+  const key = JSON.stringify([q, state.scope, state.workshopIds, state.artisanId, state.craftId, types, state.range, focus, limit, attempt]);
+
+  useEffect(() => {
+    if (q.length < 2) {
+      setAnswer(null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setExtra([]);
+    setPages(1);
+    const query = {
+      q,
+      scope: state.scope,
+      types: types.length ? types : undefined,
+      type: focus ?? undefined,
+      page: focus ? 1 : undefined,
+      limit: focus ? PAGE_STEP : limit,
+      craftId: state.craftId || undefined,
+      workshopIds: state.workshopIds.length ? state.workshopIds.join(",") : undefined,
+      ...rangeBounds(state.range)
+    };
+    const path = `/search/unified${buildQuery({
+      q: query.q,
+      types: query.types?.join(","),
+      scope: query.scope === "local" ? "local" : undefined,
+      limit: query.limit,
+      type: query.type,
+      page: query.page,
+      craftId: query.craftId,
+      workshopIds: query.workshopIds,
+      artisanIds: state.artisanId || undefined,
+      dateFrom: query.dateFrom
+    })}`;
+    fetchUnified({ q }, () => apiFetch<UnifiedResponse>(path))
+      .then(async (outcome) => {
+        if (cancelled) return;
+        if (outcome.kind === "unified") {
+          setAnswer({ key, data: outcome.data, rows: flattenGroups(outcome.data, focus), legacy: false, error: null });
+          return;
+        }
+        const legacy = await apiFetch<LegacyResult>(`/search${buildQuery({ q, page: 1, pageSize: focus ? PAGE_STEP : 8, craftId: state.craftId || undefined, artisanId: state.artisanId || undefined, ...rangeBounds(state.range) })}`);
+        if (!cancelled) setAnswer({ key, data: null, rows: legacyRows(legacy), legacy: true, error: null });
+      })
+      .catch((error) => {
+        if (!cancelled) setAnswer({ key, data: null, rows: [], legacy: false, error: error instanceof Error && error.message ? error.message : "Search didn't answer." });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [key, q, state.scope, state.workshopIds, state.artisanId, state.craftId, state.range, types, focus, limit]);
+
+  const more = useCallback(async () => {
+    if (!focus || !answer?.data) return;
+    const next = pages + 1;
+    setLoading(true);
+    try {
+      const path = `/search/unified${buildQuery({ q, type: focus, page: next, limit: PAGE_STEP, scope: state.scope === "local" ? "local" : undefined, craftId: state.craftId || undefined, workshopIds: state.workshopIds.join(",") || undefined, artisanIds: state.artisanId || undefined, ...rangeBounds(state.range) })}`;
+      const data = await apiFetch<UnifiedResponse>(path);
+      setExtra((previous) => [...previous, ...flattenGroups(data, focus)]);
+      setPages(next);
+    } catch {
+      setNotice("More results didn't load. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [focus, answer, pages, q, state]);
+
+  const reveal = async (row: Row) => {
+    const type = LOCATE_TYPE[row.type];
+    if (!type) return;
+    setLocating(`${row.portal}:${row.id}`);
+    setNotice(null);
+    try {
+      const found = await apiFetch<{ path: string | null }>(`/data/locate${buildQuery({ type, id: row.id })}`);
+      if (found.path) onReveal(found.path);
+      else setNotice(`“${row.title}” isn't filed in a folder yet.`);
+    } catch (error) {
+      setNotice(error instanceof Error && error.message ? error.message : "That record couldn't be found in the folders.");
+    } finally {
+      setLocating(null);
+    }
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    setState((previous) => ({ ...previous, q: draft }));
+  };
+
+  const shown = answer && answer.key === key ? answer : answer;
+  const data = shown?.data ?? null;
+  const rows = [...(shown?.rows ?? []), ...extra];
+  const total = data ? (focus ? (data.groups.find((group) => group.type === focus)?.total ?? 0) : data.groups.reduce((sum, group) => sum + group.total, 0)) : rows.length;
+  const remote = data?.remote;
+  const canBoth = Boolean(remote && remote.status !== "off" && remote.status !== "notPermitted");
+  const filters = activeFilters(state);
+  const counts = data && state.scope === "all" ? portalCounts(data) : null;
+  const showMore = data && !shown?.legacy && (focus ? rows.length < total : limit < PAGE_STEP && data.groups.some((group) => group.total > group.items.length));
+
+  return (
+    <section role="search" aria-label="Search all data" className="grid gap-3">
+      <form onSubmit={submit} className="panel grid gap-2.5 p-3">
+        <div className="flex gap-2.5">
+          <label className="relative flex min-h-12 flex-1 items-center">
+            <Search className="pointer-events-none absolute left-3.5 h-4.5 w-4.5 text-ink-500" aria-hidden />
+            <input
+              ref={inputRef}
+              type="search"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="Search artisans, tools, crafts, recordings and transcripts"
+              aria-label="Search all data"
+              className="field-input min-h-12 pl-10 pr-10 text-[15px]"
+            />
+            {draft ? (
+              <button type="button" aria-label="Clear search" className="absolute right-2 grid h-8 w-8 place-items-center rounded-sm text-ink-500 hover:bg-purple-50" onClick={() => setDraft("")}>
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            ) : (
+              <span className="pointer-events-none absolute right-3 rounded-[6px] border border-line-200 px-1.5 text-xs text-ink-300 max-sm:hidden" aria-hidden>
+                /
+              </span>
+            )}
+          </label>
+          <button type="submit" className="field-button min-h-12 px-5 max-sm:hidden">
+            Search
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {canBoth ? (
+            <div role="radiogroup" aria-label="Where" className="flex rounded-full border border-line-200 bg-surface-50 p-0.5">
+              {(["local", "all"] as Scope[]).map((scope) => (
+                <button
+                  key={scope}
+                  type="button"
+                  role="radio"
+                  aria-checked={state.scope === scope}
+                  onClick={() => setState((previous) => ({ ...previous, scope }))}
+                  className={`min-h-8 rounded-full px-3 text-xs font-semibold pointer-coarse:min-h-11 ${state.scope === scope ? "bg-purple-700 text-white" : "text-ink-700"}`}
+                >
+                  {scope === "local" ? "This portal" : "Both portals"}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <span className="text-xs text-ink-500">Filter</span>
+          <div className="w-44">
+            <SearchableMultiSelect ariaLabel="Workshop" placeholder="Workshop" options={workshops.options} values={state.workshopIds} onChange={(workshopIds) => setState((previous) => ({ ...previous, workshopIds }))} searchable onSearch={workshops.onSearch} showChips={false} bulk={false} />
+          </div>
+          <div className="w-44">
+            <SearchableSelect ariaLabel="Artisan" placeholder="Artisan" options={artisans.options} value={state.artisanId} onChange={(artisanId) => setState((previous) => ({ ...previous, artisanId }))} searchable onSearch={artisans.onSearch} clearable advanceOnSelect={false} />
+          </div>
+          <div className="w-40">
+            <SearchableSelect ariaLabel="Craft" placeholder="Craft" options={crafts.options} value={state.craftId} onChange={(craftId) => setState((previous) => ({ ...previous, craftId }))} searchable onSearch={crafts.onSearch} clearable advanceOnSelect={false} />
+          </div>
+          <div className="w-44">
+            <SearchableMultiSelect
+              ariaLabel="Record type"
+              placeholder="Record type"
+              options={offered.map((type) => ({ value: type, label: UNIFIED_LABELS[type] }))}
+              values={state.types}
+              onChange={(values) => setState((previous) => ({ ...previous, types: values as UnifiedType[] }))}
+              showChips={false}
+              bulk={false}
+            />
+          </div>
+          <div className="w-36">
+            <SearchableSelect ariaLabel="Date" options={RANGE_OPTIONS} value={state.range} onChange={(range) => setState((previous) => ({ ...previous, range: range as DateRange }))} advanceOnSelect={false} />
+          </div>
+          <button
+            type="button"
+            aria-pressed={state.transcriptOnly}
+            onClick={() => setState((previous) => ({ ...previous, transcriptOnly: !previous.transcriptOnly }))}
+            className={`min-h-10 rounded-full px-3.5 text-sm pointer-coarse:min-h-11 ${state.transcriptOnly ? "border border-purple-300 bg-purple-100 font-semibold text-purple-800" : "border border-line-200 bg-card text-ink-700"}`}
+          >
+            Has transcript
+          </button>
+          {filters ? (
+            <button type="button" className="min-h-10 px-2 text-sm font-semibold text-purple-700 hover:underline dark:text-purple-300" onClick={() => setState({ ...EMPTY_STATE, q: state.q, scope: state.scope })}>
+              Clear {filters} {filters === 1 ? "filter" : "filters"}
+            </button>
+          ) : null}
+        </div>
+      </form>
+
+      {notice ? <p className="rounded-md border border-amber-500/30 bg-amber-100 px-3 py-2 text-sm text-amber-800">{notice}</p> : null}
+
+      {q.length >= 2 ? (
+        <div className="grid gap-3" aria-busy={loading || undefined} data-testid="search-results">
+          {shown?.error ? (
+            <LoadFailed title="Search didn't answer" onRetry={() => setAttempt((value) => value + 1)}>
+              {shown.error}
+            </LoadFailed>
+          ) : !shown ? (
+            <p className="flex items-center gap-2 text-sm text-ink-500" role="status">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              Searching…
+            </p>
+          ) : rows.length === 0 ? (
+            <div className="panel grid justify-items-center gap-2 px-4 py-8 text-center">
+              <span className="grid h-12 w-12 place-items-center rounded-full bg-purple-100 text-purple-700" aria-hidden>
+                <Search className="h-5 w-5" />
+              </span>
+              <h3 className="font-display text-base font-bold text-ink-900">No matches for “{q}”</h3>
+              {data && data.suggestion ? (
+                <p className="text-sm text-ink-500">
+                  Did you mean{" "}
+                  <button
+                    type="button"
+                    className="font-semibold text-purple-700 hover:underline dark:text-purple-300"
+                    onClick={() => {
+                      const suggestion = data.suggestion ?? "";
+                      setDraft(suggestion);
+                      setState((previous) => ({ ...previous, q: suggestion }));
+                    }}
+                  >
+                    {data.suggestion}
+                  </button>
+                  ?
+                </p>
+              ) : null}
+              <ActionGroup>
+                {filters ? (
+                  <button type="button" className="field-button-secondary" onClick={() => setState({ ...EMPTY_STATE, q: state.q, scope: state.scope })}>
+                    Clear {filters} {filters === 1 ? "filter" : "filters"}
+                  </button>
+                ) : null}
+                {canBoth && state.scope === "local" ? (
+                  <button type="button" className="field-button-secondary" onClick={() => setState((previous) => ({ ...previous, scope: "all" }))}>
+                    Search both portals
+                  </button>
+                ) : null}
+              </ActionGroup>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="mr-1 text-ink-500">
+                  {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}
+                </span>
+                {counts ? (
+                  <>
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${PORTAL_BADGE.designer}`}>{PORTAL_SHORT.designer} {counts.designer}</span>
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${PORTAL_BADGE.fieldRepository}`}>{PORTAL_SHORT.fieldRepository} {counts.fieldRepository}</span>
+                  </>
+                ) : null}
+                {data ? (
+                  <div role="group" aria-label="Result types" className="flex flex-wrap gap-1.5">
+                    <button type="button" aria-pressed={!focus} onClick={() => setFocus(null)} className={`min-h-8 rounded-full px-3 text-xs font-semibold pointer-coarse:min-h-11 ${!focus ? "bg-ink-900 text-card" : "border border-line-200 bg-card text-ink-700"}`}>
+                      All {data.groups.reduce((sum, group) => sum + group.total, 0)}
+                    </button>
+                    {data.groups.map((group) => (
+                      <button
+                        key={group.type}
+                        type="button"
+                        aria-pressed={focus === group.type}
+                        onClick={() => setFocus(group.type)}
+                        className={`min-h-8 rounded-full px-3 text-xs font-semibold pointer-coarse:min-h-11 ${focus === group.type ? "bg-ink-900 text-card" : "border border-line-200 bg-card text-ink-700"}`}
+                      >
+                        {group.label} {group.total}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              {remote && state.scope === "all" && remote.status === "unavailable" ? <p className="text-sm text-ink-500">{remote.label} results aren&apos;t available right now.</p> : null}
+              <ul className="grid gap-2.5" aria-label="Results">
+                {rows.map((row) => {
+                  const tile = TILE[row.type] ?? { tag: "REC", tone: "bg-purple-50 text-purple-800" };
+                  const external = !row.local;
+                  const openUrl = external ? safeOpenUrl(row.openUrl) : null;
+                  const both = Boolean(row.alsoIn);
+                  const time = typeof row.startMs === "number" ? clock(row.startMs) : null;
+                  return (
+                    <li key={`${row.portal}:${row.type}:${row.id}`} className="panel flex flex-wrap gap-3.5 p-4 sm:flex-nowrap">
+                      <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-md text-[11px] font-bold ${row.type === "transcripts" && row.mediaType === "VIDEO" ? "bg-purple-100 text-purple-800" : tile.tone}`} aria-hidden>
+                        {row.type === "transcripts" && row.mediaType === "VIDEO" ? "VID" : tile.tag}
+                      </span>
+                      <div className="grid min-w-0 flex-1 gap-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {state.scope === "all" || both || external ? (
+                            both ? (
+                              <span className="flex gap-1">
+                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${PORTAL_BADGE.designer}`}>DW</span>
+                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${PORTAL_BADGE.fieldRepository}`}>FR</span>
+                              </span>
+                            ) : (
+                              <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${PORTAL_BADGE[row.portal]}`}>{PORTAL_SHORT[row.portal]}</span>
+                            )
+                          ) : null}
+                          {external && openUrl ? (
+                            <a href={openUrl} target="_blank" rel="noreferrer" className="font-semibold text-ink-900 hover:text-purple-700 hover:underline">
+                              <TitleMarked title={row.title} q={q} />
+                            </a>
+                          ) : (
+                            <Link href={external ? row.href : row.href} className="font-semibold text-ink-900 hover:text-purple-700 hover:underline">
+                              <TitleMarked title={row.title} q={q} />
+                            </Link>
+                          )}
+                          <span className="text-xs text-ink-500">
+                            {[UNIFIED_LABELS[row.type]?.replace(/s$/, ""), both ? "in both" : null, time].filter(Boolean).join(" · ")}
+                          </span>
+                        </div>
+                        {row.snippet ? <Snippet text={row.snippet} ranges={row.highlights} /> : null}
+                        <p className="text-xs text-ink-500">
+                          {both ? `Same person in both portals${row.alsoIn?.subtitle ? ` · ${row.alsoIn.subtitle}` : ""}` : [row.subtitle, row.place].filter(Boolean).join(" · ")}
+                        </p>
+                      </div>
+                      <ActionGroup align="end" inline className="max-sm:w-full">
+                        {row.type === "transcripts" && row.local && time ? (
+                          <button type="button" className="field-button-secondary min-h-9 px-3 text-sm" onClick={() => onPreview({ mediaId: row.id, name: row.title, mediaType: row.mediaType ?? null, startMs: row.startMs ?? 0, find: q })}>
+                            <Play className="h-3.5 w-3.5" aria-hidden />
+                            Play from {time}
+                          </button>
+                        ) : null}
+                        {row.local && LOCATE_TYPE[row.type] ? (
+                          <button type="button" className="field-button-secondary min-h-9 px-3 text-sm" disabled={locating === `${row.portal}:${row.id}`} onClick={() => void reveal(row)}>
+                            <FolderOpen className="h-3.5 w-3.5" aria-hidden />
+                            {locating === `${row.portal}:${row.id}` ? "Finding…" : "Open in Data"}
+                          </button>
+                        ) : null}
+                        {external && openUrl ? (
+                          <a href={openUrl} target="_blank" rel="noreferrer" className="field-button-secondary min-h-9 px-3 text-sm">
+                            Open in {PORTAL_LABELS[row.portal] ?? "the other portal"}
+                            <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                          </a>
+                        ) : null}
+                        {both && row.alsoIn && safeOpenUrl(row.alsoIn.openUrl) ? (
+                          <a href={safeOpenUrl(row.alsoIn.openUrl)!} target="_blank" rel="noreferrer" className="field-button-secondary min-h-9 px-3 text-sm">
+                            Open in {PORTAL_LABELS[row.alsoIn.portal] ?? "the other portal"}
+                            <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                          </a>
+                        ) : null}
+                      </ActionGroup>
+                    </li>
+                  );
+                })}
+              </ul>
+              {showMore ? (
+                <ActionGroup>
+                  <button type="button" className="field-button-secondary min-h-11" disabled={loading} onClick={() => (focus ? void more() : setLimit(PAGE_STEP))}>
+                    {loading ? "Loading…" : "Show 20 more"}
+                  </button>
+                </ActionGroup>
+              ) : null}
+              {state.scope === "all" && canBoth ? <p className="text-xs text-ink-500">Opening a {PORTAL_LABELS.designer} result signs you in there if you have access.</p> : null}
+            </>
+          )}
+        </div>
+      ) : null}
+    </section>
   );
 }
