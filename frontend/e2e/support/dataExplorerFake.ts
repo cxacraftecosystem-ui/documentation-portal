@@ -117,6 +117,28 @@ const OVERVIEW = {
   truncated: false
 };
 
+function silentWav(seconds: number): Buffer {
+  const rate = 8000;
+  const samples = Math.round(rate * seconds);
+  const out = Buffer.alloc(44 + samples * 2);
+  out.write("RIFF", 0);
+  out.writeUInt32LE(36 + samples * 2, 4);
+  out.write("WAVE", 8);
+  out.write("fmt ", 12);
+  out.writeUInt32LE(16, 16);
+  out.writeUInt16LE(1, 20);
+  out.writeUInt16LE(1, 22);
+  out.writeUInt32LE(rate, 24);
+  out.writeUInt32LE(rate * 2, 28);
+  out.writeUInt16LE(2, 32);
+  out.writeUInt16LE(16, 34);
+  out.write("data", 36);
+  out.writeUInt32LE(samples * 2, 40);
+  return out;
+}
+
+const WAV = silentWav(1);
+
 export const BIG_FILES = 60;
 export const BIG_FILE_BYTES = 256 * 1024;
 
@@ -378,6 +400,7 @@ export class DataExplorerFake {
       if (leaf === "transcript") return id === "aud1" ? { status: 200, json: { mediaId: id, name: "interview.md", content: "**Speaker 1:** Namaste, this is the block.", language: "hi" } } : { status: 404, json: { detail: "Not Found" } };
       if (leaf === "thumbnail") return { status: 200, raw: PNG, contentType: "image/png", headers: { "cache-control": "private, max-age=1800" } };
       if (id === "pdf1") return { status: 200, raw: PDF, contentType: "application/pdf" };
+      if (id === "aud1" && leaf === "preview") return { status: 200, raw: WAV, contentType: "audio/wav" };
       if (id.startsWith("img")) return { status: 200, raw: PNG, contentType: "image/png" };
       return { status: 200, raw: bytesFor(id, 2048), contentType: "application/octet-stream", headers: { "content-disposition": `attachment; filename="${id}.bin"` } };
     }

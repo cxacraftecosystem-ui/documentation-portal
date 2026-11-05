@@ -307,7 +307,7 @@ function PreviewBody({
       setHitIndex(0);
     }
   }
-  const [broken, setBroken] = useState(false);
+  const [brokenSource, setBrokenSource] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const hasEnglish = lines.some((line) => (line.english ?? "").trim() !== "");
   const originalLabel = transcript?.languages?.find((language) => language.code !== "en")?.label ?? transcript?.languages?.[0]?.label ?? "Transcript";
@@ -351,6 +351,7 @@ function PreviewBody({
         ? transcript!.audio.url!
         : transcript!.audio.originalUrl!
       : previewSource(entry);
+  const broken = brokenSource !== null && brokenSource === baseSource;
   const fallback = entry.url && entry.url !== baseSource ? entry.url : null;
   const source = broken && fallback ? fallback : baseSource;
   const [fragment] = useState(() => (startMs && startMs > 0 ? `#t=${Math.floor(startMs / 1000)}` : ""));
@@ -522,7 +523,7 @@ function PreviewBody({
   const media =
     entry.mediaType === "IMAGE" && source ? (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={source} alt={entry.name} className="max-h-[70vh] w-auto object-contain" onError={() => setBroken(true)} />
+      <img src={source} alt={entry.name} className="max-h-[70vh] w-auto object-contain" onError={() => setBrokenSource(baseSource)} />
     ) : entry.mediaType === "PDF" && source ? (
       <object data={source} type="application/pdf" className="h-[70vh] w-full" aria-label={entry.name}>
         <p className="p-6 text-sm text-ink-500">This browser can&apos;t show the PDF here. Save it instead.</p>
@@ -535,7 +536,7 @@ function PreviewBody({
             src={seededSource ?? undefined}
             preload="metadata"
             className="hidden"
-            onError={() => setBroken(true)}
+            onError={() => setBrokenSource(baseSource)}
             onLoadedMetadata={(event) => {
               const element = event.currentTarget;
               if (Number.isFinite(element.duration)) setDuration(element.duration * 1000);
@@ -557,7 +558,7 @@ function PreviewBody({
             playsInline
             preload="metadata"
             className="max-h-[60vh] w-full bg-black"
-            onError={() => setBroken(true)}
+            onError={() => setBrokenSource(baseSource)}
             onLoadedMetadata={(event) => {
               const element = event.currentTarget;
               if (Number.isFinite(element.duration)) setDuration(element.duration * 1000);
