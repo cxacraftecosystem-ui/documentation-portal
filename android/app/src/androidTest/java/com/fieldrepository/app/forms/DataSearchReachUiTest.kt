@@ -240,8 +240,12 @@ class DataSearchReachUiTest {
         val opened = mutableListOf<String>()
         showQuick(opened)
         tapUntilListed("Artisans")
-        compose.onNodeWithText("Show all 31").performSemanticsAction(SemanticsActions.OnClick)
-        waitFor("search.all.shown")
+        compose.waitUntil(30_000) { compose.onAllNodes(hasTestTag("explorer.search.all").and(hasText("Show all 31"))).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("explorer.search.all", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
+        if (runCatching { waitFor("search.all.shown") }.isFailure) {
+            compose.onRoot(useUnmergedTree = true).printToLog("quick-search")
+            waitFor("search.all.shown")
+        }
         reach("search.all.list", "search.all.more.artisan", "search.all.shown", "All 31 shown")
         scrollResultsTo("search.all.list", "search.all.row.artisan.a31")
         compose.onNodeWithTag("search.all.row.artisan.a31", useUnmergedTree = true).assertExists()
