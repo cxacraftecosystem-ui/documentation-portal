@@ -387,6 +387,9 @@ def _production_shaped(path: str = "") -> contract.ReportContext:
             "Questionnaire": [N(id="q1", title="Craft questionnaire", createdAt=now), N(id="q2", title="Unused questionnaire", createdAt=now)],
             "QuestionnaireQuestion": [N(id="qq1", questionnaireId="q1", prompt="Which dye do you use?", sectionCode="A", isActive=True, lineageId="qq1", createdAt=now)],
             "QuestionnaireResponse": [N(id="r1", interviewId="i0", questionId="qq1", answerText="Indigo", createdAt=now, updatedAt=now, answeredById="u1")],
+            "QuestionnaireRecording": [N(id="rec1", mediaFileId="m0", capturedAt=now, createdAt=now, recordedById="u1", removedAt=None), N(id="rec2", mediaFileId="m2", capturedAt=now, createdAt=now, recordedById="u1", removedAt=None)],
+            "QuestionnaireRecordingTarget": [N(recordingId="rec1", targetKey="Q:qq1", questionLineageId="qq1", sectionId=None)],
+            "QuestionnaireRecordingSubject": [N(recordingId="rec1", artisanId="a0")],
         },
         raw=rf.turns_raw,
     )
@@ -402,7 +405,7 @@ def test_a_production_shaped_report_with_no_filter_has_rows_on_every_record_shee
     payload = asyncio.run(build.render(ctx))
     rf.validate(payload)
     book = _book(payload)
-    expected = {"Workshops": 2, "Artisans": 3, "Products": 3, "Processes": 1, "Tools": 2, "Questionnaire sittings": 2, "Media": 4, "Answers": 1, "Transcripts": 1, "Process steps": 1, "Questionnaires": 1}
+    expected = {"Workshops": 2, "Artisans": 3, "Products": 3, "Processes": 1, "Tools": 2, "Questionnaire sittings": 2, "Media": 4, "Answers": 5, "Transcripts": 1, "Process steps": 1, "Questionnaires": 1, "Recordings": 2, "Recording targets": 1}
     for name, least in expected.items():
         assert name in book.sheetnames, f"{name} is missing"
         assert _data_rows(book[name]) >= least, f"{name} has {_data_rows(book[name])} rows"
@@ -424,3 +427,17 @@ def test_every_questionnaire_is_in_a_dataset_root_report_for_someone_who_sees_ev
     narrow.scope.records = {"createdById": "u1"}
     asyncio.run(build.render(narrow))
     assert {q.id for q in narrow.shared["store"].rows["Questionnaire"]} == {"q1"}
+
+
+def test_answers_recorded_as_audio_appear_with_their_english_underneath() -> None:
+    payload = asyncio.run(build.render(_production_shaped()))
+    ws = _book(payload)["Answers"]
+    header = _header(ws)
+    rows = [dict(zip(header, r)) for r in _rows(ws)[writer.TOP + 1 :] if any(v is not None for v in r)]
+    typed = [r for r in rows if r["Answer"] == "Indigo"]
+    assert len(typed) == 1
+    audio = [r for r in rows if r.get("Origin") == "Audio recording"]
+    assert [r["Row"] for r in audio] == ["Original", "English translation", "Original", "English translation"]
+    assert "नील का रंग" in audio[0]["Answer"] and audio[0]["Question"] == "Which dye do you use?" and audio[0]["Artisan"] == "Kamla Devi"
+    assert "The indigo colour" in audio[1]["Answer"]
+    assert audio[2]["Question"] in (None, "") and "नील का रंग" in audio[2]["Answer"]

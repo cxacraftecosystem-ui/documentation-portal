@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import datetime
 from typing import Any
 
 from app.services.datareport import tables
@@ -41,6 +42,23 @@ def _v(row: Any, name: str) -> Any:
     return row.get(name) if isinstance(row, dict) else getattr(row, name, None)
 
 
+TEXT_MAX = 30000
+_VERSIONS_SQL = (
+    'SELECT DISTINCT ON ("mediaFileId") "id", "mediaFileId" FROM "TranscriptVersion" '
+    'WHERE "mediaFileId" = ANY($1::text[]) AND "supersededAt" IS NULL ORDER BY "mediaFileId", "version" DESC'
+)
+_TURNS_SQL = (
+    'SELECT "versionId", "position", "language", "machineText", "editedText", "machineEnglish", "editedEnglish", "translationStatus" '
+    'FROM "TranscriptTurn" WHERE "versionId" = ANY($1::text[]) ORDER BY "versionId", "position"'
+)
+_MEDIA_TEXT_SQL = 'SELECT "id", "transcriptText", "transcriptLanguage" FROM "MediaFile" WHERE "id" = ANY($1::text[])'
+CHUNK = 200
+
+
+def _clip(text: str) -> str:
+    return text if len(text) <= TEXT_MAX else text[: TEXT_MAX - 1] + "…"
+
+
 def _status(value: Any) -> str:
     raw = str(getattr(value, "value", value) or "")
     return raw.replace("_", " ").capitalize() if raw else ""
@@ -58,7 +76,8 @@ class AnswersPlugin:
 
     async def build(self, ctx: ReportContext) -> list[Sheet]:
         store = await tables.shared_store(ctx)
-        rows = list(self._rows(ctx, store))
+        spoken = await self._spoken(ctx, store)
+        rows = list(self._rows(ctx, store, spoken))
         return [
             Sheet(
                 key=self.key,
@@ -72,7 +91,44 @@ class AnswersPlugin:
             )
         ]
 
-    def _rows(self, ctx: ReportContext, store: tables.Store) -> Iterator[dict[str, Any]]:
+    async def _spoken(self, ctx: ReportContext, store: tables.Store) -> dict[str, dict[str, Any]]:
+        live = {str(_v(m, "id")) for m in store.rows.get("MediaFile", ())}
+        ids = sorted({str(_v(r, "mediaFileId")) for r in store.rows.get("QuestionnaireRecording", ()) if not _v(r, "removedAt") and str(_v(r, "mediaFileId")) in live} - store.withheld)
+        if not ids:
+            return {}
+        db = ctx.shared.get("db")
+        if db is None:
+            from app.core.db import db as default_db
+
+            db = default_db
+        out: dict[str, dict[str, Any]] = {}
+        for start in range(0, len(ids), CHUNK):
+            part = ids[start : start + CHUNK]
+            versions = {str(r["id"]): str(r["mediaFileId"]) for r in await db.query_raw(_VERSIONS_SQL, part)}
+            turns: dict[str, list[dict[str, Any]]] = {}
+            if versions:
+                for row in await db.query_raw(_TURNS_SQL, list(versions)):
+                    turns.setdefault(versions.get(str(row["versionId"]), ""), []).append(row)
+            for mid, said in turns.items():
+                original = [str(r.get("editedText") or r.get("machineText") or "").strip() for r in said]
+                english: list[str] = []
+                states: set[str] = set()
+                for r, text in zip(said, original):
+                    state = str(r.get("translationStatus") or "").upper()
+                    states.add(state)
+                    value = r.get("editedEnglish") or r.get("machineEnglish") or (text if state == "ALREADY_ENGLISH" else "")
+                    english.append(str(value or "").strip())
+                languages = sorted({str(r.get("language") or "") for r in said} - {""})
+                out[mid] = {"original": "\n".join(t for t in original if t), "english": "\n".join(t for t in english if t), "language": ", ".join(languages), "states": states}
+            missing = [m for m in part if m not in out]
+            if missing:
+                for row in await db.query_raw(_MEDIA_TEXT_SQL, missing):
+                    text = str(row.get("transcriptText") or "").strip()
+                    if text:
+                        out[str(row["id"])] = {"original": text, "english": "", "language": str(row.get("transcriptLanguage") or ""), "states": set()}
+        return out
+
+    def _rows(self, ctx: ReportContext, store: tables.Store, spoken: dict[str, dict[str, Any]] | None = None) -> Iterator[dict[str, Any]]:
         t = ctx.t
         links = ctx.options.links
         wanted = query_words(ctx.options.q) if ctx.options.rows == "filtered" else []
@@ -179,6 +235,92 @@ class AnswersPlugin:
             if keep(first, second):
                 yield first
                 yield second
+
+        yield from self._audio(ctx, store, spoken or {}, by_lineage, sitting_artisans, sitting_cell, keep, original, english)
+
+    def _audio(self, ctx: ReportContext, store: tables.Store, spoken: dict[str, dict[str, Any]], by_lineage: dict[str, Any], sitting_artisans: dict[str, list[str]], sitting_cell: Any, keep: Any, original: str, english: str) -> Iterator[dict[str, Any]]:
+        t = ctx.t
+        links = ctx.options.links
+        media = {str(_v(m, "id")): m for m in store.rows.get("MediaFile", ())}
+        targets: dict[str, list[Any]] = {}
+        for target in store.rows.get("QuestionnaireRecordingTarget", ()):
+            targets.setdefault(str(_v(target, "recordingId")), []).append(target)
+        subjects: dict[str, list[str]] = {}
+        for subject in store.rows.get("QuestionnaireRecordingSubject", ()):
+            name = store.name("Artisan", _v(subject, "artisanId"))
+            if name:
+                subjects.setdefault(str(_v(subject, "recordingId")), []).append(name)
+        whole = t("answers.wholeSection", "Whole section")
+        audio = t("answers.audio", "Audio recording")
+
+        def moment(r: Any) -> Any:
+            value = _v(r, "capturedAt") or _v(r, "createdAt")
+            return value if isinstance(value, datetime) else datetime.min
+
+        recordings = [r for r in store.rows.get("QuestionnaireRecording", ()) if not _v(r, "removedAt") and str(_v(r, "mediaFileId")) in media]
+        for rec in sorted(recordings, key=lambda r: (str(moment(r)), str(_v(r, "id")))):
+            mid = str(_v(rec, "mediaFileId"))
+            m = media[mid]
+            interview = _v(m, "questionnaireInterviewId")
+            withheld = mid in store.withheld
+            said = spoken.get(mid)
+            for target in sorted(targets.get(str(_v(rec, "id")), []), key=lambda x: str(_v(x, "targetKey"))) or [None]:
+                lineage = _v(target, "questionLineageId") if target is not None else None
+                q = by_lineage.get(str(lineage)) if lineage else None
+                section_row = store.get("QuestionnaireSection", _v(target, "sectionId")) if target is not None and _v(target, "sectionId") else None
+                if q is not None:
+                    code = str(_v(q, "sectionCode") or "")
+                    section = " · ".join(x for x in (code, str(_v(q, "sectionTitle") or "")) if x)
+                    number = _v(q, "displayCode") or _v(q, "questionCode")
+                    question = _v(q, "prompt")
+                elif section_row is not None:
+                    code = str(_v(section_row, "code") or "")
+                    section = " · ".join(x for x in (code, str(_v(section_row, "title") or "")) if x)
+                    number = None
+                    question = whole
+                else:
+                    code, section, number, question = "", "", None, lineage or ""
+                pair = f"{_v(rec, 'id')}:{_v(target, 'targetKey') if target is not None else ''}"
+                base = {
+                    "sitting": sitting_cell(interview, code),
+                    "artisan": ", ".join(subjects.get(str(_v(rec, "id")), []) or [a for a in sitting_artisans.get(str(interview), []) if a]),
+                    "section": section,
+                    "code": number,
+                    "question": question,
+                    "origin": audio,
+                    "answeredBy": store.name("User", _v(rec, "recordedById")),
+                    "answeredOn": _v(rec, "capturedAt") or _v(rec, "createdAt"),
+                    "answerId": pair,
+                    ROW_PAIR: pair,
+                }
+                if links:
+                    base["playFrom"] = Link(t("link.play", "Play"), ctx.links.play_from(mid, 0))
+                if withheld:
+                    first = {**base, ROW_KIND: "plain", "row": original, "language": "", "answer": "", "status": t("status.withheld", "Withheld")}
+                    if keep(first):
+                        yield first
+                    continue
+                if said is None:
+                    first = {**base, ROW_KIND: "plain", "row": original, "language": "", "answer": "", "status": t("status.notTranscribed", "Not transcribed")}
+                    if keep(first):
+                        yield first
+                    continue
+                states = said["states"]
+                if states and states <= {"ALREADY_ENGLISH"}:
+                    status = t("status.alreadyEnglish", "Already English")
+                elif said["english"] and states <= {"TRANSLATED", "ALREADY_ENGLISH", "DONE", ""}:
+                    status = t("status.translated", "Translated")
+                elif states & {"PENDING", "QUEUED", "PROCESSING", "RUNNING"}:
+                    status = t("status.translating", "Translating")
+                elif said["english"]:
+                    status = t("status.translated", "Translated")
+                else:
+                    status = t("status.notRequested", "Not requested")
+                first = {**base, ROW_KIND: "original", "row": original, "language": said["language"], "answer": _clip(said["original"]), "status": t("status.transcribed", "Transcribed")}
+                second = {**base, ROW_KIND: "translation", "row": english, "language": "English", "answer": _clip(said["english"]), "status": status}
+                if keep(first, second):
+                    yield first
+                    yield second
 
 
 register(AnswersPlugin())

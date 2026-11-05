@@ -1,4 +1,6 @@
 {
+  "answers.audio": "Audio recording",
+  "answers.wholeSection": "Whole section",
   "banner.aiCached": "Selected automatically from the transcripts; refreshed when the data changes.",
   "banner.answersLanguage": "Answers appear in their original language and in English.",
   "banner.capped": "Capped at {n} rows — the full data set has more.",
