@@ -34,8 +34,8 @@ export function safeInternalHref(href: string | null | undefined): string | null
 }
 
 export function goFailure(error: unknown): string {
-  if (error instanceof ApiError && error.status >= 500) return "That link didn't answer. Try again in a moment.";
-  return GO_UNAVAILABLE;
+  if (error instanceof ApiError && error.status >= 400 && error.status < 405) return GO_UNAVAILABLE;
+  return "That link didn't answer. Try again in a moment.";
 }
 
 function Frame({ children }: { children: ReactNode }) {
