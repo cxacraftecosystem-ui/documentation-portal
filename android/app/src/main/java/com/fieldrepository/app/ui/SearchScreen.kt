@@ -72,6 +72,8 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.height
 
 object SearchRecordTypes {
     const val ARTISAN = "artisan"
@@ -746,7 +748,7 @@ internal fun SearchFilterBar(
     }
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             SearchChip(
                 text = "Everything",
                 tone = if (value.types.isEmpty()) ChipTone.ON else ChipTone.OFF,
@@ -874,7 +876,7 @@ private fun SearchChip(text: String, tone: ChipTone, onClick: () -> Unit, icon: 
     val background = when (tone) {
         ChipTone.ON -> MaterialTheme.colorScheme.primary
         ChipTone.PART -> MaterialTheme.colorScheme.primaryContainer
-        ChipTone.OFF -> MaterialTheme.field.surface50
+        ChipTone.OFF -> MaterialTheme.colorScheme.surface
     }
     val foreground = when (tone) {
         ChipTone.ON -> MaterialTheme.colorScheme.onPrimary
@@ -885,20 +887,21 @@ private fun SearchChip(text: String, tone: ChipTone, onClick: () -> Unit, icon: 
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
         modifier = Modifier
+            .height(36.dp)
             .clip(CircleShape)
             .clickable(onClick = onClick)
             .background(background, CircleShape)
             .then(
                 if (tone == ChipTone.OFF) Modifier.border(1.dp, MaterialTheme.field.hairline, CircleShape) else Modifier
             )
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(horizontal = 12.dp)
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, tint = foreground, modifier = Modifier.size(14.dp))
+            Icon(icon, contentDescription = null, tint = foreground, modifier = Modifier.size(16.dp))
         }
         Text(
             text,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.bodyMedium,
             color = foreground,
             maxLines = 1
         )

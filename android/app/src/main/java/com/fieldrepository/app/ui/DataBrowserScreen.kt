@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -15,6 +16,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -98,13 +100,21 @@ internal fun DataRecordSearch(repository: FieldRepository, onOpen: (recordType: 
     val search = rememberQuickSearch(repository, filters, browse = browsing)
     val searchAll = LocalExplorerSearchAll.current
     val active = quickSearchRuns(filters, browsing)
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(
             value = filters.query,
             onValueChange = { filters = filters.copy(query = it) },
-            placeholder = { Text(ExplorerUiText.jumpHint) },
+            placeholder = { Text(ExplorerUiText.jumpHint, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.field.placeholder) },
             singleLine = true,
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+            textStyle = MaterialTheme.typography.bodyLarge,
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.field.hairline,
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+            ),
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(18.dp)) },
             trailingIcon = {
                 if (filters.query.isNotBlank()) {
                     IconButton(onClick = { filters = filters.copy(query = "") }) {
@@ -114,7 +124,7 @@ internal fun DataRecordSearch(repository: FieldRepository, onOpen: (recordType: 
             },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { searchAll?.invoke(filters.query) }),
-            modifier = Modifier.fillMaxWidth().testTag("explorer.search")
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("explorer.search")
         )
         SearchFilterBar(value = filters, onChange = { filters = it; browsing = true })
         search.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
@@ -125,8 +135,8 @@ internal fun DataRecordSearch(repository: FieldRepository, onOpen: (recordType: 
             Row(Modifier.fillMaxWidth().testTag("explorer.search.summary"), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     if (search.total > search.hits.size) ExplorerText.showing(search.hits.size, search.total) else SearchAllText.title(search.total),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.field.muted,
                     modifier = Modifier.weight(1f),
                 )
                 if (browsing && filters.query.isBlank() && !filters.hasFilters) {

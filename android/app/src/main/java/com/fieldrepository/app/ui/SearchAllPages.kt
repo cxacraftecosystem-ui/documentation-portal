@@ -1,5 +1,6 @@
 package com.fieldrepository.app.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -165,8 +167,8 @@ internal fun SearchAllList(
         if (state.sections.isNotEmpty()) {
             Text(
                 SearchAllText.shown(state.shown, state.total),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.field.muted,
                 modifier = Modifier.padding(start = gutter, end = gutter, bottom = 4.dp).testTag("search.all.shown"),
             )
         }
@@ -195,7 +197,7 @@ internal fun SearchAllList(
                 item("head.${section.recordType}") {
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp).testTag("search.all.section.${section.recordType}"), verticalAlignment = Alignment.CenterVertically) {
                         Text(section.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f).semantics { heading() })
-                        Text(SearchAllText.count(section.rows.size, section.total), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("search.all.count.${section.recordType}"))
+                        Text(SearchAllText.count(section.rows.size, section.total), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted, modifier = Modifier.testTag("search.all.count.${section.recordType}"))
                     }
                 }
                 items(section.rows, key = { "${section.recordType}:${it.id}" }) { row ->
@@ -209,9 +211,11 @@ internal fun SearchAllList(
                         OutlinedButton(
                             onClick = { scope.launch { state.more(section.recordType) } },
                             enabled = !section.loading,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.field.hairline),
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("search.all.more.${section.recordType}"),
                         ) {
-                            Text(if (section.loading) SearchAllText.searching else SearchAllText.more(minOf(SearchAllRules.PAGE_SIZE, section.remaining), section.title))
+                            Text(if (section.loading) SearchAllText.searching else SearchAllText.more(minOf(SearchAllRules.PAGE_SIZE, section.remaining), section.title), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
                 }

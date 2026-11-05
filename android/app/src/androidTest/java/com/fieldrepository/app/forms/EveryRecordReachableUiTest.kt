@@ -22,7 +22,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.fieldrepository.app.data.ApiClient
@@ -147,11 +149,13 @@ class EveryRecordReachableUiTest {
                 }
             }
         }
-        compose.waitUntil(60_000) { compose.onAllNodesWithText("Newest ${MY_RECORDS_PAGE_BUDGET * 100} shown.").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(60_000) { compose.onAllNodesWithText("Record 1").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("activity-list").performScrollToNode(hasTestTag("my-activity-more"))
-        compose.onNodeWithTag("my-activity-more").performClick()
-        compose.waitUntil(60_000) { compose.onAllNodesWithText("Record $total").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("activity-list").performScrollToNode(hasText("Record $total"))
+        compose.onNodeWithText("Newest ${MY_RECORDS_PAGE_BUDGET * 100} shown.").assertExists()
+        compose.onNodeWithTag("my-activity-more").performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(60_000) {
+            runCatching { compose.onNodeWithTag("activity-list").performScrollToNode(hasText("Record $total")) }.isSuccess
+        }
         compose.onNodeWithText("Record $total").assertIsDisplayed()
         compose.onNodeWithTag("my-activity-more").assertDoesNotExist()
     }
