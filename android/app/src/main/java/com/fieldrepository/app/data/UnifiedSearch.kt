@@ -18,6 +18,9 @@ data class UnifiedSearchItemDto(
     val href: String? = null,
     val openUrl: String? = null,
     val score: Double = 0.0,
+    val startMs: Long? = null,
+    val mediaType: String? = null,
+    val alsoIn: kotlinx.serialization.json.JsonElement? = null,
 )
 
 @Serializable
@@ -44,6 +47,9 @@ data class UnifiedSearchResponse(
     val groups: List<UnifiedSearchGroupDto> = emptyList(),
     val remote: UnifiedRemoteDto = UnifiedRemoteDto(),
     val typesRefused: List<String> = emptyList(),
+    val suggestion: String? = null,
+    val type: String? = null,
+    val page: Int? = null,
 )
 
 @Serializable

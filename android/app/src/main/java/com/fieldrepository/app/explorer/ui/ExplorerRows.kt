@@ -91,6 +91,11 @@ import com.fieldrepository.app.ui.FieldBodyFontFamily
 import com.fieldrepository.app.ui.FieldCircularProgressIndicator
 import com.fieldrepository.app.ui.FieldLinearProgressIndicator
 import com.fieldrepository.app.ui.field
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
+import com.fieldrepository.app.explorer.data.ExplorerJobState
 
 internal fun recordIcon(recordType: String?): ImageVector = when (recordType) {
     "workshop" -> Icons.Filled.Groups
@@ -122,7 +127,26 @@ internal fun fileMeta(entry: ExplorerEntry): String = listOfNotNull(
         else -> "File"
     },
     ExplorerBytes.format(entry.sizeBytes),
+    "transcript".takeIf { entry.transcriptAvailable && entry.mediaType != null },
+    capturedDay(entry.capturedAt),
 ).joinToString(" · ")
+
+internal fun capturedDay(raw: String?): String? = raw?.takeIf { it.isNotBlank() }?.let { value ->
+    runCatching {
+        val instant = runCatching { java.time.OffsetDateTime.parse(value).toInstant() }.getOrElse { java.time.Instant.parse(value) }
+        java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.ENGLISH).format(instant.atZone(java.time.ZoneId.systemDefault()))
+    }.getOrNull()
+}
+
+internal fun folderMeta(folder: ExplorerEntry): String? {
+    val kind = folder.recordType?.takeIf { it.isNotBlank() }?.replaceFirstChar { it.uppercase() }
+    val n = folder.count
+    val size = listOfNotNull(
+        n?.let { ExplorerBytes.count(it, "file") },
+        folder.bytes?.takeIf { it > 0 && (n ?: 0) > 0 }?.let { ExplorerBytes.format(it) },
+    ).joinToString(" · ").ifBlank { null }
+    return listOfNotNull(kind, size).joinToString(" · ").ifBlank { null }
+}
 
 class ExplorerOffline(val file: java.io.File?, val keep: (coil3.Image) -> Unit)
 
@@ -188,7 +212,7 @@ internal fun FolderRow(
     onToggle: () -> Unit,
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surface,
+        color = if (selecting && selected) explorerMark().first else MaterialTheme.colorScheme.surface,
         shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth().testTag("explorer.folder.${folder.path}"),
     ) {
@@ -217,8 +241,8 @@ internal fun FolderRow(
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(folder.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                folder.recordType?.takeIf { it.isNotBlank() }?.let { type ->
-                    Text(type.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                folderMeta(folder)?.let { line ->
+                    Text(line, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.folder.meta.${folder.path}"))
                 }
             }
             if (!selecting) Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
@@ -246,19 +270,38 @@ internal fun FileRow(
     onSave: () -> Unit,
     onCancelSave: () -> Unit,
     extra: @Composable () -> Unit = {},
+    savedJob: ExplorerJob? = null,
+    onOpenSaved: () -> Unit = {},
 ) {
     val previewable = entry.mediaType in ExplorerPaths.PREVIEWABLE && (entry.mediaId != null || !entry.url.isNullOrBlank())
     val textual = entry.content != null || (entry.transcriptPath != null && entry.mediaType == null)
+    val finished = savedJob?.takeIf { saveJob == null }
+    val status = when {
+        selecting && selected -> ExplorerStatus.NEUTRAL
+        finished == null -> ExplorerStatus.NEUTRAL
+        else -> jobStatus(finished)
+    }
+    val tone = explorerTone(status)
+    val (markBg, _) = explorerMark()
+    val large = LocalDensity.current.fontScale >= 1.5f
+    val savable = entry.mediaId != null || entry.content != null
     Surface(
-        color = MaterialTheme.colorScheme.surface,
+        color = when {
+            tone != null -> tone.container
+            selecting && selected -> markBg
+            else -> MaterialTheme.colorScheme.surface
+        },
+        contentColor = tone?.content ?: MaterialTheme.colorScheme.onSurface,
         shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth().testTag("explorer.file.${entry.mediaId ?: entry.path}"),
+        modifier = Modifier.fillMaxWidth()
+            .let { if (tone != null) it.border(1.dp, tone.border, MaterialTheme.shapes.medium) else it }
+            .testTag("explorer.file.${entry.mediaId ?: entry.path}"),
     ) {
         Column(Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 56.dp)
+                    .heightIn(min = 64.dp)
                     .combinedClickable(
                         role = Role.Button,
                         onClickLabel = if (selecting) ExplorerText.select else ExplorerText.open,
@@ -266,6 +309,7 @@ internal fun FileRow(
                         onClick = { if (selecting) onToggle() else onOpen() },
                         onLongClick = onLongPress,
                     )
+                    .semantics { if (selecting) stateDescription = if (selected) "Selected" else "Not selected" }
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -278,34 +322,30 @@ internal fun FileRow(
                         modifier = Modifier.testTag("explorer.check.${entry.mediaId ?: entry.path}"),
                     )
                 }
-                ExplorerThumb(entry)
+                ExplorerThumb(entry, size = 48.dp)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(entry.name, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(fileMeta(entry), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(entry.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = tone?.content ?: MaterialTheme.colorScheme.onSurface, maxLines = if (large) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
+                    Text(fileMeta(entry), style = MaterialTheme.typography.labelSmall, color = tone?.muted ?: MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (large && !selecting && savable) {
+                        SaveAction(entry, saveJob, finished, tone, online, onSave, onCancelSave, onOpenSaved, Modifier.fillMaxWidth().padding(top = 6.dp))
+                    }
                 }
+                if (!large && !selecting && savable) SaveAction(entry, saveJob, finished, tone, online, onSave, onCancelSave, onOpenSaved, Modifier)
             }
             if (!selecting) {
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    if (textual) TextButton(onClick = onText, modifier = Modifier.heightIn(min = 44.dp)) { Text(if (textOpen) ExplorerText.hide else ExplorerText.view) }
-                    if (entry.transcriptAvailable && entry.mediaType != null) {
-                        TextButton(onClick = onTranscript, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.transcript.${entry.mediaId ?: entry.path}")) {
-                            Text(if (transcriptOpen) ExplorerText.hide else ExplorerText.transcript)
-                        }
-                    }
-                    if (previewable) TextButton(onClick = onPreview, enabled = online, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.preview.${entry.mediaId ?: entry.path}")) { Text(ExplorerText.preview) }
-                    if (entry.mediaId != null || entry.content != null) {
-                        if (saveJob != null) {
-                            TextButton(onClick = onCancelSave, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.save.cancel.${entry.mediaId ?: entry.path}")) {
-                                FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.width(8.dp))
-                                Text(ExplorerText.cancel)
+                val actions = textual || (entry.transcriptAvailable && entry.mediaType != null) || previewable
+                if (actions) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        if (textual) TextButton(onClick = onText, modifier = Modifier.heightIn(min = 44.dp)) { Text(if (textOpen) ExplorerText.hide else ExplorerText.view) }
+                        if (entry.transcriptAvailable && entry.mediaType != null) {
+                            TextButton(onClick = onTranscript, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.transcript.${entry.mediaId ?: entry.path}")) {
+                                Text(if (transcriptOpen) ExplorerText.hide else ExplorerText.transcript)
                             }
-                        } else {
-                            TextButton(onClick = onSave, enabled = online || entry.mediaId == null, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.save.${entry.mediaId ?: entry.path}")) { Text(ExplorerText.save) }
                         }
+                        if (previewable) TextButton(onClick = onPreview, enabled = online, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.preview.${entry.mediaId ?: entry.path}")) { Text(ExplorerText.preview) }
                     }
                 }
                 saveJob?.let { job ->
@@ -316,7 +356,12 @@ internal fun FileRow(
                         } else {
                             FieldLinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(4.dp))
                         }
-                        Text(jobLine(job), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            listOfNotNull(jobPercent(job)?.let { ExplorerUiText.percent(it) }, jobLine(job)).joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.testTag("explorer.save.progress.${entry.mediaId ?: entry.path}"),
+                        )
                     }
                 }
                 extra()
@@ -341,13 +386,46 @@ internal fun FileRow(
     }
 }
 
+@Composable
+private fun SaveAction(
+    entry: ExplorerEntry,
+    saveJob: ExplorerJob?,
+    finished: ExplorerJob?,
+    tone: ExplorerTone?,
+    online: Boolean,
+    onSave: () -> Unit,
+    onCancelSave: () -> Unit,
+    onOpenSaved: () -> Unit,
+    modifier: Modifier,
+) {
+    val id = entry.mediaId ?: entry.path
+    when {
+        saveJob != null -> OutlinedButton(onClick = onCancelSave, modifier = modifier.heightIn(min = 40.dp).testTag("explorer.save.cancel.$id")) {
+            FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(8.dp))
+            Text(ExplorerText.cancel)
+        }
+        finished != null && finished.state == ExplorerJobState.DONE -> Button(
+            onClick = onOpenSaved,
+            colors = ButtonDefaults.buttonColors(containerColor = tone?.accent ?: MaterialTheme.colorScheme.primary, contentColor = tone?.onAccent ?: MaterialTheme.colorScheme.onPrimary),
+            modifier = modifier.heightIn(min = 40.dp).testTag("explorer.save.open.$id"),
+        ) { Text(ExplorerText.open) }
+        finished != null && finished.state == ExplorerJobState.FAILED -> Button(
+            onClick = onSave,
+            enabled = online || entry.mediaId == null,
+            colors = ButtonDefaults.buttonColors(containerColor = tone?.accent ?: MaterialTheme.colorScheme.error, contentColor = tone?.onAccent ?: MaterialTheme.colorScheme.onError),
+            modifier = modifier.heightIn(min = 40.dp).testTag("explorer.save.retry.$id"),
+        ) { Text(ExplorerText.retry) }
+        else -> OutlinedButton(onClick = onSave, enabled = online || entry.mediaId == null, modifier = modifier.heightIn(min = 40.dp).testTag("explorer.save.$id")) { Text(ExplorerText.save) }
+    }
+}
+
 internal fun jobLine(job: ExplorerJob): String = when {
     job.busySeconds != null -> ExplorerText.busy(job.busySeconds)
     job.current == ExplorerText.waitingForNetwork || job.current == ExplorerText.resuming -> job.current.orEmpty()
-    job.state == com.fieldrepository.app.explorer.data.ExplorerJobState.QUEUED ->
-        if (job.request.wifiOnly) ExplorerText.waitingForWifi else ExplorerText.queued
-    job.totalBytes > 0 -> ExplorerBytes.progress(job.doneBytes, job.totalBytes) + (ExplorerText.eta(job)?.let { " · $it" } ?: "")
-    job.totalFiles > 1 -> ExplorerText.fetching(job.doneFiles, job.totalFiles)
+    job.state == ExplorerJobState.PAUSED -> listOfNotNull(ExplorerText.paused, job.totalBytes.takeIf { it > 0 }?.let { ExplorerBytes.progress(job.doneBytes, it) }).joinToString(" · ")
+    job.state == ExplorerJobState.QUEUED -> if (job.request.wifiOnly) ExplorerText.waitingForWifi else ExplorerText.queued
+    job.totalBytes > 0 || job.totalFiles > 0 -> ExplorerText.progressLine(job)
     else -> ExplorerText.preparing
 }
 

@@ -54,6 +54,9 @@ data class ExplorerEntry(
     val previewPath: String? = null,
     val downloadPath: String? = null,
     val transcriptFiles: List<DataTranscriptFile> = emptyList(),
+    val capturedAt: String? = null,
+    val count: Int? = null,
+    val bytes: Long? = null,
 ) {
     val isFolder: Boolean get() = kind == "folder"
     val key: String get() = if (isFolder) "folder:$path" else "file:${mediaId ?: path}"
@@ -126,6 +129,8 @@ data class ExplorerManifestFile(
     val convertToMp4: Boolean = false,
     val originalPath: String? = null,
     val originalFilename: String? = null,
+    val sha256: String? = null,
+    val capturedAt: String? = null,
 )
 
 @Serializable
@@ -146,6 +151,7 @@ data class ExplorerSheet(
     val totalRows: Int? = null,
     val matchedRows: Int? = null,
     val truncated: Boolean = false,
+    val rowNumbers: List<Int>? = null,
 ) {
     val headers: List<String> get() = columns.map { ExplorerCells.text(it) }
 }

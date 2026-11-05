@@ -13,6 +13,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -55,6 +56,8 @@
                     android:scheme="https"
                     android:host="field-repository.vercel.app"
                     android:path="/set-password" />
+                <data android:path="/data" />
+                <data android:pathPrefix="/data/go/" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -92,6 +95,14 @@
         <receiver
             android:name=".explorer.data.ExplorerCancelReceiver"
             android:exported="false" />
+        <service
+            android:name=".explorer.data.ExplorerAudioService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
         <service
             android:name=".recording.RecordingService"
             android:exported="false"

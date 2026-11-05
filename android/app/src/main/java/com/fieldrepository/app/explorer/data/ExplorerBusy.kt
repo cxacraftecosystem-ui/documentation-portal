@@ -8,6 +8,7 @@ class ExplorerBusyException(val retryAfterSeconds: Int, message: String) : Illeg
 object ExplorerBusy {
     const val DEFAULT_SECONDS = 60
     const val MAX_SECONDS = 120
+    const val REBUILT_ATTEMPTS = 5
 
     fun isBusy(code: Int): Boolean = code == 503 || code == 429
 
@@ -16,6 +17,7 @@ object ExplorerBusy {
 
     fun of(failure: Throwable): ExplorerBusyException? = when {
         failure is ExplorerBusyException -> failure
+        failure is TransferFailed && isBusy(failure.code) -> ExplorerBusyException(DEFAULT_SECONDS, ExplorerText.busy(DEFAULT_SECONDS))
         failure is HttpException && isBusy(failure.code()) -> {
             val seconds = retryAfter(failure.response()?.headers()?.get("Retry-After"))
             ExplorerBusyException(seconds, ExplorerText.busy(seconds))
@@ -27,19 +29,31 @@ object ExplorerBusy {
         onWait: (secondsLeft: Int?) -> Unit,
         tickMs: Long = 1_000,
         block: suspend () -> T,
+    ): T = retry(2, onWait, tickMs, block)
+
+    suspend fun <T> retry(
+        attempts: Int,
+        onWait: (secondsLeft: Int?) -> Unit,
+        tickMs: Long = 1_000,
+        block: suspend () -> T,
     ): T {
-        try {
-            return block()
-        } catch (failure: Throwable) {
-            val busy = of(failure) ?: throw failure
-            var left = busy.retryAfterSeconds
-            while (left > 0) {
-                onWait(left)
-                delay(tickMs)
-                left--
+        var attempt = 1
+        while (true) {
+            try {
+                return block()
+            } catch (failure: Throwable) {
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                val busy = of(failure) ?: throw failure
+                if (attempt >= attempts) throw failure
+                var left = busy.retryAfterSeconds
+                while (left > 0) {
+                    onWait(left)
+                    delay(tickMs)
+                    left--
+                }
+                onWait(null)
+                attempt++
             }
-            onWait(null)
-            return block()
         }
     }
 }

@@ -82,7 +82,7 @@ fun FieldQuestionnaireHome(
 }
 
 @Composable
-fun FieldArtisanQuestionnaireRecord(artisanId: String, artisanName: String, onMessage: (String) -> Unit) {
+fun FieldArtisanQuestionnaireRecord(artisanId: String, artisanName: String, focusSection: String? = null, onMessage: (String) -> Unit) {
     val context = LocalContext.current
     val v2 = remember { QuestionnaireV2.get(context) }
     ArtisanQuestionnaireRecord(
@@ -90,6 +90,7 @@ fun FieldArtisanQuestionnaireRecord(artisanId: String, artisanName: String, onMe
         onContinueWith = { QuestionnaireV2Nav.pending.value = it },
         onStartSession = { QuestionnaireV2Nav.pending.value = it },
         onOpenSession = { QuestionnaireV2Nav.openServerSession.value = it },
-        onMessage = onMessage
+        onMessage = onMessage,
+        focusSection = focusSection
     )
 }

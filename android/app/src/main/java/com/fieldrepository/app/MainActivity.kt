@@ -444,6 +444,7 @@ import com.fieldrepository.app.ui.rememberCarryPrefill
 import com.fieldrepository.app.ui.Coral
 import com.fieldrepository.app.ui.ConsolidatedQuestionnaireScreen
 import com.fieldrepository.app.ui.DataBrowserScreen
+import com.fieldrepository.app.ui.dataFolderArtisan
 import com.fieldrepository.app.ui.FieldRepositoryTheme
 import com.fieldrepository.app.ui.MapScreen
 import com.fieldrepository.app.ui.RecordProseField
@@ -627,6 +628,8 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         takePasswordLink(intent)
         LocalAlerts.takeTap(intent)
+        com.fieldrepository.app.explorer.data.ExplorerDownloadsTap.take(intent)
+        com.fieldrepository.app.explorer.ui.ExplorerViewLinks.take(intent)
         com.fieldrepository.app.forms.FormBundleInbox.take(applicationContext, intent)
     }
 
@@ -635,6 +638,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         takePasswordLink(intent, restored = savedInstanceState != null)
         if (savedInstanceState == null) LocalAlerts.takeTap(intent)
+        if (savedInstanceState == null) com.fieldrepository.app.explorer.data.ExplorerDownloadsTap.take(intent)
+        if (savedInstanceState == null) com.fieldrepository.app.explorer.ui.ExplorerViewLinks.take(intent)
         if (savedInstanceState == null) com.fieldrepository.app.forms.FormBundleInbox.take(applicationContext, intent)
         val tokenStore = TokenStore(applicationContext)
         val repository = FieldRepository(ApiClient.create(tokenStore, OutboxSyncWorker.readCacheDir(applicationContext)), tokenStore)
@@ -703,7 +708,7 @@ private sealed interface Screen {
         val fresh: Int = 0
     ) : Screen
     data class Browse(val mode: EntryMode) : Screen
-    data class View(val mode: EntryMode, val recordId: String, val back: Screen = Dashboard) : Screen
+    data class View(val mode: EntryMode, val recordId: String, val back: Screen = Dashboard, val section: String? = null) : Screen
     data class Edit(val mode: EntryMode, val recordId: String, val back: Screen? = null, val focus: String? = null) : Screen
     data object MyActivity : Screen
     data object ToolAssign : Screen
@@ -1364,6 +1369,14 @@ private fun HomeScreen(
     LaunchedEffect(notificationOpenRequest) {
         if (notificationOpenRequest > 0L) screen = Screen.Notifications
     }
+    val viewLink by com.fieldrepository.app.explorer.ui.ExplorerViewLinks.requests.collectAsState()
+    LaunchedEffect(viewLink) {
+        if (viewLink != null && screen !is Screen.DataBrowser) screen = Screen.DataBrowser
+    }
+    val downloadsOpenRequest by com.fieldrepository.app.explorer.data.ExplorerDownloadsTap.requests.collectAsState()
+    LaunchedEffect(downloadsOpenRequest) {
+        if (downloadsOpenRequest > com.fieldrepository.app.explorer.ui.ExplorerTapMemory.handled && screen !is Screen.DataBrowser) screen = Screen.DataBrowser
+    }
     val notificationInbox by NotificationState.inbox.collectAsState()
     val unreadNotifications = notificationInbox?.takeIf { it.userId == user.id }?.let { NotificationInboxRules.unread(it) } ?: 0
     var scrollRestoreFor by remember { mutableStateOf<Screen?>(null) }
@@ -1653,7 +1666,7 @@ private fun HomeScreen(
         is Screen.Appearance -> "Appearance & accessibility"
         is Screen.MyAiKeys -> null
         is Screen.TwoStepVerification -> null
-        is Screen.DataBrowser -> "Data Browser"
+        is Screen.DataBrowser -> "Data"
         is Screen.RemoteRecord -> null
         is Screen.AdminHub -> if (s.section == AdminHubEntry.REVIEWS && !(isAdmin && adminChrome)) {
             AdminHubEntry.REVIEWS.label
@@ -1804,7 +1817,19 @@ private fun HomeScreen(
                         repository = repository,
                         onBack = { attemptExit { goBack() } },
                         onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
-                        onOpenMedia = { mediaId -> openRecordView(EntryMode.MEDIA, mediaId) }
+                        onOpenMedia = { mediaId -> openRecordView(EntryMode.MEDIA, mediaId) },
+                        onOpenRemote = { type, id -> screen = Screen.RemoteRecord(type, id, from = Screen.DataBrowser) },
+                        onOpenRecord = { kind, id ->
+                            val mode = searchRecordEntryMode(kind) ?: recentSubmissionEntryMode(kind)
+                            if (mode == null) showMessage(unroutableRecordLine(kind)) else screen = Screen.View(mode, id, back = Screen.DataBrowser)
+                        },
+                        onOpenSection = { artisanId, sectionKey ->
+                            screen = Screen.View(EntryMode.ARTISAN, artisanId, back = Screen.DataBrowser, section = sectionKey)
+                        },
+                        onRecordNow = { path, name ->
+                            val artisanId = dataFolderArtisan(path)
+                            screen = Screen.Create(EntryMode.MEDIA, artisanId?.let { Prefill(artisanId = it, artisanName = name) }, fresh = ++createNonce)
+                        }
                     )
 
                     is Screen.Appearance -> AppearanceScreen(
@@ -2023,6 +2048,7 @@ private fun HomeScreen(
                 repository = repository,
                 mode = s.mode,
                 recordId = s.recordId,
+                section = s.section,
                 canUpdate = s.mode.editable && recordUpdateAllowed(
                     s.mode.linkedRecordType(),
                     canManageCrafts = user.canManageTheCrafts(),
@@ -2560,7 +2586,7 @@ private fun AdminViewHiddenCard(
 
 @Composable
 private fun DataBrowserEntryCard(onOpen: () -> Unit) {
-    RecordCard(title = "Data Browser", icon = Icons.Filled.Storage) {
+    RecordCard(title = "Data", icon = Icons.Filled.Storage) {
         Text(
             "Browse records as folders, preview files, download as zip.",
             color = Muted,
@@ -2569,7 +2595,7 @@ private fun DataBrowserEntryCard(onOpen: () -> Unit) {
         Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Filled.Storage, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Open the Data Browser")
+            Text("Open Data")
         }
     }
 }
@@ -8361,14 +8387,14 @@ private fun TranscribeNowButton(transcribing: Boolean, hasExisting: Boolean, onC
 }
 
 @Composable
-private fun ArtisanQuestionnaireData(repository: FieldRepository, artisanId: String) {
+private fun ArtisanQuestionnaireData(repository: FieldRepository, artisanId: String, focusSection: String? = null) {
     val context = LocalContext.current
     val v2 = remember { QuestionnaireV2.get(context) }
     val v2Config by v2.config.collectAsState()
     if (v2Config?.v2Enabled == true) {
         var artisanName by remember(artisanId) { mutableStateOf("") }
         LaunchedEffect(artisanId) { runCatching { repository.artisan(artisanId) }.onSuccess { artisanName = it.name } }
-        FieldArtisanQuestionnaireRecord(artisanId, artisanName) {
+        FieldArtisanQuestionnaireRecord(artisanId, artisanName, focusSection = focusSection) {
             android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show()
         }
         return
@@ -8380,7 +8406,7 @@ private fun ArtisanQuestionnaireData(repository: FieldRepository, artisanId: Str
         loading = false
     }
     val loaded = data
-    ArtisanQuestionnairePanel(answers = loaded?.answered ?: emptyList(), loading = loading)
+    ArtisanQuestionnairePanel(answers = loaded?.answered ?: emptyList(), loading = loading, focusSection = focusSection)
     val interviews = loaded?.interviews.orEmpty().filter { it.media.isNotEmpty() || !it.notes.isNullOrBlank() }
     if (interviews.isNotEmpty()) {
         RecordCard(title = "Questionnaire recordings", icon = Icons.Filled.Quiz) {
@@ -10324,6 +10350,7 @@ private fun RecordViewScreen(
     repository: FieldRepository,
     mode: EntryMode,
     recordId: String,
+    section: String? = null,
     canUpdate: Boolean,
     onUpdate: (String?) -> Unit,
     canOverrideCompletion: Boolean,
@@ -10395,7 +10422,8 @@ private fun RecordViewScreen(
                 canOverrideCompletion = canOverrideCompletion,
                 showProvenance = showProvenance,
                 onError = onError,
-                onCompleteness = { completeness = it }
+                onCompleteness = { completeness = it },
+                focusSection = section
             )
         }
     }
@@ -10432,7 +10460,8 @@ private fun ViewDataDetail(
     showProvenance: Boolean = false,
     onStatus: (String?) -> Unit = {},
     onError: (String) -> Unit,
-    onCompleteness: (CompletenessDto?) -> Unit = {}
+    onCompleteness: (CompletenessDto?) -> Unit = {},
+    focusSection: String? = null
 ) {
     val context = LocalContext.current
     var loadError by remember(recordId) { mutableStateOf<String?>(null) }
@@ -10490,7 +10519,7 @@ private fun ViewDataDetail(
                 RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
             }
             CompletionMatrixCard(repository = repository, artisanId = recordId, canEdit = canOverrideCompletion, onError = onError)
-            ArtisanQuestionnaireData(repository = repository, artisanId = recordId)
+            ArtisanQuestionnaireData(repository = repository, artisanId = recordId, focusSection = focusSection)
         }
         EntryMode.PRODUCT -> {
             var d by remember(recordId) { mutableStateOf<ProductDetailDto?>(null) }

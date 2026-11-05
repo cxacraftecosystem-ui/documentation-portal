@@ -55,6 +55,7 @@ object FieldPalette {
     val Purple800 = Color(0xFF5F1C93)
     val Purple900 = Color(0xFF4B1674)
     val Purple950 = Color(0xFF2F0D4B)
+    val OnPurple400Dark = Color(0xFF2A0F47)
 
     val Gold100 = Color(0xFFFAEECD)
     val Gold200 = Color(0xFFF4DCA1)
@@ -76,13 +77,13 @@ object FieldPalette {
     val Ink500Light = Color(0xFF615D7A)
     val Ink300Light = Color(0xFFA7A3BC)
 
-    val Bg0Dark = Color(0xFF110F19)
-    val CardDark = Color(0xFF1A1725)
+    val Bg0Dark = Color(0xFF14121F)
+    val CardDark = Color(0xFF1E1B2E)
     val Surface50Dark = Color(0xFF201C2D)
     val Surface100Dark = Color(0xFF262135)
     val Surface200Dark = Color(0xFF2E2840)
     val Surface300Dark = Color(0xFF3A3350)
-    val Line200Dark = Color(0xFF342E47)
+    val Line200Dark = Color(0xFF2F2B45)
     val Ink900Dark = Color(0xFFF2F0F9)
     val Ink700Dark = Color(0xFFD0CBDF)
     val Ink500Dark = Color(0xFF9E98B2)
@@ -257,7 +258,7 @@ private val FieldLightColorScheme: ColorScheme = lightColorScheme(
 
 private val FieldDarkColorScheme: ColorScheme = darkColorScheme(
     primary = FieldPalette.Purple400,
-    onPrimary = FieldPalette.Purple950,
+    onPrimary = FieldPalette.OnPurple400Dark,
     primaryContainer = FieldPalette.Purple900,
     onPrimaryContainer = FieldPalette.Purple200,
     inversePrimary = FieldPalette.Purple700,

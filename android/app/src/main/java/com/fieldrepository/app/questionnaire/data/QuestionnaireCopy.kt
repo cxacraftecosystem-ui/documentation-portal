@@ -549,6 +549,7 @@ object QuestionnaireCopy {
         "place.permission" to "Allow location to fill the place, or type it.",
         "form.pick" to "Pick a form",
         "form.bound" to "Bound to this workshop",
+        "record.sectionEmpty" to "Nothing answered in this section yet.",
     )
 
     val strings: Map<String, String> = sharedKeyOf.mapValues { (_, key) -> shared.getValue(key) } + androidOnly

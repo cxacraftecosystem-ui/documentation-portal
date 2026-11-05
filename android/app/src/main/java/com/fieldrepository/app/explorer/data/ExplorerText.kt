@@ -78,6 +78,44 @@ object ExplorerText {
     const val tablesFailed = "The tables could not be loaded."
     const val noRows = "No tables here."
     const val csv = "CSV"
+    const val pause = "Pause"
+    const val resume = "Resume"
+    const val paused = "Paused"
+    const val reportFailed = "The report couldn't be built. Try again."
+    const val retryingNow = "retrying"
+    const val failedShort = "Failed"
+    const val savedShort = "Saved"
+    const val now = "Now"
+    const val recentFiles = "Recent files"
+    const val downloaded = "Downloaded"
+    const val filesLabel = "Files"
+    const val speedLabel = "Speed"
+    const val timeLeftLabel = "Time left"
+    const val connectionLost = "connection lost"
+    const val mobileDataTitle = "You're on mobile data"
+    const val waitForWifiNote = "Starts by itself when you're on Wi-Fi"
+    const val phoneStorage = "Phone storage"
+    const val enoughSpace = "Enough space"
+    const val notEnoughSpace = "Not enough space"
+    const val saveTo = "Save to"
+    const val smallerDownload = "Smaller download"
+    const val notNow = "Not now"
+    const val downloadOnWifi = "Download on Wi-Fi"
+    const val downloadNow = "Download now"
+    const val thisDownload = "This download"
+
+    fun preflightLine(files: Int, bytes: Long, seconds: Long?, metered: Boolean): String =
+        listOfNotNull(
+            ExplorerBytes.line(files, bytes),
+            seconds?.let { "${aboutLeft(it)} on ${if (metered) "mobile data" else "this Wi-Fi"}" },
+        ).joinToString(" · ")
+
+    fun mobileDataBody(size: String) = "$size could use most of a monthly pack."
+
+    fun freeAfter(size: String, after: String) = "$size · $after free after"
+
+    fun skip(kind: ExplorerKind, size: String?, seconds: Long?) =
+        listOfNotNull("Skip ${kind.label.lowercase()}", size, seconds?.let { aboutLeft(it).removePrefix("about ") }).joinToString(" · ")
 
     fun cachedCopy(stamp: String?) = "Offline copy" + (stamp?.let { " from $it" } ?: "") + ". It may be out of date."
 
@@ -115,6 +153,34 @@ object ExplorerText {
         return listOfNotNull(head, where).joinToString(" ").ifBlank { savedTo(downloads) }
     }
 
+    fun speed(bps: Long): String = (ExplorerBytes.format(bps.coerceAtLeast(0)) ?: "0 B") + "/s"
+
+    fun aboutLeft(seconds: Long): String = when {
+        seconds < 60 -> "under a minute"
+        seconds < 3600 -> "about ${(seconds + 30) / 60} min"
+        else -> "about ${seconds / 3600} h ${(seconds % 3600) / 60} min"
+    }
+
+    fun filesOf(done: Int, total: Int) = "${String.format(java.util.Locale.ROOT, "%,d", done)} of ${String.format(java.util.Locale.ROOT, "%,d", total)}"
+
+    fun retryNote(n: Int) = if (n == 1) "1 file failed and will retry at the end." else "$n files failed and will retry at the end."
+
+    fun savedFiles(n: Int) = "Saved ${ExplorerBytes.count(n, "file")}"
+
+    fun savingTo(location: String) = "Saving to $location"
+
+    fun didntDownload(name: String) = "$name didn't download"
+
+    fun percentOf(title: String, percent: Int?) = if (percent == null) title else "$title · $percent%"
+
+    fun progressLine(job: ExplorerJob, now: Long = System.currentTimeMillis()): String {
+        val parts = ArrayList<String>()
+        if (job.totalBytes > 0) parts += ExplorerBytes.progress(job.doneBytes, job.totalBytes)
+        if (job.totalFiles > 1) parts += "${filesOf(minOf(job.doneFiles, job.totalFiles), job.totalFiles)} files"
+        job.secondsLeft(now)?.let { parts += timeLeft(it).replaceFirstChar { c -> c.lowercase() } }
+        return parts.joinToString(" · ").ifBlank { preparing }
+    }
+
     fun failedFiles(n: Int) = "$n file${if (n == 1) "" else "s"} failed"
 
     fun fetching(done: Int, total: Int) = "File ${minOf(done + 1, total)} of $total"
@@ -125,14 +191,7 @@ object ExplorerText {
         else -> "${seconds / 3600} h ${(seconds % 3600) / 60} min left"
     }
 
-    fun eta(job: ExplorerJob, now: Long = System.currentTimeMillis()): String? {
-        val started = job.startedAt ?: return null
-        val elapsed = now - started
-        if (job.doneBytes <= 0 || job.totalBytes <= job.doneBytes || elapsed < 3_000) return null
-        val rate = job.doneBytes.toDouble() / elapsed
-        val left = ((job.totalBytes - job.doneBytes) / rate / 1000.0).toLong()
-        return timeLeft(left)
-    }
+    fun eta(job: ExplorerJob, now: Long = System.currentTimeMillis()): String? = job.secondsLeft(now)?.let { timeLeft(it) }
 
     fun folderCount(folders: Int, files: Int) =
         "${ExplorerBytes.count(folders, "folder")} · ${ExplorerBytes.count(files, "file")}"

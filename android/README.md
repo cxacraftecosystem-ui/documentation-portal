@@ -22,6 +22,7 @@ Kotlin + Jetpack Compose Android client for the same FastAPI backend used by the
 - Read a recording's transcript: Original, English or Side by side, the playing word lit (a video's transcript plays in a video player), reading mode, timeline marks, auto-follow; an opened transcript stays readable offline (0.0.4 to 0.0.10)
 - Edit or regenerate a transcript's summary, and Refine transcript or Refine & translate under a stored transcript (0.0.10)
 - Tool rows name every artisan linked to the tool, by the rule in `shared/tool-scope-vectors.json` (0.0.11)
+- The **Data** screen (0.0.13): record details, include chips with sizes, a preflight sheet before big or mobile-data downloads, on-screen and notification progress with Pause, green saved and red failed rows, tables that stay put while scrolling, report options, folder transcripts, video and audio previews that follow the transcript, a mini player, unified search across both portals, tablet panes and 200 % text; see `docs/ANDROID_BACKGROUND_DOWNLOADS.md`
 - Send `Authorization: Bearer <token>` on every protected API call
 - Requests camera, audio and location permissions for field capture workflows
 

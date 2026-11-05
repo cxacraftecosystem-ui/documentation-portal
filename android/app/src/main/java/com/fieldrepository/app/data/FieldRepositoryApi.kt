@@ -758,6 +758,9 @@ interface FieldRepositoryApi {
         @Query("limit") limit: Int = 5,
         @Query("types") types: String? = null,
         @Query("scope") scope: String? = null,
+        @Query("type") type: String? = null,
+        @Query("page") page: Int? = null,
+        @Query("artisanIds") artisanIds: String? = null,
     ): UnifiedSearchResponse
 
     @GET("search/remote/{type}/{id}")

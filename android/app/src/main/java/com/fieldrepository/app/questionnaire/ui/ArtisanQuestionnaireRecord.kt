@@ -1,7 +1,10 @@
 package com.fieldrepository.app.questionnaire.ui
 
 import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -38,7 +41,7 @@ import com.fieldrepository.app.ui.SelectOption
 import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ArtisanQuestionnaireRecord(
     v2: QuestionnaireV2,
@@ -47,8 +50,11 @@ fun ArtisanQuestionnaireRecord(
     onContinueWith: (artisanId: String) -> Unit,
     onStartSession: (artisanId: String) -> Unit,
     onOpenSession: (sessionId: String) -> Unit = {},
-    onMessage: (String) -> Unit = {}
+    onMessage: (String) -> Unit = {},
+    focusSection: String? = null
 ) {
+    val wanted = SectionFocus.wanted(focusSection)
+    val focus = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     var continueFrom by remember { mutableStateOf<com.fieldrepository.app.questionnaire.data.QRecordInstrument?>(null) }
@@ -57,7 +63,7 @@ fun ArtisanQuestionnaireRecord(
     var failed by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var attempt by remember { mutableIntStateOf(0) }
-    var view by remember { mutableStateOf("T") }
+    var view by remember { mutableStateOf(if (wanted != null) "Q" else "T") }
     var playing by remember { mutableStateOf<Uri?>(null) }
     var consent by remember { mutableStateOf<String?>("…") }
     var transcriptOf by remember { mutableStateOf<String?>(null) }
@@ -151,8 +157,17 @@ fun ArtisanQuestionnaireRecord(
                             }
                         }
                     } else {
-                        instrument.document.forEach { section ->
-                            Text("Section ${section.sectionCode}", style = MaterialTheme.typography.labelLarge)
+                        val sections = instrument.document
+                        wanted?.takeIf { SectionFocus.missing(sections.map { s -> s.sectionCode }, it) }?.let { absent ->
+                            FocusedSection(absent, focus) {
+                                Text(QuestionnaireCopy.s("record.sectionEmpty"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
+                            }
+                        }
+                        sections.forEach { section ->
+                          FocusedSection(section.sectionCode, if (section.sectionCode == wanted) focus else null) {
+                            if (SectionFocus.emptyNote(section.sectionCode, wanted, section.questions.any { it.answer?.text?.isNotBlank() == true })) {
+                                Text(QuestionnaireCopy.s("record.sectionEmpty"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
+                            }
                             section.questions.forEach { q ->
                                 val badge = when {
                                     q.answer?.attribution == "GROUP_SHARED" -> QuestionnaireCopy.groupAnswer(instrument.rosterOf(q.answer.sourceRecordingId ?: q.primaryRecordingId))
@@ -171,6 +186,13 @@ fun ArtisanQuestionnaireRecord(
                                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted
                                 )
                                 if (q.recordedUnderEarlierWording) Text(QuestionnaireCopy.s("record.earlierWording"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted)
+                            }
+                          }
+                        }
+                        if (wanted != null) {
+                            LaunchedEffect(wanted, instrument.questionnaireId) {
+                                kotlinx.coroutines.delay(150)
+                                runCatching { focus.bringIntoView() }
                             }
                         }
                         if (instrument.retired.isNotEmpty()) Text(QuestionnaireCopy.s("record.retired"), style = MaterialTheme.typography.labelLarge)
@@ -222,3 +244,31 @@ internal fun latestSession(instrument: com.fieldrepository.app.questionnaire.dat
 internal fun chipsOf(record: QArtisanRecord, recordingId: String): com.fieldrepository.app.questionnaire.data.QChips? =
     record.instruments.asSequence().flatMap { it.sessions.asSequence() }.flatMap { (it.recordings + it.uncertain).asSequence() }
         .firstOrNull { it.id == recordingId }?.chips
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+internal fun FocusedSection(code: String, focus: androidx.compose.foundation.relocation.BringIntoViewRequester?, content: @Composable () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth()
+            .let { m ->
+                if (focus != null) {
+                    m.bringIntoViewRequester(focus)
+                        .background(MaterialTheme.colorScheme.primaryContainer, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                        .padding(8.dp)
+                        .testTag("questionnaire.record.focus")
+                } else m
+            },
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text("Section $code", style = MaterialTheme.typography.labelLarge)
+        content()
+    }
+}
+
+internal object SectionFocus {
+    fun wanted(code: String?): String? = code?.trim()?.takeIf { it.isNotEmpty() && it != "_" }
+
+    fun missing(codes: List<String>, wanted: String?): Boolean = wanted != null && wanted !in codes
+
+    fun emptyNote(code: String, wanted: String?, answered: Boolean): Boolean = wanted != null && code == wanted && !answered
+}

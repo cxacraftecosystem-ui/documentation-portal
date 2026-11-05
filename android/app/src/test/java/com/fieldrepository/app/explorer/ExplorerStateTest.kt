@@ -187,4 +187,55 @@ class ExplorerStateTest {
         assertEquals("hello transcript", s.transcriptText(entry))
         assertEquals(1, api.calls.count { it.startsWith("path:") })
     }
+
+    @QFeature("X1")
+    @Test fun `starting twice loads the folder once`() = runBlocking {
+        val api = FakeExplorerApi()
+        val s = state(api)
+        s.start("w")
+        s.start("w")
+        until { s.tree != null }
+        delay(100)
+        assertEquals(1, api.calls.count { it.startsWith("tree:w:") })
+    }
+
+    @QFeature("X1")
+    @Test fun `opening the folder that is already loading does not ask again`() = runBlocking {
+        val api = FakeExplorerApi()
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        api.trees = { path, _, _ -> gate.await(); ExplorerTree(path = path) }
+        val s = state(api)
+        s.open("w")
+        s.open("w")
+        s.open("w")
+        gate.complete(Unit)
+        until { s.tree != null }
+        assertEquals(1, api.calls.count { it.startsWith("tree:w:") })
+    }
+
+    @QFeature("X6")
+    @Test fun `the tab goes back to files only when the folder changes`() = runBlocking {
+        val api = FakeExplorerApi()
+        val s = state(api)
+        s.open("w")
+        until { s.tree != null }
+        s.tab = com.fieldrepository.app.explorer.ui.ExplorerTab.TABLES
+        s.open("w")
+        assertEquals(com.fieldrepository.app.explorer.ui.ExplorerTab.TABLES, s.tab)
+        s.open("w/b")
+        assertEquals(com.fieldrepository.app.explorer.ui.ExplorerTab.FILES, s.tab)
+    }
+
+    @QFeature("X3")
+    @Test fun `the selection adds up the sizes of the picked files`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.trees = { path, _, _ -> ExplorerTree(path = path, entries = listOf(file("a").copy(sizeBytes = 700), file("b").copy(sizeBytes = 18))) }
+        val s = state(api)
+        s.open("w")
+        until { s.entries.size == 2 }
+        s.beginSelect(s.files[0])
+        s.toggleSelect(s.files[1])
+        assertEquals(718L, s.selectedBytes)
+        assertEquals(0, s.selectedFolders)
+    }
 }

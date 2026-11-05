@@ -21,6 +21,7 @@ object ExplorerDownloads {
     const val KEY_ID = "jobId"
     const val WORK_DIR = "explorer"
     const val PREVIEW_DIR = "explorer-preview"
+    const val FILES_DIR = "files"
 
     @Volatile private var storeInstance: ExplorerJobStore? = null
 
@@ -39,7 +40,24 @@ object ExplorerDownloads {
             workRoot = workRoot(app),
             saver = { name, mime -> ExplorerSaver.open(app, name, mime) },
             freeBytes = { ExplorerSaver.freeBytes(app) },
+            reopen = { handle, at -> ExplorerSaver.reopen(app, handle, at) },
         )
+    }
+
+    fun fileLog(context: Context): ExplorerFileLog = ExplorerFileLog(File(File(context.applicationContext.filesDir, WORK_DIR), FILES_DIR))
+
+    fun files(context: Context, id: String): List<ExplorerRecent> = fileLog(context).read(id)
+
+    fun discard(context: Context, id: String) {
+        val app = context.applicationContext
+        val work = File(workRoot(app), id)
+        ExplorerCheckpoint(work).handle()?.let { runCatching { ExplorerSaver.discard(app, it) } }
+        runCatching { work.deleteRecursively() }
+    }
+
+    private fun forgetJob(context: Context, id: String) {
+        discard(context, id)
+        fileLog(context).delete(id)
     }
 
     fun start(context: Context, request: ExplorerRequest): String {
@@ -84,16 +102,35 @@ object ExplorerDownloads {
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(id, ExistingWorkPolicy.REPLACE, work)
     }
 
+    fun pause(context: Context, id: String) {
+        val app = context.applicationContext
+        val job = store(app).get(id) ?: return
+        if (!job.pausable) return
+        store(app).change(id) { it.copy(state = ExplorerJobState.PAUSED, busySeconds = null, speedBps = null) }
+        WorkManager.getInstance(app).cancelUniqueWork(id)
+        store(app).get(id)?.let { ExplorerNotifications.paused(app, it) }
+    }
+
+    fun resume(context: Context, id: String) {
+        val app = context.applicationContext
+        val job = store(app).get(id) ?: return
+        if (job.state != ExplorerJobState.PAUSED) return
+        store(app).change(id) { it.copy(state = ExplorerJobState.QUEUED, current = ExplorerText.resuming, busySeconds = null, error = null) }
+        ExplorerNotifications.cancel(app, id)
+        enqueue(app, id, job.request)
+    }
+
     fun cancel(context: Context, id: String) {
         val app = context.applicationContext
         val job = store(app).get(id) ?: return
-        if (!job.active) return
+        if (!job.active && job.state != ExplorerJobState.PAUSED) return
         store(app).change(id) { it.copy(state = ExplorerJobState.CANCELLED, busySeconds = null, current = null) }
         val systemId = job.systemId
         if (systemId != null) {
             ExplorerSystemDownloads.remove(app, systemId)
         } else {
             WorkManager.getInstance(app).cancelUniqueWork(id)
+            if (job.state == ExplorerJobState.PAUSED) discard(app, id)
         }
         ExplorerNotifications.cancel(app, id)
     }
@@ -103,7 +140,20 @@ object ExplorerDownloads {
         val job = store(app).get(id) ?: return
         if (job.active) return
         store(app).change(id) {
-            it.copy(state = ExplorerJobState.QUEUED, result = null, error = null, doneBytes = 0, doneFiles = 0, current = null, busySeconds = null, systemId = null)
+            it.copy(
+                state = ExplorerJobState.QUEUED,
+                result = null,
+                error = null,
+                doneBytes = 0,
+                doneFiles = 0,
+                current = if (!it.request.rebuilt) ExplorerText.resuming else null,
+                busySeconds = null,
+                systemId = null,
+                speedBps = null,
+                currentBytes = 0,
+                currentTotal = 0,
+                retrying = 0,
+            )
         }
         ExplorerNotifications.cancel(app, id)
         enqueue(app, id, job.request)
@@ -115,6 +165,7 @@ object ExplorerDownloads {
         if (job.active) return
         store(app).remove(id)
         ExplorerNotifications.cancel(app, id)
+        forgetJob(app, id)
     }
 
     fun forgetFiles(filesDir: File, cacheDir: File) {
@@ -132,13 +183,20 @@ object ExplorerDownloads {
             runCatching { ExplorerNotifications.cancel(app, job.id) }
         }
         runCatching { WorkManager.getInstance(app).cancelAllWorkByTag(TAG) }
+        jobs.forEach { job -> runCatching { discard(app, job.id) } }
         store(app).clear()
+        runCatching { fileLog(app).clear() }
+        ExplorerMoreApi.forget()
+        runCatching { android.os.Handler(android.os.Looper.getMainLooper()).post { runCatching { ExplorerAudio.stop() } } }
         forgetFiles(app.filesDir, app.cacheDir)
     }
 
     fun clearFinished(context: Context) {
         val app = context.applicationContext
-        store(app).jobs.value.filterNot { it.active }.forEach { ExplorerNotifications.cancel(app, it.id) }
+        store(app).jobs.value.filterNot { it.active || it.state == ExplorerJobState.PAUSED }.forEach {
+            ExplorerNotifications.cancel(app, it.id)
+            forgetJob(app, it.id)
+        }
         store(app).clearFinished()
     }
 
@@ -162,7 +220,7 @@ object ExplorerDownloads {
                     doneBytes = status.total.takeIf { t -> t > 0 } ?: status.done(it),
                     totalBytes = status.total.takeIf { t -> t > 0 } ?: it.totalBytes,
                     doneFiles = 1,
-                    result = ExplorerResult(location = "Downloads/${it.request.fileName}", uri = status.uri, mimeType = status.mimeType, saved = 1, total = 1),
+                    result = ExplorerResult(location = ExplorerSaver.location(it.request.fileName), uri = status.uri, mimeType = status.mimeType, saved = 1, total = 1),
                 )
             }
             status.failed -> store.change(id) { it.copy(state = ExplorerJobState.FAILED, error = ExplorerText.fileFailed) }
@@ -192,9 +250,13 @@ object ExplorerDownloads {
 
     fun sweep(context: Context) {
         val app = context.applicationContext
-        val running = store(app).jobs.value.filter { it.active }.map { it.id }.toSet()
-        workRoot(app).listFiles()?.forEach { dir -> if (dir.name !in running) dir.deleteRecursively() }
-        ExplorerSaver.sweep(app)
+        val running = store(app).jobs.value.filter { it.active || it.state == ExplorerJobState.PAUSED || it.state == ExplorerJobState.FAILED }.map { it.id }.toSet()
+        val keep = HashSet<String>()
+        workRoot(app).listFiles()?.forEach { dir ->
+            if (dir.name !in running) dir.deleteRecursively() else ExplorerCheckpoint(dir).handle()?.let { keep += it }
+        }
+        ExplorerSaver.sweep(app, keep)
+        fileLog(app).keepOnly(store(app).jobs.value.map { it.id }.toSet())
     }
 }
 
@@ -207,15 +269,32 @@ object ExplorerEnvironment {
 class ExplorerCancelReceiver : android.content.BroadcastReceiver() {
     override fun onReceive(context: Context, intent: android.content.Intent) {
         val id = intent.getStringExtra(ExplorerDownloads.KEY_ID) ?: return
-        ExplorerDownloads.cancel(context.applicationContext, id)
+        val app = context.applicationContext
+        when (intent.action) {
+            ACTION_PAUSE -> ExplorerDownloads.pause(app, id)
+            ACTION_RESUME -> ExplorerDownloads.resume(app, id)
+            ACTION_RETRY -> ExplorerDownloads.retry(app, id)
+            else -> ExplorerDownloads.cancel(app, id)
+        }
     }
 
     companion object {
         const val ACTION = "explorer.CANCEL"
+        const val ACTION_PAUSE = "explorer.PAUSE"
+        const val ACTION_RESUME = "explorer.RESUME"
+        const val ACTION_RETRY = "explorer.RETRY"
 
-        fun intent(context: Context, id: String): android.app.PendingIntent {
+        fun intent(context: Context, id: String): android.app.PendingIntent = action(context, id, ACTION)
+
+        fun pause(context: Context, id: String): android.app.PendingIntent = action(context, id, ACTION_PAUSE)
+
+        fun resume(context: Context, id: String): android.app.PendingIntent = action(context, id, ACTION_RESUME)
+
+        fun retry(context: Context, id: String): android.app.PendingIntent = action(context, id, ACTION_RETRY)
+
+        private fun action(context: Context, id: String, action: String): android.app.PendingIntent {
             val intent = android.content.Intent(context, ExplorerCancelReceiver::class.java)
-                .setAction(ACTION)
+                .setAction(action)
                 .putExtra(ExplorerDownloads.KEY_ID, id)
             return android.app.PendingIntent.getBroadcast(
                 context,
@@ -224,5 +303,21 @@ class ExplorerCancelReceiver : android.content.BroadcastReceiver() {
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
             )
         }
+    }
+}
+
+object ExplorerDownloadsTap {
+    private val state = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    val requests: kotlinx.coroutines.flow.StateFlow<Long> = state
+
+    fun request() {
+        state.value = System.currentTimeMillis()
+    }
+
+    fun take(intent: android.content.Intent?): Boolean {
+        if (intent?.getBooleanExtra(ExplorerNotifications.EXTRA_OPEN_DOWNLOADS, false) != true) return false
+        intent.removeExtra(ExplorerNotifications.EXTRA_OPEN_DOWNLOADS)
+        request()
+        return true
     }
 }
