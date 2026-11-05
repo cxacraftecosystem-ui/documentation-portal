@@ -358,3 +358,69 @@ def test_sheet_titles_are_valid_and_unique() -> None:
     assert len({n.lower() for n in names}) == len(names)
     assert "history" not in {n.lower() for n in names}
     assert not any(set(n) & set("[]:*?/\\") for n in names)
+
+
+def _production_shaped(path: str = "") -> contract.ReportContext:
+    from datetime import UTC, datetime
+    from types import SimpleNamespace as N
+
+    now = datetime(2026, 11, 5, 10, 30, tzinfo=UTC)
+    statuses = ("APPROVED", "PENDING", "NEEDS_REVISION", "REJECTED")
+    ctx = rf.context(contract.ReportOptions(extras={"everything": True}))
+    records = ctx.material["records"]
+    for i, artisan in enumerate(records["artisans"]):
+        artisan.status = statuses[i % len(statuses)]
+    records["workshops"].append(N(id="w2", title="Sanganer dabu", status="REJECTED", createdAt=now, createdById="u1", locationId=None, place="Sanganer"))
+    records["products"] = [N(id=f"p{i}", productName=f"Indigo stole {i}", artisanId=f"a{i}", workshopId="w1", status=statuses[i], createdAt=now, createdById="u1", locationId=None) for i in range(3)]
+    records["processes"] = [N(id="pr1", name="Dabu resist", productId="p0", status="PENDING", createdAt=now, createdById="u1")]
+    records["tools"] = [N(id=f"t{i}", toolkitName=f"Block {i}", artisanId=f"a{i}", status=statuses[i + 1], createdAt=now, createdById="u1", locationId=None) for i in range(2)]
+    records["interviews"] = [N(id=f"i{i}", title=f"Sitting {i}", workshopId="w1", status=statuses[i], createdAt=now, createdById="u1", locationId=None, questionnaireId="q1") for i in range(2)]
+    records["media"][1].linkedRecordType = "product"
+    records["media"][1].linkedRecordId = "p0"
+    records["media"][3].questionnaireInterviewId = "i0"
+    ctx.path = path
+    ctx.shared["db"] = rf.FakeDB(
+        {
+            "ProcessStep": [N(id="s1", processId="pr1", sortOrder=1, name="Mud paste", createdAt=now)],
+            "WorkshopArtisan": [N(workshopId="w1", artisanId=f"a{i}", createdAt=now) for i in range(3)],
+            "QuestionnaireInterviewArtisan": [N(interviewId="i0", artisanId="a0", createdAt=now, sortOrder=0), N(interviewId="i1", artisanId="a1", createdAt=now, sortOrder=0)],
+            "Questionnaire": [N(id="q1", title="Craft questionnaire", createdAt=now), N(id="q2", title="Unused questionnaire", createdAt=now)],
+            "QuestionnaireQuestion": [N(id="qq1", questionnaireId="q1", prompt="Which dye do you use?", sectionCode="A", isActive=True, lineageId="qq1", createdAt=now)],
+            "QuestionnaireResponse": [N(id="r1", interviewId="i0", questionId="qq1", answerText="Indigo", createdAt=now, updatedAt=now, answeredById="u1")],
+        },
+        raw=rf.turns_raw,
+    )
+    return ctx
+
+
+def _data_rows(ws: Any) -> int:
+    return sum(1 for r in _rows(ws)[writer.TOP + 1 :] if any(v is not None for v in r) and r[0] != "Total")
+
+
+def test_a_production_shaped_report_with_no_filter_has_rows_on_every_record_sheet() -> None:
+    ctx = _production_shaped()
+    payload = asyncio.run(build.render(ctx))
+    rf.validate(payload)
+    book = _book(payload)
+    expected = {"Workshops": 2, "Artisans": 3, "Products": 3, "Processes": 1, "Tools": 2, "Questionnaire sittings": 2, "Media": 4, "Answers": 1, "Transcripts": 1, "Process steps": 1, "Questionnaires": 1}
+    for name, least in expected.items():
+        assert name in book.sheetnames, f"{name} is missing"
+        assert _data_rows(book[name]) >= least, f"{name} has {_data_rows(book[name])} rows"
+    record_keys = {key for key in build.RECORD_SHEETS if key != "designWorkshops"}
+    written = {sheet.key for _plugin, sheet in asyncio.run(build.collect_sheets(_production_shaped(), []))}
+    assert record_keys <= written
+    types = {r[0] for r in _rows(book["Everything"])[writer.TOP + 1 :] if r[0]}
+    assert {"Workshop", "Artisan", "Product", "Tool", "Questionnaire sitting", "File"} <= types
+
+
+def test_every_questionnaire_is_in_a_dataset_root_report_for_someone_who_sees_everything() -> None:
+    root = _production_shaped("")
+    asyncio.run(build.render(root))
+    assert {q.id for q in root.shared["store"].rows["Questionnaire"]} == {"q1", "q2"}
+    folder = _production_shaped("by-workshop/w1")
+    asyncio.run(build.render(folder))
+    assert {q.id for q in folder.shared["store"].rows["Questionnaire"]} == {"q1"}
+    narrow = _production_shaped("")
+    narrow.scope.records = {"createdById": "u1"}
+    asyncio.run(build.render(narrow))
+    assert {q.id for q in narrow.shared["store"].rows["Questionnaire"]} == {"q1"}

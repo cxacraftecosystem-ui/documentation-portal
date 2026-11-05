@@ -307,15 +307,19 @@ test.describe("@qf:X1 review status", () => {
       const group = page.getByRole("group", { name: "Review status" });
       test.skip((await group.count()) === 0, "this portal has no review-status filter");
       await expect(page.getByRole("treeitem", { name: "Bagru 2026", exact: true })).toHaveAttribute("aria-selected", "true");
+      expect(fake.calls.filter((call) => call.path === "/data/tree").every((call) => !call.query.has("status"))).toBe(true);
+      await expect(group.getByRole("button", { name: "All", exact: true })).toHaveAttribute("aria-pressed", "true");
       const asked = fake.calls.length;
-      await group.getByRole("button", { name: "All", exact: true }).click();
-      await expect(page).toHaveURL(/status=ALL/);
+      await group.getByRole("button", { name: "Approved", exact: true }).click();
+      await expect(page).toHaveURL(/status=APPROVED/);
       for (const path of ["", "workshops", "workshops/bagru"]) {
         await expect
-          .poll(() => fake.calls.slice(asked).some((call) => call.path === "/data/tree" && (call.query.get("path") ?? "") === path && !call.query.has("status")))
+          .poll(() => fake.calls.slice(asked).some((call) => call.path === "/data/tree" && (call.query.get("path") ?? "") === path && call.query.get("status") === "APPROVED"))
           .toBe(true);
       }
       await expect(page.getByRole("treeitem", { name: "Bagru 2026", exact: true })).toHaveAttribute("aria-selected", "true");
+      await group.getByRole("button", { name: "All", exact: true }).click();
+      await expect(page).not.toHaveURL(/status=/);
       await expect(page.getByRole("treeitem", { name: "Sanganer", exact: true })).toBeVisible();
     } finally {
       await context.close();
@@ -1115,6 +1119,68 @@ test.describe("@qf:X2 counts and capture dates", () => {
       await openFolder(page, "Bagru 2026");
       await expect(fileRow(page, "photo.jpg").locator("[data-captured]")).toHaveText(/^23 Sept? 2026$/);
       await expect(fileRow(page, "loom.mp4").locator("[data-captured]")).toHaveText("-");
+    } finally {
+      await context.close();
+    }
+  });
+});
+
+test.describe("@qf:X6 report filters", () => {
+  test("the dialog names the active filters, and says so when there are none", async ({ browser }) => {
+    const { context, page } = await openExplorer(browser, { path: "workshops/bagru" });
+    try {
+      await page.getByTestId("download-folder").getByRole("button", { name: "Report (.xlsx)" }).click();
+      const dialog = page.getByRole("dialog", { name: "Report (.xlsx)" });
+      const filters = dialog.getByRole("region", { name: "Filters" });
+      await expect(filters).toContainText("None. Every record you can see.");
+      await expect(dialog.getByTestId("report-empty")).toHaveCount(0);
+      await expect(dialog.getByRole("list", { name: "Sheets" })).toContainText("201");
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("a status that leaves nothing shows the counts and makes the unfiltered report in one click", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru", query: "status=REJECTED" });
+    try {
+      test.skip((await page.getByRole("group", { name: "Review status" }).count()) === 0, "this portal has no review-status filter");
+      await page.getByTestId("download-folder").getByRole("button", { name: "Report (.xlsx)" }).click();
+      const dialog = page.getByRole("dialog", { name: "Report (.xlsx)" });
+      const filters = dialog.getByRole("region", { name: "Filters" });
+      await expect(filters).toContainText("Review status: Rejected");
+      await expect(filters.getByRole("switch", { name: "Include all statuses" })).toHaveAttribute("aria-checked", "false");
+      const empty = dialog.getByTestId("report-empty");
+      await expect(empty).toContainText("No records match these filters.");
+      await expect(empty).toContainText("Artisans 0 · Products 0");
+      await expect(empty).toContainText("Without filters: Artisans 201 · Products 1");
+      expect(fake.calls.some((call) => call.path === "/data/report" && call.query.get("format") === "xlsx")).toBe(false);
+      await empty.getByRole("button", { name: "Make the unfiltered report" }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect(trayItem(page, "Report (.xlsx) · Bagru 2026")).toHaveAttribute("data-status", "saved");
+      const asked = fake.calls.filter((call) => call.path === "/data/report" && call.query.get("format") === "xlsx");
+      expect(asked).toHaveLength(1);
+      expect(asked[0].query.has("status")).toBe(false);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("Include all statuses recounts the sheets live and the report follows the switch", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru", query: "status=REJECTED" });
+    try {
+      test.skip((await page.getByRole("group", { name: "Review status" }).count()) === 0, "this portal has no review-status filter");
+      await page.getByTestId("download-folder").getByRole("button", { name: "Report (.xlsx)" }).click();
+      const dialog = page.getByRole("dialog", { name: "Report (.xlsx)" });
+      await expect(dialog.getByTestId("report-empty")).toBeVisible();
+      await dialog.getByRole("switch", { name: "Include all statuses" }).click();
+      await expect(dialog.getByTestId("report-empty")).toHaveCount(0);
+      await expect(dialog.getByRole("list", { name: "Sheets" })).toContainText("201");
+      await expect(dialog.getByRole("region", { name: "Filters" })).toContainText("None. Every record you can see.");
+      expect(fake.calls.some((call) => call.path === "/data/report/sheets" && !call.query.has("status"))).toBe(true);
+      await dialog.getByRole("button", { name: "Make report" }).click();
+      await expect(trayItem(page, "Report (.xlsx) · Bagru 2026")).toHaveAttribute("data-status", "saved");
+      const asked = fake.calls.filter((call) => call.path === "/data/report" && call.query.get("format") === "xlsx");
+      expect(asked[0].query.has("status")).toBe(false);
     } finally {
       await context.close();
     }

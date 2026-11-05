@@ -34,6 +34,7 @@ ENGLISH_ROWS = ("translation", "summary_translation")
 ORIGINAL_ROWS = ("original", "summary")
 CHANGES_EXTRA = "changes"
 ALWAYS = frozenset({"workshops", "artisans", "media", "transcripts", "answers"})
+RECORD_SHEETS = frozenset({"workshops", "artisans", "products", "processes", "tools", "sittings", "media", "transcripts", "answers", "designWorkshops"})
 
 
 @dataclass
@@ -564,7 +565,7 @@ def _count(sheet: Sheet) -> int | None:
     return None
 
 
-async def catalog(user: Any, path: str, *, status: str | None = None) -> dict[str, Any]:
+async def catalog(user: Any, path: str, *, status: str | None = None, q: str | None = None) -> dict[str, Any]:
     from app.services import transcript_portal
     from app.services.data_explorer import report_cache
 
@@ -574,12 +575,13 @@ async def catalog(user: Any, path: str, *, status: str | None = None) -> dict[st
     norm = browser._norm(path)
     sees_spend = bool(transcript_portal.may_see_spend(user))
     key, material, _cached = await browser._material(norm, scope, sees_spend)
-    cache_key = report_cache.CACHE.key("datareport-sheets", key)
+    words = " ".join(contract.query_words(q))
+    cache_key = report_cache.CACHE.key("datareport-sheets", key, words)
     found = report_cache.CACHE.get(cache_key)
     if found is not None:
         return found
     config = portals.current()
-    options = contract.ReportOptions()
+    options = contract.ReportOptions(rows="filtered", q=words) if words else contract.ReportOptions()
     async with report_cache.QUEUE.slot():
         records, withheld = await _records(browser, norm, scope)
         await enrich_media(db, list(records.get("media") or []), withheld)
@@ -595,8 +597,11 @@ async def catalog(user: Any, path: str, *, status: str | None = None) -> dict[st
                 logger.exception("report sheet %s failed", plugin.key)
                 continue
             for sheet in made or []:
-                sheets.append({"key": sheet.key, "name": sheet.name, "plugin": plugin.key, "count": _count(sheet), "files": len(sheet.media_ids), "group": sheet.group, "description": sheet.description})
+                sheets.append({"key": sheet.key, "name": sheet.name, "plugin": plugin.key, "count": _count(sheet), "files": len(sheet.media_ids), "group": sheet.group, "description": sheet.description, "record": sheet.key in RECORD_SHEETS})
     extras = [{"key": option, "title": title} for option, title in contract.optional_keys(config.key)]
-    answer = {"path": norm, "sheets": sheets, "extras": extras, "locales": list(i18n.LOCALES)}
+    total = sum(int(s["count"] or 0) for s in sheets if s["record"])
+    normalise = getattr(browser, "data_status", None)
+    shown = (normalise(status) if callable(normalise) else status) if config.status_filter and status else None
+    answer = {"path": norm, "sheets": sheets, "extras": extras, "locales": list(i18n.LOCALES), "status": shown, "q": words or None, "records": total}
     report_cache.CACHE.put(cache_key, answer)
     return answer

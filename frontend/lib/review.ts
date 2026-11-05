@@ -205,7 +205,7 @@ export async function rejectMedia(mediaId: string, notes: string, reason: Review
   });
 }
 
-export const DEFAULT_DATA_STATUS = "APPROVED";
+export const DEFAULT_DATA_STATUS = "ALL";
 
 export const DATA_STATUS_OPTIONS = [
   { value: "ALL", label: "All" },

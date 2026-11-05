@@ -23,7 +23,7 @@ import { useDownloads } from "@/components/dataExplorer/useDownloads";
 import { useExplorerTree } from "@/components/dataExplorer/useExplorerTree";
 import { WorkshopOverview } from "@/components/dataExplorer/WorkshopOverview";
 import { bundleManifestEndpoint, fetchBundle, fetchSavedView, includeParam, recordVisit, reportFileUrl, reportOptionParams, reportPackUrl, transcriptBundleUrl } from "@/lib/dataExplorer/api";
-import { INCLUDE_KEYS, type Crumb, type FolderVisit, type IncludeKey, type ReportBundle, type ReportOptions, type ReportResponse, type SavedView, type Taxonomy, type TreeEntry } from "@/lib/dataExplorer/contract";
+import { INCLUDE_KEYS, type Crumb, type FolderVisit, type IncludeKey, type ReportBundle, type ReportOptions, type ReportResponse, type ReportStatusFilter, type SavedView, type Taxonomy, type TreeEntry } from "@/lib/dataExplorer/contract";
 import { formatBytes, limitSentence, overLimit } from "@/lib/dataExplorer/plan";
 import { ActionGroup } from "@/components/ui/ActionGroup";
 import type { JobSource } from "@/lib/dataExplorer/protocol";
@@ -40,6 +40,7 @@ export type ExplorerConfig = {
   extra: QueryParams;
   downloadExtra: QueryParams;
   statusKey: string;
+  statusFilter?: ReportStatusFilter;
   viewer: string;
   fileHref: (mediaId: string) => string | null;
   renderSearch: (reveal: (path: string) => void, openPreview: (target: PreviewTarget) => void) => ReactNode;
@@ -383,16 +384,16 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   );
 
   const makeReport = useCallback(
-    (options: ReportOptions, name: string) => {
-      downloads.enqueue({ kind: "report", label: `Report (.xlsx) · ${folderName}`, url: reportFileUrl(url.path, "xlsx", { ...config.extra, ...reportOptionParams(options, url.q, name) }), fileName: name, path: url.path });
+    (options: ReportOptions, name: string, extra: QueryParams = config.extra) => {
+      downloads.enqueue({ kind: "report", label: `Report (.xlsx) · ${folderName}`, url: reportFileUrl(url.path, "xlsx", { ...extra, ...reportOptionParams(options, url.q, name) }), fileName: name, path: url.path });
     },
     [downloads, folderName, url.path, url.q, config.extra]
   );
 
   const makePack = useCallback(
-    (options: ReportOptions, name: string) => {
+    (options: ReportOptions, name: string, extra: QueryParams = config.extra) => {
       const packName = name.replace(/\.xlsx$/i, ".zip");
-      downloads.enqueue({ kind: "pack", label: `Report pack · ${folderName}`, url: reportPackUrl(url.path, { ...config.extra, ...reportOptionParams(options, url.q, name) }), fileName: packName, path: url.path });
+      downloads.enqueue({ kind: "pack", label: `Report pack · ${folderName}`, url: reportPackUrl(url.path, { ...extra, ...reportOptionParams(options, url.q, name) }), fileName: packName, path: url.path });
     },
     [downloads, folderName, url.path, url.q, config.extra]
   );
@@ -695,6 +696,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
         folderName={folderName}
         subtitle={crumbs.slice(1).map((crumb) => crumb.name).join(" · ") || folderName}
         extra={config.extra}
+        statusFilter={config.statusFilter}
         query={url.view === "tables" ? url.q : ""}
         onMake={makeReport}
         onPack={makePack}

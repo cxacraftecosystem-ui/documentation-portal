@@ -488,7 +488,7 @@ fun ExplorerScreen(
         }
     }
 
-    fun makeReport(options: ExplorerReportOptions, name: String) {
+    fun makeReport(options: ExplorerReportOptions, name: String, status: String?) {
         val folder = state.folderName
         val file = name.trim().ifBlank { Naming.exportFilename("Dataset", "Report", "xlsx", withTime = true, subject = folder) }.let { if (it.endsWith(".xlsx")) it else "$it.xlsx" }
         begin(
@@ -498,13 +498,13 @@ fun ExplorerScreen(
                 kind = ExplorerJobKind.REPORT,
                 single = true,
                 mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                items = listOf(ExplorerItem(path = "", url = ExplorerMoreApi.reportUrl(state.path, options, tables.query.ifBlank { null }, file, state.statusParam))),
+                items = listOf(ExplorerItem(path = "", url = ExplorerMoreApi.reportUrl(state.path, options, tables.query.ifBlank { null }, file, status))),
             ),
         )
         reportOpen = false
     }
 
-    fun makePack(options: ExplorerReportOptions, name: String) {
+    fun makePack(options: ExplorerReportOptions, name: String, status: String?) {
         val folder = state.folderName
         val file = name.trim().removeSuffix(".xlsx").ifBlank { Naming.exportFilename("Dataset", "Report", "zip", withTime = true, subject = folder).removeSuffix(".zip") }.let { if (it.endsWith(".zip")) it else "$it.zip" }
         begin(
@@ -514,7 +514,7 @@ fun ExplorerScreen(
                 kind = ExplorerJobKind.REPORT,
                 single = true,
                 mimeType = "application/zip",
-                items = listOf(ExplorerItem(path = "", url = ExplorerMoreApi.reportUrl(state.path, options, tables.query.ifBlank { null }, file, state.statusParam, pack = true))),
+                items = listOf(ExplorerItem(path = "", url = ExplorerMoreApi.reportUrl(state.path, options, tables.query.ifBlank { null }, file, status, pack = true))),
             ),
         )
         reportOpen = false

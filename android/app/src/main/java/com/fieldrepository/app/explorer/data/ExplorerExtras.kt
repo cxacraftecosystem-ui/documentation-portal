@@ -34,6 +34,7 @@ data class ExplorerReportSheetInfo(
     val files: Int? = null,
     val group: String? = null,
     val description: String? = null,
+    val record: Boolean = false,
 )
 
 @Serializable
@@ -45,6 +46,7 @@ data class ExplorerReportSheets(
     val sheets: List<ExplorerReportSheetInfo> = emptyList(),
     val extras: List<ExplorerReportExtra> = emptyList(),
     val locales: List<String> = listOf("en"),
+    val records: Int? = null,
 )
 
 @Serializable
@@ -204,7 +206,7 @@ data class ExplorerTranscriptList(
 
 interface ExplorerMore {
     @GET("data/report/sheets")
-    suspend fun reportSheets(@Query("path") path: String, @Query("status") status: String? = null): ExplorerReportSheets
+    suspend fun reportSheets(@Query("path") path: String, @Query("status") status: String? = null, @Query("q") q: String? = null): ExplorerReportSheets
 
     @POST("data/report/shares")
     suspend fun createShare(@Body body: ExplorerShareBody): ExplorerShare

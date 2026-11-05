@@ -131,11 +131,13 @@ export type ReportOptions = {
   extras: Record<string, boolean>;
 };
 
-export type ReportSheetInfo = { key: string; name: string; plugin?: string | null; count: number | null; files?: number | null; group?: string | null; description?: string | null };
+export type ReportSheetInfo = { key: string; name: string; plugin?: string | null; count: number | null; files?: number | null; group?: string | null; description?: string | null; record?: boolean };
 
 export type ReportExtra = { key: string; title: string };
 
-export type ReportSheetList = { path: string; sheets: ReportSheetInfo[]; extras: ReportExtra[]; locales: string[] };
+export type ReportSheetList = { path: string; sheets: ReportSheetInfo[]; extras: ReportExtra[]; locales: string[]; records?: number | null };
+
+export type ReportStatusFilter = { active: boolean; label: string };
 
 export type ReportBundle = {
   id: string;

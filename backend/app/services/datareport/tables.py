@@ -131,7 +131,7 @@ def target_of(f: schema.Field) -> str | None:
 
 @dataclass(frozen=True)
 class Load:
-    kind: Literal["records", "children", "refs", "subjects", "unbound"]
+    kind: Literal["records", "children", "refs", "subjects", "unbound", "root"]
     key: str = ""
     fk: str = ""
     parent: tuple[str, ...] = ()
@@ -172,6 +172,27 @@ def S(fk: str) -> Load:
 
 def U(fk: str) -> Load:
     return Load("unbound", fk=fk)
+
+
+def A() -> Load:
+    return Load("root")
+
+
+ROOT_FOLDERS = frozenset({"by-workshop", "workshops", "by-design-workshop"})
+
+
+def at_root(path: str | None) -> bool:
+    segs = [s for s in (path or "").split("/") if s]
+    return not segs or (len(segs) == 1 and segs[0] in ROOT_FOLDERS)
+
+
+def sees_everything(scope: Any) -> bool:
+    if scope is None:
+        return False
+    rule = getattr(scope, "visible", None)
+    if rule is None:
+        rule = getattr(scope, "records", None)
+    return not rule
 
 
 WORKSHOP = "0F766E"
@@ -246,7 +267,7 @@ TABLES: tuple[Table, ...] = (
     Table("dwProvisional", "Provisional members", "DesignWorkshopProvisionalMember", 218, (C("designWorkshopId", "DesignWorkshop"),), "Members admitted provisionally by scanning a code.", DW, design_workshop=True, portals=("designer",)),
     Table("sanctionOrders", "Sanction orders", "SanctionOrder", 219, (C("designWorkshopId", "DesignWorkshop"),), "Sanction orders of these workshops.", DW, design_workshop=True, portals=("designer",)),
     Table("sanctionDesigners", "Sanctioned designers", "SanctionOrderDesigner", 220, (C("sanctionOrderId", "SanctionOrder"),), "Designers named in each sanction order.", DW, design_workshop=True, portals=("designer",)),
-    Table("questionnaires", "Questionnaires", "Questionnaire", 90, (F(("QuestionnaireInterview", "questionnaireId"), ("QuestionnaireAnswer", "questionnaireId"), ("Workshop", "questionnaireId")), C("designWorkshopId", "DesignWorkshop")), "The questionnaires these sittings use.", SITTING),
+    Table("questionnaires", "Questionnaires", "Questionnaire", 90, (F(("QuestionnaireInterview", "questionnaireId"), ("QuestionnaireAnswer", "questionnaireId"), ("Workshop", "questionnaireId")), C("designWorkshopId", "DesignWorkshop"), A()), "The questionnaires these sittings use.", SITTING),
     Table("questionnaireSections", "Questionnaire sections", "QuestionnaireSection", 91, (C("questionnaireId", "Questionnaire"), U("questionnaireId"), F(("QuestionnaireSectionStatus", "sectionId"), ("QuestionnaireRecordingTarget", "sectionId"))), "Sections of each questionnaire.", SITTING),
     Table("questions", "Questions", "QuestionnaireQuestion", 92, (C("questionnaireId", "Questionnaire"), U("questionnaireId"), F(("QuestionnaireResponse", "questionId"), ("QuestionnaireAnswerDraft", "questionId"))), "Every question of each questionnaire, in every version.", SITTING),
     Table("formSections", "Form sections", "QuestionnaireFormSection", 93, (C("questionnaireId", "Questionnaire"),), "Sections of each custom form.", SITTING),
@@ -412,6 +433,9 @@ async def load_store(ctx: ReportContext, db: Any) -> Store:
                 found = await _find(db, table.model, load.fk, parents)
             elif load.kind == "subjects":
                 found = await _find(db, table.model, load.fk, record_ids)
+            elif load.kind == "root":
+                delegate = _delegate(db, table.model)
+                found = await delegate.find_many(take=TABLE_CAP) if delegate is not None and at_root(ctx.path) and sees_everything(ctx.scope) else []
             elif load.kind == "unbound":
                 delegate = _delegate(db, table.model)
                 spec = schema.load(ctx.portal).get(table.model)

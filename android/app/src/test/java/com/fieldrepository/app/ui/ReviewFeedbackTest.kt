@@ -119,13 +119,14 @@ class ReviewFeedbackTest {
     }
 
     @Test
-    fun `the data browser lists approved records unless the reader chose every status, and downloads carry every status`() {
-        assertEquals("APPROVED", DataStatusChoice.param(DataStatusChoice.DEFAULT))
-        assertNull(DataStatusChoice.param(DataStatusChoice.ALL))
-        assertEquals(listOf("Approved", "Pending review", "All statuses"), DataStatusChoice.options.map { it.label })
+    fun `the data browser lists every status until the reader narrows it, as on the web, and downloads carry every status`() {
+        assertEquals("ALL", DataStatusChoice.DEFAULT)
+        assertNull(DataStatusChoice.param(DataStatusChoice.DEFAULT))
+        assertEquals(listOf("ALL", "APPROVED", "PENDING", "NEEDS_REVISION", "REJECTED"), DataStatusChoice.options.map { it.value })
+        assertEquals(listOf("All", "Approved", "Pending", "Needs revision", "Rejected"), DataStatusChoice.options.map { it.label })
         assertEquals(DataStatusChoice.DEFAULT, com.fieldrepository.app.explorer.portal.ExplorerPortal.defaultStatus)
-        assertEquals("APPROVED", com.fieldrepository.app.explorer.portal.ExplorerPortal.statusParam(DataStatusChoice.DEFAULT))
-        assertNull(com.fieldrepository.app.explorer.portal.ExplorerPortal.statusParam(DataStatusChoice.ALL))
+        assertNull(com.fieldrepository.app.explorer.portal.ExplorerPortal.statusParam(DataStatusChoice.DEFAULT))
+        assertEquals("REJECTED", com.fieldrepository.app.explorer.portal.ExplorerPortal.statusParam("REJECTED"))
         val state = source("android/app/src/main/java/com/fieldrepository/app/explorer/ui/ExplorerState.kt")
         assertTrue(state.contains("api.tree(target, statusParam, null)"))
         val api = source("android/app/src/main/java/com/fieldrepository/app/explorer/data/ExplorerApi.kt")

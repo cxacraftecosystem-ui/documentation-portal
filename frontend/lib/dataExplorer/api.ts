@@ -97,10 +97,16 @@ export function reportPackUrl(path: string, extra: QueryParams = {}): string {
   return apiUrl("/data/report/pack", { path, ...extra });
 }
 
-export async function fetchReportSheets(path: string, extra: QueryParams = {}, signal?: AbortSignal): Promise<ReportSheetList | null> {
+export async function fetchReportSheets(path: string, extra: QueryParams = {}, signal?: AbortSignal, q?: string): Promise<ReportSheetList | null> {
   try {
-    const answer = await apiFetch<Partial<ReportSheetList>>(`/data/report/sheets${buildQuery({ path, ...extra })}`, { signal });
-    return { path: answer.path ?? path, sheets: Array.isArray(answer.sheets) ? answer.sheets : [], extras: Array.isArray(answer.extras) ? answer.extras : [], locales: Array.isArray(answer.locales) ? answer.locales : ["en"] };
+    const answer = await apiFetch<Partial<ReportSheetList>>(`/data/report/sheets${buildQuery({ path, ...extra, q: q?.trim() || undefined })}`, { signal });
+    return {
+      path: answer.path ?? path,
+      sheets: Array.isArray(answer.sheets) ? answer.sheets : [],
+      extras: Array.isArray(answer.extras) ? answer.extras : [],
+      locales: Array.isArray(answer.locales) ? answer.locales : ["en"],
+      records: typeof answer.records === "number" ? answer.records : null
+    };
   } catch (error) {
     if (unsupported(error)) return null;
     throw error;

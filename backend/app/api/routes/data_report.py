@@ -150,7 +150,8 @@ async def bundle_manifest(
 async def report_sheets(
     path: str = "",
     status_value: str | None = Query(None, alias="status"),
+    q: str | None = None,
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
-    return await build.catalog(current_user, path, status=status_value)
+    return await build.catalog(current_user, path, status=status_value, q=q)
 
