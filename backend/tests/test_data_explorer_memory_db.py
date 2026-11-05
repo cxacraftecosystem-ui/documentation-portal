@@ -403,4 +403,4 @@ def test_tree_counts_and_capture_times_cost_the_same_at_any_size(monkeypatch):
     files = [e for e in seen["listed"]["files"]["entries"] if e["kind"] == "file"]
     assert files and all(isinstance(e["capturedAt"], str) for e in files)
     folders = [e for e in seen["listed"]["workshop"]["entries"] if e["kind"] == "folder"]
-    assert all(e["count"] is None and e["bytes"] is None for e in folders)
+    assert folders and all(isinstance(e["count"], int) and isinstance(e["bytes"], int) for e in folders)

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from app.core.db import db
+from app.services.data_explorer import reach
+
+logger = logging.getLogger(__name__)
 
 TYPE_SLUGS: dict[str, tuple[str, ...]] = {
     "images": ("IMAGE",),
@@ -13,6 +17,7 @@ TYPE_SLUGS: dict[str, tuple[str, ...]] = {
 }
 TEXT_ONLY_BRANCHES = frozenset({"artisans", "products", "tools", "questionnaire"})
 TYPE_HEADS = frozenset({"by-type", "media-types"})
+WORKSHOP_HEADS = frozenset({"by-workshop", "workshops"})
 
 Totals = dict[str, tuple[int, int]]
 
@@ -54,10 +59,22 @@ def _leaf(entry: dict[str, Any]) -> str:
     return str(entry.get("path") or "").rstrip("/").rsplit("/", 1)[-1]
 
 
-async def level_totals(segs: list[str], keys: list[str], scope_media: dict[str, Any] | None) -> Totals | None:
+def _browser() -> Any:
+    from app.api.routes import data_browser
+
+    return data_browser
+
+
+async def level_totals(
+    segs: list[str], keys: list[str], scope_media: dict[str, Any] | None, scope: Any = None
+) -> Totals | None:
     if not segs or not keys:
         return None
     head = segs[0]
+    if head in WORKSHOP_HEADS:
+        return await reach.workshop_totals(segs, keys, scope, _browser())
+    if head == "by-design-workshop":
+        return await reach.design_workshop_totals(segs, keys, scope, _browser())
     if head in TYPE_HEADS and len(segs) == 1:
         return _by_type(await grouped("mediaType", {}, scope_media))
     if head != "by-uploader":
@@ -85,7 +102,11 @@ async def fill(norm: str, entries: list[dict[str, Any]], scope: Any) -> None:
         return
     segs = [s for s in norm.split("/") if s]
     keys = [_leaf(e) for e in folders]
-    totals = await level_totals(segs, keys, getattr(scope, "media", None))
+    try:
+        totals = await level_totals(segs, keys, getattr(scope, "media", None), scope)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("folder counts failed for %s (%s)", norm, type(exc).__name__)
+        totals = None
     for entry, key in zip(folders, keys, strict=True):
         if totals is None or (key not in totals and key == "transcripts"):
             entry["count"] = None

@@ -83,7 +83,7 @@ def test_uploader_levels_group_by_their_child_key(monkeypatch):
 
 @pytest.mark.parametrize(
     "norm",
-    ["", "by-workshop", "by-workshop/w1", "by-workshop/w1/crafts/c1", "by-design-workshop", "users", "users/u1"],
+    ["", "users", "users/u1", "by-uploader/w1/u1/artisans"],
 )
 def test_levels_a_grouped_query_cannot_express_say_null_without_querying(monkeypatch, norm):
     media = _fake(monkeypatch, [])
