@@ -142,7 +142,7 @@
         "X-Dataset-Truncated": "true | false",
         "X-Dataset-Skipped": "int"
       },
-      "notes": "Android folder downloads include everything by default (owner decision 3): send no include."
+      "notes": "Android folder downloads include everything by default (owner decision 3): send no include. Every line carries sizeBytes and sha256 (hex, null when unknown; for a convertToMp4 line sha256 is null and originalSha256 describes the stored original). A client skips a file it already has with that digest and size, and Range-resumes the original through /data/media/{media_id}/download?format=original, which redirects to storage that honours Range. The converted .mp4 stream does not."
     },
     {
       "id": "manifest-selection",
@@ -150,7 +150,7 @@
       "path": "/data/manifest",
       "body": "{paths: [string] (<= manifestMaxPaths), mediaIds: [string] (<= manifestMaxMediaIds), include: [typeToken] | null, stream: bool}",
       "response": "as GET /data/manifest",
-      "notes": "Multi-select download (W11). Each selected folder becomes a top-level folder named as in the tree (made unique); selected files sit at the top level. A media file selected twice appears once."
+      "notes": "Multi-select download (W11). Each selected folder becomes a top-level folder named as in the tree (made unique); selected files sit at the top level. A media file selected twice appears once. Every line carries sizeBytes and sha256 (hex, null when unknown; for a convertToMp4 line sha256 is null and originalSha256 describes the stored original). A client skips a file it already has with that digest and size, and Range-resumes the original through /data/media/{media_id}/download?format=original, which redirects to storage that honours Range. The converted .mp4 stream does not."
     },
     {
       "id": "thumbnail",
@@ -167,7 +167,10 @@
       "method": "GET",
       "path": "/data/media/{media_id}/preview",
       "response": "302 to a signed inline URL (Content-Disposition: inline, Range supported by storage); Cache-Control: private, max-age=1800.",
-      "notes": "Video, audio, image and PDF (W12). 415 for other types."
+      "notes": "Video, audio, image and PDF (W12). 415 for other types.",
+      "query": {
+        "variant": "original | isolated, default original; isolated signs the clear-voices copy, 404 when there is none"
+      }
     },
     {
       "id": "download",
@@ -199,7 +202,7 @@
         "links": "1 | 0, default 1; 0 drops the URL and Media URLs columns (xlsx)",
         "name": "file name without a path; sanitised to ASCII and given .xlsx (xlsx)"
       },
-      "response": "json: {sheets: [{name, color, columns, rows, truncated, preview, capped, totalRows, matchedRows (when q)}], previewRows, query}. csv: the one sheet, UTF-8 with BOM, streamed. xlsx: unchanged. A sheet the viewer may not download is not offered as csv.",
+      "response": "json: {sheets: [{name, color, columns, rows, truncated, preview, capped, totalRows, matchedRows (when q)}], previewRows, query}. csv: the one sheet, UTF-8 with BOM, streamed. xlsx: unchanged. A sheet the viewer may not download is not offered as csv. Every json sheet carries rowNumbers: int[] parallel to rows, the 1-based place of each row in the whole sheet (preview 1..n, search the matched rows' own places); a cap note row is numbered 0.",
       "notes": "Requests queue, one build at a time; 503 with Retry-After: 15 only when 8 are waiting or one waited 90 s. One build per folder and data version is cached and serves the preview, every q search, the csv and the xlsx. json adds builtAt and cached. In the json preview a transcript cell is cut to reportPreviewTranscriptChars; the xlsx and csv stay complete (A6). Errors are always JSON with a 4xx/5xx status: check the status and the PK signature before saving, and never Range-resume a report."
     },
     {
@@ -307,8 +310,8 @@
       "id": "media-peaks",
       "method": "GET",
       "path": "/data/media/{media_id}/peaks",
-      "response": "{peaks: number[] (800 values, 0..1), durationMs: int | null}",
-      "notes": "Computed once with ffmpeg and stored. 404 when the file is not audio or video or cannot be decoded; 503 with Retry-After while another waveform is being made."
+      "response": "{peaks: number[] (800 values, 0..1), durationMs: int | null, isolated: bool, canIsolate: bool}",
+      "notes": "Computed once with ffmpeg and stored. 404 when the file is not audio or video or cannot be decoded; 503 with Retry-After while another waveform is being made. isolated: a clear-voices copy exists (play it from preview?variant=isolated). canIsolate: POST isolate would be accepted (audio, no copy yet, the admin switch on and keyed, the caller uploaded it or is a content admin, consent allows)."
     },
     {
       "id": "visits",
@@ -325,8 +328,8 @@
       "query": {
         "path": "by-workshop/<workshopId>"
       },
-      "response": "{path, title, subtitle, totals: {files, bytes, fields: {filled, total}, transcripts: {total, ready, translating, failed}, review: {approved, pending, total}}, sections: [{key, label}], artisans: [{id, name, craft, path, fields, media: {files, bytes}, transcripts, review, sections: [{key, state: complete | partial | missing, missing: string[]}]}], truncated}",
-      "notes": "Workshop coverage. 404 for a path that is not a workshop folder. The client sorts."
+      "response": "{path, title, subtitle, totals: {files, bytes, fields: {filled, total}, transcripts: {total, ready, translating, failed}, review: {approved, pending, total}}, sections: [{key, label}], artisans: [{id, name, craft, path, fields, media: {files, bytes}, transcripts, review, sections: [{key, state: complete | partial | missing, missing: string[], href: string | null}]}], truncated}",
+      "notes": "Workshop coverage. 404 for a path that is not a workshop folder. The client sorts. href opens that section of the artisan's sitting that answered it (else the latest sitting): /questionnaire/sessions/<interviewId>/view?section=<code>; null when the artisan has no sitting."
     },
     {
       "id": "views-list",
@@ -363,6 +366,13 @@
       "path": "/data/views/{view_id}",
       "response": "204",
       "notes": "Owner only."
+    },
+    {
+      "id": "media-isolate",
+      "method": "POST",
+      "path": "/data/media/{media_id}/isolate",
+      "response": "202 {status: queued | running | ready, isolated: bool}",
+      "notes": "Queues the existing audio-isolation job for one recording. 403 when canIsolate is false, 404 when the file is not visible or not audio."
     }
   ],
   "clientRules": [

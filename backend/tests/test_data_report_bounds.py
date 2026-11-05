@@ -45,6 +45,9 @@ def test_the_json_preview_cuts_each_sheet_and_says_how_many_rows_the_download_ha
     assert uncounted_p["truncated"] is True and uncounted_p["preview"] is True
     assert uncounted_p["totalRows"] is None and uncounted_p["capped"] is False
     assert all("noteRow" not in sheet for sheet in (long_p, short_p, capped_p, uncounted_p))
+    assert long_p["rowNumbers"] == list(range(1, data_browser.PREVIEW_ROWS + 1))
+    assert short_p["rowNumbers"] == list(range(1, 13))
+    assert capped_p["rowNumbers"][-1] == 0 and len(capped_p["rowNumbers"]) == len(capped_p["rows"])
 
 
 

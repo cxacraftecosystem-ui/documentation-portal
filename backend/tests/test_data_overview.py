@@ -108,10 +108,11 @@ def test_the_overview_counts_every_artisan_and_section(monkeypatch: pytest.Monke
     assert kamla["media"] == {"files": 2, "bytes": 150} and asha["media"] == {"files": 1, "bytes": 400}
     assert kamla["fields"] == {"filled": 2, "total": 3}
     assert kamla["sections"] == [
-        {"key": "A", "state": "partial", "missing": ["Age?"]},
-        {"key": "B", "state": "complete", "missing": []},
+        {"key": "A", "state": "partial", "missing": ["Age?"], "href": "/questionnaire/sessions/i1/view?section=A"},
+        {"key": "B", "state": "complete", "missing": [], "href": "/questionnaire/sessions/i1/view?section=B"},
     ]
     assert [s["state"] for s in asha["sections"]] == ["missing", "missing"]
+    assert [s["href"] for s in asha["sections"]] == [None, None]
     assert asha["transcripts"]["failed"] == 1 and kamla["transcripts"]["ready"] == 1
     assert kamla["review"] == {"approved": 2, "pending": 1, "total": 3}
     assert body["truncated"] is False
