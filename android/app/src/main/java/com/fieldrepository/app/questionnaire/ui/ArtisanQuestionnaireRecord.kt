@@ -158,8 +158,8 @@ fun ArtisanQuestionnaireRecord(
                         }
                     } else {
                         val sections = instrument.document
-                        if (SectionFocus.missing(sections.map { it.sectionCode }, wanted)) {
-                            FocusedSection(wanted, focus) {
+                        wanted?.takeIf { SectionFocus.missing(sections.map { s -> s.sectionCode }, it) }?.let { absent ->
+                            FocusedSection(absent, focus) {
                                 Text(QuestionnaireCopy.s("record.sectionEmpty"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
                             }
                         }
