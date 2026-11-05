@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 SECRET = "Secret or credential material: never leaves the server."
 TWO_FACTOR = "Two-factor authentication material: never exported."
 PASSWORD = "Password material: never exported."
@@ -12,70 +15,7 @@ USAGE = "Usage-analytics consent bookkeeping, not collected data."
 JOIN = "Bookkeeping of a link row; the link itself is exported as the two names it joins."
 DUPLICATE = "Shown in full on another sheet of this report."
 
-MODELS: dict[str, str] = {
-    "AppRelease": "Android release catalogue, not collected data.",
-    "AppClientVersion": "Which app version each account last used: device telemetry.",
-    "AppSetting": "Platform settings (transcription switches, budgets), not collected data.",
-    "UserPreference": "Per-account display and e-mail preferences.",
-    "Feedback": "Feedback about the app itself, kept on the Feedback page.",
-    "FeedbackReport": "Bug reports about the app itself, kept on the Feedback page.",
-    "PasswordResetToken": PASSWORD,
-    "PasswordResetRequest": PASSWORD,
-    "TwoFactorChallenge": TWO_FACTOR,
-    "ManagedSecret": SECRET,
-    "UserAiCredential": SECRET,
-    "SecretTestResult": SECRET,
-    "IdempotencyKey": "Request de-duplication cache.",
-    "AadhaarOtpThrottle": AADHAAR,
-    "AadhaarLogArchive": AADHAAR,
-    "AadhaarLegalHold": AADHAAR,
-    "RecordAccessToken": TOKEN,
-    "RecordAccessTokenRedemption": TOKEN,
-    "AccessRoster": "Sign-in admission roster (who may sign in), managed by administrators.",
-    "DataAccessGrant": "Access-control grants, managed on the Sharing page.",
-    "DataAccessScopeItem": "Access-control grants, managed on the Sharing page.",
-    "UsageEvent": "Anonymous request telemetry.",
-    "UsageConsentDecision": USAGE,
-    "EmailMessage": "Outgoing e-mail queue.",
-    "Notification": "In-app notifications to accounts.",
-    "WeeklyDigest": "Weekly digest e-mails to accounts.",
-    "SearchDocument": "Search index, rebuilt from the records exported here.",
-    "SearchIndexQueue": "Search index queue.",
-    "SttProviderState": "Speech-to-text provider health.",
-    "SttUsage": "Speech-to-text billing log, kept on the Transcription settings page.",
-    "SttBudget": "Speech-to-text budget settings.",
-    "TranscriptionChunk": "Intermediate pieces of a transcription job; the finished transcript is exported.",
-    "TranscriptCache": "Provider response cache keyed by audio hash.",
-    "MediaProcessingJob": "Background job queue; each transcript's status and failure reason are exported on the Transcripts sheet.",
-    "MediaUploadIntent": "Resumable-upload bookkeeping before a file exists.",
-    "MediaWaveform": "Waveform peaks drawn by the audio player.",
-    "CrossPortalAccessLog": "Audit log of cross-portal lookups, kept for administrators.",
-    "ArtisanDuplicateCandidate": "Duplicate-detection work queue for administrators.",
-    "ArtisanPeerScan": "Duplicate-detection scan bookkeeping.",
-    "ArtisanMerge": "Merge undo snapshots for administrators; the surviving artisan is exported.",
-    "GeoAlias": "Spelling aliases for state and district names (reference data).",
-    "CraftCode": "National craft-code register (reference data, the same in every report); each craft's code is exported.",
-    "CraftSpelling": "Spelling variants of craft names (reference data).",
-    "DataReportPreference": "Each account's remembered Report options.",
-    "DataFolderVisit": "When each account last opened a folder.",
-    "DataSavedView": "Saved views of the data explorer.",
-    "DataBundle": "Download-bundle links created for reports.",
-    "DataReportShare": "Share-link and visitor metadata, not report data.",
-    "DataReportShareView": "Share-link and visitor metadata, not report data.",
-    "DataReportSchedule": "Scheduled-report settings of each account.",
-    "DataReportScheduleRun": "Scheduled-report delivery log.",
-    "DwDictationDailyUsage": "Daily dictation usage counters (rate limiting).",
-    "DwAiVerbDailyUsage": "Daily AI usage counters (rate limiting).",
-    "DesignerRoster": "Programme administration (Ministry pages), not part of the data folders.",
-    "SanctionOrderImport": "Programme administration import log (Ministry pages).",
-    "WorkshopTypeOption": "Programme administration settings (Ministry pages).",
-    "RegionalDirectorState": "Programme administration settings (Ministry pages).",
-    "MinistryDataExport": "Ministry export jobs (Ministry exports page).",
-    "MinistryExportRecipient": "Ministry export recipients (Ministry exports page).",
-    "MinistryExportPack": "Ministry export packs (Ministry exports page).",
-    "MinistryExportDownload": "Ministry export download log.",
-    "AnnualPlanEntry": "Programme planning (Annual plan page); a design workshop's own details are exported.",
-}
+MODELS: dict[str, str] = json.loads((Path(__file__).resolve().parent / "excluded_models.json").read_text(encoding="utf-8"))
 
 FIELDS: dict[str, str] = {
     "User.passwordHash": PASSWORD,

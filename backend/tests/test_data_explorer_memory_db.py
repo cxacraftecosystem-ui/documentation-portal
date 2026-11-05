@@ -152,7 +152,15 @@ def test_report_choices_are_remembered_per_user_and_checked(monkeypatch):
             headers = _auth(seed["admin"])
             async with asgi_client() as client:
                 empty = (await client.get("/api/data/report-options", headers=headers)).json()
-                chosen = {"sheets": ["Tools", "Artisans"], "answers": "english", "rows": "filtered", "links": False}
+                chosen = {
+                    "sheets": ["Tools", "Artisans"],
+                    "answers": "english",
+                    "rows": "filtered",
+                    "links": False,
+                    "thumbnails": True,
+                    "locale": "hi",
+                    "extras": {"quotes": True},
+                }
                 saved = await client.put("/api/data/report-options", json={"options": chosen}, headers=headers)
                 again = (await client.get("/api/data/report-options", headers=headers)).json()
                 bad = await client.put(

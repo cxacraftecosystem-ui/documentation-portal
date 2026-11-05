@@ -247,11 +247,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `decisionNote`: Access requests › Decision note
   - `createdAt`: Access requests › Created on
   - `updatedAt`: Access requests › Updated on
-- **DesignWorkshopInspector**
-  - `designWorkshopId`: Workshop inspectors › Design workshop; Workshop inspectors › Design workshop ID
-  - `userId`: Workshop inspectors › User; Workshop inspectors › User ID
-  - `assignedById`: Workshop inspectors › Assigned by; Workshop inspectors › Assigned by ID
-  - `createdAt`: Workshop inspectors › Created on
+- **DesignWorkshopInspector**: excluded. Inspection assignments are the inspection feature's own scope table; the report does not read it. Who inspected what is on the Inspection feedback and Inspection clearances sheets.
 - **DesignWorkshopOversight**
   - `designWorkshopId`: Workshop oversight › Design workshop; Workshop oversight › Design workshop ID
   - `capacity`: Workshop oversight › Capacity
@@ -1366,7 +1362,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 
 ## Field Repository
 
-97 models, 1218 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+98 models, 1215 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
 
 ### Models and fields
 
@@ -1530,6 +1526,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **DataBundle**: excluded. Download-bundle links created for reports.
 - **DataFolderVisit**: excluded. When each account last opened a folder.
 - **DataReportPreference**: excluded. Each account's remembered Report options.
+- **DataReportSchedule**: excluded. Scheduled-report settings of each account.
 - **DataReportShare**: excluded. Share-link and visitor metadata, not report data.
 - **DataReportShareView**: excluded. Share-link and visitor metadata, not report data.
 - **DataSavedView**: excluded. Saved views of the data explorer.
@@ -2189,7 +2186,6 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `sessionsValidFrom`: excluded. Account security and permission settings, managed on the Users page, not collected data.
   - `createdAt`: People › Created on
   - `updatedAt`: People › Updated on
-  - `dataReportSchedules`: excluded. Account security and permission settings, managed on the Users page, not collected data.
 - **UserAiCredential**: excluded. Secret or credential material: never leaves the server.
 - **UserPreference**: excluded. Per-account display and e-mail preferences.
 - **WeeklyDigest**: excluded. Weekly digest e-mails to accounts.
