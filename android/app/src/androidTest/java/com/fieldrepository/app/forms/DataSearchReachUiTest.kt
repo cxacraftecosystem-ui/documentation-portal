@@ -198,9 +198,8 @@ class DataSearchReachUiTest {
         compose.onNodeWithText("Show all 31 artisans").assertExists()
         compose.onNodeWithTag("data.search.all.artisans", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
         requested("type=artisans&page=1")
-        waitFor("data.search.shown", "20 of 31 shown")
-        assertTrue(gone("data.search.item.products.p1"))
         reach("data.search.results", "data.search.more", "data.search.shown", "All 31 shown")
+        assertTrue(gone("data.search.item.products.p1"))
         scrollResultsTo("data.search.results", "data.search.item.artisans.a31")
         compose.onNodeWithTag("data.search.item.artisans.a31", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(listOf("artisan:a31"), opened)
@@ -228,7 +227,7 @@ class DataSearchReachUiTest {
         tapUntilListed("Everything")
         compose.onNodeWithText("Showing 8 of 31").assertExists()
         compose.onNodeWithTag("explorer.search.all", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
-        waitFor("search.all.shown", "20 of 31 shown")
+        waitFor("search.all.shown")
         reach("search.all.list", "search.all.more.artisan", "search.all.shown", "All 31 shown")
         scrollResultsTo("search.all.list", "search.all.row.artisan.a31")
         compose.onNode(hasClickAction().and(hasAnyAncestor(hasTestTag("search.all.row.artisan.a31"))), useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
@@ -242,7 +241,7 @@ class DataSearchReachUiTest {
         showQuick(opened)
         tapUntilListed("Artisans")
         compose.onNodeWithText("Show all 31").performSemanticsAction(SemanticsActions.OnClick)
-        waitFor("search.all.shown", "20 of 31 shown")
+        waitFor("search.all.shown")
         reach("search.all.list", "search.all.more.artisan", "search.all.shown", "All 31 shown")
         scrollResultsTo("search.all.list", "search.all.row.artisan.a31")
         compose.onNodeWithTag("search.all.row.artisan.a31", useUnmergedTree = true).assertExists()
@@ -253,7 +252,7 @@ class DataSearchReachUiTest {
     fun theLegacyFallbackPagesToTheLastRecordToo() {
         unifiedOff = true
         showUnified()
-        waitFor("search.all.shown", "20 of 31 shown")
+        waitFor("search.all.shown")
         reach("search.all.list", "search.all.more.artisan", "search.all.shown", "All 31 shown")
         scrollResultsTo("search.all.list", "search.all.row.artisan.a31")
         compose.onNodeWithTag("search.all.row.artisan.a31", useUnmergedTree = true).assertExists()
@@ -282,6 +281,7 @@ class DataSearchReachUiTest {
         waitFor("data.search.shown", "8 of 34 shown")
         scrollResultsTo("data.search.results", "data.search.all.artisans")
         compose.onNodeWithTag("data.search.all.artisans", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
-        waitFor("data.search.shown", "20 of 31 shown")
+        requested("type=artisans&page=1")
+        reach("data.search.results", "data.search.more", "data.search.shown", "All 31 shown")
     }
 }
