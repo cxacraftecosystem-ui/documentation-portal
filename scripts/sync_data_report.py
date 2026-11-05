@@ -11,6 +11,7 @@ repository's root:
 
 Digests are taken over LF-normalised text, so a Windows checkout (CRLF) and CI (LF) agree.
 backend/tests/test_data_report_parity.py fails when any listed file differs from shared/data-report.sha256.
+This script is itself one of the listed files, so the two copies, and the file list in them, cannot drift.
 """
 
 from __future__ import annotations
@@ -32,8 +33,10 @@ SHARED_EXTRA = (
     "backend/tests/test_report_xlsx.py",
     "backend/tests/test_report_coverage.py",
     "backend/tests/test_report_i18n.py",
+    "backend/tests/test_report_pack_hindi.py",
     "backend/tests/test_data_report_parity.py",
     "backend/tests/test_data_report_go.py",
+    "scripts/sync_data_report.py",
     AUDIT,
     "docs/data-explorer/DATA_REPORT.md",
 )

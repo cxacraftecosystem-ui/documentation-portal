@@ -30,7 +30,29 @@ env:
   EXPECTED_APPLICATION_ID: com.fieldrepository.app
 
 jobs:
+  backend-live:
+    name: Backend for this commit is live
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Wait for deploy-backend on this commit, then for /health to report its backend
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          ENFORCE: ${{ (github.event_name == 'push' || inputs.dry_run == false) && 'true' || 'false' }}
+        run: bash scripts/ci/await_backend_release.sh
+
   publish:
+    needs: backend-live
     runs-on: ubuntu-26.04
     outputs:
       version: ${{ steps.version.outputs.version_name }}
