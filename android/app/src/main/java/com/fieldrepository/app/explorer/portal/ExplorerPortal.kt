@@ -18,6 +18,7 @@ object ExplorerPortal {
     const val ROOT_NAME = "All records"
     const val DOWNLOAD_FOLDER = "FieldRepository"
     const val PRODUCT = "Field Repository"
+    const val WEB_BASE = "https://field-repository.vercel.app"
     const val REPORT_WAIT_SECONDS = 150L
 
     val statusOptions: List<Pair<String, String>> = DataStatusChoice.options.map { it.value to it.label }
