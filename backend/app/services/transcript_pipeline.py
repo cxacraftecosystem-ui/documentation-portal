@@ -847,18 +847,36 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
     }
 
 
+_PROGRESS_SQL = (
+    'SELECT "versionId" AS id, '
+    "count(*) FILTER (WHERE \"translationStatus\" <> 'ALREADY_ENGLISH')::int AS total, "
+    "count(*) FILTER (WHERE \"translationStatus\" = 'TRANSLATED' OR \"editedEnglish\" IS NOT NULL)::int AS done "
+    'FROM "TranscriptTurn" WHERE "versionId" = ANY($1::text[]) GROUP BY "versionId"'
+)
+
+
+async def translation_progress(version_ids: list[str]) -> dict[str, tuple[int, int]]:
+    if not version_ids:
+        return {}
+    rows = await db.query_raw(_PROGRESS_SQL, version_ids)
+    return {str(r["id"]): (min(int(r["done"] or 0), int(r["total"] or 0)), int(r["total"] or 0)) for r in rows}
+
+
 async def summary_items(media_rows: list[Any], user: Any = None) -> list[dict[str, Any]]:
     sees_spend = user is not None and transcript_portal.may_see_spend(user)
     ids = [str(m.id) for m in media_rows]
     versions_by = await transcript_store.current_versions(ids)
     settings_row = await _settings_row()
+    progress = await translation_progress([v.id for v in versions_by.values()])
     out = []
     for media in media_rows:
         version = versions_by.get(str(media.id))
         state = await _status_of(media, version, [], settings_row)
+        done, total = progress.get(version.id, (0, 0)) if version is not None else (0, 0)
         out.append({
             "mediaId": str(media.id),
             "status": state.status,
+            "translation": {"done": done, "total": total, "percent": round(done * 100 / total) if total else None},
             "languages": [{"code": c, "label": language_label(c)} for c in (version.languages if version else [])],
             "durationMs": version.durationMs if version else None,
             "speakerCount": version.speakerCount if version else 0,
