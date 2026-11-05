@@ -326,7 +326,7 @@ export function TranscriptsTab({
             </div>
             <ul className={`${stale || loading ? "opacity-70" : ""}`} aria-busy={loading || undefined} aria-label="Transcripts list" data-testid="transcript-rows">
               {shown.map((row) => {
-                const sub = row.snippet && needle ? null : row.state === "working" ? workingLine(row.summary) : [languagesLine(row.summary?.languages ?? []), speakersLine(row.summary?.speakerCount ?? 0)].filter(Boolean).join(" · ");
+                const sub = row.snippet && needle ? null : row.state === "failed" ? row.summary?.statusMessage?.trim() || "The transcript couldn't be made." : row.state === "working" ? workingLine(row.summary) : [languagesLine(row.summary?.languages ?? []), speakersLine(row.summary?.speakerCount ?? 0)].filter(Boolean).join(" · ");
                 const length = row.summary?.durationMs ? shortClock(row.summary.durationMs) : "";
                 const failed = row.state === "failed";
                 const tag = row.mediaType === "VIDEO" ? "VID" : "AUD";

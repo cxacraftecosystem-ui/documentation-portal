@@ -5,7 +5,7 @@ Fixed: plain "Data" header (30px) and description; page widened to the board's 1
 Still different, and why:
 - The DR nav and the search card come from elsewhere: the global nav differs by portal; the search card is DataSearchPanel, restyled on fix-0014 by ac290e23 (see WebSearch/notes.md).
 - Review status (All/Approved/Pending) is Field Repository only; DR records have no data review filter.
-- "6 tools" and image size "4032 × 3024" / "2 pages": the API sends no tool count, pixel size or page count, so those words are left out rather than invented.
+- "6 tools", "Image · 4032 × 3024" and "Document · 2 pages" now come from the API (info.counts.tools, entry pixels/pages). Facts are measured in the background on first listing, so a brand-new folder may show "Image" alone until they arrive; nothing is ever guessed.
 - A "…" menu next to Download holds Save to a folder and Whole dataset (both real features the board has no room for), and a bookmark icon on the tab row opens Saved views.
 - Tray numbers are KB/MB, not GB: CI streams real bytes from the fixture; the file counter and current file come from a live run.
 - The board tints only the first checked row; the build tints every checked row.

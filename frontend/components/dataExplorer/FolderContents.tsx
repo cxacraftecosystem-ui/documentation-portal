@@ -144,9 +144,16 @@ export function displayName(entry: TreeEntry): string {
 
 export type PlayingRow = { mediaId: string; ms: number; durationMs: number | null };
 
+export function factsLine(entry: TreeEntry): string {
+  const kind = kindLabel(entry);
+  if (entry.mediaType === "IMAGE" && entry.pixels && entry.pixels.width > 0 && entry.pixels.height > 0) return `${kind} · ${entry.pixels.width} × ${entry.pixels.height}`;
+  if ((entry.mediaType === "PDF" || entry.mediaType === "DOCUMENT") && typeof entry.pages === "number" && entry.pages > 0) return `${kind} · ${entry.pages} ${entry.pages === 1 ? "page" : "pages"}`;
+  return kind;
+}
+
 function detailLine(entry: TreeEntry, summary: TranscriptSummary | undefined): string {
   const kind = kindLabel(entry);
-  if (!hasTranscript(entry)) return kind;
+  if (!hasTranscript(entry)) return factsLine(entry);
   if (!summary) return `${kind} · transcript`;
   const state = rowState(summary.status, true);
   if (state === "failed") return "Transcript failed";

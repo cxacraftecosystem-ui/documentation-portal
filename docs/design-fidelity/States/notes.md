@@ -5,7 +5,7 @@ Fixed: skeleton shaped like the page (70%/50% bars, two 40px blocks, three 44px 
 Still different, and why:
 - Each state is captured inside the page (impl-loading/empty/noresults/offline/error.png) rather than as five cards side by side.
 - Offline on the web is a banner over kept data; the board's card is labelled Android.
-- No results is DataSearchPanel (restyle on fix-0014; "38 results." after the suggestion is not shown because the API sends no count).
+- No results is DataSearchPanel (agent ac290e23, fix-0014). Agreed 2026-11-06: ac290e23 builds it end to end; /search/unified returns `suggestionTotal` and the panel renders "Did you mean indigo? 38 results." ("1 result.", nothing at 0) on web and Android (designer-portal b52643b5, documentation-portal 7ff7a542). This branch's fixture seeds suggestionTotal 38, so the shot shows it once fix-0014 lands.
 - The board's caption in the loading card is annotation, not product copy.
 
 ## Android

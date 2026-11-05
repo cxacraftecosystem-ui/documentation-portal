@@ -275,7 +275,8 @@ export function FolderHeader({
     ? [
         `${sized.files.toLocaleString("en-IN")} ${sized.files === 1 ? "file" : "files"}${sized.truncated ? "+" : ""}`,
         formatBytes(sized.bytes),
-        transcripts !== null && transcripts > 0 ? `${transcripts.toLocaleString("en-IN")} ${transcripts === 1 ? "transcript" : "transcripts"}` : null
+        transcripts !== null && transcripts > 0 ? `${transcripts.toLocaleString("en-IN")} ${transcripts === 1 ? "transcript" : "transcripts"}` : null,
+        typeof info?.counts?.tools === "number" && info.counts.tools > 0 ? `${info.counts.tools.toLocaleString("en-IN")} ${info.counts.tools === 1 ? "tool" : "tools"}` : null
       ].filter((part): part is string => Boolean(part))
     : [size.error ? "Size unknown" : "Checking size…"];
   const compact = compactFields(info ?? null);

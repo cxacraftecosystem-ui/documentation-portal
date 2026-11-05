@@ -138,7 +138,7 @@ const SUMMARIES: Record<string, Json> = {
   [VIDEO_ID]: { status: "READY", languages: [{ code: "hi", label: "Hindi" }, { code: "en", label: "English" }], durationMs: 1_458_000, speakerCount: 2 },
   [AUDIO_ID]: { status: "READY", languages: [{ code: "mwr", label: "Marwari" }, { code: "en", label: "English" }], durationMs: 2_462_000, speakerCount: 4 },
   "vid-kiln-07": { status: "TRANSLATING", languages: [{ code: "hi", label: "Hindi" }], durationMs: 527_000, speakerCount: 1, translation: { done: 7, total: 10, percent: 70 } },
-  "aud-ambient": { status: "NEEDS_ATTENTION", languages: [], durationMs: 190_000, speakerCount: 0 },
+  "aud-ambient": { status: "NEEDS_ATTENTION", statusMessage: "No speech found in the recording", languages: [], durationMs: 190_000, speakerCount: 0 },
   "vid-carve-02": { status: "READY", languages: [{ code: "hi", label: "Hindi" }, { code: "en", label: "English" }], durationMs: 355_000, speakerCount: 1 }
 };
 
@@ -166,7 +166,7 @@ export function unifiedFor(q: string, scope: string | null): Json {
       groups: [group("artisans", "Artisans", 2, [item("artisans", "a-giriraj", "Giriraj Prasad Chhipa", { subtitle: "3rd Craft Toolkit" }), item("artisans", "a-giridhar", "Giridhar Soni", { subtitle: "Bagru workshop" })])]
     };
   }
-  if (text === "indgo") return { ...base, groups: [], suggestion: "indigo" };
+  if (text === "indgo") return { ...base, groups: [], suggestion: "indigo", suggestionTotal: 38 };
   if (text.includes("indigo") && scope !== "local" && text.includes("vat")) {
     return {
       ...base,
@@ -234,11 +234,16 @@ export class DesignFidelityWebFake extends DesignFidelityFake {
       const base = super.answer(method, path, query, body);
       const json = base?.json as Json | undefined;
       if (!json) return base;
-      const renamed = (json.entries as Json[]).map((entry) => (entry.mediaId === KILN_ID ? { ...entry, name: KILN_NAME, path: `${GIRIRAJ}/${KILN_NAME}`, sizeBytes: KILN_BYTES } : entry));
+      const renamed = (json.entries as Json[]).map((entry) => {
+        const named = entry.mediaId === KILN_ID ? { ...entry, name: KILN_NAME, path: `${GIRIRAJ}/${KILN_NAME}`, sizeBytes: KILN_BYTES } : entry;
+        if (named.mediaType === "IMAGE") return { ...named, pixels: { width: 4032, height: 3024 } };
+        if (named.mediaType === "PDF") return { ...named, pages: named.mediaId === "pdf-consent" ? 2 : 3 };
+        return named;
+      });
       const kiln = renamed.filter((entry) => entry.mediaId === KILN_ID);
       const rest = renamed.filter((entry) => entry.mediaId !== KILN_ID);
       const entries = [...rest.slice(0, 8), ...kiln, ...rest.slice(8)];
-      return { status: 200, json: { ...json, entries, info: json.info ? { ...(json.info as Json), record: { kind: "artisan", id: "a-giriraj" } } : null } };
+      return { status: 200, json: { ...json, entries, info: json.info ? { ...(json.info as Json), record: { kind: "artisan", id: "a-giriraj" }, counts: { tools: 6 } } : null } };
     }
     if (path === "/data/stats" && method === "GET" && at === GIRIRAJ) {
       return {
@@ -307,6 +312,17 @@ export class DesignFidelityWebFake extends DesignFidelityFake {
     if (path === "/transcripts/batch") {
       const ids = (query.get("ids") ?? "").split(",").filter(Boolean);
       return { status: 200, json: { items: ids.map(summaryOf).filter(Boolean) } };
+    }
+    if (path === "/data/report/sheets" && (at === GIRIRAJ || at === WORKSHOP)) {
+      return {
+        status: 200,
+        json: {
+          path: at,
+          sheets: SHEETS.map((sheet) => ({ key: sheet.name.toLowerCase().replace(/\s+/g, "-"), name: sheet.name, plugin: "core", count: sheet.total, files: 0, group: null, description: null })),
+          extras: [],
+          locales: ["en", "hi"]
+        }
+      };
     }
     if (path === "/data/transcripts/list" && (at === GIRIRAJ || at === WORKSHOP)) return { status: 200, json: transcriptsList() };
     if (path === "/data/report" && (at === GIRIRAJ || at === WORKSHOP) && (query.get("format") ?? "json") === "json") {
