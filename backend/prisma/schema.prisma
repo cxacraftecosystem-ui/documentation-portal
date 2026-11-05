@@ -434,6 +434,7 @@ model User {
   dataReportPreference DataReportPreference? @relation("DataReportPreferenceUser")
   dataFolderVisits     DataFolderVisit[]     @relation("DataFolderVisitUser")
   dataSavedViews       DataSavedView[]       @relation("DataSavedViewOwner")
+  dataBundles          DataBundle[]          @relation("DataBundleOwner")
 }
 
 enum CredentialLinkPurpose {
@@ -3563,4 +3564,22 @@ model MediaWaveform {
   createdAt   DateTime @default(now())
 
   mediaFile MediaFile @relation("MediaWaveformMedia", fields: [mediaFileId], references: [id], onDelete: Cascade)
+}
+
+model DataBundle {
+  id           String    @id @default(cuid())
+  ownerId      String
+  label        String
+  path         String    @default("")
+  digest       String
+  mediaIds     String[]  @default([])
+  fileCount    Int       @default(0)
+  bytes        BigInt    @default(0)
+  createdAt    DateTime  @default(now())
+  lastOpenedAt DateTime?
+
+  owner User @relation("DataBundleOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, digest])
+  @@index([createdAt])
 }

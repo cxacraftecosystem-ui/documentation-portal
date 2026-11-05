@@ -71,7 +71,16 @@ jobs:
           { echo "CROSS_PORTAL_PEER_REPO=$dest"; echo "SIBLING_REPO=$dest"; echo "DESIGNER_PORTAL_DIR=$dest"; } >> "$GITHUB_ENV"
           echo "Shared files are compared with $PEER@$ref ($(git -C "$dest" rev-parse --short HEAD))."
 
+      - name: Install LibreOffice for the report round-trip test
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libreoffice-calc-nogui
+          soffice --version
+
       - name: Run the suite
+        env:
+          REQUIRE_LIBREOFFICE: "1"
         run: |
           set -uo pipefail
 
