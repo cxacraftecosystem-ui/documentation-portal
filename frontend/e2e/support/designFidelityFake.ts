@@ -100,7 +100,7 @@ const LANES: [string, number, number][] = [
 const FILLER: Record<string, [string, string][]> = {
   speaker_0: [["अगला सवाल रंग के बारे में है।", "The next question is about the colour."], ["यह कितने दिन चलता है?", "How many days does it take?"]],
   speaker_1: [["नील रा कुंड में तीन बार डुबोवां।", "We dip it in the indigo vat three times."], ["धूप में सुखावां, फेर धोवां।", "We dry it in the sun, then wash it."]],
-  speaker_2: [["गरमी में माटी जल्दी सूखै।", "In summer the mud dries quickly."], ["सर्दी में चूनो थोड़ो बेसी लागै।", "In winter it needs a little more lime."]],
+  speaker_2: [["गरमी में माटी जल्दी सूखै।", "In summer the mud dries quickly."], ["सर्दी में माटी गाढ़ी राखां।", "In winter we keep the mud thicker."]],
   speaker_3: [["म्हैं ठप्पा धोऊं।", "I wash the blocks."], ["बच्चा भी सीखै है।", "The children learn too."]]
 };
 
