@@ -205,6 +205,7 @@ internal fun SearchAllList(
                 }
                 if (section.more) {
                     item("more.${section.recordType}") {
+                        LaunchedEffect(section.rows.size) { state.more(section.recordType) }
                         OutlinedButton(
                             onClick = { scope.launch { state.more(section.recordType) } },
                             enabled = !section.loading,

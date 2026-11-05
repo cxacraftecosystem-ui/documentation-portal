@@ -353,6 +353,7 @@ internal fun DataUnifiedSearch(
                         }
                         if (now.more) {
                             item("more") {
+                                LaunchedEffect(now.items.size) { page++ }
                                 OutlinedButton(onClick = { page++ }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("data.search.more")) {
                                     Text(if (type == null) DataSearchText.loadMore else DataSearchText.showMore(DataSearchRules.nextBatch(type, now.groups, now.items)))
                                 }

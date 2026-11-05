@@ -138,6 +138,17 @@ class DataSearchReachUiTest {
         }
     }
 
+    private fun reach(list: String, more: String, line: String, done: String) {
+        compose.waitUntil(60_000) {
+            if (compose.onAllNodes(hasTestTag(line).and(hasText(done)), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()) {
+                true
+            } else {
+                runCatching { compose.onNodeWithTag(list, useUnmergedTree = true).performScrollToNode(hasTestTag(more)) }
+                false
+            }
+        }
+    }
+
     private fun scrollResultsTo(list: String, tag: String) {
         compose.onNodeWithTag(list, useUnmergedTree = true).performScrollToNode(hasTestTag(tag))
     }
@@ -168,10 +179,7 @@ class DataSearchReachUiTest {
         requested("type=artisans&page=1")
         waitFor("data.search.shown", "20 of 31 shown")
         assertTrue(gone("data.search.item.products.p1"))
-        scrollResultsTo("data.search.results", "data.search.more")
-        compose.onNodeWithText("Show 11 more").assertExists()
-        compose.onNodeWithTag("data.search.more", useUnmergedTree = true).performClick()
-        waitFor("data.search.shown", "All 31 shown")
+        reach("data.search.results", "data.search.more", "data.search.shown", "All 31 shown")
         scrollResultsTo("data.search.results", "data.search.item.artisans.a31")
         compose.onNodeWithTag("data.search.item.artisans.a31", useUnmergedTree = true).performClick()
         assertEquals(listOf("artisan:a31"), opened)
@@ -182,13 +190,7 @@ class DataSearchReachUiTest {
     fun loadMoreInTheAllViewPagesEveryGroupToItsEnd() {
         showUnified()
         waitFor("data.search.shown", "8 of 34 shown")
-        for (shown in listOf(13, 18, 23, 28, 33)) {
-            scrollResultsTo("data.search.results", "data.search.more")
-            compose.onNodeWithTag("data.search.more", useUnmergedTree = true).performClick()
-            waitFor("data.search.shown", "$shown of 34 shown")
-        }
-        scrollResultsTo("data.search.results", "data.search.more")
-        compose.onNodeWithTag("data.search.more", useUnmergedTree = true).performClick()
+        reach("data.search.results", "data.search.more", "data.search.shown", "All 34 shown")
         waitFor("data.search.shown", "All 34 shown")
         scrollResultsTo("data.search.results", "data.search.item.artisans.a31")
         compose.onNodeWithTag("data.search.item.artisans.a31", useUnmergedTree = true).assertExists()
@@ -207,10 +209,7 @@ class DataSearchReachUiTest {
         compose.onNodeWithText("Showing 8 of 31").assertExists()
         compose.onNodeWithTag("explorer.search.all", useUnmergedTree = true).performClick()
         waitFor("search.all.shown", "20 of 31 shown")
-        scrollResultsTo("search.all.list", "search.all.more.artisan")
-        compose.onNodeWithText("Show 11 more artisans").assertExists()
-        compose.onNodeWithTag("search.all.more.artisan", useUnmergedTree = true).performClick()
-        waitFor("search.all.shown", "All 31 shown")
+        reach("search.all.list", "search.all.more.artisan", "search.all.shown", "All 31 shown")
         scrollResultsTo("search.all.list", "search.all.row.artisan.a31")
         compose.onNodeWithTag("search.all.row.artisan.a31", useUnmergedTree = true).performClick()
         assertEquals(listOf("artisan:a31"), opened)
@@ -225,9 +224,7 @@ class DataSearchReachUiTest {
         waitFor("explorer.search.summary")
         compose.onNodeWithText("Show all 31").performClick()
         waitFor("search.all.shown", "20 of 31 shown")
-        scrollResultsTo("search.all.list", "search.all.more.artisan")
-        compose.onNodeWithTag("search.all.more.artisan", useUnmergedTree = true).performClick()
-        waitFor("search.all.shown", "All 31 shown")
+        reach("search.all.list", "search.all.more.artisan", "search.all.shown", "All 31 shown")
         scrollResultsTo("search.all.list", "search.all.row.artisan.a31")
         compose.onNodeWithTag("search.all.row.artisan.a31", useUnmergedTree = true).assertExists()
         assertTrue(asked.any { it.contains("/search?") && it.contains("types=artisans") && !it.contains("q=") })
@@ -238,9 +235,7 @@ class DataSearchReachUiTest {
         unifiedOff = true
         showUnified()
         waitFor("search.all.shown", "20 of 31 shown")
-        scrollResultsTo("search.all.list", "search.all.more.artisan")
-        compose.onNodeWithTag("search.all.more.artisan", useUnmergedTree = true).performClick()
-        waitFor("search.all.shown", "All 31 shown")
+        reach("search.all.list", "search.all.more.artisan", "search.all.shown", "All 31 shown")
         scrollResultsTo("search.all.list", "search.all.row.artisan.a31")
         compose.onNodeWithTag("search.all.row.artisan.a31", useUnmergedTree = true).assertExists()
     }

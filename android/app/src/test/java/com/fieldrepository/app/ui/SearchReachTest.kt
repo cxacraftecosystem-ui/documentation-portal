@@ -121,4 +121,32 @@ class SearchReachTest {
         assertEquals(20, state.shown)
         assertFalse(state.sections.single().more)
     }
+
+    @Test fun `a production-sized list of 1200 pages through to its last record`() = runBlocking {
+        val state = SearchAllState(SearchFilters(types = setOf(SearchRecordTypes.ARTISAN))) { _, page, size -> artisans(1200, page, size) }
+        state.start()
+        var taps = 0
+        while (state.sections.single().more && taps < 100) {
+            state.more(SearchRecordTypes.ARTISAN)
+            taps++
+        }
+        assertEquals(1200, state.shown)
+        assertEquals("a1200", state.sections.single().rows.last().id)
+        assertEquals(59, taps)
+    }
+
+    @Test fun `six hundred and forty-nine matches under one type page in twenties to the end`() {
+        val group = com.fieldrepository.app.data.UnifiedSearchGroupDto(type = "media", label = "Media", total = 649)
+        var loaded = (1..5).map { com.fieldrepository.app.data.UnifiedSearchItemDto(type = "media", id = "m$it") }
+        assertTrue(DataSearchRules.more(null, listOf(group), loaded))
+        loaded = emptyList()
+        var pages = 0
+        while (pages == 0 || DataSearchRules.more("media", listOf(group), loaded)) {
+            val from = pages * DataSearchRules.TYPE_LIMIT
+            loaded = loaded + (from until minOf(649, from + DataSearchRules.TYPE_LIMIT)).map { com.fieldrepository.app.data.UnifiedSearchItemDto(type = "media", id = "m${it + 1}") }
+            pages++
+        }
+        assertEquals(649, loaded.size)
+        assertEquals(33, pages)
+    }
 }
