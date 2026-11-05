@@ -128,7 +128,25 @@ internal fun fileMeta(entry: ExplorerEntry): String = listOfNotNull(
     },
     ExplorerBytes.format(entry.sizeBytes),
     "transcript".takeIf { entry.transcriptAvailable && entry.mediaType != null },
+    capturedDay(entry.capturedAt),
 ).joinToString(" · ")
+
+internal fun capturedDay(raw: String?): String? = raw?.takeIf { it.isNotBlank() }?.let { value ->
+    runCatching {
+        val instant = runCatching { java.time.OffsetDateTime.parse(value).toInstant() }.getOrElse { java.time.Instant.parse(value) }
+        java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.ENGLISH).format(instant.atZone(java.time.ZoneId.systemDefault()))
+    }.getOrNull()
+}
+
+internal fun folderMeta(folder: ExplorerEntry): String? {
+    val kind = folder.recordType?.takeIf { it.isNotBlank() }?.replaceFirstChar { it.uppercase() }
+    val n = folder.count
+    val size = listOfNotNull(
+        n?.let { ExplorerBytes.count(it, "file") },
+        folder.bytes?.takeIf { it > 0 && (n ?: 0) > 0 }?.let { ExplorerBytes.format(it) },
+    ).joinToString(" · ").ifBlank { null }
+    return listOfNotNull(kind, size).joinToString(" · ").ifBlank { null }
+}
 
 class ExplorerOffline(val file: java.io.File?, val keep: (coil3.Image) -> Unit)
 
@@ -223,8 +241,8 @@ internal fun FolderRow(
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(folder.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                folder.recordType?.takeIf { it.isNotBlank() }?.let { type ->
-                    Text(type.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                folderMeta(folder)?.let { line ->
+                    Text(line, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.folder.meta.${folder.path}"))
                 }
             }
             if (!selecting) Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))

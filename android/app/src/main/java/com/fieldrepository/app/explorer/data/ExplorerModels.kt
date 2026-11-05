@@ -54,6 +54,9 @@ data class ExplorerEntry(
     val previewPath: String? = null,
     val downloadPath: String? = null,
     val transcriptFiles: List<DataTranscriptFile> = emptyList(),
+    val capturedAt: String? = null,
+    val count: Int? = null,
+    val bytes: Long? = null,
 ) {
     val isFolder: Boolean get() = kind == "folder"
     val key: String get() = if (isFolder) "folder:$path" else "file:${mediaId ?: path}"
@@ -127,6 +130,7 @@ data class ExplorerManifestFile(
     val originalPath: String? = null,
     val originalFilename: String? = null,
     val sha256: String? = null,
+    val capturedAt: String? = null,
 )
 
 @Serializable
