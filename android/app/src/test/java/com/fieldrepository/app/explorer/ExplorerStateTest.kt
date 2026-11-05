@@ -101,7 +101,7 @@ class ExplorerStateTest {
         api.trees = { _, _, _ -> throw IOException("no signal") }
         val s = state(api, cache, online = false)
         s.open("w")
-        until { s.entries.isNotEmpty() }
+        until { s.entries.isNotEmpty() && s.cachedNote != null }
         assertNotNull(s.cachedNote)
         assertTrue(api.calls.isEmpty())
     }
@@ -113,10 +113,8 @@ class ExplorerStateTest {
         api.trees = { path, _, _ -> delay(800); ExplorerTree(path = path, entries = listOf(file("new"))) }
         val s = state(api, cache, fallbackMs = 100)
         s.open("w")
-        until { s.entries.firstOrNull()?.mediaId == "old" }
-        assertNotNull(s.cachedNote)
-        until { s.entries.firstOrNull()?.mediaId == "new" }
-        assertNull(s.cachedNote)
+        until { s.entries.firstOrNull()?.mediaId == "old" && s.cachedNote != null }
+        until { s.entries.firstOrNull()?.mediaId == "new" && s.cachedNote == null }
     }
 
     @Test fun `the root lands on the default grouping unless a place was saved`() = runBlocking {
