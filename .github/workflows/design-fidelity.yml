@@ -134,6 +134,7 @@ jobs:
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t app/build/outputs/apk/debug/app-debug.apk
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package $APP_ID.explorer.shots $APP_ID.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/shots.txt" 2>&1; cat "$RUNNER_TEMP/shots.txt"
+            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package $APP_ID.explorer.capture $APP_ID.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/capture.txt" 2>&1; cat "$RUNNER_TEMP/capture.txt"
             mkdir -p "$SHOTS" && "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" pull "/sdcard/Android/data/$APP_ID/files/design-fidelity/." "$SHOTS/"
             ls -R "$SHOTS"
             grep -q "^OK (" "$RUNNER_TEMP/shots.txt"
