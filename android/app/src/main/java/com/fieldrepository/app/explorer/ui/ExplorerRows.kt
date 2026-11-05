@@ -20,6 +20,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
@@ -121,6 +130,7 @@ internal fun fileIcon(entry: ExplorerEntry): ImageVector = when (entry.mediaType
 
 internal fun fileMeta(entry: ExplorerEntry): String = listOfNotNull(
     when {
+        entry.mediaType == "PDF" || entry.mediaType == "DOCUMENT" -> "Document"
         entry.mediaType != null -> entry.mediaType.lowercase().replaceFirstChar { it.uppercase() }
         entry.transcriptPath != null -> ExplorerText.transcript
         entry.content != null -> "Text"
@@ -150,8 +160,11 @@ internal fun folderMeta(folder: ExplorerEntry): String? {
 
 class ExplorerOffline(val file: java.io.File?, val keep: (coil3.Image) -> Unit)
 
+internal fun displayName(entry: ExplorerEntry): String =
+    if (entry.mediaType in setOf("VIDEO", "AUDIO", "IMAGE") && entry.name.contains('.')) entry.name.substringBeforeLast('.').ifBlank { entry.name } else entry.name
+
 @Composable
-internal fun ExplorerThumb(entry: ExplorerEntry, size: Dp = 44.dp) {
+internal fun ExplorerThumb(entry: ExplorerEntry, size: Dp = 48.dp) {
     val context = LocalContext.current
     val offline = if (entry.mediaType == "IMAGE") ExplorerPortal.rememberOffline(entry.mediaId) else null
     val thumb = entry.thumbnailPath
@@ -160,18 +173,11 @@ internal fun ExplorerThumb(entry: ExplorerEntry, size: Dp = 44.dp) {
         entry.mediaType == "IMAGE" && !entry.url.isNullOrBlank() -> entry.url
         else -> null
     }
-    val fallback: @Composable () -> Unit = {
-        Box(
-            Modifier.size(size).background(MaterialTheme.field.surface100, MaterialTheme.shapes.small),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(fileIcon(entry), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-        }
-    }
+    val fallback: @Composable () -> Unit = { ExplorerTypeTile(entry, size) }
     val stored: @Composable () -> Unit = {
         val file = offline?.file
         if (file != null) {
-            coil3.compose.AsyncImage(model = file, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size).clip(MaterialTheme.shapes.small))
+            coil3.compose.AsyncImage(model = file, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size).clip(ExplorerShapes.tile))
         } else {
             fallback()
         }
@@ -197,8 +203,28 @@ internal fun ExplorerThumb(entry: ExplorerEntry, size: Dp = 44.dp) {
         loading = { stored() },
         error = { stored() },
         onSuccess = { state -> offline?.keep?.invoke(state.result.image) },
-        modifier = Modifier.size(size).clip(MaterialTheme.shapes.small).testTag("explorer.thumb.${entry.mediaId ?: entry.path}"),
+        modifier = Modifier.size(size).clip(ExplorerShapes.tile).testTag("explorer.thumb.${entry.mediaId ?: entry.path}"),
     )
+}
+
+@Composable
+internal fun ExplorerCheck(checked: Boolean, onToggle: () -> Unit, tag: String, enabled: Boolean = true) {
+    val dark = MaterialTheme.field.isDark
+    Box(
+        Modifier.size(40.dp)
+            .toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = { onToggle() })
+            .testTag(tag),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier.size(24.dp)
+                .background(if (checked) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(7.dp))
+                .let { if (checked) it else it.border(2.dp, if (dark) MaterialTheme.field.placeholder else Color(0xFFA7A3BC), RoundedCornerShape(7.dp)) },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (checked) Text("✓", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -210,43 +236,39 @@ internal fun FolderRow(
     onOpen: () -> Unit,
     onLongPress: () -> Unit,
     onToggle: () -> Unit,
+    first: Boolean = true,
+    last: Boolean = true,
 ) {
-    Surface(
-        color = if (selecting && selected) explorerMark().first else MaterialTheme.colorScheme.surface,
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth().testTag("explorer.folder.${folder.path}"),
+    val container = if (selecting && selected) explorerSelectedRow() else MaterialTheme.colorScheme.surface
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .explorerCell(first, last, container)
+            .heightIn(min = 68.dp)
+            .combinedClickable(
+                role = Role.Button,
+                onClickLabel = if (selecting) ExplorerText.select else ExplorerText.open,
+                onLongClickLabel = ExplorerText.select,
+                onClick = { if (selecting) onToggle() else onOpen() },
+                onLongClick = onLongPress,
+            )
+            .semantics { if (selecting) stateDescription = if (selected) "Selected" else "Not selected" }
+            .padding(start = if (selecting) 6.dp else 14.dp, end = 14.dp, top = 10.dp, bottom = 10.dp)
+            .testTag("explorer.folder.${folder.path}"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 56.dp)
-                .combinedClickable(
-                    role = Role.Button,
-                    onClickLabel = if (selecting) ExplorerText.select else ExplorerText.open,
-                    onLongClickLabel = ExplorerText.select,
-                    onClick = { if (selecting) onToggle() else onOpen() },
-                    onLongClick = onLongPress,
-                )
-                .semantics { if (selecting) stateDescription = if (selected) "Selected" else "Not selected" }
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            if (selecting) Checkbox(checked = selected, onCheckedChange = { onToggle() }, modifier = Modifier.testTag("explorer.check.${folder.path}"))
-            Box(
-                Modifier.size(36.dp).background(MaterialTheme.field.brandTile, MaterialTheme.shapes.small),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(recordIcon(folder.recordType), contentDescription = null, tint = MaterialTheme.field.onBrandTile, modifier = Modifier.size(18.dp))
-            }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(folder.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                folderMeta(folder)?.let { line ->
-                    Text(line, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.folder.meta.${folder.path}"))
-                }
-            }
-            if (!selecting) Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        if (selecting) ExplorerCheck(selected, onToggle, "explorer.check.${folder.path}")
+        Box(Modifier.size(if (selecting) 44.dp else 48.dp).background(MaterialTheme.colorScheme.primaryContainer, ExplorerShapes.tile), contentAlignment = Alignment.Center) {
+            Icon(recordIcon(folder.recordType), contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(20.dp))
         }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(folder.name, style = MaterialTheme.typography.bodyMedium, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+            folderMeta(folder)?.let { line ->
+                Text(line, style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.folder.meta.${folder.path}"))
+            }
+        }
+        if (!selecting) Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -272,9 +294,14 @@ internal fun FileRow(
     extra: @Composable () -> Unit = {},
     savedJob: ExplorerJob? = null,
     onOpenSaved: () -> Unit = {},
+    first: Boolean = true,
+    last: Boolean = true,
+    cell: Boolean = true,
+    playing: String? = null,
 ) {
     val previewable = entry.mediaType in ExplorerPaths.PREVIEWABLE && (entry.mediaId != null || !entry.url.isNullOrBlank())
     val textual = entry.content != null || (entry.transcriptPath != null && entry.mediaType == null)
+    val hasTranscript = entry.transcriptAvailable && entry.mediaType != null
     val finished = savedJob?.takeIf { saveJob == null }
     val status = when {
         selecting && selected -> ExplorerStatus.NEUTRAL
@@ -282,106 +309,124 @@ internal fun FileRow(
         else -> jobStatus(finished)
     }
     val tone = explorerTone(status)
-    val (markBg, _) = explorerMark()
+    val markFg = explorerMark().second
     val large = LocalDensity.current.fontScale >= 1.5f
     val savable = entry.mediaId != null || entry.content != null
-    Surface(
-        color = when {
-            tone != null -> tone.container
-            selecting && selected -> markBg
-            else -> MaterialTheme.colorScheme.surface
-        },
-        contentColor = tone?.content ?: MaterialTheme.colorScheme.onSurface,
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth()
-            .let { if (tone != null) it.border(1.dp, tone.border, MaterialTheme.shapes.medium) else it }
-            .testTag("explorer.file.${entry.mediaId ?: entry.path}"),
+    val id = entry.mediaId ?: entry.path
+    val container = when {
+        tone != null -> tone.container
+        selecting && selected -> explorerSelectedRow()
+        playing != null -> explorerSelectedRow()
+        else -> MaterialTheme.colorScheme.surface
+    }
+    var menu by remember { mutableStateOf(false) }
+    val actions = !selecting && (textual || hasTranscript || previewable)
+    Column(
+        Modifier.fillMaxWidth()
+            .let { if (cell) it.explorerCell(first, last, container, tone?.border ?: MaterialTheme.field.hairline) else it.background(container) }
+            .testTag("explorer.file.$id"),
     ) {
-        Column(Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 64.dp)
-                    .combinedClickable(
-                        role = Role.Button,
-                        onClickLabel = if (selecting) ExplorerText.select else ExplorerText.open,
-                        onLongClickLabel = ExplorerText.select,
-                        onClick = { if (selecting) onToggle() else onOpen() },
-                        onLongClick = onLongPress,
-                    )
-                    .semantics { if (selecting) stateDescription = if (selected) "Selected" else "Not selected" }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                if (selecting) {
-                    Checkbox(
-                        checked = selected,
-                        onCheckedChange = { onToggle() },
-                        enabled = ExplorerState.selectable(entry),
-                        modifier = Modifier.testTag("explorer.check.${entry.mediaId ?: entry.path}"),
-                    )
-                }
-                ExplorerThumb(entry, size = 48.dp)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(entry.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = tone?.content ?: MaterialTheme.colorScheme.onSurface, maxLines = if (large) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
-                    Text(fileMeta(entry), style = MaterialTheme.typography.labelSmall, color = tone?.muted ?: MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (large && !selecting && savable) {
-                        SaveAction(entry, saveJob, finished, tone, online, onSave, onCancelSave, onOpenSaved, Modifier.fillMaxWidth().padding(top = 6.dp))
-                    }
-                }
-                if (!large && !selecting && savable) SaveAction(entry, saveJob, finished, tone, online, onSave, onCancelSave, onOpenSaved, Modifier)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 68.dp)
+                .combinedClickable(
+                    role = Role.Button,
+                    onClickLabel = if (selecting) ExplorerText.select else ExplorerText.open,
+                    onLongClickLabel = ExplorerText.select,
+                    onClick = { if (selecting) onToggle() else onOpen() },
+                    onLongClick = onLongPress,
+                )
+                .semantics { if (selecting) stateDescription = if (selected) "Selected" else "Not selected" }
+                .padding(start = if (selecting) 6.dp else 14.dp, end = if (actions && !large) 4.dp else 14.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (selecting) ExplorerCheck(selected, onToggle, "explorer.check.$id", enabled = ExplorerState.selectable(entry))
+            ExplorerThumb(entry, size = if (selecting) 44.dp else 48.dp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    displayName(entry),
+                    style = MaterialTheme.typography.bodyMedium,
+                    lineHeight = 19.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = tone?.content ?: if (playing != null) markFg else MaterialTheme.colorScheme.onSurface,
+                    maxLines = if (large) Int.MAX_VALUE else 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    playing ?: fileMeta(entry),
+                    style = MaterialTheme.typography.bodySmall,
+                    lineHeight = 16.sp,
+                    color = tone?.muted ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = if (playing != null) Modifier.testTag("explorer.playing.$id") else Modifier,
+                )
             }
-            if (!selecting) {
-                val actions = textual || (entry.transcriptAvailable && entry.mediaType != null) || previewable
-                if (actions) {
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        if (textual) TextButton(onClick = onText, modifier = Modifier.heightIn(min = 44.dp)) { Text(if (textOpen) ExplorerText.hide else ExplorerText.view) }
-                        if (entry.transcriptAvailable && entry.mediaType != null) {
-                            TextButton(onClick = onTranscript, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.transcript.${entry.mediaId ?: entry.path}")) {
-                                Text(if (transcriptOpen) ExplorerText.hide else ExplorerText.transcript)
-                            }
-                        }
-                        if (previewable) TextButton(onClick = onPreview, enabled = online, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.preview.${entry.mediaId ?: entry.path}")) { Text(ExplorerText.preview) }
-                    }
+            if (!large && !selecting && savable) SaveAction(entry, saveJob, finished, tone, online, onSave, onCancelSave, onOpenSaved, Modifier)
+            if (!large && actions) RowMenuButton(id, menu, { menu = it }, previewable, hasTranscript, textual, transcriptOpen, textOpen, online, onPreview, onTranscript, onText)
+        }
+        if (large && !selecting && (savable || actions)) {
+            Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (savable) SaveAction(entry, saveJob, finished, tone, online, onSave, onCancelSave, onOpenSaved, Modifier.weight(1f))
+                if (actions) RowMenuButton(id, menu, { menu = it }, previewable, hasTranscript, textual, transcriptOpen, textOpen, online, onPreview, onTranscript, onText)
+            }
+        }
+        if (!selecting) {
+            saveJob?.let { job ->
+                Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ExplorerBar(job.fraction, height = 4.dp)
+                    Text(
+                        listOfNotNull(jobPercent(job)?.let { ExplorerUiText.percent(it) }, jobLine(job)).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("explorer.save.progress.$id"),
+                    )
                 }
-                saveJob?.let { job ->
-                    val fraction = job.fraction
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (fraction != null) {
-                            FieldLinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().height(4.dp))
-                        } else {
-                            FieldLinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(4.dp))
-                        }
-                        Text(
-                            listOfNotNull(jobPercent(job)?.let { ExplorerUiText.percent(it) }, jobLine(job)).joinToString(" · "),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.testTag("explorer.save.progress.${entry.mediaId ?: entry.path}"),
-                        )
-                    }
+            }
+            if (textOpen && textual) {
+                val body = entry.content ?: (transcript as? TranscriptLoad.Loaded)?.text
+                when {
+                    body != null -> TextPanel { PlainTextBody(body) }
+                    transcript is TranscriptLoad.Loading -> LoadingLine(ExplorerText.preparing)
+                    else -> HintLine(ExplorerText.transcriptFailed)
                 }
+            }
+            if (transcriptOpen) {
                 extra()
-                if (textOpen && textual) {
-                    val body = entry.content ?: (transcript as? TranscriptLoad.Loaded)?.text
-                    when {
-                        body != null -> TextPanel { PlainTextBody(body) }
-                        transcript is TranscriptLoad.Loading -> LoadingLine(ExplorerText.preparing)
-                        else -> HintLine(ExplorerText.transcriptFailed)
-                    }
-                }
-                if (transcriptOpen) {
-                    when (transcript) {
-                        is TranscriptLoad.Loaded -> TextPanel { TranscriptBody(transcript.text) }
-                        TranscriptLoad.None -> HintLine(ExplorerText.transcriptNone)
-                        TranscriptLoad.Failed -> HintLine(ExplorerText.transcriptFailed)
-                        else -> LoadingLine(ExplorerText.preparing)
-                    }
+                when (transcript) {
+                    is TranscriptLoad.Loaded -> TextPanel { TranscriptBody(transcript.text) }
+                    TranscriptLoad.None -> HintLine(ExplorerText.transcriptNone)
+                    TranscriptLoad.Failed -> HintLine(ExplorerText.transcriptFailed)
+                    else -> LoadingLine(ExplorerText.preparing)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RowMenuButton(
+    id: String,
+    open: Boolean,
+    onOpenChange: (Boolean) -> Unit,
+    previewable: Boolean,
+    hasTranscript: Boolean,
+    textual: Boolean,
+    transcriptOpen: Boolean,
+    textOpen: Boolean,
+    online: Boolean,
+    onPreview: () -> Unit,
+    onTranscript: () -> Unit,
+    onText: () -> Unit,
+) {
+    Box {
+        IconButton(onClick = { onOpenChange(true) }, modifier = Modifier.size(40.dp).testTag("explorer.actions.$id")) {
+            Icon(Icons.Filled.MoreVert, contentDescription = ExplorerUiText.moreActions, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { onOpenChange(false) }) {
+            if (previewable) DropdownMenuItem(text = { Text(ExplorerText.preview) }, enabled = online, onClick = { onOpenChange(false); onPreview() }, modifier = Modifier.testTag("explorer.preview.$id"))
+            if (hasTranscript) DropdownMenuItem(text = { Text(if (transcriptOpen) ExplorerUiText.hideTranscript else ExplorerText.transcript) }, onClick = { onOpenChange(false); onTranscript() }, modifier = Modifier.testTag("explorer.transcript.$id"))
+            if (textual) DropdownMenuItem(text = { Text(if (textOpen) ExplorerText.hide else ExplorerText.view) }, onClick = { onOpenChange(false); onText() }, modifier = Modifier.testTag("explorer.text.$id"))
         }
     }
 }
@@ -399,24 +444,38 @@ private fun SaveAction(
     modifier: Modifier,
 ) {
     val id = entry.mediaId ?: entry.path
+    val shape = ExplorerShapes.tile
+    val pad = PaddingValues(horizontal = 12.dp)
     when {
-        saveJob != null -> OutlinedButton(onClick = onCancelSave, modifier = modifier.heightIn(min = 40.dp).testTag("explorer.save.cancel.$id")) {
+        saveJob != null -> OutlinedButton(onClick = onCancelSave, shape = shape, border = BorderStroke(1.dp, explorerControlLine()), contentPadding = pad, modifier = modifier.heightIn(min = 40.dp).testTag("explorer.save.cancel.$id")) {
             FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
             Spacer(Modifier.width(8.dp))
-            Text(ExplorerText.cancel)
+            Text(ExplorerText.cancel, style = MaterialTheme.typography.bodyMedium)
         }
         finished != null && finished.state == ExplorerJobState.DONE -> Button(
             onClick = onOpenSaved,
+            shape = shape,
+            contentPadding = pad,
             colors = ButtonDefaults.buttonColors(containerColor = tone?.accent ?: MaterialTheme.colorScheme.primary, contentColor = tone?.onAccent ?: MaterialTheme.colorScheme.onPrimary),
             modifier = modifier.heightIn(min = 40.dp).testTag("explorer.save.open.$id"),
-        ) { Text(ExplorerText.open) }
+        ) { Text(ExplorerText.open, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold) }
         finished != null && finished.state == ExplorerJobState.FAILED -> Button(
             onClick = onSave,
+            shape = shape,
             enabled = online || entry.mediaId == null,
+            contentPadding = pad,
             colors = ButtonDefaults.buttonColors(containerColor = tone?.accent ?: MaterialTheme.colorScheme.error, contentColor = tone?.onAccent ?: MaterialTheme.colorScheme.onError),
             modifier = modifier.heightIn(min = 40.dp).testTag("explorer.save.retry.$id"),
-        ) { Text(ExplorerText.retry) }
-        else -> OutlinedButton(onClick = onSave, enabled = online || entry.mediaId == null, modifier = modifier.heightIn(min = 40.dp).testTag("explorer.save.$id")) { Text(ExplorerText.save) }
+        ) { Text(ExplorerText.retry, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold) }
+        else -> OutlinedButton(
+            onClick = onSave,
+            shape = shape,
+            enabled = online || entry.mediaId == null,
+            border = BorderStroke(1.dp, explorerControlLine()),
+            colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onSurface),
+            contentPadding = pad,
+            modifier = modifier.heightIn(min = 40.dp).testTag("explorer.save.$id"),
+        ) { Text(ExplorerText.save, style = MaterialTheme.typography.bodyMedium) }
     }
 }
 
@@ -525,19 +584,17 @@ private const val INFO_VALUE_COLLAPSED_LINES = 8
 internal fun RecordInfoTable(info: ExplorerInfo) {
     val fields = info.fields.filter { it.value.isNotBlank() }
     if (fields.isEmpty()) return
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val labelWidth = (maxWidth * 0.34f).coerceIn(88.dp, 132.dp)
-        SelectionContainer {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(MaterialTheme.shapes.small)
-                    .border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.small),
-            ) {
-                fields.forEachIndexed { index, field ->
-                    if (index > 0) HorizontalDivider(color = MaterialTheme.field.hairline)
-                    InfoRow(field.label, field.value, labelWidth)
-                }
+    val labelWidth = 120.dp
+    SelectionContainer {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(ExplorerShapes.control)
+                .border(1.dp, MaterialTheme.field.hairline, ExplorerShapes.control),
+        ) {
+            fields.forEachIndexed { index, field ->
+                if (index > 0) HorizontalDivider(color = MaterialTheme.field.hairline)
+                InfoRow(field.label, field.value, labelWidth)
             }
         }
     }

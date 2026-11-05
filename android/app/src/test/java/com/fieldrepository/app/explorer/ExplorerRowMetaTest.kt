@@ -14,7 +14,7 @@ class ExplorerRowMetaTest {
     @QFeature("X2")
     @Test fun `a folder shows its stored files and size before it is opened`() {
         val folder = ExplorerEntry(name = "Bagru", path = "w/b", kind = "folder", recordType = "workshop", count = 212, bytes = 3_800_000_000)
-        assertEquals("Workshop · 212 files · 3.5 GB", folderMeta(folder))
+        assertEquals("Workshop · 212 files · 3.54 GB", folderMeta(folder))
     }
 
     @QFeature("X2")

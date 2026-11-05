@@ -22,6 +22,8 @@ EXTRA = (
     "frontend/e2e/support/designFidelityFake.ts",
     "frontend/e2e/fidelity-boards.spec.ts",
     "frontend/e2e/fidelity-build.spec.ts",
+    "frontend/e2e/fidelity-build-web.spec.ts",
+    "frontend/e2e/support/designFidelityWebFake.ts",
     "frontend/e2e/fidelity-pairs.spec.ts",
     "frontend/e2e/report-share-unit.spec.ts",
     "frontend/e2e/data-go-links-unit.spec.ts",

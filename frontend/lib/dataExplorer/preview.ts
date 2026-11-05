@@ -354,7 +354,7 @@ export function speakersLine(count: number): string | null {
 
 export type PaletteHit = { id: string; title: string; subtitle?: string; type: string; path?: string | null };
 
-export type PaletteAction = { key: string; label: string; run: (hit: PaletteHit) => void };
+export type PaletteAction = { key: string; label: string; icon?: string; run: (hit: PaletteHit) => void };
 
 export type ShortcutName =
   | "search"

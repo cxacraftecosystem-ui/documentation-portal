@@ -81,6 +81,19 @@ object ExplorerUiText {
     const val noFolderPicker = "This phone has no folder picker. Files go to Downloads."
     const val allFiles = "All files"
     const val noFilesYet = "No files finished yet."
+    const val moreActions = "More actions"
+    const val hideTranscript = "Hide transcript"
+    const val downloading = "Downloading"
+    const val sortedLeast = "Least complete first"
+    const val overviewNote = "Tap a square to jump to that section."
+    const val overviewArtisans = "Artisans · what's been captured"
+    const val complete = "Complete"
+    const val partial = "Partial"
+    const val missing = "Missing"
+
+    fun fileOf(done: Int, total: Int) = "File ${String.format(java.util.Locale.ROOT, "%,d", done)} of ${String.format(java.util.Locale.ROOT, "%,d", total)}"
+
+    fun playing(at: String, total: String?) = "Playing · $at" + (total?.let { " of $it" } ?: "")
 
     fun allN(n: Int) = "All ${String.format(java.util.Locale.ROOT, "%,d", n)}"
 

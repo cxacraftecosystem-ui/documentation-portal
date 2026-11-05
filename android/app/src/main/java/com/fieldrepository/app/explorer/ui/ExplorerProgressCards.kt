@@ -13,6 +13,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -77,91 +82,106 @@ internal fun ProgressCard(
     onPause: () -> Unit,
     onResume: () -> Unit,
     onCancel: () -> Unit,
+    large: Boolean = false,
 ) {
     val percent = jobPercent(job)
     val paused = job.state == ExplorerJobState.PAUSED
+    val border = if (MaterialTheme.field.isDark) com.fieldrepository.app.ui.FieldPalette.Purple800 else com.fieldrepository.app.ui.FieldPalette.Purple300
     Column(
         Modifier.fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.large)
-            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), MaterialTheme.shapes.large)
+            .shadow(if (MaterialTheme.field.isDark) 0.dp else 6.dp, ExplorerShapes.card, ambientColor = MaterialTheme.field.shadow.copy(alpha = 0.10f), spotColor = MaterialTheme.field.shadow.copy(alpha = 0.10f))
+            .explorerCard(line = border)
             .padding(16.dp)
             .semantics { liveRegion = LiveRegionMode.Polite }
             .testTag("explorer.progress"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    if (paused) "${job.request.title} · ${ExplorerText.paused}" else ExplorerUiText.downloading(job.request.title),
-                    style = MaterialTheme.typography.titleMedium,
+                    if (paused) "${job.request.title} · ${ExplorerText.paused}" else if (large) ExplorerUiText.downloading else ExplorerUiText.downloading(job.request.title),
+                    style = MaterialTheme.typography.bodyLarge,
+                    lineHeight = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 val summary = jobSummary(job)
-                if (summary.isNotBlank()) Text(summary, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (summary.isNotBlank() && !large) Text(summary, style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            percent?.let { Text(ExplorerUiText.percent(it), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("explorer.progress.percent")) }
+            percent?.let { Text(ExplorerUiText.percent(it), style = MaterialTheme.typography.headlineSmall, lineHeight = 26.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("explorer.progress.percent")) }
         }
-        val fraction = job.fraction
-        if (fraction != null) {
-            FieldLinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().height(10.dp))
-        } else {
-            FieldLinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(10.dp))
-        }
+        ExplorerBar(job.fraction, height = 10.dp)
         busyOrWaiting(job)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (job.resumedFrom > 0 && job.active) Text(ExplorerUiText.pickingUp(job.resumedFrom + 1), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.progress.resumed"))
-        Row(Modifier.fillMaxWidth()) {
-            Fact(ExplorerUiText.downloaded, if (job.totalBytes > 0) ExplorerBytes.progress(job.doneBytes, job.totalBytes) else "—", Modifier.weight(1f))
-            Fact(ExplorerUiText.filesLabel, if (job.totalFiles > 0) ExplorerText.filesOf(job.doneFiles, job.totalFiles) else "—", Modifier.weight(1f))
-        }
-        Row(Modifier.fillMaxWidth()) {
-            val speed = job.speedBps?.takeIf { it > 0 && !paused }?.let { ExplorerText.speed(it) }
-            Fact(ExplorerUiText.speed, listOfNotNull(speed ?: "—", network?.takeIf { speed != null }).joinToString(" · "), Modifier.weight(1f))
-            Fact(ExplorerUiText.timeLeft, job.secondsLeft()?.takeIf { !paused }?.let { ExplorerText.aboutLeft(it) } ?: "—", Modifier.weight(1f))
+        val bytes = if (job.totalBytes > 0) ExplorerBytes.progress(job.doneBytes, job.totalBytes) else "—"
+        val files = if (job.totalFiles > 0) ExplorerText.filesOf(job.doneFiles, job.totalFiles) else "—"
+        val speed = job.speedBps?.takeIf { it > 0 && !paused }?.let { ExplorerText.speed(it) }
+        val speedLine = listOfNotNull(speed ?: "—", network?.takeIf { speed != null }).joinToString(" · ")
+        val left = job.secondsLeft()?.takeIf { !paused }?.let { ExplorerText.aboutLeft(it) }
+        if (large) {
+            Text(bytes, style = MaterialTheme.typography.bodyMedium, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text(listOfNotNull(job.totalFiles.takeIf { it > 0 }?.let { ExplorerUiText.fileOf(job.doneFiles, it) }, job.secondsLeft()?.takeIf { !paused }?.let { ExplorerText.timeLeft(it) }).joinToString(" · ").ifBlank { "—" }, style = MaterialTheme.typography.bodyMedium, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+            if (speed != null) Text(speedLine, style = MaterialTheme.typography.bodyMedium, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Fact(ExplorerUiText.downloaded, bytes, Modifier.weight(1f))
+                    Fact(ExplorerUiText.filesLabel, files, Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Fact(ExplorerUiText.speed, speedLine, Modifier.weight(1f))
+                    Fact(ExplorerUiText.timeLeft, left ?: "—", Modifier.weight(1f))
+                }
+            }
         }
         val current = job.current?.takeIf { it != ExplorerText.resuming && it != ExplorerText.waitingForNetwork }
         if (current != null && !paused) {
             Column(
                 Modifier.fillMaxWidth()
-                    .background(MaterialTheme.field.surface50, MaterialTheme.shapes.medium)
-                    .border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.medium)
+                    .background(MaterialTheme.field.surface50, ExplorerShapes.control)
+                    .border(1.dp, MaterialTheme.field.hairline, ExplorerShapes.control)
                     .padding(horizontal = 12.dp, vertical = 10.dp)
                     .testTag("explorer.progress.now"),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text(ExplorerUiText.now, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(current.substringAfterLast('/'), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val own = job.currentFraction
-                if (own != null) {
-                    FieldLinearProgressIndicator(progress = { own }, modifier = Modifier.fillMaxWidth().height(6.dp))
-                } else {
-                    FieldLinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(6.dp))
-                }
-                if (job.currentTotal > 0) Text(ExplorerBytes.progress(job.currentBytes, job.currentTotal), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(ExplorerUiText.now, style = MaterialTheme.typography.labelSmall, lineHeight = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(current.substringAfterLast('/'), style = MaterialTheme.typography.bodyMedium, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = if (large) Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis)
+                ExplorerBar(job.currentFraction, height = 6.dp, fill = if (MaterialTheme.field.isDark) MaterialTheme.colorScheme.primary else com.fieldrepository.app.ui.FieldPalette.Purple600)
+                if (job.currentTotal > 0) Text(ExplorerBytes.progress(job.currentBytes, job.currentTotal), style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         val warn = explorerWarnTone()
         Text(
             listOfNotNull(job.retrying.takeIf { it > 0 }?.let { ExplorerText.retryNote(it) }, ExplorerText.keepsGoing).joinToString(" "),
             style = MaterialTheme.typography.bodySmall,
+            lineHeight = 16.sp,
             color = if (job.retrying > 0) warn.muted else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.fillMaxWidth()
-                .let { if (job.retrying > 0) it.background(warn.container, MaterialTheme.shapes.medium).padding(horizontal = 10.dp, vertical = 8.dp) else it }
+                .let { if (job.retrying > 0) it.background(warn.container, ExplorerShapes.tile).padding(horizontal = 10.dp, vertical = 8.dp) else it }
                 .testTag("explorer.progress.note"),
         )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (job.pausable || paused) {
-                OutlinedButton(onClick = if (paused) onResume else onPause, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("explorer.progress.pause")) {
-                    Text(if (paused) ExplorerText.resume else ExplorerText.pause)
-                }
-            }
-            val failed = explorerTone(ExplorerStatus.FAILED)!!
-            OutlinedButton(
+        val failed = explorerTone(ExplorerStatus.FAILED)!!
+        val pause: @Composable (Modifier) -> Unit = { m ->
+            ExplorerSecondaryButton(if (paused) ExplorerText.resume else ExplorerText.pause, onClick = if (paused) onResume else onPause, modifier = m.testTag("explorer.progress.pause"))
+        }
+        val cancel: @Composable (Modifier) -> Unit = { m ->
+            ExplorerSecondaryButton(
+                ExplorerText.cancel,
                 onClick = onCancel,
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = failed.accent),
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("explorer.progress.cancel"),
-            ) { Text(ExplorerText.cancel) }
+                line = if (MaterialTheme.field.isDark) failed.border else com.fieldrepository.app.ui.FieldPalette.Error200,
+                content = failed.accent,
+                modifier = m.testTag("explorer.progress.cancel"),
+            )
+        }
+        val canPause = job.pausable || paused
+        if (large) {
+            if (canPause) pause(Modifier.fillMaxWidth())
+            cancel(Modifier.fillMaxWidth())
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (canPause) pause(Modifier.weight(1f))
+                cancel(Modifier.weight(1f))
+            }
         }
     }
 }
@@ -175,9 +195,9 @@ private fun busyOrWaiting(job: ExplorerJob): String? = when {
 
 @Composable
 private fun Fact(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier.padding(vertical = 2.dp)) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+    Column(modifier) {
+        Text(label, style = MaterialTheme.typography.labelSmall, lineHeight = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyMedium, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -185,37 +205,45 @@ private fun Fact(label: String, value: String, modifier: Modifier = Modifier) {
 internal fun RecentFilesCard(job: ExplorerJob, onAll: (() -> Unit)? = null) {
     val recent = job.recent
     if (recent.isEmpty()) return
+    val shown = recent.reversed()
     Column(
         Modifier.fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.large)
-            .border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.large)
+            .clip(ExplorerShapes.card)
+            .explorerCard()
             .testTag("explorer.recent"),
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(ExplorerUiText.recentFiles, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        val line = MaterialTheme.field.hairline
+        Row(
+            Modifier.fillMaxWidth()
+                .drawBehind { drawLine(line, Offset(0f, size.height - 0.5f), Offset(size.width, size.height - 0.5f), 1.dp.toPx()) }
+                .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 6.dp)
+                .heightIn(min = 36.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(ExplorerUiText.recentFiles, style = MaterialTheme.typography.bodyLarge, lineHeight = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
             if (onAll != null && job.totalFiles > 0) {
-                androidx.compose.material3.TextButton(onClick = onAll, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.recent.all")) {
-                    Text(ExplorerUiText.allN(job.totalFiles))
-                }
+                ExplorerLinkButton(ExplorerUiText.allN(job.totalFiles), onClick = onAll, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.recent.all"))
             } else if (job.totalFiles > 0) {
-                Text(ExplorerText.filesOf(job.doneFiles, job.totalFiles), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(ExplorerText.filesOf(job.doneFiles, job.totalFiles), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        recent.reversed().forEach { RecentRow(it, job.active) }
+        shown.forEachIndexed { index, file -> RecentRow(file, job.active, last = index == shown.lastIndex) }
     }
 }
 
 @Composable
-internal fun RecentRow(file: ExplorerRecent, active: Boolean) {
+internal fun RecentRow(file: ExplorerRecent, active: Boolean, last: Boolean = false) {
     val status = when (file.status) {
         ExplorerRecentStatus.SAVED -> ExplorerStatus.SAVED
         ExplorerRecentStatus.FAILED, ExplorerRecentStatus.RETRYING -> ExplorerStatus.FAILED
         ExplorerRecentStatus.RUNNING -> ExplorerStatus.NEUTRAL
     }
     val tone = explorerTone(status)
+    val divider = tone?.border?.copy(alpha = 0.6f) ?: MaterialTheme.field.hairline
     Row(
         Modifier.fillMaxWidth()
             .background(tone?.container ?: Color.Transparent)
+            .drawBehind { if (!last) drawLine(divider, Offset(0f, size.height - 0.5f), Offset(size.width, size.height - 0.5f), 1.dp.toPx()) }
             .padding(horizontal = 14.dp, vertical = 10.dp)
             .testTag("explorer.recent.${file.status.name.lowercase()}"),
         verticalAlignment = Alignment.CenterVertically,
@@ -226,66 +254,62 @@ internal fun RecentRow(file: ExplorerRecent, active: Boolean) {
             ExplorerRecentStatus.FAILED, ExplorerRecentStatus.RETRYING -> "!"
             ExplorerRecentStatus.RUNNING -> "↓"
         }
+        val (markBg, markFg) = explorerMark()
         Box(
-            Modifier.size(22.dp).background(if (tone != null) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.extraLarge),
+            Modifier.size(22.dp).background(if (tone != null) MaterialTheme.colorScheme.surface else markBg, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Text(mark, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, color = tone?.accent ?: MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(mark, style = MaterialTheme.typography.bodySmall, lineHeight = 14.sp, textAlign = TextAlign.Center, color = tone?.accent ?: markFg)
         }
-        Text(file.name.substringAfterLast('/'), style = MaterialTheme.typography.bodySmall, color = tone?.content ?: MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Text(file.name.substringAfterLast('/'), style = MaterialTheme.typography.bodyMedium, lineHeight = 18.sp, color = tone?.content ?: MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         val end = when (file.status) {
             ExplorerRecentStatus.SAVED -> ExplorerBytes.format(file.sizeBytes)
             ExplorerRecentStatus.RETRYING -> if (active) ExplorerUiText.retrying else ExplorerUiText.failed
             ExplorerRecentStatus.FAILED -> ExplorerUiText.failed
             ExplorerRecentStatus.RUNNING -> file.fraction?.let { ExplorerUiText.percent((it * 100).toInt()) }
         }
-        end?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = tone?.muted ?: MaterialTheme.colorScheme.onSurfaceVariant) }
+        end?.let { Text(it, style = MaterialTheme.typography.bodyMedium, lineHeight = 18.sp, color = when (status) { ExplorerStatus.FAILED -> tone!!.accent; ExplorerStatus.SAVED -> tone!!.muted; else -> MaterialTheme.colorScheme.onSurfaceVariant }) }
     }
 }
 
 @Composable
-internal fun ResultCard(job: ExplorerJob, onOpen: () -> Unit, onShare: () -> Unit, onRetry: () -> Unit, onDismiss: () -> Unit) {
+internal fun ResultCard(job: ExplorerJob, onOpen: () -> Unit, onRetry: () -> Unit) {
     val status = jobStatus(job)
     val tone = explorerTone(status) ?: return
+    val saved = status == ExplorerStatus.SAVED
+    val canOpen = job.result?.uri != null || job.result?.location != null
     Column(
         Modifier.fillMaxWidth()
-            .background(tone.container, MaterialTheme.shapes.large)
-            .border(1.dp, tone.border, MaterialTheme.shapes.large)
+            .explorerCard(tone.container, tone.border)
             .padding(14.dp)
             .semantics { liveRegion = LiveRegionMode.Polite }
             .testTag("explorer.result"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (status == ExplorerStatus.SAVED) {
-            val saved = job.result?.saved ?: 0
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            val count = job.result?.saved ?: 0
             Text(
-                if (saved > 1) "✓ ${ExplorerText.savedFiles(saved)}" else "✓ ${ExplorerText.savedShort} ${job.request.title}",
-                style = MaterialTheme.typography.titleMedium,
+                if (saved) (if (count > 1 && job.request.kind != ExplorerJobKind.FOLDER) "✓ ${ExplorerText.savedFiles(count)}" else "✓ ${ExplorerText.savedShort} ${job.request.title}") else job.request.title,
+                style = MaterialTheme.typography.bodyMedium,
+                lineHeight = 19.sp,
                 fontWeight = FontWeight.Bold,
                 color = tone.content,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
-            Text(jobSavedLine(job), style = MaterialTheme.typography.bodySmall, color = tone.muted)
-            val failed = job.result?.failedCount ?: 0
-            if (failed > 0) Text(ExplorerText.failedFiles(failed), style = MaterialTheme.typography.bodySmall, color = tone.muted)
-            if (job.result?.uri != null || job.result?.location != null) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onShare, colors = ButtonDefaults.outlinedButtonColors(contentColor = tone.content), modifier = Modifier.weight(1f).heightIn(min = 44.dp)) { Text(ExplorerUiText.share) }
-                    Button(onClick = onOpen, colors = ButtonDefaults.buttonColors(containerColor = tone.accent, contentColor = tone.onAccent), modifier = Modifier.weight(1f).heightIn(min = 44.dp).testTag("explorer.result.open")) { Text(ExplorerUiText.open) }
-                }
-            } else {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 44.dp)) { Text(ExplorerUiText.dismiss) }
+            if (saved && canOpen) {
+                ExplorerLinkButton(ExplorerUiText.open, onClick = onOpen, color = tone.accent, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.heightIn(min = 40.dp).testTag("explorer.result.open"))
+            } else if (!saved) {
+                ExplorerLinkButton(ExplorerUiText.retry, onClick = onRetry, color = tone.accent, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.heightIn(min = 40.dp).testTag("explorer.result.retry"))
             }
+        }
+        val detail = if (saved) {
+            listOfNotNull(jobSavedLine(job), job.result?.failedCount?.takeIf { it > 0 }?.let { ExplorerText.failedFiles(it) }).joinToString(" · ")
         } else {
-            Text(job.request.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = tone.content, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${ExplorerUiText.failed} · ${job.error ?: ExplorerText.fileFailed}", style = MaterialTheme.typography.bodySmall, color = tone.muted)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onDismiss, colors = ButtonDefaults.outlinedButtonColors(contentColor = tone.content), modifier = Modifier.weight(1f).heightIn(min = 44.dp)) { Text(ExplorerUiText.dismiss) }
-                Button(onClick = onRetry, colors = ButtonDefaults.buttonColors(containerColor = tone.accent, contentColor = tone.onAccent), modifier = Modifier.weight(1f).heightIn(min = 44.dp).testTag("explorer.result.retry")) { Text(ExplorerUiText.retry) }
-            }
+            "${ExplorerUiText.failed} · ${job.error ?: ExplorerText.fileFailed}"
         }
-        if (status == ExplorerStatus.SAVED) {
-            job.result?.location?.let { Text(ExplorerText.savedTo(it), style = MaterialTheme.typography.labelSmall, color = tone.muted) }
-        }
+        Text(detail, style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = tone.muted)
     }
 }
 
@@ -300,7 +324,7 @@ internal fun AllFilesSheet(job: ExplorerJob, onDismiss: () -> Unit) {
         }
     }
     val sheet = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, shape = ExplorerShapes.sheet, containerColor = MaterialTheme.colorScheme.surface, dragHandle = { ExplorerSheetHandle() }) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("explorer.allfiles")) {
             Text(ExplorerUiText.allFiles, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
             Text(job.request.title, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -311,7 +335,7 @@ internal fun AllFilesSheet(job: ExplorerJob, onDismiss: () -> Unit) {
                 else -> {
                     val shown = list.asReversed()
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().heightIn(max = 600.dp)) {
-                        items(shown.size) { i -> RecentRow(shown[i], job.active) }
+                        items(shown.size) { i -> RecentRow(shown[i], job.active, last = i == shown.lastIndex) }
                     }
                 }
             }

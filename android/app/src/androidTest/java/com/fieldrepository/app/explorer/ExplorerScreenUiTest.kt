@@ -212,6 +212,14 @@ class ExplorerScreenUiTest {
         compose.onNodeWithTag("explorer.tree").performScrollToNode(hasTestTag(tag))
     }
 
+    private fun fromMenu(id: String, item: String) {
+        scrollTo("explorer.actions.$id")
+        compose.onNodeWithTag("explorer.actions.$id").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("$item.$id").performClick()
+        compose.waitForIdle()
+    }
+
     @QFeature("X1")
     @Test fun theFolderShowsItsRecordAtAGlanceWithOneDownloadCard() {
         val fake = Fake()
@@ -240,15 +248,15 @@ class ExplorerScreenUiTest {
         show(fake)
         compose.waitUntil(5_000) { fake.calls.contains("stats:w") }
         compose.waitForIdle()
-        compose.onAllNodesWithText("926 files · 6.7 GB").onFirst().assertExists()
+        compose.onAllNodesWithText("926 files · 6.66 GB").onFirst().assertExists()
         scrollTo("explorer.include")
         compose.onNodeWithText("✓ Videos 3.4 GB").assertExists()
-        compose.onNodeWithText("✓ Images 3.3 GB").assertExists()
-        compose.onNodeWithText("6.7 GB selected").assertExists()
+        compose.onNodeWithText("✓ Images 3.26 GB").assertExists()
+        compose.onNodeWithText("6.66 GB selected").assertExists()
         compose.onNodeWithTag("explorer.include.videos").performClick()
         compose.waitForIdle()
         compose.onNodeWithText("Videos 3.4 GB").assertExists()
-        compose.onNodeWithText("3.3 GB selected").assertExists()
+        compose.onNodeWithText("3.26 GB selected").assertExists()
     }
 
     @QFeature("X3")
@@ -281,7 +289,7 @@ class ExplorerScreenUiTest {
         scrollTo("explorer.kind.videos")
         compose.onNodeWithTag("explorer.kind.videos").performClick()
         compose.waitForIdle()
-        compose.onAllNodesWithText("Block.jpg").assertCountEquals(0)
+        compose.onAllNodesWithText("Block").assertCountEquals(0)
     }
 
     @QFeature("X4")
@@ -291,16 +299,14 @@ class ExplorerScreenUiTest {
         scrollTo("explorer.file.p1")
         compose.onNodeWithTag("explorer.thumb.p1", useUnmergedTree = true).assertExists()
         compose.onAllNodesWithContentDescription("Block.jpg", useUnmergedTree = true).assertCountEquals(0)
-        compose.onAllNodesWithText("Block.jpg", useUnmergedTree = true).assertCountEquals(1)
+        compose.onAllNodesWithText("Block", useUnmergedTree = true).assertCountEquals(1)
     }
 
     @QFeature("X5")
     @Test fun aVideoPreviewOpensWithTranscriptEnglishAndDetailsTabs() {
         val fake = Fake()
         show(fake)
-        scrollTo("explorer.preview.v1")
-        compose.onNodeWithTag("explorer.preview.v1").performClick()
-        compose.waitForIdle()
+        fromMenu("v1", "explorer.preview")
         compose.onNodeWithTag("explorer.preview.media").assertExists()
         compose.onNodeWithTag("explorer.preview.tab.details").performClick()
         compose.waitForIdle()
@@ -312,6 +318,7 @@ class ExplorerScreenUiTest {
     @Test fun aTranscribedRecordingOffersAllFormatsInOneZip() {
         val fake = Fake()
         show(fake)
+        fromMenu("a1", "explorer.transcript")
         scrollTo("explorer.allformats.a1")
         compose.onNodeWithTag("explorer.allformats.a1").assertExists()
     }
@@ -321,14 +328,12 @@ class ExplorerScreenUiTest {
         val fake = Fake()
         show(fake)
         assertEquals(0, fake.transcriptCalls.get())
-        scrollTo("explorer.transcript.a1")
-        compose.onNodeWithTag("explorer.transcript.a1").performClick()
+        fromMenu("a1", "explorer.transcript")
         compose.waitUntil(5_000) { fake.transcriptCalls.get() == 1 }
         compose.waitForIdle()
         compose.onNodeWithText("Clay and gum.", substring = true).assertExists()
-        compose.onNodeWithTag("explorer.transcript.a1").performClick()
-        compose.onNodeWithTag("explorer.transcript.a1").performClick()
-        compose.waitForIdle()
+        fromMenu("a1", "explorer.transcript")
+        fromMenu("a1", "explorer.transcript")
         assertEquals(1, fake.transcriptCalls.get())
     }
 
@@ -336,6 +341,7 @@ class ExplorerScreenUiTest {
     @Test fun aLongFolderPagesWithLoadMore() {
         val fake = Fake()
         show(fake)
+        scrollTo("explorer.shown")
         compose.onNodeWithText("Showing 4 of 5", substring = true).assertExists()
         scrollTo("explorer.more")
         compose.onNodeWithTag("explorer.more").performClick()
@@ -375,7 +381,10 @@ class ExplorerScreenUiTest {
         compose.onNodeWithTag("explorer.tables.toggle").performClick()
         compose.waitUntil(5_000) { fake.reportQueries.isNotEmpty() }
         compose.waitForIdle()
-        scrollTo("explorer.toolbar")
+        compose.onNodeWithTag("explorer.tables.screen").assertExists()
+        scrollTo("explorer.tables.row.Artisans.1")
+        compose.waitForIdle()
+        scrollTo("explorer.tables.sheet")
         compose.waitForIdle()
         scrollTo("explorer.tables")
         compose.onNodeWithTag("explorer.tables").assertExists()

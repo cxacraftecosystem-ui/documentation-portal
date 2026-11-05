@@ -94,6 +94,16 @@ async function expandTo(page: Page, names: string[]) {
   }
 }
 
+async function saveToFolder(page: Page) {
+  await page.getByTestId("download-folder").getByRole("button", { name: "More ways to download" }).click();
+  await page.getByRole("menuitem", { name: "Save to a folder" }).click();
+}
+
+async function organiseBy(page: Page, name: string) {
+  await showTree(page);
+  await page.getByRole("group", { name: "Organise by" }).getByRole("button", { name, exact: true }).click();
+}
+
 function fileRow(page: Page, name: string): Locator {
   return page.locator("[data-file-row]").filter({ hasText: name });
 }
@@ -116,7 +126,7 @@ function trayItem(page: Page, label: string | RegExp): Locator {
 }
 
 function folderDownload(page: Page): Locator {
-  return page.getByTestId("download-folder").getByRole("button", { name: /^Download( folder|$)/ });
+  return page.getByTestId("download-folder").getByRole("button", { name: /^Download( folder| workshop|$)/ });
 }
 
 async function noSidewaysScroll(page: Page) {
@@ -135,14 +145,15 @@ test.describe("@qf:X1 layout", () => {
           await expect(page.locator("[data-explorer-search]")).toBeVisible();
           await expect(page.getByRole("tablist", { name: "Contents" })).toBeVisible();
           await expect(page.getByRole("tab", { name: /Files/ })).toHaveAttribute("aria-selected", "true");
-          await expect(page.getByRole("region", { name: "Record details" })).toContainText("Hand block printing");
+          if (size.name === "phone") await expect(folder).toContainText("Bagru 2026");
+          else await expect(page.locator("[aria-label='Record details']:visible")).toContainText("Hand block printing");
           const search = await page.locator("[data-explorer-search]").boundingBox();
           const card = await folder.boundingBox();
           expect(search!.y).toBeLessThan(card!.y);
           if (size.name === "desktop") {
             const tree = await page.getByTestId("explorer-tree-panel").boundingBox();
             expect(tree!.x).toBeLessThan(card!.x);
-            await expect(folderDownload(page)).toHaveAccessibleName(/^Download folder · \d/);
+            await expect(folderDownload(page)).toHaveAccessibleName(/^Download (folder|workshop) · \d/);
           } else {
             await expect(page.getByTestId("explorer-tree-panel")).toBeHidden();
             await showTree(page);
@@ -172,7 +183,13 @@ test.describe("@qf:X1 one place for folder actions, worded as on Android", () =>
         const folder = page.getByTestId("download-folder");
         await expect(folder.getByRole("button", { name: "Report (.xlsx)" })).toBeVisible();
         await expect(folderDownload(page)).toBeVisible();
-        await expect(folder.getByRole("button", { name: "Whole dataset" })).toHaveCount(0);
+        const more = folder.getByRole("button", { name: "More ways to download" });
+        if (await more.isVisible()) {
+          await more.click();
+          await expect(page.getByRole("menu", { name: "More ways to download" })).toBeVisible();
+          await expect(page.getByRole("menuitem", { name: "Whole dataset" })).toHaveCount(0);
+          await page.keyboard.press("Escape");
+        }
         await expect(page.getByRole("link", { name: /\.xlsx/ })).toHaveCount(0);
         if (size.mobile) {
           const chips = page.locator("[data-transcript-files] a");
@@ -196,7 +213,8 @@ test.describe("@qf:X1 one place for folder actions, worded as on Android", () =>
   test("the whole dataset is offered only near the root", async ({ browser }) => {
     const { context, page } = await openExplorer(browser, { path: "workshops" });
     try {
-      await expect(page.getByTestId("download-folder").getByRole("button", { name: "Whole dataset" })).toBeVisible();
+      await page.getByTestId("download-folder").getByRole("button", { name: "More ways to download" }).click();
+      await expect(page.getByRole("menuitem", { name: "Whole dataset" })).toBeVisible();
     } finally {
       await context.close();
     }
@@ -208,7 +226,7 @@ test.describe("@qf:X1 the tree", () => {
     const { context, page } = await openExplorer(browser);
     try {
       await expect(page).toHaveURL(/path=workshops/);
-      const root = page.getByRole("treeitem", { name: "By workshop", exact: true });
+      const root = page.getByRole("treeitem", { name: "All workshops", exact: true });
       await expect(root).toHaveAttribute("aria-expanded", "true");
       await root.focus();
       await page.keyboard.press("ArrowLeft");
@@ -274,7 +292,7 @@ test.describe("@qf:X1 errors and empty folders in place", () => {
     const { context, page, fake } = await openExplorer(browser);
     try {
       fake.treeFailures.set("crafts", 1);
-      await page.getByRole("treeitem", { name: "By craft", exact: true }).click();
+      await organiseBy(page, "Craft");
       const problem = page.getByRole("alert").filter({ hasText: "This folder didn't load" });
       await expect(problem).toBeVisible();
       await expect(problem).toContainText(/Trying again in \d+ s/);
@@ -291,7 +309,7 @@ test.describe("@qf:X1 errors and empty folders in place", () => {
     const { context, page, fake } = await openExplorer(browser);
     try {
       fake.treeFailures.set("crafts", 1);
-      await page.getByRole("treeitem", { name: "By craft", exact: true }).click();
+      await organiseBy(page, "Craft");
       await expect(page.getByRole("alert").filter({ hasText: "This folder didn't load" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Nothing recorded here yet" })).toBeVisible({ timeout: 15_000 });
     } finally {
@@ -490,6 +508,7 @@ test.describe("@qf:X12 transcripts on demand", () => {
   test("@qf:X7 every transcript format comes as one zip, per file and per folder, through the tray", async ({ browser }) => {
     const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
     try {
+      await fileRow(page, "interview.m4a").getByRole("button", { name: "Transcript", exact: true }).click();
       await fileRow(page, "interview.m4a").getByRole("button", { name: "All formats (.zip), interview.m4a" }).click();
       await expect(trayItem(page, "Transcript · interview.m4a")).toHaveAttribute("data-status", "saved");
       expect(fake.calls.some((call) => call.path === "/transcripts/aud1/download" && call.query.get("format") === "zip")).toBe(true);
@@ -509,8 +528,8 @@ test.describe("@qf:X12 the Transcripts tab", () => {
     try {
       await page.getByRole("tab", { name: /Transcripts/ }).click();
       const tab = page.getByTestId("transcripts-tab");
-      const ready = tab.locator("[data-transcript-row]").filter({ hasText: "interview.m4a" });
-      const failed = tab.locator("[data-transcript-row]").filter({ hasText: "loom.mp4" });
+      const ready = tab.locator("[data-transcript-row]").filter({ hasText: "interview" });
+      const failed = tab.locator("[data-transcript-row]").filter({ hasText: "loom" });
       await expect(ready).toHaveAttribute("data-state", "ready");
       await expect(ready).toContainText("Hindi → English");
       await expect(ready).toContainText("12:34");
@@ -629,7 +648,7 @@ test.describe("@qf:X10 downloads go through one tray", () => {
     const { context, page, fake } = await openExplorer(browser, { path: "workshops/big" });
     try {
       fake.fileDelayMs = 250;
-      const save = page.getByTestId("download-folder").getByRole("button", { name: "Save to a folder" });
+      const save = { click: () => saveToFolder(page) };
       await save.click();
       await expect.poll(() => fake.servedFiles.length, { timeout: 20_000 }).toBeGreaterThan(10);
       const first = trayItem(page, "Big archive");
@@ -731,7 +750,7 @@ test.describe("@qf:X6 tables", () => {
       await expect(tables.getByText("1 row matches “rare weaver”")).toBeVisible();
       const region = tables.getByRole("region", { name: "Artisans rows" });
       await expect(region).toContainText("Kaithoon");
-      await expect(region.locator("tbody tr").first().locator("td").first()).toHaveText("201");
+      await expect(region.locator("tbody tr").first()).toHaveAttribute("data-row-number", "201");
       const searched = fake.calls.filter((call) => call.path === "/data/report" && call.query.get("q") === "rare weaver");
       expect(searched.length).toBeGreaterThan(0);
       expect(searched.every((call) => !call.query.has("sheet"))).toBe(true);
@@ -766,7 +785,7 @@ test.describe("@qf:X6 tables", () => {
       await expect(page.getByRole("region", { name: "Data tables" }).getByRole("tab", { name: /Artisans/ })).toBeVisible();
       const first = fake.calls.filter((call) => call.path === "/data/report" && !call.query.get("q") && call.query.get("path") === "workshops/bagru" && call.query.get("format") === "json").length;
       await openFolder(page, "Sanganer");
-      await expandTo(page, ["By workshop"]);
+      await expandTo(page, ["All workshops"]);
       await openFolder(page, "Bagru 2026");
       await expect(page.getByRole("region", { name: "Data tables" }).getByRole("tab", { name: /Artisans/ })).toBeVisible();
       const reports = fake.calls.filter((call) => call.path === "/data/report" && !call.query.get("q") && call.query.get("path") === "workshops/bagru" && call.query.get("format") === "json").length;
@@ -854,7 +873,7 @@ test.describe("@qf:X1 keyboard", () => {
   test("Ctrl+K opens quick jump, a record jumps to its folder, Escape closes it", async ({ browser }) => {
     const { context, page } = await openExplorer(browser, { path: "workshops" });
     try {
-      await page.getByRole("heading", { name: "By workshop", exact: true }).first().click();
+      await page.getByRole("heading", { name: "All workshops", exact: true }).first().click();
       await page.keyboard.press("Control+k");
       const palette = page.getByRole("dialog", { name: "Quick jump" });
       await expect(palette).toBeVisible();
@@ -976,8 +995,8 @@ test.describe("@qf:X1 saved views", () => {
       const dialog = page.getByRole("dialog", { name: "Saved views" });
       await expect(dialog.getByRole("list", { name: "Saved views" })).toContainText("Shared by Ravi Kumar");
       await expect(dialog.getByLabel("Save this screen as")).toHaveValue("Bagru 2026");
-      await dialog.getByRole("button", { name: "Save and copy link" }).click();
-      await expect(dialog.getByRole("button", { name: "Link copied" })).toBeVisible();
+      await dialog.getByRole("button", { name: "Save current view" }).click();
+      await expect(dialog.getByRole("status").filter({ hasText: "Link copied" })).toBeVisible();
       const posted = fake.calledWith("POST", "/data/views")[0].body as { path: string; state: { view: string } };
       expect(posted.path).toBe("workshops/bagru");
       expect(posted.state.view).toBe("tables");
@@ -1082,7 +1101,7 @@ test.describe("@qf:X10 pause and resume", () => {
     const { context, page, fake } = await openExplorer(browser, { path: "workshops/big" });
     try {
       fake.fileDelayMs = 250;
-      await page.getByTestId("download-folder").getByRole("button", { name: "Save to a folder" }).click();
+      await saveToFolder(page);
       await expect.poll(() => fake.servedFiles.length, { timeout: 20_000 }).toBeGreaterThan(4);
       const item = trayItem(page, "Big archive");
       await item.getByRole("button", { name: "Pause" }).click();

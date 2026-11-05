@@ -434,7 +434,11 @@ def info_panel(kind: str, record: Any) -> dict[str, Any] | None:
         text = cell(value)
         if text:
             fields.append({"label": label, "value": text})
-    return {"title": spec.title(record), "fields": fields}
+    panel: dict[str, Any] = {"title": spec.title(record), "fields": fields}
+    record_id = getattr(record, "id", None)
+    if isinstance(record_id, str) and record_id:
+        panel["record"] = {"kind": kind, "id": record_id}
+    return panel
 
 
 def info_text(info: dict[str, Any] | None) -> str:

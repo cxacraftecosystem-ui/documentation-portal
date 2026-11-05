@@ -1,6 +1,6 @@
 "use client";
 
-import { Bookmark, Database, Download, FileText, FolderTree as FolderTreeIcon, Layers, RefreshCw, Table2 } from "lucide-react";
+import { Bookmark, Database, Download, LayoutGrid, List } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
@@ -42,10 +42,13 @@ export type ExplorerConfig = {
   statusKey: string;
   viewer: string;
   fileHref: (mediaId: string) => string | null;
+  recordHref?: (kind: string, id: string) => string | null;
   renderSearch: (reveal: (path: string) => void, openPreview: (target: PreviewTarget) => void) => ReactNode;
+  title?: string;
+  description?: string;
   headerExtra?: ReactNode;
   toolbarExtra?: ReactNode;
-  emptyBody: string;
+  emptyBody: string | ((folder: string) => string);
   emptyAction?: ReactNode;
   browseTypes: BrowseType[];
   browseScope?: { control: ReactNode; workshopIds?: string };
@@ -58,16 +61,41 @@ export function zipName(subject: string): string {
   return exportFilename("Dataset", "Export", "zip", { subject, withTime: true });
 }
 
+export function taxonomyChip(name: string): string {
+  const bare = name.replace(/^by\s+/i, "").trim();
+  return bare ? bare.charAt(0).toUpperCase() + bare.slice(1) : name;
+}
+
+export function taxonomyRoot(name: string): string {
+  const bare = name.replace(/^by\s+/i, "").trim().toLowerCase();
+  if (!bare) return name;
+  return `All ${bare.endsWith("s") ? bare : `${bare}s`}`;
+}
+
+export function ExplorerHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-4" data-testid="explorer-header">
+      <div className="min-w-0">
+        <h1 className="font-display text-[30px] leading-[1.25] font-extrabold tracking-[-0.01em] text-ink-900 max-lg:text-[26px]">{title}</h1>
+        {description ? <p className="mt-1 text-sm text-ink-500 max-lg:hidden">{description}</p> : null}
+      </div>
+      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+    </div>
+  );
+}
+
+const PILL = "min-h-[34px] rounded-full px-3 text-[13px] transition pointer-coarse:min-h-11";
+const PILL_ON = "bg-purple-700 font-semibold text-white dark:bg-purple-300 dark:text-purple-950";
+const PILL_OFF = "border border-line-200 bg-card text-ink-700 hover:border-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40";
+
 function TaxonomyPicker({ taxonomies, active, onSelect }: { taxonomies: Taxonomy[]; active: string | null; onSelect: (path: string) => void }) {
   if (taxonomies.length === 0) return null;
-  const current = taxonomies.find((taxonomy) => taxonomy.id === active);
   return (
-    <div className="grid gap-1.5 px-1">
-      <span className="field-label flex items-center gap-1.5">
-        <Layers className="h-3.5 w-3.5" aria-hidden />
-        Organise by
-      </span>
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Organise by">
+    <>
+      <div className="flex items-center justify-between px-1.5 py-1">
+        <span className="text-xs font-semibold tracking-[0.06em] text-ink-500 uppercase">Organise by</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5 px-1 pb-1.5" role="group" aria-label="Organise by">
         {taxonomies.map((taxonomy) => {
           const selected = taxonomy.id === active;
           return (
@@ -75,25 +103,23 @@ function TaxonomyPicker({ taxonomies, active, onSelect }: { taxonomies: Taxonomy
               key={taxonomy.id}
               type="button"
               aria-pressed={selected}
+              title={taxonomy.description ?? undefined}
               onClick={() => onSelect(taxonomy.path)}
-              className={`min-h-9 rounded-full px-3 text-xs font-semibold transition pointer-coarse:min-h-11 ${
-                selected ? "bg-purple-700 text-white" : "border border-line-200 bg-card text-ink-700 hover:border-purple-300 hover:bg-purple-50"
-              }`}
+              className={`${PILL} ${selected ? PILL_ON : PILL_OFF}`}
             >
-              {taxonomy.name}
+              {taxonomyChip(taxonomy.name)}
             </button>
           );
         })}
       </div>
-      {current?.description ? <p className="text-xs leading-5 text-ink-500">{current.description}</p> : null}
-    </div>
+    </>
   );
 }
 
-const VIEW_TABS: { value: ExplorerView; label: string; icon: ReactNode }[] = [
-  { value: "files", label: "Files", icon: <FolderTreeIcon className="h-4 w-4" aria-hidden /> },
-  { value: "tables", label: "Tables", icon: <Table2 className="h-4 w-4" aria-hidden /> },
-  { value: "transcripts", label: "Transcripts", icon: <FileText className="h-4 w-4" aria-hidden /> }
+const VIEW_TABS: { value: ExplorerView; label: string }[] = [
+  { value: "files", label: "Files" },
+  { value: "tables", label: "Tables" },
+  { value: "transcripts", label: "Transcripts" }
 ];
 
 function ViewTabs({ view, counts, onView, trailing }: { view: ExplorerView; counts: Partial<Record<ExplorerView, string | null>>; onView: (view: ExplorerView) => void; trailing?: ReactNode }) {
@@ -108,8 +134,8 @@ function ViewTabs({ view, counts, onView, trailing }: { view: ExplorerView; coun
     document.getElementById(`${id}-${VIEW_TABS[target].value}`)?.focus();
   };
   return (
-    <div className="flex flex-wrap items-end gap-2 border-b border-line-200 px-2 pt-2 sm:px-3">
-      <div role="tablist" aria-label="Contents" className="flex w-full gap-1 max-sm:rounded-md max-sm:border max-sm:border-line-200 max-sm:p-1 sm:w-auto">
+    <div className="flex items-end gap-1 border-line-200 px-3 pt-2 max-sm:p-0 sm:border-b">
+      <div role="tablist" aria-label="Contents" className="flex gap-1 max-sm:w-full max-sm:rounded-md max-sm:border max-sm:border-line-200 max-sm:bg-card max-sm:p-[3px]">
         {VIEW_TABS.map((tab) => {
           const selected = view === tab.value;
           const count = counts[tab.value];
@@ -124,21 +150,20 @@ function ViewTabs({ view, counts, onView, trailing }: { view: ExplorerView; coun
               tabIndex={selected ? 0 : -1}
               onClick={() => onView(tab.value)}
               onKeyDown={onKey}
-              className={`inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 px-3.5 text-sm transition sm:flex-none ${
+              className={`inline-flex min-h-11 items-center justify-center px-3.5 text-sm transition max-sm:min-h-10 max-sm:flex-1 max-sm:rounded-[9px] max-sm:text-[13px] ${
                 selected
-                  ? "font-semibold text-purple-800 max-sm:rounded-sm max-sm:bg-purple-700 max-sm:text-white sm:shadow-[inset_0_-2px_0_var(--purple-700)] dark:text-purple-200"
+                  ? "font-semibold text-purple-800 shadow-[inset_0_-2px_0_var(--purple-700)] max-sm:bg-purple-700 max-sm:text-white max-sm:shadow-none dark:text-purple-200 dark:shadow-[inset_0_-2px_0_#c090f5] max-sm:dark:bg-purple-300 max-sm:dark:text-purple-950"
                   : "text-ink-700 hover:text-ink-900"
               }`}
             >
-              <span className="max-sm:hidden">{tab.icon}</span>
               {tab.label}
-              {count ? <span className={`text-xs tabular-nums ${selected ? "" : "text-ink-500"} max-sm:hidden`}>{count}</span> : null}
+              {count ? <span className="max-sm:hidden">&nbsp;{count}</span> : null}
             </button>
           );
         })}
       </div>
-      <span className="flex-1" />
-      {trailing ? <div className="flex items-center gap-2 pb-2">{trailing}</div> : null}
+      <span className="flex-1 max-sm:hidden" />
+      {trailing ? <div className="flex items-center gap-1.5 pb-1.5 max-lg:hidden">{trailing}</div> : null}
     </div>
   );
 }
@@ -163,9 +188,11 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [showTree, setShowTree] = useState(false);
+  const [layout, setLayout] = useState<"list" | "grid">("list");
   const [visit, setVisit] = useState<FolderVisit | null>(null);
   const [transcriptCount, setTranscriptCount] = useState<{ path: string; count: number } | null>(null);
   const [miniTrack, setMiniTrack] = useState<{ mediaId: string; name: string; src: string; startMs?: number } | null>(null);
+  const [miniAt, setMiniAt] = useState<{ ms: number; durationMs: number | null } | null>(null);
   const [viewError, setViewError] = useState<string | null>(null);
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
   const online = useOnline();
@@ -467,52 +494,71 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
     goData: () => document.querySelector<HTMLElement>("[data-testid='downloads-tray'] button")?.focus()
   });
 
+  const taxonomyRow = taxonomies.find((taxonomy) => taxonomy.id === activeTaxonomy) ?? null;
+  const shownCrumbs = crumbs
+    .filter((crumb) => crumb.path !== "" || crumbs.length === 1)
+    .map((crumb) => (taxonomyRow && crumb.path === taxonomyRow.path ? { ...crumb, name: taxonomyRoot(taxonomyRow.name) } : crumb));
+  const treeRoot = taxonomyRow ? { path: taxonomyRow.path, name: taxonomyRoot(taxonomyRow.name) } : { path: "", name: config.rootName };
+
   const sidePanel = (
     <aside
-      className={`panel grid gap-3 p-3 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-y-auto lg:overscroll-contain ${showTree ? "" : "max-lg:hidden"}`}
+      className={`panel flex flex-col gap-2 p-3 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-y-auto lg:overscroll-contain ${showTree ? "" : "max-lg:hidden"}`}
       aria-label="Folders"
       data-testid="explorer-tree-panel"
     >
       <TaxonomyPicker taxonomies={taxonomies} active={activeTaxonomy} onSelect={open} />
       {config.toolbarExtra}
-      <div className="flex items-center justify-between border-t border-line-200 px-1 pt-2">
-        <span className="field-label">Folders</span>
-        <button
-          type="button"
-          className="grid h-9 w-9 place-items-center rounded-sm text-ink-500 hover:bg-purple-50 hover:text-purple-700 pointer-coarse:h-11 pointer-coarse:w-11"
-          aria-label="Reload this folder"
-          onClick={() => void tree.load(url.path)}
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${tree.loading.has(url.path) ? "animate-spin" : ""}`} aria-hidden />
-        </button>
-      </div>
       {rootError ? <Problem onRetry={() => void tree.load("")}>{rootError}</Problem> : null}
-      <div className="max-h-[60vh] overflow-y-auto pr-1 lg:max-h-none lg:overflow-visible">
-        <FolderTree store={tree} selectedPath={url.path} rootName={config.rootName} onSelect={open} />
+      <div className="max-h-[60vh] overflow-y-auto lg:max-h-none lg:overflow-visible">
+        <FolderTree store={tree} selectedPath={url.path} rootName={treeRoot.name} rootPath={treeRoot.path} onSelect={open} />
       </div>
     </aside>
   );
 
-  const tabTrailing =
-    url.view === "files" ? (
-      <>
-        {newHere ? <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-200">+{newHere} new since you looked</span> : null}
-        <button type="button" className="inline-flex min-h-9 items-center gap-1.5 rounded-sm px-2.5 text-xs font-semibold text-ink-700 hover:bg-purple-50 pointer-coarse:min-h-11" onClick={() => setViewsOpen(true)}>
-          <Bookmark className="h-3.5 w-3.5" aria-hidden />
-          Saved views
-        </button>
-      </>
-    ) : (
-      <button type="button" className="inline-flex min-h-9 items-center gap-1.5 rounded-sm px-2.5 text-xs font-semibold text-ink-700 hover:bg-purple-50 pointer-coarse:min-h-11" onClick={() => setViewsOpen(true)}>
-        <Bookmark className="h-3.5 w-3.5" aria-hidden />
-        Saved views
+  const iconToggle = (on: boolean) =>
+    `grid h-9 w-9 place-items-center rounded-sm border transition ${on ? "border-purple-300 bg-purple-100 text-purple-800 dark:border-purple-700 dark:bg-purple-950/60 dark:text-purple-200" : "border-line-200 bg-card text-ink-700 hover:border-purple-300"}`;
+
+  const tabTrailing = (
+    <>
+      {newHere && url.view === "files" ? <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-200">+{newHere} new since you looked</span> : null}
+      {url.view === "files" ? (
+        <div className="flex gap-1.5" role="group" aria-label="Layout">
+          <button type="button" aria-pressed={layout === "list"} aria-label="List view" onClick={() => setLayout("list")} className={iconToggle(layout === "list")}>
+            <List className="h-4 w-4" aria-hidden />
+          </button>
+          <button type="button" aria-pressed={layout === "grid"} aria-label="Grid view" onClick={() => setLayout("grid")} className={iconToggle(layout === "grid")}>
+            <LayoutGrid className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+      ) : null}
+      <button type="button" aria-label="Saved views" title="Saved views" className={iconToggle(false)} onClick={() => setViewsOpen(true)}>
+        <Bookmark className="h-4 w-4" aria-hidden />
       </button>
-    );
+    </>
+  );
 
   return (
     <>
-      <div className="grid gap-4">
-        {config.headerExtra ? <div className="flex flex-wrap items-center justify-end gap-2">{config.headerExtra}</div> : null}
+      <div className="grid gap-4 max-lg:gap-3.5 max-sm:gap-3">
+        {config.title ? (
+          <div className="max-sm:sr-only">
+            <ExplorerHeader
+              title={config.title}
+              description={config.description}
+              actions={
+                <>
+                  <span className="contents max-sm:hidden">{config.headerExtra}</span>
+                  <span className="hidden sm:max-lg:contents">
+                    <button type="button" className="inline-flex min-h-11 items-center rounded-md border border-line-200 bg-card px-3.5 text-sm text-ink-900 hover:border-purple-300" aria-expanded={showTree} onClick={() => setShowTree((value) => !value)}>
+              {showTree ? "Hide folders" : "Folders"}
+            </button>
+                  </span>
+                </>
+              }
+            />
+          </div>
+        ) : null}
+        {config.headerExtra ? <div className={`flex flex-wrap items-center justify-end gap-2 ${config.title ? "sm:hidden" : ""}`}>{config.headerExtra}</div> : null}
         <div data-explorer-search="">
           <SearchSlot render={config.renderSearch} reveal={reveal} openPreview={openPreview} />
         </div>
@@ -544,18 +590,12 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
             </Problem>
           )
         ) : null}
-        <div className="flex items-center gap-2 lg:hidden">
-          <button type="button" className="field-button-secondary min-h-11" aria-expanded={showTree} onClick={() => setShowTree((value) => !value)}>
-            <FolderTreeIcon className="h-4 w-4" aria-hidden />
-            {showTree ? "Hide folders" : "Folders"}
-          </button>
-        </div>
-        <div className="grid items-start gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="grid items-start gap-4 max-lg:gap-3.5 max-sm:gap-3 lg:grid-cols-[326px_minmax(0,1fr)]">
           {sidePanel}
-          <div className="grid min-w-0 gap-4">
+          <div className="grid min-w-0 gap-4 max-lg:gap-3.5 max-sm:gap-3">
             <FolderHeader
-              crumbs={crumbs}
-              folderName={folderName}
+              crumbs={shownCrumbs}
+              folderName={shownCrumbs[shownCrumbs.length - 1]?.name ?? folderName}
               recordType={recordType}
               size={folderSize}
               include={include}
@@ -567,21 +607,21 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
               onSaveFolder={caps.saveFolder ? () => downloadFolder("folder") : null}
               busy={false}
               loading={!current && tree.loading.has(url.path)}
-              extraActions={
-                wholeRepository ? (
-                  <button type="button" className="field-button-secondary min-h-11" onClick={() => downloadDataset("zip")}>
-                    <Database className="h-4 w-4" aria-hidden />
-                    Whole dataset
-                  </button>
-                ) : null
+              onWholeDataset={wholeRepository ? () => downloadDataset("zip") : null}
+              info={current?.info ?? null}
+              parent={shownCrumbs.length > 1 ? shownCrumbs[shownCrumbs.length - 2] : null}
+              foldersButton={
+                <button type="button" className="inline-flex min-h-11 items-center rounded-full border border-line-200 bg-card px-3 text-[13px] text-ink-700 hover:border-purple-300" aria-expanded={showTree} onClick={() => setShowTree((value) => !value)}>
+                  {showTree ? "Hide folders" : "Folders"}
+                </button>
               }
             />
             {tooBig ? <Note tone="warn">Too big for one zip in this browser. Use Save to a folder or leave some types out.</Note> : null}
             {!caps.stream && !caps.saveFile && limitSentence(caps) ? <p className="text-xs text-ink-500">{limitSentence(caps)}</p> : null}
             {config.datasetLine && wholeRepository ? <p className="text-xs text-ink-500">{config.datasetLine}</p> : null}
-            {current?.info ? <RecordDetails info={current.info} /> : null}
+            {current?.info && !isWorkshop ? <RecordDetails info={current.info} recordHref={current.info.record && config.recordHref ? config.recordHref(current.info.record.kind, current.info.record.id) : null} /> : null}
             {isWorkshop ? <WorkshopOverview path={url.path} extra={config.extra} visit={visit && visit.path === url.path ? visit : null} onOpen={open} onShowNew={() => navigate({ view: "files" })} /> : null}
-            <section className="panel overflow-hidden" aria-label="Contents">
+            <section className="panel overflow-hidden max-sm:grid max-sm:gap-3 max-sm:overflow-visible max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:shadow-none" aria-label="Contents">
               <ViewTabs view={url.view} counts={{ files: filesCount, transcripts: transcriptsKnown !== null ? transcriptsKnown.toLocaleString("en-IN") : null }} onView={(view) => navigate({ view })} trailing={tabTrailing} />
               <div id="explorer-view" role="tabpanel" aria-label={VIEW_TABS.find((tab) => tab.value === url.view)?.label} className="min-w-0">
                 <div hidden={url.view !== "files"}>
@@ -603,6 +643,8 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
                     onDownload={(request) => downloads.enqueue(request)}
                     onMore={() => void tree.more(url.path)}
                     onRetry={() => void tree.load(url.path)}
+                    layout={layout}
+                    playing={miniTrack && !previewEntry ? { mediaId: miniTrack.mediaId, ms: miniAt?.ms ?? miniTrack.startMs ?? 0, durationMs: miniAt?.durationMs ?? null } : null}
                   />
                 </div>
                 {url.view === "tables" || reportItem ? (
@@ -622,6 +664,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
                       onTryReport={downloads.startNow}
                       now={downloads.now}
                       onDownload={(request) => downloads.enqueue(request)}
+                      onBack={() => navigate({ view: "files" })}
                     />
                   </div>
                 ) : null}
@@ -634,6 +677,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
                     onDownload={(request) => downloads.enqueue(request)}
                     zipUrl={transcriptBundleUrl(url.path, config.extra)}
                     onCount={(count) => setTranscriptCount({ path: url.path, count })}
+                    trail={shownCrumbs.filter((crumb) => !taxonomyRow || crumb.path !== taxonomyRow.path).map((crumb) => crumb.name).join(" › ")}
                   />
                 ) : null}
               </div>
@@ -647,7 +691,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
           onDownload={() => downloadSelection("zip")}
           onSaveFolder={caps.saveFolder ? () => downloadSelection("folder") : null}
           onSelectAll={current && current.entries.length > selection.size ? () => onSelectAll(current.entries, true) : null}
-          besideTray={downloads.items.length > 0}
+          total={files.length}
           shareUrl={typeof window !== "undefined" ? window.location.href : null}
         />
       </div>
@@ -672,7 +716,11 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
         onExpand={() => {
           if (miniTrack) openPreview({ mediaId: miniTrack.mediaId, name: miniTrack.name, mediaType: "AUDIO", startMs: miniTrack.startMs ?? null });
         }}
-        onClose={() => setMiniTrack(null)}
+        onClose={() => {
+          setMiniTrack(null);
+          setMiniAt(null);
+        }}
+        onPosition={(ms, durationMs) => setMiniAt((previous) => (previous && Math.floor(previous.ms / 1000) === Math.floor(ms / 1000) && previous.durationMs === durationMs ? previous : { ms, durationMs }))}
       />
       <PreviewDialog
         entry={previewEntry}
@@ -728,19 +776,19 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
           }
         }}
         actions={[
-          { key: "D", label: "Download", run: (hit: PaletteHit) => void withPath(hit, (path) => {
+          { key: "D", label: "Download folder", icon: "↓", run: (hit: PaletteHit) => void withPath(hit, (path) => {
             reveal(path);
             setPendingDownload(path);
           }) },
-          { key: "R", label: "Report", run: (hit: PaletteHit) => void withPath(hit, (path) => {
+          { key: "R", label: "Report (.xlsx)", icon: "▦", run: (hit: PaletteHit) => void withPath(hit, (path) => {
             reveal(path);
             setReportOpen(true);
           }) },
-          { key: "T", label: "Transcripts", run: (hit: PaletteHit) => void withPath(hit, (path) => {
+          { key: "T", label: "Transcripts (.zip)", icon: "¶", run: (hit: PaletteHit) => void withPath(hit, (path) => {
             tree.expand(ancestorsOf(path));
             navigate({ path, view: "transcripts", sheet: "", q: "" }, "push");
           }) },
-          { key: "L", label: "Copy link", run: (hit: PaletteHit) => void withPath(hit, (path) => {
+          { key: "L", label: "Copy link to this folder", icon: "⧉", run: (hit: PaletteHit) => void withPath(hit, (path) => {
             void navigator.clipboard?.writeText(`${window.location.origin}${pathname}${writeUrlState({ ...latest.current, path, preview: "", t: 0, find: "" })}`);
           }) }
         ]}

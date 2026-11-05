@@ -97,9 +97,11 @@ export function mergeNavigation(base: ExplorerUrlState, next: Partial<ExplorerUr
   return { ...base, ...next };
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 export function capturedLabel(value: string | null | undefined): string {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
 }

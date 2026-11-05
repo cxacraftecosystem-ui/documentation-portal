@@ -502,8 +502,9 @@ test.describe("@qf:X2 sizes and progress", () => {
 
   test("time left is measured from bytes, and the screen reader hears every tenth", () => {
     expect(rateOf([{ at: 0, bytes: 0 }, { at: 2000, bytes: 2_000_000 }])).toBe(1_000_000);
-    expect(timeLeftLabel(secondsLeft(0, 120_000_000, 1_000_000))).toBe("About 2 min left");
-    expect(timeLeftLabel(30)).toBe("Less than a minute left");
+    expect(timeLeftLabel(secondsLeft(0, 120_000_000, 1_000_000))).toBe("2 min left");
+    expect(timeLeftLabel(30)).toBe("30 s left");
+    expect(timeLeftLabel(151)).toBe("2 min 31 s left");
     expect(announceStep(9, 0)).toBe(false);
     expect(announceStep(10, 9)).toBe(true);
   });

@@ -151,7 +151,7 @@ class ExplorerSheetsUiTest {
         compose.waitForIdle()
         compose.onNodeWithTag("explorer.save.cancel.v1").assertIsDisplayed()
         compose.onNodeWithTag("explorer.save.p1").assertIsDisplayed()
-        compose.onNodeWithText("Block.jpg").performClick()
+        compose.onNodeWithText("Block").performClick()
         compose.waitForIdle()
         assertEquals(listOf("p1"), opened)
     }

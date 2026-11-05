@@ -1,13 +1,12 @@
 "use client";
 
-import { ChevronRight, Download, FileSpreadsheet, FolderDown } from "lucide-react";
+import { Database, FolderDown, MoreHorizontal } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Skeleton } from "@/components/dataExplorer/explorerUi";
-import { ActionGroup } from "@/components/ui/ActionGroup";
 import { fetchSelectionStats, fetchStats, unsupported } from "@/lib/dataExplorer/api";
-import { INCLUDE_KEYS, INCLUDE_LABELS, type Crumb, type FolderInfo, type IncludeKey, type Stats } from "@/lib/dataExplorer/contract";
+import { INCLUDE_KEYS, INCLUDE_LABELS, type Crumb, type FolderInfo, type IncludeKey, type InfoField, type Stats } from "@/lib/dataExplorer/contract";
 import { formatBytes, type ManifestSummary } from "@/lib/dataExplorer/plan";
 import type { JobSource } from "@/lib/dataExplorer/protocol";
 import { selectionPayload, selectionSource, type Selection } from "@/lib/dataExplorer/selection";
@@ -108,22 +107,119 @@ export function recordTypeLabel(recordType: string | null | undefined): string |
 
 export function Breadcrumbs({ crumbs, onOpen }: { crumbs: Crumb[]; onOpen: (path: string) => void }) {
   return (
-    <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-sm text-ink-500">
+    <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1.5 text-[13px] text-ink-500">
       {crumbs.map((crumb, index) => (
-        <span key={crumb.path || "__root"} className="flex min-w-0 items-center gap-1">
-          {index > 0 ? <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
+        <span key={crumb.path || "__root"} className="flex min-w-0 items-center gap-1.5">
+          {index > 0 ? <span aria-hidden>/</span> : null}
           {index === crumbs.length - 1 ? (
             <span className="truncate font-semibold text-ink-900" aria-current="location">
               {crumb.name}
             </span>
           ) : (
-            <button type="button" className="min-h-9 truncate font-medium text-purple-700 hover:underline dark:text-purple-300 pointer-coarse:min-h-11" onClick={() => onOpen(crumb.path)}>
+            <button type="button" className="truncate text-purple-700 underline underline-offset-2 hover:text-purple-800 dark:text-purple-300 pointer-coarse:min-h-11" onClick={() => onOpen(crumb.path)}>
               {crumb.name}
             </button>
           )}
         </span>
       ))}
     </nav>
+  );
+}
+
+export function reviewTone(value: string): "approved" | "pending" | "rejected" | null {
+  const word = value.trim().toLowerCase();
+  if (word.startsWith("approved")) return "approved";
+  if (word.startsWith("pending") || word.startsWith("in review") || word.startsWith("submitted")) return "pending";
+  if (word.startsWith("rejected") || word.startsWith("changes")) return "rejected";
+  return null;
+}
+
+const REVIEW_PILL: Record<"approved" | "pending" | "rejected", string> = {
+  approved: "bg-success-100 text-success-600 dark:bg-[#123b25] dark:text-green-200",
+  pending: "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200",
+  rejected: "bg-error-100 text-red-700 dark:bg-[#4a1717] dark:text-red-200"
+};
+
+export function ReviewPill({ value }: { value: string }) {
+  const tone = reviewTone(value);
+  if (!tone) return <>{value}</>;
+  return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${REVIEW_PILL[tone]}`}>{value}</span>;
+}
+
+const COMPACT_FIELDS = ["Craft", "Location", "Review"];
+
+function compactFields(info: FolderInfo | null): InfoField[] {
+  const fields = (info?.fields ?? []).filter((field) => field.value != null && String(field.value).trim() !== "");
+  const picked = COMPACT_FIELDS.map((label) => fields.find((field) => field.label === label)).filter((field): field is InfoField => Boolean(field));
+  return picked.length ? picked : fields.slice(0, 3);
+}
+
+function MoreDownloads({ onSaveFolder, onWholeDataset, disabled }: { onSaveFolder: (() => void) | null; onWholeDataset: (() => void) | null; disabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: PointerEvent) => {
+      if (!box.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("pointerdown", away);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("pointerdown", away);
+      window.removeEventListener("keydown", key);
+    };
+  }, [open]);
+  if (!onSaveFolder && !onWholeDataset) return null;
+  const item = "flex min-h-11 w-full items-center gap-2 rounded-sm px-3 text-left text-sm text-ink-900 hover:bg-purple-50 disabled:opacity-50 dark:hover:bg-purple-950/40";
+  return (
+    <div className="relative" ref={box}>
+      <button
+        type="button"
+        aria-label="More ways to download"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="grid h-11 w-11 place-items-center rounded-md border border-line-200 bg-card text-ink-700 transition hover:border-purple-300"
+      >
+        <MoreHorizontal className="h-4 w-4" aria-hidden />
+      </button>
+      {open ? (
+        <div role="menu" aria-label="More ways to download" className="absolute right-0 top-12 z-30 grid w-56 gap-0.5 rounded-md border border-line-200 bg-card p-1 shadow-md">
+          {onSaveFolder ? (
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              disabled={disabled}
+              onClick={() => {
+                setOpen(false);
+                onSaveFolder();
+              }}
+            >
+              <FolderDown className="h-4 w-4 text-ink-500" aria-hidden />
+              Save to a folder
+            </button>
+          ) : null}
+          {onWholeDataset ? (
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              onClick={() => {
+                setOpen(false);
+                onWholeDataset();
+              }}
+            >
+              <Database className="h-4 w-4 text-ink-500" aria-hidden />
+              Whole dataset
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -139,7 +235,10 @@ export function FolderHeader({
   onReport,
   onDownload,
   onSaveFolder,
-  extraActions,
+  onWholeDataset,
+  info,
+  parent,
+  foldersButton,
   busy,
   loading
 }: {
@@ -154,7 +253,10 @@ export function FolderHeader({
   onReport: () => void;
   onDownload: () => void;
   onSaveFolder: (() => void) | null;
-  extraActions?: ReactNode;
+  onWholeDataset?: (() => void) | null;
+  info?: FolderInfo | null;
+  parent?: Crumb | null;
+  foldersButton?: ReactNode;
   busy: boolean;
   loading: boolean;
 }) {
@@ -167,86 +269,119 @@ export function FolderHeader({
     onInclude(INCLUDE_KEYS.filter((value) => next.includes(value)));
   };
   const sizeText = chosen ? formatBytes(chosen.bytes) : null;
+  const facts = sized
+    ? [
+        `${sized.files.toLocaleString("en-IN")} ${sized.files === 1 ? "file" : "files"}${sized.truncated ? "+" : ""}`,
+        formatBytes(sized.bytes),
+        transcripts !== null && transcripts > 0 ? `${transcripts.toLocaleString("en-IN")} ${transcripts === 1 ? "transcript" : "transcripts"}` : null
+      ].filter((part): part is string => Boolean(part))
+    : [size.error ? "Size unknown" : "Checking size…"];
+  const compact = compactFields(info ?? null);
   return (
-    <section aria-label="Folder" className="panel grid gap-4 p-4 sm:p-5" data-testid="download-folder">
-      <Breadcrumbs crumbs={crumbs} onOpen={onOpen} />
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid min-w-0 gap-1.5">
-          <h2 className="font-display text-xl font-extrabold text-ink-900 sm:text-2xl">{loading && !folderName ? <Skeleton className="h-7 w-48" /> : folderName}</h2>
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-700" data-testid="folder-size">
-            {typeLabel ? <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-200">{typeLabel}</span> : null}
-            {sized ? (
-              <span>
-                {[
-                  `${sized.files.toLocaleString("en-IN")} ${sized.files === 1 ? "file" : "files"}${sized.truncated ? "+" : ""}`,
-                  formatBytes(sized.bytes),
-                  transcripts !== null ? `${transcripts.toLocaleString("en-IN")} ${transcripts === 1 ? "transcript" : "transcripts"}` : null
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            ) : size.error ? (
-              <span>Size unknown</span>
-            ) : (
-              <span>Checking size…</span>
-            )}
-          </p>
-        </div>
-        <ActionGroup align="end" className="max-sm:w-full">
-          {extraActions}
-          <button type="button" className="field-button-secondary min-h-11" onClick={onReport}>
-            <FileSpreadsheet className="h-4 w-4" aria-hidden />
-            Report (.xlsx)
+    <>
+      <div className="flex items-center justify-between gap-2 sm:hidden">
+        {parent ? (
+          <button type="button" className="inline-flex min-h-11 min-w-0 items-center gap-1.5 rounded-full border border-line-200 bg-card px-3 text-[13px] text-ink-700" onClick={() => onOpen(parent.path)}>
+            <span aria-hidden>‹</span>
+            <span className="truncate">{parent.name}</span>
           </button>
-          {onSaveFolder ? (
-            <button type="button" className="field-button-secondary min-h-11" disabled={busy || include.length === 0} onClick={onSaveFolder}>
-              <FolderDown className="h-4 w-4" aria-hidden />
-              Save to a folder
-            </button>
-          ) : null}
-          <button type="button" className="field-button min-h-11 shadow-cta" disabled={include.length === 0} onClick={onDownload}>
-            <Download className="h-4 w-4" aria-hidden />
-            <span className="sm:hidden">Download</span>
-            <span className="max-sm:hidden">Download folder{sizeText ? ` · ${sizeText}` : ""}</span>
-          </button>
-        </ActionGroup>
+        ) : (
+          <span />
+        )}
+        {foldersButton}
       </div>
-      {tiles.length ? (
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4" role="group" aria-label="Include in the download">
-          {tiles.map((key) => {
-            const tally = sized?.byType[key];
-            const on = include.includes(key);
-            return (
-              <button
-                key={key}
-                type="button"
-                aria-pressed={on}
-                onClick={() => toggle(key)}
-                className={`grid min-h-16 gap-0.5 rounded-md border px-3 py-2.5 text-left transition pointer-coarse:min-h-18 ${
-                  on ? "border-line-200 bg-surface-50 text-ink-900 hover:border-purple-300" : "border-dashed border-line-200 bg-card text-ink-500 hover:border-purple-300"
-                }`}
-              >
-                <span className="text-xs text-ink-500">
-                  {INCLUDE_LABELS[key]}
-                  {on ? "" : " · left out"}
-                </span>
-                <span className={`text-lg font-bold tabular-nums ${on ? "" : "line-through decoration-1"}`}>
-                  {(tally?.files ?? 0).toLocaleString("en-IN")} · {formatBytes(tally?.bytes ?? 0)}
-                </span>
-              </button>
-            );
-          })}
+      <section aria-label="Folder" className="panel grid gap-4 p-5 max-lg:gap-3 max-lg:p-[18px] max-sm:gap-2.5 max-sm:p-3.5" data-testid="download-folder">
+        <div className="max-sm:hidden">
+          <Breadcrumbs crumbs={crumbs} onOpen={onOpen} />
         </div>
-      ) : size.loading ? (
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4" aria-hidden>
-          {[0, 1, 2, 3].map((tile) => (
-            <Skeleton key={tile} className="h-16" />
-          ))}
+        <div className="flex flex-wrap items-start justify-between gap-4 max-lg:items-center max-lg:gap-3 max-sm:gap-2.5">
+          <div className="grid min-w-0 gap-1.5 max-lg:gap-1 max-sm:w-full max-sm:gap-2.5">
+            <h2 className="font-display text-2xl font-extrabold text-ink-900 max-lg:text-[22px] max-sm:text-xl">{loading && !folderName ? <Skeleton className="h-7 w-48" /> : folderName}</h2>
+            <p className="flex flex-wrap items-center gap-2 text-[13px] text-ink-700" data-testid="folder-size">
+              {typeLabel ? <span className="rounded-full bg-purple-100 px-2.5 py-1 font-semibold text-purple-800 max-lg:hidden dark:bg-purple-950/60 dark:text-purple-200">{typeLabel}</span> : null}
+              {facts.map((fact, index) => (
+                <span key={fact} className="contents">
+                  {index > 0 ? (
+                    <span aria-hidden className="max-lg:-mx-1">
+                      ·
+                    </span>
+                  ) : null}
+                  <span>{fact}</span>
+                </span>
+              ))}
+            </p>
+          </div>
+          <div className="flex gap-2 max-sm:w-full">
+            <button
+              type="button"
+              className="inline-flex min-h-11 items-center justify-center rounded-md border border-line-200 bg-card px-4 text-sm font-medium text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 max-lg:px-3.5 max-sm:flex-1 dark:hover:bg-purple-950/40"
+              onClick={onReport}
+            >
+              Report (.xlsx)
+            </button>
+            <button
+              type="button"
+              className="inline-flex min-h-11 items-center justify-center rounded-md bg-purple-700 px-[18px] text-sm font-semibold text-white shadow-cta transition hover:bg-purple-800 disabled:bg-line-200 disabled:text-ink-500 disabled:shadow-none max-lg:px-4 max-lg:shadow-none max-sm:flex-1 dark:bg-purple-300 dark:text-purple-950 dark:hover:bg-purple-200"
+              disabled={include.length === 0}
+              onClick={onDownload}
+            >
+              <span className="sm:hidden">Download</span>
+              <span className="max-sm:hidden lg:hidden">Download{sizeText ? ` · ${sizeText}` : ""}</span>
+              <span className="max-lg:hidden">{recordType === "workshop" ? "Download workshop" : "Download folder"}{sizeText ? ` · ${sizeText}` : ""}</span>
+            </button>
+            <MoreDownloads onSaveFolder={onSaveFolder} onWholeDataset={onWholeDataset ?? null} disabled={busy || include.length === 0} />
+          </div>
         </div>
-      ) : null}
-    </section>
+        {compact.length ? (
+          <dl aria-label="Record details" className="grid grid-cols-3 gap-x-4 gap-y-2.5 text-sm max-sm:hidden lg:hidden">
+            {compact.map((field) => {
+              const tone = reviewTone(field.value);
+              return (
+                <div key={field.label} className="min-w-0">
+                  <dt className="text-xs text-ink-500">{field.label}</dt>
+                  <dd className={`mt-0.5 truncate ${tone === "approved" ? "font-semibold text-success-600 dark:text-green-300" : tone === "pending" ? "font-semibold text-amber-700 dark:text-amber-300" : tone === "rejected" ? "font-semibold text-red-700 dark:text-red-300" : "text-ink-900"}`}>{field.value}</dd>
+                </div>
+              );
+            })}
+          </dl>
+        ) : null}
+        {tiles.length ? (
+          <div className="grid grid-cols-4 gap-2.5 max-lg:hidden" role="group" aria-label="Include in the download">
+            {tiles.map((key) => {
+              const tally = sized?.byType[key];
+              const on = include.includes(key);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => toggle(key)}
+                  className={`grid gap-0.5 rounded-md border p-3 text-left transition ${on ? "border-line-200 bg-surface-50 text-ink-900 hover:border-purple-300" : "border-dashed border-line-200 bg-card text-ink-500 hover:border-purple-300"}`}
+                >
+                  <span className="text-xs text-ink-500">
+                    {TILE_LABELS[key]}
+                    {on ? "" : " · left out"}
+                  </span>
+                  <span className={`text-lg leading-7 font-bold tabular-nums ${on ? "" : "line-through decoration-1"}`}>
+                    {(tally?.files ?? 0).toLocaleString("en-IN")} · {formatBytes(tally?.bytes ?? 0)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : size.loading ? (
+          <div className="grid grid-cols-4 gap-2.5 max-lg:hidden" aria-hidden>
+            {[0, 1, 2, 3].map((tile) => (
+              <Skeleton key={tile} className="h-[66px]" />
+            ))}
+          </div>
+        ) : null}
+      </section>
+    </>
   );
 }
+
+const TILE_LABELS: Record<IncludeKey, string> = { ...INCLUDE_LABELS, audios: "Audio" };
 
 export function RecordDetails({ info, recordHref }: { info: FolderInfo; recordHref?: string | null }) {
   const fields = (info.fields ?? []).filter((field) => field.value != null && String(field.value).trim() !== "");
@@ -254,20 +389,20 @@ export function RecordDetails({ info, recordHref }: { info: FolderInfo; recordHr
   if (fields.length === 0) return null;
   const shown = all ? fields : fields.slice(0, 9);
   return (
-    <section aria-label="Record details" className="panel grid gap-3 p-4 sm:p-5">
+    <section aria-label="Record details" className="panel grid gap-3 p-5 max-lg:hidden">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-display text-base font-bold text-ink-900">{info.title || "Record details"}</h3>
+        <h3 className="text-base font-bold text-ink-900">Record details</h3>
         {recordHref ? (
-          <Link href={recordHref} className="text-sm font-semibold text-purple-700 hover:underline dark:text-purple-300">
+          <Link href={recordHref} className="text-[13px] font-semibold text-purple-700 underline underline-offset-2 hover:text-purple-800 dark:text-purple-300">
             Open record
           </Link>
         ) : null}
       </div>
-      <dl className="grid gap-x-5 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+      <dl className="grid grid-cols-3 gap-x-5 gap-y-3 text-sm">
         {shown.map((field, index) => (
           <div key={`${field.label}-${index}`} className="min-w-0">
             <dt className="text-xs text-ink-500">{field.label}</dt>
-            <dd className="mt-0.5 max-h-40 overflow-y-auto whitespace-pre-line wrap-break-word text-ink-900">{field.value}</dd>
+            <dd className="mt-0.5 max-h-40 overflow-y-auto whitespace-pre-line wrap-break-word text-ink-900">{field.label === "Review" ? <ReviewPill value={field.value} /> : field.value}</dd>
           </div>
         ))}
       </dl>

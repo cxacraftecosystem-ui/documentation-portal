@@ -1,6 +1,20 @@
 package com.fieldrepository.app.explorer.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SignalCellularAlt
+import androidx.compose.material3.Icon
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -42,6 +56,7 @@ import com.fieldrepository.app.ui.field
 
 object PreflightText {
     const val metered = "You're on mobile data"
+    const val meteredNote = "This could use most of a monthly pack."
     const val waitForWifi = "Wait for Wi-Fi"
     const val waitNote = "Starts by itself when you're on Wi-Fi"
     const val storage = "Phone storage"
@@ -91,84 +106,138 @@ internal fun PreflightSheet(
     onResetFolder: (() -> Unit)? = null,
 ) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var wait by rememberSaveable { mutableStateOf(plan.metered) }
-    var smaller by rememberSaveable { mutableStateOf(false) }
-    val skip = plan.smaller
-    val bytes = if (smaller && skip != null) skip.bytes else plan.bytes
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
-        Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 16.dp).navigationBarsPadding().testTag("explorer.preflight"),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(PreflightText.title(title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semantics { heading() })
-            Text(
-                PreflightText.headline(if (smaller && skip != null) skip.files else plan.files, ExplorerBytes.format(bytes), PreflightText.minutes(if (smaller && skip != null) skip.seconds else plan.seconds), plan.metered),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (plan.metered) {
-                val warn = explorerWarnTone()
-                Column(
-                    Modifier.fillMaxWidth().background(warn.container, MaterialTheme.shapes.large).border(1.dp, warn.border, MaterialTheme.shapes.large).padding(12.dp).testTag("explorer.preflight.metered"),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(PreflightText.metered, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = warn.content)
-                    ExplorerBytes.format(bytes)?.let { Text(PreflightText.pack(it), style = MaterialTheme.typography.bodySmall, color = warn.content) }
-                }
-            }
-            SwitchRow(PreflightText.waitForWifi, PreflightText.waitNote, wait, "explorer.preflight.wifi") { wait = it }
-            Column(
-                Modifier.fillMaxWidth().background(MaterialTheme.field.surface50, MaterialTheme.shapes.large).padding(12.dp).testTag("explorer.preflight.storage"),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(PreflightText.storage, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    val ok = plan.enoughSpace
-                    val tone = explorerTone(if (ok) ExplorerStatus.SAVED else ExplorerStatus.FAILED)!!
-                    Text(if (ok) PreflightText.enough else PreflightText.notEnough, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = tone.accent)
-                }
-                val free = plan.freeAfter
-                if (free != null && bytes > 0) {
-                    FieldLinearProgressIndicator(progress = { (bytes.toFloat() / (bytes + free.coerceAtLeast(0)).toFloat()).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(6.dp))
-                }
-                Text(PreflightText.storageLine(ExplorerBytes.format(bytes), free?.let { ExplorerBytes.format(it.coerceAtLeast(0)) }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Row(Modifier.fillMaxWidth().background(MaterialTheme.field.surface50, MaterialTheme.shapes.large).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(PreflightText.saveTo, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(plan.location, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.preflight.location"))
-                    if (onResetFolder != null) {
-                        androidx.compose.material3.TextButton(onClick = onResetFolder, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.preflight.reset")) { Text(PreflightText.useDownloads) }
-                    }
-                }
-                if (onChangeFolder != null) {
-                    androidx.compose.material3.TextButton(onClick = onChangeFolder, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.preflight.change")) { Text(PreflightText.change) }
-                }
-            }
-            if (skip != null) {
-                SwitchRow(PreflightText.smaller, PreflightText.skipVideos(ExplorerBytes.format(skip.bytes), PreflightText.minutes(skip.seconds)), smaller, "explorer.preflight.smaller") { smaller = it }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("explorer.preflight.cancel")) { Text(PreflightText.notNow) }
-                Button(
-                    onClick = { onStart(wait, if (smaller) skip?.include else null) },
-                    enabled = plan.enoughSpace || smaller,
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("explorer.preflight.start"),
-                ) { Text(if (wait) PreflightText.downloadOnWifi else PreflightText.download) }
-            }
-            Text(PreflightText.shownWhen, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(ExplorerText.keepsGoing, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, shape = ExplorerShapes.sheet, containerColor = MaterialTheme.colorScheme.surface, dragHandle = { ExplorerSheetHandle() }) {
+        PreflightBody(title, plan, onStart, onDismiss, onChangeFolder, onResetFolder, Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding())
     }
 }
 
 @Composable
-private fun SwitchRow(title: String, note: String, on: Boolean, tag: String, onChange: (Boolean) -> Unit) {
-    com.fieldrepository.app.ui.AppToggle(
-        label = title,
-        checked = on,
-        onCheckedChange = onChange,
-        description = note,
-        modifier = Modifier.fillMaxWidth().background(MaterialTheme.field.surface50, MaterialTheme.shapes.large).testTag(tag),
+private fun PreflightRow(modifier: Modifier = Modifier, container: Color = MaterialTheme.colorScheme.surface, line: Color = explorerControlLine(), content: @Composable RowScope.() -> Unit) {
+    Row(
+        modifier.fillMaxWidth().explorerCard(container, line, ExplorerShapes.inner).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        content = content,
     )
+}
+
+@Composable
+private fun RowText(title: String, note: String, modifier: Modifier, titleColor: Color = MaterialTheme.colorScheme.onSurface, noteColor: Color = MaterialTheme.colorScheme.onSurfaceVariant, noteTag: String? = null) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyMedium, lineHeight = 19.sp, fontWeight = FontWeight.Bold, color = titleColor)
+        Text(note, style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = noteColor, modifier = if (noteTag != null) Modifier.testTag(noteTag) else Modifier)
+    }
+}
+
+@Composable
+internal fun PreflightBody(
+    title: String,
+    plan: ExplorerPreflightPlan,
+    onStart: (wifiOnly: Boolean, include: String?) -> Unit,
+    onDismiss: () -> Unit,
+    onChangeFolder: (() -> Unit)? = null,
+    onResetFolder: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    var wait by rememberSaveable { mutableStateOf(plan.metered) }
+    var smaller by rememberSaveable { mutableStateOf(false) }
+    val skip = plan.smaller
+    val bytes = if (smaller && skip != null) skip.bytes else plan.bytes
+    val large = LocalDensity.current.fontScale >= 1.5f
+    Column(
+        modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 8.dp, bottom = 20.dp).testTag("explorer.preflight"),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(PreflightText.title(title), style = MaterialTheme.typography.titleLarge, lineHeight = 26.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.semantics { heading() })
+        Text(
+            PreflightText.headline(if (smaller && skip != null) skip.files else plan.files, ExplorerBytes.format(bytes), PreflightText.minutes(if (smaller && skip != null) skip.seconds else plan.seconds), plan.metered),
+            style = MaterialTheme.typography.bodyMedium,
+            lineHeight = 18.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (plan.metered) {
+            val warn = explorerWarnTone()
+            PreflightRow(Modifier.testTag("explorer.preflight.metered"), container = warn.container, line = warn.border) {
+                Icon(Icons.Filled.SignalCellularAlt, contentDescription = null, tint = warn.muted, modifier = Modifier.size(20.dp))
+                RowText(PreflightText.metered, ExplorerBytes.format(bytes)?.let { PreflightText.pack(it) } ?: PreflightText.meteredNote, Modifier.weight(1f), titleColor = warn.content, noteColor = warn.muted)
+            }
+        }
+        PreflightRow(Modifier.toggleable(value = wait, role = Role.Switch, onValueChange = { wait = it }).testTag("explorer.preflight.wifi")) {
+            RowText(PreflightText.waitForWifi, PreflightText.waitNote, Modifier.weight(1f))
+            ExplorerToggle(wait, { wait = it }, Modifier.clearAndSetSemantics { })
+        }
+        Column(
+            Modifier.fillMaxWidth().explorerCard(MaterialTheme.colorScheme.surface, explorerControlLine(), ExplorerShapes.inner).padding(horizontal = 14.dp, vertical = 12.dp).testTag("explorer.preflight.storage"),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val ok = plan.enoughSpace || smaller
+            val tone = explorerTone(if (ok) ExplorerStatus.SAVED else ExplorerStatus.FAILED)!!
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(PreflightText.storage, style = MaterialTheme.typography.bodyMedium, lineHeight = 19.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                Text(if (ok) PreflightText.enough else PreflightText.notEnough, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = tone.accent)
+            }
+            val free = plan.freeBytes
+            if (free != null && bytes > 0) {
+                val total = (plan.totalBytes ?: (free + bytes)).coerceAtLeast(free + 1)
+                val used = ((total - free).toFloat() / total).coerceIn(0f, 1f)
+                val mine = (bytes.toFloat() / total).coerceIn(0f, 1f - used)
+                val usedColor = if (MaterialTheme.field.isDark) MaterialTheme.field.placeholder else Color(0xFFA7A3BC)
+                Row(Modifier.fillMaxWidth().height(10.dp).clip(ExplorerShapes.pill).background(if (MaterialTheme.field.isDark) MaterialTheme.field.surface200 else Color(0xFFECE9F5))) {
+                    if (used > 0f) Box(Modifier.fillMaxHeight().weight(used).background(usedColor))
+                    if (mine > 0f) Box(Modifier.fillMaxHeight().weight(mine).background(if (ok) MaterialTheme.colorScheme.primary else tone.accent))
+                    val rest = 1f - used - mine
+                    if (rest > 0f) Spacer(Modifier.weight(rest))
+                }
+            }
+            Text(
+                PreflightText.storageLine(ExplorerBytes.format(bytes), plan.freeBytes?.let { ExplorerBytes.format((it - bytes).coerceAtLeast(0)) }),
+                style = MaterialTheme.typography.bodySmall,
+                lineHeight = 16.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        PreflightRow {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(PreflightText.saveTo, style = MaterialTheme.typography.bodyMedium, lineHeight = 19.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text(plan.location, style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.preflight.location"))
+                if (onResetFolder != null) {
+                    ExplorerLinkButton(PreflightText.useDownloads, onClick = onResetFolder, modifier = Modifier.heightIn(min = 40.dp).testTag("explorer.preflight.reset"))
+                }
+            }
+            if (onChangeFolder != null) {
+                ExplorerLinkButton(PreflightText.change, onClick = onChangeFolder, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.preflight.change"))
+            }
+        }
+        if (skip != null) {
+            PreflightRow(Modifier.toggleable(value = smaller, role = Role.Switch, onValueChange = { smaller = it }).testTag("explorer.preflight.smaller")) {
+                RowText(PreflightText.smaller, PreflightText.skipVideos(ExplorerBytes.format(skip.bytes), PreflightText.minutes(skip.seconds)), Modifier.weight(1f))
+                ExplorerToggle(smaller, { smaller = it }, Modifier.clearAndSetSemantics { })
+            }
+        }
+        val notNow: @Composable (Modifier) -> Unit = { m ->
+            ExplorerSecondaryButton(PreflightText.notNow, onClick = onDismiss, minHeight = 52.dp, style = MaterialTheme.typography.bodyLarge, shape = ExplorerShapes.inner, modifier = m.testTag("explorer.preflight.cancel"))
+        }
+        val start: @Composable (Modifier) -> Unit = { m ->
+            ExplorerPrimaryButton(
+                if (wait) PreflightText.downloadOnWifi else PreflightText.download,
+                onClick = { onStart(wait, if (smaller) skip?.include else null) },
+                enabled = plan.enoughSpace || smaller,
+                minHeight = 52.dp,
+                style = MaterialTheme.typography.bodyLarge,
+                bold = true,
+                shape = ExplorerShapes.inner,
+                modifier = m.testTag("explorer.preflight.start"),
+            )
+        }
+        if (large) {
+            start(Modifier.fillMaxWidth().padding(top = 4.dp))
+            notNow(Modifier.fillMaxWidth())
+        } else {
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                notNow(Modifier.weight(1f))
+                start(Modifier.weight(2f))
+            }
+        }
+        Text(PreflightText.shownWhen, style = MaterialTheme.typography.bodySmall, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+    }
 }

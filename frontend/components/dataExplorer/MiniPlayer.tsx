@@ -17,7 +17,7 @@ function session(): MediaSession | null {
   return navigator.mediaSession;
 }
 
-export function MiniPlayer({ track, onExpand, onClose }: { track: MiniPlayerTrack | null; onExpand: () => void; onClose: () => void }) {
+export function MiniPlayer({ track, onExpand, onClose, onPosition }: { track: MiniPlayerTrack | null; onExpand: () => void; onClose: () => void; onPosition?: (ms: number, durationMs: number | null) => void }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [position, setPosition] = useState(track?.startMs ?? 0);
   const [duration, setDuration] = useState<number | null>(null);
@@ -124,6 +124,7 @@ export function MiniPlayer({ track, onExpand, onClose }: { track: MiniPlayerTrac
         onTimeUpdate={(event) => {
           const audio = event.currentTarget;
           setPosition(audio.currentTime * 1000);
+          onPosition?.(audio.currentTime * 1000, Number.isFinite(audio.duration) ? audio.duration * 1000 : null);
           const media = session();
           if (media?.setPositionState && Number.isFinite(audio.duration) && audio.duration > 0) {
             try {

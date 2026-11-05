@@ -28,7 +28,7 @@ export type Crumb = { name: string; path: string };
 
 export type InfoField = { label: string; value: string };
 
-export type FolderInfo = { title: string; fields: InfoField[] };
+export type FolderInfo = { title: string; fields: InfoField[]; record?: { kind: string; id: string } | null };
 
 export type Taxonomy = { id: string; name: string; path: string; description: string; default: boolean };
 

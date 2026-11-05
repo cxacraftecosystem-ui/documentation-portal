@@ -241,6 +241,11 @@ object ExplorerSaver {
         minOf(StatFs(dir.absolutePath).availableBytes, StatFs(context.cacheDir.absolutePath).availableBytes)
     }.getOrNull()
 
+    fun totalBytes(context: Context): Long? = runCatching {
+        val dir = context.getExternalFilesDir(null) ?: context.filesDir
+        StatFs(dir.absolutePath).totalBytes
+    }.getOrNull()
+
     fun shareUri(context: Context, location: String?, uri: String?): Uri? {
         if (!uri.isNullOrBlank()) return Uri.parse(uri)
         val path = location ?: return null

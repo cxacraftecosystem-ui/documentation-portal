@@ -7,7 +7,7 @@ import { handOff } from "@/lib/dataExplorer/api";
 import type { IncludeKey } from "@/lib/dataExplorer/contract";
 import { retryDelaySeconds, type DownloadItem, type DownloadRequest, type DownloadStatus } from "@/lib/dataExplorer/downloads";
 import { fetchDownload, NotAFile, type PartialFile } from "@/lib/dataExplorer/fetchDownload";
-import { formatBytes, pushSample, rateOf, secondsLeft, timeLeftLabel, type RateSample } from "@/lib/dataExplorer/plan";
+import { bytesOf, formatBytes, pushSample, rateOf, secondsLeft, timeLeftLabel, type RateSample } from "@/lib/dataExplorer/plan";
 import type { JobSource, JobTarget } from "@/lib/dataExplorer/protocol";
 import { DownloadRefused } from "@/lib/dataExplorer/wire";
 
@@ -163,8 +163,15 @@ export function useDownloads() {
         const base = request.kind === "report" ? "The report couldn't be built. Nothing was saved." : request.kind === "pack" ? "The report pack couldn't be built. Nothing was saved." : errorText(error, "The download failed.");
         patch(id, (item) => ({
           status: "failed",
-          error: status === 503 && (request.kind === "report" || request.kind === "pack") ? "Reports are busy. Nothing was saved." : error instanceof NotAFile ? error.message : base,
-          note: item.bytesDone > 0 && request.kind !== "report" && request.kind !== "pack" ? `Stopped at ${formatBytes(item.bytesDone)}${item.bytesTotal ? ` of ${formatBytes(item.bytesTotal)}` : ""}. Retrying picks up from there.` : null,
+          error:
+            status === 503 && (request.kind === "report" || request.kind === "pack")
+              ? "Reports are busy. Nothing was saved."
+              : error instanceof NotAFile
+                ? error.message
+                : item.bytesDone > 0 && request.kind !== "report" && request.kind !== "pack"
+                  ? `${status === 0 ? "Connection lost" : "Stopped"} at ${item.bytesTotal ? bytesOf(item.bytesDone, item.bytesTotal) : formatBytes(item.bytesDone)}.`
+                  : base,
+          note: item.bytesDone > 0 && request.kind !== "report" && request.kind !== "pack" ? `Retrying picks up from there.` : null,
           retryAt: again,
           timeLeft: null,
           rate: null,
