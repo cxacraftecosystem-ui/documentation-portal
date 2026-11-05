@@ -1,6 +1,6 @@
 "use client";
 
-import { Bookmark, Database, FileText, FolderTree as FolderTreeIcon, Layers, RefreshCw, Table2 } from "lucide-react";
+import { Bookmark, Database, Download, FileText, FolderTree as FolderTreeIcon, Layers, RefreshCw, Table2 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
@@ -22,9 +22,10 @@ import { TranscriptsTab } from "@/components/dataExplorer/TranscriptsTab";
 import { useDownloads } from "@/components/dataExplorer/useDownloads";
 import { useExplorerTree } from "@/components/dataExplorer/useExplorerTree";
 import { WorkshopOverview } from "@/components/dataExplorer/WorkshopOverview";
-import { fetchSavedView, includeParam, recordVisit, reportFileUrl, reportOptionParams, transcriptBundleUrl } from "@/lib/dataExplorer/api";
-import { INCLUDE_KEYS, type Crumb, type FolderVisit, type IncludeKey, type ReportOptions, type ReportResponse, type SavedView, type Taxonomy, type TreeEntry } from "@/lib/dataExplorer/contract";
-import { limitSentence, overLimit } from "@/lib/dataExplorer/plan";
+import { bundleManifestEndpoint, fetchBundle, fetchSavedView, includeParam, recordVisit, reportFileUrl, reportOptionParams, reportPackUrl, transcriptBundleUrl } from "@/lib/dataExplorer/api";
+import { INCLUDE_KEYS, type Crumb, type FolderVisit, type IncludeKey, type ReportBundle, type ReportOptions, type ReportResponse, type SavedView, type Taxonomy, type TreeEntry } from "@/lib/dataExplorer/contract";
+import { formatBytes, limitSentence, overLimit } from "@/lib/dataExplorer/plan";
+import { ActionGroup } from "@/components/ui/ActionGroup";
 import type { JobSource } from "@/lib/dataExplorer/protocol";
 import { EMPTY_SELECTION, selectionLabel, selectionSource, toggled, withAll, type Selection } from "@/lib/dataExplorer/selection";
 import { ancestorsOf, readUrlState, recallScroll, rememberScroll, writeUrlState, type ExplorerUrlState, type ExplorerView } from "@/lib/dataExplorer/urlState";
@@ -226,6 +227,47 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
     if (fallback) navigate({ path: fallback.path }, "replace");
   }, [trees, navigate, params]);
 
+  const bundleId = params.get("bundle");
+  const [bundle, setBundle] = useState<{ id: string; data: ReportBundle | null; error: string | null } | null>(null);
+  useEffect(() => {
+    if (!bundleId) return;
+    let cancelled = false;
+    fetchBundle(bundleId)
+      .then((data) => {
+        if (!cancelled) setBundle({ id: bundleId, data, error: null });
+      })
+      .catch(() => {
+        if (!cancelled) setBundle({ id: bundleId, data: null, error: "That download isn't available to you." });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bundleId]);
+
+  const dropBundle = useCallback(() => {
+    setBundle(null);
+    const base = new URLSearchParams(window.location.search);
+    base.delete("bundle");
+    const text = base.toString();
+    router.replace(`${pathname}${text ? `?${text}` : ""}`, { scroll: false });
+  }, [router, pathname]);
+
+  const startBundle = useCallback(
+    (data: ReportBundle) => {
+      void downloads.enqueueZip({
+        label: data.label,
+        fileName: zipName(data.label),
+        source: { kind: "manifests", requests: [{ method: "GET", endpoint: bundleManifestEndpoint(data.id), params: {} }], extra: [] },
+        include: null,
+        mode: "zip",
+        bytes: data.bytes,
+        files: data.fileCount
+      });
+      dropBundle();
+    },
+    [downloads, dropBundle]
+  );
+
   const viewId = params.get("viewId");
   useEffect(() => {
     if (!viewId) return;
@@ -343,6 +385,14 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const makeReport = useCallback(
     (options: ReportOptions, name: string) => {
       downloads.enqueue({ kind: "report", label: `Report (.xlsx) · ${folderName}`, url: reportFileUrl(url.path, "xlsx", { ...config.extra, ...reportOptionParams(options, url.q, name) }), fileName: name, path: url.path });
+    },
+    [downloads, folderName, url.path, url.q, config.extra]
+  );
+
+  const makePack = useCallback(
+    (options: ReportOptions, name: string) => {
+      const packName = name.replace(/\.xlsx$/i, ".zip");
+      downloads.enqueue({ kind: "pack", label: `Report pack · ${folderName}`, url: reportPackUrl(url.path, { ...config.extra, ...reportOptionParams(options, url.q, name) }), fileName: packName, path: url.path });
     },
     [downloads, folderName, url.path, url.q, config.extra]
   );
@@ -468,6 +518,32 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
         </div>
         {!online.online ? <OfflineNote loadedAt={loadedAt} /> : null}
         {viewError ? <Problem onRetry={() => setViewError(null)} retryLabel="Dismiss">{viewError}</Problem> : null}
+        {bundle && bundle.id === bundleId ? (
+          bundle.data ? (
+            <section aria-label="Download from the report" className="panel flex flex-wrap items-center gap-3 p-4" data-testid="bundle-offer">
+              <div className="min-w-0 flex-1">
+                <p className="font-display text-base font-bold text-ink-900">{bundle.data.label}</p>
+                <p className="text-sm text-ink-500">
+                  {bundle.data.fileCount.toLocaleString("en-IN")} {bundle.data.fileCount === 1 ? "file" : "files"} · {formatBytes(bundle.data.bytes)}
+                  {bundle.data.hiddenCount > 0 ? ` · ${bundle.data.hiddenCount.toLocaleString("en-IN")} you can't see are left out` : ""}
+                </p>
+              </div>
+              <ActionGroup align="end">
+                <button type="button" className="field-button-secondary" onClick={dropBundle}>
+                  Not now
+                </button>
+                <button type="button" className="field-button" onClick={() => bundle.data && startBundle(bundle.data)}>
+                  <Download className="h-4 w-4" aria-hidden />
+                  Download · {formatBytes(bundle.data.bytes)}
+                </button>
+              </ActionGroup>
+            </section>
+          ) : (
+            <Problem onRetry={dropBundle} retryLabel="Dismiss">
+              {bundle.error}
+            </Problem>
+          )
+        ) : null}
         <div className="flex items-center gap-2 lg:hidden">
           <button type="button" className="field-button-secondary min-h-11" aria-expanded={showTree} onClick={() => setShowTree((value) => !value)}>
             <FolderTreeIcon className="h-4 w-4" aria-hidden />
@@ -621,6 +697,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
         extra={config.extra}
         query={url.view === "tables" ? url.q : ""}
         onMake={makeReport}
+        onPack={makePack}
       />
       <SavedViewsDialog
         open={viewsOpen}

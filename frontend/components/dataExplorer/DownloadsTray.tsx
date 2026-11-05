@@ -62,7 +62,7 @@ function Row({ item, downloads, zipRunning }: { item: DownloadItem; downloads: D
           {item.current ? <p className="truncate text-xs text-ink-500">Now: {item.current}</p> : null}
           {item.failedFiles.length ? <p className="rounded-sm bg-amber-100 px-2 py-1 text-xs text-amber-800">{item.failedFiles.length} {item.failedFiles.length === 1 ? "file" : "files"} will be listed as failed.</p> : null}
           <ActionGroup align="start">
-            {item.kind !== "report" ? (
+            {item.kind !== "report" && item.kind !== "pack" ? (
               item.note === "Paused" ? (
                 <button type="button" className={TRAY_BUTTON} onClick={() => downloads.startNow(item.id)}>
                   Resume

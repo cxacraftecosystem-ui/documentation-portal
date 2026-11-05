@@ -119,14 +119,48 @@ export type ReportResponse = {
   cached?: boolean;
 };
 
+export type ReportLocale = "en" | "hi";
+
 export type ReportOptions = {
   sheets: string[] | null;
   answers: "original" | "english" | "both";
   rows: "all" | "filtered";
   links: boolean;
+  thumbnails: boolean;
+  locale: ReportLocale;
+  extras: Record<string, boolean>;
 };
 
-export const DEFAULT_REPORT_OPTIONS: ReportOptions = { sheets: null, answers: "both", rows: "all", links: true };
+export type ReportSheetInfo = { key: string; name: string; plugin?: string | null; count: number | null; files?: number | null; group?: string | null; description?: string | null };
+
+export type ReportExtra = { key: string; title: string };
+
+export type ReportSheetList = { path: string; sheets: ReportSheetInfo[]; extras: ReportExtra[]; locales: string[] };
+
+export type ReportBundle = {
+  id: string;
+  label: string;
+  path: string | null;
+  createdAt: string | null;
+  fileCount: number;
+  bytes: number;
+  listedCount: number;
+  hiddenCount: number;
+  mediaIds?: string[];
+  manifestPath?: string | null;
+  chunk?: number | null;
+};
+
+export const DEFAULT_REPORT_OPTIONS: ReportOptions = { sheets: null, answers: "both", rows: "all", links: true, thumbnails: false, locale: "en", extras: {} };
+
+export function withReportDefaults(options: Partial<ReportOptions> | null | undefined): ReportOptions {
+  return {
+    ...DEFAULT_REPORT_OPTIONS,
+    ...(options ?? {}),
+    locale: options?.locale === "hi" ? "hi" : "en",
+    extras: options?.extras && typeof options.extras === "object" ? { ...options.extras } : {}
+  };
+}
 
 export type SavedViewState = { view: "files" | "tables" | "transcripts"; sheet: string; q: string; filters: Record<string, string> };
 

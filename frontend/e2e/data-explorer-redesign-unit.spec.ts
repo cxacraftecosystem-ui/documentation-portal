@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { legacyHits, unifiedHits } from "@/components/dataExplorer/paletteSearch";
 import { reportOptionParams } from "@/lib/dataExplorer/api";
-import { DEFAULT_REPORT_OPTIONS, type ReportResponse, type TreeEntry } from "@/lib/dataExplorer/contract";
+import { DEFAULT_REPORT_OPTIONS, withReportDefaults, type ReportResponse, type TreeEntry } from "@/lib/dataExplorer/contract";
 import { fileNameFrom, looksLikeZip, nextToStart, retryDelaySeconds, ROW_TONE_CLASS, TONE_CLASS, toneOf, trayHeadline, type DownloadItem } from "@/lib/dataExplorer/downloads";
 import { builtAgo, estimateLine, filterOf, highlightParts, mergeNavigation, pageOf, percentLabel, sortArtisans, viewLink, viewSummary } from "@/lib/dataExplorer/explorerView";
 import { fetchDownload, NotAFile } from "@/lib/dataExplorer/fetchDownload";
@@ -162,15 +162,22 @@ test.describe("@qf:X15 tables, report options and saved views", () => {
   });
 
   test("report options become query parameters, defaults send nothing", () => {
-    expect(reportOptionParams(DEFAULT_REPORT_OPTIONS, "", "")).toEqual({ sheets: undefined, answers: undefined, rows: undefined, q: undefined, links: undefined, name: undefined });
-    expect(reportOptionParams({ sheets: ["Tools", "Media"], answers: "english", rows: "filtered", links: false }, " indigo ", "Bagru.xlsx")).toEqual({
+    expect(reportOptionParams(DEFAULT_REPORT_OPTIONS, "", "")).toEqual({ sheets: undefined, answers: undefined, rows: undefined, q: undefined, links: undefined, thumbnails: undefined, locale: undefined, extras: undefined, name: undefined });
+    expect(
+      reportOptionParams({ ...DEFAULT_REPORT_OPTIONS, sheets: ["Tools", "Media"], answers: "english", rows: "filtered", links: false, thumbnails: true, locale: "hi", extras: { quotes: true, glossary: false, charts: true } }, " indigo ", "Bagru.xlsx")
+    ).toEqual({
       sheets: "Tools,Media",
       answers: "english",
       rows: "filtered",
       q: "indigo",
       links: 0,
+      thumbnails: 1,
+      locale: "hi",
+      extras: "charts,quotes",
       name: "Bagru.xlsx"
     });
+    expect(withReportDefaults({ sheets: ["Tools"], answers: "both", rows: "all", links: true } as never)).toEqual({ ...DEFAULT_REPORT_OPTIONS, sheets: ["Tools"] });
+    expect(withReportDefaults({ locale: "fr" } as never).locale).toBe("en");
     expect(reportOptionParams({ ...DEFAULT_REPORT_OPTIONS, rows: "filtered" }, "", "").rows).toBeUndefined();
   });
 

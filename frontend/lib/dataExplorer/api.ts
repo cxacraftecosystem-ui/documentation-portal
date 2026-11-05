@@ -5,8 +5,10 @@ import {
   type BrowsePage,
   type IncludeKey,
   type FolderVisit,
+  type ReportBundle,
   type ReportOptions,
   type ReportResponse,
+  type ReportSheetList,
   type SavedView,
   type SavedViewState,
   type WorkshopOverview,
@@ -77,8 +79,40 @@ export function reportOptionParams(options: ReportOptions, q: string, name: stri
     rows: options.rows === "filtered" && q.trim() ? "filtered" : undefined,
     q: options.rows === "filtered" && q.trim() ? q.trim() : undefined,
     links: options.links ? undefined : 0,
+    thumbnails: options.thumbnails ? 1 : undefined,
+    locale: options.locale === "hi" ? "hi" : undefined,
+    extras: chosenExtras(options).join(",") || undefined,
     name: name.trim() || undefined
   };
+}
+
+export function chosenExtras(options: Pick<ReportOptions, "extras">): string[] {
+  return Object.entries(options.extras ?? {})
+    .filter(([, on]) => on)
+    .map(([key]) => key)
+    .sort();
+}
+
+export function reportPackUrl(path: string, extra: QueryParams = {}): string {
+  return apiUrl("/data/report/pack", { path, ...extra });
+}
+
+export async function fetchReportSheets(path: string, extra: QueryParams = {}, signal?: AbortSignal): Promise<ReportSheetList | null> {
+  try {
+    const answer = await apiFetch<Partial<ReportSheetList>>(`/data/report/sheets${buildQuery({ path, ...extra })}`, { signal });
+    return { path: answer.path ?? path, sheets: Array.isArray(answer.sheets) ? answer.sheets : [], extras: Array.isArray(answer.extras) ? answer.extras : [], locales: Array.isArray(answer.locales) ? answer.locales : ["en"] };
+  } catch (error) {
+    if (unsupported(error)) return null;
+    throw error;
+  }
+}
+
+export function fetchBundle(id: string): Promise<ReportBundle> {
+  return apiFetch<ReportBundle>(`/data/bundles/${encodeURIComponent(id)}`);
+}
+
+export function bundleManifestEndpoint(id: string): string {
+  return `/data/bundles/${encodeURIComponent(id)}/manifest`;
 }
 
 export async function fetchReportOptions(): Promise<ReportOptions | null> {

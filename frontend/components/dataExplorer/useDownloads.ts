@@ -109,12 +109,12 @@ export function useDownloads() {
         status: "running",
         error: null,
         retryAt: null,
-        note: request.kind === "report" ? "Preparing report" : known?.bytesDone ? `Picking up at ${formatBytes(known.bytesDone)}` : null
+        note: request.kind === "report" ? "Preparing report" : request.kind === "pack" ? "Preparing report pack" : known?.bytesDone ? `Picking up at ${formatBytes(known.bytesDone)}` : null
       });
       try {
         const fetched = await fetchDownload(request.url, {
           signal: controller.signal,
-          expect: request.kind === "report" ? "xlsx" : "any",
+          expect: request.kind === "report" ? "xlsx" : request.kind === "pack" ? "zip" : "any",
           fallbackName: request.fileName ?? request.label,
           resume: partials.current.get(id) ?? null,
           onPartial: (partial) => partials.current.set(id, partial),
@@ -128,7 +128,7 @@ export function useDownloads() {
               bytesDone,
               bytesTotal: bytesTotal ?? request.bytes ?? null,
               rate,
-              note: bytesDone > 0 ? null : request.kind === "report" ? "Preparing report" : null,
+              note: bytesDone > 0 ? null : request.kind === "report" ? "Preparing report" : request.kind === "pack" ? "Preparing report pack" : null,
               timeLeft: bytesTotal ? timeLeftLabel(secondsLeft(bytesDone, bytesTotal, rate)) : null
             });
           }
@@ -141,7 +141,7 @@ export function useDownloads() {
           fileName: fetched.name,
           bytesDone: fetched.blob.size,
           bytesTotal: fetched.blob.size,
-          note: request.kind === "report" ? "Checked, opens in Excel" : null,
+          note: request.kind === "report" ? "Checked, opens in Excel" : request.kind === "pack" ? "Checked, opens as a zip" : null,
           timeLeft: null,
           finishedAt: Date.now()
         });
@@ -160,11 +160,11 @@ export function useDownloads() {
         const transient = !(error instanceof NotAFile) && (status === 0 || status === 429 || status >= 500);
         const retryAfter = error instanceof DownloadRefused ? error.retryAfter : null;
         const again = transient && tries <= AUTO_RETRIES ? Date.now() + retryDelaySeconds(tries, retryAfter) * 1000 : null;
-        const base = request.kind === "report" ? "The report couldn't be built. Nothing was saved." : errorText(error, "The download failed.");
+        const base = request.kind === "report" ? "The report couldn't be built. Nothing was saved." : request.kind === "pack" ? "The report pack couldn't be built. Nothing was saved." : errorText(error, "The download failed.");
         patch(id, (item) => ({
           status: "failed",
-          error: status === 503 && request.kind === "report" ? "Reports are busy. Nothing was saved." : error instanceof NotAFile ? error.message : base,
-          note: item.bytesDone > 0 && request.kind !== "report" ? `Stopped at ${formatBytes(item.bytesDone)}${item.bytesTotal ? ` of ${formatBytes(item.bytesTotal)}` : ""}. Retrying picks up from there.` : null,
+          error: status === 503 && (request.kind === "report" || request.kind === "pack") ? "Reports are busy. Nothing was saved." : error instanceof NotAFile ? error.message : base,
+          note: item.bytesDone > 0 && request.kind !== "report" && request.kind !== "pack" ? `Stopped at ${formatBytes(item.bytesDone)}${item.bytesTotal ? ` of ${formatBytes(item.bytesTotal)}` : ""}. Retrying picks up from there.` : null,
           retryAt: again,
           timeLeft: null,
           rate: null,

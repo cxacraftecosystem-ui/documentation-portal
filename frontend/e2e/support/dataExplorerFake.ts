@@ -177,6 +177,10 @@ export class DataExplorerFake {
   transcriptStatus: Record<string, string> = { aud1: "READY", vid1: "NEEDS_ATTENTION" };
   reportOptions: Json | null = null;
   isolated = false;
+  shares: Json[] = [];
+  landed: string[] = [];
+  schedules: Json[] = [];
+  bundles: Record<string, Json> = { b1: { id: "b1", label: "Bagru 2026 · every file", path: "workshops/bagru", createdAt: "2026-11-05T10:00:00Z", fileCount: 6, bytes: 182_000, listedCount: 6, hiddenCount: 0, manifestPath: "/data/bundles/b1/manifest", chunk: 500 } };
   isolateAsked = 0;
   views: Json[] = [];
   sharedViews: Json[] = [{ id: "v-shared", name: "Sanganer tables", path: "workshops/sanganer", state: { view: "tables", sheet: "", q: "", filters: {} }, shared: true, mine: false, ownerName: "Ravi Kumar", createdAt: "2026-11-01T10:00:00Z", updatedAt: "2026-11-01T10:00:00Z" }];
@@ -442,6 +446,78 @@ export class DataExplorerFake {
       this.isolated = true;
       return { status: 202, json: { status: "queued", isolated: false } };
     }
+    if (path === "/data/report/sheets") {
+      return {
+        status: 200,
+        json: {
+          path: query.get("path") ?? "",
+          sheets: [
+            { key: "artisans", name: "Artisans", plugin: "core", count: 201, files: 3, group: null, description: "Every artisan in this folder." },
+            { key: "products", name: "Products", plugin: "core", count: 1, files: 0, group: null, description: "Products recorded here." }
+          ],
+          extras: [
+            { key: "quotes", title: "Quotes sheet" },
+            { key: "glossary", title: "Glossary sheet" }
+          ],
+          locales: ["en", "hi"]
+        }
+      };
+    }
+    if (path === "/data/report/pack") {
+      return { status: 200, raw: ZIP, contentType: "application/zip", headers: { "content-disposition": 'attachment; filename="Dataset_ReportPack_Bagru-2026.zip"', "x-report-transcripts": "1" } };
+    }
+    if (path === "/data/report/shares" && method === "GET") return { status: 200, json: { items: this.shares.filter((share) => share.path === (query.get("path") ?? "")) } };
+    if (path === "/data/report/shares" && method === "POST") {
+      const id = `sh${this.shares.length + 1}`;
+      const share = { id, url: `http://localhost:3000/report-share/token-${id}`, path: body?.path, title: "Bagru 2026", options: body?.options ?? {}, createdAt: "2026-11-05T10:00:00Z", expiresAt: "2026-11-12T10:00:00Z", revokedAt: null, state: "active", views: 0, lastOpenedAt: null };
+      this.shares.push(share);
+      return { status: 201, json: share };
+    }
+    const shareMatch = /^\/data\/report\/shares\/([^/]+)(\/views)?$/.exec(path);
+    if (shareMatch) {
+      const share = this.shares.find((item) => item.id === shareMatch[1]);
+      if (!share) return { status: 404, json: { detail: "Not Found" } };
+      if (shareMatch[2]) return { status: 200, json: { items: [], total: 0, truncated: false } };
+      if (method === "DELETE") {
+        share.state = "revoked";
+        share.revokedAt = "2026-11-05T11:00:00Z";
+        return { status: 204 };
+      }
+    }
+    if (path === "/data/report/schedules" && method === "GET") return { status: 200, json: { items: this.schedules, enabled: true, mailAvailable: true, maxPerOwner: 5, attachMaxBytes: 10_000_000, defaultTimezone: "Asia/Kolkata" } };
+    if (path === "/data/report/schedules" && method === "POST") {
+      const view = [...this.views, ...this.sharedViews].find((item) => item.id === body?.savedViewId);
+      const schedule = { id: `rs${this.schedules.length + 1}`, savedViewId: body?.savedViewId, viewName: view?.name ?? null, path: view?.path ?? null, weekday: body?.weekday ?? 0, hourLocal: body?.hourLocal ?? 8, timezone: body?.timezone ?? "Asia/Kolkata", label: "Mondays at 8 am", options: body?.options ?? {}, paused: false, nextRunAt: "2026-11-09T02:30:00Z", lastSentAt: null, lastError: null, lastFile: null, createdAt: "2026-11-05T10:00:00Z" };
+      this.schedules.push(schedule);
+      return { status: 201, json: schedule };
+    }
+    const scheduleMatch = /^\/data\/report\/schedules\/([^/]+)$/.exec(path);
+    if (scheduleMatch) {
+      const schedule = this.schedules.find((item) => item.id === scheduleMatch[1]);
+      if (!schedule) return { status: 404, json: { detail: "Not Found" } };
+      if (method === "DELETE") {
+        this.schedules = this.schedules.filter((item) => item.id !== scheduleMatch[1]);
+        return { status: 204 };
+      }
+      if (method === "PATCH") {
+        Object.assign(schedule, body ?? {});
+        return { status: 200, json: schedule };
+      }
+      return { status: 200, json: schedule };
+    }
+    const bundleMatch = /^\/data\/bundles\/([^/]+)(\/manifest)?$/.exec(path);
+    if (bundleMatch) {
+      const bundle = this.bundles[bundleMatch[1]];
+      if (!bundle) return { status: 404, json: { detail: "Not Found" } };
+      if (!bundleMatch[2]) return { status: 200, json: bundle };
+      const files = this.manifestFiles([String(bundle.path)], [], null).filter((line) => line.content == null);
+      const lines = files.map((line) => JSON.stringify(line)).join("\n");
+      return { status: 200, raw: Buffer.from(lines), contentType: "application/x-ndjson", headers: { "x-dataset-total": String(files.length), "x-dataset-truncated": "false" } };
+    }
+    if (path === "/data/go/media/img1/download") return { status: 200, json: { url: "/e2e-landing?file=img1", fileName: "photo.jpg", mediaId: "img1" } };
+    if (path === "/data/go/open/artisan/a-kamla") return { status: 200, json: { kind: "artisan", id: "a-kamla", href: "/data?path=workshops%2Fbagru%2Fkamla" } };
+    if (path === "/data/go/transcript/aud1/docx") return { status: 200, json: { mediaId: "aud1", format: "docx", apiPath: "/transcripts/aud1/download?format=docx&track=both", openHref: "/data?path=workshops%2Fbagru&preview=aud1" } };
+    if (path.startsWith("/data/go/")) return { status: 404, json: { detail: "Not Found" } };
     if (path === "/data/overview") return query.get("path") === "workshops/bagru" ? { status: 200, json: OVERVIEW } : { status: 404, json: { detail: "Not a workshop folder." } };
     if (path === "/data/visits" && method === "POST") return { status: 200, json: { path: body?.path, visitedAt: "2026-11-05T10:00:00Z", ...this.visit } };
     if (path === "/data/report-options") {
@@ -509,6 +585,13 @@ export class DataExplorerFake {
         return root.getDirectoryHandle("saved-folder", { create: true });
       };
     }, theme);
+    await context.route(
+      (url) => url.pathname === "/e2e-landing",
+      async (route: Route) => {
+        this.landed.push(new URL(route.request().url()).searchParams.get("file") ?? "");
+        return route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>Signed file</title><p>signed file</p>" });
+      }
+    );
     await context.route(
       (url) => url.pathname.startsWith("/e2e-files/"),
       async (route: Route) => {

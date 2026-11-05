@@ -4,6 +4,7 @@ import { Bookmark, CheckCircle2, Link2, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { Problem, Skeleton } from "@/components/dataExplorer/explorerUi";
+import { ReportScheduleControls } from "@/components/dataExplorer/ReportScheduleControls";
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import { Toggle } from "@/components/ui/Toggle";
 import { createSavedView, deleteSavedView, fetchSavedViews, updateSavedView } from "@/lib/dataExplorer/api";
@@ -159,6 +160,7 @@ export function SavedViewsDialog({
             ))}
           </ul>
         )}
+        {views ? <ReportScheduleControls savedViews={[...views.mine, ...views.shared.filter((view) => !view.mine)]} /> : null}
       </div>
     </FieldDialog>
   );

@@ -1,4 +1,4 @@
-export type DownloadKind = "zip" | "report" | "csv" | "file" | "transcript";
+export type DownloadKind = "zip" | "report" | "pack" | "csv" | "file" | "transcript";
 
 export type DownloadStatus = "waiting" | "running" | "saved" | "failed" | "cancelled";
 

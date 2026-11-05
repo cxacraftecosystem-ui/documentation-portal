@@ -1120,3 +1120,149 @@ test.describe("@qf:X2 counts and capture dates", () => {
     }
   });
 });
+
+test.describe("@qf:X6 report options overhaul", () => {
+  async function openReportDialog(page: Page) {
+    await page.getByTestId("download-folder").getByRole("button", { name: "Report (.xlsx)" }).click();
+    const dialog = page.getByRole("dialog", { name: "Report (.xlsx)" });
+    await expect(dialog.getByRole("list", { name: "Sheets" })).toContainText("Artisans");
+    return dialog;
+  }
+
+  test("the server's sheets and every extra are offered, and the report asks for exactly what was chosen", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
+    try {
+      const dialog = await openReportDialog(page);
+      await expect(dialog.getByRole("list", { name: "Sheets" })).toContainText("201");
+      const extras = dialog.getByRole("group", { name: "Extras" });
+      await expect(extras.getByRole("switch", { name: "Quotes sheet" })).toHaveAttribute("aria-checked", "false");
+      await expect(extras.getByRole("switch", { name: "Glossary sheet" })).toBeVisible();
+      await extras.getByRole("switch", { name: "Quotes sheet" }).click();
+      await dialog.getByRole("radiogroup", { name: "Language" }).getByRole("radio", { name: "हिन्दी" }).click();
+      await dialog.getByRole("switch", { name: "Small image thumbnails" }).click();
+      await dialog.getByRole("button", { name: "Remember these choices" }).click();
+      await expect(dialog.getByRole("button", { name: "Remembered" })).toBeVisible();
+      expect(fake.reportOptions).toMatchObject({ locale: "hi", thumbnails: true, extras: { quotes: true } });
+      await dialog.getByRole("button", { name: "Make report" }).click();
+      await expect(trayItem(page, "Report (.xlsx) · Bagru 2026")).toHaveAttribute("data-status", "saved");
+      const asked = fake.calls.filter((call) => call.path === "/data/report" && call.query.get("format") === "xlsx")[0];
+      expect(asked.query.get("extras")).toBe("quotes");
+      expect(asked.query.get("locale")).toBe("hi");
+      expect(asked.query.get("thumbnails")).toBe("1");
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("the report pack lands in the tray as a checked zip, never resumed", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
+    try {
+      const dialog = await openReportDialog(page);
+      await dialog.getByRole("button", { name: "Report pack (.zip)" }).click();
+      const item = trayItem(page, "Report pack · Bagru 2026");
+      await expect(item).toHaveAttribute("data-status", "saved");
+      await expect(item).toHaveClass(/bg-success-100/);
+      await expect(item.getByRole("button", { name: "Pause" })).toHaveCount(0);
+      const asked = fake.calls.filter((call) => call.path === "/data/report/pack");
+      expect(asked).toHaveLength(1);
+      expect(asked[0].query.get("path")).toBe("workshops/bagru");
+      expect(asked[0].headers.range ?? null).toBeNull();
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("a live link is made and turned off from the report options", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
+    try {
+      const dialog = await openReportDialog(page);
+      await dialog.getByRole("button", { name: "Make link" }).click();
+      await expect(dialog.getByRole("textbox", { name: "Live link" })).toHaveValue(/report-share\/token-sh1/);
+      expect(fake.calledWith("POST", "/data/report/shares")[0].body).toMatchObject({ path: "workshops/bagru", expiresInDays: 7 });
+      await dialog.getByRole("button", { name: "Turn off" }).click();
+      await dialog.getByRole("button", { name: "Turn off" }).click();
+      await expect.poll(() => fake.calledWith("DELETE", "/data/report/shares/sh1").length).toBe(1);
+      await expect(dialog.getByRole("textbox", { name: "Live link" })).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("a saved view can be emailed every week and the schedule removed", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
+    try {
+      await page.getByRole("button", { name: "Saved views" }).click();
+      const dialog = page.getByRole("dialog", { name: "Saved views" });
+      await expect(dialog.getByRole("heading", { name: "Email me a report" })).toBeVisible();
+      await dialog.getByRole("button", { name: "Schedule" }).click();
+      const list = dialog.getByRole("list", { name: "Scheduled reports" });
+      await expect(list).toContainText("Sanganer tables");
+      expect(fake.calledWith("POST", "/data/report/schedules")[0].body).toMatchObject({ savedViewId: "v-shared" });
+      await list.getByRole("button", { name: "Delete" }).click();
+      await expect(list).toHaveCount(0);
+      expect(fake.calledWith("DELETE", "/data/report/schedules/rs1")).toHaveLength(1);
+    } finally {
+      await context.close();
+    }
+  });
+});
+
+test.describe("@qf:X6 links inside the report", () => {
+  test("a media link fetches a fresh signed link and goes there", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
+    try {
+      await page.goto("/data/go/media/img1/download");
+      await page.waitForURL(/\/e2e-landing\?file=img1$/);
+      expect(fake.landed).toEqual(["img1"]);
+      expect(fake.calls.some((call) => call.path === "/data/go/media/img1/download" && call.query.get("as") === "json")).toBe(true);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("an Open this record link opens it in the portal, and one the reader cannot open says so politely", async ({ browser }) => {
+    const { context, page } = await openExplorer(browser, { path: "workshops/bagru" });
+    try {
+      await page.goto("/data/go/open/artisan/a-kamla");
+      await expect(page).toHaveURL(/\/data\?path=workshops%2Fbagru%2Fkamla/);
+      await expect(page.getByTestId("download-folder").getByRole("heading", { name: "Kamla Devi", exact: true })).toBeVisible();
+      await page.goto("/data/go/open/artisan/nobody");
+      await expect(page.getByRole("heading", { name: "Not available" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Open Data" })).toHaveAttribute("href", "/data");
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("a transcript link saves the file through the tray", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
+    try {
+      await page.goto("/data/go/transcript/aud1/docx");
+      await expect(trayItem(page, "Transcript (.docx)")).toHaveAttribute("data-status", "saved");
+      expect(fake.calls.some((call) => call.path === "/transcripts/aud1/download" && call.query.get("format") === "docx")).toBe(true);
+      await expect(page.getByRole("link", { name: "Open the recording" })).toHaveAttribute("href", "/data?path=workshops%2Fbagru&preview=aud1");
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("a sheet's Download all link offers the bundle, then downloads it as a resumable zip", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { query: "bundle=b1" });
+    try {
+      const offer = page.getByTestId("bundle-offer");
+      await expect(offer).toContainText("Bagru 2026 · every file");
+      await expect(offer).toContainText("6 files");
+      await offer.getByRole("button", { name: /^Download · / }).click();
+      await expect(page).not.toHaveURL(/bundle=/);
+      const item = trayItem(page, "Bagru 2026 · every file");
+      await expect(item).toContainText(/Saved 5 of 6 files\. 1 failed\./);
+      expect(fake.calledWith("GET", "/data/bundles/b1/manifest").length).toBeGreaterThan(0);
+      const names = readZip(await savedZip(page)).map((entry) => entry.name);
+      expect(names.some((name) => name.endsWith("photo.jpg"))).toBe(true);
+      await page.goto("/data?bundle=nope");
+      await expect(page.getByText("That download isn't available to you.")).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+});

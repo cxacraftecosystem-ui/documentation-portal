@@ -32,7 +32,7 @@ function totalOf(response: Response, offset: number): number | null {
 }
 
 export async function fetchDownload(url: string, options: FetchOptions): Promise<Fetched> {
-  const resume = options.expect === "xlsx" ? null : (options.resume ?? null);
+  const resume = options.expect === "xlsx" || options.expect === "zip" ? null : (options.resume ?? null);
   const headers = new Headers();
   if (resume && resume.bytes > 0) {
     headers.set("Range", `bytes=${resume.bytes}-`);
@@ -46,7 +46,7 @@ export async function fetchDownload(url: string, options: FetchOptions): Promise
   const total = totalOf(response, continuing ? bytes : 0);
   const etag = response.headers.get("etag");
   const type = response.headers.get("content-type") ?? "";
-  if (options.expect === "xlsx" && type.includes("application/json")) {
+  if ((options.expect === "xlsx" || options.expect === "zip") && type.includes("application/json")) {
     throw await refusalOf(response, "The report couldn't be built.");
   }
   options.onProgress?.({ bytesDone: bytes, bytesTotal: total });

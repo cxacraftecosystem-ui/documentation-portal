@@ -19,6 +19,9 @@ EXTRA = (
     "frontend/e2e/data-explorer-redesign-unit.spec.ts",
     "frontend/e2e/data-explorer.spec.ts",
     "frontend/e2e/support/dataExplorerFake.ts",
+    "frontend/e2e/report-share-unit.spec.ts",
+    "frontend/app/report-share/[token]/layout.tsx",
+    "frontend/app/report-share/[token]/page.tsx",
 )
 
 
