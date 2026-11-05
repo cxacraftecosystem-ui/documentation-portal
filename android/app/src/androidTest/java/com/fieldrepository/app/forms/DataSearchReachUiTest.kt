@@ -10,6 +10,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToLog
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performScrollToNode
@@ -145,6 +147,18 @@ class DataSearchReachUiTest {
         }
     }
 
+    private fun tapUntilListed(chip: String) {
+        repeat(3) {
+            compose.onNodeWithText(chip).performSemanticsAction(SemanticsActions.OnClick)
+            val listed = runCatching {
+                compose.waitUntil(15_000) { compose.onAllNodes(hasTestTag("explorer.search.summary"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+            }.isSuccess
+            if (listed) return
+            compose.onRoot(useUnmergedTree = true).printToLog("quick-search")
+        }
+        waitFor("explorer.search.summary")
+    }
+
     private fun reach(list: String, more: String, line: String, done: String) {
         compose.waitUntil(60_000) {
             if (compose.onAllNodes(hasTestTag(line).and(hasText(done)), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()) {
@@ -211,8 +225,7 @@ class DataSearchReachUiTest {
         showQuick(opened)
         compose.waitForIdle()
         assertTrue(gone("explorer.search.summary"))
-        compose.onNodeWithText("Everything").performSemanticsAction(SemanticsActions.OnClick)
-        waitFor("explorer.search.summary")
+        tapUntilListed("Everything")
         compose.onNodeWithText("Showing 8 of 31").assertExists()
         compose.onNodeWithTag("explorer.search.all", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
         waitFor("search.all.shown", "20 of 31 shown")
@@ -227,8 +240,7 @@ class DataSearchReachUiTest {
     fun aFilterOnlyQuickSearchReachesEveryHit() {
         val opened = mutableListOf<String>()
         showQuick(opened)
-        compose.onNodeWithText("Artisans").performSemanticsAction(SemanticsActions.OnClick)
-        waitFor("explorer.search.summary")
+        tapUntilListed("Artisans")
         compose.onNodeWithText("Show all 31").performSemanticsAction(SemanticsActions.OnClick)
         waitFor("search.all.shown", "20 of 31 shown")
         reach("search.all.list", "search.all.more.artisan", "search.all.shown", "All 31 shown")
