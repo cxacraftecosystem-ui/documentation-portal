@@ -1217,7 +1217,7 @@ private fun SelectBar(count: Int, breakdown: String, size: String?, online: Bool
                 OutlinedButton(onClick = onShare, enabled = online && count > 0, modifier = m.heightIn(min = 48.dp).testTag("explorer.select.share")) { Text(ExplorerUiText.share) }
             }
             val download: @Composable (Modifier) -> Unit = { m ->
-                Button(onClick = onDownload, enabled = online && count > 0, modifier = m.heightIn(min = 48.dp).testTag("explorer.download")) {
+                Button(onClick = onDownload, enabled = online && count > 0, modifier = m.heightIn(min = 48.dp).testTag("explorer.select.download")) {
                     Text(ExplorerUiText.downloadN(count, size), maxLines = if (large) 3 else 1, overflow = TextOverflow.Ellipsis)
                 }
             }

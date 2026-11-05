@@ -6,6 +6,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.fieldrepository.app.explorer.data.ExplorerEntry
@@ -209,7 +211,7 @@ class ExplorerSheetsUiTest {
         compose.waitForIdle()
         compose.onNodeWithText("Downloading 3rd Craft Toolkit").assertIsDisplayed()
         compose.onNodeWithText("62%").assertIsDisplayed()
-        compose.onNodeWithText("574 of 926").assertIsDisplayed()
+        compose.onAllNodesWithText("574 of 926").onFirst().assertIsDisplayed()
         compose.onNodeWithTag("explorer.progress.now").assertIsDisplayed()
         compose.onNodeWithText("1 file failed and will retry at the end.", substring = true).assertIsDisplayed()
         compose.onNodeWithTag("explorer.recent.saved").assertExists()

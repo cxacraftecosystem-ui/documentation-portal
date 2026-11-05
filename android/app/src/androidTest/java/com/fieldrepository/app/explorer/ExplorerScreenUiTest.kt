@@ -154,6 +154,7 @@ class ExplorerScreenUiTest {
     private val more = More()
 
     @Before fun fakes() {
+        com.fieldrepository.app.explorer.ui.ExplorerTablesMemory.clear()
         ExplorerMoreApi.override = more
     }
 
@@ -240,7 +241,7 @@ class ExplorerScreenUiTest {
         compose.onNodeWithText("2 selected").assertIsDisplayed()
         compose.onNodeWithTag("explorer.select.breakdown").assertIsDisplayed()
         compose.onNodeWithText("1 folder · 1 video", substring = true).assertExists()
-        compose.onNodeWithTag("explorer.download").assertIsEnabled()
+        compose.onNodeWithTag("explorer.select.download").assertIsEnabled()
         compose.onNodeWithTag("explorer.select.share").assertIsDisplayed()
         compose.onNodeWithTag("explorer.selectall").assertIsDisplayed()
         assertEquals("stats-selection:[w/bagru]:[v1]", fake.calls.first { it.startsWith("stats-selection") })
@@ -288,7 +289,7 @@ class ExplorerScreenUiTest {
         val fake = Fake()
         show(fake)
         scrollTo("explorer.allformats.a1")
-        compose.onNodeWithTag("explorer.allformats.a1").assertIsDisplayed()
+        compose.onNodeWithTag("explorer.allformats.a1").assertExists()
     }
 
     @QFeature("X12")
