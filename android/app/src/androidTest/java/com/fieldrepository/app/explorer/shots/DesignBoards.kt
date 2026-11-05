@@ -1,4 +1,4 @@
-package com.fieldrepository.app.explorer
+package com.fieldrepository.app.explorer.shots
 
 import com.fieldrepository.app.explorer.data.ExplorerBundle
 import com.fieldrepository.app.explorer.data.ExplorerEntry
@@ -46,6 +46,51 @@ object DesignBoards {
         downloadPath = "/data/media/$AUDIO_ID/download",
         capturedAt = "2026-09-22T10:00:00Z",
     )
+
+    const val VIDEO_ID = "vid-dabu"
+
+    val videoEntry = ExplorerEntry(
+        name = "Interview_Dabu-mud-resist_Take-1.mp4",
+        path = "$GIRIRAJ/Interview_Dabu-mud-resist_Take-1.mp4",
+        mediaType = "VIDEO",
+        mediaId = VIDEO_ID,
+        sizeBytes = 701 * MB,
+        transcriptAvailable = true,
+        previewPath = "/data/media/$VIDEO_ID/preview",
+        capturedAt = "2026-09-22T10:00:00Z",
+    )
+
+    fun videoFiles(): List<ExplorerEntry> {
+        val rest = files().filter { it.mediaId != AUDIO_ID }
+        return rest.take(2) + videoEntry + rest.drop(2).take(45)
+    }
+
+    fun videoTranscript(): Transcript {
+        val lines = listOf(
+            Line("11:32", "speaker_0", "What do you mix into the mud before it goes on the cloth?", ""),
+            Line("11:41", "speaker_1", "Lime, gum and the husk of wheat. It has to sit overnight.", ""),
+            Line("12:04", "speaker_1", "Then the mud resists the indigo where we press the block, so the pattern stays pale.", ""),
+            Line("12:31", "speaker_0", "How many dips in the indigo vat?", ""),
+            Line("12:38", "speaker_1", "Three to seven, depending on how dark the buyer wants it.", ""),
+        )
+        val names = mapOf("speaker_0" to "Interviewer", "speaker_1" to "Giriraj")
+        val turns = lines.mapIndexed { i, line ->
+            val start = ms(line.at)
+            val end = lines.getOrNull(i + 1)?.let { ms(it.at) - 500 } ?: (start + 20_000)
+            TranscriptTurn(id = "v$i", index = i, speakerKey = line.key, speakerName = names.getValue(line.key), startMs = start, endMs = end, language = "hi", text = line.original, translation = TurnTranslation(text = line.original, status = "TRANSLATED"), colorKey = "s${line.key.last()}")
+        }
+        return Transcript(
+            mediaId = VIDEO_ID,
+            title = "Interview_Dabu-mud-resist_Take-1",
+            status = "READY",
+            languages = listOf(TranscriptLanguage("hi", "Hindi"), TranscriptLanguage("en", "English")),
+            durationMs = 1_458_000,
+            speakerCount = 2,
+            speakers = listOf(TranscriptSpeaker("speaker_0", "Speaker 1", "Interviewer", colorKey = "s0"), TranscriptSpeaker("speaker_1", "Speaker 2", "Giriraj", colorKey = "s1")),
+            turns = turns,
+            audio = TranscriptAudio(durationMs = 1_458_000, video = true),
+        )
+    }
 
     fun files(): List<ExplorerEntry> {
         val before = (1..6).map { i ->

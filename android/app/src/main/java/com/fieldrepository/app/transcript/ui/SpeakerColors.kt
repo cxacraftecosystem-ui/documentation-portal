@@ -22,13 +22,13 @@ import com.fieldrepository.app.ui.field
 
 object SpeakerPalette {
     val light: Map<String, Long> = linkedMapOf(
-        "s0" to 0xFF1D4ED8, "s1" to 0xFFB45309, "s2" to 0xFF047857, "s3" to 0xFFBE185D,
-        "s4" to 0xFF6D28D9, "s5" to 0xFF0E7490, "s6" to 0xFFB91C1C, "s7" to 0xFF4D7C0F,
+        "s0" to 0xFF762CB1, "s1" to 0xFF0F766E, "s2" to 0xFFB45309, "s3" to 0xFFBE185D,
+        "s4" to 0xFF1D4ED8, "s5" to 0xFF4D7C0F, "s6" to 0xFFB91C1C, "s7" to 0xFF0E7490,
         TranscriptPreview.NEUTRAL to 0xFF52525B,
     )
     val dark: Map<String, Long> = linkedMapOf(
-        "s0" to 0xFF60A5FA, "s1" to 0xFFFBBF24, "s2" to 0xFF34D399, "s3" to 0xFFF472B6,
-        "s4" to 0xFFA78BFA, "s5" to 0xFF22D3EE, "s6" to 0xFFF87171, "s7" to 0xFFA3E635,
+        "s0" to 0xFFC090F5, "s1" to 0xFF2DD4BF, "s2" to 0xFFFBBF24, "s3" to 0xFFF472B6,
+        "s4" to 0xFF60A5FA, "s5" to 0xFFA3E635, "s6" to 0xFFF87171, "s7" to 0xFF22D3EE,
         TranscriptPreview.NEUTRAL to 0xFFA1A1AA,
     )
 

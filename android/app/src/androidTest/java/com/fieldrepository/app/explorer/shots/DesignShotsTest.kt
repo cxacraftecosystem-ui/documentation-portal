@@ -1,4 +1,4 @@
-package com.fieldrepository.app.explorer
+package com.fieldrepository.app.explorer.shots
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.background
@@ -78,7 +78,11 @@ class DesignShotsTest {
 
     private val loader = object : ExplorerMediaLoader {
         override suspend fun source(entry: ExplorerEntry): String? = "https://example.invalid/${entry.mediaId}"
-        override suspend fun transcript(mediaId: String): Transcript? = if (mediaId == DesignBoards.AUDIO_ID) DesignBoards.audioTranscript() else null
+        override suspend fun transcript(mediaId: String): Transcript? = when (mediaId) {
+            DesignBoards.AUDIO_ID -> DesignBoards.audioTranscript()
+            DesignBoards.VIDEO_ID -> DesignBoards.videoTranscript()
+            else -> null
+        }
     }
 
     private fun stageAudio() {
@@ -115,6 +119,16 @@ class DesignShotsTest {
         stageAudio()
         shoot("AndroidAudio", "tablet", widthDp = 1280, heightDp = 800, density = 1f) { audioPreview() }
     }
+
+    @Composable
+    private fun videoPreview() {
+        val entries = DesignBoards.videoFiles()
+        ExplorerMediaContent(entries, entries.indexOf(DesignBoards.videoEntry), 0.0, 48, onSave = {}, onDismiss = {}, loader = loader)
+    }
+
+    @Test fun androidPreview() = shoot("AndroidPreview") { videoPreview() }
+
+    @Test fun androidPreviewDark() = shoot("AndroidPreview", "dark", dark = true) { videoPreview() }
 
     @Test fun androidAudioPlayerMini() {
         stageAudio()

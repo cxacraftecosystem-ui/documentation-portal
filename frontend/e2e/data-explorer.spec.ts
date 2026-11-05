@@ -396,7 +396,7 @@ test.describe("@qf:X5 previews", () => {
       await expect(lines).toContainText("Lime and gum");
       await expect(dialog.getByRole("button", { name: "Transcript (.docx)" })).toBeVisible();
       await expect(dialog.getByRole("button", { name: "Subtitles (.srt)" })).toBeVisible();
-      await expect(dialog.getByRole("switch", { name: "Follows playback" })).toHaveAttribute("aria-checked", "true");
+      await expect(dialog.getByRole("switch", { name: /Text follows the audio/ })).toHaveAttribute("aria-checked", "true");
       const current = lines.locator('[data-current="true"] button');
       if ((await current.count()) > 0) {
         const style = await current.first().evaluate((node) => getComputedStyle(node));
@@ -439,15 +439,19 @@ test.describe("@qf:X5 previews", () => {
     }
   });
 
-  test("audio keeps playing in a mini player while browsing", async ({ browser }) => {
+  test("closing a playing recording keeps it playing in a mini player while browsing", async ({ browser }) => {
     const { context, page } = await openExplorer(browser, { path: "workshops/bagru" });
     try {
       await (await rowAction(page, "interview.m4a", "Play")).click();
       const dialog = page.getByRole("dialog", { name: "interview.m4a" });
-      await dialog.getByRole("button", { name: "Keep playing while browsing" }).click();
+      await dialog.getByRole("button", { name: "Play", exact: true }).click();
+      await expect(dialog.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
       await expect(dialog).toHaveCount(0);
       const player = page.getByRole("region", { name: "Now playing" });
-      await expect(player).toContainText("interview.m4a");
+      await expect(player).toContainText("interview");
+      const pause = player.getByRole("button", { name: "Pause", exact: true });
+      if (await pause.isVisible()) await pause.click();
       await player.getByRole("button", { name: "Stop and close player" }).click();
       await expect(player).toHaveCount(0);
     } finally {

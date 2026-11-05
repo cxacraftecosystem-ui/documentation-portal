@@ -42,7 +42,7 @@ jobs:
       - name: Render every approved board at its native size
         env:
           DESIGN_OUT: ${{ github.workspace }}/design-fidelity
-        run: npx playwright test e2e/design-boards.spec.ts --workers=4
+        run: npx playwright test e2e/fidelity-boards.spec.ts --workers=4
 
       - name: Build
         env:
@@ -63,7 +63,7 @@ jobs:
             sleep 2
           done
           curl -fsS -o /dev/null http://localhost:3000/login || { cat next.log; exit 1; }
-          npx playwright test e2e/design-fidelity.spec.ts
+          npx playwright test e2e/fidelity-build.spec.ts
 
       - name: Keep the boards and the build
         if: always()
@@ -131,7 +131,7 @@ jobs:
           ram-size: 4096M
           working-directory: android
           script: |
-            ./gradlew :app:connectedDebugAndroidTest --console=plain -Pandroid.testInstrumentationRunnerArguments.class=$APP_ID.explorer.DesignShotsTest || echo "$?" > "$RUNNER_TEMP/shots-exit"
+            ./gradlew :app:connectedDebugAndroidTest --console=plain -Pandroid.testInstrumentationRunnerArguments.package=$APP_ID.explorer.shots || echo "$?" > "$RUNNER_TEMP/shots-exit"
             mkdir -p "$SHOTS" && "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" pull "/sdcard/Android/data/$APP_ID/files/design-fidelity/." "$SHOTS/" || true
             test ! -e "$RUNNER_TEMP/shots-exit"
 
@@ -193,7 +193,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -d ../android-shots/design-fidelity ]; then cp -r ../android-shots/design-fidelity/. ../design-fidelity/; fi
-          npx playwright test e2e/design-pairs.spec.ts --workers=4
+          npx playwright test e2e/fidelity-pairs.spec.ts --workers=4
 
       - name: Keep every pair
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

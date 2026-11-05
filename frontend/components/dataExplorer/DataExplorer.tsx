@@ -680,6 +680,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
         onNavigate={(entry) => openPreview({ mediaId: entry.mediaId ?? "", name: entry.name, mediaType: entry.mediaType ?? null })}
         onClose={closePreview}
         recordHref={previewEntry?.mediaId ? config.fileHref(previewEntry.mediaId) : null}
+        recordName={current?.info?.title ?? folderName}
         startMs={url.t ? url.t * 1000 : null}
         find={url.find || undefined}
         onDownload={(request) => downloads.enqueue(request)}

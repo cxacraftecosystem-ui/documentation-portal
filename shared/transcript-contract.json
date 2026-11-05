@@ -75,14 +75,14 @@
   "speakerPalette": {
     "about": "One colour per colorKey for marks and labels. Light values are 4.5:1 or better on white, dark values 4.5:1 or better on #121212 (WCAG AA for text). The first two speakers are far apart in hue.",
     "neutral": {"light": "#52525B", "dark": "#A1A1AA"},
-    "s0": {"light": "#1D4ED8", "dark": "#60A5FA"},
-    "s1": {"light": "#B45309", "dark": "#FBBF24"},
-    "s2": {"light": "#047857", "dark": "#34D399"},
+    "s0": {"light": "#762CB1", "dark": "#C090F5"},
+    "s1": {"light": "#0F766E", "dark": "#2DD4BF"},
+    "s2": {"light": "#B45309", "dark": "#FBBF24"},
     "s3": {"light": "#BE185D", "dark": "#F472B6"},
-    "s4": {"light": "#6D28D9", "dark": "#A78BFA"},
-    "s5": {"light": "#0E7490", "dark": "#22D3EE"},
+    "s4": {"light": "#1D4ED8", "dark": "#60A5FA"},
+    "s5": {"light": "#4D7C0F", "dark": "#A3E635"},
     "s6": {"light": "#B91C1C", "dark": "#F87171"},
-    "s7": {"light": "#4D7C0F", "dark": "#A3E635"}
+    "s7": {"light": "#0E7490", "dark": "#22D3EE"}
   },
 
   "routes": [

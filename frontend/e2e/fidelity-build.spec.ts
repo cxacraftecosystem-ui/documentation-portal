@@ -54,6 +54,22 @@ async function englishLime(page: Page) {
   await page.waitForTimeout(400);
 }
 
+async function playing(page: Page) {
+  const play = page.getByTestId("preview-body").getByRole("button", { name: "Play", exact: true });
+  if (await play.isVisible()) await play.click();
+  await page.waitForTimeout(500);
+  await page.evaluate(() => {
+    const media = document.querySelector("[data-testid=preview-body] audio") as HTMLAudioElement | null;
+    if (media) media.currentTime = 1100;
+  });
+  await page.waitForTimeout(400);
+}
+
+async function englishLimePlaying(page: Page) {
+  await englishLime(page);
+  await playing(page);
+}
+
 async function settle(page: Page) {
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
   await page.addStyleTag({ content: "*,*::before,*::after{transition:none!important;animation:none!important;caret-color:transparent!important}" });
@@ -64,11 +80,11 @@ const AUDIO_URL = folder(GIRIRAJ, { preview: AUDIO_ID, t: "1100", hit: "lime", k
 const VIDEO_URL = folder(GIRIRAJ, { preview: VIDEO_ID, t: "724", hit: "indigo", kind: "VIDEO" });
 
 const SCENES: Scene[] = [
-  { board: "WebAudio", ...DESKTOP, query: AUDIO_URL, ready: audioReady, act: englishLime },
-  { board: "WebAudio", variant: "dark", ...DESKTOP, theme: "dark", query: AUDIO_URL, ready: audioReady, act: englishLime },
-  { board: "WebAudio", variant: "tablet", ...TABLET, query: AUDIO_URL, ready: audioReady, act: englishLime },
-  { board: "AndroidAudio", variant: "phone-web", ...PHONE, query: AUDIO_URL, ready: audioReady, act: englishLime },
-  { board: "AndroidAudio", variant: "phone-web-dark", ...PHONE, theme: "dark", query: AUDIO_URL, ready: audioReady, act: englishLime },
+  { board: "WebAudio", ...DESKTOP, query: AUDIO_URL, ready: audioReady, act: englishLimePlaying },
+  { board: "WebAudio", variant: "dark", ...DESKTOP, theme: "dark", query: AUDIO_URL, ready: audioReady, act: englishLimePlaying },
+  { board: "WebAudio", variant: "tablet", ...TABLET, query: AUDIO_URL, ready: audioReady, act: englishLimePlaying },
+  { board: "AndroidAudio", variant: "phone-web", ...PHONE, query: AUDIO_URL, ready: audioReady, act: englishLimePlaying },
+  { board: "AndroidAudio", variant: "phone-web-dark", ...PHONE, theme: "dark", query: AUDIO_URL, ready: audioReady, act: englishLimePlaying },
   {
     board: "AndroidAudioPlayer",
     variant: "phone-web",
@@ -76,8 +92,10 @@ const SCENES: Scene[] = [
     query: AUDIO_URL,
     ready: audioReady,
     act: async (page) => {
-      await page.getByRole("button", { name: "Keep playing while browsing" }).click();
+      await englishLimePlaying(page);
+      await page.getByTestId("preview-body").getByRole("button", { name: "Close", exact: true }).click();
       await expect(page.getByRole("region", { name: "Now playing" })).toBeVisible();
+      await page.waitForTimeout(1500);
     }
   },
   { board: "WebPreview", ...DESKTOP, query: VIDEO_URL, ready: async (page) => expect(page.getByTestId("preview-body")).toBeVisible() },

@@ -5,13 +5,14 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,26 +20,18 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,19 +45,26 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.fieldrepository.app.explorer.data.ExplorerAudio
+import com.fieldrepository.app.explorer.data.ExplorerAudioLines
 import com.fieldrepository.app.explorer.data.ExplorerBytes
 import com.fieldrepository.app.explorer.data.ExplorerDownloads
 import com.fieldrepository.app.explorer.data.ExplorerEntry
@@ -186,41 +186,54 @@ private fun ColumnScope.MediaPane(
     var follow by rememberSaveable { mutableStateOf(true) }
     var exporting by remember(entry.key) { mutableStateOf(false) }
 
-    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onDismiss, modifier = Modifier.testTag("explorer.preview.close")) { Icon(Icons.Filled.Close, contentDescription = ExplorerUiText.close) }
-        Column(Modifier.weight(1f)) {
-            Text(entry.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(listOf(fileMeta(entry), position).joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (onSave != null) {
-            OutlinedButton(onClick = onSave, modifier = Modifier.heightIn(min = 40.dp).padding(end = 8.dp).testTag("explorer.preview.save")) { Text(ExplorerUiText.save) }
-        }
-    }
-
     val ready = transcript as? TranscriptState.Ready
     val turns = remember(ready) { ready?.view?.turns?.sortedBy { it.startMs }.orEmpty() }
     val mediaId = entry.mediaId
+    val audioType = entry.mediaType == "AUDIO"
+    val title = if (audioType) ExplorerNames.pretty(entry.name) else ExplorerNames.base(entry.name)
+    val length = if (audioType) (ready?.view?.durationMs ?: 0L).takeIf { it > 0 }?.let { ExplorerAudioLines.clock(it) } else null
+    val meta = listOfNotNull(entry.mediaType?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "File", ExplorerBytes.format(entry.sizeBytes), length, position).joinToString(" · ")
+
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(
+            Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onDismiss)
+                .semantics { contentDescription = ExplorerUiText.close }.testTag("explorer.preview.close"),
+            contentAlignment = Alignment.Center,
+        ) { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(20.dp)) }
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(meta, style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (onSave != null) {
+            Box(
+                Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primary)
+                    .clickable(role = Role.Button, onClick = onSave).padding(horizontal = 14.dp).testTag("explorer.preview.save"),
+                contentAlignment = Alignment.Center,
+            ) { Text(ExplorerUiText.save, style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimary) }
+        }
+    }
+
     val bottomBar: @Composable () -> Unit = {
-    NavBar(
-        canPrevious, canNext, onPrevious, onNext,
-        onDocx = if (ready != null && mediaId != null && !exporting) ({
-            exporting = true
-            scope.launch {
-                runCatching {
-                    withContext(Dispatchers.IO) {
-                        val got = TranscriptPortal.backend(context).download(mediaId, "docx", CopyTrack.BOTH)
-                        File(shareDir(context), got.name ?: TranscriptNames.fileName(TranscriptNames.whatFor("docx"), "docx")).also { it.writeBytes(got.bytes) }
-                    }
-                }.onSuccess { shareFiles(context, listOf(it), null) }
-                exporting = false
-            }
-        }) else null,
-        onShare = if (ready != null) ({
-            val text = turns.joinToString("\n") { "[${ExplorerUiText.clock(it.startMs / 1000.0)}] ${it.speakerName}: ${it.text}" }
-            val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_SUBJECT, entry.name); putExtra(Intent.EXTRA_TEXT, text) }
-            runCatching { context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-        }) else null,
-    )
+        NavBar(
+            canPrevious, canNext, onPrevious, onNext,
+            onDocx = if (ready != null && mediaId != null && !exporting) ({
+                exporting = true
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            val got = TranscriptPortal.backend(context).download(mediaId, "docx", CopyTrack.BOTH)
+                            File(shareDir(context), got.name ?: TranscriptNames.fileName(TranscriptNames.whatFor("docx"), "docx")).also { it.writeBytes(got.bytes) }
+                        }
+                    }.onSuccess { shareFiles(context, listOf(it), null) }
+                    exporting = false
+                }
+            }) else null,
+            onShare = if (ready != null) ({
+                val text = turns.joinToString("\n") { "[${ExplorerUiText.clock(it.startMs / 1000.0)}] ${it.speakerName}: ${it.text}" }
+                val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_SUBJECT, entry.name); putExtra(Intent.EXTRA_TEXT, text) }
+                runCatching { context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            }) else null,
+        )
     }
     val source = url
     if (entry.mediaType == "IMAGE") {
@@ -230,121 +243,123 @@ private fun ColumnScope.MediaPane(
         NavBar(canPrevious, canNext, onPrevious, onNext, null, null)
         return
     }
-    if (entry.mediaType == "AUDIO") {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) { Tabs(tab) { tab = it } }
-        when {
-            transcript is TranscriptState.Loading -> Box(Modifier.fillMaxWidth().weight(1f)) { LoadingLine(ExplorerUiText.loadingTranscript) }
-            tab == PreviewTab.DETAILS -> Box(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 16.dp)) { Details(entry, ready?.view) }
-            else -> AudioPane(entry, ready?.view, startSeconds, english = tab == PreviewTab.ENGLISH)
+    if (audioType) {
+        if (transcript is TranscriptState.Loading) {
+            Box(Modifier.fillMaxWidth().weight(1f)) { LoadingLine(ExplorerUiText.loadingTranscript) }
+        } else {
+            AudioPane(entry, ready?.view, startSeconds)
         }
         bottomBar()
         return
     }
     val playback = rememberTranscriptPlayback(source?.let { Uri.parse(it) })
-    LaunchedEffect(entry.key) { if (com.fieldrepository.app.explorer.data.ExplorerAudio.state.value.playing) com.fieldrepository.app.explorer.data.ExplorerAudio.toggle() }
+    LaunchedEffect(entry.key) { if (ExplorerAudio.state.value.playing) ExplorerAudio.toggle() }
     LaunchedEffect(playback, startSeconds) {
         if (startSeconds > 0 && playback.available) playback.seek(startSeconds, play = true)
     }
+    var started by remember(entry.key) { mutableStateOf(false) }
+    LaunchedEffect(playback.playing) { if (playback.playing) started = true }
     val positionMs = (playback.positionSeconds * 1000).toLong()
     val active = turns.indexOfLast { it.startMs <= positionMs }.takeIf { it >= 0 && positionMs < turns[it].endMs + 1_500 }
+    val duration = playback.durationSeconds.takeIf { it > 0 } ?: ((ready?.view?.durationMs ?: 0L) / 1000.0)
+    val english = tab == PreviewTab.ENGLISH
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (entry.mediaType == "VIDEO") {
-            if (source == null) {
-                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black, MaterialTheme.shapes.medium), contentAlignment = Alignment.Center) { FieldCircularProgressIndicator() }
-            } else {
-                TranscriptVideoSurface(playback)
-            }
+    Box(Modifier.fillMaxWidth().height(219.dp).background(Color(0xFF12101C)).testTag("explorer.preview.stage")) {
+        if (source != null) TranscriptVideoSurface(playback, Modifier.fillMaxSize())
+        if (!started) Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF4B3A2E), Color(0xFF1A1520)))))
+        if (!playback.playing) {
+            Box(
+                Modifier.align(Alignment.Center).size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f))
+                    .clickable(enabled = playback.available, role = Role.Button, onClick = playback::toggle)
+                    .semantics { contentDescription = ExplorerUiText.play }.testTag("explorer.preview.play"),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(26.dp)) }
         } else {
-            Box(Modifier.fillMaxWidth().height(96.dp).background(MaterialTheme.field.surface100, MaterialTheme.shapes.medium), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Audiotrack, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
-            }
+            Box(Modifier.fillMaxSize().clickable(role = Role.Button, onClick = playback::toggle).semantics { contentDescription = ExplorerUiText.pause }.testTag("explorer.preview.pause"))
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IconButton(onClick = playback::toggle, enabled = playback.available, modifier = Modifier.testTag("explorer.preview.play")) {
-                Icon(if (playback.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = if (playback.playing) ExplorerUiText.pause else ExplorerUiText.play, tint = MaterialTheme.colorScheme.primary)
-            }
-            Column(Modifier.weight(1f)) {
-                active?.let { Text(turns[it].text, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.field.body) }
-                val duration = playback.durationSeconds
-                Slider(
-                    value = if (duration > 0) (playback.positionSeconds / duration).toFloat().coerceIn(0f, 1f) else 0f,
-                    onValueChange = { f -> if (duration > 0) playback.seek(f * duration, play = playback.playing) },
-                    enabled = playback.available && duration > 0,
-                    modifier = Modifier.fillMaxWidth().height(28.dp),
-                )
-                Row {
-                    Text(ExplorerUiText.clock(playback.positionSeconds), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                    Text(ExplorerUiText.clock(duration), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+        active?.let { i ->
+            val line = if (english) turns[i].translation.text?.ifBlank { null } ?: turns[i].text else turns[i].text
+            Text(
+                line,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                color = Color(0xFFF2F0F9),
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 34.dp).fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp)).background(Color(0xC712101C)).padding(horizontal = 10.dp, vertical = 6.dp),
+            )
         }
-        Tabs(tab) { tab = it }
+        Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(ExplorerUiText.clock(playback.positionSeconds), color = Color(0xFFCFCBE0), fontSize = 11.sp)
+            val fraction = if (duration > 0) (playback.positionSeconds / duration).toFloat().coerceIn(0f, 1f) else 0f
+            Box(
+                Modifier.weight(1f).height(16.dp).pointerInput(duration) {
+                    detectTapGestures { offset -> if (duration > 0) playback.seek((offset.x / size.width).coerceIn(0f, 1f) * duration, play = playback.playing) }
+                }.testTag("explorer.preview.seek"),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(Color(0xFF3A3651)))
+                Box(Modifier.fillMaxWidth(fraction).height(4.dp).clip(CircleShape).background(Color(0xFFC090F5)))
+            }
+            Text(ExplorerUiText.clock(duration), color = Color(0xFFCFCBE0), fontSize = 11.sp)
+        }
+    }
+
+    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SegmentTabs(
+            listOf(PreviewTab.TRANSCRIPT to ExplorerUiText.transcriptTab, PreviewTab.ENGLISH to ExplorerUiText.englishTab, PreviewTab.DETAILS to ExplorerUiText.detailsTab),
+            tab,
+            "explorer.preview.tab",
+        ) { tab = it }
         if (ready != null && tab != PreviewTab.DETAILS) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ready.view.speakers.take(4).forEach { s ->
-                    Box(Modifier.size(8.dp).background(speakerColor(s.colorKey), MaterialTheme.shapes.extraLarge))
-                    Text(s.name?.ifBlank { null } ?: s.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Box(Modifier.size(10.dp).background(speakerColor(s.colorKey), CircleShape))
+                    Text(s.name?.ifBlank { null } ?: s.label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.weight(1f))
-                FilterChip(selected = follow, onClick = { follow = !follow }, label = { Text(if (follow) "✓ " + ExplorerUiText.followsVideo else ExplorerUiText.follow) }, modifier = Modifier.testTag("explorer.preview.follow"))
+                Text(
+                    if (follow) "✓ " + ExplorerUiText.followsVideo else ExplorerUiText.follow,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (follow) (if (MaterialTheme.field.isDark) AudioColors.followDark else AudioColors.follow) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.clickable(role = Role.Switch) { follow = !follow }.padding(vertical = 6.dp).testTag("explorer.preview.follow"),
+                )
             }
         }
     }
-    Box(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 16.dp)) {
+    Box(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp)) {
         when {
-            tab == PreviewTab.DETAILS -> Details(entry, ready?.view)
+            tab == PreviewTab.DETAILS -> Box(Modifier.padding(horizontal = 8.dp)) { Details(entry, ready?.view) }
             transcript is TranscriptState.Loading -> LoadingLine(ExplorerUiText.loadingTranscript)
             ready == null -> HintLine(ExplorerUiText.noTranscript)
             else -> {
                 val list = rememberLazyListState()
                 LaunchedEffect(active, follow) {
-                    if (follow && active != null) runCatching { list.animateScrollToItem(active) }
+                    if (follow && active != null) runCatching { list.animateScrollToItem((active - 1).coerceAtLeast(0)) }
                 }
                 val (markBg, _) = explorerMark()
-                LazyColumn(state = list, modifier = Modifier.fillMaxSize().testTag("explorer.preview.segments"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                LazyColumn(state = list, modifier = Modifier.fillMaxSize().testTag("explorer.preview.segments"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     itemsIndexed(turns, key = { _, t -> t.id }) { i, turn ->
-                        val on = i == active
-                        Row(
-                            Modifier.fillMaxWidth()
-                                .background(if (on) markBg else Color.Transparent, MaterialTheme.shapes.medium)
-                                .clickable(role = Role.Button) { playback.seek(turn.startMs / 1000.0, play = true) }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Text(ExplorerUiText.clock(turn.startMs / 1000.0), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(44.dp))
-                            Column(Modifier.weight(1f)) {
-                                val who = ready.view.speakers.firstOrNull { it.speakerKey == turn.speakerKey }
-                                Text(turn.speakerName.ifBlank { who?.name ?: who?.label.orEmpty() }, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = speakerColor(turn.colorKey ?: who?.colorKey))
-                                val text = if (tab == PreviewTab.ENGLISH) turn.translation.text?.ifBlank { null } ?: ExplorerUiText.noEnglish else turn.text
-                                Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.body)
-                            }
-                        }
+                        val who = ready.view.speakers.firstOrNull { it.speakerKey == turn.speakerKey }
+                        val text = if (english) turn.translation.text?.ifBlank { null } ?: ExplorerUiText.noEnglish else turn.text
+                        Segment(
+                            clock = ExplorerUiText.clock(turn.startMs / 1000.0),
+                            speaker = turn.speakerName.ifBlank { who?.name ?: who?.label.orEmpty() },
+                            speakerColor = speakerColor(turn.colorKey ?: who?.colorKey),
+                            text = AnnotatedString(text),
+                            current = i == active,
+                            markBg = markBg,
+                            textSize = 14,
+                            onClick = { playback.seek(turn.startMs / 1000.0, play = true) },
+                        )
                     }
                 }
             }
         }
     }
     bottomBar()
-}
-
-@Composable
-private fun Tabs(current: PreviewTab, onPick: (PreviewTab) -> Unit) {
-    Row(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.medium).padding(3.dp)) {
-        listOf(PreviewTab.TRANSCRIPT to ExplorerUiText.transcriptTab, PreviewTab.ENGLISH to ExplorerUiText.englishTab, PreviewTab.DETAILS to ExplorerUiText.detailsTab).forEach { (tab, label) ->
-            val on = tab == current
-            Box(
-                Modifier.weight(1f).heightIn(min = 40.dp)
-                    .background(if (on) MaterialTheme.colorScheme.primary else Color.Transparent, MaterialTheme.shapes.small)
-                    .clickable { onPick(tab) }
-                    .semantics { role = Role.Tab; selected = on }
-                    .testTag("explorer.preview.tab.${tab.name.lowercase()}"),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(label, style = MaterialTheme.typography.labelLarge, color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
-            }
-        }
-    }
 }
 
 @Composable
@@ -369,20 +384,30 @@ private fun Details(entry: ExplorerEntry, view: Transcript?) {
 
 @Composable
 private fun NavBar(canPrevious: Boolean, canNext: Boolean, onPrevious: () -> Unit, onNext: () -> Unit, onDocx: (() -> Unit)?, onShare: (() -> Unit)?) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        IconButton(onClick = onPrevious, enabled = canPrevious, modifier = Modifier.testTag("explorer.preview.previous")) {
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = ExplorerUiText.previous)
-        }
-        if (onDocx != null) {
-            Button(onClick = onDocx, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("explorer.preview.docx")) { Text(ExplorerUiText.transcriptDocx, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-        } else {
-            Spacer(Modifier.weight(1f))
-        }
-        if (onShare != null) {
-            OutlinedButton(onClick = onShare, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("explorer.preview.share")) { Text(ExplorerUiText.share) }
-        }
-        IconButton(onClick = onNext, enabled = canNext, modifier = Modifier.testTag("explorer.preview.next")) {
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = ExplorerUiText.next)
-        }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.field.hairline))
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SquareButton(ExplorerUiText.previous, "‹", canPrevious, "explorer.preview.previous", onPrevious)
+        if (onDocx != null) BarButton(ExplorerUiText.transcriptDocx, "explorer.preview.docx", onDocx) else Spacer(Modifier.weight(1f))
+        if (onShare != null) BarButton(ExplorerUiText.share, "explorer.preview.share", onShare)
+        SquareButton(ExplorerUiText.next, "›", canNext, "explorer.preview.next", onNext)
     }
+}
+
+@Composable
+private fun RowScope.BarButton(label: String, tag: String, onClick: () -> Unit) {
+    Box(
+        Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.field.hairline, RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 8.dp, vertical = 6.dp).testTag(tag),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp), fontWeight = FontWeight.Normal, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center) }
+}
+
+@Composable
+private fun SquareButton(description: String, glyph: String, enabled: Boolean, tag: String, onClick: () -> Unit) {
+    Box(
+        Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.field.hairline, RoundedCornerShape(12.dp)).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = description }.testTag(tag),
+        contentAlignment = Alignment.Center,
+    ) { Text(glyph, fontSize = 18.sp, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) }
 }
