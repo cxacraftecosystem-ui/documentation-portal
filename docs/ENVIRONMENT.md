@@ -250,7 +250,7 @@ The names, so this file remains a complete index of what `config.py` reads:
   `SCALE_APPROX_COUNT_THRESHOLD`
 - `DATABASE_READ_REPLICA_URL` — unset by default; a replica connection string for read-only queries.
 
-### Cross-portal artisan identity (C27) — shipped OFF
+### Cross-portal artisan identity (C27) — ON in production
 
 One artisan across the two portals. A designer types the Aadhaar or Pehchan number, confirms the
 artisan agreed, and the designer portal's server asks the documentation portal's server for the
@@ -275,7 +275,7 @@ box `.env`; none is created by this repository.
 | `CROSS_PORTAL_TOKEN` | With the flag on | — | **Yes** | Shared by both servers. Authenticates requests and signs answers. 32+ characters. |
 | `AADHAAR_FINGERPRINT_KEY` | With the flag on | — | **Yes** | Not a cross-portal variable: the artisan register's Aadhaar fingerprint key (SSM `/iit/shared/aadhaar-fingerprint-key`, the same value on both servers), which the lookup reuses. Without it the feature stays off. Never rotate it: every stored fingerprint, and so every cross-portal match, depends on it. There is no `CROSS_PORTAL_AADHAAR_HMAC_KEY`. |
 
-### One search across both portals — shipped OFF
+### One search across both portals — ON in production
 
 One index per portal (`SearchDocument`), kept current by database triggers and drained by the queue
 worker every 15 seconds; ranked by Postgres full-text and trigram, and by meaning when embeddings
@@ -295,7 +295,7 @@ Every value goes to the GitHub Actions secrets **and** the box `.env`.
 | `CROSS_PORTAL_SEARCH_ENABLED` | No | **`false`** | No | Asks the designer portal and answers its searches (`/api/cross-portal/peer/search*`). Also needs `CROSS_PORTAL_TOKEN`, `AADHAAR_FINGERPRINT_KEY` and `DESIGNER_PORTAL_API_URL`; the designer portal needs its own flag, the same secrets and `FIELD_REPOSITORY_API_URL`. |
 | `DESIGNER_PORTAL_API_URL` | With cross-portal search | — | No | The designer portal's API base up to `/api`, e.g. `https://<designer-api-host>/api`. Only cross-portal search calls it. |
 
-### Cross-portal coverage feed — shipped OFF
+### Cross-portal coverage feed — ON in production
 
 The designer portal's ministry coverage map can show this portal's figures beside its own. With the
 flag on, its server may call `GET /api/cross-portal/peer/coverage`, which answers per-district
@@ -544,3 +544,17 @@ reference under `frontend/`, or a new workflow secret.
 CloudFront hostname, the Vercel org and project ids — is recorded from a deployment, not read from
 code. The CloudFront host answered `/health` and `/health/ready` on 2026-11-04; the rest are correct
 as of 2026-07-27 to the extent the deployment has not changed under them.
+
+## Cross-portal search and identity are ON in production (since 5 Nov 2026)
+
+Both boxes run with `UNIFIED_SEARCH_ENABLED=true`, `CROSS_PORTAL_IDENTITY_ENABLED=true`,
+`CROSS_PORTAL_SEARCH_ENABLED=true` and `CROSS_PORTAL_COVERAGE_ENABLED=true`, verified end to end with
+signed peer calls in both directions. This box also carries `DESIGNER_PORTAL_API_URL=https://d3ekigkotd1xa2.cloudfront.net/api`. `CROSS_PORTAL_TOKEN` is the GitHub
+Actions secret `CROSS_PORTAL_TOKEN` (the same value in both repositories) and the SSM SecureString
+`/iit/shared/cross-portal-token`. Embeddings stay off.
+
+`deploy-backend.yml` rewrites `.env` from `BACKEND_ENV` on every release, so the step *Pin cross-portal
+search and identity* appends these lines afterwards (delete, then `printf`, then a `grep` check, the way
+the CORS origins are pinned). The token is piped from the secret over SSH and never appears on a command
+line. A release without the `CROSS_PORTAL_TOKEN` secret stops before it boots, rather than switching
+the designer portal off.
