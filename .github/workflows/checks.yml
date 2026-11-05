@@ -909,6 +909,9 @@ jobs:
       - name: Android publish gate against stubbed deploy runs and /health
         run: shellcheck -x scripts/ci/await_backend_release.sh scripts/ci/test_await_backend_release.sh && bash scripts/ci/test_await_backend_release.sh
 
+      - name: Release gate harness, read-only client and summary
+        run: shellcheck -x scripts/release_gate/run.sh && python3 scripts/release_gate/test_gate.py -v
+
   shared-manifests:
     name: Shared-file manifests
     runs-on: ubuntu-26.04

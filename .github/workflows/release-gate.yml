@@ -1,0 +1,85 @@
+name: Release gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      checks:
+        description: "Only these checks, by name, space-separated. Empty runs every check."
+        required: false
+        default: ""
+      require_live_backend:
+        description: "Refuse unless deploy-backend for this commit succeeded and /health reports its backend"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-gate
+  cancel-in-progress: false
+
+env:
+  GATE_PORTAL: fieldRepository
+  GATE_API: https://d2b34i3e92al6i.cloudfront.net
+  GATE_WEB: https://field-repository.vercel.app
+
+jobs:
+  gate:
+    name: Real-data checks against production, read-only
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The backend for this commit is live
+        if: ${{ inputs.require_live_backend }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          API_BASE: ${{ env.GATE_API }}
+          ENFORCE: "true"
+          DEPLOY_WAIT_SECONDS: "600"
+        run: bash scripts/ci/await_backend_release.sh
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15"
+          check-latest: true
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install npm 12, the web dependencies and Chromium
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm install --global npm@12
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run the checks
+        env:
+          GATE_EMAIL: ${{ secrets.RELEASE_GATE_EMAIL || secrets.APP_PUBLISH_EMAIL }}
+          GATE_PASSWORD: ${{ secrets.RELEASE_GATE_PASSWORD || secrets.APP_PUBLISH_PASSWORD }}
+          GATE_ONLY: ${{ inputs.checks }}
+          GATE_SHA: ${{ github.sha }}
+          GATE_OUT: ${{ runner.temp }}/release-gate
+        run: bash scripts/release_gate/run.sh
+
+      - name: Keep the screenshots, counts and tables
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-gate-${{ env.GATE_PORTAL }}-${{ github.sha }}
+          path: ${{ runner.temp }}/release-gate
+          if-no-files-found: error
+          retention-days: 90

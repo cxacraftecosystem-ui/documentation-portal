@@ -10,7 +10,7 @@ WAIT_SECONDS="${PEER_WAIT_SECONDS:-600}"
 POLL_SECONDS="${PEER_POLL_SECONDS:-30}"
 ENV_NAMES="${PEER_ENV_NAMES:-CROSS_PORTAL_PEER_REPO SIBLING_REPO}"
 PORTAL_SPECIFIC="${PORTAL_SPECIFIC:-shared/questionnaire-form-contract.json shared/manifest.json}"
-ALSO_COMPARED="${PEER_ALSO_COMPARED:-scripts/ci/peer_checkout.sh scripts/ci/test_peer_checkout.sh scripts/ci/await_backend_release.sh scripts/ci/test_await_backend_release.sh backend/app/release.py backend/tests/test_release_fingerprint.py backend/tests/test_questionnaire_start_sheet_contract.py}"
+ALSO_COMPARED="${PEER_ALSO_COMPARED:-scripts/ci/peer_checkout.sh scripts/ci/test_peer_checkout.sh scripts/ci/await_backend_release.sh scripts/ci/test_await_backend_release.sh backend/app/release.py backend/tests/test_release_fingerprint.py backend/tests/test_questionnaire_start_sheet_contract.py scripts/release_gate/gate.py scripts/release_gate/run_checks.py scripts/release_gate/run.sh scripts/release_gate/test_gate.py scripts/release_gate/read_only_posts.txt frontend/release-gate/gate.ts frontend/playwright.release-gate.config.ts}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 

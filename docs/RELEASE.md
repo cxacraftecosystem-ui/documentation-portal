@@ -48,6 +48,19 @@ timeline
 2. Each push to `main` starts `deploy-backend.yml`.
 3. Push the `vX.Y.Z` tags straight away. `publish-android.yml` waits up to 90 minutes for `deploy-backend.yml` on the tagged commit to succeed. Then it waits for `/health` to report that commit's backend as `release`, the SHA-256 that `backend/app/release.py` takes over `backend/app/**/*.py`, `prisma/schema.prisma` and the migrations. If the deploy failed or never ran, or a different backend is live, the publish stops and says why. Fix the backend, then run the publish again. A manual run with `dry_run` off goes through the same gate. A dry run reports what the gate found and carries on.
 
+## Release gate
+
+`release-gate.yml` runs by hand, after the deploy, from the commit that went out. It checks that the backend for that commit is live, then runs every real-data check against production and fails if any check fails. Every request is read-only. The screenshots, counts and expected-versus-actual tables are kept as the artifact `release-gate-<portal>-<sha>` for 90 days. The input `checks` runs only the checks it names.
+
+How to add a check, the same in both repositories:
+
+- A Python check is `scripts/release_gate/checks/<name>.py` with `def run(gate)`. `gate` is `scripts/release_gate/gate.py`. Use `gate.sign_in()`, `gate.get(path)` and `gate.get_json(path)` to read, `gate.count(name=value)` for counts, `gate.expect(item, expected, actual)` for one table row (it passes when they are equal; pass `ok=` for any other rule), and `gate.save(file, bytes)` for a file such as a downloaded xlsx. An exception fails the check and its message is kept.
+- A browser check is `frontend/release-gate/<name>.spec.ts`. It imports `{ test, expect }` from `./gate` and uses the `gate` fixture, which signs the page in. Use `gate.shot(name)` for a full-page screenshot, `gate.count({...})`, `gate.expectRow(item, expected, actual)` and `gate.get(path)` for an authorised API read. `baseURL` is the production web app.
+- Each check writes `<GATE_OUT>/<check>/result.json` holding `{check, kind, ok, error, blocked, counts, rows}`, with its screenshots and files beside it. `summary.md` and `summary.json` collect them, and the summary also goes to the run page.
+- Read-only is enforced, not trusted. A `PUT`, `PATCH` or `DELETE` is refused before it is sent, and so is any `POST` to the API or to a web `/api/` path that `scripts/release_gate/read_only_posts.txt` does not list. A refused request fails the check and names the call. List a `POST` there, with the reason on its line, only when it changes nothing users can see.
+- Environment: `GATE_API`, `GATE_WEB`, `GATE_PORTAL`, `GATE_SHA`, `GATE_OUT`, `GATE_EMAIL` and `GATE_PASSWORD`. The account comes from `RELEASE_GATE_EMAIL` and `RELEASE_GATE_PASSWORD`, falling back to the publishing account.
+- The harness files are byte-identical in both repositories, and Checks compares them. The checks under `checks/` and `release-gate/` may differ per portal.
+
 ## Video, the upload choice and the backfill switch (DR 0.0.10, FR 0.0.10)
 
 No data step runs on deploy. The migration adds the per-file choice columns and the three admin
