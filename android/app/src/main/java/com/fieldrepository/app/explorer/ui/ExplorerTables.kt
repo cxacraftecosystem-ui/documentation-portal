@@ -303,7 +303,7 @@ internal fun ExplorerTables(
                     val words = now.query.trim()
                     if (rows.isEmpty()) HintLine(if (words.isNotBlank()) ExplorerText.matches(0, sheet.totalRows ?: 0) else ExplorerText.noRows)
                     rows.forEachIndexed { index, row ->
-                        RowCard(sheet.headers, row, words, if (words.isBlank()) index + 1 else null, "${sheet.name}.$index")
+                        RowCard(sheet.headers, row, words, sheet.rowNumbers?.getOrNull(index) ?: if (words.isBlank()) index + 1 else null, "${sheet.name}.$index")
                     }
                     val shown = rows.size
                     val total = ExplorerTablesState.count(sheet, words.isNotBlank())

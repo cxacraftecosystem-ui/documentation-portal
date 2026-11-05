@@ -31,18 +31,19 @@ AndroidLargeText, AndroidDark, PhoneTables, States, SearchBoth, ReportOptions an
 | Organise by | a card with the grouping chips and the description of the active one (review-status chips too in Field Repository) |
 | Folder card | breadcrumb, record name, `N files · size`, *New since you looked +N*, the first four recorded fields and *Show all N fields* |
 | Download card | seven include chips (Text, Images, Videos, Audio, Transcripts, Documents, Other) with their sizes, the selected size, *Report (.xlsx)* and *Download folder*, and *All transcripts, every format* |
-| Preflight | a sheet before downloads over 500 MB, on mobile data or when space is short: mobile-data warning, *Wait for Wi-Fi* (WorkManager unmetered constraint), storage left after, the save location, and a smaller download without videos |
-| Progress | an on-screen card for the running download: percent, bytes, files N of M, speed and network, time left, the current file with its own bar, a note when files will retry at the end, Pause or Resume, and Cancel; then *Recent files* (saved rows green, failed rows red) and the save path |
+| Preflight | a sheet before downloads over 500 MB, on mobile data or when space is short: mobile-data warning, *Wait for Wi-Fi* (WorkManager unmetered constraint), storage left after, the save location with *Change* (a folder picked through the system picker, kept with a persisted permission and remembered) or *Use Downloads instead*, and a smaller download without videos |
+| Progress | an on-screen card for the running download: percent, bytes, files N of M, speed and network, time left, the current file with its own bar, a note when files will retry at the end, Pause or Resume, and Cancel; then *Recent files* (saved rows green, failed rows red) with *All N*, the full list of files kept for the job, and the save path; a paused or dropped zip picks up at the next file instead of starting again |
 | Result | *Saved N files* in green with Open and Share, or a red card with Retry |
 | Tabs | Files, Tables and Transcripts; the tab resets to Files only when the folder changes |
 | Files | thumbnails, type, size and whether a transcript exists, with *Save* on the row; a saved file turns green with *Open*, a failed one red with *Retry*; a running save shows its percent and bytes |
-| Tables | sheet picker, per-sheet counts (matches while searching), a server-side search of every row (debounced, never a rebuild), rows as cards with *All N columns*, *This table (.csv)* and *Full report (.xlsx)*; the state lives outside the list, so scrolling never reopens, closes or reloads it, and a refresh keeps the rows on screen |
+| Tables | row numbers from the full sheet, also while searching; sheet picker, per-sheet counts (matches while searching), a server-side search of every row (debounced, never a rebuild), rows as cards with *All N columns*, *This table (.csv)* and *Full report (.xlsx)*; the state lives outside the list, so scrolling never reopens, closes or reloads it, and a refresh keeps the rows on screen |
+| Saved views | `https://<web host>/data?viewId=<id>` opens the app (app link on the same host as `/set-password`) and restores the folder, review status, search and tab; `?path=` opens a folder |
 | Report options | sheets with counts, answers in Original, English or Both, every row or only the filtered ones, file links, file name, *Remember these choices*, and saved views with *Copy link* |
 | Transcripts | this folder's transcripts with a search inside them, Ready, Translating and Failed pills, a language filter, *Read*, *.docx*, *Try again* on a failed one (a red row), *Transcripts (.zip)* and CSV exports |
 | Preview | video with the transcript following playback (the current line tinted), Transcript, English and Details tabs, previous and next, *Save*, *Transcript (.docx)* and *Share* |
-| Audio | waveform with tap to seek, speed, back and forward 10 s, speaker chips and the transcript following playback; playback continues in a Media3 session (lock screen, notification, headphone buttons, the current line) and a mini player while browsing |
+| Audio | *Clear voices* when the server holds an isolated copy (hidden otherwise); waveform with tap to seek, speed, back and forward 10 s, speaker chips and the transcript following playback; playback continues in a Media3 session (lock screen, notification, headphone buttons, the current line) and a mini player while browsing |
 | Selection | long press; a bar with the count and size, type pills, *Select all N*, a breakdown by type, *Share* and *Download N · size* |
-| Workshop overview | on a workshop folder: totals, review and transcript counts, and artisans least complete first with one square per section |
+| Workshop overview | on a workshop folder: totals, review and transcript counts, and artisans least complete first with one square per section; a square opens that artisan's record at that questionnaire section |
 | States | loading skeletons shaped like the page, an empty folder card, an amber offline card with the age of the saved copy, and a red *didn't load* card that retries in 8 s with *Try now* |
 | Tablet | at 840 dp and wider, the tree on the left and the folder, download card and a two-column file grid on the right |
 | Large text | at 200 % text the rows stack, buttons go full width and nothing is cut off |
@@ -76,8 +77,10 @@ removes anything a killed process left behind.
 Progress is reported per job: bytes and percent, files *N of M*, speed over the last five seconds,
 time left from that speed (or the average when there is no speed yet), the current file with its own bar,
 and the six most recent files with their state (saving, saved, retrying, failed). Background jobs can be
-paused and resumed; a paused single file keeps its partial bytes and resumes with `Range`, a paused zip
-starts again. The progress notification carries *Title · 62%*, the progress line, the current file and
+paused and resumed; a paused single file keeps its partial bytes and resumes with `Range`, a paused, dropped or failed zip picks up at the next file: the
+engine writes the zip itself (Zip64 past 4 GB), checkpoints each finished entry in the job's work folder, and
+on resume reopens the same Downloads entry, trims it to the last whole entry and skips files whose path and
+`sha256` match (a changed file and everything after it is written again). The progress notification carries *Title · 62%*, the progress line, the current file and
 speed, and *Pause*, *Cancel* and *Open*; a finished one says *Saved <title>* with the file count and size and
 *Open* and *Share*; a failed one names the file and offers *Retry* and *Details*. Tapping any of them opens
 the Downloads sheet on the Data screen (`ExplorerNotifications.EXTRA_OPEN_DOWNLOADS`, read by

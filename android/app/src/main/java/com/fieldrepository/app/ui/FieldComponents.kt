@@ -28,6 +28,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -322,36 +324,58 @@ fun ProvenanceSection(meta: JsonObject?, createdByName: String?) {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun ArtisanQuestionnairePanel(answers: List<ArtisanAnswerDto>, loading: Boolean) {
+fun ArtisanQuestionnairePanel(answers: List<ArtisanAnswerDto>, loading: Boolean, focusSection: String? = null) {
+    val focus = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+    val wanted = focusSection?.takeIf { it.isNotBlank() && it != "_" }
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = Canvas),
         shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth().testTag("artisan.questionnaire")
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Questionnaire answers", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
             when {
                 loading -> Text("Loading answers...", color = Muted, style = MaterialTheme.typography.bodySmall)
-                answers.isEmpty() -> Text("No answers yet.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                answers.isEmpty() && wanted == null -> Text("No answers yet.", color = Muted, style = MaterialTheme.typography.bodySmall)
                 else -> {
-                    val grouped = answers.groupBy { (it.sectionCode ?: "") + " " + (it.sectionTitle ?: "Section") }
-                    grouped.forEach { (sectionLabel, sectionAnswers) ->
-                        Spacer(Modifier.height(2.dp))
-                        Text(sectionLabel.trim(), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                        sectionAnswers.forEach { answer ->
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(SurfaceCard, RoundedCornerShape(10.dp))
-                                    .padding(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                answer.prompt?.let { Text(it, color = Body, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium) }
-                                Text(answer.answerText.orEmpty(), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium)
-                                val meta = listOfNotNull(answer.interviewTitle, answer.answeredByName?.let { "by $it" }).joinToString(" · ")
-                                if (meta.isNotBlank()) Text(meta, color = Muted, style = MaterialTheme.typography.bodySmall)
+                    val grouped = answers.groupBy { it.sectionCode.orEmpty() }
+                    val codes = grouped.keys.toMutableList().apply { if (wanted != null && wanted !in this) add(wanted) }
+                    codes.forEach { code ->
+                        val sectionAnswers = grouped[code].orEmpty()
+                        val focused = code == wanted
+                        val title = sectionAnswers.firstOrNull()?.sectionTitle ?: "Section"
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .let { m -> if (focused) m.bringIntoViewRequester(focus).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(12.dp)).padding(8.dp).testTag("artisan.questionnaire.focus") else m },
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("$code $title".trim(), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                            if (sectionAnswers.isEmpty()) {
+                                Text("Nothing answered in this section yet.", color = Muted, style = MaterialTheme.typography.bodySmall)
                             }
+                            sectionAnswers.forEach { answer ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(SurfaceCard, RoundedCornerShape(10.dp))
+                                        .padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    answer.prompt?.let { Text(it, color = Body, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium) }
+                                    Text(answer.answerText.orEmpty(), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium)
+                                    val meta = listOfNotNull(answer.interviewTitle, answer.answeredByName?.let { "by $it" }).joinToString(" · ")
+                                    if (meta.isNotBlank()) Text(meta, color = Muted, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
+                    if (wanted != null) {
+                        LaunchedEffect(wanted, answers.size) {
+                            kotlinx.coroutines.delay(150)
+                            runCatching { focus.bringIntoView() }
                         }
                     }
                 }

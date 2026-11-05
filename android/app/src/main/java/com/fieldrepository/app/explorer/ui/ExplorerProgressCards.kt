@@ -1,5 +1,7 @@
 package com.fieldrepository.app.explorer.ui
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -108,6 +110,7 @@ internal fun ProgressCard(
             FieldLinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(10.dp))
         }
         busyOrWaiting(job)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (job.resumedFrom > 0 && job.active) Text(ExplorerUiText.pickingUp(job.resumedFrom + 1), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.progress.resumed"))
         Row(Modifier.fillMaxWidth()) {
             Fact(ExplorerUiText.downloaded, if (job.totalBytes > 0) ExplorerBytes.progress(job.doneBytes, job.totalBytes) else "—", Modifier.weight(1f))
             Fact(ExplorerUiText.filesLabel, if (job.totalFiles > 0) ExplorerText.filesOf(job.doneFiles, job.totalFiles) else "—", Modifier.weight(1f))
@@ -179,7 +182,7 @@ private fun Fact(label: String, value: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun RecentFilesCard(job: ExplorerJob) {
+internal fun RecentFilesCard(job: ExplorerJob, onAll: (() -> Unit)? = null) {
     val recent = job.recent
     if (recent.isEmpty()) return
     Column(
@@ -190,14 +193,20 @@ internal fun RecentFilesCard(job: ExplorerJob) {
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(ExplorerUiText.recentFiles, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            if (job.totalFiles > 0) Text(ExplorerText.filesOf(job.doneFiles, job.totalFiles), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (onAll != null && job.totalFiles > 0) {
+                androidx.compose.material3.TextButton(onClick = onAll, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.recent.all")) {
+                    Text(ExplorerUiText.allN(job.totalFiles))
+                }
+            } else if (job.totalFiles > 0) {
+                Text(ExplorerText.filesOf(job.doneFiles, job.totalFiles), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         recent.reversed().forEach { RecentRow(it, job.active) }
     }
 }
 
 @Composable
-private fun RecentRow(file: ExplorerRecent, active: Boolean) {
+internal fun RecentRow(file: ExplorerRecent, active: Boolean) {
     val status = when (file.status) {
         ExplorerRecentStatus.SAVED -> ExplorerStatus.SAVED
         ExplorerRecentStatus.FAILED, ExplorerRecentStatus.RETRYING -> ExplorerStatus.FAILED
@@ -276,6 +285,36 @@ internal fun ResultCard(job: ExplorerJob, onOpen: () -> Unit, onShare: () -> Uni
         }
         if (status == ExplorerStatus.SAVED) {
             job.result?.location?.let { Text(ExplorerText.savedTo(it), style = MaterialTheme.typography.labelSmall, color = tone.muted) }
+        }
+    }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+internal fun AllFilesSheet(job: ExplorerJob, onDismiss: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var files by androidx.compose.runtime.remember(job.id) { androidx.compose.runtime.mutableStateOf<List<ExplorerRecent>?>(null) }
+    androidx.compose.runtime.LaunchedEffect(job.id, job.doneFiles, job.state) {
+        files = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { com.fieldrepository.app.explorer.data.ExplorerDownloads.files(context, job.id) }.getOrDefault(emptyList())
+        }
+    }
+    val sheet = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("explorer.allfiles")) {
+            Text(ExplorerUiText.allFiles, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+            Text(job.request.title, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val list = files
+            when {
+                list == null -> LoadingLine(ExplorerText.preparing)
+                list.isEmpty() -> HintLine(ExplorerUiText.noFilesYet)
+                else -> {
+                    val shown = list.asReversed()
+                    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().heightIn(max = 600.dp)) {
+                        items(shown.size) { i -> RecentRow(shown[i], job.active) }
+                    }
+                }
+            }
         }
     }
 }

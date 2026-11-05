@@ -89,6 +89,7 @@ import com.fieldrepository.app.explorer.data.ExplorerDownloads
 import com.fieldrepository.app.explorer.data.ExplorerDownloadsTap
 import com.fieldrepository.app.explorer.data.ExplorerEntry
 import com.fieldrepository.app.explorer.data.ExplorerEnvironment
+import com.fieldrepository.app.explorer.data.ExplorerFolder
 import com.fieldrepository.app.explorer.data.ExplorerInfo
 import com.fieldrepository.app.explorer.data.ExplorerItem
 import com.fieldrepository.app.explorer.data.ExplorerJob
@@ -134,7 +135,7 @@ private sealed interface DownloadTarget {
     data object Selection : DownloadTarget
 }
 
-private class Pending(val title: String, val plan: ExplorerPreflightPlan, val start: (wifiOnly: Boolean, include: String?) -> Unit)
+private class Pending(val title: String, val plan: ExplorerPreflightPlan, val start: (wifiOnly: Boolean, include: String?) -> Unit, val replan: () -> ExplorerPreflightPlan)
 
 private class Viewing(val entries: List<ExplorerEntry>, val index: Int, val startSeconds: Double = 0.0, val total: Int = entries.size)
 
@@ -207,6 +208,7 @@ fun ExplorerScreen(
     startPath: String? = null,
     searchScreen: (@Composable (query: String, onOpenInData: (type: String, id: String, title: String) -> Unit, onPlay: (mediaId: String, title: String, mediaType: String?, startSeconds: Double) -> Unit, onClose: () -> Unit) -> Unit)? = null,
     onRecordNow: ((folderPath: String, folderName: String) -> Unit)? = null,
+    onOpenSection: ((artisanId: String, sectionKey: String) -> Unit)? = null,
     more: ExplorerMore? = null,
 ) {
     val context = LocalContext.current
@@ -229,6 +231,8 @@ fun ExplorerScreen(
     var include by rememberSaveable { mutableStateOf(INCLUDE_ORDER.map { it.token }.toSet()) }
     var kindFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var showAllInfo by rememberSaveable { mutableStateOf(false) }
+    var allFilesFor by rememberSaveable { mutableStateOf<String?>(null) }
+    var viewQuery by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
     val stats = remember { mutableStateMapOf<String, SizeLoad>() }
     val visits = remember { mutableStateMapOf<String, ExplorerVisit>() }
     val overviews = remember { mutableStateMapOf<String, ExplorerOverview>() }
@@ -239,6 +243,12 @@ fun ExplorerScreen(
     var lastPath by rememberSaveable { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            ExplorerFolder.write(app, uri)
+            pending = pending?.let { p -> Pending(p.title, p.replan(), p.start, p.replan) }
+        }
+    }
     val languages by produceState(initialValue = emptyList<Pair<String, String>>(), explorerApi) {
         value = runCatching { explorerApi.languages().languages.map { it.code to it.label.ifBlank { it.code } } }.getOrDefault(emptyList())
     }
@@ -327,14 +337,17 @@ fun ExplorerScreen(
             start(false, null)
             return
         }
-        val plan = ExplorerPreflight.of(
-            size = size,
-            link = link,
-            freeBytes = ExplorerSaver.freeBytes(app),
-            speedBps = ExplorerSpeedMemory.read(app, link.metered),
-            location = ExplorerSaver.location(fileName),
-        )
-        if (plan.show) pending = Pending(title, plan, start) else start(false, null)
+        val replan = {
+            ExplorerPreflight.of(
+                size = size,
+                link = link,
+                freeBytes = ExplorerSaver.freeBytes(app),
+                speedBps = ExplorerSpeedMemory.read(app, link.metered),
+                location = ExplorerSaver.location(fileName),
+            )
+        }
+        val plan = replan()
+        if (plan.show) pending = Pending(title, plan, start, replan) else start(false, null)
     }
 
     fun saveText(entry: ExplorerEntry) {
@@ -492,16 +505,35 @@ fun ExplorerScreen(
 
     fun openView(view: ExplorerView) {
         reportOpen = false
+        view.state.filters["status"]?.takeIf { it != state.status && ExplorerPortal.statusOptions.any { o -> o.first == it } }?.let { state.changeStatus(it) }
         state.open(view.path)
+        viewQuery = view.state.q?.takeIf { it.isNotBlank() }?.let { view.path to it }
         state.tab = when (view.state.view) {
             "tables" -> ExplorerTab.TABLES
             "transcripts" -> ExplorerTab.TRANSCRIPTS
             else -> ExplorerTab.FILES
         }
-        view.state.q?.let { q -> scope.launch { delay(50); tables.show(view.path); tables.search(q) } }
+        if (view.state.view == "tables") view.state.q?.let { q -> scope.launch { delay(50); tables.show(view.path); tables.search(q) } }
         view.state.sheet?.let { tables.pick(it) }
     }
 
+    val linkRequest by ExplorerViewLinks.requests.collectAsState()
+    LaunchedEffect(linkRequest) {
+        val request = linkRequest ?: return@LaunchedEffect
+        ExplorerViewLinks.consume()
+        val id = request.viewId
+        when {
+            id != null -> try {
+                openView(extras.view(id))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                onMessage(ExplorerUiText.viewMissing)
+                request.path?.let { state.open(it) }
+            }
+            request.path != null -> state.open(request.path)
+        }
+    }
     fun play(entries: List<ExplorerEntry>, entry: ExplorerEntry) {
         val list = entries.filter(::playable)
         val index = list.indexOfFirst { it.key == entry.key }
@@ -536,7 +568,11 @@ fun ExplorerScreen(
     val size = stats[state.path]
     val large = LocalDensity.current.fontScale >= 1.5f
     val network = if (link.metered) ExplorerUiText.mobileData else ExplorerUiText.wifi
-    val shownFiles = state.files.filter { f -> kindFilter == null || ExplorerKind.ofMediaType(f.mediaType).token == kindFilter }
+    val fileQuery = viewQuery?.takeIf { it.first == state.path && state.tab == ExplorerTab.FILES }?.second
+    val shownFiles = state.files.filter { f ->
+        (kindFilter == null || ExplorerKind.ofMediaType(f.mediaType).token == kindFilter) &&
+            (fileQuery == null || f.name.contains(fileQuery, ignoreCase = true))
+    }
 
     val fileRow: @Composable (ExplorerEntry) -> Unit = { file ->
         FileRow(
@@ -616,7 +652,7 @@ fun ExplorerScreen(
                     onResume = { ExplorerDownloads.resume(app, job.id) },
                     onCancel = { ExplorerDownloads.cancel(app, job.id) },
                 )
-                RecentFilesCard(job)
+                RecentFilesCard(job, onAll = { allFilesFor = job.id })
                 Text(
                     ExplorerText.savingTo(ExplorerSaver.location(job.request.fileName)),
                     style = MaterialTheme.typography.labelSmall,
@@ -666,7 +702,7 @@ fun ExplorerScreen(
                 }
             }
             if (headline != null || finished != null) item("jobs") { jobCards() }
-            overviews[state.path]?.let { overview -> item("overview") { OverviewCard(overview) { state.open(it) } } }
+            overviews[state.path]?.let { overview -> item("overview") { OverviewCard(overview, onOpen = { state.open(it) }, onSection = onOpenSection) } }
             item("tabs") {
                 Tabs(
                     tab = state.tab,
@@ -679,6 +715,17 @@ fun ExplorerScreen(
                 ExplorerTab.FILES -> {
                     if (state.entries.isEmpty()) {
                         item("empty") { EmptyFolderCard(state.folderName, onRecordNow?.let { record -> { record(state.path, state.folderName) } }) }
+                    }
+                    if (fileQuery != null) {
+                        item("filequery") {
+                            FilterChip(
+                                selected = true,
+                                onClick = { viewQuery = null },
+                                label = { Text(ExplorerUiText.filteredBy(fileQuery)) },
+                                trailingIcon = { Icon(Icons.Filled.Close, contentDescription = ExplorerText.clear, modifier = Modifier.size(16.dp)) },
+                                modifier = Modifier.heightIn(min = 40.dp).testTag("explorer.filequery"),
+                            )
+                        }
                     }
                     if (state.selecting) {
                         item("kinds") { KindPills(state.files, kindFilter) { kindFilter = it } }
@@ -741,6 +788,7 @@ fun ExplorerScreen(
                 ExplorerTab.TRANSCRIPTS -> item("transcripts") {
                     ExplorerTranscriptsTab(
                         path = state.path,
+                        initialQuery = viewQuery?.takeIf { it.first == state.path }?.second.orEmpty(),
                         status = state.statusParam,
                         online = link.online,
                         offeredLanguages = languages,
@@ -859,7 +907,17 @@ fun ExplorerScreen(
     }
 
     pending?.let { p ->
-        PreflightSheet(title = p.title, plan = p.plan, onStart = { wifi, smaller -> p.start(wifi, smaller) }, onDismiss = { pending = null })
+        PreflightSheet(
+            title = p.title,
+            plan = p.plan,
+            onStart = { wifi, smaller -> p.start(wifi, smaller) },
+            onDismiss = { pending = null },
+            onChangeFolder = { runCatching { pickFolder.launch(ExplorerFolder.read(app)) }.onFailure { onMessage(ExplorerUiText.noFolderPicker) } },
+            onResetFolder = if (ExplorerFolder.label(app) != null) ({
+                ExplorerFolder.write(app, null)
+                pending = Pending(p.title, p.replan(), p.start, p.replan)
+            }) else null,
+        )
     }
 
     if (reportOpen) {
@@ -876,6 +934,10 @@ fun ExplorerScreen(
             onMessage = onMessage,
             onDismiss = { reportOpen = false },
         )
+    }
+
+    allFilesFor?.let { id ->
+        jobs.firstOrNull { it.id == id }?.let { job -> AllFilesSheet(job, onDismiss = { allFilesFor = null }) }
     }
 
     if (showDownloads) {

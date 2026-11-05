@@ -78,6 +78,16 @@ object ExplorerUiText {
     const val moreTranscripts = "Show more"
     const val noSpeech = "No speech found in the recording"
     const val loadingFolder = "Loading folder"
+    const val noFolderPicker = "This phone has no folder picker. Files go to Downloads."
+    const val allFiles = "All files"
+    const val noFilesYet = "No files finished yet."
+
+    fun allN(n: Int) = "All ${String.format(java.util.Locale.ROOT, "%,d", n)}"
+
+    fun pickingUp(n: Int) = "Picking up at file ${String.format(java.util.Locale.ROOT, "%,d", n)}"
+    const val viewMissing = "That saved view isn't available to you."
+
+    fun filteredBy(q: String) = "Filtered: “$q”"
 
     fun filesSize(files: Int, bytes: Long?): String =
         listOfNotNull(ExplorerBytes.count(files, "file"), bytes?.takeIf { it > 0 }?.let { ExplorerBytes.format(it) }).joinToString(" · ")

@@ -82,7 +82,7 @@ internal fun NewSinceChip(visit: ExplorerVisit?) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun OverviewCard(overview: ExplorerOverview, onOpen: (path: String) -> Unit) {
+internal fun OverviewCard(overview: ExplorerOverview, onOpen: (path: String) -> Unit, onSection: ((artisanId: String, sectionKey: String) -> Unit)? = null) {
     var all by remember(overview.path) { mutableStateOf(false) }
     val t = overview.totals
     Column(
@@ -104,7 +104,7 @@ internal fun OverviewCard(overview: ExplorerOverview, onOpen: (path: String) -> 
             Text(OverviewText.artisans, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
             val sorted = overview.artisans.sortedBy { it.completeness }
             val shown = if (all) sorted else sorted.take(6)
-            shown.forEach { ArtisanRow(it, overview, onOpen) }
+            shown.forEach { ArtisanRow(it, overview, onOpen, onSection) }
             if (sorted.size > 6) {
                 TextButton(onClick = { all = !all }, modifier = Modifier.heightIn(min = 44.dp)) { Text(if (all) OverviewText.showFewer else "${OverviewText.showAll} ${sorted.size}") }
             }
@@ -122,7 +122,7 @@ private fun Tile(label: String, value: String) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ArtisanRow(a: ExplorerOverviewArtisan, overview: ExplorerOverview, onOpen: (String) -> Unit) {
+private fun ArtisanRow(a: ExplorerOverviewArtisan, overview: ExplorerOverview, onOpen: (String) -> Unit, onSection: ((String, String) -> Unit)?) {
     val saved = explorerTone(ExplorerStatus.SAVED)!!
     val warn = explorerWarnTone()
     Column(
@@ -154,8 +154,9 @@ private fun ArtisanRow(a: ExplorerOverviewArtisan, overview: ExplorerOverview, o
                         else -> MaterialTheme.field.surface200 to OverviewText.missing
                     }
                     Box(
-                        Modifier.size(18.dp)
+                        Modifier.size(if (onSection != null) 32.dp else 18.dp)
                             .background(color, MaterialTheme.shapes.extraSmall)
+                            .let { m -> if (onSection != null) m.clickable(role = Role.Button, onClickLabel = label) { onSection(a.id, s.key) } else m }
                             .semantics { contentDescription = "$label, $word" }
                             .testTag("explorer.overview.square.${a.id}.${s.key}"),
                     )

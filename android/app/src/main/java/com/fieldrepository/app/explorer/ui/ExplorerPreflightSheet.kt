@@ -48,6 +48,8 @@ object PreflightText {
     const val enough = "Enough space"
     const val notEnough = "Not enough space"
     const val saveTo = "Save to"
+    const val change = "Change"
+    const val useDownloads = "Use Downloads instead"
     const val smaller = "Smaller download"
     const val notNow = "Not now"
     const val downloadOnWifi = "Download on Wi-Fi"
@@ -85,6 +87,8 @@ internal fun PreflightSheet(
     plan: ExplorerPreflightPlan,
     onStart: (wifiOnly: Boolean, include: String?) -> Unit,
     onDismiss: () -> Unit,
+    onChangeFolder: (() -> Unit)? = null,
+    onResetFolder: (() -> Unit)? = null,
 ) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var wait by rememberSaveable { mutableStateOf(plan.metered) }
@@ -129,9 +133,17 @@ internal fun PreflightSheet(
                 }
                 Text(PreflightText.storageLine(ExplorerBytes.format(bytes), free?.let { ExplorerBytes.format(it.coerceAtLeast(0)) }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Column(Modifier.fillMaxWidth().background(MaterialTheme.field.surface50, MaterialTheme.shapes.large).padding(12.dp)) {
-                Text(PreflightText.saveTo, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(plan.location, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.preflight.location"))
+            Row(Modifier.fillMaxWidth().background(MaterialTheme.field.surface50, MaterialTheme.shapes.large).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(PreflightText.saveTo, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(plan.location, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.preflight.location"))
+                    if (onResetFolder != null) {
+                        androidx.compose.material3.TextButton(onClick = onResetFolder, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.preflight.reset")) { Text(PreflightText.useDownloads) }
+                    }
+                }
+                if (onChangeFolder != null) {
+                    androidx.compose.material3.TextButton(onClick = onChangeFolder, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.preflight.change")) { Text(PreflightText.change) }
+                }
             }
             if (skip != null) {
                 SwitchRow(PreflightText.smaller, PreflightText.skipVideos(ExplorerBytes.format(skip.bytes), PreflightText.minutes(skip.seconds)), smaller, "explorer.preflight.smaller") { smaller = it }

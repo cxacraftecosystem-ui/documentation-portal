@@ -139,6 +139,7 @@ private class TranscriptPage(val rows: List<TranscriptRowModel>, val cursor: Str
 @Composable
 internal fun ExplorerTranscriptsTab(
     path: String,
+    initialQuery: String = "",
     status: String? = null,
     online: Boolean,
     offeredLanguages: List<Pair<String, String>>,
@@ -152,7 +153,7 @@ internal fun ExplorerTranscriptsTab(
     val server = remember(backend) { backend ?: TranscriptPortal.backend(context) }
     val extras = remember(more) { more ?: ExplorerMoreApi.of(context) }
     val scope = rememberCoroutineScope()
-    var q by rememberSaveable(path) { mutableStateOf("") }
+    var q by rememberSaveable(path, initialQuery) { mutableStateOf(initialQuery) }
     var language by rememberSaveable { mutableStateOf("") }
     var shownStatus by rememberSaveable { mutableStateOf<String?>(null) }
     var page by remember(path) { mutableStateOf<TranscriptPage?>(null) }

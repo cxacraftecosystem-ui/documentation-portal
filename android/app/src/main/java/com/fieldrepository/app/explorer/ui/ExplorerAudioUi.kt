@@ -1,5 +1,6 @@
 package com.fieldrepository.app.explorer.ui
 
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -80,6 +81,8 @@ internal fun audioItem(entry: ExplorerEntry, url: String, lines: List<ExplorerAu
 
 internal fun audioSource(entry: ExplorerEntry): String? = ExplorerPaths.preview(entry) ?: entry.url
 
+internal fun isolatedSource(mediaId: String): String = "/api/data/media/$mediaId/preview?variant=isolated"
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, startSeconds: Double, english: Boolean) {
@@ -96,10 +99,12 @@ internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, star
             ExplorerAudio.seekTo((startSeconds * 1000).toLong())
         }
     }
-    val peaks by produceState(initialValue = emptyList<Float>(), entry.mediaId) {
+    val wave by produceState(initialValue = com.fieldrepository.app.explorer.data.ExplorerPeaks(), entry.mediaId) {
         val id = entry.mediaId ?: return@produceState
-        value = runCatching { ExplorerMoreApi.of(context).peaks(id).peaks }.getOrDefault(emptyList())
+        value = runCatching { ExplorerMoreApi.of(context).peaks(id) }.getOrDefault(com.fieldrepository.app.explorer.data.ExplorerPeaks())
     }
+    val peaks = wave.peaks
+    var clear by androidx.compose.runtime.saveable.rememberSaveable(entry.key) { androidx.compose.runtime.mutableStateOf(false) }
     val position = if (mine) audio.positionMs else 0L
     val duration = if (mine) audio.durationMs else (view?.durationMs ?: 0L)
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -126,6 +131,20 @@ internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, star
             IconButton(onClick = { ExplorerAudio.seekBy(ExplorerAudio.STEP_MS) }, enabled = mine, modifier = Modifier.size(56.dp).testTag("explorer.audio.forward")) {
                 Icon(Icons.Filled.Forward10, contentDescription = AudioText.forward10, modifier = Modifier.size(30.dp))
             }
+        }
+        if (wave.isolated && entry.mediaId != null) {
+            com.fieldrepository.app.ui.AppToggle(
+                label = AudioText.clearVoices,
+                checked = clear,
+                onCheckedChange = { on ->
+                    clear = on
+                    val source = if (on) isolatedSource(entry.mediaId) else audioSource(entry)
+                    val item = source?.let { audioItem(entry, it, lines) }
+                    if (item != null) ExplorerAudio.play(context, item, if (mine) audio.positionMs else 0L)
+                },
+                description = AudioText.clearVoicesNote,
+                modifier = Modifier.fillMaxWidth().testTag("explorer.audio.clear"),
+            )
         }
         if (mine && audio.failed) StatusCard(ExplorerStatus.FAILED, AudioText.failed)
         val speakers = view?.speakers.orEmpty()
@@ -210,6 +229,8 @@ object AudioText {
     const val failed = "This recording didn't play. Try again."
     const val stop = "Stop playing"
     const val playing = "Playing"
+    const val clearVoices = "Clear voices"
+    const val clearVoicesNote = "Plays the copy with background noise taken out"
 }
 
 @Composable

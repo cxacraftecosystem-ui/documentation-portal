@@ -249,4 +249,47 @@ class ExplorerSheetsUiTest {
         assertEquals(true, started[0].first)
         assertEquals(false, started[0].second.isNullOrBlank())
     }
+
+    @QFeature("X10")
+    @Test fun recentFilesOffersTheWholeList() {
+        val job = ExplorerJob(
+            id = "z2",
+            request = ExplorerRequest(title = "Toolkit", fileName = "Toolkit.zip", kind = ExplorerJobKind.FOLDER),
+            createdAt = 1L,
+            state = ExplorerJobState.RUNNING,
+            doneFiles = 3, totalFiles = 926,
+            recent = listOf(ExplorerRecent("a.jpg", 10, ExplorerRecentStatus.SAVED)),
+        )
+        var asked = 0
+        compose.setContent { MaterialTheme { RecentFilesCard(job, onAll = { asked++ }) } }
+        compose.waitForIdle()
+        compose.onNodeWithText("All 926").performClick()
+        compose.waitForIdle()
+        assertEquals(1, asked)
+    }
+
+    @QFeature("X2")
+    @Test fun thePreflightSheetLetsYouPickAnotherFolder() {
+        val plan = com.fieldrepository.app.explorer.data.ExplorerPreflight.of(
+            size = ExplorerSize(files = 926, bytes = 7_150_000_000, largest = 701L * 1024 * 1024),
+            link = com.fieldrepository.app.explorer.data.ExplorerLink(online = true, metered = false),
+            freeBytes = 64L * 1024 * 1024 * 1024,
+            speedBps = null,
+            location = "Field work/Toolkit.zip",
+        )
+        var changed = 0
+        var reset = 0
+        compose.setContent {
+            MaterialTheme {
+                PreflightSheet(title = "Toolkit", plan = plan, onStart = { _, _ -> }, onDismiss = {}, onChangeFolder = { changed++ }, onResetFolder = { reset++ })
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Field work/Toolkit.zip").assertExists()
+        compose.onNodeWithTag("explorer.preflight.change").performClick()
+        compose.onNodeWithTag("explorer.preflight.reset").performClick()
+        compose.waitForIdle()
+        assertEquals(1, changed)
+        assertEquals(1, reset)
+    }
 }

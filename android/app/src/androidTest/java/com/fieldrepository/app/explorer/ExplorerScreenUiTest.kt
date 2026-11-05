@@ -85,8 +85,12 @@ class ExplorerScreenUiTest {
             visits += body.path
             return ExplorerVisit(path = body.path, previousVisitAt = "2026-11-01T00:00:00Z", newFiles = 3, newTranscripts = 1)
         }
-        override suspend fun overview(path: String, status: String?) = ExplorerOverview(path = path)
-        override suspend fun peaks(id: String) = ExplorerPeaks()
+        var overview: ExplorerOverview? = null
+        override suspend fun overview(path: String, status: String?) = overview ?: ExplorerOverview(path = path)
+        var saved: ExplorerView? = null
+        override suspend fun view(id: String): ExplorerView = saved ?: throw java.io.IOException("missing")
+        var peaks = ExplorerPeaks()
+        override suspend fun peaks(id: String) = peaks
         override suspend fun views() = ExplorerViews()
         override suspend fun saveView(body: ExplorerViewBody) = ExplorerView(id = "v1", name = body.name, path = body.path)
         override suspend fun transcripts(path: String, q: String?, status: String?) = ExplorerTranscriptList()
@@ -162,7 +166,9 @@ class ExplorerScreenUiTest {
         ExplorerMoreApi.override = null
     }
 
-    private fun show(fake: Fake, fontScale: Float? = null, width: Int? = null) {
+    private val sections = mutableListOf<String>()
+
+    private fun show(fake: Fake, fontScale: Float? = null, width: Int? = null, start: String = "w") {
         compose.setContent {
             MaterialTheme {
                 val density = LocalDensity.current
@@ -172,7 +178,8 @@ class ExplorerScreenUiTest {
                             onBack = {},
                             api = fake,
                             more = more,
-                            startPath = "w",
+                            startPath = start,
+                            onOpenSection = { artisan, key -> sections += "$artisan:$key" },
                             search = { Text("search-slot", modifier = Modifier.testTag("explorer.search.slot")) },
                         )
                     }
@@ -180,7 +187,7 @@ class ExplorerScreenUiTest {
                 }
             }
         }
-        compose.waitUntil(5_000) { fake.calls.any { it.startsWith("tree:w") } }
+        compose.waitUntil(5_000) { fake.calls.any { it.startsWith("tree:$start") } }
         compose.waitForIdle()
     }
 
@@ -404,5 +411,65 @@ class ExplorerScreenUiTest {
         compose.onNodeWithTag("explorer.tablet").assertExists()
         compose.onNodeWithTag("explorer.pane.tree").performScrollToNode(hasTestTag("explorer.folder.w/bagru"))
         compose.onNodeWithTag("explorer.folder.w/bagru").assertExists()
+    }
+
+    @QFeature("X1")
+    @Test fun aSavedViewLinkRestoresTheFolderTabAndSearch() {
+        val fake = Fake()
+        more.saved = ExplorerView(id = "v1", name = "Meena", path = "w", state = com.fieldrepository.app.explorer.data.ExplorerViewState(view = "tables", q = "meena"))
+        show(fake)
+        com.fieldrepository.app.explorer.ui.ExplorerViewLinks.request(com.fieldrepository.app.explorer.ui.ExplorerLinkRequest("v1", null))
+        compose.waitUntil(5_000) { fake.reportQueries.contains("meena") }
+        compose.waitForIdle()
+        compose.onNodeWithTag("explorer.tables").assertExists()
+    }
+
+    @QFeature("X1")
+    @Test fun aWorkshopOverviewSquareOpensThatSection() {
+        val fake = Fake()
+        more.overview = ExplorerOverview(
+            path = "by-workshop/w1",
+            title = "3rd Craft Toolkit",
+            sections = listOf(com.fieldrepository.app.explorer.data.ExplorerSectionHead("B", "Materials")),
+            artisans = listOf(
+                com.fieldrepository.app.explorer.data.ExplorerOverviewArtisan(
+                    id = "a1", name = "Giriraj", path = "by-workshop/w1/crafts/c1/artisans/a1",
+                    sections = listOf(com.fieldrepository.app.explorer.data.ExplorerSectionState("B", "partial")),
+                ),
+            ),
+        )
+        show(fake, start = "by-workshop/w1")
+        scrollTo("explorer.overview")
+        compose.onNodeWithTag("explorer.overview.square.a1.B").performClick()
+        compose.waitForIdle()
+        assertEquals(listOf("a1:B"), sections)
+    }
+
+    @QFeature("X5")
+    @Test fun clearVoicesShowsOnlyWhenAnIsolatedCopyExists() {
+        val audio = ExplorerEntry(name = "Section-D.m4a", path = "w/a9", mediaId = "a9", mediaType = "AUDIO", sizeBytes = 14_000_000)
+        more.peaks = ExplorerPeaks(peaks = List(40) { 0.5f }, durationMs = 60_000, isolated = true)
+        compose.setContent {
+            MaterialTheme {
+                com.fieldrepository.app.explorer.ui.ExplorerMediaDialog(entries = listOf(audio), start = 0, onSave = null, onDismiss = {})
+            }
+        }
+        compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("explorer.audio.clear")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("explorer.audio.waveform").assertExists()
+        compose.runOnUiThread { com.fieldrepository.app.explorer.data.ExplorerAudio.stop() }
+    }
+
+    @QFeature("X5")
+    @Test fun clearVoicesIsAbsentWithoutAnIsolatedCopy() {
+        val audio = ExplorerEntry(name = "Section-D.m4a", path = "w/a8", mediaId = "a8", mediaType = "AUDIO", sizeBytes = 14_000_000)
+        more.peaks = ExplorerPeaks(peaks = List(40) { 0.5f }, durationMs = 60_000, isolated = false)
+        compose.setContent {
+            MaterialTheme {
+                com.fieldrepository.app.explorer.ui.ExplorerMediaDialog(entries = listOf(audio), start = 0, onSave = null, onDismiss = {})
+            }
+        }
+        compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("explorer.audio.waveform")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodes(hasTestTag("explorer.audio.clear")).assertCountEquals(0)
+        compose.runOnUiThread { com.fieldrepository.app.explorer.data.ExplorerAudio.stop() }
     }
 }
