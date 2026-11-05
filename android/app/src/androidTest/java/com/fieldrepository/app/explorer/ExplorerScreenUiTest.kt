@@ -421,7 +421,9 @@ class ExplorerScreenUiTest {
         com.fieldrepository.app.explorer.ui.ExplorerViewLinks.request(com.fieldrepository.app.explorer.ui.ExplorerLinkRequest("v1", null))
         compose.waitUntil(5_000) { fake.reportQueries.contains("meena") }
         compose.waitForIdle()
+        scrollTo("explorer.tables")
         compose.onNodeWithTag("explorer.tables").assertExists()
+        compose.onNodeWithTag("explorer.tables.search").assertExists()
     }
 
     @QFeature("X1")
