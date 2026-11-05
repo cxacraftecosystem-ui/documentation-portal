@@ -14,6 +14,8 @@ import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.printToLog
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
@@ -148,6 +150,18 @@ class DataSearchReachUiTest {
         }
     }
 
+    private fun openShowAll() {
+        compose.onNodeWithTag("explorer.search.all", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
+        val shown = runCatching {
+            compose.waitUntil(30_000) { compose.onAllNodes(hasTestTag("search.all.shown"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        }.isSuccess
+        if (!shown) {
+            val texts = compose.onAllNodes(hasText("", substring = true), useUnmergedTree = true).fetchSemanticsNodes()
+                .mapNotNull { node -> node.config.getOrNull(SemanticsProperties.Text)?.joinToString(" ") }
+            throw AssertionError("Show all opened no list. Screen: " + texts.joinToString(" / ") + " · Requests: " + asked.joinToString(" | "))
+        }
+    }
+
     private fun tapUntilListed(chip: String) {
         repeat(3) {
             compose.onNodeWithText(chip).performSemanticsAction(SemanticsActions.OnClick)
@@ -227,8 +241,7 @@ class DataSearchReachUiTest {
         assertTrue(gone("explorer.search.summary"))
         tapUntilListed("Everything")
         compose.onNodeWithText("Showing 8 of 31").assertExists()
-        compose.onNodeWithTag("explorer.search.all", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
-        waitFor("search.all.shown")
+        openShowAll()
         reach("search.all.list", "search.all.more.artisan", "search.all.shown", "All 31 shown")
         scrollResultsTo("search.all.list", "search.all.row.artisan.a31")
         compose.onNode(hasClickAction().and(hasAnyAncestor(hasTestTag("search.all.row.artisan.a31"))), useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
@@ -242,12 +255,7 @@ class DataSearchReachUiTest {
         showQuick(opened)
         tapUntilListed("Artisans")
         compose.waitUntil(30_000) { compose.onAllNodes(hasTestTag("explorer.search.all").and(hasText("Show all 31"))).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("explorer.search.all", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
-        if (runCatching { waitFor("search.all.shown") }.isFailure) {
-            compose.onAllNodes(isRoot()).fetchSemanticsNodes().indices.forEach { compose.onAllNodes(isRoot())[it].printToLog("quick-search", maxDepth = 40) }
-            android.util.Log.i("quick-search", "asked: " + asked.joinToString(" | "))
-            waitFor("search.all.shown")
-        }
+        openShowAll()
         reach("search.all.list", "search.all.more.artisan", "search.all.shown", "All 31 shown")
         scrollResultsTo("search.all.list", "search.all.row.artisan.a31")
         compose.onNodeWithTag("search.all.row.artisan.a31", useUnmergedTree = true).assertExists()
