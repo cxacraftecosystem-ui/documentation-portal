@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextvars
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
@@ -149,10 +151,26 @@ def _register(name: str, path: Path | None) -> str | None:
     return name
 
 
+_UNSHAPED: contextvars.ContextVar[bool] = contextvars.ContextVar("pdf_summary_unshaped", default=False)
+_SPACES = re.compile(r"(\s+)")
+
+
 def shaping() -> bool:
+    if _UNSHAPED.get():
+        return False
     from reportlab.pdfbase import ttfonts
 
     return getattr(ttfonts, "uharfbuzz", None) is not None
+
+
+def _covers(script: str, token: str) -> bool:
+    from reportlab.pdfbase import pdfmetrics
+
+    face = fonts().scripts.get(script)
+    if face is None:
+        return False
+    known = pdfmetrics.getFont(face[0]).face.charToGlyph
+    return all(ord(ch) in known for ch in token)
 
 
 def fonts() -> Fonts:
@@ -195,6 +213,25 @@ def _script_of(ch: str) -> str | None:
 
 def runs(text: Any) -> list[tuple[str | None, str]]:
     value = "" if text is None else str(text)
+    out: list[tuple[str | None, str]] = []
+    for token in _SPACES.split(value):
+        if not token:
+            continue
+        if token.isspace():
+            pieces: list[tuple[str | None, str]] = [(out[-1][0] if out else None, token)]
+        else:
+            script = next((found for found in map(_script_of, token) if found), None)
+            whole = script is not None and _covers(script, token)
+            pieces = [(script, token)] if whole or script is None else _char_runs(token)
+        for script, piece in pieces:
+            if out and out[-1][0] == script:
+                out[-1] = (script, out[-1][1] + piece)
+            else:
+                out.append((script, piece))
+    return out
+
+
+def _char_runs(value: str) -> list[tuple[str | None, str]]:
     out: list[tuple[str | None, str]] = []
     run: list[str] = []
     current: str | None = None
@@ -251,9 +288,14 @@ def draw(c: Any, x: float, y: float, text: str, font: str, size: float, *, right
     shaped = shaping()
     for face, chunk in _faced(text, font):
         c.setFont(face, size)
+        drawn = False
         if shaped and face != font:
-            c.drawString(x, y, chunk, direction="LTR", shaping=True)
-        else:
+            try:
+                c.drawString(x, y, chunk, direction="LTR", shaping=True)
+                drawn = True
+            except Exception:
+                logger.warning("pdf_summary: shaping failed for a %s run; drawing it unshaped", face, exc_info=True)
+        if not drawn:
             c.drawString(x, y, chunk)
         x += stringWidth(chunk, face, size)
 
@@ -474,6 +516,19 @@ def _cover(summary: Summary, t: Any) -> Any:
 
 
 def build(summary: Summary) -> bytes:
+    if shaping():
+        try:
+            return _build(summary)
+        except Exception:
+            logger.warning("pdf_summary: the shaped summary failed; building it unshaped", exc_info=True)
+    token = _UNSHAPED.set(True)
+    try:
+        return _build(summary)
+    finally:
+        _UNSHAPED.reset(token)
+
+
+def _build(summary: Summary) -> bytes:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
@@ -523,11 +578,18 @@ def build(summary: Summary) -> bytes:
 
     def p(text: Any, style: str = "body", *, bold: bool = False) -> Any:
         chosen = styles[style]
+        marked = rich(text, bold=bold)
         if shaped and any(script for script, _ in runs(text)):
             if style not in shaped_styles:
                 shaped_styles[style] = ParagraphStyle(f"{style}-shaped", parent=chosen, shaping=1)
-            chosen = shaped_styles[style]
-        return Paragraph(rich(text, bold=bold), chosen)
+            trial = Paragraph(marked, shaped_styles[style])
+            try:
+                trial.wrap(text_w, height)
+            except Exception:
+                logger.warning("pdf_summary: shaping failed for a paragraph; setting it unshaped", exc_info=True)
+            else:
+                return Paragraph(marked, shaped_styles[style])
+        return Paragraph(marked, chosen)
 
     def table(rows: list[list[Any]], widths: list[float], *, head: bool = True, extra: list[Any] | None = None) -> Any:
         grid = Table(rows, colWidths=widths, repeatRows=1 if head else 0, hAlign="LEFT")

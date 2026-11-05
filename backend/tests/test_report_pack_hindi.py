@@ -239,3 +239,83 @@ def test_a_hindi_live_link_url_carries_its_language():
     assert share_links.share_url(base, "tok", "fr") == "https://dw.example.org/report-share/tok"
     hindi = share_links.labels("hi")
     assert DEVANAGARI.search(hindi["expired"]) and DEVANAGARI.search(hindi["opening"])
+
+
+def _harfbuzz() -> Any:
+    return (
+        importlib.import_module("uharfbuzz")
+        if os.environ.get("CI")
+        else pytest.importorskip("uharfbuzz")
+    )
+
+
+def _real_summary(locale: str) -> pdf_summary.Summary:
+    summary = _summary(locale)
+    summary.quotes = [
+        pdf_summary.Quote("हम नील से रंगते हैं।", "We dye with indigo.", "Kamla", "talk.m4a"),
+        pdf_summary.Quote(
+            "यह हमारे दादा से आया।", "It came from our grandfather.", None, "Kamla · talk.m4a"
+        ),
+        pdf_summary.Quote("Plain words", "", None, "clip.mp4"),
+    ]
+    summary.folder = "बगरू (Bagru) · ब्लॉक प्रिंटिंग"
+    summary.generated_by = "कमला देवी"
+    summary.coverage[0].rows.append(
+        pdf_summary.CoverageRow(
+            "सीता: “दाबू”", "दाबू/Dabu", 3, 40, 2, "1 of 2 ready", ["missing", "complete"]
+        )
+    )
+    summary.sections = [pdf_summary.SectionBar("पहचान (Identity)", 1, 1, 1)]
+    return summary
+
+
+@pytest.mark.parametrize("locale", ["hi", "en"])
+def test_a_full_pack_summary_builds_shaped_with_harfbuzz(locale, caplog):
+    _harfbuzz()
+    assert pdf_summary.shaping()
+    with caplog.at_level("WARNING", logger=pdf_summary.logger.name):
+        data = pdf_summary.build(_real_summary(locale))
+    assert data.startswith(b"%PDF") and b"NotoSansDevanagari" in data
+    assert [
+        r.message
+        for r in caplog.records
+        if "shaping failed" in r.getMessage() or "unshaped" in r.getMessage()
+    ] == []
+    text = _text(data)
+    assert "We dye with indigo." in text
+    assert ("रिपोर्ट सारांश" in text) == (locale == "hi")
+
+
+def test_words_never_mix_fonts_so_harfbuzz_can_shape_them():
+    for script, piece in pdf_summary.runs("“हम नील से रंगते हैं।” Kamla · talk.m4a"):
+        if script is None:
+            assert not DEVANAGARI.search(piece)
+        else:
+            assert piece.startswith("“") and "”" in piece
+
+
+def test_a_shaping_failure_falls_back_to_unshaped_and_never_breaks_the_pdf(monkeypatch, caplog):
+    _harfbuzz()
+    from reportlab.pdfgen import canvas
+    from reportlab.platypus import paragraph
+
+    def broken(*args: Any, **kwargs: Any) -> Any:
+        raise AttributeError("'TTFont' object has no attribute 'hbAddPrivate'")
+
+    monkeypatch.setattr(paragraph, "shapeFragWord", broken)
+    real = canvas.Canvas.drawString
+
+    def draw(
+        self: Any, x: float, y: float, text: str, *args: Any, shaping: bool = False, **kwargs: Any
+    ) -> Any:
+        if shaping:
+            raise KeyError(0)
+        return real(self, x, y, text, *args, **kwargs)
+
+    monkeypatch.setattr(canvas.Canvas, "drawString", draw)
+    with caplog.at_level("WARNING", logger=pdf_summary.logger.name):
+        data = pdf_summary.build(_real_summary("hi"))
+    assert data.startswith(b"%PDF") and b"NotoSansDevanagari" in data
+    assert any("unshaped" in r.getMessage() for r in caplog.records)
+    assert DEVANAGARI.search(_text(data))
+    assert pdf_summary.shaping()

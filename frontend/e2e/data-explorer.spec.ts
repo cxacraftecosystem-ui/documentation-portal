@@ -1265,11 +1265,11 @@ test.describe("@qf:X6 report options overhaul", () => {
     const page = await context.newPage();
     try {
       await page.goto("/report-share/token-gone?lang=hi");
-      await expect(page.getByRole("alert")).toHaveText("इस लिंक की अवधि समाप्त हो गई है या इसे बंद कर दिया गया है।");
+      await expect(page.getByRole("main").getByRole("alert")).toHaveText("इस लिंक की अवधि समाप्त हो गई है या इसे बंद कर दिया गया है।");
       await expect(page.locator("main[lang=hi]")).toHaveCount(1);
       await expect(page.getByRole("button", { name: "पुनः प्रयास करें" })).toHaveCount(0);
       await page.goto("/report-share/token-gone");
-      await expect(page.getByRole("alert")).toHaveText("This link has expired or was turned off.");
+      await expect(page.getByRole("main").getByRole("alert")).toHaveText("This link has expired or was turned off.");
     } finally {
       await context.close();
     }
