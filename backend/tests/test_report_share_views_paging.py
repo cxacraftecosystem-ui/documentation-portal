@@ -26,7 +26,7 @@ class _Views:
         return ordered[skip : skip + take]
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_every_view_of_a_link_is_reachable(monkeypatch):
     total = share_links.VIEWS_LIST_MAX + 31
     monkeypatch.setattr(routes, "db", SimpleNamespace(datareportshareview=_Views(total)))

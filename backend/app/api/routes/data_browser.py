@@ -2542,6 +2542,7 @@ async def data_report(
     offset: int = Query(0, ge=0, le=REPORT_TAKE),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
+    offset = offset if isinstance(offset, int) else 0
     fmt = (format or "xlsx").strip().lower()
     if fmt not in ("json", "xlsx", "csv"):
         raise HTTPException(status_code=422, detail="format must be 'json', 'xlsx' or 'csv'")

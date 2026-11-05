@@ -397,6 +397,7 @@ async def transcript_list(
     offset: int = Query(0, ge=0, le=walk.MAX_MANIFEST_FILES),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
+    offset = offset if isinstance(offset, int) else 0
     scope = await download_scope(current_user)
     seen, by_id, truncated = await _folder_transcripts(scope, _browser()._norm(path), offset)
     window = len(seen)

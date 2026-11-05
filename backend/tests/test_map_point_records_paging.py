@@ -22,7 +22,7 @@ class _Rows:
         return ordered[skip : skip + take]
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_a_point_pages_to_its_last_record(monkeypatch):
     total = routes._STUB_CAP * 2 + 7
     table = _Rows(total)

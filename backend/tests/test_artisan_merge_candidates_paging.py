@@ -22,7 +22,7 @@ class _Artisans:
         return sorted(self.rows, key=lambda row: row.createdAt)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_every_candidate_pair_is_reachable(monkeypatch):
     monkeypatch.setattr(artisan_merge, "db", SimpleNamespace(artisan=_Artisans(81)))
     seen: list[tuple[str, str]] = []
@@ -35,7 +35,7 @@ async def test_every_candidate_pair_is_reachable(monkeypatch):
     assert {"p080-1", "p080-2"} in [set(pair) for pair in seen]
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_the_first_page_keeps_its_old_keys(monkeypatch):
     monkeypatch.setattr(artisan_merge, "db", SimpleNamespace(artisan=_Artisans(2)))
     page = await artisan_merge.merge_candidates()
