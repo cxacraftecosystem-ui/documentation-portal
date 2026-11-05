@@ -152,6 +152,39 @@ def test_a_consent_refused_recording_shows_no_words() -> None:
     assert all(str(r[header.index("Status")]).startswith("Withheld") for r in mine)
 
 
+def test_a_required_column_is_never_queried_for_null() -> None:
+    from app.services.datareport import schema, tables
+
+    asked: list[tuple[str, str]] = []
+
+    class Strict(rf.FakeDelegate):
+        def __init__(self, model: str) -> None:
+            super().__init__()
+            self.model = model
+
+        async def find_many(self, where: Any = None, take: int | None = None, **kw: Any) -> list[Any]:
+            for name, cond in (where or {}).items():
+                if cond is None:
+                    asked.append((self.model, name))
+            return await super().find_many(where, take, **kw)
+
+    class StrictDB(rf.FakeDB):
+        def __getattr__(self, name: str) -> Any:
+            if name.startswith("_"):
+                raise AttributeError(name)
+            return self._tables.setdefault(name, Strict(name))
+
+    for which in ("designer", "fieldRepository"):
+        asked.clear()
+        ctx = rf.context(db=StrictDB(raw=rf.turns_raw))
+        ctx.portal = which
+        asyncio.run(tables.load_store(ctx, ctx.shared["db"]))
+        models = {m.lower(): m for m in schema.load(which)}
+        for delegate, name in asked:
+            field = schema.load(which)[models[delegate]].field(name)
+            assert field is not None and field.optional, (which, delegate, name)
+
+
 def test_secrets_never_reach_the_workbook() -> None:
     payload, _ctx = _render()
     with zipfile.ZipFile(io.BytesIO(payload)) as z:

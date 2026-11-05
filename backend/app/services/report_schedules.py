@@ -14,11 +14,9 @@ from datetime import UTC, date, datetime, time, timedelta, timezone, tzinfo
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import HTTPException
-
 from app.core.config import Settings, get_settings
 from app.core.db import db
-from app.core.deps import can_download_dataset
+from app.core.roles import can_download_dataset
 from app.services import email_outbox, mailer, naming, s3
 from app.services.data_explorer import report_options, saved
 from prisma import Json
@@ -321,6 +319,8 @@ async def mark_delivered(owner: Any, path: str) -> None:
 
 
 async def _visible(scope: Any, path: str) -> bool:
+    from fastapi import HTTPException
+
     try:
         await _browser()._list_level(path, scope)
     except HTTPException:
@@ -328,15 +328,19 @@ async def _visible(scope: Any, path: str) -> bool:
     return True
 
 
+BARRED_STATUSES = frozenset({"REJECTED", "SUSPENDED"})
+
+
 async def _barred(owner: Any) -> bool:
     from app.services import access_roster
 
-    if not access_roster.gate_enforced():
-        return False
     email = getattr(owner, "email", None)
     if access_roster.is_master_admin_email(email):
         return False
-    return not await access_roster.roster_admits(email)
+    if access_roster.role_value(getattr(owner, "role", None)) == "MASTER_ADMIN":
+        return False
+    row = await access_roster.roster_row(email)
+    return row is not None and access_roster.status_value(row.status) in BARRED_STATUSES
 
 
 async def may_schedule(user: Any, view: Any) -> bool:
@@ -382,6 +386,8 @@ async def _record(row_id: str, data: dict[str, Any]) -> None:
 
 
 async def deliver(row: Any, now: datetime, settings: Settings) -> Outcome:
+    from fastapi import HTTPException
+
     owner = await db.user.find_unique(where={"id": row.ownerId})
     view = await db.datasavedview.find_unique(where={"id": row.savedViewId})
     try:
@@ -550,6 +556,8 @@ async def run_report_schedules(
 
 
 async def owned(schedule_id: str, user_id: str) -> Any:
+    from fastapi import HTTPException
+
     row = await db.datareportschedule.find_unique(
         where={"id": schedule_id}, include={"savedView": True}
     )
