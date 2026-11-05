@@ -16,7 +16,7 @@ def _settings(app_env: str, url: str) -> config.Settings:
     [
         "http://localhost:3000",
         "https://localhost:3000",
-        "http://field-repository.vercel.app",
+        "http://portal.example.org",
         "https://127.0.0.1",
         "https://10.0.0.4",
         "https://0.0.0.0:3000",
@@ -29,7 +29,7 @@ def test_production_refuses_to_boot_on_a_local_or_plain_http_app_url(url: str) -
         config.verify_app_url_configuration(_settings("production", url))
 
 
-@pytest.mark.parametrize("url", ["https://field-repository.vercel.app", "https://designer-repository.vercel.app/"])
+@pytest.mark.parametrize("url", ["https://portal.example.org", "https://web.example.org/"])
 def test_production_boots_on_a_public_https_app_url(url: str) -> None:
     config.verify_app_url_configuration(_settings("production", url))
     config.verify_app_url_configuration(_settings(" Production ", url))
