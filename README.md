@@ -272,14 +272,20 @@ erDiagram
 | Data browser and report workbooks | ✓ | ✓ | `GET /api/data/*` |
 | Coverage map with zoom | ✓ | ✓ | per-district counts |
 
-- **Data browser** (`/data`): the folder tree with search as its toolbar and every download in one
-  panel, with sizes shown first, several folders or files picked together, previews, thumbnails and
-  every transcript format in one zip. Zips stream to disk in a background worker and keep going in a
-  hidden tab; Save to a folder resumes. Removed recordings never ship, and the dataset download
-  includes every review status. Table search runs over every row on the server and any sheet
-  downloads as `.csv`; tables are remembered per folder. The report workbook is built one at a time,
-  and the box hands the memory back afterwards (launch list D39). See
-  [DATA_EXPLORER.md](docs/DATA_EXPLORER.md) and [DATA_EXPLORER_WEB.md](docs/DATA_EXPLORER_WEB.md).
+- **Data** (`/data`, 0.0.13): one search box on top that searches artisans, tools, crafts, recordings
+  and transcripts (unified search with This portal / Both portals, filter chips, result-type pills,
+  highlighted snippets, *Play from mm:ss* and *Open in Data*; the legacy search answers while the
+  unified flag is off). Every review status can be chosen (All, Approved, Pending, Needs revision,
+  Rejected). The folder card shows size by type, *Report (.xlsx)* and one *Download folder · size*;
+  record details sit under it, then one Files / Tables / Transcripts tab strip, a sticky selection
+  bar and a single downloads tray that queues every download, keeps going across tabs, shades saved
+  items green and failed ones red, and asks before the tab closes. Reports are fetched, checked for a
+  real workbook and only then saved, with a red card, auto retry and *Try now* when a build fails.
+  The preview plays audio and video beside the transcript (waveform, speakers with talk time, find
+  N of M, Original / English / Side by side, `?t=` time links, a mini player while browsing).
+  Ctrl/Cmd+K jumps anywhere; `?` lists the shortcuts. Zips still stream to disk in a background
+  worker and Save to a folder resumes. See [DATA_EXPLORER.md](docs/DATA_EXPLORER.md) and
+  [DATA_EXPLORER_WEB.md](docs/DATA_EXPLORER_WEB.md).
 - **Android data browser**: the *Data* screen puts the tree first with search as its toolbar and one
   *Download* button. Zips run in the background with a notification and Cancel, and keep going when the
   app is left ([Play declaration](docs/ANDROID_BACKGROUND_DOWNLOADS.md)).
