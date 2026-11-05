@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/Web-Next.js_16-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="Web: Next.js 16">
   <img src="https://img.shields.io/badge/API-FastAPI_·_Python_3.15-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="API: FastAPI on Python 3.15">
   <img src="https://img.shields.io/badge/Android-Kotlin_·_Compose-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="Android: Kotlin and Compose">
-  <img src="https://img.shields.io/badge/Release-0.0.13-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="Release 0.0.13">
+  <img src="https://img.shields.io/badge/Release-0.0.14-1E1B2E?style=for-the-badge&labelColor=762CB1" alt="Release 0.0.14">
   <img src="https://github.com/cxacraftecosystem-ui/documentation-portal/actions/workflows/checks.yml/badge.svg?branch=main" alt="Checks">
 </p>
 
@@ -455,6 +455,7 @@ machine. The full reference is [ENVIRONMENT.md](docs/ENVIRONMENT.md) and [DOCKER
 | 0.0.11 | 31 | A tool linked to several artisans shows under every workshop those artisans belong to, on every read surface; web and Android tool rows name every linked artisan |
 | 0.0.12 | 32 | The data explorer: tree first with search as its toolbar and every download in one place, sizes before a download, multi-select, thumbnails and previews, table search and a CSV per sheet, all transcript formats in one zip, removed recordings never ship, audio as `.mp4` with the original as fallback, downloads that stream and resume, usage logging |
 | 0.0.13 | 33 | The data explorer redesign: report queue and options, saved views, new-since-you-looked counts, live report links, waveforms and clear voices, the workshop overview, a transcripts `.docx`, folder counts and sizes, resumable folders, scheduled reports; Android background downloads |
+| 0.0.14 | 34 | Every list reaches its last record on web and Android, with paging where the server stopped short; screens true to their approved design boards; the Data report shows its status filter in its options and Data defaults to All statuses, with root questionnaires in the report; the Android publish waits for the live backend |
 
 Every code file in this repository is comment-free: `scripts/tools/strip_comments.py --check` runs in
 Checks, and the reasons that used to live in comments live in [docs/](docs/README.md).
