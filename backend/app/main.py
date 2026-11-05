@@ -24,6 +24,7 @@ from app.core.db import connect_db, db, disconnect_db
 from app.core.deps import PASSWORD_CHANGE_REQUIRED_HEADER
 from app.core.idempotency import IdempotencyMiddleware
 from app.core.security import verify_jwt_configuration
+from app.release import live_release
 from app.services import aadhaar_fingerprint, usage_log
 from app.services.app_versions import AppVersionMiddleware
 from app.services.email_outbox import process_next_email_jobs
@@ -325,9 +326,11 @@ def create_app() -> FastAPI:
         force_hsts=settings.security_force_hsts,
     )
 
+    live_release()
+
     @app.get("/health", tags=["health"])
     async def health() -> dict[str, str]:
-        return {"status": "ok"}
+        return {"status": "ok", "release": live_release()}
 
     @app.get("/health/ready", tags=["health"])
     async def health_ready() -> JSONResponse:

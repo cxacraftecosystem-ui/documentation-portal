@@ -1,0 +1,1 @@
+/api/auth/login signs in and returns a token; it writes nothing a user can see

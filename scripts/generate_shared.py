@@ -153,6 +153,7 @@ MANIFEST_FILES = (
     "languages.json",
     "questionnaire-contract.json",
     "questionnaire-form-contract.json",
+    "questionnaire-start-sheet-contract.json",
     "session-title.json",
     "strings/questionnaire.json",
 )

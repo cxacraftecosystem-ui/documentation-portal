@@ -214,7 +214,8 @@ not named in `GATING_JOBS`, so a deploy does not wait on them:
 | **Web outbox against a real stack** | the web outbox replaying against a real API and database on the runner |
 | **Questionnaire unify backfill** | the questionnaire backfill before and after the U0 migration, then the deferred migrations, on an empty Postgres |
 | **Questionnaire parity (both portals)** | the shared manifests, the schema fragment and `shared/questionnaire-features.json`, checked against a checkout of designer-portal |
-| **Deploy scripts** | shellcheck, `backend/deploy/test_blue_green.sh` (the release logic against stubs) and `scripts/ci/test_backup_freshness.sh` (the backup verdict against fixed clocks) |
+| **Deploy scripts** | shellcheck, `backend/deploy/test_blue_green.sh` (the release logic against stubs), `scripts/ci/test_backup_freshness.sh` (the backup verdict against fixed clocks), `scripts/ci/test_peer_checkout.sh` (the peer checkout against a local peer that pushes late, moves on or differs) and `scripts/ci/test_await_backend_release.sh` (the Android publish gate against stubbed deploy runs and `/health`) |
+| **Shared-file manifests** | `scripts/sync_data_report.py --check`, the same verdict a local run gives |
 | **Comment stripper** | `scripts/tools/strip_comments.py`: its self-test, a stripped copy that still parses (Python, TypeScript, shell), then `--check`, which fails when any comment is left in code (0.0.10). Since 0.0.12 a quoted heredoc that feeds a shell, such as `ssh host 'bash -s' <<'REMOTE'` or a `cat <<'REMOTE'` group piped into one, is read as shell code, so its comments are stripped and checked too, while shebangs, `shellcheck` directives, unquoted heredocs and data heredocs stay; `scripts/tools/verify_strip_workflows.py` then runs `bash -n` over every POSIX `run:` script and every such heredoc body, committed and stripped |
 
 Measured on the tree the workflow landed with (2026-09-14, on a laptop — a runner will differ):
