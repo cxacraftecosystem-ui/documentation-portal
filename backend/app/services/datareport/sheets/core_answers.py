@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import datetime
 from typing import Any
 
 from app.services.datareport import tables
@@ -253,12 +252,8 @@ class AnswersPlugin:
         whole = t("answers.wholeSection", "Whole section")
         audio = t("answers.audio", "Audio recording")
 
-        def moment(r: Any) -> Any:
-            value = _v(r, "capturedAt") or _v(r, "createdAt")
-            return value if isinstance(value, datetime) else datetime.min
-
         recordings = [r for r in store.rows.get("QuestionnaireRecording", ()) if not _v(r, "removedAt") and str(_v(r, "mediaFileId")) in media]
-        for rec in sorted(recordings, key=lambda r: (str(moment(r)), str(_v(r, "id")))):
+        for rec in sorted(recordings, key=lambda r: (str(_v(r, "capturedAt") or _v(r, "createdAt") or ""), str(_v(r, "id")))):
             mid = str(_v(rec, "mediaFileId"))
             m = media[mid]
             interview = _v(m, "questionnaireInterviewId")
