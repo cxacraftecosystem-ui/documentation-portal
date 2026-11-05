@@ -288,7 +288,7 @@ class ScreensShotsTest {
     private fun offline(dark: Boolean, variant: String) {
         val owner = ExplorerPortal.userId(app)
         val tree = kotlinx.coroutines.runBlocking { ScreenBoards.Api(app).tree(ScreenBoards.GIRIRAJ, null, null, 1) }
-        ExplorerCache(File(app.filesDir, ExplorerCache.DIR), owner).write(ExplorerCache.key(ScreenBoards.GIRIRAJ, null), tree, System.currentTimeMillis() - 14 * 60_000)
+        ExplorerCache(File(app.filesDir, ExplorerCache.DIR), owner).write(ExplorerCache.key(ScreenBoards.GIRIRAJ, ExplorerPortal.defaultStatus?.let { ExplorerPortal.statusParam(it) }), tree, System.currentTimeMillis() - 14 * 60_000)
         ExplorerNetwork.override = ExplorerLink(online = false, metered = false)
         ExplorerPlace.write(app, owner, ScreenBoards.GIRIRAJ)
         val api = ScreenBoards.Api(app, ScreenBoards.Mode.FAIL)

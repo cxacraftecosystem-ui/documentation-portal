@@ -283,6 +283,7 @@ export type TranscriptSummary = {
   durationMs: number | null;
   speakerCount: number;
   translation?: { done: number; total: number; percent: number | null } | null;
+  statusMessage?: string | null;
 };
 
 export function translatingLabel(summary: Pick<TranscriptSummary, "status" | "translation"> | null | undefined): string {

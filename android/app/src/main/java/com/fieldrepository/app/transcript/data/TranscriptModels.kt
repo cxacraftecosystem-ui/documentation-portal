@@ -179,6 +179,7 @@ data class TranscriptSummary(
     val speakerCount: Int = 0,
     val badges: List<TranscriptBadge> = emptyList(),
     val translation: TranscriptTranslationProgress? = null,
+    val statusMessage: String? = null,
 )
 
 @Serializable

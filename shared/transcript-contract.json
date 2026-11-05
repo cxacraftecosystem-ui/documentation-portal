@@ -132,7 +132,7 @@
       "revision": "int  bumps on every edit or speaker change; send back as baseRevision",
       "updatedAt": "ISO-8601"
     },
-    "TranscriptSummary": {"mediaId": "string", "status": "pipelineStatus", "translation": "{done:int,total:int,percent:int|null}", "languages": "[{code,label}]", "durationMs": "int|null", "speakerCount": "int", "badges": "[Badge]"},
+    "TranscriptSummary": {"mediaId": "string", "status": "pipelineStatus", "statusMessage": "string|null", "translation": "{done:int,total:int,percent:int|null}", "languages": "[{code,label}]", "durationMs": "int|null", "speakerCount": "int", "badges": "[Badge]"},
     "Speaker": {"speakerKey": "string e.g. 'speaker_0'", "label": "string  the mapped name, else 'Speaker 1'", "name": "string|null", "role": "speakerRole|null", "personId": "string|null", "suggested": "bool  true when label comes from a suggestion nobody confirmed", "sample": "{startMs: int, endMs: int}|null  a few seconds of this speaker (their longest turn, at most 8 s) to play when naming them", "colorKey": "'s0'..'s7'|'neutral'  speakerPalette key (fixtures.speakerColor)"},
     "Turn": {
       "id": "string",

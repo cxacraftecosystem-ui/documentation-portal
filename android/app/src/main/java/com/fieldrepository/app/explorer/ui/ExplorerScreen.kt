@@ -1610,6 +1610,15 @@ private fun TreePane(
                     }
                 }
             }
+            if (ExplorerPortal.statusOptions.isNotEmpty()) {
+                item("statuses") {
+                    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ExplorerPortal.statusOptions.forEach { (value, label) ->
+                            ExplorerPill(label, selected = value == state.status, onClick = { state.changeStatus(value) }, role = Role.RadioButton, minHeight = 32.dp, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("explorer.status.$value"))
+                        }
+                    }
+                }
+            }
             fun LazyListScope.level(index: Int) {
                 val list = levelOf(index) ?: return
                 list.forEach { folder ->

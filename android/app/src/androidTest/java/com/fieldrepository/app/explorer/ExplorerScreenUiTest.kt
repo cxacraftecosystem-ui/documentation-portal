@@ -435,6 +435,9 @@ class ExplorerScreenUiTest {
         val fake = Fake()
         show(fake, width = 900)
         compose.onNodeWithTag("explorer.tablet").assertExists()
+        compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag("explorer.folder.w/bagru")).fetchSemanticsNodes().isNotEmpty() || fake.calls.count { it.startsWith("tree:by-workshop") } > 0 && compose.onAllNodes(hasTestTag("explorer.pane.tree")).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()
+        assertTrue("the tree pane asked for the workshop level: ${fake.calls}", fake.calls.any { it.startsWith("tree:by-workshop") })
         compose.onNodeWithTag("explorer.pane.tree").performScrollToNode(hasTestTag("explorer.folder.w/bagru"))
         compose.onNodeWithTag("explorer.folder.w/bagru").assertExists()
     }

@@ -912,6 +912,10 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
             scope_where=scope.records,
         )
         info = _artisan_info(artisan)
+        if info is not None:
+            info["counts"] = {
+                "tools": await db.tooldocumentation.count(where=_and(tools_in_workshop_clause(wid, [aid]), scope.records))
+            }
         entries = [
             _folder("Products", f"{parent}/products"),
             _folder("Tools", f"{parent}/tools"),

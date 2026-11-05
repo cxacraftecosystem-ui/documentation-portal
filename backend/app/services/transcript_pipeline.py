@@ -876,6 +876,7 @@ async def summary_items(media_rows: list[Any], user: Any = None) -> list[dict[st
         out.append({
             "mediaId": str(media.id),
             "status": state.status,
+            "statusMessage": state.message,
             "translation": {"done": done, "total": total, "percent": round(done * 100 / total) if total else None},
             "languages": [{"code": c, "label": language_label(c)} for c in (version.languages if version else [])],
             "durationMs": version.durationMs if version else None,

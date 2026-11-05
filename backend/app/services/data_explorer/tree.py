@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.data_explorer import downloads, slim
+from app.services.data_explorer import downloads, facts, slim
 
 TREE_PAGE_MAX = 500
 
@@ -35,6 +35,8 @@ def _links(entry: dict[str, Any]) -> None:
     media = entry.get("_media")
     mime = getattr(media, "mimeType", None) if media is not None else None
     entry.update(downloads.entry_links(str(mid), str(entry.get("mediaType") or "OTHER"), mime))
+    if media is not None:
+        entry.update(facts.entry_facts(media))
     if entry.get("transcriptAvailable"):
         entry["transcriptPath"] = transcript_path(str(mid))
 
@@ -63,6 +65,7 @@ async def shape(
 ) -> tuple[list[dict[str, Any]], int, str | None]:
     for entry in entries:
         _links(entry)
+    facts.schedule([e.get("_media") for e in entries if e.get("kind") == "file" and not e.get("_txMedia")])
     if not lean:
         wanted = [str(e["_txMedia"]) for e in entries if e.get("_txMedia") and not e.get("content")]
         if wanted:

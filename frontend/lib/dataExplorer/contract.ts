@@ -20,6 +20,8 @@ export type TreeEntry = {
   downloadPath?: string | null;
   reviewStatus?: string | null;
   capturedAt?: string | null;
+  pixels?: { width: number; height: number } | null;
+  pages?: number | null;
   count?: number | null;
   bytes?: number | null;
 };
@@ -28,7 +30,7 @@ export type Crumb = { name: string; path: string };
 
 export type InfoField = { label: string; value: string };
 
-export type FolderInfo = { title: string; fields: InfoField[]; record?: { kind: string; id: string } | null };
+export type FolderInfo = { title: string; fields: InfoField[]; record?: { kind: string; id: string } | null; counts?: { tools?: number } | null };
 
 export type Taxonomy = { id: string; name: string; path: string; description: string; default: boolean };
 
