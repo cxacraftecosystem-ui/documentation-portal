@@ -68,7 +68,7 @@ const HEADLINE = [
 ];
 
 const SURFACES = [
-  "View Data",
+  "Data",
   "Review & approvals",
   "Sharing & access grants",
   "Assigned tasks",

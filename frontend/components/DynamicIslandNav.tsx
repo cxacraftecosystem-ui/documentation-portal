@@ -109,7 +109,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/search", label: "Search", icon: Search, group: "Browse", can: everyone, gate: "get_current_user" },
   { href: "/scan", label: "Scan a code", icon: QrCode, group: "Browse", can: everyone, gate: "get_current_user" },
   { href: "/map", label: "Map", icon: MapPinned, group: "Browse", can: everyone, gate: "get_current_user" },
-  { href: "/data", label: "View Data", icon: FolderTree, group: "Browse", can: canDownloadDataset, gate: "require_dataset_downloader" },
+  { href: "/data", label: "Data", icon: FolderTree, group: "Browse", can: canDownloadDataset, gate: "require_dataset_downloader" },
   {
     href: "/questionnaire/consolidated",
     label: "Consolidated questionnaire",

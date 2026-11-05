@@ -9,14 +9,14 @@ the bus on the way to the village.
 
 The screens carry the **same names on the web and in the Android app**. Wherever this document
 names a screen — *Artisan*, *Product*, *Process*, *Tool*, *Questionnaire*, *Miscellaneous Media*,
-*View Data* — that is the name on the dashboard tile in both places.
+*Data* — that is the name on the dashboard tile in both places.
 
 ---
 
 ## The process in one line
 
 **Workshop → Craft → Artisan → Product → Process → Tool → Questionnaire → Miscellaneous Media →
-Review → View Data**
+Review → Data**
 
 Learn that order and you can work without the guide.
 
@@ -73,7 +73,7 @@ Open the workshop you are documenting under — or create it — before you reco
 Description, Notes, Linked artisans, Crafts covered, Workshop media, Location (GPS fix or map pin).
 
 **Why it exists.** The workshop is the container everything else drops into. Products, tools and
-interviews all link to one, and *View Data* opens on **By workshop**, which files every
+interviews all link to one, and *Data* opens on **By workshop**, which files every
 record under the workshop it was made in.
 
 **Watch out for:**
@@ -305,9 +305,9 @@ also means you are never the last check on your own work.
 
 ---
 
-## 10. View Data — *Browse records*
+## 10. Data — *Browse records*
 
-**Screen:** View Data / Data Browser (`/data`)
+**Screen:** Data (`/data`)
 
 Browse every record as folders and export a report of any folder. The root offers
 the same records filed three ways:
