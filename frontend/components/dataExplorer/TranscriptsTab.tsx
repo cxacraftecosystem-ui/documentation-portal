@@ -37,7 +37,7 @@ export type ReadTarget = { mediaId: string; name: string; mediaType: string | nu
 
 type Row = FolderTranscript & { summary: TranscriptSummary | null; state: RowState };
 
-type Loaded = { key: string; items: FolderTranscript[]; total: number; truncated: boolean };
+type Loaded = { key: string; items: FolderTranscript[]; total: number; truncated: boolean; nextOffset: number | null };
 
 const ROW_BUTTON =
   "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-line-200 bg-card px-3 text-xs font-semibold text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 disabled:opacity-60 dark:hover:bg-purple-950/40 pointer-coarse:min-h-11";
@@ -128,7 +128,7 @@ export function TranscriptsTab({
         const answer = await fetchFolderTranscripts(path, needle, JSON.parse(extraKey) as QueryParams, abort.signal);
         if (abort.signal.aborted) return;
         const items = answer?.items ?? [];
-        setLoaded({ key, items, total: answer?.total ?? 0, truncated: answer?.truncated ?? false });
+        setLoaded({ key, items, total: answer?.total ?? 0, truncated: answer?.truncated ?? false, nextOffset: answer?.truncated ? (answer.nextOffset ?? null) : null });
         if (!needle) countRef.current?.(answer?.total ?? 0);
         const found = items.length ? await fetchTranscriptSummaries(items.map((item) => item.mediaId), abort.signal).catch(() => null) : new Map<string, TranscriptSummary>();
         if (!abort.signal.aborted) setSummaries((previous) => (found ? new Map([...(previous ?? []), ...found]) : previous));
@@ -163,6 +163,29 @@ export function TranscriptsTab({
     }, POLL_MS);
     return () => window.clearInterval(timer);
   }, [workingKey]);
+
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadMore = useCallback(async () => {
+    const current = loaded;
+    if (!current || current.nextOffset === null) return;
+    setLoadingMore(true);
+    try {
+      const answer = await fetchFolderTranscripts(path, needle, JSON.parse(extraKey) as QueryParams, undefined, current.nextOffset);
+      const fresh = (answer?.items ?? []).filter((item) => !current.items.some((have) => have.mediaId === item.mediaId));
+      setLoaded((previous) =>
+        previous && previous.key === current.key
+          ? { ...previous, items: [...previous.items, ...fresh], total: previous.total + fresh.length, truncated: Boolean(answer?.truncated) && fresh.length > 0, nextOffset: answer?.truncated && fresh.length ? (answer.nextOffset ?? null) : null }
+          : previous
+      );
+      setShowAll(true);
+      const found = fresh.length ? await fetchTranscriptSummaries(fresh.map((item) => item.mediaId)).catch(() => null) : null;
+      if (found) setSummaries((previous) => new Map([...(previous ?? []), ...found]));
+    } catch (failure) {
+      setError(failure instanceof Error && failure.message ? failure.message : "The transcripts didn't load.");
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loaded, path, needle, extraKey]);
 
   const counts = stateCounts(rows);
   const languages = useMemo(() => languageOptions(rows), [rows]);
@@ -381,6 +404,10 @@ export function TranscriptsTab({
             {!showAll && visible.length > shown.length ? (
               <button type="button" className="min-h-9 font-semibold text-purple-700 hover:underline dark:text-purple-300 pointer-coarse:min-h-11" onClick={() => setShowAll(true)}>
                 Show all
+              </button>
+            ) : loaded?.nextOffset !== null && loaded?.nextOffset !== undefined ? (
+              <button type="button" className="min-h-9 font-semibold text-purple-700 hover:underline dark:text-purple-300 pointer-coarse:min-h-11" data-testid="transcripts-more" disabled={loadingMore} onClick={() => void loadMore()}>
+                {loadingMore ? "Loading…" : "Load more recordings"}
               </button>
             ) : null}
             {retryNote ? <span className="ml-auto">{retryNote}</span> : null}

@@ -169,7 +169,7 @@ function Explorer({ user }: { user: User }) {
     statusFilter: { active: Boolean(statusParam), label: dataStatusLabel(reviewStatus) },
     viewer: user.id,
     fileHref: mediaHref,
-    renderSearch: (reveal, openPreview) => <DataSearchPanel onReveal={reveal} onPreview={openPreview} />,
+    renderSearch: (reveal, openPreview, ask) => <DataSearchPanel onReveal={reveal} onPreview={openPreview} ask={ask} />,
     headerExtra: (
       <div className="flex flex-wrap items-center gap-2">
         <span className="field-label">Review status</span>

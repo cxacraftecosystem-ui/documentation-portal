@@ -78,7 +78,7 @@ fun WorkshopCoverageScreen(
         if (cell.recordings.isNotEmpty()) return open(listed)
         scope.launch {
             val filters = CoverageRecordings.filters(formId, sectionId, subjectId, workshopId, QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP)
-            val rows = runCatching { v2.recordingsPage(filters, limit = 50).items }.getOrElse { onError(it.userSentence()); return@launch }
+            val rows = runCatching { v2.everyRecording(filters) }.getOrElse { onError(it.userSentence()); return@launch }
             open(CoverageRecordings.fromList(rows, sectionId, subjectId))
         }
     }

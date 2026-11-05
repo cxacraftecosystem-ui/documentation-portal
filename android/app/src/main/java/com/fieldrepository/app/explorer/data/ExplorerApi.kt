@@ -40,6 +40,8 @@ interface ExplorerApi {
         @Query("path") path: String,
         @Query("q") q: String? = null,
         @Query("format") format: String = "json",
+        @Query("sheet") sheet: String? = null,
+        @Query("offset") offset: Int? = null,
     ): ExplorerReport
 
     @GET("data/transcripts/languages")

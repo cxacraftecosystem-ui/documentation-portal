@@ -23,7 +23,7 @@ import { Dropdown, MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
-import { readRequestableAnswer, requestableCeilingSentence } from "@/lib/requestableWorkshops";
+import { readEveryRequestable, requestableCeilingSentence } from "@/lib/requestableWorkshops";
 
 const OUTCOME_TEXT: Record<WorkshopAccessRequestResult["outcomes"][number]["outcome"], string> = {
   CREATED: "requested",
@@ -56,7 +56,9 @@ export function WorkshopAccessRequestPanel() {
 
   const loadWorkshops = useCallback(async () => {
     try {
-      const answer = readRequestableAnswer<RequestableWorkshop>(await apiFetch<unknown>("/workshops/requestable"));
+      const answer = await readEveryRequestable<RequestableWorkshop>((offset) =>
+        apiFetch<unknown>(`/workshops/requestable${offset ? `?offset=${offset}` : ""}`)
+      );
       setWorkshops(sortWorkshopsByOccurrence(answer.items));
       setWorkshopsTruncated(answer.truncated);
     } catch (err) {

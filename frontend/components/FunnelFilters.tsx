@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { workshopOccurrenceDate } from "@/components/forms/WorkshopSelect";
 import { CraftSelect } from "@/components/forms/CraftSelect";
 import { Dropdown } from "@/components/ui/Dropdown";
-import { listResource } from "@/lib/api";
+import { listAllPages } from "@/lib/listAllPages";
 import type { Artisan, Workshop } from "@/lib/types";
 
 export type FunnelWorkshop = Workshop & {
@@ -39,7 +39,7 @@ export function FunnelFilters({
     (async () => {
       let workshopRows: FunnelWorkshop[] = [];
       try {
-        const workshopResult = await listResource<FunnelWorkshop>("/workshops", { pageSize: 100 });
+        const workshopResult = await listAllPages<FunnelWorkshop>("/workshops", { pageSize: 100 });
         workshopRows = [...workshopResult.items].sort((a, b) => occurredAt(b).localeCompare(occurredAt(a)));
       } catch {
       }
@@ -59,7 +59,7 @@ export function FunnelFilters({
   useEffect(() => {
     if (!showArtisan) return;
     let active = true;
-    listResource<Artisan>("/artisans", { craftId: value.craftId || undefined, pageSize: 100 })
+    listAllPages<Artisan>("/artisans", { craftId: value.craftId || undefined, pageSize: 100 })
       .then((result) => {
         if (active) setArtisans(result.items);
       })

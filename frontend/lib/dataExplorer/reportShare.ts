@@ -280,8 +280,15 @@ export function revokeShare(id: string): Promise<void> {
   return apiFetch<void>(`/data/report/shares/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-export function fetchShareViews(id: string): Promise<ShareViews> {
-  return apiFetch<ShareViews>(`/data/report/shares/${encodeURIComponent(id)}/views`);
+export function fetchShareViews(id: string, offset = 0): Promise<ShareViews> {
+  return apiFetch<ShareViews>(`/data/report/shares/${encodeURIComponent(id)}/views${offset > 0 ? `?offset=${offset}` : ""}`);
+}
+
+export function mergeShareViews(current: ShareViews, next: ShareViews): ShareViews {
+  const seen = new Set(current.items.map((view) => view.id));
+  const items = [...current.items, ...next.items.filter((view) => !seen.has(view.id))];
+  const total = Math.max(next.total, items.length);
+  return { items, total, truncated: next.truncated && items.length > current.items.length && items.length < total };
 }
 
 export function openShare(token: string): Promise<ShareSnapshot> {

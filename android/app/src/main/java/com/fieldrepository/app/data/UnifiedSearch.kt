@@ -48,6 +48,7 @@ data class UnifiedSearchResponse(
     val remote: UnifiedRemoteDto = UnifiedRemoteDto(),
     val typesRefused: List<String> = emptyList(),
     val suggestion: String? = null,
+    val suggestionTotal: Int = 0,
     val type: String? = null,
     val page: Int? = null,
 )

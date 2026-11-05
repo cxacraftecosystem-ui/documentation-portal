@@ -59,7 +59,13 @@ open class FakeExplorerApi : ExplorerApi {
 
     var report: suspend (path: String, q: String?) -> ExplorerReport = { _, _ -> ExplorerReport() }
 
-    override suspend fun reportJson(path: String, q: String?, format: String): ExplorerReport {
+    var reportPage: (suspend (path: String, q: String?, sheet: String, offset: Int) -> ExplorerReport)? = null
+
+    override suspend fun reportJson(path: String, q: String?, format: String, sheet: String?, offset: Int?): ExplorerReport {
+        if (sheet != null && offset != null) {
+            calls += "report:$path:${q.orEmpty()}:$format:$sheet:$offset"
+            return reportPage?.invoke(path, q, sheet, offset) ?: ExplorerReport()
+        }
         calls += "report:$path:${q.orEmpty()}:$format"
         return report(path, q)
     }

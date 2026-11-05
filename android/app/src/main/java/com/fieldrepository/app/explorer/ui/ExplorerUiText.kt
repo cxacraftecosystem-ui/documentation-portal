@@ -113,6 +113,12 @@ object ExplorerUiText {
 
     fun showingRows(shown: Int, total: Int) = "Showing $shown of $total"
 
+    fun moreRows(n: Int) = "Show $n more rows"
+
+    const val loadingRows = "Loading rows…"
+
+    const val rowsFailed = "More rows didn't load."
+
     fun emptyBody(name: String) = "Files appear as soon as someone records for $name."
 
     fun offlineBody(age: String?) =

@@ -392,3 +392,56 @@ def test_table_search_finds_a_row_past_the_preview_and_a_sheet_downloads_as_csv(
     assert seen["csv"][0] == 200 and f"needle-{STAMP}" in seen["csv"][1]
     assert seen["csv"][1].startswith("﻿")
     assert seen["no_sheet"] == 422
+
+
+def test_a_folder_of_more_than_five_hundred_pages_to_its_last_item(monkeypatch):
+    async def work() -> dict[str, Any]:
+        seed = await _seed()
+        try:
+            rows = [
+                {
+                    "originalFilename": f"big{n:04d}.jpg",
+                    "mediaType": "IMAGE",
+                    "mimeType": "image/jpeg",
+                    "sizeBytes": 1024,
+                    "bucket": "test-bucket",
+                    "objectKey": f"media/{seed['admin'].id}/{uuid.uuid4().hex}/big{n:04d}.jpg",
+                    "uploadedById": seed["admin"].id,
+                    "artisanId": seed["artisan"].id,
+                    "workshopId": seed["workshop"].id,
+                }
+                for n in range(1234)
+            ]
+            await db.mediafile.create_many(data=rows)
+            made = await db.mediafile.find_many(where={"artisanId": seed["artisan"].id})
+            seed["media"].extend(m.id for m in made)
+            headers = _auth(seed["admin"])
+            pages: list[dict[str, Any]] = []
+            cursor = None
+            async with asgi_client() as client:
+                for _ in range(10):
+                    params = {"path": _artisan_path(seed), "slim": "1", "limit": "300"}
+                    if cursor:
+                        params["cursor"] = cursor
+                    page = (await client.get("/api/data/tree", params=params, headers=headers)).json()
+                    pages.append(page)
+                    cursor = page.get("nextCursor")
+                    if not cursor:
+                        break
+                plain = (await client.get("/api/data/tree", params={"path": _artisan_path(seed)}, headers=headers)).json()
+            return {"pages": pages, "plain": plain, "made": [m.id for m in made if (m.originalFilename or "").startswith("big")]}
+        finally:
+            await _cleanup(seed)
+
+    seen = _private(monkeypatch, work)
+    pages = seen["pages"]
+    files = [e["mediaId"] for page in pages for e in page["entries"] if e.get("mediaId")]
+    assert len(files) == len(set(files)) == 1234
+    assert all(page["total"] == pages[0]["total"] for page in pages)
+    assert pages[0]["total"] >= 1234
+    assert not any(page["truncated"] for page in pages)
+    assert pages[-1]["nextCursor"] is None
+    names = [e["name"] for page in pages for e in page["entries"] if e.get("mediaId")]
+    assert names == sorted(names, key=str.lower)
+    assert len(seen["made"]) == 1234 and set(seen["made"]) <= set(files)
+    assert seen["plain"]["truncated"] is False and seen["plain"]["nextCursor"]

@@ -43,7 +43,7 @@ export type ExplorerConfig = {
   statusFilter?: ReportStatusFilter;
   viewer: string;
   fileHref: (mediaId: string) => string | null;
-  renderSearch: (reveal: (path: string) => void, openPreview: (target: PreviewTarget) => void) => ReactNode;
+  renderSearch: (reveal: (path: string) => void, openPreview: (target: PreviewTarget) => void, ask: SearchAsk | null) => ReactNode;
   headerExtra?: ReactNode;
   toolbarExtra?: ReactNode;
   emptyBody: string;
@@ -144,8 +144,10 @@ function ViewTabs({ view, counts, onView, trailing }: { view: ExplorerView; coun
   );
 }
 
-function SearchSlot({ render, reveal, openPreview }: { render: ExplorerConfig["renderSearch"]; reveal: (path: string) => void; openPreview: (target: PreviewTarget) => void }) {
-  return <>{render(reveal, openPreview)}</>;
+export type SearchAsk = { q: string; nonce: number };
+
+function SearchSlot({ render, reveal, openPreview, ask }: { render: ExplorerConfig["renderSearch"]; reveal: (path: string) => void; openPreview: (target: PreviewTarget) => void; ask: SearchAsk | null }) {
+  return <>{render(reveal, openPreview, ask)}</>;
 }
 
 export function DataExplorer({ config }: { config: ExplorerConfig }) {
@@ -159,6 +161,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
   const [include, setInclude] = useState<IncludeKey[]>([...INCLUDE_KEYS]);
   const [previewEntry, setPreviewEntry] = useState<TreeEntry | null>(null);
+  const [searchAsk, setSearchAsk] = useState<SearchAsk | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [viewsOpen, setViewsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -515,7 +518,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
       <div className="grid gap-4">
         {config.headerExtra ? <div className="flex flex-wrap items-center justify-end gap-2">{config.headerExtra}</div> : null}
         <div data-explorer-search="">
-          <SearchSlot render={config.renderSearch} reveal={reveal} openPreview={openPreview} />
+          <SearchSlot render={config.renderSearch} reveal={reveal} openPreview={openPreview} ask={searchAsk} />
         </div>
         {!online.online ? <OfflineNote loadedAt={loadedAt} /> : null}
         {viewError ? <Problem onRetry={() => setViewError(null)} retryLabel="Dismiss">{viewError}</Problem> : null}
@@ -721,12 +724,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
         }}
         onSearchEverything={(q) => {
           setPaletteOpen(false);
-          const input = document.querySelector<HTMLInputElement>("[data-explorer-search] input");
-          if (input) {
-            input.focus();
-            input.value = q;
-            input.dispatchEvent(new Event("input", { bubbles: true }));
-          }
+          setSearchAsk((previous) => ({ q, nonce: (previous?.nonce ?? 0) + 1 }));
         }}
         actions={[
           { key: "D", label: "Download", run: (hit: PaletteHit) => void withPath(hit, (path) => {

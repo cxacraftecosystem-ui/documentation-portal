@@ -237,13 +237,32 @@ test.describe("@qf:X1 the tree", () => {
     }
   });
 
+  test("a folder of 1,234 files pages to its last file", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/many" });
+    try {
+      const next = page.getByRole("button", { name: "Next", exact: true });
+      const last = page.getByText("photo-1234.jpg", { exact: true });
+      for (let i = 0; i < 200 && !(await last.isVisible()); i += 1) {
+        const more = page.getByTestId("folder-more");
+        if (await more.count()) await more.scrollIntoViewIfNeeded();
+        if (await next.isEnabled().catch(() => false)) await next.click();
+        await expect(page.getByText(/^Showing /)).toBeVisible();
+      }
+      await expect(last).toBeVisible();
+      await expect(page.getByText(/of 1,234$/)).toBeVisible();
+      const trees = fake.calls.filter((call) => call.path === "/data/tree" && call.query.get("path") === "workshops/many");
+      expect(trees.length).toBeGreaterThanOrEqual(3);
+    } finally {
+      await context.close();
+    }
+  });
+
   test("a long folder pages in with Load more", async ({ browser }) => {
     const { context, page } = await openExplorer(browser, { path: "workshops/sanganer" });
     try {
       const files = page.getByRole("list", { name: "Files" }).locator("[data-file-row]");
-      await expect(files).toHaveCount(2);
-      await page.getByRole("button", { name: "Load more" }).click();
       await expect(files).toHaveCount(3);
+      await expect(page.getByTestId("folder-more")).toHaveCount(0);
     } finally {
       await context.close();
     }
@@ -1414,6 +1433,79 @@ test.describe("@qf:X6 links inside the report", () => {
       expect(names.some((name) => name.endsWith("photo.jpg"))).toBe(true);
       await page.goto("/data?bundle=nope");
       await expect(page.getByText("That download isn't available to you.")).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+});
+
+test.describe("search reaches every record", () => {
+  test("a suggestion says how many results it brings", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser);
+    fake.searchCorpus = [{ type: "artisans", label: "Artisans", singular: "Artisan", total: 31 }];
+    try {
+      await page.getByRole("searchbox", { name: "Search all data" }).fill("indgo");
+      await expect(page.getByText("No matches for “indgo”")).toBeVisible();
+      await expect(page.getByText(/Did you mean\s*indigo\s*\?\s*38 results\./)).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("All pages past the first five, and Show all reaches the last artisan", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser);
+    fake.searchCorpus = [
+      { type: "artisans", label: "Artisans", singular: "Artisan", total: 31 },
+      { type: "tools", label: "Tools", singular: "Tool", total: 7 }
+    ];
+    try {
+      await page.getByRole("searchbox", { name: "Search all data" }).fill("artisan");
+      const artisans = page.getByTestId("search-group-artisans");
+      await expect(artisans.getByText("Artisan 5 of 31", { exact: true })).toBeVisible();
+      await expect(artisans.getByText("Artisan 6 of 31", { exact: true })).toHaveCount(0);
+      await page.getByTestId("search-more").click();
+      await expect(artisans.getByText("Artisan 10 of 31", { exact: true })).toBeVisible();
+      await expect(page.getByTestId("search-group-tools").getByText("Tool 7 of 7", { exact: true })).toBeVisible();
+      const unpaged = fake.calls.filter((call) => call.path === "/search/unified" && !call.query.get("type") && call.query.get("page") === "2");
+      expect(unpaged.length).toBeGreaterThan(0);
+      await page.getByTestId("search-all-artisans").click();
+      await expect(page.getByText("Artisan 20 of 31", { exact: true })).toBeVisible();
+      await page.getByTestId("search-more").click();
+      await expect(page.getByText("Artisan 31 of 31", { exact: true })).toBeVisible();
+      await expect(page.getByTestId("search-more")).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("the fallback search pages too when unified search is off", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser);
+    fake.unifiedSearch = false;
+    fake.searchCorpus = [{ type: "artisans", label: "Artisans", singular: "Artisan", total: 45 }];
+    try {
+      await page.getByRole("searchbox", { name: "Search all data" }).fill("artisan");
+      await expect(page.getByText("Artisan 20 of 45", { exact: true })).toBeVisible();
+      await page.getByTestId("search-more").click();
+      await expect(page.getByText("Artisan 40 of 45", { exact: true })).toBeVisible();
+      await page.getByTestId("search-more").click();
+      await expect(page.getByText("Artisan 45 of 45", { exact: true })).toBeVisible();
+      await expect(page.getByTestId("search-more")).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("Search everywhere from quick jump runs the search", async ({ browser }) => {
+    const { context, page } = await openExplorer(browser, { path: "workshops" });
+    try {
+      await page.getByRole("heading", { name: "By workshop", exact: true }).first().click();
+      await page.keyboard.press("Control+k");
+      const palette = page.getByRole("dialog", { name: "Quick jump" });
+      await palette.getByRole("combobox", { name: "Jump to anything" }).fill("kamla");
+      await palette.getByRole("option", { name: /Search “kamla” everywhere/ }).click();
+      await expect(palette).toHaveCount(0);
+      await expect(page.getByRole("searchbox", { name: "Search all data" })).toHaveValue("kamla");
+      await expect(page.getByTestId("search-results").getByText("Kamla Devi")).toBeVisible();
     } finally {
       await context.close();
     }

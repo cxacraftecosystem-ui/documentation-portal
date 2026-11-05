@@ -358,7 +358,7 @@ def _snippet(text: str, words: list[str]) -> str:
 
 
 async def _folder_transcripts(
-    scope: Any, norm: str
+    scope: Any, norm: str, offset: int = 0
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any], bool]:
     browser = _browser()
     files, truncated = await walk.manifest_files(
@@ -378,9 +378,11 @@ async def _folder_transcripts(
             "path": f.get("path"),
             "mediaType": kind if kind != "TRANSCRIPT" else None,
         }
-        if len(seen) >= TRANSCRIPT_LIST_MAX:
+        if len(seen) >= offset + TRANSCRIPT_LIST_MAX:
             truncated = True
             break
+    if offset:
+        seen = dict(list(seen.items())[offset:])
     ids = list(seen)
     rows = await db.mediafile.find_many(
         where=_live_media_where(scope, ids) if ids else {"id": {"in": []}}
@@ -392,10 +394,13 @@ async def _folder_transcripts(
 async def transcript_list(
     path: str = "",
     q: str | None = Query(None, max_length=200),
+    offset: int = Query(0, ge=0, le=walk.MAX_MANIFEST_FILES),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
+    offset = offset if isinstance(offset, int) else 0
     scope = await download_scope(current_user)
-    seen, by_id, truncated = await _folder_transcripts(scope, _browser()._norm(path))
+    seen, by_id, truncated = await _folder_transcripts(scope, _browser()._norm(path), offset)
+    window = len(seen)
     words = [w for w in (q or "").lower().split() if w]
     items: list[dict[str, Any]] = []
     for media_id, item in seen.items():
@@ -413,7 +418,14 @@ async def transcript_list(
                 continue
             item["snippet"] = _snippet(text, words)
         items.append(item)
-    return {"items": items, "total": len(items), "truncated": truncated, "query": q or None}
+    return {
+        "items": items,
+        "total": len(items),
+        "truncated": truncated,
+        "query": q or None,
+        "offset": offset,
+        "nextOffset": offset + window if truncated and window else None,
+    }
 
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

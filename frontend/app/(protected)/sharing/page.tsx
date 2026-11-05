@@ -10,7 +10,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { RowActions, rowAction } from "@/components/RowActions";
 import { useAuth } from "@/components/AuthProvider";
 import { SearchableMultiSelect, type SelectOption } from "@/components/ui/SearchableSelect";
-import { apiFetch, listResource } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
+import { listAllPages } from "@/lib/listAllPages";
 import { runPerPerson, type BatchOutcome, type BatchTarget } from "@/lib/sharingBatch";
 import { saveBlobToDevice } from "@/lib/saveToDevice";
 import type {
@@ -239,11 +240,11 @@ export default function SharingPage() {
     try {
       const mine = currentUser.id;
       const [a, p, t, w, q] = await Promise.all([
-        listResource<Artisan>("/artisans", { pageSize: 100 }),
-        listResource<ProductDocumentation>("/products", { pageSize: 100 }),
-        listResource<ToolDocumentation>("/tools", { pageSize: 100 }),
-        listResource<Workshop>("/workshops", { pageSize: 100 }),
-        listResource<QuestionnaireInterview>("/questionnaire/interviews", { pageSize: 100 })
+        listAllPages<Artisan>("/artisans", { pageSize: 100, createdBy: mine }),
+        listAllPages<ProductDocumentation>("/products", { pageSize: 100, createdBy: mine }),
+        listAllPages<ToolDocumentation>("/tools", { pageSize: 100, createdBy: mine }),
+        listAllPages<Workshop>("/workshops", { pageSize: 100, createdBy: mine }),
+        listAllPages<QuestionnaireInterview>("/questionnaire/interviews", { pageSize: 100, createdBy: mine })
       ]);
       const recs: OwnRecord[] = [
         ...a.items.filter((x) => x.createdById === mine).map((x) => ({ recordType: "artisan", recordId: x.id, label: `Artisan · ${x.name}` })),

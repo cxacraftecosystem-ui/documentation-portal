@@ -234,7 +234,7 @@ const val REVIEW_PAGE_SIZE = 20
 
 const val MY_RECORDS_PAGE_BUDGET = 20
 
-data class MyRecordsPage<T>(val items: List<T>, val truncated: Boolean)
+data class MyRecordsPage<T>(val items: List<T>, val truncated: Boolean, val nextPage: Int? = null)
 
 private const val UPLOAD_CONCURRENCY = 3
 
@@ -245,6 +245,38 @@ internal const val LIST_PAGE_CEILING = 100
 internal const val ARTISAN_PAGE_BUDGET = 5
 
 internal const val LOOKUP_PAGE_BUDGET = 20
+
+internal const val EVERY_PAGE_BUDGET = 1000
+
+data class MyRecordsAll(
+    val artisans: List<ArtisanDto>,
+    val products: List<ProductDetailDto>,
+    val tools: List<ToolDetailDto>,
+    val workshops: List<WorkshopDetailDto>,
+    val interviews: List<QuestionnaireInterviewDetailDto>,
+)
+
+internal suspend fun <T> myRecordsWalk(from: Int, fetch: suspend (page: Int) -> PageResponse<T>): MyRecordsPage<T> {
+    val rows = mutableListOf<T>()
+    var page = from.coerceAtLeast(1)
+    val last = page + MY_RECORDS_PAGE_BUDGET - 1
+    var reached = (page - 1) * LIST_PAGE_CEILING
+    var total = 0
+    var exhausted = false
+    while (page <= last) {
+        val answer = fetch(page)
+        total = answer.total
+        rows += answer.items
+        reached += answer.items.size
+        if (answer.items.isEmpty() || reached >= answer.total) {
+            exhausted = true
+            break
+        }
+        page += 1
+    }
+    val more = !exhausted && reached < total
+    return MyRecordsPage(rows, truncated = more, nextPage = if (more) page else null)
+}
 
 internal suspend fun <T> walkPages(budget: Int, fetch: suspend (page: Int) -> PageResponse<T>): PageResponse<T> {
     val first = fetch(1)
@@ -464,7 +496,7 @@ class FieldRepository(
     @Volatile
     private var cachedAddressReference: AddressReferenceDto? = null
 
-    suspend fun users(): List<UserDto> = api.users(pageSize = 100).items
+    suspend fun users(): List<UserDto> = walkPages(EVERY_PAGE_BUDGET) { api.users(page = it, pageSize = 100) }.items
 
     suspend fun updateUserQuestionnaireAccess(id: String, canManageQuestionnaire: Boolean): UserDto =
         api.updateUser(id, UserUpdateRequest(canManageQuestionnaire = canManageQuestionnaire))
@@ -1037,7 +1069,7 @@ class FieldRepository(
     }
 
     suspend fun artisans(workshopIds: List<String>? = null): List<ArtisanDto> =
-        api.artisans(pageSize = 100, workshopIds = workshopIds.toQueryCsv()).items
+        walkPages(EVERY_PAGE_BUDGET) { api.artisans(page = it, pageSize = 100, workshopIds = workshopIds.toQueryCsv()) }.items
 
     suspend fun artisansPage(
         workshopIds: List<String>? = null,
@@ -1195,27 +1227,26 @@ class FieldRepository(
         return PageResponse(items = items, total = items.size, page = 1, pageSize = items.size, pages = 1)
     }
 
-    suspend fun <T> myRecordsOf(fetch: suspend (page: Int) -> PageResponse<T>): MyRecordsPage<T> {
-        val rows = mutableListOf<T>()
-        var page = 1
-        var total = 0
-        while (page <= MY_RECORDS_PAGE_BUDGET) {
-            val answer = fetch(page)
-            total = answer.total
-            rows += answer.items
-            if (answer.items.isEmpty() || rows.size >= answer.total) break
-            page += 1
-        }
-        return MyRecordsPage(rows, truncated = rows.size < total)
-    }
+    suspend fun <T> myRecordsOf(from: Int = 1, fetch: suspend (page: Int) -> PageResponse<T>): MyRecordsPage<T> =
+        myRecordsWalk(from, fetch)
 
-    suspend fun myArtisans(userId: String) = myRecordsOf { api.artisans(page = it, pageSize = 100, createdBy = userId) }
-    suspend fun myProducts(userId: String) = myRecordsOf { api.products(page = it, pageSize = 100, createdBy = userId) }
-    suspend fun myTools(userId: String) = myRecordsOf { api.tools(page = it, pageSize = 100, createdBy = userId) }
-    suspend fun myProcesses(userId: String) = myRecordsOf { api.processes(page = it, pageSize = 100, createdBy = userId) }
-    suspend fun myCrafts(userId: String) = myRecordsOf { api.crafts(page = it, pageSize = 100, createdBy = userId) }
-    suspend fun myWorkshops(userId: String) = myRecordsOf { api.workshops(page = it, pageSize = 100, createdBy = userId) }
-    suspend fun myInterviews(userId: String) = myRecordsOf { api.interviews(page = it, pageSize = 100, createdBy = userId) }
+    suspend fun myArtisans(userId: String, from: Int = 1) = myRecordsOf(from) { api.artisans(page = it, pageSize = 100, createdBy = userId) }
+    suspend fun myProducts(userId: String, from: Int = 1) = myRecordsOf(from) { api.products(page = it, pageSize = 100, createdBy = userId) }
+    suspend fun myTools(userId: String, from: Int = 1) = myRecordsOf(from) { api.tools(page = it, pageSize = 100, createdBy = userId) }
+    suspend fun myProcesses(userId: String, from: Int = 1) = myRecordsOf(from) { api.processes(page = it, pageSize = 100, createdBy = userId) }
+    suspend fun myCrafts(userId: String, from: Int = 1) = myRecordsOf(from) { api.crafts(page = it, pageSize = 100, createdBy = userId) }
+    suspend fun myWorkshops(userId: String, from: Int = 1) = myRecordsOf(from) { api.workshops(page = it, pageSize = 100, createdBy = userId) }
+    suspend fun myInterviews(userId: String, from: Int = 1) = myRecordsOf(from) { api.interviews(page = it, pageSize = 100, createdBy = userId) }
+
+    suspend fun allMine(userId: String): MyRecordsAll = coroutineScope {
+        fun <T> every(fetch: suspend (Int) -> PageResponse<T>) = async { walkPages(EVERY_PAGE_BUDGET, fetch).items }
+        val artisans = every { api.artisans(page = it, pageSize = 100, createdBy = userId) }
+        val products = every { api.products(page = it, pageSize = 100, createdBy = userId) }
+        val tools = every { api.tools(page = it, pageSize = 100, createdBy = userId) }
+        val workshops = every { api.workshops(page = it, pageSize = 100, createdBy = userId) }
+        val interviews = every { api.interviews(page = it, pageSize = 100, createdBy = userId) }
+        MyRecordsAll(artisans.await(), products.await(), tools.await(), workshops.await(), interviews.await())
+    }
 
     suspend fun unifiedSearch(query: String, limit: Int = 5): UnifiedSearchResponse =
         api.unifiedSearch(q = query.trim(), limit = limit)
@@ -1236,12 +1267,12 @@ class FieldRepository(
     suspend fun searchInterviews(query: String, pageSize: Int = 10): List<QuestionnaireInterviewDetailDto> =
         api.interviews(pageSize = pageSize, search = query.trim()).items
 
-    suspend fun products(): List<ProductDetailDto> = api.products(pageSize = 100).items
+    suspend fun products(): List<ProductDetailDto> = walkPages(EVERY_PAGE_BUDGET) { api.products(page = it, pageSize = 100) }.items
 
     suspend fun productsForArtisan(artisanId: String, artisanName: String? = null): List<ProductDetailDto> =
         api.products(pageSize = 100, artisanId = artisanId, artisanName = artisanName?.trim()?.ifBlank { null }).items
 
-    suspend fun tools(): List<ToolDetailDto> = api.tools(pageSize = 100).items
+    suspend fun tools(): List<ToolDetailDto> = walkPages(EVERY_PAGE_BUDGET) { api.tools(page = it, pageSize = 100) }.items
 
     suspend fun toolArtisans(toolId: String): List<ArtisanDto> = api.toolArtisans(toolId)
 
@@ -1250,7 +1281,7 @@ class FieldRepository(
 
     suspend fun unassignToolArtisan(toolId: String, artisanId: String) = api.unassignToolArtisan(toolId, artisanId)
 
-    suspend fun workshops(): List<WorkshopDetailDto> = api.workshops(pageSize = 100).items
+    suspend fun workshops(): List<WorkshopDetailDto> = walkPages(EVERY_PAGE_BUDGET) { api.workshops(page = it, pageSize = 100) }.items
 
     suspend fun workshopsByOccurrence(): List<WorkshopDetailDto> =
         workshops().sortedByDescending { it.occurrenceDate() }
@@ -1290,7 +1321,7 @@ class FieldRepository(
 
     suspend fun media(): List<MediaFileDto> = api.media(pageSize = 20).items
 
-    suspend fun mediaList(): List<MediaFileDto> = api.media(pageSize = 100).items
+    suspend fun mediaList(): List<MediaFileDto> = walkPages(EVERY_PAGE_BUDGET) { api.media(page = it, pageSize = 100) }.items
 
     suspend fun mediaItem(id: String): MediaFileDto = api.getMedia(id)
 
@@ -1531,9 +1562,9 @@ class FieldRepository(
     }
 
     suspend fun mediaForRecord(linkedRecordType: String, linkedRecordId: String): List<MediaFileDto> =
-        api.media(pageSize = 100, linkedRecordType = linkedRecordType, linkedRecordId = linkedRecordId).items
+        walkPages(EVERY_PAGE_BUDGET) { api.media(page = it, pageSize = 100, linkedRecordType = linkedRecordType, linkedRecordId = linkedRecordId) }.items
 
-    suspend fun processes(): List<ProcessDetailDto> = api.processes(pageSize = 100).items
+    suspend fun processes(): List<ProcessDetailDto> = walkPages(EVERY_PAGE_BUDGET) { api.processes(page = it, pageSize = 100) }.items
 
     suspend fun process(id: String): ProcessDetailDto = api.process(id)
 

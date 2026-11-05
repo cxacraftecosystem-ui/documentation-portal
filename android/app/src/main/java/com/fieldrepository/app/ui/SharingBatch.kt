@@ -31,7 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.data.DataAccessGrantDto
 import com.fieldrepository.app.data.DataAccessScopeItemDto
-import com.fieldrepository.app.data.EVERY_WORKSHOP
+import com.fieldrepository.app.data.MyRecordsAll
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.UserDto
 import com.fieldrepository.app.data.apiErrorMessage
@@ -261,18 +261,7 @@ fun GrantAccessFields(
         if (myRecords != null) return
         scope.launch {
             runCatching {
-                val recs = mutableListOf<SelectOption>()
-                repository.artisans().filter { it.createdById == myId }
-                    .forEach { recs += SelectOption("artisan::${it.id}", "Artisan · ${it.name}") }
-                repository.products().filter { it.createdById == myId }
-                    .forEach { recs += SelectOption("product::${it.id}", "Product · ${it.productName}") }
-                repository.tools().filter { it.createdById == myId }
-                    .forEach { recs += SelectOption("tool::${it.id}", "Tool · ${it.toolkitName}") }
-                repository.workshops().filter { it.createdById == myId }
-                    .forEach { recs += SelectOption("workshop::${it.id}", "Workshop · ${it.title}") }
-                repository.interviews(EVERY_WORKSHOP).filter { it.createdById == myId }
-                    .forEach { recs += SelectOption("questionnaire::${it.id}", "Interview · ${it.title}") }
-                recs
+                myId?.let { sharingOptions(repository.allMine(it)) }.orEmpty()
             }.onSuccess { myRecords = it }
                 .onFailure { onError(it.apiErrorMessage("Unable to load your records")) }
         }
@@ -403,3 +392,10 @@ private fun ScopeChoice(
         )
     }
 }
+
+internal fun sharingOptions(mine: MyRecordsAll): List<SelectOption> =
+    mine.artisans.map { SelectOption("artisan::${it.id}", "Artisan · ${it.name}") } +
+        mine.products.map { SelectOption("product::${it.id}", "Product · ${it.productName}") } +
+        mine.tools.map { SelectOption("tool::${it.id}", "Tool · ${it.toolkitName}") } +
+        mine.workshops.map { SelectOption("workshop::${it.id}", "Workshop · ${it.title}") } +
+        mine.interviews.map { SelectOption("questionnaire::${it.id}", "Interview · ${it.title}") }

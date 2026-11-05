@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 
-import { FileTypeIcon, FolderSkeleton, LoadFailed, Note, Problem, RecordIcon, Spinner } from "@/components/dataExplorer/explorerUi";
+import { FileTypeIcon, FolderSkeleton, LoadFailed, Problem, RecordIcon, Spinner } from "@/components/dataExplorer/explorerUi";
 import { canPreview } from "@/components/dataExplorer/PreviewDialog";
 import { TranscriptMarkdown } from "@/components/transcript/TranscriptMarkdown";
 import { ActionGroup } from "@/components/ui/ActionGroup";
@@ -110,6 +110,28 @@ function statusWord(status: DownloadStatus | undefined): string | null {
   if (status === "running") return "Downloading";
   if (status === "waiting") return "Waiting";
   return null;
+}
+
+function MoreButton({ className, loading, onMore }: { className: string; loading: boolean; onMore: () => void }) {
+  const ref = useRef<HTMLButtonElement | null>(null);
+  const latest = useRef({ loading, onMore });
+  useEffect(() => {
+    latest.current = { loading, onMore };
+  }, [loading, onMore]);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((seen) => {
+      if (seen.some((entry) => entry.isIntersecting) && !latest.current.loading) latest.current.onMore();
+    }, { rootMargin: "200px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [loading]);
+  return (
+    <button ref={ref} type="button" className={className} disabled={loading} onClick={onMore} data-testid="folder-more">
+      {loading ? "Loading…" : "Load more"}
+    </button>
+  );
 }
 
 export function FolderContents({
@@ -325,11 +347,6 @@ export function FolderContents({
           <Problem onRetry={onRetry}>{error}</Problem>
         </div>
       ) : null}
-      {tree.truncated && !tree.nextCursor ? (
-        <div className="px-4 pt-3">
-          <Note tone="warn">Showing part of this folder. Open subfolders for the rest.</Note>
-        </div>
-      ) : null}
       {folders.length ? (
         <ul className="grid gap-2 border-b border-line-200 p-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Folders">
           {folders.map((folder) => (
@@ -510,18 +527,14 @@ export function FolderContents({
                 </button>
               ) : null}
               {tree.nextCursor && paged.page >= paged.pages ? (
-                <button type="button" className={ACTION} disabled={loading} onClick={onMore}>
-                  {loading ? "Loading…" : "Load more"}
-                </button>
+                <MoreButton className={ACTION} loading={loading} onMore={onMore} />
               ) : null}
             </ActionGroup>
           </div>
         </>
       ) : tree.nextCursor ? (
         <div className="p-3">
-          <button type="button" className={`${ACTION} mx-auto flex`} disabled={loading} onClick={onMore}>
-            {loading ? "Loading…" : "Load more"}
-          </button>
+          <MoreButton className={`${ACTION} mx-auto flex`} loading={loading} onMore={onMore} />
         </div>
       ) : null}
     </div>

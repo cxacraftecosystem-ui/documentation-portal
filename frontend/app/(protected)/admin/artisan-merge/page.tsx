@@ -113,7 +113,25 @@ export default function ArtisanMergePage() {
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [merging, setMerging] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [candidates, setCandidates] = useState<{ items: MergeCandidate[]; truncated: boolean } | null>(null);
+  const [candidates, setCandidates] = useState<{ items: MergeCandidate[]; truncated: boolean; nextOffset?: number | null } | null>(null);
+  const [moreCandidates, setMoreCandidates] = useState(false);
+
+  async function loadMoreCandidates() {
+    if (!candidates?.nextOffset) return;
+    setMoreCandidates(true);
+    try {
+      const next = await fetchMergeCandidates(candidates.nextOffset);
+      setCandidates((current) => {
+        if (!current) return current;
+        const seen = new Set(current.items.map((c) => `${c.keepId}-${c.mergeId}`));
+        return { items: [...current.items, ...next.items.filter((c) => !seen.has(`${c.keepId}-${c.mergeId}`))], truncated: next.truncated, nextOffset: next.nextOffset ?? null };
+      });
+    } catch {
+      setCandidates((current) => (current ? { ...current, nextOffset: current.nextOffset } : current));
+    } finally {
+      setMoreCandidates(false);
+    }
+  }
   const [history, setHistory] = useState<MergeSummary[] | null>(null);
   const [undoing, setUndoing] = useState<string | null>(null);
 
@@ -299,7 +317,13 @@ export default function ArtisanMergePage() {
               </li>
             ))}
           </ul>
-          {candidates.truncated ? (
+          {candidates.truncated && candidates.nextOffset ? (
+            <ButtonRow align="center">
+              <button type="button" className="field-button-secondary" data-testid="merge-candidates-more" disabled={moreCandidates} onClick={() => void loadMoreCandidates()}>
+                {moreCandidates ? "Loading…" : "Show more pairs"}
+              </button>
+            </ButtonRow>
+          ) : candidates.truncated ? (
             <p className="mt-2 text-xs text-ink-500">Showing the first {candidates.items.length}.</p>
           ) : null}
         </section>

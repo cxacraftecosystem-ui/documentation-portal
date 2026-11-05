@@ -14,7 +14,7 @@ pytestmark = pytest.mark.anyio
 REPO = Path(__file__).resolve().parents[2]
 FRONTEND = REPO / "frontend"
 
-ENVELOPE_KEYS = {"items", "truncated"}
+ENVELOPE_KEYS = {"items", "truncated", "nextOffset"}
 ROW_KEYS = {
     "id",
     "title",
@@ -33,8 +33,9 @@ class _Table:
         self.rows = rows
 
     async def find_many(self, **kwargs: Any) -> list[Any]:
+        skip = kwargs.get("skip") or 0
         take = kwargs.get("take")
-        return self.rows[:take] if take else list(self.rows)
+        return self.rows[skip : skip + take] if take else list(self.rows[skip:])
 
 
 def _workshop(wid: str) -> Any:
@@ -79,7 +80,23 @@ async def test_exactly_the_cap_is_not_a_cut_and_the_extra_row_never_leaks(monkey
     assert await routes.list_requestable_workshops(current_user=SimpleNamespace(id="u-1"), limit=2) == {
         "items": [],
         "truncated": False,
+        "nextOffset": None,
     }
+
+
+async def test_offset_pages_to_the_last_workshop(monkeypatch):
+    monkeypatch.setattr(
+        routes,
+        "db",
+        SimpleNamespace(workshop=_Table([_workshop(f"w{i}") for i in range(31)]), workshopassignment=_Table([])),
+    )
+    seen: list[str] = []
+    offset: int | None = 0
+    while offset is not None:
+        page = await routes.list_requestable_workshops(current_user=SimpleNamespace(id="u-1"), limit=10, offset=offset)
+        seen.extend(row["id"] for row in page["items"])
+        offset = page["nextOffset"]
+    assert seen == [f"w{i}" for i in range(31)]
 
 
 def _web_sources() -> list[Path]:
@@ -92,7 +109,7 @@ def test_every_web_reader_decodes_the_route_through_the_one_parser():
     assert readers, "the request panel reads /workshops/requestable; if it moved, follow it here"
     for path in readers:
         source = path.read_text(encoding="utf-8")
-        assert "readRequestableAnswer" in source, f"{path.name} reads /workshops/requestable without the parser"
+        assert "readRequestableAnswer" in source or "readEveryRequestable" in source, f"{path.name} reads /workshops/requestable without the parser"
         assert not re.search(r"apiFetch<[^>]*\[\]>\(\s*[\"'`]/workshops/requestable", source), (
             f"{path.name} casts /workshops/requestable to an array; the route answers an envelope"
         )

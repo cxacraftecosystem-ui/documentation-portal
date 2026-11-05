@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { activeFilters, clock, EMPTY_STATE, flattenGroups, legacyRows, portalCounts, rangeBounds } from "@/lib/dataSearch";
+import { activeFilters, clock, EMPTY_STATE, flattenGroups, hasMore, legacyRows, legacyTotals, mergeRows, moreLabel, portalCounts, rangeBounds, sections, showAllLabel, unifiedTotals } from "@/lib/dataSearch";
 import type { UnifiedResponse } from "@/lib/unifiedSearch";
 
 const DATA: UnifiedResponse = {
@@ -44,4 +44,21 @@ test("the legacy search fills the same cards when unified search is off", () => 
     ["media", "loom.mp4", "/media/m1"]
   ]);
   expect(rows.every((row) => row.portal === "fieldRepository" && row.local)).toBe(true);
+});
+
+test("paging helpers: rows merge once, All keeps a way forward, a pill pages its own type", () => {
+  const rows = flattenGroups(DATA, null);
+  expect(mergeRows(rows, rows)).toHaveLength(2);
+  const groups = unifiedTotals(DATA);
+  expect(hasMore(null, groups, rows, true)).toBe(true);
+  expect(hasMore(null, groups, rows, false)).toBe(false);
+  expect(hasMore("tools", groups, rows, true)).toBe(true);
+  expect(moreLabel("transcripts", groups, rows)).toBe("Show 20 more");
+  expect(moreLabel("tools", groups, rows)).toBe("Show 2 more");
+  expect(moreLabel(null, groups, rows)).toBe("Load more");
+  expect(sections(groups, rows).map((section) => section.group.type)).toEqual(["transcripts", "tools"]);
+  expect(showAllLabel(groups[0])).toBe("Show all 21 transcripts");
+  const all = Array.from({ length: 31 }, (_, index) => ({ portal: DATA.groups[0].items[0].portal, local: true, type: "artisans" as const, id: `a${index}`, title: `A${index}`, href: "" }));
+  expect(hasMore("artisans", [{ type: "artisans", label: "Artisans", total: 31 }], all, true)).toBe(false);
+  expect(legacyTotals({ artisans: [{ id: "a1", name: "K" } as never], totals: { artisans: 40 } })).toEqual([{ type: "artisans", label: "Artisans", total: 40 }]);
 });

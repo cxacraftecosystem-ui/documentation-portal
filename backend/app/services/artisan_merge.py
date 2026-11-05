@@ -1097,10 +1097,16 @@ def find_candidates(rows: list[Any], limit: int = 50) -> tuple[list[dict[str, An
     return pairs[:limit], len(pairs) > limit
 
 
-async def merge_candidates(limit: int = 50) -> dict[str, Any]:
+async def merge_candidates(limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    offset = max(0, int(offset or 0))
     rows = await db.artisan.find_many(order={"createdAt": "asc"})
-    pairs, truncated = find_candidates(list(rows), limit)
-    return {"items": pairs, "truncated": truncated}
+    pairs, truncated = find_candidates(list(rows), offset + limit)
+    page = pairs[offset:]
+    return {
+        "items": page,
+        "truncated": truncated,
+        "nextOffset": offset + len(page) if truncated and page else None,
+    }
 
 
 _REDIRECT_TTL_SECONDS = 60.0

@@ -171,7 +171,6 @@ fun QuestionnaireHome(
     var kept by rememberKept("q.sessions.pages") { KeptPages<SessionListRow>() }
     val rows = kept.rows
     val cursor = kept.cursor
-    var capped by rememberKept("q.sessions.capped") { false }
     val (filters, setFilters) = rememberKeptFilters(v2, FilterStore.SESSIONS)
     var offline by remember { mutableStateOf(false) }
     var showDeleted by remember { mutableStateOf(false) }
@@ -212,7 +211,6 @@ fun QuestionnaireHome(
         val result = runCatching { page(null) }.getOrNull()
         kept = ListPaging.arrive(kept, filters, appendPage(local, result?.items.orEmpty()), result?.nextCursor) { it.key }
         offline = result?.offline == true
-        capped = false
         unsent = units.filter { it.failedSteps.isNotEmpty() }.map { it.clientKey }
         inboxCount = runCatching { v2.api.inbox().counts.total }.getOrDefault(0)
         loading = false
@@ -370,7 +368,6 @@ fun QuestionnaireHome(
                                 loadingMore = false
                             }
                         }))
-                        if (capped) Text(QuestionnaireCopy.s("sessions.capped"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
                     }
                     Box(Modifier.padding(bottom = 72.dp))
                 }

@@ -107,6 +107,22 @@ MAX_MANIFEST_FILES = 20000
 MAX_WALK_DEPTH = 16
 _WALK_SEM = asyncio.Semaphore(5)
 REPORT_TAKE = 5000
+
+
+async def _every(find: Any, *, order: Any = None, **kwargs: Any) -> list[Any]:
+    orders = list(order) if isinstance(order, list) else ([order] if order else [])
+    if not any("id" in o for o in orders):
+        orders.append({"id": "asc"})
+    rows: list[Any] = []
+    after: str | None = None
+    while True:
+        window = {"cursor": {"id": after}, "skip": 1} if after else {}
+        batch = list(await find(**kwargs, order=orders, take=TAKE, **window))
+        rows.extend(batch)
+        last = str(batch[-1].id) if batch else None
+        if len(batch) < TAKE or last is None or last == after:
+            return rows
+        after = last
 PREVIEW_ROWS = 200
 REPORT_QUEUE = report_cache.QUEUE
 REPORT_CACHE = report_cache.CACHE
@@ -427,8 +443,9 @@ async def _media(where: dict[str, Any], scope: Scope, *, named: bool = False) ->
         kwargs["include"] = _NAMING_INCLUDE
 
     async def load() -> list[Any]:
-        return await slim.find_media(
-            where=slim.live(_and(where, scope.media)), take=TAKE, order={"createdAt": "asc"}, **kwargs
+        return await _every(
+            slim.find_media,
+            where=slim.live(_and(where, scope.media)), order={"createdAt": "asc"}, **kwargs
         )
 
     return await explorer_walk.memo(_memo_key("media", where, scope.media, named), load)
@@ -692,10 +709,10 @@ async def _filed_tool_artisan_ids(wid: str, reached: list[str], scope: Scope) ->
                 {"artisanLinks": {"none": {"artisanId": {"in": reached}}}},
             ]
         )
-    tools = await db.tooldocumentation.find_many(
+    tools = await _every(
+        db.tooldocumentation.find_many,
         where=_and({"AND": filed}, scope.records),
         include={"artisanLinks": True},
-        take=TAKE,
     )
     ids: list[str] = []
     for tool in tools:
@@ -713,19 +730,19 @@ async def _linked_artisans(ws: Any, scope: Scope) -> list[Any]:
 
 async def _load_linked_artisans(ws: Any, scope: Scope) -> list[Any]:
     reach = workshop_artisan_reach(ws)
-    reached = await db.artisan.find_many(
+    reached = await _every(
+        db.artisan.find_many,
         where=_and({"OR": reach}, scope.records),
         include={"craft": True},
-        take=TAKE,
         order={"name": "asc"},
     )
     orphans = await _filed_tool_artisan_ids(ws.id, [a.id for a in reached], scope)
     if not orphans:
         return reached
-    return await db.artisan.find_many(
+    return await _every(
+        db.artisan.find_many,
         where=_and({"OR": [*reach, {"id": {"in": orphans}}]}, scope.records),
         include={"craft": True},
-        take=TAKE,
         order={"name": "asc"},
     )
 
@@ -798,8 +815,9 @@ _WS_CRAFTS_INCLUDE = {
 
 async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> Level:
     if len(segs) == 1:
-        workshops = await db.workshop.find_many(
-            where=scope.records, take=TAKE, order={"title": "asc"}
+        workshops = await _every(
+            db.workshop.find_many,
+            where=scope.records, order={"title": "asc"}
         )
         used: set[str] = set()
         return [
@@ -937,9 +955,9 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
 
     if sub == "tools":
         if len(segs) == 5:
-            tools = await db.tooldocumentation.find_many(
+            tools = await _every(
+                db.tooldocumentation.find_many,
                 where=_and(tools_in_workshop_clause(wid, [aid]), scope.records),
-                take=TAKE,
                 order={"createdAt": "asc"},
             )
             used: set[str] = set()
@@ -971,9 +989,9 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
 
     if sub == "questionnaire":
         if len(segs) == 5:
-            interviews = await db.questionnaireinterview.find_many(
+            interviews = await _every(
+                db.questionnaireinterview.find_many,
                 where=_and({"artisans": {"some": {"artisanId": aid}}}, scope.records),
-                take=TAKE,
                 order={"createdAt": "asc"},
                 include={"artisans": {"include": {"artisan": True}}},
             )
@@ -1033,7 +1051,8 @@ async def _list_products_level(
     segs: list[str], parent: str, wid: str, aid: str, scope: Scope
 ) -> Level:
     if len(segs) == 5:
-        products = await db.productdocumentation.find_many(
+        products = await _every(
+            db.productdocumentation.find_many,
             where=_and(
                 {
                     "AND": [
@@ -1043,7 +1062,6 @@ async def _list_products_level(
                 },
                 scope.records,
             ),
-            take=TAKE,
             order={"createdAt": "asc"},
         )
         used: set[str] = set()
@@ -1074,8 +1092,9 @@ async def _list_products_level(
         return entries, info
 
     if len(segs) == 7 and segs[6] == "processes":
-        processes = await db.process.find_many(
-            where=_and({"productId": pid}, scope.records), take=TAKE, order={"createdAt": "asc"}
+        processes = await _every(
+            db.process.find_many,
+            where=_and({"productId": pid}, scope.records), order={"createdAt": "asc"}
         )
         used = set()
         return [
@@ -1141,8 +1160,9 @@ async def _list_products_level(
 
 async def _list_users_level(segs: list[str], parent: str, scope: Scope) -> Level:
     if len(segs) == 1:
-        uploaders = await db.user.find_many(
-            where={"media": {"some": _and({}, scope.media)}}, take=TAKE, order={"name": "asc"}
+        uploaders = await _every(
+            db.user.find_many,
+            where={"media": {"some": _and({}, scope.media)}}, order={"name": "asc"}
         )
         used: set[str] = set()
         return [
@@ -1221,31 +1241,32 @@ async def _uploader_records(
     branch: str, wid: str, uid: str, scope: Scope
 ) -> tuple[str, list[Any]]:
     if branch == "artisans":
-        return "artisan", await db.artisan.find_many(
+        return "artisan", await _every(
+            db.artisan.find_many,
             where=_and(
                 {"AND": [{"createdById": uid}, {"workshops": {"some": {"workshopId": wid}}}]},
                 scope.records,
             ),
-            take=TAKE,
             order={"createdAt": "asc"},
             include=_ARTISAN_INCLUDE,
         )
     if branch == "products":
-        return "product", await db.productdocumentation.find_many(
+        return "product", await _every(
+            db.productdocumentation.find_many,
             where=_and({"AND": [{"createdById": uid}, {"workshopId": wid}]}, scope.records),
-            take=TAKE,
             order={"createdAt": "asc"},
             include=_PRODUCT_INCLUDE,
         )
     if branch == "tools":
-        return "tool", await db.tooldocumentation.find_many(
+        return "tool", await _every(
+            db.tooldocumentation.find_many,
             where=_and({"AND": [{"createdById": uid}, {"workshopId": wid}]}, scope.records),
-            take=TAKE,
             order={"createdAt": "asc"},
             include=_TOOL_INCLUDE,
         )
     if branch == "questionnaire":
-        return "interview", await db.questionnaireinterview.find_many(
+        return "interview", await _every(
+            db.questionnaireinterview.find_many,
             where=_and(
                 {
                     "AND": [
@@ -1259,7 +1280,6 @@ async def _uploader_records(
                 },
                 scope.records,
             ),
-            take=TAKE,
             order={"createdAt": "asc"},
             include=_INTERVIEW_INCLUDE,
         )
@@ -1268,8 +1288,9 @@ async def _uploader_records(
 
 async def _list_uploader_level(segs: list[str], parent: str, scope: Scope) -> Level:
     if len(segs) == 1:
-        workshops = await db.workshop.find_many(
-            where=scope.records, take=TAKE, order={"title": "asc"}
+        workshops = await _every(
+            db.workshop.find_many,
+            where=scope.records, order={"title": "asc"}
         )
         used: set[str] = set()
         return [
@@ -1283,19 +1304,19 @@ async def _list_uploader_level(segs: list[str], parent: str, scope: Scope) -> Le
         ws = await _require(
             db.workshop, wid, "Workshop", include=_WS_CRAFTS_INCLUDE, scope_where=scope.records
         )
-        uploaders = await db.user.find_many(
+        uploaders = await _every(
+            db.user.find_many,
             where={"media": {"some": _and({"workshopId": wid}, scope.media)}},
-            take=TAKE,
             order={"name": "asc"},
         )
-        authors = await db.user.find_many(
+        authors = await _every(
+            db.user.find_many,
             where={
                 "OR": [
                     {"products": {"some": _and({"workshopId": wid}, scope.records)}},
                     {"tools": {"some": _and({"workshopId": wid}, scope.records)}},
                 ]
             },
-            take=TAKE,
             order={"name": "asc"},
         )
         seen: dict[str, Any] = {}
@@ -1510,7 +1531,6 @@ async def data_tree(
     entries = await transcript_export.settle_tree(entries, pipeline_on=transcript_pipeline.enabled())
     await explorer_counts.fill(norm, entries, scope)
     crumbs = await _resolve_crumbs(norm)
-    cut = len(entries) >= TAKE
     public, total, next_cursor = await explorer_tree.shape(
         entries, lean=lean is True, cursor=cursor, limit=limit
     )
@@ -1519,7 +1539,7 @@ async def data_tree(
         "crumbs": crumbs,
         "entries": public,
         "info": info,
-        "truncated": cut,
+        "truncated": False,
         "total": total,
         "nextCursor": next_cursor,
         "taxonomies": TAXONOMIES,
@@ -2539,8 +2559,10 @@ async def data_report(
     thumbnails: str | None = None,
     locale: str | None = None,
     extras: str | None = None,
+    offset: int = Query(0, ge=0, le=REPORT_TAKE),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
+    offset = offset if isinstance(offset, int) else 0
     fmt = (format or "xlsx").strip().lower()
     if fmt not in ("json", "xlsx", "csv"):
         raise HTTPException(status_code=422, detail="format must be 'json', 'xlsx' or 'csv'")
@@ -2557,7 +2579,7 @@ async def data_report(
     try:
         return await _build_report(
             path, fmt, status_filter, current_user, q=q, sheet=sheet, options=options,
-            file_name=report_options.file_name(name),
+            file_name=report_options.file_name(name), offset=offset,
         )
     except report_cache.ReportBusy as busy:
         raise HTTPException(
@@ -2575,25 +2597,31 @@ async def _queued(work: Any) -> Any:
             _trim_heap()
 
 
-def _preview(sheets: list[dict[str, Any]], uncounted: set[int]) -> list[dict[str, Any]]:
+def _preview(
+    sheets: list[dict[str, Any]], uncounted: set[int], offset: int = 0
+) -> list[dict[str, Any]]:
+    start = max(0, offset)
+    end = start + PREVIEW_ROWS
     out = []
     for index, sheet in enumerate(sheets):
         rows = sheet.get("rows") or []
         note = rows[-1:] if sheet.get("noteRow") else []
         data = rows[:-1] if note else rows
-        shown = data[:PREVIEW_ROWS]
+        shown = data[start:end]
         known = index not in uncounted
-        cut = len(data) > PREVIEW_ROWS or (not known and bool(sheet.get("truncated")))
+        cut = len(data) > end or (not known and bool(sheet.get("truncated")))
         capped = bool(sheet.get("truncated")) and known
+        noted = capped and (start == 0 or end >= len(data))
         entry = {k: v for k, v in sheet.items() if k not in ("rows", "noteRow")}
-        numbers = list(range(1, len(shown) + 1))
+        numbers = list(range(start + 1, start + len(shown) + 1))
         entry.update(
-            rows=[*shown, *note] if capped else shown,
-            rowNumbers=[*numbers, *([0] * len(note))] if capped else numbers,
+            rows=[*shown, *note] if noted else shown,
+            rowNumbers=[*numbers, *([0] * len(note))] if noted else numbers,
             truncated=cut or capped,
             preview=cut,
             capped=capped,
             totalRows=len(data) if known else None,
+            offset=start,
         )
         out.append(entry)
     return out
@@ -2675,6 +2703,7 @@ async def _build_report(
     sheet: str | None = None,
     options: report_options.ReportOptions | None = None,
     file_name: str | None = None,
+    offset: int = 0,
 ) -> Response:
     options = options or report_options.ReportOptions()
     scope = await _scope_for(current_user, status_filter)
@@ -2703,7 +2732,11 @@ async def _build_report(
             headers={"Content-Disposition": _content_disposition(csv_name)},
         )
     if fmt == "json":
-        shown = report_tools.search(sheets, q) if searching else _preview(sheets, set())
+        shown = (
+            report_tools.search(sheets, q, offset=offset)
+            if searching
+            else _preview(sheets, set(), offset)
+        )
         report_tools.cap_prose(shown)
         return JSONResponse(
             {

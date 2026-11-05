@@ -13,6 +13,7 @@ import {
   deviceOf,
   expiryLine,
   fetchShareViews,
+  mergeShareViews,
   filtersOf,
   formatWhen,
   listShares,
@@ -37,6 +38,20 @@ function message(error: unknown, fallback: string): string {
 function ViewsList({ shareId }: { shareId: string }) {
   const [views, setViews] = useState<ShareViews | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  async function more() {
+    if (!views) return;
+    setLoadingMore(true);
+    try {
+      const next = await fetchShareViews(shareId, views.items.length);
+      setViews((current) => (current ? mergeShareViews(current, next) : current));
+    } catch (err) {
+      setError(message(err, "Couldn't load who opened it."));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   useEffect(() => {
     let live = true;
@@ -67,7 +82,16 @@ function ViewsList({ shareId }: { shareId: string }) {
           </li>
         ))}
       </ul>
-      {views.truncated ? <p className="text-xs text-ink-500">Showing the latest {views.items.length} of {views.total.toLocaleString("en-IN")}.</p> : null}
+      {views.truncated ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-ink-500">
+            {views.items.length.toLocaleString("en-IN")} of {views.total.toLocaleString("en-IN")}
+          </p>
+          <button type="button" className="field-button-secondary min-h-9 px-3 text-xs" data-testid="share-views-more" disabled={loadingMore} onClick={() => void more()}>
+            {loadingMore ? "Loading…" : "Show older"}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -216,7 +240,7 @@ export function ReportShareControls({ path, options, extra }: { path: string; op
   }
 
   const active = (shares ?? []).filter((s) => s.state === "active");
-  const ended = (shares ?? []).filter((s) => s.state !== "active").slice(0, 5);
+  const ended = (shares ?? []).filter((s) => s.state !== "active");
 
   return (
     <section className="grid gap-3" aria-labelledby="report-share-heading">

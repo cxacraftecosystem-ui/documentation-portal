@@ -144,6 +144,8 @@ fun appSearchLocalMatch(item: AppSearchItem, query: String): Boolean {
         item.keywords.any { it.lowercase().contains(q) }
 }
 
+fun appSearchAllLine(query: String): String = "See all records for “${query.trim()}”"
+
 fun groupAppSearchResults(
     items: List<AppSearchItem>,
     query: String,
@@ -382,7 +384,8 @@ fun AppSearchPanel(
     remoteSearch: suspend (String) -> List<AppSearchItem>,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
-    onError: (String) -> Unit = {}
+    onError: (String) -> Unit = {},
+    fullSearch: (@Composable (query: String, onBack: () -> Unit) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val store = remember(context) { AppSearchRecentStore(context) }
@@ -399,7 +402,9 @@ fun AppSearchPanel(
         store.write(recents)
     }
 
+    var full by remember { mutableStateOf<String?>(null) }
     BackHandler(onBack = onClose)
+    BackHandler(enabled = full != null) { full = null }
     LaunchedEffect(Unit) {
         focus.requestFocus()
         keyboard?.show()
@@ -431,6 +436,18 @@ fun AppSearchPanel(
 
     val local = localItems.filter { appSearchLocalMatch(it, query) }
     val sections = groupAppSearchResults(remote + local, query)
+
+    val fullQuery = full
+    if (fullQuery != null && fullSearch != null) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .imePadding()
+                .semantics { paneTitle = "Search" }
+        ) { fullSearch(fullQuery) { full = null } }
+        return
+    }
 
     Column(
         modifier = modifier
@@ -567,6 +584,17 @@ fun AppSearchPanel(
                                 result.onOpen()
                             }
                         }
+                    }
+                }
+                if (fullSearch != null && query.trim().length >= APP_SEARCH_MIN_REMOTE_CHARS) {
+                    item(key = "all") {
+                        TextButton(
+                            onClick = {
+                                saveRecent(query)
+                                full = query.trim()
+                            },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("app.search.all")
+                        ) { Text(appSearchAllLine(query)) }
                     }
                 }
                 if (sections.isEmpty() && !loading) {

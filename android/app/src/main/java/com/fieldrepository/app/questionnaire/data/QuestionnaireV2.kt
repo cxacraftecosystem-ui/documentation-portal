@@ -148,6 +148,12 @@ class QuestionnaireV2 private constructor(context: Context) {
             { if (cursor != null) throw it else Paged(offlineRows.sessions(filters), null, true) }
         )
 
+    suspend fun everySession(questionnaireId: String? = null): List<QSession> =
+        QuestionnairePages.every { cursor -> api.sessions(questionnaireId = questionnaireId, cursor = cursor, limit = QuestionnairePages.PAGE).let { it.items to it.nextCursor } }
+
+    suspend fun everyRecording(filters: QuestionnaireFilters): List<QRecording> =
+        QuestionnairePages.every { cursor -> recordingsPage(filters, cursor, QuestionnairePages.PAGE).let { it.items to it.nextCursor } }
+
     suspend fun recordingsPage(filters: QuestionnaireFilters, cursor: String? = null, limit: Int = 30): Paged<QRecording> =
         runCatching { api.recordings(filters.toParams(), cursor, limit) }.fold(
             { page -> runCatching { offlineRows.keepRecordings(page.items) }; Paged(page.items, page.nextCursor, false) },

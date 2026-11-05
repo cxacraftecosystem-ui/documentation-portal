@@ -64,6 +64,7 @@ def test_the_contract_limits_match_the_server():
     assert limits["browsePageSizeMax"] == browse.PAGE_SIZE_MAX
     assert limits["browsePageSizeDefault"] == browse.PAGE_SIZE_DEFAULT
     assert limits["reportSearchMaxRows"] == report_tools.SEARCH_MAX_ROWS
+    assert limits["transcriptListMax"] == data_explorer.TRANSCRIPT_LIST_MAX
     assert limits["reportPreviewTranscriptChars"] == report_tools.PREVIEW_TRANSCRIPT_CHARS
     assert limits["signedUrlExpiresInSeconds"] == signing.EXPIRES_IN_SECONDS
     assert limits["signedUrlReuseSeconds"] == signing.REUSE_SECONDS
@@ -74,3 +75,14 @@ def test_the_contract_type_tokens_match_the_server():
 
     tokens = [t.strip() for t in _contract()["types"]["typeToken"].split("|")]
     assert tokens == list(stats.TYPE_TOKENS)
+
+
+def test_the_report_route_takes_every_contract_query_parameter():
+    import inspect
+
+    from app.api.routes import data_browser
+
+    report = next(route for route in _contract()["routes"] if route["id"] == "report")
+    taken = set(inspect.signature(data_browser.data_report).parameters)
+    assert set(report["query"]) <= taken
+    assert "offset" in report["query"]

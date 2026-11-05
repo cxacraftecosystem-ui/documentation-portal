@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { RecordTitleLink } from "@/components/records/OpenableRow";
 import { RowActions, rowAction } from "@/components/RowActions";
+import { ActionGroup } from "@/components/ui/ActionGroup";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { useToast } from "@/components/ui/Toast";
 import { formSessions, libraryError, sourceLabel, type FormSession } from "@/lib/questionnaireLibrary";
@@ -31,7 +32,8 @@ export function FormSessionsCard({
   const { toast } = useToast();
   const [view, setView] = useState<"live" | "deleted">(deletedOnly ? "deleted" : "live");
   const [rows, setRows] = useState<FormSession[] | null>(null);
-  const [more, setMore] = useState(false);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
   const filtering = Boolean(questionnaireId) && !deletedOnly;
@@ -43,7 +45,7 @@ export function FormSessionsCard({
     try {
       const answer = await formSessions.list(questionnaireId, view === "deleted", applied);
       setRows(answer.items);
-      setMore(Boolean(answer.nextCursor));
+      setCursor(answer.nextCursor);
     } catch (err) {
       setRows([]);
       toast({ tone: "error", title: "Couldn't load the sessions", description: libraryError(err) });
@@ -53,6 +55,23 @@ export function FormSessionsCard({
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function loadMore() {
+    if (!cursor) return;
+    setLoadingMore(true);
+    try {
+      const answer = await formSessions.list(questionnaireId, view === "deleted", applied, cursor);
+      setRows((previous) => {
+        const seen = new Set((previous ?? []).map((row) => row.id));
+        return [...(previous ?? []), ...answer.items.filter((row) => !seen.has(row.id))];
+      });
+      setCursor(answer.nextCursor);
+    } catch (err) {
+      toast({ tone: "error", title: "More sessions didn't load", description: libraryError(err) });
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   async function restore(row: FormSession) {
     setBusy(row.id);
@@ -130,7 +149,13 @@ export function FormSessionsCard({
           ))}
         </ul>
       )}
-      {more ? <p className="text-xs text-ink-500">Showing the latest 50.</p> : null}
+      {cursor && rows?.length ? (
+        <ActionGroup>
+          <button type="button" className="field-button-secondary min-h-11" data-testid="sessions-more" disabled={loadingMore} onClick={() => void loadMore()}>
+            {loadingMore ? "Loading…" : "Show more"}
+          </button>
+        </ActionGroup>
+      ) : null}
     </section>
   );
 }

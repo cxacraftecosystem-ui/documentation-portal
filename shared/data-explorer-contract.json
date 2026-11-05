@@ -35,6 +35,7 @@
     "browsePageSizeMax": 100,
     "reportPreviewRows": 200,
     "reportSearchMaxRows": 200,
+    "transcriptListMax": 500,
     "reportPreviewTranscriptChars": 2000,
     "thumbnailSizes": [
       256,
@@ -98,7 +99,7 @@
         "status": "FR only: review status filter for the tree, unchanged"
       },
       "response": "{path, crumbs, entries: [TreeEntry], info, truncated: bool, total: int, nextCursor: string | null, taxonomies, taxonomy, designWorkshopsVisible (DR), designWorkshopsDownloadable (DR)}",
-      "notes": "Removed recordings (removedAt set) never appear (A1). truncated is true when a source list hit treeTake; nextCursor pages the entries of this level in their shown order. 0.0.13: every file entry carries capturedAt (ISO; the recording's recordedAt, else createdAt; null for text entries). Every folder entry carries count and bytes: the stored files (photos, videos, recordings, documents; not transcripts or details text) under it, from one grouped query per listing. They are numbers on every by-workshop level (workshops, crafts, artisans, an artisan's products, tools and questionnaire, a product's processes, a process's steps, sittings, tools), every by-design-workshop level, by-type and every by-uploader level, and null only on the repository root, the legacy users levels and the transcripts folders. by-workshop and by-design-workshop are computed set-based from the same reach rules as the walk (backend/app/services/data_explorer/reach.py), with a constant number of statements per listing."
+      "notes": "Removed recordings (removedAt set) never appear (A1). 0.0.14: every source list is read to its end in batches of treeTake (keyset on id after its own order), so a level holds every entry, total is the true count and truncated is always false; nextCursor pages the entries of this level in their shown order, treePageMax at a time. 0.0.13: every file entry carries capturedAt (ISO; the recording's recordedAt, else createdAt; null for text entries). Every folder entry carries count and bytes: the stored files (photos, videos, recordings, documents; not transcripts or details text) under it, from one grouped query per listing. They are numbers on every by-workshop level (workshops, crafts, artisans, an artisan's products, tools and questionnaire, a product's processes, a process's steps, sittings, tools), every by-design-workshop level, by-type and every by-uploader level, and null only on the repository root, the legacy users levels and the transcripts folders. by-workshop and by-design-workshop are computed set-based from the same reach rules as the walk (backend/app/services/data_explorer/reach.py), with a constant number of statements per listing."
     },
     {
       "id": "transcript",
@@ -196,13 +197,14 @@
         "format": "json | xlsx | csv",
         "sheet": "sheet name: required for csv, optional for json (only that sheet is returned)",
         "q": "string: json only. Rows of every sheet (or of sheet) that contain every word, case-insensitive, searched across all rows on the server (W13)",
+        "offset": "int >= 0, default 0, json only: skip this many rows (or matched rows when q) and return the next reportPreviewRows (reportSearchMaxRows when q). Additive: absent is the first page. Page with sheet=<name> and offset += rows returned until rows run out or the next offset reaches totalRows (matchedRows when q). Each json sheet echoes offset.",
         "sheets": "comma-separated sheet names | absent: every sheet (xlsx)",
         "answers": "original | english | both, default both (xlsx)",
         "rows": "all | filtered, default all; filtered keeps the rows matching q, with no preview cap (xlsx)",
         "links": "1 | 0, default 1; 0 drops the URL and Media URLs columns (xlsx)",
         "name": "file name without a path; sanitised to ASCII and given .xlsx (xlsx)"
       },
-      "response": "json: {sheets: [{name, color, columns, rows, truncated, preview, capped, totalRows, matchedRows (when q)}], previewRows, query}. csv: the one sheet, UTF-8 with BOM, streamed. xlsx: unchanged. A sheet the viewer may not download is not offered as csv. Every json sheet carries rowNumbers: int[] parallel to rows, the 1-based place of each row in the whole sheet (preview 1..n, search the matched rows' own places); a cap note row is numbered 0.",
+      "response": "json: {sheets: [{name, color, columns, rows, truncated, preview, capped, totalRows, matchedRows (when q)}], previewRows, query}. csv: the one sheet, UTF-8 with BOM, streamed. xlsx: unchanged. A sheet the viewer may not download is not offered as csv. Every json sheet carries rowNumbers: int[] parallel to rows, the 1-based place of each row in the whole sheet (preview 1..n, search the matched rows' own places); a cap note row is numbered 0 and comes only on the first page and the last page.",
       "notes": "Requests queue, one build at a time; 503 with Retry-After: 15 only when 8 are waiting or one waited 90 s. One build per folder and data version is cached and serves the preview, every q search, the csv and the xlsx. json adds builtAt and cached. In the json preview a transcript cell is cut to reportPreviewTranscriptChars; the xlsx and csv stay complete (A6). Errors are always JSON with a 4xx/5xx status: check the status and the PK signature before saving, and never Range-resume a report."
     },
     {
@@ -289,10 +291,11 @@
       "path": "/data/transcripts/list",
       "query": {
         "path": "folder path",
-        "q": "string | absent"
+        "q": "string | absent",
+        "offset": "int >= 0, default 0: skip this many of the folder's recordings. Additive: absent is the first page"
       },
-      "response": "{items: [{mediaId, name, path, mediaType: AUDIO | VIDEO, hasText, capturedAt, snippet?}], total, truncated, query}",
-      "notes": "The Transcripts tab. snippet only when q is given."
+      "response": "{items: [{mediaId, name, path, mediaType: AUDIO | VIDEO, hasText, capturedAt, snippet?}], total, truncated, query, offset, nextOffset: int | null}",
+      "notes": "The Transcripts tab. snippet only when q is given. Each page walks transcriptListMax recordings of the folder (q filters within them); ask again with offset=nextOffset until it is null to reach the last recording."
     },
     {
       "id": "transcripts-export",

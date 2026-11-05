@@ -322,10 +322,11 @@ import com.fieldrepository.app.data.RecordRevisionDto
 import com.fieldrepository.app.data.DashboardRecentSubmissionDto
 import com.fieldrepository.app.data.DashboardStats
 import com.fieldrepository.app.data.DashboardStatsMine
+import com.fieldrepository.app.data.EVERY_PAGE_BUDGET
 import com.fieldrepository.app.data.EVERY_WORKSHOP
-import com.fieldrepository.app.data.MY_RECORDS_PAGE_BUDGET
 import com.fieldrepository.app.data.REVIEW_PAGE_SIZE
 import com.fieldrepository.app.data.MyRecordsPage
+import com.fieldrepository.app.ui.MyActivityOlder
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.GoogleAuthClient
 import com.fieldrepository.app.data.OidcAuthClient
@@ -444,6 +445,7 @@ import com.fieldrepository.app.ui.rememberCarryPrefill
 import com.fieldrepository.app.ui.Coral
 import com.fieldrepository.app.ui.ConsolidatedQuestionnaireScreen
 import com.fieldrepository.app.ui.DataBrowserScreen
+import com.fieldrepository.app.ui.DataUnifiedSearch
 import com.fieldrepository.app.ui.dataFolderArtisan
 import com.fieldrepository.app.ui.FieldRepositoryTheme
 import com.fieldrepository.app.ui.MapScreen
@@ -2398,7 +2400,23 @@ private fun HomeScreen(
                         localItems = searchLocalItems(),
                         remoteSearch = { q -> searchRemote(q) },
                         onClose = { searchOpen = false },
-                        onError = { showMessage(it) }
+                        onError = { showMessage(it) },
+                        fullSearch = { q, back ->
+                            DataUnifiedSearch(
+                                repository = repository,
+                                initial = q,
+                            onOpenInData = { kind, id, _ ->
+                                searchOpen = false
+                                attemptExit {
+                                    val mode = searchRecordEntryMode(kind) ?: recentSubmissionEntryMode(kind)
+                                    if (mode == null) showMessage(unroutableRecordLine(kind)) else openRecordView(mode, id)
+                                }
+                            },
+                                onPlay = { mediaId, _, _, _ -> searchOpen = false; attemptExit { openSearchRecord(SearchRecordTypes.MEDIA, mediaId) } },
+                                onOpenRemote = { type, id -> searchOpen = false; attemptExit { message = null; screen = Screen.RemoteRecord(type, id, from = screen) } },
+                                onClose = back,
+                            )
+                        }
                     )
                 }
         AppMessageBanner(
@@ -8020,39 +8038,60 @@ private data class ActivityItem(
     val createdAt: String?
 )
 
-private data class MyActivityResult(val items: List<ActivityItem>, val failedTypes: List<String>, val truncated: Boolean)
+private data class MyActivityResult(
+    val items: List<ActivityItem>,
+    val failedTypes: List<String>,
+    val next: Map<String, Int> = emptyMap(),
+) {
+    val truncated: Boolean get() = next.isNotEmpty()
+}
 
-private suspend fun loadMyActivity(repository: FieldRepository, userId: String): MyActivityResult {
+private suspend fun loadMyActivity(
+    repository: FieldRepository,
+    userId: String,
+    previous: MyActivityResult? = null,
+): MyActivityResult {
+    val from = previous?.next
     val items = mutableListOf<ActivityItem>()
     val failed = mutableListOf<String>()
-    var truncated = false
+    val next = mutableMapOf<String, Int>()
     var firstFailure: Throwable? = null
-    fun <T> kotlinx.coroutines.CoroutineScope.collect(label: String, load: suspend () -> MyRecordsPage<T>, row: (T) -> ActivityItem) = launch {
-        runCatching { load() }
-            .onSuccess { page -> truncated = truncated || page.truncated; page.items.forEach { items.add(row(it)) } }
-            .onFailure {
-                if (it is kotlinx.coroutines.CancellationException) throw it
-                failed += label
-                if (firstFailure == null) firstFailure = it
-            }
+    fun <T> kotlinx.coroutines.CoroutineScope.collect(label: String, load: suspend (Int) -> MyRecordsPage<T>, row: (T) -> ActivityItem) {
+        val start = if (from == null) 1 else from[label] ?: return
+        launch {
+            runCatching { load(start) }
+                .onSuccess { page -> page.nextPage?.let { next[label] = it }; page.items.forEach { items.add(row(it)) } }
+                .onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    failed += label
+                    if (firstFailure == null) firstFailure = it
+                    if (from != null) next[label] = start
+                }
+        }
     }
     kotlinx.coroutines.coroutineScope {
-    collect("artisans", { repository.myArtisans(userId) }) { ActivityItem(EntryMode.ARTISAN, it.id, it.name, "Artisan · ${it.place}", it.createdAt) }
-    collect("products", { repository.myProducts(userId) }) { ActivityItem(EntryMode.PRODUCT, it.id, it.productName, "Product · ${it.craftName}", it.createdAt) }
-    collect("tools", { repository.myTools(userId) }) { ActivityItem(EntryMode.TOOL, it.id, it.toolkitName, "Tool · ${it.craftName}", it.createdAt) }
-    collect("processes", { repository.myProcesses(userId) }) {
+    collect("artisans", { repository.myArtisans(userId, it) }) { ActivityItem(EntryMode.ARTISAN, it.id, it.name, "Artisan · ${it.place}", it.createdAt) }
+    collect("products", { repository.myProducts(userId, it) }) { ActivityItem(EntryMode.PRODUCT, it.id, it.productName, "Product · ${it.craftName}", it.createdAt) }
+    collect("tools", { repository.myTools(userId, it) }) { ActivityItem(EntryMode.TOOL, it.id, it.toolkitName, "Tool · ${it.craftName}", it.createdAt) }
+    collect("processes", { repository.myProcesses(userId, it) }) {
         ActivityItem(EntryMode.PROCESS, it.id, it.name, "Process" + (it.product?.productName?.let { p -> " · $p" } ?: ""), it.createdAt)
     }
-    collect("crafts", { repository.myCrafts(userId) }) { ActivityItem(EntryMode.CRAFT, it.id, it.name, "Craft", it.createdAt) }
-    collect("workshops", { repository.myWorkshops(userId) }) {
+    collect("crafts", { repository.myCrafts(userId, it) }) { ActivityItem(EntryMode.CRAFT, it.id, it.name, "Craft", it.createdAt) }
+    collect("workshops", { repository.myWorkshops(userId, it) }) {
         ActivityItem(EntryMode.WORKSHOP, it.id, workshopDisplayTitle(it.title, date = it.occurrenceDate(), place = it.place), "Workshop", it.createdAt)
     }
-    collect("interviews", { repository.myInterviews(userId) }) {
+    collect("interviews", { repository.myInterviews(userId, it) }) {
         ActivityItem(EntryMode.QUESTIONNAIRE, it.id, it.title.ifBlank { "Untitled interview" }, "Interview", it.createdAt)
     }
     }
-    if (failed.size == 7) throw firstFailure ?: IllegalStateException("Couldn't load your activity.")
-    return MyActivityResult(items.sortedByDescending { it.createdAt ?: "" }, failed, truncated)
+    if (previous == null && failed.size == 7) throw firstFailure ?: IllegalStateException("Couldn't load your activity.")
+    if (previous == null) return MyActivityResult(items.sortedByDescending { it.createdAt ?: "" }, failed, next)
+    val seen = previous.items.map { "${it.mode.name}:${it.id}" }.toHashSet()
+    return MyActivityResult(
+        items = (previous.items + items.filter { "${it.mode.name}:${it.id}" !in seen }).sortedByDescending { it.createdAt ?: "" },
+        failedTypes = (previous.failedTypes + failed).distinct(),
+        next = next,
+    )
 }
 
 @Composable
@@ -8065,6 +8104,9 @@ private fun MyActivityScreen(
 ) {
     var activity by rememberKept("myActivity.loaded") { null as MyActivityResult? }
     var loadError by remember { mutableStateOf<String?>(null) }
+    var loadingOlder by remember { mutableStateOf(false) }
+    var olderFailed by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     var attempt by remember { mutableIntStateOf(0) }
     LaunchedEffect(attempt) {
         runCatching { loadMyActivity(repository, userId) }
@@ -8088,15 +8130,6 @@ private fun MyActivityScreen(
                 )
             }
         }
-        if (current != null && current.truncated) {
-            item(key = "truncated", contentType = "note") {
-                Text(
-                    "Newest ${MY_RECORDS_PAGE_BUDGET * 100} per type. See View Data for more.",
-                    color = Muted,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-        }
         when {
             current == null && failure != null -> item(key = "failed", contentType = "card") {
                 LoadFailedCard(message = failure, onRetry = { loadError = null; attempt += 1 })
@@ -8115,6 +8148,23 @@ private fun MyActivityScreen(
                 key = { "${it.mode.name}:${it.id}" },
                 contentType = { "activity" }
             ) { item -> ActivityCard(item = item, onOpen = onOpen) }
+        }
+        if (current != null && current.truncated && current.items.isNotEmpty()) {
+            item(key = "older", contentType = "note") {
+                MyActivityOlder(shown = current.items.size, loading = loadingOlder, failed = olderFailed) {
+                    scope.launch {
+                        loadingOlder = true
+                        olderFailed = false
+                        runCatching { loadMyActivity(repository, userId, previous = current) }
+                            .onSuccess { activity = it }
+                            .onFailure {
+                                if (it is kotlinx.coroutines.CancellationException) throw it
+                                olderFailed = true
+                            }
+                        loadingOlder = false
+                    }
+                }
+            }
         }
     }
 }
@@ -8979,7 +9029,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
             if (map.containsKey(t)) return@forEach
             runCatching {
                 when (t.lowercase()) {
-                    "questionnaire", "questionnaireinterview" -> repository.interviews(EVERY_WORKSHOP).map { it.id to it.title.ifBlank { "Untitled interview" } }
+                    "questionnaire", "questionnaireinterview" -> repository.interviewsPage(EVERY_WORKSHOP, EVERY_PAGE_BUDGET).items.map { it.id to it.title.ifBlank { "Untitled interview" } }
                     "product" -> repository.products().map { it.id to "${it.productName} · ${it.artisanName}" }
                     "tool" -> repository.tools().map { it.id to it.toolRowLabel() }
                     "artisan" -> repository.artisans().map { it.id to it.name }
