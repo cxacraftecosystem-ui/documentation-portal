@@ -46,11 +46,6 @@ async def _cleanup(client: Any, seed: dict[str, Any]) -> None:
     await client.user.delete_many(where={"id": seed["admin"].id})
 
 
-def _ours(sheet: dict[str, Any]) -> list[list[Any]]:
-    at = sheet["columns"].index("File")
-    return [row for row in sheet["rows"] if str(row[at]).startswith(f"d39-{STAMP}-")]
-
-
 async def _ten_reports(monkeypatch: Any) -> dict[str, Any]:
     from app.api.routes import data_browser
     from app.services import transcript_export  # noqa: F401
@@ -96,17 +91,17 @@ def test_ten_root_reports_keep_statements_and_memory_flat(monkeypatch):
 async def _preview_and_download(monkeypatch: Any) -> dict[str, Any]:
     from app.api.routes import data_browser
     from app.services import transcript_export  # noqa: F401
+    from app.services.datareport import writer
 
     monkeypatch.setattr(data_browser, "PREVIEW_ROWS", PREVIEW)
-    handed: dict[str, Any] = {}
-    real_build = data_browser.build_report_workbook
+    handed: dict[str, list[dict[str, Any]]] = {}
+    real_write = writer._SheetState.write_rows
 
-    def capture(sheets: list[dict[str, Any]], title: str) -> bytes:
-        handed["sheets"] = sheets
-        return real_build(sheets, title)
+    def capture(self: Any, rows: list[dict[str, Any]]) -> None:
+        handed.setdefault(self.sheet.key, []).extend(rows)
+        real_write(self, rows)
 
-    monkeypatch.setattr(data_browser, "build_report_workbook", capture)
-    monkeypatch.setattr(data_browser, "_rendered", lambda sheets: sheets)
+    monkeypatch.setattr(writer._SheetState, "write_rows", capture)
 
     client = await connect()
     patch_db(monkeypatch, client)
@@ -114,8 +109,8 @@ async def _preview_and_download(monkeypatch: Any) -> dict[str, Any]:
     try:
         shown = await data_browser.data_report(path="", format="json", status_value=None, current_user=seed["admin"])
         download = await data_browser.data_report(path="", format="xlsx", status_value=None, current_user=seed["admin"])
-        body = b"".join([chunk async for chunk in download.body_iterator])
-        return {"json": json.loads(shown.body), "xlsx": body, "sheets": handed["sheets"]}
+        body = bytes(download.body)
+        return {"json": json.loads(shown.body), "xlsx": body, "sheets": handed}
     finally:
         await _cleanup(client, seed)
         await client.disconnect()
@@ -132,9 +127,15 @@ def test_the_json_preview_is_cut_and_the_xlsx_gets_every_row(monkeypatch):
     assert media["totalRows"] >= SEEDED
 
     assert seen["xlsx"][:2] == b"PK"
-    full = {sheet["name"]: sheet for sheet in seen["sheets"]}
-    assert len(full["Media by type"]["rows"]) == media["totalRows"]
-    assert len(_ours(full["Media by type"])) == SEEDED
-    words = _ours(full["Transcripts"])
-    assert len(words) == SEEDED
-    assert all("words" in str(row[-1]) for row in words)
+    full = seen["sheets"]
+    assert len(full["media"]) == media["totalRows"]
+    assert len([row for row in full["media"] if _text(row.get("originalFilename")).startswith(f"d39-{STAMP}-")]) == SEEDED
+    whole = [row for row in full["transcripts"] if row.get("_row") == "summary" and _text(row.get("file")).startswith(f"d39-{STAMP}-")]
+    assert len(whole) == SEEDED
+    assert all("words" in str(row["text"]) for row in whole)
+    english = [row for row in full["transcripts"] if row.get("_row") == "summary_translation" and _text(row.get("file")).startswith(f"d39-{STAMP}-")]
+    assert len(english) == SEEDED
+
+
+def _text(value: Any) -> str:
+    return str(getattr(value, "text", value) or "")

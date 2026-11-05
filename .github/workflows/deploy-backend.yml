@@ -516,7 +516,7 @@ jobs:
         env:
           DB_URL: ${{ secrets.DATABASE_URL }}
 
-      - name: Pin the CORS origins
+      - name: Pin the CORS origins and the link origin
         run: |
           ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
           set -euo pipefail
@@ -526,7 +526,47 @@ jobs:
           printf 'BACKEND_CORS_ORIGINS=%s\n' 'https://field-repository.vercel.app,http://localhost:3000' >> .env
           grep -q '^BACKEND_CORS_ORIGINS=' .env || { echo "CORS origins did not land on their own line"; exit 1; }
           echo "CORS origins pinned"
+
+          sed -i '/^NEXT_PUBLIC_APP_URL=/d' .env
+          printf 'NEXT_PUBLIC_APP_URL=%s\n' 'https://field-repository.vercel.app' >> .env
+          grep -qxF 'NEXT_PUBLIC_APP_URL=https://field-repository.vercel.app' .env || { echo "link origin did not land on its own line"; exit 1; }
+          echo "link origin pinned"
+
+          sed -i '/^APP_ENV=/d' .env
+          printf 'APP_ENV=%s\n' 'production' >> .env
+          grep -qxF 'APP_ENV=production' .env || { echo "app environment did not land on its own line"; exit 1; }
+          echo "app environment pinned"
           REMOTE
+
+      - name: Pin cross-portal search and identity
+        env:
+          CROSS_PORTAL_TOKEN: ${{ secrets.CROSS_PORTAL_TOKEN }}
+        run: |
+          if [ -z "$CROSS_PORTAL_TOKEN" ]; then
+            echo "::error::the CROSS_PORTAL_TOKEN secret is unset, so the release would boot with cross-portal search and identity switched off."
+            exit 1
+          fi
+          printf '%s' "$CROSS_PORTAL_TOKEN" | ssh ubuntu@${{ secrets.EC2_HOST }} "bash -c '
+            set -euo pipefail
+            token=\$(cat)
+            cd /home/ubuntu/app/next
+            [ -s .env ] && [ -n \"\$(tail -c1 .env)\" ] && printf \"\n\" >> .env
+            sed -i \"/^UNIFIED_SEARCH_ENABLED=/d;/^CROSS_PORTAL_IDENTITY_ENABLED=/d;/^CROSS_PORTAL_SEARCH_ENABLED=/d;/^CROSS_PORTAL_COVERAGE_ENABLED=/d;/^DESIGNER_PORTAL_API_URL=/d;/^CROSS_PORTAL_TOKEN=/d\" .env
+            printf \"%s\n\" \"UNIFIED_SEARCH_ENABLED=true\" >> .env
+            printf \"%s\n\" \"CROSS_PORTAL_IDENTITY_ENABLED=true\" >> .env
+            printf \"%s\n\" \"CROSS_PORTAL_SEARCH_ENABLED=true\" >> .env
+            printf \"%s\n\" \"CROSS_PORTAL_COVERAGE_ENABLED=true\" >> .env
+            echo \"pinning the designer portal API address\"
+            printf \"%s\n\" \"DESIGNER_PORTAL_API_URL=https://d3ekigkotd1xa2.cloudfront.net/api\" >> .env
+            printf \"CROSS_PORTAL_TOKEN=%s\n\" \"\$token\" >> .env
+            grep -qxF \"UNIFIED_SEARCH_ENABLED=true\" .env || { echo \"UNIFIED_SEARCH_ENABLED did not land on its own line\"; exit 1; }
+            grep -qxF \"CROSS_PORTAL_IDENTITY_ENABLED=true\" .env || { echo \"CROSS_PORTAL_IDENTITY_ENABLED did not land on its own line\"; exit 1; }
+            grep -qxF \"CROSS_PORTAL_SEARCH_ENABLED=true\" .env || { echo \"CROSS_PORTAL_SEARCH_ENABLED did not land on its own line\"; exit 1; }
+            grep -qxF \"CROSS_PORTAL_COVERAGE_ENABLED=true\" .env || { echo \"CROSS_PORTAL_COVERAGE_ENABLED did not land on its own line\"; exit 1; }
+            grep -qxF \"DESIGNER_PORTAL_API_URL=https://d3ekigkotd1xa2.cloudfront.net/api\" .env || { echo \"the designer portal API address did not land on its own line\"; exit 1; }
+            [ \"\$(grep -c \"^CROSS_PORTAL_TOKEN=.\" .env)\" = 1 ] || { echo \"CROSS_PORTAL_TOKEN did not land exactly once\"; exit 1; }
+            echo \"cross-portal search and identity pinned on\"
+          '"
 
       - name: Pin the mail sender
         env:

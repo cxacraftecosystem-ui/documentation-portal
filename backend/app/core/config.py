@@ -96,7 +96,12 @@ class Settings(BaseSettings):
     mail_batch_size: int = Field(default=10, alias="MAIL_BATCH_SIZE")
 
     weekly_digest_enabled: bool = Field(default=True, alias="WEEKLY_DIGEST_ENABLED")
+    report_schedules_enabled: bool = Field(default=True, alias="REPORT_SCHEDULES_ENABLED")
+    report_schedule_attach_max_bytes: int = Field(
+        default=7 * 1024 * 1024, alias="REPORT_SCHEDULE_ATTACH_MAX_BYTES"
+    )
 
+    app_env: str = Field(default="development", alias="APP_ENV")
     next_public_app_url: AnyHttpUrl | str = Field(
         default="http://localhost:3000", alias="NEXT_PUBLIC_APP_URL"
     )
@@ -280,3 +285,41 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+_LOCAL_APP_HOSTS = frozenset({"localhost", "0.0.0.0", "::", "::1", "host.docker.internal"})
+
+
+def app_url_problem(url: str) -> str | None:
+    from urllib.parse import urlsplit
+
+    raw = str(url or "").strip()
+    if not raw:
+        return "NEXT_PUBLIC_APP_URL is empty"
+    parts = urlsplit(raw)
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https":
+        return f"NEXT_PUBLIC_APP_URL must be https, got {raw!r}"
+    if not host:
+        return f"NEXT_PUBLIC_APP_URL has no host: {raw!r}"
+    if host in _LOCAL_APP_HOSTS or host.endswith((".localhost", ".local")):
+        return f"NEXT_PUBLIC_APP_URL points at this machine: {raw!r}"
+    try:
+        address = ip_address(host)
+    except ValueError:
+        return None
+    if address.is_loopback or address.is_private or address.is_unspecified or address.is_link_local:
+        return f"NEXT_PUBLIC_APP_URL points at a private address: {raw!r}"
+    return None
+
+
+def verify_app_url_configuration(settings: Settings | None = None) -> None:
+    current = settings or get_settings()
+    if str(current.app_env or "").strip().lower() != "production":
+        return
+    problem = app_url_problem(str(current.next_public_app_url))
+    if problem:
+        raise RuntimeError(
+            f"Refusing to start in production: {problem}. Every e-mailed, password, credential and "
+            "cross-portal link is built from it. Set NEXT_PUBLIC_APP_URL to the public web address."
+        )

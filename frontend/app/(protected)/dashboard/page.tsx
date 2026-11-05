@@ -114,7 +114,7 @@ function DashboardView() {
     { label: "Tool", icon: Wrench, newHref: "/tools/new", updateHref: "/tools", visible: creator },
     { label: "Questionnaire", icon: ClipboardList, newHref: "/questionnaire?new=1", updateHref: "/questionnaire", newLabel: "New" },
     { label: "Miscellaneous Media", icon: Images, newHref: "/media", newLabel: "Upload" },
-    { label: "View Data", icon: Eye, newHref: canDownloadDataset(user) ? "/data" : "/search", newLabel: "Open" },
+    { label: "Data", icon: Eye, newHref: canDownloadDataset(user) ? "/data" : "/search", newLabel: "Open" },
     { label: "Map", icon: MapPinned, newHref: "/map", newLabel: "Open" },
     {
       label: "Consolidated questionnaire",

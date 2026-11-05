@@ -23,6 +23,7 @@ WORKER_FORBIDDEN = (
     "boto3",
     "botocore",
     "reportlab",
+    "uharfbuzz",
     "PIL",
     "openpyxl",
     "segno",
@@ -38,6 +39,7 @@ WORKER_FORBIDDEN = (
 
 API_STARTUP_FORBIDDEN = (
     "reportlab",
+    "uharfbuzz",
     "segno",
     "anthropic",
     "pydub",

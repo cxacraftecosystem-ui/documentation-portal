@@ -6,7 +6,7 @@ reports and the same record types on the designer portal. Each portal indexes on
 database. The designer portal's results arrive over the cross-portal signed channel (C27,
 [ENVIRONMENT.md](ENVIRONMENT.md)), and only for records that portal may share.
 
-**Everything ships OFF.** With `UNIFIED_SEARCH_ENABLED` off, `GET /api/search/unified` answers 404
+**On in production since 5 Nov 2026** (unified search and cross-portal search on both boxes; embeddings off; values in [ENVIRONMENT.md](ENVIRONMENT.md)). **The code still ships OFF by default.** With `UNIFIED_SEARCH_ENABLED` off, `GET /api/search/unified` answers 404
 and both clients use the legacy `GET /api/search` exactly as before (§6).
 
 | | |

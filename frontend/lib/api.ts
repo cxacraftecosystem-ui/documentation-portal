@@ -121,13 +121,16 @@ export function recordClockOffset(dateHeader: string | null, sentAt: number, now
   clockOffsetAt = now;
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  return (await apiFetchWithHeaders<T>(path, init)).body;
+export type ApiFetchOptions = { redirectOn401?: boolean };
+
+export async function apiFetch<T>(path: string, init: RequestInit = {}, options: ApiFetchOptions = {}): Promise<T> {
+  return (await apiFetchWithHeaders<T>(path, init, options)).body;
 }
 
 export async function apiFetchWithHeaders<T>(
   path: string,
-  init: RequestInit = {}
+  init: RequestInit = {},
+  options: ApiFetchOptions = {}
 ): Promise<{ body: T; headers: Headers }> {
   assertApiConfigured();
 
@@ -173,7 +176,7 @@ export async function apiFetchWithHeaders<T>(
       error.sessionReplaced = true;
       throw error;
     }
-    if (response.status === 401 && token && typeof window !== "undefined") {
+    if (response.status === 401 && token && typeof window !== "undefined" && options.redirectOn401 !== false) {
       endSession();
       // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       if (!SIGNED_OUT_PAGES.has(window.location.pathname)) window.location.assign("/login");

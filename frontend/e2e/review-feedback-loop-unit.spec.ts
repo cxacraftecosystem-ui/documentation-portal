@@ -8,6 +8,7 @@ import { statusFilterParam } from "@/components/review/RecordStatusFilter";
 import { completionVerdictLabel, nextCompletionStatus } from "@/lib/completionVerdict";
 import {
   bulkReceipt,
+  DATA_STATUS_OPTIONS,
   dataStatusLabel,
   decisionBody,
   isReturned,
@@ -121,7 +122,8 @@ test.describe("review status on the data surfaces", () => {
   test("every status sends no filter; a choice sends itself", () => {
     expect(statusQuery("ALL")).toBeUndefined();
     expect(statusQuery("APPROVED")).toBe("APPROVED");
-    expect(dataStatusLabel("PENDING")).toBe("Pending review");
+    expect(dataStatusLabel("PENDING")).toBe("Pending");
+    expect(dataStatusLabel("REJECTED")).toBe("Rejected");
     expect(statusFilterParam("ALL")).toBeUndefined();
     expect(statusFilterParam("NEEDS_REVISION")).toBe("NEEDS_REVISION");
   });
@@ -184,6 +186,7 @@ test.describe("the wiring", () => {
     const data = read("app/(protected)/data/page.tsx");
     expect(data).toContain("status: statusParam");
     expect(data).toContain("Show all statuses");
+    expect(DATA_STATUS_OPTIONS.map((option) => option.value)).toEqual(["ALL", "APPROVED", "PENDING", "NEEDS_REVISION", "REJECTED"]);
   });
 
   test("downloads carry every review status whatever the page shows", () => {

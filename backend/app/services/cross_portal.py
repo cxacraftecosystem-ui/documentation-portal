@@ -188,6 +188,8 @@ PEER_ITEM_KEYS: tuple[str, ...] = (
     "craftCodes",
     "recordDate",
     "openUrl",
+    "startMs",
+    "mediaType",
 )
 
 

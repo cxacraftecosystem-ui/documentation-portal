@@ -17,6 +17,7 @@ import {
   type SaveCapabilities
 } from "@/lib/dataExplorer/plan";
 import type { FromWorker, JobSource, JobTarget, ManifestNotice, ToWorker } from "@/lib/dataExplorer/protocol";
+import { PauseGate } from "@/lib/dataExplorer/engine";
 import { measureJob, runJob } from "@/lib/dataExplorer/runJob";
 import { isAbort, type DirectoryHandleLike, type FileHandleLike } from "@/lib/dataExplorer/sinks";
 import { openStreamHandoff, streamHandoffSupported } from "@/lib/dataExplorer/streamHandoff";
@@ -42,6 +43,7 @@ export type JobState = {
   announcement: string;
   folderName: string | null;
   fileName: string;
+  paused: boolean;
 };
 
 const IDLE: JobState = {
@@ -58,7 +60,8 @@ const IDLE: JobState = {
   timeLeft: null,
   announcement: "",
   folderName: null,
-  fileName: ""
+  fileName: "",
+  paused: false
 };
 
 type PickerWindow = Window & {
@@ -126,16 +129,34 @@ function workerRunner(onMessage: (message: FromWorker) => void): Runner {
     return { send: (message, transfer) => worker.postMessage(message, transfer ?? []), dispose: () => worker.terminate() };
   } catch {
     const running = new Map<string, AbortController>();
+    const gates = new Map<string, PauseGate>();
     return {
       send: (message) => {
         if (message.type === "cancel") {
           running.get(message.id)?.abort();
+          gates.get(message.id)?.resume();
+          return;
+        }
+        if (message.type === "pause" || message.type === "resume") {
+          const gate = gates.get(message.id);
+          if (!gate) return;
+          if (message.type === "pause") gate.pause();
+          else gate.resume();
+          onMessage({ type: "paused", id: message.id, paused: gate.paused });
           return;
         }
         const controller = new AbortController();
         running.set(message.id, controller);
-        const work = message.type === "measure" ? measureJob(message, controller.signal, onMessage) : runJob(message, controller.signal, onMessage);
-        void work.finally(() => running.delete(message.id));
+        const gate = new PauseGate();
+        if (message.type === "start") gates.set(message.id, gate);
+        const work =
+          message.type === "measure"
+            ? measureJob(message, controller.signal, onMessage)
+            : runJob(message as Extract<ToWorker, { type: "start" }>, controller.signal, onMessage, undefined, undefined, gate);
+        void work.finally(() => {
+          running.delete(message.id);
+          gates.delete(message.id);
+        });
       },
       dispose: () => running.forEach((controller) => controller.abort())
     };
@@ -223,6 +244,10 @@ export function useDownloadJob() {
         return;
       }
       if (message.type === "measured") return;
+      if (message.type === "paused") {
+        commit({ ...current, paused: message.paused, rate: null, timeLeft: null, announcement: message.paused ? "Download paused." : "Download resumed." });
+        return;
+      }
       activeId.current = null;
       finishLock();
       if (message.type === "done") {
@@ -320,6 +345,16 @@ export function useDownloadJob() {
     if (activeId.current) runner.current?.send({ type: "cancel", id: activeId.current });
   }, []);
 
+  const pause = useCallback(() => {
+    if (activeId.current) runner.current?.send({ type: "pause", id: activeId.current });
+  }, []);
+
+  const resume = useCallback(() => {
+    if (!activeId.current) return;
+    samples.current = [];
+    runner.current?.send({ type: "resume", id: activeId.current });
+  }, []);
+
   const dismiss = useCallback(() => {
     if (activeId.current) return;
     commit(IDLE);
@@ -333,7 +368,7 @@ export function useDownloadJob() {
     [commit]
   );
 
-  return { state, start, measure, cancel, dismiss, fail, busy };
+  return { state, start, measure, cancel, pause, resume, dismiss, fail, busy };
 }
 
 export function pickerCancelled(error: unknown): boolean {

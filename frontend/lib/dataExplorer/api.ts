@@ -4,7 +4,14 @@ import {
   LIMITS,
   type BrowsePage,
   type IncludeKey,
+  type FolderVisit,
+  type ReportBundle,
+  type ReportOptions,
   type ReportResponse,
+  type ReportSheetList,
+  type SavedView,
+  type SavedViewState,
+  type WorkshopOverview,
   type Stats,
   type TranscriptText,
   type TreeResponse
@@ -63,6 +70,106 @@ export function fetchReport(request: ReportQuery, signal?: AbortSignal): Promise
 
 export function reportFileUrl(path: string, format: "xlsx" | "csv", extra: QueryParams = {}): string {
   return apiUrl("/data/report", { path, format, ...extra });
+}
+
+export function reportOptionParams(options: ReportOptions, q: string, name: string): QueryParams {
+  return {
+    sheets: options.sheets && options.sheets.length ? options.sheets.join(",") : undefined,
+    answers: options.answers === "both" ? undefined : options.answers,
+    rows: options.rows === "filtered" && q.trim() ? "filtered" : undefined,
+    q: options.rows === "filtered" && q.trim() ? q.trim() : undefined,
+    links: options.links ? undefined : 0,
+    thumbnails: options.thumbnails ? 1 : undefined,
+    locale: options.locale === "hi" ? "hi" : undefined,
+    extras: chosenExtras(options).join(",") || undefined,
+    name: name.trim() || undefined
+  };
+}
+
+export function chosenExtras(options: Pick<ReportOptions, "extras">): string[] {
+  return Object.entries(options.extras ?? {})
+    .filter(([, on]) => on)
+    .map(([key]) => key)
+    .sort();
+}
+
+export function reportPackUrl(path: string, extra: QueryParams = {}): string {
+  return apiUrl("/data/report/pack", { path, ...extra });
+}
+
+export async function fetchReportSheets(path: string, extra: QueryParams = {}, signal?: AbortSignal): Promise<ReportSheetList | null> {
+  try {
+    const answer = await apiFetch<Partial<ReportSheetList>>(`/data/report/sheets${buildQuery({ path, ...extra })}`, { signal });
+    return { path: answer.path ?? path, sheets: Array.isArray(answer.sheets) ? answer.sheets : [], extras: Array.isArray(answer.extras) ? answer.extras : [], locales: Array.isArray(answer.locales) ? answer.locales : ["en"] };
+  } catch (error) {
+    if (unsupported(error)) return null;
+    throw error;
+  }
+}
+
+export function fetchBundle(id: string): Promise<ReportBundle> {
+  return apiFetch<ReportBundle>(`/data/bundles/${encodeURIComponent(id)}`);
+}
+
+export function bundleManifestEndpoint(id: string): string {
+  return `/data/bundles/${encodeURIComponent(id)}/manifest`;
+}
+
+export async function fetchReportOptions(): Promise<ReportOptions | null> {
+  try {
+    const answer = await apiFetch<{ options: ReportOptions | null }>("/data/report-options");
+    return answer.options ?? null;
+  } catch (error) {
+    if (unsupported(error)) return null;
+    throw error;
+  }
+}
+
+export function saveReportOptions(options: ReportOptions): Promise<{ options: ReportOptions }> {
+  return apiFetch<{ options: ReportOptions }>("/data/report-options", { method: "PUT", body: JSON.stringify({ options }) });
+}
+
+export async function recordVisit(path: string): Promise<FolderVisit | null> {
+  try {
+    return await apiFetch<FolderVisit>("/data/visits", { method: "POST", body: JSON.stringify({ path }) });
+  } catch (error) {
+    if (unsupported(error)) return null;
+    throw error;
+  }
+}
+
+export async function fetchOverview(path: string, extra: QueryParams = {}, signal?: AbortSignal): Promise<WorkshopOverview | null> {
+  try {
+    return await apiFetch<WorkshopOverview>(`/data/overview${buildQuery({ path, ...extra })}`, { signal });
+  } catch (error) {
+    if (statusOf(error) === 404 || unsupported(error)) return null;
+    throw error;
+  }
+}
+
+export async function fetchSavedViews(): Promise<{ mine: SavedView[]; shared: SavedView[] } | null> {
+  try {
+    return await apiFetch<{ mine: SavedView[]; shared: SavedView[] }>("/data/views");
+  } catch (error) {
+    if (unsupported(error)) return null;
+    throw error;
+  }
+}
+
+export function fetchSavedView(id: string): Promise<SavedView> {
+  return apiFetch<SavedView>(`/data/views/${encodeURIComponent(id)}`);
+}
+
+export function createSavedView(body: { name: string; path: string; state: SavedViewState; shared: boolean }): Promise<SavedView> {
+  return apiFetch<SavedView>("/data/views", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function updateSavedView(id: string, body: { name?: string; shared?: boolean }): Promise<SavedView> {
+  return apiFetch<SavedView>(`/data/views/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) });
+}
+
+export function deleteSavedView(id: string): Promise<void> {
+  return apiFetch<void>(`/data/views/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 const transcriptInFlight = new Map<string, Promise<TranscriptText>>();

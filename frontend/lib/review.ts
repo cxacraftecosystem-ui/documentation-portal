@@ -208,9 +208,11 @@ export async function rejectMedia(mediaId: string, notes: string, reason: Review
 export const DEFAULT_DATA_STATUS = "APPROVED";
 
 export const DATA_STATUS_OPTIONS = [
+  { value: "ALL", label: "All" },
   { value: "APPROVED", label: "Approved" },
-  { value: "PENDING", label: "Pending review" },
-  { value: "ALL", label: "All statuses" }
+  { value: "PENDING", label: "Pending" },
+  { value: "NEEDS_REVISION", label: "Needs revision" },
+  { value: "REJECTED", label: "Rejected" }
 ];
 
 export function statusQuery(choice: string): string | undefined {
@@ -218,5 +220,5 @@ export function statusQuery(choice: string): string | undefined {
 }
 
 export function dataStatusLabel(choice: string): string {
-  return DATA_STATUS_OPTIONS.find((option) => option.value === choice)?.label ?? "All statuses";
+  return DATA_STATUS_OPTIONS.find((option) => option.value === choice)?.label ?? "All";
 }

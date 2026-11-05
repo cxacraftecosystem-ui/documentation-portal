@@ -257,7 +257,7 @@ is information, not an error, and usually means exactly what it did above.
 Dataset download is a **granted permission** — Professor and above by default, or an explicit grant.
 If you do not have it, the Data Browser shows a restricted notice and **Search** is your tool instead.
 
-With it, **View Data** (`/data`) presents the whole repository as a browsable folder tree, filed three
+With it, **Data** (`/data`) presents the whole repository as a browsable folder tree, filed three
 ways: **by workshop** (the default), **by uploader**, and **by media type**. From any folder you can:
 
 | Take | You get |
@@ -301,7 +301,7 @@ record is never quietly rewritten.
 | Symptom | Almost always |
 |---|---|
 | No **New Artisan** button anywhere | You are a Crowdsource Volunteer or Field Contributor. Ask to be promoted to Researcher. |
-| **View Data** shows a padlock | You do not hold dataset-download. Use Search, or ask for the grant. |
+| **Data** shows a padlock | You do not hold dataset-download. Use Search, or ask for the grant. |
 | Suddenly signed out | The token lasts 7 days and then expires. Sign in again; nothing is lost. |
 | A colleague cannot see your records | Cross-researcher access is per-owner. Grant it on **Sharing**. |
 

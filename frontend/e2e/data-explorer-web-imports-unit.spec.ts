@@ -31,7 +31,7 @@ test("the shared trees carry the explorer", () => {
     "lib/dataExplorer/engine.ts",
     "lib/dataExplorer/download.worker.ts",
     "components/dataExplorer/DataExplorer.tsx",
-    "components/dataExplorer/DownloadsPanel.tsx",
+    "components/dataExplorer/DownloadsTray.tsx",
     "components/dataExplorer/FolderTree.tsx"
   ]) {
     expect(names).toContain(expected);

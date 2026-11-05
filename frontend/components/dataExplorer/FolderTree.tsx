@@ -7,12 +7,18 @@ import { RecordIcon } from "@/components/dataExplorer/explorerUi";
 import type { TreeStore } from "@/components/dataExplorer/useExplorerTree";
 
 type Row =
-  | { kind: "folder"; path: string; name: string; recordType: string | null; level: number; parent: string | null; size: number; position: number }
+  | { kind: "folder"; path: string; name: string; recordType: string | null; level: number; parent: string | null; size: number; position: number; count: string | null }
   | { kind: "more"; path: string; name: string; level: number; parent: string; size: number; position: number }
   | { kind: "loading"; path: string; level: number; parent: string };
 
 export function visibleRows(store: Pick<TreeStore, "trees" | "expanded" | "loading">, rootName: string): Row[] {
-  const rows: Row[] = [{ kind: "folder", path: "", name: rootName, recordType: null, level: 1, parent: null, size: 1, position: 1 }];
+  const countOf = (path: string, known?: number | null): string | null => {
+    if (typeof known === "number") return known.toLocaleString("en-IN");
+    const tree = store.trees[path];
+    if (!tree) return null;
+    return `${tree.entries.length.toLocaleString("en-IN")}${tree.nextCursor ? "+" : ""}`;
+  };
+  const rows: Row[] = [{ kind: "folder", path: "", name: rootName, recordType: null, level: 1, parent: null, size: 1, position: 1, count: null }];
   const walk = (parent: string, level: number) => {
     if (!store.expanded.has(parent)) return;
     const tree = store.trees[parent];
@@ -23,7 +29,7 @@ export function visibleRows(store: Pick<TreeStore, "trees" | "expanded" | "loadi
     const folders = tree.entries.filter((entry) => entry.kind === "folder");
     const size = folders.length + (tree.nextCursor ? 1 : 0);
     folders.forEach((folder, index) => {
-      rows.push({ kind: "folder", path: folder.path, name: folder.name, recordType: folder.recordType ?? null, level, parent, size, position: index + 1 });
+      rows.push({ kind: "folder", path: folder.path, name: folder.name, recordType: folder.recordType ?? null, level, parent, size, position: index + 1, count: countOf(folder.path, folder.count) });
       walk(folder.path, level + 1);
     });
     if (tree.nextCursor) rows.push({ kind: "more", path: `${parent}#more`, name: "Load more", level, parent, size, position: size });
@@ -134,7 +140,7 @@ export function FolderTree({
             onKeyDown={(event) => onKey(event, row)}
             onClick={() => activate(row)}
             data-path={row.path}
-            className={`group flex min-h-9 cursor-pointer select-none items-center gap-1.5 rounded-md pr-2 text-sm transition-colors pointer-coarse:min-h-11 ${
+            className={`group flex min-h-10 cursor-pointer select-none items-center gap-1.5 rounded-md pr-2 text-sm transition-colors pointer-coarse:min-h-11 ${
               selected ? "bg-purple-100 font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-200" : "text-ink-700 hover:bg-purple-50 dark:hover:bg-purple-950/30"
             }`}
             style={indent}
@@ -159,6 +165,11 @@ export function FolderTree({
               <RecordIcon recordType={row.recordType} root={row.path === ""} className="h-4 w-4 shrink-0 text-purple-700 dark:text-purple-300" />
             )}
             <span className="min-w-0 flex-1 truncate">{row.name}</span>
+            {row.kind === "folder" && row.count !== null && !busy ? (
+              <span className="shrink-0 text-xs tabular-nums text-ink-500" aria-hidden>
+                {row.count}
+              </span>
+            ) : null}
             {busy ? <RefreshCw className="h-3 w-3 shrink-0 animate-spin text-ink-500" aria-hidden /> : null}
           </div>
         );

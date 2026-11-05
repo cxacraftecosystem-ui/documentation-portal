@@ -28,6 +28,7 @@ ACCESS_DECIDED = "ACCESS_DECIDED"
 WORKSHOP_ACCESS_REQUESTED = "WORKSHOP_ACCESS_REQUESTED"
 WORKSHOP_ACCESS_DECIDED = "WORKSHOP_ACCESS_DECIDED"
 WEEKLY_DIGEST = "WEEKLY_DIGEST"
+REPORT_SCHEDULE = "REPORT_SCHEDULE"
 
 KINDS = frozenset(
     {
@@ -48,6 +49,7 @@ KINDS = frozenset(
         WORKSHOP_ACCESS_REQUESTED,
         WORKSHOP_ACCESS_DECIDED,
         WEEKLY_DIGEST,
+        REPORT_SCHEDULE,
     }
 )
 TASK_ONLY_KINDS = frozenset({TASK_SUBMITTED, TASK_SENT_BACK, TASK_APPROVED})
@@ -128,7 +130,57 @@ def _ses_client(region: str, access_key: str | None, secret_key: str | None) -> 
     )
 
 
-def send(*, to: str, subject: str, text: str, html_body: str, settings: Settings | None = None) -> str:
+@dataclass(frozen=True)
+class Attachment:
+    file_name: str
+    mime_type: str
+    data: bytes
+
+
+def raw_message(
+    *,
+    to: str,
+    subject: str,
+    text: str,
+    html_body: str,
+    settings: Settings,
+    attachments: tuple[Attachment, ...] = (),
+    headers: tuple[tuple[str, str], ...] = (),
+) -> bytes:
+    from email.message import EmailMessage
+    from email.policy import SMTP
+
+    message = EmailMessage(policy=SMTP.clone(max_line_length=998))
+    message["From"] = _from_header(settings)
+    message["To"] = to
+    message["Subject"] = subject
+    if (settings.mail_reply_to or "").strip():
+        message["Reply-To"] = settings.mail_reply_to.strip()
+    for name, value in headers:
+        message[name] = value
+    message.set_content(text, charset="utf-8")
+    message.add_alternative(html_body, subtype="html", charset="utf-8")
+    for item in attachments:
+        main, _, sub = item.mime_type.partition("/")
+        message.add_attachment(
+            item.data,
+            maintype=main or "application",
+            subtype=sub or "octet-stream",
+            filename=item.file_name,
+        )
+    return message.as_bytes()
+
+
+def send(
+    *,
+    to: str,
+    subject: str,
+    text: str,
+    html_body: str,
+    settings: Settings | None = None,
+    attachments: tuple[Attachment, ...] = (),
+    headers: tuple[tuple[str, str], ...] = (),
+) -> str:
     from botocore.exceptions import BotoCoreError, ClientError
 
     settings = settings or get_settings()
@@ -147,6 +199,20 @@ def send(*, to: str, subject: str, text: str, html_body: str, settings: Settings
             }
         },
     }
+    if attachments or headers:
+        request["Content"] = {
+            "Raw": {
+                "Data": raw_message(
+                    to=to,
+                    subject=subject,
+                    text=text,
+                    html_body=html_body,
+                    settings=settings,
+                    attachments=attachments,
+                    headers=headers,
+                )
+            }
+        }
     if (settings.mail_reply_to or "").strip():
         request["ReplyToAddresses"] = [settings.mail_reply_to.strip()]
     if (settings.mail_ses_configuration_set or "").strip():
@@ -170,6 +236,7 @@ class Rendered:
     subject: str
     text: str
     html: str
+    headers: tuple[tuple[str, str], ...] = ()
 
 
 def app_url(path: str = "", settings: Settings | None = None) -> str:
@@ -409,6 +476,8 @@ def subject_for(kind: str, params: dict[str, Any]) -> str:
     if kind == WORKSHOP_ACCESS_DECIDED:
         verb = "granted" if params.get("decision") == "GRANTED" else "declined"
         return f"Workshop access {verb}: {params.get('workshopTitle') or 'a workshop'}"
+    if kind == REPORT_SCHEDULE:
+        return f"Your weekly report: “{str(params.get('viewName') or 'saved view').strip()}”"
     if kind == WEEKLY_DIGEST:
         waiting, overdue, _new = digest_figures(params)
         return digest_title(waiting, overdue)
@@ -443,6 +512,11 @@ def render(
     subject = subject_for(kind, params)
     greeting = _greeting(params.get("recipientName"))
     sign_off = f"— {PRODUCT_NAME}"
+
+    if kind == REPORT_SCHEDULE:
+        if not secret:
+            raise ValueError("A scheduled-report message needs its unsubscribe token")
+        return _report_schedule(subject, greeting, sign_off, params, secret, settings)
 
     if kind == PASSWORD_LINK:
         if not secret:
@@ -627,3 +701,69 @@ def _notice_lines(kind: str, params: dict[str, Any]) -> tuple[str, list[str], st
     if note:
         extra.append(f"Note: {note}")
     return lead, extra, "Open workshop access", "/workshop-access"
+
+
+def format_moment(value: Any) -> str:
+    moment = value
+    if isinstance(value, str):
+        try:
+            moment = datetime.fromisoformat(value)
+        except ValueError:
+            return value
+    if not isinstance(moment, datetime):
+        return str(value)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    local = moment.astimezone(IST)
+    hour = local.hour % 12 or 12
+    suffix = "am" if local.hour < 12 else "pm"
+    return f"{local.day} {local.strftime('%B %Y')}, {hour}:{local.minute:02d} {suffix} IST"
+
+
+def size_words(value: Any) -> str:
+    size = max(int(value or 0), 0)
+    if size >= 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f} MB"
+    if size >= 1024:
+        return f"{round(size / 1024)} KB"
+    return f"{size} bytes"
+
+
+def _report_schedule(
+    subject: str,
+    greeting: str,
+    sign_off: str,
+    params: dict[str, Any],
+    token: str,
+    settings: Settings,
+) -> Rendered:
+    from urllib.parse import quote
+
+    name = str(params.get("viewName") or "your saved view").strip()
+    built = format_moment(params.get("generatedAt"))
+    size = size_words(params.get("sizeBytes"))
+    attached = bool(params.get("attachmentKey"))
+    view_id = quote(str(params.get("viewId") or ""), safe="")
+    schedule_id = quote(str(params.get("scheduleId") or ""), safe="")
+    lead = f"Here is “{name}”, built {built} from what you can see today."
+    if attached:
+        file_line = f"The Excel file is attached ({size})."
+        label, link = "Open the view", app_url(f"/data?viewId={view_id}", settings)
+    else:
+        file_line = f"The Excel file is {size}, too large to attach. Download it after you sign in."
+        label, link = "Download the report", app_url(f"/data/report-schedules/{schedule_id}", settings)
+    when = str(params.get("scheduleLabel") or "every week")
+    why = f"You get this {when} because you scheduled it in Saved views."
+    leave = app_url(f"/report-schedule/unsubscribe?token={quote(token, safe='')}", settings)
+    lines = [greeting, lead, file_line, f"{label}: {link}", why, f"Unsubscribe: {leave}", sign_off]
+    text = "\n\n".join(lines) + "\n"
+    body = _html(
+        [
+            _e(greeting),
+            _e(lead),
+            _e(file_line),
+            f'{_e(why)} <a href="{_e(leave)}" style="color:#6b6457;">Unsubscribe</a>',
+        ],
+        button=(_e(label), _e(link)),
+    )
+    return Rendered(subject, text, body, (("List-Unsubscribe", f"<{leave}>"),))

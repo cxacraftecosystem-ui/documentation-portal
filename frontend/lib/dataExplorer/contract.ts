@@ -19,6 +19,9 @@ export type TreeEntry = {
   previewPath?: string | null;
   downloadPath?: string | null;
   reviewStatus?: string | null;
+  capturedAt?: string | null;
+  count?: number | null;
+  bytes?: number | null;
 };
 
 export type Crumb = { name: string; path: string };
@@ -55,6 +58,8 @@ export type ManifestFile = {
   convertToMp4?: boolean;
   convertedUrl?: string | null;
   sizeBytes?: number | string | null;
+  sha256?: string | null;
+  originalSha256?: string | null;
 };
 
 export type Manifest = {
@@ -101,6 +106,7 @@ export type ReportSheet = {
   truncatedNote?: string | null;
   group?: string | null;
   matchedRows?: number | null;
+  rowNumbers?: number[] | null;
 };
 
 export type ReportResponse = {
@@ -109,6 +115,95 @@ export type ReportResponse = {
   designWorkshopsVisible?: boolean;
   designWorkshopsDownloadable?: boolean;
   query?: string | null;
+  builtAt?: string | null;
+  cached?: boolean;
+};
+
+export type ReportLocale = "en" | "hi";
+
+export type ReportOptions = {
+  sheets: string[] | null;
+  answers: "original" | "english" | "both";
+  rows: "all" | "filtered";
+  links: boolean;
+  thumbnails: boolean;
+  locale: ReportLocale;
+  extras: Record<string, boolean>;
+};
+
+export type ReportSheetInfo = { key: string; name: string; plugin?: string | null; count: number | null; files?: number | null; group?: string | null; description?: string | null };
+
+export type ReportExtra = { key: string; title: string };
+
+export type ReportSheetList = { path: string; sheets: ReportSheetInfo[]; extras: ReportExtra[]; locales: string[] };
+
+export type ReportBundle = {
+  id: string;
+  label: string;
+  path: string | null;
+  createdAt: string | null;
+  fileCount: number;
+  bytes: number;
+  listedCount: number;
+  hiddenCount: number;
+  mediaIds?: string[];
+  manifestPath?: string | null;
+  chunk?: number | null;
+};
+
+export const DEFAULT_REPORT_OPTIONS: ReportOptions = { sheets: null, answers: "both", rows: "all", links: true, thumbnails: false, locale: "en", extras: {} };
+
+export function withReportDefaults(options: Partial<ReportOptions> | null | undefined): ReportOptions {
+  return {
+    ...DEFAULT_REPORT_OPTIONS,
+    ...(options ?? {}),
+    locale: options?.locale === "hi" ? "hi" : "en",
+    extras: options?.extras && typeof options.extras === "object" ? { ...options.extras } : {}
+  };
+}
+
+export type SavedViewState = { view: "files" | "tables" | "transcripts"; sheet: string; q: string; filters: Record<string, string> };
+
+export type SavedView = {
+  id: string;
+  name: string;
+  path: string;
+  state: SavedViewState;
+  shared: boolean;
+  mine: boolean;
+  ownerName: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FolderVisit = { path: string; visitedAt: string; previousVisitAt: string | null; newFiles: number; newTranscripts: number };
+
+export type CoverageState = "complete" | "partial" | "missing";
+
+export type WorkshopOverview = {
+  path: string;
+  title: string;
+  subtitle: string | null;
+  totals: {
+    files: number;
+    bytes: number;
+    fields: { filled: number; total: number };
+    transcripts: { total: number; ready: number; translating: number; failed: number };
+    review: { approved: number; pending: number; total: number };
+  };
+  sections: { key: string; label: string }[];
+  artisans: {
+    id: string;
+    name: string;
+    craft: string | null;
+    path: string;
+    fields: { filled: number; total: number };
+    media: { files: number; bytes: number };
+    transcripts: number;
+    review: string | null;
+    sections: { key: string; state: CoverageState; missing: string[]; href?: string | null }[];
+  }[];
+  truncated: boolean;
 };
 
 export type TranscriptText = { mediaId: string; name?: string | null; content: string | null; language?: string | null };

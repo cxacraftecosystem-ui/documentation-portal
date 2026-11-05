@@ -97,14 +97,25 @@ export function SessionReadView({ id }: { id: string }) {
   const [done, setDone] = useState<string | null>(null);
   const [questions, setQuestions] = useState<Record<string, GridQuestion[]>>({});
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [focusSection, setFocusSection] = useState<string | null>(null);
   useEffect(() => {
-    setFocusId(new URLSearchParams(window.location.search).get("recording"));
+    const params = new URLSearchParams(window.location.search);
+    setFocusId(params.get("recording"));
+    setFocusSection(params.get("section"));
   }, []);
   useEffect(() => {
     if (!detail || !focusId) return;
     const frame = requestAnimationFrame(() => document.getElementById(`recording-${focusId}`)?.scrollIntoView({ block: "start" }));
     return () => cancelAnimationFrame(frame);
   }, [detail, focusId]);
+  useEffect(() => {
+    if (!detail || !focusSection || focusId) return;
+    const frame = requestAnimationFrame(() => {
+      const target = Array.from(document.querySelectorAll<HTMLElement>("[data-answers-section]")).find((node) => node.dataset.answersSection === focusSection);
+      target?.scrollIntoView({ block: "start" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [detail, focusSection, focusId]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -220,7 +231,12 @@ export function SessionReadView({ id }: { id: string }) {
       ))}
 
       {answersBySection(detail.answers, toGridView(detail.grid, questions), Object.fromEntries(detail.participants.map((p) => [p.artisanId, p.name]))).map((group) => (
-        <section key={`answers-${group.key}`} className="panel mb-4 grid gap-3 p-4" data-answers-section={group.key}>
+        <section
+          key={`answers-${group.key}`}
+          className={`panel mb-4 grid scroll-mt-28 gap-3 p-4 ${focusSection && group.key === focusSection ? "bg-purple-50 dark:bg-purple-950/30" : ""}`}
+          data-answers-section={group.key}
+          data-focused={focusSection && group.key === focusSection ? "true" : undefined}
+        >
           {group.label ? <h2 className="display-title text-base">{group.label}</h2> : null}
           {group.rows.map((row) => (
             <div key={row.key} className="grid gap-0.5">

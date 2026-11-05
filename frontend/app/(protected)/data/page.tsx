@@ -1,6 +1,7 @@
 "use client";
 
 import { Database, Lock } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
@@ -10,12 +11,11 @@ import { DataExplorer, type ExplorerConfig } from "@/components/dataExplorer/Dat
 import type { BrowseType } from "@/components/dataExplorer/BrowseByType";
 import { PageHeader } from "@/components/PageHeader";
 import { TranscriptDataPanel } from "@/components/transcript/TranscriptDataPanel";
-import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { useWorkshopScope, WorkshopScopeSelect } from "@/components/WorkshopScopeSelect";
 import { listResource } from "@/lib/api";
 import type { BrowsePage } from "@/lib/dataExplorer/contract";
-import { canDownloadDataset } from "@/lib/permissions";
+import { canCreateRecords, canDownloadDataset } from "@/lib/permissions";
 import { canUpdateRecord, recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import { DATA_STATUS_OPTIONS, DEFAULT_DATA_STATUS, dataStatusLabel, statusQuery } from "@/lib/review";
 import { toolRowLabel } from "@/lib/toolArtisans";
@@ -141,7 +141,7 @@ function browseTypes(user: User): BrowseType[] {
 }
 
 const header = (
-  <PageHeader title="Data Browser" description="Browse records as folders and download any as a zip." icon={<Database className="h-5 w-5" aria-hidden />} />
+  <PageHeader title="Data" description="Browse, check and download everything you can see." icon={<Database className="h-5 w-5" aria-hidden />} />
 );
 
 function Explorer({ user }: { user: User }) {
@@ -168,22 +168,31 @@ function Explorer({ user }: { user: User }) {
     statusKey: reviewStatus,
     viewer: user.id,
     fileHref: mediaHref,
-    renderSearch: (reveal) => <DataSearchPanel onReveal={reveal} toolbar />,
-    toolbarExtra: (
-      <div className="grid gap-1">
+    renderSearch: (reveal, openPreview) => <DataSearchPanel onReveal={reveal} onPreview={openPreview} />,
+    headerExtra: (
+      <div className="flex flex-wrap items-center gap-2">
         <span className="field-label">Review status</span>
         <SegmentedChoice label="Review status" value={reviewStatus} onChange={(value) => changeReviewStatus(value || DEFAULT_DATA_STATUS)} options={DATA_STATUS_OPTIONS} />
       </div>
     ),
-    emptyBody: reviewStatus === "ALL" ? "This folder has no files or subfolders." : `Nothing ${dataStatusLabel(reviewStatus).toLowerCase()} here.`,
-    emptyAction:
-      reviewStatus !== "ALL" ? (
-        <ButtonRow size="sm">
-          <button type="button" className="field-button-secondary h-9 min-h-0 px-3 text-xs pointer-coarse:h-11" onClick={() => changeReviewStatus("ALL")}>
+    emptyBody:
+      reviewStatus === "ALL"
+        ? "Files appear here as soon as someone records for this folder."
+        : `Nothing ${dataStatusLabel(reviewStatus).toLowerCase()} here.`,
+    emptyAction: (
+      <>
+        {reviewStatus !== "ALL" ? (
+          <button type="button" className="field-button-secondary" onClick={() => changeReviewStatus("ALL")}>
             Show all statuses
           </button>
-        </ButtonRow>
-      ) : null,
+        ) : null}
+        {canCreateRecords(user) ? (
+          <Link href="/media" className="field-button">
+            Record now
+          </Link>
+        ) : null}
+      </>
+    ),
     browseTypes: browseTypes(user),
     browseScope: { control: <WorkshopScopeSelect scope={scope} label="Workshops in this list" />, workshopIds: scope.queryValue },
     secondary: <TranscriptDataPanel />

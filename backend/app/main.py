@@ -19,7 +19,7 @@ from app.api.routes.auth import (
     TWO_FACTOR_REQUIRED_HEADER,
 )
 from app.api.routes.users import EXISTING_ACCOUNT_HEADER
-from app.core.config import get_settings
+from app.core.config import get_settings, verify_app_url_configuration
 from app.core.db import connect_db, db, disconnect_db
 from app.core.deps import PASSWORD_CHANGE_REQUIRED_HEADER
 from app.core.idempotency import IdempotencyMiddleware
@@ -270,6 +270,7 @@ _READINESS_TIMEOUT_SECONDS = 3.0
 def create_app() -> FastAPI:
     settings = get_settings()
     verify_jwt_configuration()
+    verify_app_url_configuration(settings)
     if not (settings.two_factor_encryption_key or "").strip():
         from app.services.two_factor import warn_legacy_key
 

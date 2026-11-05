@@ -1,0 +1,2331 @@
+# XLSX report audit
+
+Every field of each portal's database, every questionnaire definition and every derived value, with the sheet and column of the data report (.xlsx) where it appears, or the reviewed reason it is left out. Secrets, password and two-factor material, raw Aadhaar data, tokens and storage keys are excluded on purpose.
+
+The report is built by `backend/app/services/datareport/` (byte-identical in both portals). Each sheet is a plugin; the generic record sheets are listed in `tables.py`, the reviewed exclusions in `exclusions.py`.
+
+## Design Prototype Workshop
+
+141 models, 1768 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+
+### Models and fields
+
+- **AadhaarLegalHold**: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+- **AadhaarLogArchive**: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+- **AadhaarOtpThrottle**: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+- **AccessRoster**: excluded. Sign-in admission roster (who may sign in), managed by administrators.
+- **AnnualPlanEntry**: excluded. Programme planning (Annual plan page); a design workshop's own details are exported.
+- **AppClientVersion**: excluded. Which app version each account last used: device telemetry.
+- **AppRelease**: excluded. Android release catalogue, not collected data.
+- **AppSetting**: excluded. Platform settings (transcription switches, budgets), not collected data.
+- **Artisan**
+  - `id`: Artisans › Artisan ID; Completeness › Artisan ID; Coverage › Artisan ID; Profile › Artisan ID
+  - `name`: Artisans › Name; Both portals › Artisan here; Completeness › Artisan; Coverage › Artisan; Glossary › Artisan; Quotes › Artisan
+  - `localName`: Artisans › Local name
+  - `gender`: Artisans › Gender
+  - `phone`: Artisans › Phone
+  - `phoneCountryCode`: Artisans › Phone country code
+  - `email`: Artisans › Email
+  - `place`: Artisans › Place; Map › Place
+  - `aadhaarFingerprint`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarLast4`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `pehchanCardAvailable`: Artisans › Pehchan card available
+  - `pehchanCardNumber`: Artisans › Pehchan card number
+  - `address`: Artisans › Address
+  - `notes`: Artisans › Notes
+  - `dateOfBirth`: Artisans › Date of birth
+  - `craftStartDate`: Artisans › Craft start date
+  - `experienceYears`: Artisans › Experience years
+  - `experienceMonths`: Artisans › Experience months
+  - `dos`: Artisans › Do's
+  - `donts`: Artisans › Don'ts
+  - `status`: Artisans › Status; Audit and trust › Status; Profile › Status
+  - `reviewNotes`: Artisans › Review notes; Audit and trust › Review notes
+  - `reviewedById`: Artisans › Reviewed by; Artisans › Reviewed by ID; Audit and trust › Reviewed by
+  - `reviewedAt`: Artisans › Reviewed on; Audit and trust › Reviewed
+  - `extraMetadata`: Artisans › More details
+  - `recordedAt`: Artisans › Recorded on; Audit and trust › Recorded; Profile › When
+  - `recordedTimezone`: Artisans › Time zone
+  - `createdAt`: Artisans › Created on; Audit and trust › Saved
+  - `updatedAt`: Artisans › Updated on; Audit and trust › Updated
+  - `craftId`: Artisans › Craft; Artisans › Craft ID
+  - `locationId`: Artisans › Location; Artisans › Location ID
+  - `createdById`: Artisans › Created by; Artisans › Created by ID; Audit and trust › Recorded by
+  - `workshopId`: Artisans › Workshop; Artisans › Workshop ID
+  - `designWorkshopId`: Artisans › Design workshop; Artisans › Design workshop ID
+  - `aadhaarVerifyStatus`: Artisans › Aadhaar verify status
+  - `aadhaarVerifyMethod`: Artisans › Aadhaar verify method
+  - `aadhaarVerifiedAt`: Artisans › Aadhaar verified on
+  - `aadhaarVerifyLast4`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyName`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyBirthYear`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyDob`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyGender`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifySignedAt`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyTxn`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyNameMatch`: Artisans › Aadhaar verify name match
+  - `aadhaarVerifyById`: Artisans › Aadhaar verify by; Artisans › Aadhaar verify by ID
+  - `aadhaarVerifyDecidedById`: Artisans › Aadhaar verify decided by; Artisans › Aadhaar verify decided by ID
+  - `aadhaarVerifyDecidedAt`: Artisans › Aadhaar verify decided on
+- **ArtisanCard**
+  - `id`: Artisan cards › Artisan card ID
+  - `artisanId`: Artisan cards › Artisan; Artisan cards › Artisan ID
+  - `code`: Artisan cards › Code
+  - `keyVersion`: excluded. Secret or credential material: never leaves the server.
+  - `issuedAt`: Artisan cards › Issued on
+  - `issuedById`: Artisan cards › Issued by; Artisan cards › Issued by ID
+  - `revokedAt`: Artisan cards › Revoked on
+  - `revokedById`: Artisan cards › Revoked by; Artisan cards › Revoked by ID
+  - `revokedReason`: Artisan cards › Revoked reason
+- **ArtisanCardEvent**
+  - `id`: Artisan card events › Artisan card event ID
+  - `artisanId`: Artisan card events › Artisan; Artisan card events › Artisan ID
+  - `cardCode`: Artisan card events › Card code
+  - `action`: Artisan card events › Action
+  - `source`: Artisan card events › Source
+  - `userId`: Artisan card events › User; Artisan card events › User ID
+  - `count`: Artisan card events › Count
+  - `createdAt`: Artisan card events › Created on
+- **ArtisanDuplicateCandidate**: excluded. Duplicate-detection work queue for administrators.
+- **ArtisanMerge**: excluded. Merge undo snapshots for administrators; the surviving artisan is exported.
+- **ArtisanPeerScan**: excluded. Duplicate-detection scan bookkeeping.
+- **AssignedTask**
+  - `id`: Tasks › Task ID
+  - `title`: Tasks › Title
+  - `description`: Tasks › Description
+  - `status`: Tasks › Status
+  - `dueAt`: Tasks › Due on
+  - `completedAt`: Tasks › Completed on
+  - `recordType`: Tasks › Record type
+  - `recordId`: Tasks › Record ID
+  - `workshopId`: Tasks › Workshop; Tasks › Workshop ID
+  - `recordTypes`: Tasks › Record types
+  - `artisanIds`: Tasks › Artisan ids
+  - `sectionIds`: Tasks › Section ids
+  - `targetCount`: Tasks › Target count
+  - `progressCount`: Tasks › Progress count
+  - `batchId`: Tasks › Batch ID
+  - `assigneeId`: Tasks › Assignee; Tasks › Assignee ID
+  - `createdById`: Tasks › Created by; Tasks › Created by ID
+  - `createdAt`: Tasks › Created on
+  - `updatedAt`: Tasks › Updated on
+- **Consent**
+  - `id`: Consent ledger › Consent ledger ID
+  - `subjectType`: Consent ledger › Subject type
+  - `subjectId`: Consent ledger › Subject ID
+  - `purpose`: Consent ledger › Purpose
+  - `state`: Consent ledger › State
+  - `basis`: Consent ledger › Basis
+  - `source`: Consent ledger › Source
+  - `version`: Consent ledger › Version
+  - `note`: Consent ledger › Note
+  - `evidenceMediaId`: Consent ledger › Evidence media; Consent ledger › Evidence media ID
+  - `actorId`: Consent ledger › Actor; Consent ledger › Actor ID
+  - `recordedAt`: Consent ledger › Recorded on
+  - `createdAt`: Consent ledger › Created on
+  - `migratedFrom`: Consent ledger › Migrated from
+- **Craft**
+  - `id`: Crafts › Craft ID
+  - `name`: Completeness › Craft; Coverage › Craft; Crafts › Name
+  - `localName`: Crafts › Local name
+  - `category`: Crafts › Category
+  - `description`: Crafts › Description
+  - `place`: Crafts › Place
+  - `extraMetadata`: Crafts › More details
+  - `recordedAt`: Crafts › Recorded on
+  - `recordedTimezone`: Crafts › Time zone
+  - `createdAt`: Crafts › Created on
+  - `updatedAt`: Crafts › Updated on
+  - `createdById`: Crafts › Created by; Crafts › Created by ID
+  - `workshopId`: Crafts › Workshop; Crafts › Workshop ID
+  - `craftCode`: Crafts › Craft code
+  - `slug`: Crafts › Slug
+  - `subCategoryId`: Crafts › Sub category; Crafts › Sub category ID
+  - `sourceSerial`: Crafts › Source serial
+  - `stateOfOrigin`: Crafts › State of origin
+  - `stateOfPractice`: Crafts › State of practice
+  - `giStatus`: Crafts › GI status
+  - `isCatchAll`: Crafts › Is catch all
+  - `sourceNotes`: Crafts › Source notes
+  - `status`: Crafts › Status
+  - `mergedIntoId`: Crafts › Merged into; Crafts › Merged into ID
+- **CraftCategory**
+  - `id`: Craft categories › Craft categorie ID
+  - `slug`: Craft categories › Slug
+  - `name`: Craft categories › Name
+  - `sortOrder`: Craft categories › Sort order
+  - `createdAt`: Craft categories › Created on
+  - `updatedAt`: Craft categories › Updated on
+  - `createdById`: Craft categories › Created by; Craft categories › Created by ID
+- **CraftCode**: excluded. National craft-code register (reference data, the same in every report); each craft's code is exported.
+- **CraftSpelling**: excluded. Spelling variants of craft names (reference data).
+- **CraftSubCategory**
+  - `id`: Craft sub-categories › Craft sub-categorie ID
+  - `slug`: Craft sub-categories › Slug
+  - `name`: Craft sub-categories › Name
+  - `categoryId`: Craft sub-categories › Category; Craft sub-categories › Category ID
+  - `sortOrder`: Craft sub-categories › Sort order
+  - `createdAt`: Craft sub-categories › Created on
+  - `updatedAt`: Craft sub-categories › Updated on
+  - `createdById`: Craft sub-categories › Created by; Craft sub-categories › Created by ID
+- **CrossPortalAccessLog**: excluded. Audit log of cross-portal lookups, kept for administrators.
+- **CrossPortalArtisanLink**
+  - `id`: Cross-portal links › Cross-portal link ID
+  - `artisanId`: Both portals › Artisan ID; Cross-portal links › Artisan; Cross-portal links › Artisan ID
+  - `remoteArtisanId`: Both portals › Their artisan ID; Cross-portal links › Remote artisan ID
+  - `matchedBy`: Both portals › Matched by; Cross-portal links › Matched by
+  - `consentRecordedById`: Cross-portal links › Consent recorded by; Cross-portal links › Consent recorded by ID
+  - `consentRecordedAt`: Cross-portal links › Consent recorded on
+  - `remoteAcknowledgedAt`: Cross-portal links › Remote acknowledged on
+  - `lastRefreshedAt`: Cross-portal links › Last refreshed on
+  - `remoteCardCode`: Cross-portal links › Remote card code
+  - `createdAt`: Cross-portal links › Created on
+  - `updatedAt`: Cross-portal links › Updated on
+- **DataAccessGrant**: excluded. Access-control grants, managed on the Sharing page.
+- **DataAccessScopeItem**: excluded. Access-control grants, managed on the Sharing page.
+- **DataBundle**: excluded. Download-bundle links created for reports.
+- **DataFolderVisit**: excluded. When each account last opened a folder.
+- **DataReportPreference**: excluded. Each account's remembered Report options.
+- **DataReportSchedule**: excluded. Scheduled-report settings of each account.
+- **DataReportShare**: excluded. Share-link and visitor metadata, not report data.
+- **DataReportShareView**: excluded. Share-link and visitor metadata, not report data.
+- **DataSavedView**: excluded. Saved views of the data explorer.
+- **DesignWorkshop**
+  - `id`: Design workshops › Design workshop ID
+  - `title`: Design workshops › Title
+  - `templateId`: Design workshops › Template ID
+  - `status`: Design workshops › Status
+  - `workshopCode`: Design workshops › Workshop code
+  - `workshopKind`: Design workshops › Workshop kind
+  - `scheme`: Design workshops › Scheme
+  - `craftName`: Design workshops › Craft name
+  - `craftId`: Design workshops › Craft; Design workshops › Craft ID
+  - `clusterName`: Design workshops › Cluster name
+  - `state`: Design workshops › State
+  - `district`: Design workshops › District
+  - `venue`: Design workshops › Venue
+  - `startDate`: Design workshops › Start date
+  - `endDate`: Design workshops › End date
+  - `designerName`: Design workshops › Designer name
+  - `implementingAgency`: Design workshops › Implementing agency
+  - `sponsor`: Design workshops › Sponsor
+  - `notes`: Design workshops › Notes
+  - `schemaVersion`: Design workshops › Schema version
+  - `reviewNotes`: Design workshops › Review notes
+  - `reviewedById`: Design workshops › Reviewed by; Design workshops › Reviewed by ID
+  - `reviewedAt`: Design workshops › Reviewed on
+  - `submissionRound`: Design workshops › Submission round
+  - `approvedById`: Design workshops › Approved by; Design workshops › Approved by ID
+  - `approvedAt`: Design workshops › Approved on
+  - `approvedRound`: Design workshops › Approved round
+  - `handedOnById`: Design workshops › Handed on by; Design workshops › Handed on by ID
+  - `handedOnAt`: Design workshops › Handed on on
+  - `handedOnTo`: Design workshops › Handed on to
+  - `handedOnExportId`: Design workshops › Handed on export; Design workshops › Handed on export ID
+  - `lastHandedInAt`: Design workshops › Last handed in on
+  - `dictationConsent`: Design workshops › Dictation consent
+  - `dictationConsentAt`: Design workshops › Dictation consent on
+  - `dictationConsentById`: Design workshops › Dictation consent by; Design workshops › Dictation consent by ID
+  - `deletedAt`: Design workshops › Deleted on
+  - `deletedById`: Design workshops › Deleted by; Design workshops › Deleted by ID
+  - `createdAt`: Design workshops › Created on
+  - `updatedAt`: Design workshops › Updated on
+  - `createdById`: Design workshops › Created by; Design workshops › Created by ID
+  - `workshopId`: Design workshops › Workshop; Design workshops › Workshop ID
+- **DesignWorkshopAccessRequest**
+  - `id`: Access requests › Access request ID
+  - `designWorkshopId`: Access requests › Design workshop; Access requests › Design workshop ID
+  - `requestedById`: Access requests › Requested by; Access requests › Requested by ID
+  - `status`: Access requests › Status
+  - `source`: Access requests › Source
+  - `scannedCode`: excluded. Access token, link secret or hash: never exported.
+  - `note`: Access requests › Note
+  - `tokenId`: excluded. Access token, link secret or hash: never exported.
+  - `scannedAt`: Access requests › Scanned on
+  - `decidedById`: Access requests › Decided by; Access requests › Decided by ID
+  - `decidedAt`: Access requests › Decided on
+  - `decisionNote`: Access requests › Decision note
+  - `createdAt`: Access requests › Created on
+  - `updatedAt`: Access requests › Updated on
+- **DesignWorkshopInspector**: excluded. Inspection assignments are the inspection feature's own scope table; the report does not read it. Who inspected what is on the Inspection feedback and Inspection clearances sheets.
+- **DesignWorkshopOversight**
+  - `designWorkshopId`: Workshop oversight › Design workshop; Workshop oversight › Design workshop ID
+  - `capacity`: Workshop oversight › Capacity
+  - `userId`: Workshop oversight › User; Workshop oversight › User ID
+  - `assignedById`: Workshop oversight › Assigned by; Workshop oversight › Assigned by ID
+  - `assignedAt`: Workshop oversight › Assigned on
+  - `createdAt`: Workshop oversight › Created on
+  - `updatedAt`: Workshop oversight › Updated on
+- **DesignWorkshopProvisionalMember**
+  - `designWorkshopId`: Provisional members › Design workshop; Provisional members › Design workshop ID
+  - `userId`: Provisional members › User; Provisional members › User ID
+  - `viaTokenId`: excluded. Access token, link secret or hash: never exported.
+  - `reason`: Provisional members › Reason
+  - `scannedAtClient`: Provisional members › Scanned at client
+  - `serverArrivedAt`: Provisional members › Server arrived on
+  - `createdAt`: Provisional members › Created on
+- **DesignWorkshopViewer**
+  - `designWorkshopId`: Workshop viewers › Design workshop; Workshop viewers › Design workshop ID
+  - `userId`: Workshop viewers › User; Workshop viewers › User ID
+  - `grantedById`: Workshop viewers › Granted by; Workshop viewers › Granted by ID
+  - `tokenId`: excluded. Access token, link secret or hash: never exported.
+  - `createdAt`: Workshop viewers › Created on
+- **DesignerProfile**
+  - `id`: Designer profiles › Designer profile ID
+  - `userId`: Designer profiles › User; Designer profiles › User ID
+  - `displayName`: Designer profiles › Display name
+  - `localName`: Designer profiles › Local name
+  - `designation`: Designer profiles › Designation
+  - `institution`: Designer profiles › Institution
+  - `department`: Designer profiles › Department
+  - `qualification`: Designer profiles › Qualification
+  - `specialisation`: Designer profiles › Specialisation
+  - `experienceYears`: Designer profiles › Experience years
+  - `experienceMonths`: Designer profiles › Experience months
+  - `biography`: Designer profiles › Biography
+  - `phone`: Designer profiles › Phone
+  - `phoneCountryCode`: Designer profiles › Phone country code
+  - `email`: Designer profiles › Email
+  - `website`: Designer profiles › Website
+  - `addressLine`: Designer profiles › Address line
+  - `city`: Designer profiles › City
+  - `state`: Designer profiles › State
+  - `pincode`: Designer profiles › Pincode
+  - `photoMediaId`: Designer profiles › Photo media; Designer profiles › Photo media ID
+  - `signatureMediaId`: Designer profiles › Signature media; Designer profiles › Signature media ID
+  - `cvMediaId`: Designer profiles › Cv media; Designer profiles › Cv media ID
+  - `empanelmentNo`: Designer profiles › Empanelment no
+  - `empanelmentDate`: Designer profiles › Empanelment date
+  - `phoneKey`: Designer profiles › Phone key
+  - `empanelmentKey`: Designer profiles › Empanelment key
+  - `locationId`: Designer profiles › Location; Designer profiles › Location ID
+  - `createdAt`: Designer profiles › Created on
+  - `updatedAt`: Designer profiles › Updated on
+- **DesignerRoster**: excluded. Programme administration (Ministry pages), not part of the data folders.
+- **DwAiLayer**
+  - `id`: AI layers › AI layer ID
+  - `designWorkshopId`: AI layers › Design workshop; AI layers › Design workshop ID
+  - `kind`: AI layers › Kind
+  - `tier`: AI layers › Tier
+  - `sourceMediaId`: AI layers › Source media; AI layers › Source media ID
+  - `sourceLayerId`: AI layers › Source layer; AI layers › Source layer ID
+  - `sourceText`: AI layers › Source text
+  - `provider`: AI layers › Provider
+  - `modelId`: AI layers › Model ID
+  - `modelVersion`: AI layers › Model version
+  - `language`: AI layers › Language
+  - `sourceLanguage`: AI layers › Source language
+  - `targetLanguage`: AI layers › Target language
+  - `producedAt`: AI layers › Produced on
+  - `text`: AI layers › Text
+  - `payload`: AI layers › Payload
+  - `acceptedAt`: AI layers › Accepted on
+  - `acceptedById`: AI layers › Accepted by; AI layers › Accepted by ID
+  - `createdAt`: AI layers › Created on
+  - `updatedAt`: AI layers › Updated on
+  - `createdById`: AI layers › Created by; AI layers › Created by ID
+  - `deletedAt`: AI layers › Deleted on
+  - `deletedById`: AI layers › Deleted by; AI layers › Deleted by ID
+- **DwAiLayerDecision**
+  - `id`: AI decisions › AI decision ID
+  - `layerId`: AI decisions › Layer; AI decisions › Layer ID
+  - `decision`: AI decisions › Decision
+  - `note`: AI decisions › Note
+  - `actorId`: AI decisions › Actor; AI decisions › Actor ID
+  - `createdAt`: AI decisions › Created on
+- **DwAiVerbDailyUsage**: excluded. Daily AI usage counters (rate limiting).
+- **DwArtisanImport**
+  - `id`: Artisan imports › Artisan import ID
+  - `designWorkshopId`: Artisan imports › Design workshop; Artisan imports › Design workshop ID
+  - `uploadedById`: Artisan imports › Uploaded by; Artisan imports › Uploaded by ID
+  - `sourceFilename`: Artisan imports › Source filename
+  - `sheetName`: Artisan imports › Sheet name
+  - `rowsRead`: Artisan imports › Rows read
+  - `artisansCreated`: Artisan imports › Artisans created
+  - `artisansLinked`: Artisan imports › Artisans linked
+  - `rowsRefused`: Artisan imports › Rows refused
+  - `participantsCreated`: Artisan imports › Participants created
+  - `problems`: Artisan imports › Problems
+  - `createdAt`: Artisan imports › Created on
+- **DwCustomField**
+  - `id`: Custom fields › Custom field ID
+  - `sectionId`: Custom fields › Section; Custom fields › Section ID
+  - `key`: Custom fields › Key
+  - `label`: Custom fields › Label
+  - `help`: Custom fields › Help
+  - `type`: Custom fields › Type
+  - `tier`: Custom fields › Tier
+  - `isRequired`: Custom fields › Is required
+  - `options`: Custom fields › Options
+  - `unit`: Custom fields › Unit
+  - `maxLength`: Custom fields › Max length
+  - `minValue`: Custom fields › Min value
+  - `maxValue`: Custom fields › Max value
+  - `sortOrder`: Custom fields › Sort order
+  - `isActive`: Custom fields › Is active
+  - `retiredAt`: Custom fields › Retired on
+  - `supersededById`: Custom fields › Superseded by; Custom fields › Superseded by ID
+  - `createdAt`: Custom fields › Created on
+  - `updatedAt`: Custom fields › Updated on
+- **DwCustomSection**
+  - `id`: Custom sections › Custom section ID
+  - `designWorkshopId`: Custom sections › Design workshop; Custom sections › Design workshop ID
+  - `stageKey`: Custom sections › Stage key
+  - `key`: Custom sections › Key
+  - `title`: Custom sections › Title
+  - `description`: Custom sections › Description
+  - `sortOrder`: Custom sections › Sort order
+  - `revision`: Custom sections › Revision
+  - `isActive`: Custom sections › Is active
+  - `retiredAt`: Custom sections › Retired on
+  - `createdAt`: Custom sections › Created on
+  - `updatedAt`: Custom sections › Updated on
+  - `createdById`: Custom sections › Created by; Custom sections › Created by ID
+- **DwDictationDailyUsage**: excluded. Daily dictation usage counters (rate limiting).
+- **DwInspectionClearance**
+  - `id`: Inspection clearances › Inspection clearance ID
+  - `designWorkshopId`: Inspection clearances › Design workshop; Inspection clearances › Design workshop ID
+  - `inspectorId`: Inspection clearances › Inspector; Inspection clearances › Inspector ID
+  - `round`: Inspection clearances › Round
+  - `clearedAt`: Inspection clearances › Cleared on
+- **DwInspectionFeedback**
+  - `id`: Inspection feedback › Inspection feedback ID
+  - `designWorkshopId`: Inspection feedback › Design workshop; Inspection feedback › Design workshop ID
+  - `round`: Inspection feedback › Round
+  - `stageKey`: Inspection feedback › Stage key
+  - `fieldKey`: Inspection feedback › Field key
+  - `note`: Inspection feedback › Note
+  - `sentBack`: Inspection feedback › Sent back
+  - `byApprovingAuthority`: Inspection feedback › By approving authority
+  - `actorPost`: Inspection feedback › Actor post
+  - `actorId`: Inspection feedback › Actor; Inspection feedback › Actor ID
+  - `recordedAt`: Inspection feedback › Recorded on
+  - `createdAt`: Inspection feedback › Created on
+- **DwReportDelivery**
+  - `id`: Report deliveries › Report deliverie ID
+  - `designWorkshopId`: Report deliveries › Design workshop; Report deliveries › Design workshop ID
+  - `exportId`: Report deliveries › Export; Report deliveries › Export ID
+  - `storageKey`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
+  - `fileName`: Report deliveries › File name
+  - `tokenHash`: excluded. Access token, link secret or hash: never exported.
+  - `toAddresses`: Report deliveries › To addresses
+  - `officeName`: Report deliveries › Office name
+  - `expiresAt`: Report deliveries › Expires on
+  - `revokedAt`: Report deliveries › Revoked on
+  - `firstOpenedAt`: Report deliveries › First opened on
+  - `lastOpenedAt`: Report deliveries › Last opened on
+  - `openCount`: Report deliveries › Open count
+  - `sentById`: Report deliveries › Sent by; Report deliveries › Sent by ID
+  - `createdAt`: Report deliveries › Created on
+- **DwReportExport**
+  - `id`: Report exports › Report export ID
+  - `designWorkshopId`: Report exports › Design workshop; Report exports › Design workshop ID
+  - `format`: Report exports › Format
+  - `templateId`: Report exports › Template ID
+  - `fileName`: Report exports › File name
+  - `fileSizeBytes`: Report exports › File size bytes
+  - `pageCount`: Report exports › Page count
+  - `checksumSha256`: Report exports › Checksum SHA-256
+  - `generatedOnDevice`: Report exports › Generated on device
+  - `schemaVersion`: Report exports › Schema version
+  - `warnings`: Report exports › Warnings
+  - `storageKey`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
+  - `inputFingerprint`: Report exports › Input fingerprint
+  - `generatedAt`: Report exports › Generated on
+  - `generatedById`: Report exports › Generated by; Report exports › Generated by ID
+- **DwReviewRating**
+  - `id`: Review ratings › Review rating ID
+  - `designWorkshopId`: Review ratings › Design workshop; Review ratings › Design workshop ID
+  - `stageEntryId`: Review ratings › Stage entry; Review ratings › Stage entry ID
+  - `entityKey`: Review ratings › Entity key
+  - `reviewerId`: Review ratings › Reviewer; Review ratings › Reviewer ID
+  - `round`: Review ratings › Round
+  - `score`: Review ratings › Score
+  - `comment`: Review ratings › Comment
+  - `suggestion`: Review ratings › Suggestion
+  - `ratedAt`: Review ratings › Rated on
+  - `createdAt`: Review ratings › Created on
+  - `updatedAt`: Review ratings › Updated on
+- **DwRoundSnapshot**
+  - `id`: Review rounds › Review round ID
+  - `designWorkshopId`: Review rounds › Design workshop; Review rounds › Design workshop ID
+  - `round`: Review rounds › Round
+  - `takenAt`: Review rounds › Taken on
+  - `stages`: excluded. Shown in full on another sheet of this report.
+- **DwStageEntry**
+  - `id`: Stage entries › Stage entrie ID
+  - `designWorkshopId`: Stage entries › Design workshop; Stage entries › Design workshop ID
+  - `stageKey`: Stage entries › Stage key
+  - `entityKey`: Stage entries › Entity key
+  - `ordinal`: Stage entries › Ordinal
+  - `data`: Stage entries › Data
+  - `searchText`: excluded. Search index text built from the stage entry fields, which are exported.
+  - `fieldProvenance`: Stage entries › Field provenance
+  - `clientKey`: Stage entries › Client key
+  - `version`: Stage entries › Version
+  - `createdAt`: Stage entries › Created on
+  - `updatedAt`: Stage entries › Updated on
+  - `createdById`: Stage entries › Created by; Stage entries › Created by ID
+  - `deletedAt`: Stage entries › Deleted on
+- **DwWorkshopConsentDecision**
+  - `id`: Workshop consent › Workshop consent ID
+  - `designWorkshopId`: Workshop consent › Design workshop; Workshop consent › Design workshop ID
+  - `decision`: Workshop consent › Decision
+  - `note`: Workshop consent › Note
+  - `actorId`: Workshop consent › Actor; Workshop consent › Actor ID
+  - `recordedAt`: Workshop consent › Recorded on
+  - `source`: Workshop consent › Source
+  - `createdAt`: Workshop consent › Created on
+- **EmailMessage**: excluded. Outgoing e-mail queue.
+- **EntryComment**
+  - `id`: Comments › Comment ID
+  - `recordType`: Comments › Record type
+  - `recordId`: Comments › Record ID
+  - `authorId`: Comments › Author; Comments › Author ID
+  - `body`: Comments › Body
+  - `createdAt`: Comments › Created on
+  - `updatedAt`: Comments › Updated on
+- **Feedback**: excluded. Feedback about the app itself, kept on the Feedback page.
+- **FeedbackReport**: excluded. Bug reports about the app itself, kept on the Feedback page.
+- **GeoAlias**: excluded. Spelling aliases for state and district names (reference data).
+- **IdempotencyKey**: excluded. Request de-duplication cache.
+- **Location**
+  - `id`: Locations › Location ID
+  - `latitude`: Locations › Latitude; Map › Latitude
+  - `longitude`: Locations › Longitude; Map › Longitude
+  - `altitude`: Locations › Altitude
+  - `accuracy`: Locations › Accuracy; Map › Accuracy (m)
+  - `address`: Locations › Address; Map › Place
+  - `placeName`: Locations › Place name; Map › Place
+  - `state`: Locations › State; Map by district › State; Map › State
+  - `district`: Locations › District; Map by district › District; Map › District
+  - `village`: Locations › Village; Map › Village
+  - `pincode`: Locations › Pincode; Map › PIN code
+  - `subjectLatitude`: Locations › Subject latitude; Map › Latitude
+  - `subjectLongitude`: Locations › Subject longitude; Map › Longitude
+  - `capturedAt`: Locations › Captured on
+  - `extraMetadata`: Locations › More details
+  - `createdAt`: Locations › Created on
+  - `updatedAt`: Locations › Updated on
+- **ManagedSecret**: excluded. Secret or credential material: never leaves the server.
+- **MediaFile**
+  - `id`: Completeness › Files; Media › Media ID; Profile › Download; Profile › Photo; Quotes › Media ID; Quotes › Recording
+  - `originalFilename`: Glossary › Heard in; Media › File name; Quotes › Recording; Transcripts › File
+  - `mediaType`: Media › Media type
+  - `mimeType`: Media › File format
+  - `sizeBytes`: Audit and trust › Size; Completeness › Size; Media › Size; Profile › Size
+  - `bucket`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
+  - `objectKey`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
+  - `url`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
+  - `caption`: Media › Caption
+  - `checksum`: Media › Checksum
+  - `transcriptText`: Profile › Transcript; Transcripts › Text
+  - `transcriptSummary`: Media › Transcript summary
+  - `transcriptStatus`: Media › Transcript; Media › Transcript status; Transcripts › Status
+  - `transcriptError`: Media › Transcript; Transcripts › Status
+  - `removedAt`: Media › Removed on
+  - `removedById`: Media › Removed by; Media › Removed by ID
+  - `contentSha256`: Audit and trust › SHA-256; Media › SHA-256 checksum
+  - `shaVerifiedAt`: Audit and trust › Checksum verified; Media › Checksum verified on
+  - `consentAtSend`: Media › Consent at send
+  - `transcriptEditedAt`: Media › Transcript edited on
+  - `transcriptEditedById`: Media › Transcript edited by; Media › Transcript edited by ID
+  - `transcriptSegments`: excluded. Provider timings kept for subtitles; the same lines are exported as transcript segments.
+  - `transcriptLanguage`: Media › Transcript language; Transcripts › Language
+  - `transcriptProvider`: Media › Transcript provider
+  - `cleanedObjectKey`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
+  - `cleanedMimeType`: Media › Cleaned mime type
+  - `cleanedAt`: Media › Cleaned on
+  - `transcribeRequested`: Media › Transcribe requested
+  - `transcribeRequestSource`: Media › Transcribe request source
+  - `transcribeRequestedAt`: Media › Transcribe requested on
+  - `linkedRecordType`: Media › Attached to; Media › Linked record type; Transcripts › Attached to
+  - `linkedRecordId`: Media › Attached to; Media › Linked record ID; Transcripts › Attached to
+  - `status`: Media › Status
+  - `reviewNotes`: Media › Review notes
+  - `reviewedById`: Media › Reviewed by; Media › Reviewed by ID
+  - `reviewedAt`: Media › Reviewed on
+  - `extraMetadata`: Media › More details
+  - `recordedAt`: Media › Recorded on; Transcripts › Recorded on
+  - `recordedTimezone`: Media › Time zone
+  - `createdAt`: Media › Created on
+  - `updatedAt`: Media › Updated on
+  - `uploadedById`: Media › Uploaded by; Media › Uploaded by ID
+  - `artisanId`: Media › Artisan; Media › Artisan ID
+  - `craftId`: Media › Craft; Media › Craft ID
+  - `workshopId`: Media › Workshop; Media › Workshop ID
+  - `productId`: Media › Product; Media › Product ID
+  - `toolId`: Media › Tool; Media › Tool ID
+  - `questionnaireInterviewId`: Media › Questionnaire interview; Media › Questionnaire interview ID
+  - `locationId`: Media › Location; Media › Location ID
+  - `designWorkshopId`: Media › Design workshop; Media › Design workshop ID
+- **MediaProcessingJob**: excluded. Background job queue; each transcript's status and failure reason are exported on the Transcripts sheet.
+- **MediaUploadIntent**: excluded. Resumable-upload bookkeeping before a file exists.
+- **MediaWaveform**: excluded. Waveform peaks drawn by the audio player.
+- **MinistryDataExport**: excluded. Ministry export jobs (Ministry exports page).
+- **MinistryExportDownload**: excluded. Ministry export download log.
+- **MinistryExportPack**: excluded. Ministry export packs (Ministry exports page).
+- **MinistryExportRecipient**: excluded. Ministry export recipients (Ministry exports page).
+- **Notification**: excluded. In-app notifications to accounts.
+- **PasswordResetRequest**: excluded. Password material: never exported.
+- **PasswordResetToken**: excluded. Password material: never exported.
+- **Process**
+  - `id`: Processes › Processe ID
+  - `name`: Processes › Name
+  - `preProcessAvailable`: Processes › Pre process available
+  - `notes`: Processes › Notes
+  - `status`: Processes › Status
+  - `reviewNotes`: Processes › Review notes
+  - `reviewedById`: Processes › Reviewed by; Processes › Reviewed by ID
+  - `reviewedAt`: Processes › Reviewed on
+  - `extraMetadata`: Processes › More details
+  - `recordedAt`: Processes › Recorded on
+  - `recordedTimezone`: Processes › Time zone
+  - `createdAt`: Processes › Created on
+  - `updatedAt`: Processes › Updated on
+  - `productId`: Processes › Product; Processes › Product ID
+  - `createdById`: Processes › Created by; Processes › Created by ID
+  - `workshopId`: Processes › Workshop; Processes › Workshop ID
+  - `designWorkshopId`: Processes › Design workshop; Processes › Design workshop ID
+  - `clientKey`: Processes › Client key
+- **ProcessStep**
+  - `id`: Process steps › Process step ID
+  - `processId`: Process steps › Process; Process steps › Process ID
+  - `name`: Process steps › Name
+  - `stepType`: Process steps › Step type
+  - `sortOrder`: Process steps › Sort order
+  - `notes`: Process steps › Notes
+  - `createdAt`: Process steps › Created on
+  - `updatedAt`: Process steps › Updated on
+- **ProductDocumentation**
+  - `id`: Products › Product ID
+  - `craftName`: Products › Craft name
+  - `place`: Products › Place
+  - `artisanName`: Products › Artisan name
+  - `productName`: Products › Product name
+  - `localName`: Products › Local name
+  - `productType`: Products › Product type
+  - `timeTakenToCompleteProduct`: Products › Time taken to complete product
+  - `size`: Products › Size
+  - `lengthInches`: Products › Length inches
+  - `breadthInches`: Products › Breadth inches
+  - `heightInches`: Products › Height inches
+  - `measurementImageId`: Products › Measurement image; Products › Measurement image ID
+  - `measurementAnalysis`: Products › Measurement analysis
+  - `measurementAnalysisStatus`: Products › Measurement analysis status
+  - `costOfMaking`: Products › Cost of making
+  - `sellingPrice`: Products › Selling price
+  - `marketDemand`: Products › Market demand
+  - `rawMaterialsUsed`: Products › Raw materials used
+  - `mainToolsUsed`: Products › Main tools used
+  - `productFunctionUse`: Products › Product function use
+  - `remarks`: Products › Remarks
+  - `status`: Products › Status
+  - `reviewNotes`: Products › Review notes
+  - `reviewedById`: Products › Reviewed by; Products › Reviewed by ID
+  - `reviewedAt`: Products › Reviewed on
+  - `extraMetadata`: Products › More details
+  - `recordedAt`: Products › Recorded on
+  - `recordedTimezone`: Products › Time zone
+  - `createdAt`: Products › Created on
+  - `updatedAt`: Products › Updated on
+  - `artisanId`: Products › Artisan; Products › Artisan ID
+  - `craftId`: Products › Craft; Products › Craft ID
+  - `workshopId`: Products › Workshop; Products › Workshop ID
+  - `locationId`: Products › Location; Products › Location ID
+  - `createdById`: Products › Created by; Products › Created by ID
+  - `designWorkshopId`: Products › Design workshop; Products › Design workshop ID
+  - `clientKey`: Products › Client key
+- **Questionnaire**
+  - `id`: Questionnaires › Questionnaire ID
+  - `title`: Questionnaires › Title
+  - `description`: Questionnaires › Description
+  - `ownerId`: Questionnaires › Owner; Questionnaires › Owner ID
+  - `designWorkshopId`: Questionnaires › Design workshop; Questionnaires › Design workshop ID
+  - `isActive`: Questionnaires › Is active
+  - `isShared`: Questionnaires › Is shared
+  - `isDefault`: Questionnaires › Is default
+  - `sortOrder`: Questionnaires › Sort order
+  - `importedBundleId`: Questionnaires › Imported bundle ID
+  - `kind`: Questionnaires › Kind
+  - `version`: Questionnaires › Version
+  - `sourceFilename`: Questionnaires › Source filename
+  - `deletedAt`: Questionnaires › Deleted on
+  - `deletedById`: Questionnaires › Deleted by; Questionnaires › Deleted by ID
+  - `createdAt`: Questionnaires › Created on
+  - `updatedAt`: Questionnaires › Updated on
+- **QuestionnaireAnswer**
+  - `id`: Answers (by artisan) › Answers (by artisan) ID; Answers › Answer ID
+  - `artisanId`: Answers (by artisan) › Artisan; Answers (by artisan) › Artisan ID; Answers › Artisan
+  - `respondentId`: Answers (by artisan) › Respondent; Answers (by artisan) › Respondent ID; Answers › Respondent
+  - `questionnaireId`: Answers (by artisan) › Questionnaire; Answers (by artisan) › Questionnaire ID
+  - `questionLineageId`: Answers (by artisan) › Question lineage ID; Answers › Question
+  - `currentRevisionId`: Answers (by artisan) › Current revision ID
+  - `pinned`: Answers (by artisan) › Pinned; Answers › Pinned
+  - `version`: Answers (by artisan) › Version
+  - `createdAt`: Answers (by artisan) › Created on
+  - `updatedAt`: Answers (by artisan) › Updated on
+- **QuestionnaireAnswerDraft**
+  - `id`: Answer drafts › Answer draft ID
+  - `interviewId`: Answer drafts › Interview; Answer drafts › Interview ID
+  - `questionId`: Answer drafts › Question; Answer drafts › Question ID
+  - `sectionId`: Answer drafts › Section ID
+  - `draftText`: Answer drafts › Draft text
+  - `status`: Answer drafts › Status
+  - `provider`: Answer drafts › Provider
+  - `model`: Answer drafts › Model
+  - `sourceMediaId`: Answer drafts › Source media; Answer drafts › Source media ID
+  - `createdById`: Answer drafts › Created by; Answer drafts › Created by ID
+  - `createdAt`: Answer drafts › Created on
+  - `decidedById`: Answer drafts › Decided by; Answer drafts › Decided by ID
+  - `decidedAt`: Answer drafts › Decided on
+- **QuestionnaireAnswerRevision**
+  - `id`: Answer history › Answer history ID
+  - `answerId`: Answer history › Answer ID
+  - `text`: Answer history › Text; Answers › Answer; Completeness › Answered; Coverage › Answered
+  - `languageCode`: Answer history › Language code; Answers › Language
+  - `origin`: Answer history › Origin; Answers › Origin
+  - `attribution`: Answer history › Attribution
+  - `askedQuestionId`: Answer history › Asked question ID
+  - `sessionId`: Answer history › Session; Answer history › Session ID; Answers › Sitting
+  - `sourceRecordingId`: Answer history › Source recording; Answer history › Source recording ID; Answers › Play recording
+  - `sourceTranscriptHash`: Answer history › Source transcript hash
+  - `sourceFieldValue`: Answer history › Source field value
+  - `status`: Answer history › Status; Answers › Status
+  - `actorId`: Answer history › Actor; Answer history › Actor ID; Answers › Answered by
+  - `note`: Answer history › Note; Answers › Notes
+  - `richText`: Answer history › Rich text
+  - `createdAt`: Answer history › Created on; Answers › Answered on
+- **QuestionnaireBinding**
+  - `id`: Questionnaire bindings › Questionnaire binding ID
+  - `questionnaireId`: Questionnaire bindings › Questionnaire; Questionnaire bindings › Questionnaire ID
+  - `workshopId`: Questionnaire bindings › Workshop; Questionnaire bindings › Workshop ID
+  - `designWorkshopId`: Questionnaire bindings › Design workshop; Questionnaire bindings › Design workshop ID
+  - `isPrimary`: Questionnaire bindings › Is primary
+  - `createdById`: Questionnaire bindings › Created by; Questionnaire bindings › Created by ID
+  - `createdAt`: Questionnaire bindings › Created on
+- **QuestionnaireFormAnswer**
+  - `id`: Form answers › Form answer ID
+  - `entryId`: Form answers › Entry; Form answers › Entry ID
+  - `questionId`: Form answers › Question; Form answers › Question ID
+  - `answerText`: Form answers › Answer text
+  - `notes`: Form answers › Notes
+  - `answeredById`: Form answers › Answered by; Form answers › Answered by ID
+  - `createdAt`: Form answers › Created on
+  - `updatedAt`: Form answers › Updated on
+- **QuestionnaireFormEntry**
+  - `id`: Form entries › Form entrie ID
+  - `questionnaireId`: Form entries › Questionnaire; Form entries › Questionnaire ID
+  - `title`: Form entries › Title
+  - `respondentName`: Form entries › Respondent name
+  - `source`: Form entries › Source
+  - `notes`: Form entries › Notes
+  - `createdById`: Form entries › Created by; Form entries › Created by ID
+  - `deletedAt`: Form entries › Deleted on
+  - `deletedById`: Form entries › Deleted by; Form entries › Deleted by ID
+  - `createdAt`: Form entries › Created on
+  - `updatedAt`: Form entries › Updated on
+- **QuestionnaireFormQuestion**
+  - `id`: Form questions › Form question ID
+  - `sectionId`: Form questions › Section; Form questions › Section ID
+  - `prompt`: Form questions › Prompt
+  - `helpText`: Form questions › Help text
+  - `isRequired`: Form questions › Is required
+  - `sortOrder`: Form questions › Sort order
+  - `isActive`: Form questions › Is active
+  - `retiredAt`: Form questions › Retired on
+  - `supersededById`: Form questions › Superseded by; Form questions › Superseded by ID
+  - `createdAt`: Form questions › Created on
+  - `updatedAt`: Form questions › Updated on
+  - `questionCode`: Form questions › Question code
+- **QuestionnaireFormSection**
+  - `id`: Form sections › Form section ID
+  - `questionnaireId`: Form sections › Questionnaire; Form sections › Questionnaire ID
+  - `code`: Form sections › Code
+  - `title`: Form sections › Title
+  - `sortOrder`: Form sections › Sort order
+  - `isActive`: Form sections › Is active
+  - `createdAt`: Form sections › Created on
+  - `updatedAt`: Form sections › Updated on
+- **QuestionnaireInterview**
+  - `id`: Questionnaire sittings › Questionnaire sitting ID
+  - `title`: Questionnaire sittings › Title
+  - `interviewDate`: Questionnaire sittings › Interview date
+  - `place`: Map › Place; Questionnaire sittings › Place
+  - `language`: Questionnaire sittings › Language
+  - `notes`: Questionnaire sittings › Notes
+  - `status`: Questionnaire sittings › Status
+  - `reviewNotes`: Questionnaire sittings › Review notes
+  - `reviewedById`: Questionnaire sittings › Reviewed by; Questionnaire sittings › Reviewed by ID
+  - `reviewedAt`: Questionnaire sittings › Reviewed on
+  - `extraMetadata`: Questionnaire sittings › More details
+  - `recordedAt`: Questionnaire sittings › Recorded on
+  - `recordedTimezone`: Questionnaire sittings › Time zone
+  - `createdAt`: Questionnaire sittings › Created on
+  - `updatedAt`: Questionnaire sittings › Updated on
+  - `createdById`: Questionnaire sittings › Created by; Questionnaire sittings › Created by ID
+  - `locationId`: Questionnaire sittings › Location; Questionnaire sittings › Location ID
+  - `artisanSetKey`: Questionnaire sittings › Artisan set key
+  - `workshopId`: Questionnaire sittings › Workshop; Questionnaire sittings › Workshop ID
+  - `designWorkshopId`: Questionnaire sittings › Design workshop; Questionnaire sittings › Design workshop ID
+  - `deletedAt`: Questionnaire sittings › Deleted on
+  - `deletedById`: Questionnaire sittings › Deleted by; Questionnaire sittings › Deleted by ID
+  - `questionnaireId`: Questionnaire sittings › Questionnaire; Questionnaire sittings › Questionnaire ID
+  - `submittedAt`: Audit and trust › Submitted; Questionnaire sittings › Submitted on
+  - `clientKey`: Questionnaire sittings › Client key
+  - `joinCode`: Questionnaire sittings › Join code
+  - `sessionDate`: Questionnaire sittings › Session date
+  - `sessionDateEstimated`: Questionnaire sittings › Session date estimated
+  - `startedAt`: Questionnaire sittings › Started on
+  - `endedAt`: Questionnaire sittings › Ended on
+  - `closedAt`: Questionnaire sittings › Closed on
+  - `state`: Questionnaire sittings › State
+  - `purpose`: Questionnaire sittings › Purpose
+  - `origin`: Questionnaire sittings › Origin
+  - `note`: Questionnaire sittings › Note
+  - `legacyTitle`: Questionnaire sittings › Legacy title
+  - `languageCode`: Questionnaire sittings › Language code
+  - `languageOther`: Questionnaire sittings › Language other
+  - `mergedIntoId`: Questionnaire sittings › Merged into ID
+  - `version`: Questionnaire sittings › Version
+  - `pendingChangesAt`: Questionnaire sittings › Pending changes on
+  - `source`: Questionnaire sittings › Source
+- **QuestionnaireInterviewArtisan**
+  - `interviewId`: Sitting artisans › Interview; Sitting artisans › Interview ID
+  - `artisanId`: Answers › Artisan; Sitting artisans › Artisan; Sitting artisans › Artisan ID
+  - `createdAt`: Sitting artisans › Created on
+  - `sortOrder`: Sitting artisans › Sort order
+  - `joinedAt`: Sitting artisans › Joined on
+  - `leftAt`: Sitting artisans › Left on
+- **QuestionnaireInterviewResearcher**
+  - `interviewId`: Sitting researchers › Interview; Sitting researchers › Interview ID
+  - `userId`: Sitting researchers › User ID
+  - `role`: Sitting researchers › Role
+  - `addedAt`: Sitting researchers › Added on
+- **QuestionnaireQuestion**
+  - `id`: Completeness › Questions; Coverage › Questions; Questions › Question ID
+  - `sectionCode`: Answers › Section; Completeness › Section; Questions › Section code
+  - `sectionTitle`: Answers › Section; Coverage › Section; Questions › Section title
+  - `prompt`: Answers › Question; Questions › Prompt
+  - `sortOrder`: Questions › Sort order
+  - `isActive`: Questions › Is active
+  - `retiredAt`: Questions › Retired on
+  - `supersededById`: Questions › Superseded by; Questions › Superseded by ID
+  - `createdAt`: Questions › Created on
+  - `updatedAt`: Questions › Updated on
+  - `sectionId`: Questions › Section; Questions › Section ID
+  - `questionCode`: Answers › Question no.; Questions › Question code
+  - `questionnaireId`: Questions › Questionnaire; Questions › Questionnaire ID
+  - `helpText`: Questions › Help text
+  - `isRequired`: Questions › Is required
+  - `artisanField`: Questions › Artisan field
+  - `lineageId`: Questions › Lineage ID
+  - `displayCode`: Answers › Question no.; Questions › Display code
+- **QuestionnaireRecording**
+  - `id`: Recordings › Recording ID
+  - `mediaFileId`: Recordings › Media file; Recordings › Media file ID
+  - `clientClipKey`: Recordings › Client clip key
+  - `deviceCapturedAt`: Recordings › Device captured on
+  - `clockOffsetMs`: Recordings › Clock offset ms
+  - `capturedAt`: Recordings › Captured on
+  - `capturedAtSource`: Recordings › Captured at source
+  - `durationMs`: Recordings › Duration
+  - `rosterCount`: Recordings › Roster count
+  - `recordedById`: Recordings › Recorded by; Recordings › Recorded by ID
+  - `continuationOfId`: Recordings › Continuation of; Recordings › Continuation of ID
+  - `replacesRecordingId`: Recordings › Replaces recording; Recordings › Replaces recording ID
+  - `ackedRecordingIds`: Recordings › Acked recording ids
+  - `filing`: Recordings › Filing
+  - `decisionKind`: Recordings › Decision kind
+  - `provenance`: Recordings › Provenance
+  - `languageCode`: Recordings › Language code
+  - `removedAt`: Recordings › Removed on
+  - `removedById`: Recordings › Removed by; Recordings › Removed by ID
+  - `changeSeq`: Recordings › Change seq
+  - `version`: Recordings › Version
+  - `createdAt`: Recordings › Created on
+  - `updatedAt`: Recordings › Updated on
+- **QuestionnaireRecordingEvent**
+  - `id`: Recording events › Recording event ID
+  - `recordingId`: Recording events › Recording; Recording events › Recording ID
+  - `kind`: Recording events › Kind
+  - `before`: Recording events › Before
+  - `after`: Recording events › After
+  - `actorId`: Recording events › Actor; Recording events › Actor ID
+  - `at`: Recording events › At
+- **QuestionnaireRecordingRespondent**
+  - `recordingId`: Recording respondents › Recording ID
+  - `respondentId`: Recording respondents › Respondent ID
+  - `role`: Recording respondents › Role
+  - `named`: Recording respondents › Named
+  - `repeatReason`: Recording respondents › Repeat reason
+  - `flag`: Recording respondents › Flag
+- **QuestionnaireRecordingSubject**
+  - `recordingId`: Recording subjects › Recording; Recording subjects › Recording ID
+  - `artisanId`: Recording subjects › Artisan ID
+  - `role`: Recording subjects › Role
+  - `named`: Recording subjects › Named
+  - `repeatReason`: Recording subjects › Repeat reason
+  - `flag`: Recording subjects › Flag
+- **QuestionnaireRecordingTarget**
+  - `recordingId`: Recording targets › Recording; Recording targets › Recording ID
+  - `targetKey`: Recording targets › Target key
+  - `sectionId`: Recording targets › Section ID
+  - `questionLineageId`: Recording targets › Question lineage ID
+  - `askedQuestionId`: Recording targets › Asked question ID
+- **QuestionnaireRespondent**
+  - `id`: Respondents › Respondent ID
+  - `sessionId`: Respondents › Session; Respondents › Session ID
+  - `name`: Respondents › Name
+  - `kind`: Respondents › Kind
+  - `userId`: Respondents › User; Respondents › User ID
+  - `notes`: Respondents › Notes
+  - `artisanId`: Respondents › Artisan; Respondents › Artisan ID
+  - `registeredAt`: Respondents › Registered on
+  - `createdById`: Respondents › Created by; Respondents › Created by ID
+  - `createdAt`: Respondents › Created on
+  - `updatedAt`: Respondents › Updated on
+- **QuestionnaireResponse**
+  - `id`: Answers (sittings) › Answers (sittings) ID; Answers › Answer ID
+  - `interviewId`: Answers (sittings) › Interview; Answers (sittings) › Interview ID; Answers › Sitting
+  - `questionId`: Answers (sittings) › Question; Answers (sittings) › Question ID; Answers › Question ID
+  - `answerText`: Answers (sittings) › Answer text; Answers › Answer; Completeness › Answered; Coverage › Answered
+  - `notes`: Answers (sittings) › Notes; Answers › Notes
+  - `createdAt`: Answers (sittings) › Created on
+  - `updatedAt`: Answers (sittings) › Updated on; Answers › Answered on
+  - `answeredById`: Answers (sittings) › Answered by; Answers (sittings) › Answered by ID; Answers › Answered by
+  - `answerOrigin`: Answers (sittings) › Answer origin; Answers › Origin
+- **QuestionnaireSection**
+  - `id`: Questionnaire sections › Questionnaire section ID
+  - `code`: Questionnaire sections › Code
+  - `questionnaireId`: Questionnaire sections › Questionnaire; Questionnaire sections › Questionnaire ID
+  - `title`: Questionnaire sections › Title
+  - `sortOrder`: Questionnaire sections › Sort order
+  - `isActive`: Questionnaire sections › Is active
+  - `createdAt`: Questionnaire sections › Created on
+  - `updatedAt`: Questionnaire sections › Updated on
+- **QuestionnaireSectionStatus**
+  - `id`: Section status › Section statu ID
+  - `artisanId`: Section status › Artisan; Section status › Artisan ID
+  - `sectionId`: Section status › Section; Section status › Section ID
+  - `status`: Section status › Status
+  - `setById`: Section status › Set by; Section status › Set by ID
+  - `createdAt`: Section status › Created on
+  - `updatedAt`: Section status › Updated on
+- **QuestionnaireTakeDraft**
+  - `id`: Take drafts › Take draft ID
+  - `recordingId`: Take drafts › Recording; Take drafts › Recording ID
+  - `questionLineageId`: Take drafts › Question lineage ID
+  - `artisanId`: Take drafts › Artisan; Take drafts › Artisan ID
+  - `text`: Take drafts › Text
+  - `origin`: Take drafts › Origin
+  - `model`: Take drafts › Model
+  - `createdAt`: Take drafts › Created on
+- **QuestionnaireTypeDefault**
+  - `id`: Questionnaire defaults › Questionnaire default ID
+  - `questionnaireId`: Questionnaire defaults › Questionnaire; Questionnaire defaults › Questionnaire ID
+  - `workshopType`: Questionnaire defaults › Workshop type
+  - `designWorkshopKind`: Questionnaire defaults › Design workshop kind
+  - `setById`: Questionnaire defaults › Set by; Questionnaire defaults › Set by ID
+  - `setAt`: Questionnaire defaults › Set on
+- **RecordAccessToken**: excluded. Access token, link secret or hash: never exported.
+- **RecordAccessTokenRedemption**: excluded. Access token, link secret or hash: never exported.
+- **RecordRevision**
+  - `id`: Audit and trust › Edits; Edit history › Edit history ID
+  - `recordType`: Edit history › Record type
+  - `recordId`: Edit history › Record ID
+  - `editedById`: Audit and trust › Last edited by; Edit history › Edited by; Edit history › Edited by ID
+  - `changes`: Audit trail › Detail; Edit history › Changes
+  - `createdAt`: Audit and trust › Last edited; Edit history › Created on
+- **RegionalDirectorState**: excluded. Programme administration settings (Ministry pages).
+- **ReviewLog**
+  - `id`: Audit and trust › Reviews; Review log › Review log ID
+  - `recordType`: Audit trail › Type; Review log › Record type
+  - `recordId`: Audit trail › Record ID; Review log › Record ID
+  - `status`: Audit trail › Outcome; Review log › Status; What changed › Detail
+  - `notes`: Review log › Notes
+  - `reason`: Review log › Reason
+  - `reviewerId`: Audit and trust › Approved by; Audit trail › By; Review log › Reviewer; Review log › Reviewer ID; What changed › By
+  - `createdAt`: Audit and trust › Approved; Audit trail › When; Review log › Created on
+- **SanctionOrder**
+  - `id`: Sanction orders › Sanction order ID
+  - `sanctionOrderNo`: Sanction orders › Sanction order no
+  - `sanctionOrderKey`: Sanction orders › Sanction order key
+  - `sanctionOrderDate`: Sanction orders › Sanction order date
+  - `sanctionAmount`: Sanction orders › Sanction amount
+  - `designerUserId`: Sanction orders › Designer user; Sanction orders › Designer user ID
+  - `designerEmail`: Sanction orders › Designer email
+  - `designWorkshopId`: Sanction orders › Design workshop; Sanction orders › Design workshop ID
+  - `createdById`: Sanction orders › Created by; Sanction orders › Created by ID
+  - `accountCreated`: Sanction orders › Account created
+  - `notes`: Sanction orders › Notes
+  - `sourceFilename`: Sanction orders › Source filename
+  - `sheetRow`: Sanction orders › Sheet row
+  - `createdAt`: Sanction orders › Created on
+  - `updatedAt`: Sanction orders › Updated on
+- **SanctionOrderDesigner**
+  - `sanctionOrderId`: Sanctioned designers › Sanction order; Sanctioned designers › Sanction order ID
+  - `designerUserId`: Sanctioned designers › Designer user; Sanctioned designers › Designer user ID
+  - `designerEmail`: Sanctioned designers › Designer email
+  - `accountCreated`: Sanctioned designers › Account created
+  - `position`: Sanctioned designers › Position
+  - `createdAt`: Sanctioned designers › Created on
+- **SanctionOrderImport**: excluded. Programme administration import log (Ministry pages).
+- **SearchDocument**: excluded. Search index, rebuilt from the records exported here.
+- **SearchIndexQueue**: excluded. Search index queue.
+- **SecretTestResult**: excluded. Secret or credential material: never leaves the server.
+- **SttBudget**: excluded. Speech-to-text budget settings.
+- **SttProviderState**: excluded. Speech-to-text provider health.
+- **SttUsage**: excluded. Speech-to-text billing log, kept on the Transcription settings page.
+- **ToolArtisan**
+  - `id`: Tool artisans › Tool artisan ID
+  - `toolId`: Tool artisans › Tool; Tool artisans › Tool ID
+  - `artisanId`: Tool artisans › Artisan; Tool artisans › Artisan ID
+  - `createdAt`: Tool artisans › Created on
+- **ToolCraft**
+  - `id`: Tool crafts › Tool craft ID
+  - `toolId`: Tool crafts › Tool; Tool crafts › Tool ID
+  - `craftId`: Tool crafts › Craft; Tool crafts › Craft ID
+  - `createdAt`: Tool crafts › Created on
+- **ToolDocumentation**
+  - `id`: Tools › Tool ID
+  - `craftName`: Tools › Craft name
+  - `place`: Tools › Place
+  - `artisanName`: Tools › Artisan name
+  - `toolkitName`: Tools › Toolkit name
+  - `localName`: Tools › Local name
+  - `englishName`: Tools › English name
+  - `processUsedIn`: Tools › Process used in
+  - `material`: Tools › Material
+  - `materialFamily`: Tools › Material family
+  - `yearsInUse`: Tools › Years in use
+  - `height`: Tools › Height
+  - `width`: Tools › Width
+  - `lengthInches`: Tools › Length inches
+  - `breadthInches`: Tools › Breadth inches
+  - `heightInches`: Tools › Height inches
+  - `measurementImageId`: Tools › Measurement image; Tools › Measurement image ID
+  - `measurementAnalysis`: Tools › Measurement analysis
+  - `measurementAnalysisStatus`: Tools › Measurement analysis status
+  - `thickness`: Tools › Thickness
+  - `weight`: Tools › Weight
+  - `radius`: Tools › Radius
+  - `maker`: Tools › Maker
+  - `traditionType`: Tools › Tradition type
+  - `replacementCost`: Tools › Replacement cost
+  - `suggestionsForToolImprovement`: Tools › Suggestions for tool improvement
+  - `remarks`: Tools › Remarks
+  - `status`: Tools › Status
+  - `reviewNotes`: Tools › Review notes
+  - `reviewedById`: Tools › Reviewed by; Tools › Reviewed by ID
+  - `reviewedAt`: Tools › Reviewed on
+  - `extraMetadata`: Tools › More details
+  - `recordedAt`: Tools › Recorded on
+  - `recordedTimezone`: Tools › Time zone
+  - `createdAt`: Tools › Created on
+  - `updatedAt`: Tools › Updated on
+  - `artisanId`: Tools › Artisan; Tools › Artisan ID
+  - `craftId`: Tools › Craft; Tools › Craft ID
+  - `workshopId`: Tools › Workshop; Tools › Workshop ID
+  - `locationId`: Tools › Location; Tools › Location ID
+  - `createdById`: Tools › Created by; Tools › Created by ID
+  - `designWorkshopId`: Tools › Design workshop; Tools › Design workshop ID
+  - `clientKey`: Tools › Client key
+- **TranscriptCache**: excluded. Provider response cache keyed by audio hash.
+- **TranscriptDraftCitation**
+  - `recordingId`: Draft citations › Recording ID
+  - `questionLineageId`: Draft citations › Question lineage ID
+  - `mediaFileId`: Draft citations › Media file; Draft citations › Media file ID
+  - `english`: Answers › Answer; Draft citations › English
+  - `citations`: Draft citations › Citations
+  - `model`: Draft citations › Model
+  - `createdAt`: Draft citations › Created on
+- **TranscriptGlossarySighting**
+  - `id`: Glossary sightings › Glossary sighting ID
+  - `termId`: Glossary sightings › Term; Glossary sightings › Term ID; Glossary › Times in this report
+  - `mediaFileId`: Glossary sightings › Media file; Glossary sightings › Media file ID; Glossary › Media ID
+  - `turnId`: Glossary sightings › Turn ID
+  - `startMs`: Glossary sightings › Start ms; Glossary › At; Glossary › Play from
+  - `createdAt`: Glossary sightings › Created on
+- **TranscriptGlossaryTerm**
+  - `id`: Glossary terms › Glossary term ID; Glossary › Term ID
+  - `scopeKey`: Glossary terms › Scope key
+  - `craftId`: Glossary terms › Craft; Glossary terms › Craft ID; Glossary › Craft
+  - `termKey`: Glossary terms › Term key
+  - `term`: Glossary terms › Term; Glossary › Term
+  - `gloss`: Glossary terms › Gloss; Glossary › English meaning
+  - `linkedCraftId`: Glossary terms › Linked craft; Glossary terms › Linked craft ID; Glossary › Names the craft
+  - `occurrences`: Glossary terms › Occurrences; Glossary › Times heard overall
+  - `lastHeardAt`: Glossary terms › Last heard on
+  - `createdAt`: Glossary terms › Created on
+  - `updatedAt`: Glossary terms › Updated on
+- **TranscriptInsight**
+  - `id`: Transcript summaries › Transcript summarie ID
+  - `mediaFileId`: Transcript summaries › Media file; Transcript summaries › Media file ID
+  - `version`: Transcript summaries › Version
+  - `sourceHash`: Transcript summaries › Source hash
+  - `sourceLanguage`: Transcript summaries › Source language
+  - `summaryLines`: Transcript summaries › Summary lines
+  - `quotes`: Quotes › English; Quotes › Original; Quotes › Quote; Quotes › Speaker; Transcript summaries › Quotes
+  - `translationStatus`: Transcript summaries › Translation status
+  - `translationText`: Transcript summaries › Translation text; Transcripts › Text
+  - `translationNote`: Transcript summaries › Translation note
+  - `provider`: Transcript summaries › Provider
+  - `modelId`: Transcript summaries › Model ID
+  - `modelVersion`: Transcript summaries › Model version
+  - `promptVersion`: Transcript summaries › Prompt version
+  - `generated`: Transcript summaries › Generated
+  - `generatedAt`: Transcript summaries › Generated on
+  - `requestedById`: Transcript summaries › Requested by; Transcript summaries › Requested by ID
+  - `editedAt`: Transcript summaries › Edited on
+  - `editedById`: Transcript summaries › Edited by; Transcript summaries › Edited by ID
+  - `supersededAt`: Transcript summaries › Superseded on
+  - `createdAt`: Transcript summaries › Created on
+  - `updatedAt`: Transcript summaries › Updated on
+- **TranscriptSpeaker**
+  - `mediaFileId`: Transcript speakers › Media file; Transcript speakers › Media file ID
+  - `speakerKey`: Transcript speakers › Speaker key
+  - `name`: Transcript speakers › Name; Transcripts › Speaker
+  - `role`: Transcript speakers › Role; Transcripts › Speaker
+  - `personId`: Transcript speakers › Person ID
+  - `setById`: Transcript speakers › Set by; Transcript speakers › Set by ID
+  - `createdAt`: Transcript speakers › Created on
+  - `updatedAt`: Transcript speakers › Updated on
+- **TranscriptSpend**
+  - `id`: Transcript spend › Transcript spend ID
+  - `mediaFileId`: Transcript spend › Media file; Transcript spend › Media file ID
+  - `kind`: Transcript spend › Kind
+  - `provider`: Transcript spend › Provider
+  - `model`: Transcript spend › Model
+  - `keyRef`: excluded. Secret or credential material: never leaves the server.
+  - `inputTokens`: Transcript spend › Input tokens
+  - `outputTokens`: Transcript spend › Output tokens
+  - `costUsd`: Transcript spend › Cost USD
+  - `outcome`: Transcript spend › Outcome
+  - `createdAt`: Transcript spend › Created on
+- **TranscriptTurn**
+  - `id`: Transcripts › Segment ID
+  - `versionId`: Transcripts › Version ID
+  - `mediaFileId`: Transcripts › Media ID
+  - `position`: Transcripts › Segment
+  - `speakerKey`: Transcripts › Speaker
+  - `startMs`: Quotes › At; Quotes › Play from; Transcripts › Start
+  - `endMs`: Transcripts › End
+  - `language`: Transcripts › Language
+  - `machineText`: Transcripts › Text
+  - `editedText`: Transcripts › Text
+  - `words`: excluded. Word timings and confidence offsets used by the transcript player; the turn text, times and status are exported.
+  - `lowConfidence`: excluded. Word timings and confidence offsets used by the transcript player; the turn text, times and status are exported.
+  - `machineEnglish`: Transcripts › Text
+  - `editedEnglish`: Transcripts › Text
+  - `translationStatus`: Transcripts › Status
+  - `translationModel`: Transcripts › Translation model
+  - `editedAt`: Transcripts › Edited; Transcripts › Edited on
+  - `editedById`: Transcripts › Edited by
+  - `revision`: Transcripts › Revision
+  - `createdAt`: Transcripts › Segment created on
+  - `updatedAt`: Transcripts › Segment updated on
+- **TranscriptTurnEdit**
+  - `id`: Transcript edits › Transcript edit ID
+  - `turnId`: Transcript edits › Turn ID
+  - `field`: Transcript edits › Field
+  - `source`: Transcript edits › Source
+  - `text`: Transcript edits › Text
+  - `actorId`: Transcript edits › Actor; Transcript edits › Actor ID
+  - `createdAt`: Transcript edits › Created on
+- **TranscriptVersion**
+  - `id`: Transcript versions › Transcript version ID
+  - `mediaFileId`: Transcript versions › Media file; Transcript versions › Media file ID
+  - `version`: Transcript versions › Version
+  - `sttProvider`: Transcript versions › Speech-to-text provider
+  - `sttModel`: Transcript versions › Speech-to-text model
+  - `translationProvider`: Transcript versions › Translation provider
+  - `translationModel`: Transcript versions › Translation model
+  - `promptVersion`: Transcript versions › Prompt version
+  - `detectedLanguage`: Transcript versions › Detected language
+  - `languages`: Quotes › Language; Transcript versions › Languages; Transcripts › Language
+  - `durationMs`: Completeness › Talk time; Media › Duration; Transcript versions › Duration
+  - `speakerCount`: Transcript versions › Speaker count
+  - `turnCount`: Transcript versions › Turn count
+  - `keytermCount`: Transcript versions › Keyterm count
+  - `sttCostUsd`: Transcript versions › Speech-to-text cost USD
+  - `translationCostUsd`: Transcript versions › Translation cost USD
+  - `translationStatus`: Media › Translation; Transcript versions › Translation status; Transcripts › Status
+  - `translatedAt`: Transcript versions › Translated on
+  - `revision`: Transcript versions › Revision
+  - `supersededAt`: Transcript versions › Superseded on
+  - `createdAt`: Transcript versions › Created on
+  - `updatedAt`: Transcript versions › Updated on
+- **TranscriptionChunk**: excluded. Intermediate pieces of a transcription job; the finished transcript is exported.
+- **TwoFactorChallenge**: excluded. Two-factor authentication material: never exported.
+- **UsageConsentDecision**: excluded. Usage-analytics consent bookkeeping, not collected data.
+- **UsageEvent**: excluded. Anonymous request telemetry.
+- **User**
+  - `id`: People › People ID
+  - `email`: People › Email
+  - `name`: People › Name
+  - `passwordHash`: excluded. Password material: never exported.
+  - `avatarUrl`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
+  - `role`: People › Role
+  - `authProvider`: People › Auth provider
+  - `canManageQuestionnaire`: excluded. Account security and permission settings, managed on the Users page, not collected data.
+  - `canManageCrafts`: excluded. Account security and permission settings, managed on the Users page, not collected data.
+  - `canManageWorkshops`: excluded. Account security and permission settings, managed on the Users page, not collected data.
+  - `canReview`: excluded. Account security and permission settings, managed on the Users page, not collected data.
+  - `canViewProvenance`: excluded. Account security and permission settings, managed on the Users page, not collected data.
+  - `canDownloadDataset`: excluded. Account security and permission settings, managed on the Users page, not collected data.
+  - `passwordSetAt`: excluded. Password material: never exported.
+  - `mustChangePassword`: excluded. Password material: never exported.
+  - `firstLoginAt`: People › First login on
+  - `lastLoginAt`: People › Last login on
+  - `sessionsValidFrom`: excluded. Account security and permission settings, managed on the Users page, not collected data.
+  - `twoFactorEnabled`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorSecret`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorPendingSecret`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorPendingSince`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorRecoveryCodes`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorLastStep`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorEnabledAt`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorFailedAttempts`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorFailureWindowStartedAt`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorLockedUntil`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorLockouts`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorRecoveryFailedAttempts`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorRecoveryWindowStartedAt`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorRecoveryLockedUntil`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorRecoveryLockouts`: excluded. Two-factor authentication material: never exported.
+  - `aadhaarVerifyStatus`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyMethod`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifiedAt`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyLast4`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyName`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyBirthYear`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyGender`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifySignedAt`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyTxn`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyNameMatch`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyById`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyDecidedById`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarVerifyDecidedAt`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `createdAt`: People › Created on
+  - `updatedAt`: People › Updated on
+  - `usageConsent`: excluded. Usage-analytics consent bookkeeping, not collected data.
+  - `usageConsentAt`: excluded. Usage-analytics consent bookkeeping, not collected data.
+  - `usageConsentBasis`: excluded. Usage-analytics consent bookkeeping, not collected data.
+  - `usageConsentVersion`: excluded. Usage-analytics consent bookkeeping, not collected data.
+- **UserAiCredential**: excluded. Secret or credential material: never leaves the server.
+- **UserPreference**: excluded. Per-account display and e-mail preferences.
+- **WeeklyDigest**: excluded. Weekly digest e-mails to accounts.
+- **Workshop**
+  - `id`: Workshops › Workshop ID
+  - `title`: Workshops › Title
+  - `workshopType`: Workshops › Workshop type
+  - `date`: Workshops › Date
+  - `startDate`: Workshops › Start date
+  - `endDate`: Workshops › End date
+  - `place`: Map › Place; Workshops › Place
+  - `description`: Workshops › Description
+  - `notes`: Workshops › Notes
+  - `status`: Workshops › Status
+  - `reviewNotes`: Workshops › Review notes
+  - `reviewedById`: Workshops › Reviewed by; Workshops › Reviewed by ID
+  - `reviewedAt`: Workshops › Reviewed on
+  - `extraMetadata`: Workshops › More details
+  - `recordedAt`: Workshops › Recorded on
+  - `recordedTimezone`: Workshops › Time zone
+  - `createdAt`: Workshops › Created on
+  - `updatedAt`: Workshops › Updated on
+  - `locationId`: Workshops › Location; Workshops › Location ID
+  - `createdById`: Workshops › Created by; Workshops › Created by ID
+  - `clientKey`: Workshops › Client key
+- **WorkshopArtisan**
+  - `workshopId`: Workshop artisans › Workshop; Workshop artisans › Workshop ID
+  - `artisanId`: Workshop artisans › Artisan; Workshop artisans › Artisan ID
+  - `role`: Workshop artisans › Role
+  - `createdAt`: Workshop artisans › Created on
+- **WorkshopAssignment**
+  - `id`: Workshop team › Workshop team ID
+  - `workshopId`: Workshop team › Workshop; Workshop team › Workshop ID
+  - `userId`: Workshop team › User; Workshop team › User ID
+  - `assignedById`: Workshop team › Assigned by; Workshop team › Assigned by ID
+  - `accessLevel`: Workshop team › Access level
+  - `status`: Workshop team › Status
+  - `requestedById`: Workshop team › Requested by; Workshop team › Requested by ID
+  - `requestNote`: Workshop team › Request note
+  - `decidedById`: Workshop team › Decided by; Workshop team › Decided by ID
+  - `decidedAt`: Workshop team › Decided on
+  - `decisionNote`: Workshop team › Decision note
+  - `createdAt`: Workshop team › Created on
+  - `updatedAt`: Workshop team › Updated on
+- **WorkshopCraft**
+  - `workshopId`: Workshop crafts › Workshop; Workshop crafts › Workshop ID
+  - `craftId`: Workshop crafts › Craft; Workshop crafts › Craft ID
+  - `createdAt`: Workshop crafts › Created on
+- **WorkshopTypeOption**: excluded. Programme administration settings (Ministry pages).
+
+### Questionnaire definitions (Question bank sheet)
+
+- Craft toolkit questionnaire (workshop 2) (`craft_toolkit_workshop_2_questions.json`): 284 questions in 24 sections: RESP (11), A (10), B (14), C (10), D (10), E (15), F (16), G (15), H (18), I (15), J (16), K (10), L (10), M (10), N (7), O (13), P (14), Q (12), R (11), S (12), T (8), U (8), V (8), W (11)
+- Craft toolkit questionnaire (workshop 3) (`craft_toolkit_workshop_3_questions.json`): 81 questions in 22 sections: A (5), B (4), C (1), D (5), E (6), F (3), G (5), H (6), I (4), J (4), K (2), L (2), M (2), N (4), O (2), P (4), Q (5), R (1), S (5), T (3), U (2), V (6)
+- Craft questionnaire (first workshop) (`questionnaire_questions.json`): 285 questions in 24 sections: RESP (12), A (10), B (14), C (10), D (10), E (15), F (16), G (15), H (18), I (15), J (16), K (10), L (10), M (10), N (7), O (13), P (14), Q (12), R (11), S (12), T (8), U (8), V (8), W (11)
+- Questionnaires built in the portal (every version, including the field repository's v2 forms): the Questionnaires, Questionnaire sections and Questions sheets, one row per section and per question version.
+
+### Derived values
+
+- Answers › Row: Original answer, or its English translation for answers recorded as audio.
+- Artisans › Files: Derived: number of files attached to this record.
+- Artisans › Files size: Derived: total size of the files attached to this record.
+- Artisans › Open: Opens this record in the portal after sign-in.
+- Audit and trust › Record: Opens the record or file in the portal.
+- Audit and trust › Record ID: The record's id.
+- Audit and trust › Type: What the record is.
+- Audit trail › Event: Review decision or edit.
+- Audit trail › Record: Opens the record in the portal.
+- Both portals › Date: Date recorded there.
+- Both portals › Details: What the other portal says about it.
+- Both portals › Place: Place recorded there.
+- Both portals › Portal: Where the record lives.
+- Both portals › Record: Opens the record in the other portal (sign in there).
+- Both portals › Snippet: A short extract shared under consent.
+- Both portals › Type: What the record is there.
+- Completeness › By section: Sparkline of the sections: top is complete, middle partial, bottom missing.
+- Completeness › Complete: Share of questions answered.
+- Coverage › Complete: Share of questions answered.
+- Crafts › Files: Derived: number of files attached to this record.
+- Crafts › Files size: Derived: total size of the files attached to this record.
+- Crafts › Open: Opens this record in the portal after sign-in.
+- Design workshops › Files: Derived: number of files attached to this record.
+- Design workshops › Files size: Derived: total size of the files attached to this record.
+- Design workshops › Open: Opens this record in the portal after sign-in.
+- Everything › Date: The value when it is a date.
+- Everything › Field: The field, or the question for an answer.
+- Everything › Number: The value when it is a number, for sums and averages.
+- Everything › Open: Opens the record in the portal.
+- Everything › Record: The record's name or title.
+- Everything › Record ID: The record's id; every row of one record shares it.
+- Everything › Record type: What the record is.
+- Everything › Section: Questionnaire section or process step, where it applies.
+- Everything › Source: Where the value is stored, as Model.field.
+- Everything › Value: The value as text.
+- Map › In district: How many places share this district.
+- Map › Map: Opens the point, or the place by name, in Google Maps.
+- Map › Record: Opens the record in the portal.
+- Map › Record ID: The record's id.
+- Map › Type: What the record is.
+- Map by district › Artisans: Artisans placed here.
+- Map by district › Files: Files captured here.
+- Map by district › Map: The district in Google Maps.
+- Map by district › Other records: Products, tools and sittings placed here.
+- Map by district › Places: Records and files with a place in this district.
+- Map by district › Workshops: Workshops placed here.
+- Media › Download: Downloads the file through the portal after sign-in; the link never expires.
+- Media › Map: Opens the capture location in Google Maps.
+- Media › Open: Opens this record in the portal after sign-in.
+- Media › Place: Where the file was captured.
+- Media › Preview: A small preview of the picture (when Report options include thumbnails).
+- Process steps › Files: Derived: number of files attached to this record.
+- Process steps › Files size: Derived: total size of the files attached to this record.
+- Processes › Files: Derived: number of files attached to this record.
+- Processes › Files size: Derived: total size of the files attached to this record.
+- Processes › Open: Opens this record in the portal after sign-in.
+- Products › Files: Derived: number of files attached to this record.
+- Products › Files size: Derived: total size of the files attached to this record.
+- Products › Open: Opens this record in the portal after sign-in.
+- Profile › Detail: Its value or a short description.
+- Profile › Item: The fact, record or file.
+- Profile › Open: Opens the record or file in the portal.
+- Profile › Section: Which part of the profile the row belongs to.
+- Question bank › Definition file: The definition the portal seeds questions from.
+- Question bank › Question: The question as printed.
+- Question bank › Question no.: The question's place within its section.
+- Question bank › Questionnaire: The questionnaire version the question belongs to.
+- Question bank › Section: The section's title.
+- Question bank › Section code: The section's code.
+- Questionnaire sittings › Files: Derived: number of files attached to this record.
+- Questionnaire sittings › Files size: Derived: total size of the files attached to this record.
+- Questionnaire sittings › Open: Opens this record in the portal after sign-in.
+- Tools › Files: Derived: number of files attached to this record.
+- Tools › Files size: Derived: total size of the files attached to this record.
+- Tools › Open: Opens this record in the portal after sign-in.
+- Transcripts › Play from: Opens the recording in the portal and plays from this moment.
+- Transcripts › Row: Original speech, its English translation, or the whole transcript.
+- Transcripts › Subtitles (.srt): Subtitles with speakers.
+- Transcripts › Transcript (.docx): The bilingual transcript as a Word file.
+- What changed › Change: Added, Changed, Reviewed, Transcribed or Translated.
+- What changed › Record: Opens the record or file in the portal.
+- What changed › Record ID: The record's id.
+- What changed › Type: What the record is.
+- What changed › When: When the change happened.
+- Workshops › Files: Derived: number of files attached to this record.
+- Workshops › Files size: Derived: total size of the files attached to this record.
+- Workshops › Open: Opens this record in the portal after sign-in.
+
+## Field Repository
+
+98 models, 1215 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+
+### Models and fields
+
+- **AccessRoster**: excluded. Sign-in admission roster (who may sign in), managed by administrators.
+- **AppClientVersion**: excluded. Which app version each account last used: device telemetry.
+- **AppRelease**: excluded. Android release catalogue, not collected data.
+- **AppSetting**: excluded. Platform settings (transcription switches, budgets), not collected data.
+- **Artisan**
+  - `id`: Artisans › Artisan ID; Completeness › Artisan ID; Coverage › Artisan ID; Profile › Artisan ID
+  - `name`: Artisans › Name; Both portals › Artisan here; Completeness › Artisan; Coverage › Artisan; Glossary › Artisan; Quotes › Artisan
+  - `localName`: Artisans › Local name
+  - `gender`: Artisans › Gender
+  - `phone`: Artisans › Phone
+  - `phoneCountryCode`: Artisans › Phone country code
+  - `email`: Artisans › Email
+  - `place`: Artisans › Place; Map › Place
+  - `aadhaarFingerprint`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `aadhaarLast4`: excluded. Raw or derived Aadhaar identity data: never exported (UIDAI rules).
+  - `pehchanCardAvailable`: Artisans › Pehchan card available
+  - `pehchanCardNumber`: Artisans › Pehchan card number
+  - `aadhaarNotShared`: Artisans › Aadhaar not shared
+  - `address`: Artisans › Address
+  - `notes`: Artisans › Notes
+  - `dateOfBirth`: Artisans › Date of birth
+  - `craftStartDate`: Artisans › Craft start date
+  - `experienceYears`: Artisans › Experience years
+  - `experienceMonths`: Artisans › Experience months
+  - `dos`: Artisans › Do's
+  - `donts`: Artisans › Don'ts
+  - `status`: Artisans › Status; Audit and trust › Status; Profile › Status
+  - `reviewNotes`: Artisans › Review notes; Audit and trust › Review notes
+  - `reviewedById`: Artisans › Reviewed by; Artisans › Reviewed by ID; Audit and trust › Reviewed by
+  - `reviewedAt`: Artisans › Reviewed on; Audit and trust › Reviewed
+  - `submittedAt`: Artisans › Submitted on
+  - `extraMetadata`: Artisans › More details
+  - `recordedAt`: Artisans › Recorded on; Audit and trust › Recorded; Profile › When
+  - `recordedTimezone`: Artisans › Time zone
+  - `createdAt`: Artisans › Created on; Audit and trust › Saved
+  - `updatedAt`: Artisans › Updated on; Audit and trust › Updated
+  - `craftId`: Artisans › Craft; Artisans › Craft ID
+  - `locationId`: Artisans › Location; Artisans › Location ID
+  - `createdById`: Artisans › Created by; Artisans › Created by ID; Audit and trust › Recorded by
+  - `workshopId`: Artisans › Workshop; Artisans › Workshop ID
+- **ArtisanCard**
+  - `id`: Artisan cards › Artisan card ID
+  - `artisanId`: Artisan cards › Artisan; Artisan cards › Artisan ID
+  - `code`: Artisan cards › Code
+  - `keyVersion`: excluded. Secret or credential material: never leaves the server.
+  - `issuedAt`: Artisan cards › Issued on
+  - `issuedById`: Artisan cards › Issued by; Artisan cards › Issued by ID
+  - `revokedAt`: Artisan cards › Revoked on
+  - `revokedById`: Artisan cards › Revoked by; Artisan cards › Revoked by ID
+  - `revokedReason`: Artisan cards › Revoked reason
+- **ArtisanCardEvent**
+  - `id`: Artisan card events › Artisan card event ID
+  - `artisanId`: Artisan card events › Artisan; Artisan card events › Artisan ID
+  - `cardCode`: Artisan card events › Card code
+  - `action`: Artisan card events › Action
+  - `source`: Artisan card events › Source
+  - `userId`: Artisan card events › User; Artisan card events › User ID
+  - `count`: Artisan card events › Count
+  - `createdAt`: Artisan card events › Created on
+- **ArtisanDuplicateCandidate**: excluded. Duplicate-detection work queue for administrators.
+- **ArtisanMerge**: excluded. Merge undo snapshots for administrators; the surviving artisan is exported.
+- **ArtisanSharingConsent**
+  - `artisanId`: Sharing consent › Artisan; Sharing consent › Artisan ID
+  - `granted`: Sharing consent › Granted
+  - `note`: Sharing consent › Note
+  - `recordedById`: Sharing consent › Recorded by; Sharing consent › Recorded by ID
+  - `recordedAt`: Sharing consent › Recorded on
+  - `updatedAt`: Sharing consent › Updated on
+- **AssignedTask**
+  - `id`: Tasks › Task ID
+  - `title`: Tasks › Title
+  - `description`: Tasks › Description
+  - `status`: Tasks › Status
+  - `dueAt`: Tasks › Due on
+  - `completedAt`: Tasks › Completed on
+  - `recordType`: Tasks › Record type
+  - `recordId`: Tasks › Record ID
+  - `workshopId`: Tasks › Workshop; Tasks › Workshop ID
+  - `recordTypes`: Tasks › Record types
+  - `artisanIds`: Tasks › Artisan ids
+  - `sectionIds`: Tasks › Section ids
+  - `targetCount`: Tasks › Target count
+  - `progressCount`: Tasks › Progress count
+  - `batchId`: Tasks › Batch ID
+  - `assigneeId`: Tasks › Assignee; Tasks › Assignee ID
+  - `createdById`: Tasks › Created by; Tasks › Created by ID
+  - `createdAt`: Tasks › Created on
+  - `updatedAt`: Tasks › Updated on
+- **Consent**
+  - `id`: Consent ledger › Consent ledger ID
+  - `subjectType`: Consent ledger › Subject type
+  - `subjectId`: Consent ledger › Subject ID
+  - `purpose`: Consent ledger › Purpose
+  - `state`: Consent ledger › State
+  - `basis`: Consent ledger › Basis
+  - `source`: Consent ledger › Source
+  - `version`: Consent ledger › Version
+  - `note`: Consent ledger › Note
+  - `evidenceMediaId`: Consent ledger › Evidence media; Consent ledger › Evidence media ID
+  - `actorId`: Consent ledger › Actor; Consent ledger › Actor ID
+  - `recordedAt`: Consent ledger › Recorded on
+  - `createdAt`: Consent ledger › Created on
+  - `migratedFrom`: Consent ledger › Migrated from
+- **Craft**
+  - `id`: Crafts › Craft ID
+  - `name`: Completeness › Craft; Coverage › Craft; Crafts › Name
+  - `localName`: Crafts › Local name
+  - `category`: Crafts › Category
+  - `description`: Crafts › Description
+  - `place`: Crafts › Place
+  - `extraMetadata`: Crafts › More details
+  - `recordedAt`: Crafts › Recorded on
+  - `recordedTimezone`: Crafts › Time zone
+  - `createdAt`: Crafts › Created on
+  - `updatedAt`: Crafts › Updated on
+  - `createdById`: Crafts › Created by; Crafts › Created by ID
+  - `workshopId`: Crafts › Workshop; Crafts › Workshop ID
+  - `craftCode`: Crafts › Craft code
+  - `slug`: Crafts › Slug
+  - `subCategoryId`: Crafts › Sub category; Crafts › Sub category ID
+  - `sourceSerial`: Crafts › Source serial
+  - `stateOfOrigin`: Crafts › State of origin
+  - `stateOfPractice`: Crafts › State of practice
+  - `giStatus`: Crafts › GI status
+  - `isCatchAll`: Crafts › Is catch all
+  - `sourceNotes`: Crafts › Source notes
+  - `status`: Crafts › Status
+  - `mergedIntoId`: Crafts › Merged into; Crafts › Merged into ID
+- **CraftCategory**
+  - `id`: Craft categories › Craft categorie ID
+  - `slug`: Craft categories › Slug
+  - `name`: Craft categories › Name
+  - `sortOrder`: Craft categories › Sort order
+  - `createdAt`: Craft categories › Created on
+  - `updatedAt`: Craft categories › Updated on
+  - `createdById`: Craft categories › Created by; Craft categories › Created by ID
+- **CraftCode**: excluded. National craft-code register (reference data, the same in every report); each craft's code is exported.
+- **CraftSpelling**: excluded. Spelling variants of craft names (reference data).
+- **CraftSubCategory**
+  - `id`: Craft sub-categories › Craft sub-categorie ID
+  - `slug`: Craft sub-categories › Slug
+  - `name`: Craft sub-categories › Name
+  - `categoryId`: Craft sub-categories › Category; Craft sub-categories › Category ID
+  - `sortOrder`: Craft sub-categories › Sort order
+  - `createdAt`: Craft sub-categories › Created on
+  - `updatedAt`: Craft sub-categories › Updated on
+  - `createdById`: Craft sub-categories › Created by; Craft sub-categories › Created by ID
+- **CrossPortalAccessLog**: excluded. Audit log of cross-portal lookups, kept for administrators.
+- **CrossPortalArtisanLink**
+  - `id`: Cross-portal links › Cross-portal link ID
+  - `artisanId`: Both portals › Artisan ID; Cross-portal links › Artisan; Cross-portal links › Artisan ID
+  - `remoteArtisanId`: Both portals › Their artisan ID; Cross-portal links › Remote artisan ID
+  - `matchedBy`: Both portals › Matched by; Cross-portal links › Matched by
+  - `remoteCardCode`: Cross-portal links › Remote card code
+  - `createdAt`: Cross-portal links › Created on
+- **DataAccessGrant**: excluded. Access-control grants, managed on the Sharing page.
+- **DataAccessScopeItem**: excluded. Access-control grants, managed on the Sharing page.
+- **DataBundle**: excluded. Download-bundle links created for reports.
+- **DataFolderVisit**: excluded. When each account last opened a folder.
+- **DataReportPreference**: excluded. Each account's remembered Report options.
+- **DataReportSchedule**: excluded. Scheduled-report settings of each account.
+- **DataReportShare**: excluded. Share-link and visitor metadata, not report data.
+- **DataReportShareView**: excluded. Share-link and visitor metadata, not report data.
+- **DataSavedView**: excluded. Saved views of the data explorer.
+- **EmailMessage**: excluded. Outgoing e-mail queue.
+- **EntryComment**
+  - `id`: Comments › Comment ID
+  - `recordType`: Comments › Record type
+  - `recordId`: Comments › Record ID
+  - `authorId`: Comments › Author; Comments › Author ID
+  - `body`: Comments › Body
+  - `createdAt`: Comments › Created on
+  - `updatedAt`: Comments › Updated on
+- **Feedback**: excluded. Feedback about the app itself, kept on the Feedback page.
+- **GeoAlias**: excluded. Spelling aliases for state and district names (reference data).
+- **IdempotencyKey**: excluded. Request de-duplication cache.
+- **Location**
+  - `id`: Locations › Location ID
+  - `latitude`: Locations › Latitude; Map › Latitude
+  - `longitude`: Locations › Longitude; Map › Longitude
+  - `altitude`: Locations › Altitude
+  - `accuracy`: Locations › Accuracy; Map › Accuracy (m)
+  - `address`: Locations › Address; Map › Place
+  - `placeName`: Locations › Place name; Map › Place
+  - `state`: Locations › State; Map by district › State; Map › State
+  - `district`: Locations › District; Map by district › District; Map › District
+  - `village`: Locations › Village; Map › Village
+  - `pincode`: Locations › Pincode; Map › PIN code
+  - `subjectLatitude`: Locations › Subject latitude; Map › Latitude
+  - `subjectLongitude`: Locations › Subject longitude; Map › Longitude
+  - `capturedAt`: Locations › Captured on
+  - `extraMetadata`: Locations › More details
+  - `createdAt`: Locations › Created on
+  - `updatedAt`: Locations › Updated on
+- **ManagedSecret**: excluded. Secret or credential material: never leaves the server.
+- **MediaFile**
+  - `id`: Completeness › Files; Media › Media ID; Profile › Download; Profile › Photo; Quotes › Media ID; Quotes › Recording
+  - `originalFilename`: Glossary › Heard in; Media › File name; Quotes › Recording; Transcripts › File
+  - `mediaType`: Media › Media type
+  - `mimeType`: Media › File format
+  - `sizeBytes`: Audit and trust › Size; Completeness › Size; Media › Size; Profile › Size
+  - `bucket`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
+  - `objectKey`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
+  - `url`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
+  - `caption`: Media › Caption
+  - `checksum`: Media › Checksum
+  - `transcriptText`: Profile › Transcript; Transcripts › Text
+  - `transcriptSummary`: Media › Transcript summary
+  - `transcriptStatus`: Media › Transcript; Media › Transcript status; Transcripts › Status
+  - `transcriptError`: Media › Transcript; Transcripts › Status
+  - `transcriptEditedAt`: Media › Transcript edited on
+  - `transcriptEditedById`: Media › Transcript edited by; Media › Transcript edited by ID
+  - `transcriptSegments`: excluded. Provider timings kept for subtitles; the same lines are exported as transcript segments.
+  - `transcriptLanguage`: Media › Transcript language; Transcripts › Language
+  - `transcriptProvider`: Media › Transcript provider
+  - `cleanedObjectKey`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
+  - `cleanedMimeType`: Media › Cleaned mime type
+  - `cleanedAt`: Media › Cleaned on
+  - `transcribeRequested`: Media › Transcribe requested
+  - `transcribeRequestSource`: Media › Transcribe request source
+  - `transcribeRequestedAt`: Media › Transcribe requested on
+  - `removedAt`: Media › Removed on
+  - `removedById`: Media › Removed by; Media › Removed by ID
+  - `contentSha256`: Audit and trust › SHA-256; Media › SHA-256 checksum
+  - `shaVerifiedAt`: Audit and trust › Checksum verified; Media › Checksum verified on
+  - `consentAtSend`: Media › Consent at send
+  - `linkedRecordType`: Media › Attached to; Media › Linked record type; Transcripts › Attached to
+  - `linkedRecordId`: Media › Attached to; Media › Linked record ID; Transcripts › Attached to
+  - `status`: Media › Status
+  - `reviewNotes`: Media › Review notes
+  - `reviewedById`: Media › Reviewed by; Media › Reviewed by ID
+  - `reviewedAt`: Media › Reviewed on
+  - `extraMetadata`: Media › More details
+  - `recordedAt`: Media › Recorded on; Transcripts › Recorded on
+  - `recordedTimezone`: Media › Time zone
+  - `createdAt`: Media › Created on
+  - `updatedAt`: Media › Updated on
+  - `uploadedById`: Media › Uploaded by; Media › Uploaded by ID
+  - `artisanId`: Media › Artisan; Media › Artisan ID
+  - `craftId`: Media › Craft; Media › Craft ID
+  - `workshopId`: Media › Workshop; Media › Workshop ID
+  - `productId`: Media › Product; Media › Product ID
+  - `toolId`: Media › Tool; Media › Tool ID
+  - `questionnaireInterviewId`: Media › Questionnaire interview; Media › Questionnaire interview ID
+  - `locationId`: Media › Location; Media › Location ID
+- **MediaProcessingJob**: excluded. Background job queue; each transcript's status and failure reason are exported on the Transcripts sheet.
+- **MediaUploadIntent**: excluded. Resumable-upload bookkeeping before a file exists.
+- **MediaWaveform**: excluded. Waveform peaks drawn by the audio player.
+- **Notification**: excluded. In-app notifications to accounts.
+- **PasswordResetRequest**: excluded. Password material: never exported.
+- **PasswordResetToken**: excluded. Password material: never exported.
+- **Process**
+  - `id`: Processes › Processe ID
+  - `name`: Processes › Name
+  - `preProcessAvailable`: Processes › Pre process available
+  - `notes`: Processes › Notes
+  - `status`: Processes › Status
+  - `reviewNotes`: Processes › Review notes
+  - `reviewedById`: Processes › Reviewed by; Processes › Reviewed by ID
+  - `reviewedAt`: Processes › Reviewed on
+  - `submittedAt`: Processes › Submitted on
+  - `extraMetadata`: Processes › More details
+  - `recordedAt`: Processes › Recorded on
+  - `recordedTimezone`: Processes › Time zone
+  - `createdAt`: Processes › Created on
+  - `updatedAt`: Processes › Updated on
+  - `productId`: Processes › Product; Processes › Product ID
+  - `createdById`: Processes › Created by; Processes › Created by ID
+  - `workshopId`: Processes › Workshop; Processes › Workshop ID
+  - `clientKey`: Processes › Client key
+- **ProcessStep**
+  - `id`: Process steps › Process step ID
+  - `processId`: Process steps › Process; Process steps › Process ID
+  - `name`: Process steps › Name
+  - `stepType`: Process steps › Step type
+  - `sortOrder`: Process steps › Sort order
+  - `notes`: Process steps › Notes
+  - `createdAt`: Process steps › Created on
+  - `updatedAt`: Process steps › Updated on
+- **ProductDocumentation**
+  - `id`: Products › Product ID
+  - `craftName`: Products › Craft name
+  - `place`: Products › Place
+  - `artisanName`: Products › Artisan name
+  - `productName`: Products › Product name
+  - `localName`: Products › Local name
+  - `productType`: Products › Product type
+  - `timeTakenToCompleteProduct`: Products › Time taken to complete product
+  - `size`: Products › Size
+  - `lengthInches`: Products › Length inches
+  - `breadthInches`: Products › Breadth inches
+  - `heightInches`: Products › Height inches
+  - `measurementImageId`: Products › Measurement image; Products › Measurement image ID
+  - `measurementAnalysis`: Products › Measurement analysis
+  - `measurementAnalysisStatus`: Products › Measurement analysis status
+  - `costOfMaking`: Products › Cost of making
+  - `sellingPrice`: Products › Selling price
+  - `marketDemand`: Products › Market demand
+  - `rawMaterialsUsed`: Products › Raw materials used
+  - `mainToolsUsed`: Products › Main tools used
+  - `productFunctionUse`: Products › Product function use
+  - `remarks`: Products › Remarks
+  - `status`: Products › Status
+  - `reviewNotes`: Products › Review notes
+  - `reviewedById`: Products › Reviewed by; Products › Reviewed by ID
+  - `reviewedAt`: Products › Reviewed on
+  - `submittedAt`: Products › Submitted on
+  - `extraMetadata`: Products › More details
+  - `recordedAt`: Products › Recorded on
+  - `recordedTimezone`: Products › Time zone
+  - `createdAt`: Products › Created on
+  - `updatedAt`: Products › Updated on
+  - `artisanId`: Products › Artisan; Products › Artisan ID
+  - `craftId`: Products › Craft; Products › Craft ID
+  - `workshopId`: Products › Workshop; Products › Workshop ID
+  - `locationId`: Products › Location; Products › Location ID
+  - `createdById`: Products › Created by; Products › Created by ID
+  - `clientKey`: Products › Client key
+- **Questionnaire**
+  - `id`: Questionnaires › Questionnaire ID
+  - `title`: Questionnaires › Title
+  - `description`: Questionnaires › Description
+  - `isActive`: Questionnaires › Is active
+  - `isDefault`: Questionnaires › Is default
+  - `sortOrder`: Questionnaires › Sort order
+  - `createdById`: Questionnaires › Created by; Questionnaires › Created by ID
+  - `version`: Questionnaires › Version
+  - `sourceFilename`: Questionnaires › Source filename
+  - `createdAt`: Questionnaires › Created on
+  - `updatedAt`: Questionnaires › Updated on
+  - `ownerId`: Questionnaires › Owner; Questionnaires › Owner ID
+  - `isShared`: Questionnaires › Is shared
+  - `kind`: Questionnaires › Kind
+  - `deletedAt`: Questionnaires › Deleted on
+  - `deletedById`: Questionnaires › Deleted by; Questionnaires › Deleted by ID
+  - `importedBundleId`: Questionnaires › Imported bundle ID
+- **QuestionnaireAnswer**
+  - `id`: Answers (by artisan) › Answers (by artisan) ID; Answers › Answer ID
+  - `artisanId`: Answers (by artisan) › Artisan; Answers (by artisan) › Artisan ID; Answers › Artisan
+  - `respondentId`: Answers (by artisan) › Respondent; Answers (by artisan) › Respondent ID; Answers › Respondent
+  - `questionnaireId`: Answers (by artisan) › Questionnaire; Answers (by artisan) › Questionnaire ID
+  - `questionLineageId`: Answers (by artisan) › Question lineage ID; Answers › Question
+  - `currentRevisionId`: Answers (by artisan) › Current revision ID
+  - `pinned`: Answers (by artisan) › Pinned; Answers › Pinned
+  - `version`: Answers (by artisan) › Version
+  - `createdAt`: Answers (by artisan) › Created on
+  - `updatedAt`: Answers (by artisan) › Updated on
+- **QuestionnaireAnswerDraft**
+  - `id`: Answer drafts › Answer draft ID
+  - `interviewId`: Answer drafts › Interview; Answer drafts › Interview ID
+  - `questionId`: Answer drafts › Question; Answer drafts › Question ID
+  - `sectionId`: Answer drafts › Section ID
+  - `draftText`: Answer drafts › Draft text
+  - `status`: Answer drafts › Status
+  - `provider`: Answer drafts › Provider
+  - `model`: Answer drafts › Model
+  - `sourceMediaId`: Answer drafts › Source media; Answer drafts › Source media ID
+  - `createdById`: Answer drafts › Created by; Answer drafts › Created by ID
+  - `createdAt`: Answer drafts › Created on
+  - `decidedById`: Answer drafts › Decided by; Answer drafts › Decided by ID
+  - `decidedAt`: Answer drafts › Decided on
+- **QuestionnaireAnswerRevision**
+  - `id`: Answer history › Answer history ID
+  - `answerId`: Answer history › Answer ID
+  - `text`: Answer history › Text; Answers › Answer; Completeness › Answered; Coverage › Answered
+  - `languageCode`: Answer history › Language code; Answers › Language
+  - `origin`: Answer history › Origin; Answers › Origin
+  - `attribution`: Answer history › Attribution
+  - `askedQuestionId`: Answer history › Asked question ID
+  - `sessionId`: Answer history › Session; Answer history › Session ID; Answers › Sitting
+  - `sourceRecordingId`: Answer history › Source recording; Answer history › Source recording ID; Answers › Play recording
+  - `sourceTranscriptHash`: Answer history › Source transcript hash
+  - `sourceFieldValue`: Answer history › Source field value
+  - `status`: Answer history › Status; Answers › Status
+  - `actorId`: Answer history › Actor; Answer history › Actor ID; Answers › Answered by
+  - `note`: Answer history › Note; Answers › Notes
+  - `richText`: Answer history › Rich text
+  - `createdAt`: Answer history › Created on; Answers › Answered on
+- **QuestionnaireBinding**
+  - `id`: Questionnaire bindings › Questionnaire binding ID
+  - `questionnaireId`: Questionnaire bindings › Questionnaire; Questionnaire bindings › Questionnaire ID
+  - `workshopId`: Questionnaire bindings › Workshop; Questionnaire bindings › Workshop ID
+  - `designWorkshopId`: Questionnaire bindings › Design workshop; Questionnaire bindings › Design workshop ID
+  - `isPrimary`: Questionnaire bindings › Is primary
+  - `createdById`: Questionnaire bindings › Created by; Questionnaire bindings › Created by ID
+  - `createdAt`: Questionnaire bindings › Created on
+- **QuestionnaireInterview**
+  - `id`: Questionnaire sittings › Questionnaire sitting ID
+  - `title`: Questionnaire sittings › Title
+  - `interviewDate`: Questionnaire sittings › Interview date
+  - `place`: Map › Place; Questionnaire sittings › Place
+  - `language`: Questionnaire sittings › Language
+  - `notes`: Questionnaire sittings › Notes
+  - `status`: Questionnaire sittings › Status
+  - `reviewNotes`: Questionnaire sittings › Review notes
+  - `reviewedById`: Questionnaire sittings › Reviewed by; Questionnaire sittings › Reviewed by ID
+  - `reviewedAt`: Questionnaire sittings › Reviewed on
+  - `submittedAt`: Audit and trust › Submitted; Questionnaire sittings › Submitted on
+  - `extraMetadata`: Questionnaire sittings › More details
+  - `recordedAt`: Questionnaire sittings › Recorded on
+  - `recordedTimezone`: Questionnaire sittings › Time zone
+  - `createdAt`: Questionnaire sittings › Created on
+  - `updatedAt`: Questionnaire sittings › Updated on
+  - `createdById`: Questionnaire sittings › Created by; Questionnaire sittings › Created by ID
+  - `locationId`: Questionnaire sittings › Location; Questionnaire sittings › Location ID
+  - `artisanSetKey`: Questionnaire sittings › Artisan set key
+  - `workshopId`: Questionnaire sittings › Workshop; Questionnaire sittings › Workshop ID
+  - `questionnaireId`: Questionnaire sittings › Questionnaire; Questionnaire sittings › Questionnaire ID
+  - `clientKey`: Questionnaire sittings › Client key
+  - `joinCode`: Questionnaire sittings › Join code
+  - `sessionDate`: Questionnaire sittings › Session date
+  - `sessionDateEstimated`: Questionnaire sittings › Session date estimated
+  - `startedAt`: Questionnaire sittings › Started on
+  - `endedAt`: Questionnaire sittings › Ended on
+  - `closedAt`: Questionnaire sittings › Closed on
+  - `state`: Questionnaire sittings › State
+  - `purpose`: Questionnaire sittings › Purpose
+  - `origin`: Questionnaire sittings › Origin
+  - `note`: Questionnaire sittings › Note
+  - `legacyTitle`: Questionnaire sittings › Legacy title
+  - `languageCode`: Questionnaire sittings › Language code
+  - `languageOther`: Questionnaire sittings › Language other
+  - `designWorkshopId`: Questionnaire sittings › Design workshop; Questionnaire sittings › Design workshop ID
+  - `mergedIntoId`: Questionnaire sittings › Merged into ID
+  - `version`: Questionnaire sittings › Version
+  - `pendingChangesAt`: Questionnaire sittings › Pending changes on
+  - `deletedAt`: Questionnaire sittings › Deleted on
+  - `deletedById`: Questionnaire sittings › Deleted by; Questionnaire sittings › Deleted by ID
+  - `source`: Questionnaire sittings › Source
+- **QuestionnaireInterviewArtisan**
+  - `interviewId`: Sitting artisans › Interview; Sitting artisans › Interview ID
+  - `artisanId`: Answers › Artisan; Sitting artisans › Artisan; Sitting artisans › Artisan ID
+  - `createdAt`: Sitting artisans › Created on
+  - `sortOrder`: Sitting artisans › Sort order
+  - `joinedAt`: Sitting artisans › Joined on
+  - `leftAt`: Sitting artisans › Left on
+- **QuestionnaireInterviewResearcher**
+  - `interviewId`: Sitting researchers › Interview; Sitting researchers › Interview ID
+  - `userId`: Sitting researchers › User ID
+  - `role`: Sitting researchers › Role
+  - `addedAt`: Sitting researchers › Added on
+- **QuestionnaireQuestion**
+  - `id`: Completeness › Questions; Coverage › Questions; Questions › Question ID
+  - `questionnaireId`: Questions › Questionnaire; Questions › Questionnaire ID
+  - `sectionCode`: Answers › Section; Completeness › Section; Questions › Section code
+  - `sectionTitle`: Answers › Section; Coverage › Section; Questions › Section title
+  - `prompt`: Answers › Question; Questions › Prompt
+  - `sortOrder`: Questions › Sort order
+  - `isActive`: Questions › Is active
+  - `helpText`: Questions › Help text
+  - `isRequired`: Questions › Is required
+  - `retiredAt`: Questions › Retired on
+  - `supersededById`: Questions › Superseded by; Questions › Superseded by ID
+  - `artisanField`: Questions › Artisan field
+  - `createdAt`: Questions › Created on
+  - `updatedAt`: Questions › Updated on
+  - `sectionId`: Questions › Section; Questions › Section ID
+  - `questionCode`: Answers › Question no.; Questions › Question code
+  - `lineageId`: Questions › Lineage ID
+  - `displayCode`: Answers › Question no.; Questions › Display code
+- **QuestionnaireRecording**
+  - `id`: Recordings › Recording ID
+  - `mediaFileId`: Recordings › Media file; Recordings › Media file ID
+  - `clientClipKey`: Recordings › Client clip key
+  - `deviceCapturedAt`: Recordings › Device captured on
+  - `clockOffsetMs`: Recordings › Clock offset ms
+  - `capturedAt`: Recordings › Captured on
+  - `capturedAtSource`: Recordings › Captured at source
+  - `durationMs`: Recordings › Duration
+  - `rosterCount`: Recordings › Roster count
+  - `recordedById`: Recordings › Recorded by; Recordings › Recorded by ID
+  - `continuationOfId`: Recordings › Continuation of; Recordings › Continuation of ID
+  - `replacesRecordingId`: Recordings › Replaces recording; Recordings › Replaces recording ID
+  - `ackedRecordingIds`: Recordings › Acked recording ids
+  - `filing`: Recordings › Filing
+  - `decisionKind`: Recordings › Decision kind
+  - `provenance`: Recordings › Provenance
+  - `languageCode`: Recordings › Language code
+  - `removedAt`: Recordings › Removed on
+  - `removedById`: Recordings › Removed by; Recordings › Removed by ID
+  - `changeSeq`: Recordings › Change seq
+  - `version`: Recordings › Version
+  - `createdAt`: Recordings › Created on
+  - `updatedAt`: Recordings › Updated on
+- **QuestionnaireRecordingEvent**
+  - `id`: Recording events › Recording event ID
+  - `recordingId`: Recording events › Recording; Recording events › Recording ID
+  - `kind`: Recording events › Kind
+  - `before`: Recording events › Before
+  - `after`: Recording events › After
+  - `actorId`: Recording events › Actor; Recording events › Actor ID
+  - `at`: Recording events › At
+- **QuestionnaireRecordingRespondent**
+  - `recordingId`: Recording respondents › Recording ID
+  - `respondentId`: Recording respondents › Respondent ID
+  - `role`: Recording respondents › Role
+  - `named`: Recording respondents › Named
+  - `repeatReason`: Recording respondents › Repeat reason
+  - `flag`: Recording respondents › Flag
+- **QuestionnaireRecordingSubject**
+  - `recordingId`: Recording subjects › Recording; Recording subjects › Recording ID
+  - `artisanId`: Recording subjects › Artisan ID
+  - `role`: Recording subjects › Role
+  - `named`: Recording subjects › Named
+  - `repeatReason`: Recording subjects › Repeat reason
+  - `flag`: Recording subjects › Flag
+- **QuestionnaireRecordingTarget**
+  - `recordingId`: Recording targets › Recording; Recording targets › Recording ID
+  - `targetKey`: Recording targets › Target key
+  - `sectionId`: Recording targets › Section ID
+  - `questionLineageId`: Recording targets › Question lineage ID
+  - `askedQuestionId`: Recording targets › Asked question ID
+- **QuestionnaireRespondent**
+  - `id`: Respondents › Respondent ID
+  - `sessionId`: Respondents › Session; Respondents › Session ID
+  - `name`: Respondents › Name
+  - `kind`: Respondents › Kind
+  - `userId`: Respondents › User; Respondents › User ID
+  - `notes`: Respondents › Notes
+  - `artisanId`: Respondents › Artisan; Respondents › Artisan ID
+  - `registeredAt`: Respondents › Registered on
+  - `createdById`: Respondents › Created by; Respondents › Created by ID
+  - `createdAt`: Respondents › Created on
+  - `updatedAt`: Respondents › Updated on
+- **QuestionnaireResponse**
+  - `id`: Answers (sittings) › Answers (sittings) ID; Answers › Answer ID
+  - `interviewId`: Answers (sittings) › Interview; Answers (sittings) › Interview ID; Answers › Sitting
+  - `questionId`: Answers (sittings) › Question; Answers (sittings) › Question ID; Answers › Question ID
+  - `answerText`: Answers (sittings) › Answer text; Answers › Answer; Completeness › Answered; Coverage › Answered
+  - `notes`: Answers (sittings) › Notes; Answers › Notes
+  - `answerSource`: Answers (sittings) › Answer source
+  - `createdAt`: Answers (sittings) › Created on
+  - `updatedAt`: Answers (sittings) › Updated on; Answers › Answered on
+  - `answeredById`: Answers (sittings) › Answered by; Answers (sittings) › Answered by ID; Answers › Answered by
+  - `answerOrigin`: Answers (sittings) › Answer origin; Answers › Origin
+- **QuestionnaireSection**
+  - `id`: Questionnaire sections › Questionnaire section ID
+  - `questionnaireId`: Questionnaire sections › Questionnaire; Questionnaire sections › Questionnaire ID
+  - `code`: Questionnaire sections › Code
+  - `title`: Questionnaire sections › Title
+  - `sortOrder`: Questionnaire sections › Sort order
+  - `isActive`: Questionnaire sections › Is active
+  - `createdAt`: Questionnaire sections › Created on
+  - `updatedAt`: Questionnaire sections › Updated on
+- **QuestionnaireSectionStatus**
+  - `id`: Section status › Section statu ID
+  - `artisanId`: Section status › Artisan; Section status › Artisan ID
+  - `sectionId`: Section status › Section; Section status › Section ID
+  - `status`: Section status › Status
+  - `setById`: Section status › Set by; Section status › Set by ID
+  - `createdAt`: Section status › Created on
+  - `updatedAt`: Section status › Updated on
+- **QuestionnaireTakeDraft**
+  - `id`: Take drafts › Take draft ID
+  - `recordingId`: Take drafts › Recording; Take drafts › Recording ID
+  - `questionLineageId`: Take drafts › Question lineage ID
+  - `artisanId`: Take drafts › Artisan; Take drafts › Artisan ID
+  - `text`: Take drafts › Text
+  - `origin`: Take drafts › Origin
+  - `model`: Take drafts › Model
+  - `createdAt`: Take drafts › Created on
+- **QuestionnaireTypeDefault**
+  - `id`: Questionnaire defaults › Questionnaire default ID
+  - `questionnaireId`: Questionnaire defaults › Questionnaire; Questionnaire defaults › Questionnaire ID
+  - `workshopType`: Questionnaire defaults › Workshop type
+  - `designWorkshopKind`: Questionnaire defaults › Design workshop kind
+  - `setById`: Questionnaire defaults › Set by; Questionnaire defaults › Set by ID
+  - `setAt`: Questionnaire defaults › Set on
+- **RecordRevision**
+  - `id`: Audit and trust › Edits; Edit history › Edit history ID
+  - `recordType`: Edit history › Record type
+  - `recordId`: Edit history › Record ID
+  - `editedById`: Audit and trust › Last edited by; Edit history › Edited by; Edit history › Edited by ID
+  - `changes`: Audit trail › Detail; Edit history › Changes
+  - `createdAt`: Audit and trust › Last edited; Edit history › Created on
+- **RecordingConsent**
+  - `id`: Recording consent › Recording consent ID
+  - `mediaFileId`: Recording consent › Media file; Recording consent › Media file ID
+  - `artisanId`: Recording consent › Artisan; Recording consent › Artisan ID
+  - `decision`: Recording consent › Decision
+  - `source`: Recording consent › Source
+  - `attestedById`: Recording consent › Attested by; Recording consent › Attested by ID
+  - `attestedAt`: Recording consent › Attested on
+  - `note`: Recording consent › Note
+  - `createdAt`: Recording consent › Created on
+- **ReviewLog**
+  - `id`: Audit and trust › Reviews; Review log › Review log ID
+  - `recordType`: Audit trail › Type; Review log › Record type
+  - `recordId`: Audit trail › Record ID; Review log › Record ID
+  - `status`: Audit trail › Outcome; Review log › Status; What changed › Detail
+  - `reason`: Review log › Reason
+  - `notes`: Review log › Notes
+  - `reviewerId`: Audit and trust › Approved by; Audit trail › By; Review log › Reviewer; Review log › Reviewer ID; What changed › By
+  - `createdAt`: Audit and trust › Approved; Audit trail › When; Review log › Created on
+- **SearchDocument**: excluded. Search index, rebuilt from the records exported here.
+- **SearchIndexQueue**: excluded. Search index queue.
+- **SecretTestResult**: excluded. Secret or credential material: never leaves the server.
+- **SttBudget**: excluded. Speech-to-text budget settings.
+- **SttProviderState**: excluded. Speech-to-text provider health.
+- **SttUsage**: excluded. Speech-to-text billing log, kept on the Transcription settings page.
+- **ToolArtisan**
+  - `id`: Tool artisans › Tool artisan ID
+  - `toolId`: Tool artisans › Tool; Tool artisans › Tool ID
+  - `artisanId`: Tool artisans › Artisan; Tool artisans › Artisan ID
+  - `createdAt`: Tool artisans › Created on
+- **ToolCraft**
+  - `id`: Tool crafts › Tool craft ID
+  - `toolId`: Tool crafts › Tool; Tool crafts › Tool ID
+  - `craftId`: Tool crafts › Craft; Tool crafts › Craft ID
+  - `createdAt`: Tool crafts › Created on
+- **ToolDocumentation**
+  - `id`: Tools › Tool ID
+  - `craftName`: Tools › Craft name
+  - `place`: Tools › Place
+  - `artisanName`: Tools › Artisan name
+  - `toolkitName`: Tools › Toolkit name
+  - `localName`: Tools › Local name
+  - `englishName`: Tools › English name
+  - `processUsedIn`: Tools › Process used in
+  - `material`: Tools › Material
+  - `materialFamily`: Tools › Material family
+  - `yearsInUse`: Tools › Years in use
+  - `height`: Tools › Height
+  - `width`: Tools › Width
+  - `lengthInches`: Tools › Length inches
+  - `breadthInches`: Tools › Breadth inches
+  - `heightInches`: Tools › Height inches
+  - `measurementImageId`: Tools › Measurement image; Tools › Measurement image ID
+  - `measurementAnalysis`: Tools › Measurement analysis
+  - `measurementAnalysisStatus`: Tools › Measurement analysis status
+  - `thickness`: Tools › Thickness
+  - `weight`: Tools › Weight
+  - `radius`: Tools › Radius
+  - `maker`: Tools › Maker
+  - `traditionType`: Tools › Tradition type
+  - `replacementCost`: Tools › Replacement cost
+  - `suggestionsForToolImprovement`: Tools › Suggestions for tool improvement
+  - `remarks`: Tools › Remarks
+  - `status`: Tools › Status
+  - `reviewNotes`: Tools › Review notes
+  - `reviewedById`: Tools › Reviewed by; Tools › Reviewed by ID
+  - `reviewedAt`: Tools › Reviewed on
+  - `submittedAt`: Tools › Submitted on
+  - `extraMetadata`: Tools › More details
+  - `recordedAt`: Tools › Recorded on
+  - `recordedTimezone`: Tools › Time zone
+  - `createdAt`: Tools › Created on
+  - `updatedAt`: Tools › Updated on
+  - `artisanId`: Tools › Artisan; Tools › Artisan ID
+  - `craftId`: Tools › Craft; Tools › Craft ID
+  - `workshopId`: Tools › Workshop; Tools › Workshop ID
+  - `locationId`: Tools › Location; Tools › Location ID
+  - `createdById`: Tools › Created by; Tools › Created by ID
+  - `clientKey`: Tools › Client key
+- **TranscriptCache**: excluded. Provider response cache keyed by audio hash.
+- **TranscriptDraftCitation**
+  - `recordingId`: Draft citations › Recording ID
+  - `questionLineageId`: Draft citations › Question lineage ID
+  - `mediaFileId`: Draft citations › Media file; Draft citations › Media file ID
+  - `english`: Answers › Answer; Draft citations › English
+  - `citations`: Draft citations › Citations
+  - `model`: Draft citations › Model
+  - `createdAt`: Draft citations › Created on
+- **TranscriptGlossarySighting**
+  - `id`: Glossary sightings › Glossary sighting ID
+  - `termId`: Glossary sightings › Term; Glossary sightings › Term ID; Glossary › Times in this report
+  - `mediaFileId`: Glossary sightings › Media file; Glossary sightings › Media file ID; Glossary › Media ID
+  - `turnId`: Glossary sightings › Turn ID
+  - `startMs`: Glossary sightings › Start ms; Glossary › At; Glossary › Play from
+  - `createdAt`: Glossary sightings › Created on
+- **TranscriptGlossaryTerm**
+  - `id`: Glossary terms › Glossary term ID; Glossary › Term ID
+  - `scopeKey`: Glossary terms › Scope key
+  - `craftId`: Glossary terms › Craft; Glossary terms › Craft ID; Glossary › Craft
+  - `termKey`: Glossary terms › Term key
+  - `term`: Glossary terms › Term; Glossary › Term
+  - `gloss`: Glossary terms › Gloss; Glossary › English meaning
+  - `linkedCraftId`: Glossary terms › Linked craft; Glossary terms › Linked craft ID; Glossary › Names the craft
+  - `occurrences`: Glossary terms › Occurrences; Glossary › Times heard overall
+  - `lastHeardAt`: Glossary terms › Last heard on
+  - `createdAt`: Glossary terms › Created on
+  - `updatedAt`: Glossary terms › Updated on
+- **TranscriptInsight**
+  - `id`: Transcript summaries › Transcript summarie ID
+  - `mediaFileId`: Transcript summaries › Media file; Transcript summaries › Media file ID
+  - `version`: Transcript summaries › Version
+  - `sourceHash`: Transcript summaries › Source hash
+  - `sourceLanguage`: Transcript summaries › Source language
+  - `summaryLines`: Transcript summaries › Summary lines
+  - `quotes`: Quotes › English; Quotes › Original; Quotes › Quote; Quotes › Speaker; Transcript summaries › Quotes
+  - `translationStatus`: Transcript summaries › Translation status
+  - `translationText`: Transcript summaries › Translation text; Transcripts › Text
+  - `translationNote`: Transcript summaries › Translation note
+  - `provider`: Transcript summaries › Provider
+  - `modelId`: Transcript summaries › Model ID
+  - `modelVersion`: Transcript summaries › Model version
+  - `promptVersion`: Transcript summaries › Prompt version
+  - `generated`: Transcript summaries › Generated
+  - `generatedAt`: Transcript summaries › Generated on
+  - `requestedById`: Transcript summaries › Requested by; Transcript summaries › Requested by ID
+  - `editedAt`: Transcript summaries › Edited on
+  - `editedById`: Transcript summaries › Edited by; Transcript summaries › Edited by ID
+  - `supersededAt`: Transcript summaries › Superseded on
+  - `createdAt`: Transcript summaries › Created on
+  - `updatedAt`: Transcript summaries › Updated on
+- **TranscriptSpeaker**
+  - `mediaFileId`: Transcript speakers › Media file; Transcript speakers › Media file ID
+  - `speakerKey`: Transcript speakers › Speaker key
+  - `name`: Transcript speakers › Name; Transcripts › Speaker
+  - `role`: Transcript speakers › Role; Transcripts › Speaker
+  - `personId`: Transcript speakers › Person ID
+  - `setById`: Transcript speakers › Set by; Transcript speakers › Set by ID
+  - `createdAt`: Transcript speakers › Created on
+  - `updatedAt`: Transcript speakers › Updated on
+- **TranscriptSpend**
+  - `id`: Transcript spend › Transcript spend ID
+  - `mediaFileId`: Transcript spend › Media file; Transcript spend › Media file ID
+  - `kind`: Transcript spend › Kind
+  - `provider`: Transcript spend › Provider
+  - `model`: Transcript spend › Model
+  - `keyRef`: excluded. Secret or credential material: never leaves the server.
+  - `inputTokens`: Transcript spend › Input tokens
+  - `outputTokens`: Transcript spend › Output tokens
+  - `costUsd`: Transcript spend › Cost USD
+  - `outcome`: Transcript spend › Outcome
+  - `createdAt`: Transcript spend › Created on
+- **TranscriptTurn**
+  - `id`: Transcripts › Segment ID
+  - `versionId`: Transcripts › Version ID
+  - `mediaFileId`: Transcripts › Media ID
+  - `position`: Transcripts › Segment
+  - `speakerKey`: Transcripts › Speaker
+  - `startMs`: Quotes › At; Quotes › Play from; Transcripts › Start
+  - `endMs`: Transcripts › End
+  - `language`: Transcripts › Language
+  - `machineText`: Transcripts › Text
+  - `editedText`: Transcripts › Text
+  - `words`: excluded. Word timings and confidence offsets used by the transcript player; the turn text, times and status are exported.
+  - `lowConfidence`: excluded. Word timings and confidence offsets used by the transcript player; the turn text, times and status are exported.
+  - `machineEnglish`: Transcripts › Text
+  - `editedEnglish`: Transcripts › Text
+  - `translationStatus`: Transcripts › Status
+  - `translationModel`: Transcripts › Translation model
+  - `editedAt`: Transcripts › Edited; Transcripts › Edited on
+  - `editedById`: Transcripts › Edited by
+  - `revision`: Transcripts › Revision
+  - `createdAt`: Transcripts › Segment created on
+  - `updatedAt`: Transcripts › Segment updated on
+- **TranscriptTurnEdit**
+  - `id`: Transcript edits › Transcript edit ID
+  - `turnId`: Transcript edits › Turn ID
+  - `field`: Transcript edits › Field
+  - `source`: Transcript edits › Source
+  - `text`: Transcript edits › Text
+  - `actorId`: Transcript edits › Actor; Transcript edits › Actor ID
+  - `createdAt`: Transcript edits › Created on
+- **TranscriptVersion**
+  - `id`: Transcript versions › Transcript version ID
+  - `mediaFileId`: Transcript versions › Media file; Transcript versions › Media file ID
+  - `version`: Transcript versions › Version
+  - `sttProvider`: Transcript versions › Speech-to-text provider
+  - `sttModel`: Transcript versions › Speech-to-text model
+  - `translationProvider`: Transcript versions › Translation provider
+  - `translationModel`: Transcript versions › Translation model
+  - `promptVersion`: Transcript versions › Prompt version
+  - `detectedLanguage`: Transcript versions › Detected language
+  - `languages`: Quotes › Language; Transcript versions › Languages; Transcripts › Language
+  - `durationMs`: Completeness › Talk time; Media › Duration; Transcript versions › Duration
+  - `speakerCount`: Transcript versions › Speaker count
+  - `turnCount`: Transcript versions › Turn count
+  - `keytermCount`: Transcript versions › Keyterm count
+  - `sttCostUsd`: Transcript versions › Speech-to-text cost USD
+  - `translationCostUsd`: Transcript versions › Translation cost USD
+  - `translationStatus`: Media › Translation; Transcript versions › Translation status; Transcripts › Status
+  - `translatedAt`: Transcript versions › Translated on
+  - `revision`: Transcript versions › Revision
+  - `supersededAt`: Transcript versions › Superseded on
+  - `createdAt`: Transcript versions › Created on
+  - `updatedAt`: Transcript versions › Updated on
+- **TranscriptionChunk**: excluded. Intermediate pieces of a transcription job; the finished transcript is exported.
+- **TwoFactorChallenge**: excluded. Two-factor authentication material: never exported.
+- **UsageEvent**: excluded. Anonymous request telemetry.
+- **User**
+  - `id`: People › People ID
+  - `email`: People › Email
+  - `name`: People › Name
+  - `passwordHash`: excluded. Password material: never exported.
+  - `avatarUrl`: excluded. Storage location inside the bucket; the report links to the file through a permission-checked portal link instead.
+  - `role`: People › Role
+  - `authProvider`: People › Auth provider
+  - `canManageQuestionnaire`: excluded. Account security and permission settings, managed on the Users page, not collected data.
+  - `canManageCrafts`: excluded. Account security and permission settings, managed on the Users page, not collected data.
+  - `canManageWorkshops`: excluded. Account security and permission settings, managed on the Users page, not collected data.
+  - `canReview`: excluded. Account security and permission settings, managed on the Users page, not collected data.
+  - `canViewProvenance`: excluded. Account security and permission settings, managed on the Users page, not collected data.
+  - `canDownloadDataset`: excluded. Account security and permission settings, managed on the Users page, not collected data.
+  - `twoFactorEnabled`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorSecret`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorPendingSecret`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorRecoveryCodes`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorLastStep`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorEnabledAt`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorPendingAt`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorFailedAttempts`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorFailureWindowStartedAt`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorLockedUntil`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorLockouts`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorRecoveryFailedAttempts`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorRecoveryWindowStartedAt`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorRecoveryLockedUntil`: excluded. Two-factor authentication material: never exported.
+  - `twoFactorRecoveryLockouts`: excluded. Two-factor authentication material: never exported.
+  - `firstPasswordCodeAttempts`: excluded. Password material: never exported.
+  - `firstPasswordCodeWindowStartedAt`: excluded. Password material: never exported.
+  - `passwordSetAt`: excluded. Password material: never exported.
+  - `mustChangePassword`: excluded. Password material: never exported.
+  - `firstLoginAt`: People › First login on
+  - `lastLoginAt`: People › Last login on
+  - `sessionsValidFrom`: excluded. Account security and permission settings, managed on the Users page, not collected data.
+  - `createdAt`: People › Created on
+  - `updatedAt`: People › Updated on
+- **UserAiCredential**: excluded. Secret or credential material: never leaves the server.
+- **UserPreference**: excluded. Per-account display and e-mail preferences.
+- **WeeklyDigest**: excluded. Weekly digest e-mails to accounts.
+- **Workshop**
+  - `id`: Workshops › Workshop ID
+  - `title`: Workshops › Title
+  - `workshopType`: Workshops › Workshop type
+  - `date`: Workshops › Date
+  - `startDate`: Workshops › Start date
+  - `endDate`: Workshops › End date
+  - `place`: Map › Place; Workshops › Place
+  - `description`: Workshops › Description
+  - `notes`: Workshops › Notes
+  - `status`: Workshops › Status
+  - `reviewNotes`: Workshops › Review notes
+  - `reviewedById`: Workshops › Reviewed by; Workshops › Reviewed by ID
+  - `reviewedAt`: Workshops › Reviewed on
+  - `submittedAt`: Workshops › Submitted on
+  - `extraMetadata`: Workshops › More details
+  - `recordedAt`: Workshops › Recorded on
+  - `recordedTimezone`: Workshops › Time zone
+  - `createdAt`: Workshops › Created on
+  - `updatedAt`: Workshops › Updated on
+  - `locationId`: Workshops › Location; Workshops › Location ID
+  - `createdById`: Workshops › Created by; Workshops › Created by ID
+  - `questionnaireId`: Workshops › Questionnaire; Workshops › Questionnaire ID
+  - `clientKey`: Workshops › Client key
+- **WorkshopArtisan**
+  - `workshopId`: Workshop artisans › Workshop; Workshop artisans › Workshop ID
+  - `artisanId`: Workshop artisans › Artisan; Workshop artisans › Artisan ID
+  - `role`: Workshop artisans › Role
+  - `createdAt`: Workshop artisans › Created on
+- **WorkshopAssignment**
+  - `id`: Workshop team › Workshop team ID
+  - `workshopId`: Workshop team › Workshop; Workshop team › Workshop ID
+  - `userId`: Workshop team › User; Workshop team › User ID
+  - `assignedById`: Workshop team › Assigned by; Workshop team › Assigned by ID
+  - `accessLevel`: Workshop team › Access level
+  - `status`: Workshop team › Status
+  - `requestedById`: Workshop team › Requested by; Workshop team › Requested by ID
+  - `requestNote`: Workshop team › Request note
+  - `decidedById`: Workshop team › Decided by; Workshop team › Decided by ID
+  - `decidedAt`: Workshop team › Decided on
+  - `decisionNote`: Workshop team › Decision note
+  - `createdAt`: Workshop team › Created on
+  - `updatedAt`: Workshop team › Updated on
+- **WorkshopCraft**
+  - `workshopId`: Workshop crafts › Workshop; Workshop crafts › Workshop ID
+  - `craftId`: Workshop crafts › Craft; Workshop crafts › Craft ID
+  - `createdAt`: Workshop crafts › Created on
+
+### Questionnaire definitions (Question bank sheet)
+
+- Craft questionnaire (first workshop) (`questionnaire_questions.json`): 284 questions in 24 sections: RESP (11), A (10), B (14), C (10), D (10), E (15), F (16), G (15), H (18), I (15), J (16), K (10), L (10), M (10), N (7), O (13), P (14), Q (12), R (11), S (12), T (8), U (8), V (8), W (11)
+- Craft questionnaire (workshop 3) (`questionnaire_questions_w3.json`): 81 questions in 22 sections: A (5), B (4), C (1), D (5), E (6), F (3), G (5), H (6), I (4), J (4), K (2), L (2), M (2), N (4), O (2), P (4), Q (5), R (1), S (5), T (3), U (2), V (6)
+- Questionnaires built in the portal (every version, including the field repository's v2 forms): the Questionnaires, Questionnaire sections and Questions sheets, one row per section and per question version.
+
+### Derived values
+
+- Answers › Row: Original answer, or its English translation for answers recorded as audio.
+- Artisans › Files: Derived: number of files attached to this record.
+- Artisans › Files size: Derived: total size of the files attached to this record.
+- Artisans › Open: Opens this record in the portal after sign-in.
+- Audit and trust › Record: Opens the record or file in the portal.
+- Audit and trust › Record ID: The record's id.
+- Audit and trust › Type: What the record is.
+- Audit trail › Event: Review decision or edit.
+- Audit trail › Record: Opens the record in the portal.
+- Both portals › Date: Date recorded there.
+- Both portals › Details: What the other portal says about it.
+- Both portals › Place: Place recorded there.
+- Both portals › Portal: Where the record lives.
+- Both portals › Record: Opens the record in the other portal (sign in there).
+- Both portals › Snippet: A short extract shared under consent.
+- Both portals › Type: What the record is there.
+- Completeness › By section: Sparkline of the sections: top is complete, middle partial, bottom missing.
+- Completeness › Complete: Share of questions answered.
+- Coverage › Complete: Share of questions answered.
+- Crafts › Files: Derived: number of files attached to this record.
+- Crafts › Files size: Derived: total size of the files attached to this record.
+- Crafts › Open: Opens this record in the portal after sign-in.
+- Everything › Date: The value when it is a date.
+- Everything › Field: The field, or the question for an answer.
+- Everything › Number: The value when it is a number, for sums and averages.
+- Everything › Open: Opens the record in the portal.
+- Everything › Record: The record's name or title.
+- Everything › Record ID: The record's id; every row of one record shares it.
+- Everything › Record type: What the record is.
+- Everything › Section: Questionnaire section or process step, where it applies.
+- Everything › Source: Where the value is stored, as Model.field.
+- Everything › Value: The value as text.
+- Map › In district: How many places share this district.
+- Map › Map: Opens the point, or the place by name, in Google Maps.
+- Map › Record: Opens the record in the portal.
+- Map › Record ID: The record's id.
+- Map › Type: What the record is.
+- Map by district › Artisans: Artisans placed here.
+- Map by district › Files: Files captured here.
+- Map by district › Map: The district in Google Maps.
+- Map by district › Other records: Products, tools and sittings placed here.
+- Map by district › Places: Records and files with a place in this district.
+- Map by district › Workshops: Workshops placed here.
+- Media › Download: Downloads the file through the portal after sign-in; the link never expires.
+- Media › Map: Opens the capture location in Google Maps.
+- Media › Open: Opens this record in the portal after sign-in.
+- Media › Place: Where the file was captured.
+- Media › Preview: A small preview of the picture (when Report options include thumbnails).
+- Process steps › Files: Derived: number of files attached to this record.
+- Process steps › Files size: Derived: total size of the files attached to this record.
+- Processes › Files: Derived: number of files attached to this record.
+- Processes › Files size: Derived: total size of the files attached to this record.
+- Processes › Open: Opens this record in the portal after sign-in.
+- Products › Files: Derived: number of files attached to this record.
+- Products › Files size: Derived: total size of the files attached to this record.
+- Products › Open: Opens this record in the portal after sign-in.
+- Profile › Detail: Its value or a short description.
+- Profile › Item: The fact, record or file.
+- Profile › Open: Opens the record or file in the portal.
+- Profile › Section: Which part of the profile the row belongs to.
+- Question bank › Definition file: The definition the portal seeds questions from.
+- Question bank › Question: The question as printed.
+- Question bank › Question no.: The question's place within its section.
+- Question bank › Questionnaire: The questionnaire version the question belongs to.
+- Question bank › Section: The section's title.
+- Question bank › Section code: The section's code.
+- Questionnaire sittings › Files: Derived: number of files attached to this record.
+- Questionnaire sittings › Files size: Derived: total size of the files attached to this record.
+- Questionnaire sittings › Open: Opens this record in the portal after sign-in.
+- Tools › Files: Derived: number of files attached to this record.
+- Tools › Files size: Derived: total size of the files attached to this record.
+- Tools › Open: Opens this record in the portal after sign-in.
+- Transcripts › Play from: Opens the recording in the portal and plays from this moment.
+- Transcripts › Row: Original speech, its English translation, or the whole transcript.
+- Transcripts › Subtitles (.srt): Subtitles with speakers.
+- Transcripts › Transcript (.docx): The bilingual transcript as a Word file.
+- What changed › Change: Added, Changed, Reviewed, Transcribed or Translated.
+- What changed › Record: Opens the record or file in the portal.
+- What changed › Record ID: The record's id.
+- What changed › Type: What the record is.
+- What changed › When: When the change happened.
+- Workshops › Files: Derived: number of files attached to this record.
+- Workshops › Files size: Derived: total size of the files attached to this record.
+- Workshops › Open: Opens this record in the portal after sign-in.

@@ -50,7 +50,7 @@ export const ReadingView = memo(function ReadingView({ turns, track, activeTurnI
               </p>
             ) : null}
             {track === "both" && english.length ? (
-              <p className="whitespace-pre-wrap border-l-2 border-line-200 pl-3 text-sm italic leading-7 text-ink-700" lang="en" data-reading-english>
+              <p className="whitespace-pre-wrap rounded-sm bg-surface-50 px-3 py-1 text-sm italic leading-7 text-ink-700" lang="en" data-reading-english>
                 {english.map((turn, index) => (
                   <span key={turn.id}>
                     {index > 0 ? " " : null}

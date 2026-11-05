@@ -384,5 +384,5 @@ def test_the_shared_vocabulary_matches_the_contract():
     assert "CROWDSOURCE_VOLUNTEER" not in cross_portal.CROSS_PORTAL_SEARCH_ROLES
     assert cross_portal.PEER_ITEM_KEYS == (
         "type", "id", "title", "subtitle", "snippet", "highlights", "place", "craftCodes",
-        "recordDate", "openUrl",
+        "recordDate", "openUrl", "startMs", "mediaType",
     )

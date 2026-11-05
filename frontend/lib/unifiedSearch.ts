@@ -54,7 +54,12 @@ export type UnifiedItem = {
   href: string;
   openUrl?: string | null;
   score?: number;
+  startMs?: number | null;
+  mediaType?: string | null;
+  alsoIn?: UnifiedAlsoIn | null;
 };
+
+export type UnifiedAlsoIn = { portal: Portal; id: string; href: string; openUrl?: string | null; subtitle?: string | null };
 
 export type UnifiedGroup = {
   type: UnifiedType;
@@ -73,6 +78,7 @@ export type UnifiedResponse = {
   groups: UnifiedGroup[];
   remote: { portal: Portal; label: string; status: RemoteStatus };
   typesRefused: string[];
+  suggestion?: string | null;
   type?: UnifiedType;
   page?: number;
   limit?: number;
@@ -107,6 +113,7 @@ export type UnifiedQuery = {
   dateFrom?: string;
   dateTo?: string;
   workshopIds?: string;
+  artisanIds?: string;
 };
 
 export function isUnifiedType(value: unknown): value is UnifiedType {
@@ -125,7 +132,8 @@ export function unifiedQueryString(query: UnifiedQuery): string {
     place: query.place?.trim() || undefined,
     dateFrom: query.dateFrom,
     dateTo: query.dateTo,
-    workshopIds: query.workshopIds
+    workshopIds: query.workshopIds,
+    artisanIds: query.artisanIds
   });
 }
 

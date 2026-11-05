@@ -2,7 +2,6 @@ import asyncio
 import contextlib
 import ctypes
 import functools
-import io
 import json
 import sys
 from collections.abc import AsyncIterator
@@ -25,7 +24,15 @@ from app.services import (
     transcript_portal,
 )
 from app.services.concurrency import gather_reads
-from app.services.data_explorer import report_tools, slim, tree as explorer_tree, walk as explorer_walk
+from app.services.data_explorer import (
+    counts as explorer_counts,
+    report_cache,
+    report_options,
+    report_tools,
+    slim,
+    tree as explorer_tree,
+    walk as explorer_walk,
+)
 from app.services.media_naming import (
     RESERVED_NAMES as _RESERVED_NAMES,
 )
@@ -87,7 +94,7 @@ from app.services.tool_scope import (
     with_tool_scope,
 )
 from app.services.transcript_format import transcript_cell
-from app.services.xlsx_report import XLSX_MIME, build_report_workbook
+from app.services.xlsx_report import XLSX_MIME
 
 router = APIRouter(
     prefix="/data",
@@ -101,9 +108,10 @@ MAX_WALK_DEPTH = 16
 _WALK_SEM = asyncio.Semaphore(5)
 REPORT_TAKE = 5000
 PREVIEW_ROWS = 200
-_REPORT_BUILD = asyncio.Semaphore(1)
-REPORT_BUSY = "A report is already being prepared. Try again in a minute."
-REPORT_RETRY_AFTER_SECONDS = 60
+REPORT_QUEUE = report_cache.QUEUE
+REPORT_CACHE = report_cache.CACHE
+REPORT_BUSY = report_cache.REPORT_BUSY
+REPORT_RETRY_AFTER_SECONDS = report_cache.RETRY_AFTER_SECONDS
 NO_CRAFT = "_none"
 
 
@@ -1500,6 +1508,7 @@ async def data_tree(
     norm = _norm(path)
     entries, info = await _list_level(norm, scope)
     entries = await transcript_export.settle_tree(entries, pipeline_on=transcript_pipeline.enabled())
+    await explorer_counts.fill(norm, entries, scope)
     crumbs = await _resolve_crumbs(norm)
     cut = len(entries) >= TAKE
     public, total, next_cursor = await explorer_tree.shape(
@@ -1589,7 +1598,7 @@ async def data_manifest(
     files, truncated = await explorer_walk.manifest_files(
         _list_level, scope, [(_norm(path), "")], include_set, fill=not stream
     )
-    return data_explorer.manifest_response(files, truncated, stream=stream)
+    return await data_explorer.manifest_response(files, truncated, stream=stream)
 
 
 _ARTISAN_INCLUDE = {
@@ -2522,6 +2531,14 @@ async def data_report(
     status_value: str | None = Query(None, alias="status"),
     q: str | None = None,
     sheet: str | None = None,
+    sheets: str | None = None,
+    answers: str | None = None,
+    rows: str | None = None,
+    links: str | None = None,
+    name: str | None = None,
+    thumbnails: str | None = None,
+    locale: str | None = None,
+    extras: str | None = None,
     current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
     fmt = (format or "xlsx").strip().lower()
@@ -2530,15 +2547,30 @@ async def data_report(
     if fmt == "csv" and not (sheet or "").strip():
         raise HTTPException(status_code=422, detail="Name the sheet to download as CSV.")
     status_filter = data_status(status_value)
-    if _REPORT_BUILD.locked():
+    try:
+        options = report_options.parse(
+            sheets=sheets, answers=answers, rows=rows, links=links, q=q,
+            thumbnails=thumbnails, locale=locale, extras=extras,
+        )
+    except report_options.OptionsInvalid as bad:
+        raise HTTPException(status_code=422, detail=str(bad)) from None
+    try:
+        return await _build_report(
+            path, fmt, status_filter, current_user, q=q, sheet=sheet, options=options,
+            file_name=report_options.file_name(name),
+        )
+    except report_cache.ReportBusy as busy:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=REPORT_BUSY,
-            headers={"Retry-After": str(REPORT_RETRY_AFTER_SECONDS)},
-        )
-    async with _REPORT_BUILD:
+            headers={"Retry-After": str(busy.retry_after)},
+        ) from None
+
+
+async def _queued(work: Any) -> Any:
+    async with REPORT_QUEUE.slot():
         try:
-            return await _build_report(path, fmt, status_filter, current_user, q=q, sheet=sheet)
+            return await work()
         finally:
             _trim_heap()
 
@@ -2554,8 +2586,10 @@ def _preview(sheets: list[dict[str, Any]], uncounted: set[int]) -> list[dict[str
         cut = len(data) > PREVIEW_ROWS or (not known and bool(sheet.get("truncated")))
         capped = bool(sheet.get("truncated")) and known
         entry = {k: v for k, v in sheet.items() if k not in ("rows", "noteRow")}
+        numbers = list(range(1, len(shown) + 1))
         entry.update(
             rows=[*shown, *note] if capped else shown,
+            rowNumbers=[*numbers, *([0] * len(note))] if capped else numbers,
             truncated=cut or capped,
             preview=cut,
             capped=capped,
@@ -2583,6 +2617,54 @@ def _trim_heap() -> None:
         trim(0)
 
 
+async def _report_material(norm: str, scope: Scope, sees_spend: bool) -> dict[str, Any]:
+    segs = [s for s in norm.split("/") if s]
+    records = await _report_records(segs, scope)
+    await hide_unseen(records["tools"], scope.readable)
+    await transcript_export.withhold_refused(records["media"])
+    transcribed = [str(m.id) for m in records["media"] if transcript_export.has_text(m)]
+    texts = await transcript_export.transcript_texts(transcribed)
+    sheets = _report_sheets(records, texts)
+    del texts
+    sheets += await transcript_export.report_sheets(
+        transcribed,
+        sees_spend=sees_spend,
+        sheet=_sheet,
+        cap=REPORT_TAKE,
+        color=TRANSCRIPT_COLOR,
+    )
+    del records
+    crumbs = await _resolve_crumbs(norm)
+    level_name = crumbs[-1]["name"] if crumbs else "Repository"
+    return {"sheets": sheets, "level": level_name, "builtAt": datetime.now().astimezone().isoformat()}
+
+
+def _report_key(norm: str, scope: Scope, sees_spend: bool, version: str) -> str:
+    return REPORT_CACHE.key("report", norm, scope.records, scope.media, scope.visible, sees_spend, version)
+
+
+async def _material(
+    norm: str, scope: Scope, sees_spend: bool
+) -> tuple[str, dict[str, Any], bool]:
+    version = await report_cache.data_version(db)
+    key = _report_key(norm, scope, sees_spend, version)
+    found = REPORT_CACHE.get(key)
+    if found is not None:
+        return key, found, True
+
+    async def build() -> dict[str, Any]:
+        cached = REPORT_CACHE.get(key)
+        if cached is not None:
+            return cached
+        made = await _queued(lambda: _report_material(norm, scope, sees_spend))
+        REPORT_CACHE.put(key, made)
+        REPORT_CACHE.builds += 1
+        return made
+
+    made = await REPORT_CACHE.once(key, build)
+    return key, REPORT_CACHE.get(key) or made, False
+
+
 async def _build_report(
     path: str,
     fmt: str,
@@ -2591,39 +2673,24 @@ async def _build_report(
     *,
     q: str | None = None,
     sheet: str | None = None,
+    options: report_options.ReportOptions | None = None,
+    file_name: str | None = None,
 ) -> Response:
+    options = options or report_options.ReportOptions()
     scope = await _scope_for(current_user, status_filter)
     searching = fmt == "json" and bool(report_tools.words(q))
-    preview_only = fmt == "json" and not searching
     norm = _norm(path)
-    segs = [s for s in norm.split("/") if s]
-    records = await _report_records(segs, scope)
-    await hide_unseen(records["tools"], scope.readable)
-    await transcript_export.withhold_refused(records["media"])
-    transcribed = [str(m.id) for m in records["media"] if transcript_export.has_text(m)]
-    texts = await transcript_export.transcript_texts(
-        transcribed[:PREVIEW_ROWS] if preview_only else transcribed
-    )
-    sheets = _report_sheets(records, texts)
-    del texts
-    pipeline = await transcript_export.report_sheets(
-        transcribed,
-        sees_spend=transcript_portal.may_see_spend(current_user),
-        sheet=_sheet,
-        cap=PREVIEW_ROWS if preview_only else REPORT_TAKE,
-        color=TRANSCRIPT_COLOR,
-    )
-    uncounted = set(range(len(sheets), len(sheets) + len(pipeline))) if preview_only else set()
-    sheets += pipeline
-    if sheet and sheet.strip():
+    sees_spend = transcript_portal.may_see_spend(current_user)
+    _key, material, cached = await _material(norm, scope, sees_spend)
+    sheets: list[dict[str, Any]] = material["sheets"]
+    level_name: str = material["level"]
+    if sheet and sheet.strip() and fmt != "xlsx":
         sheets = report_tools.pick(sheets, sheet)
         if not sheets:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such sheet")
     if fmt == "csv":
-        crumbs = await _resolve_crumbs(norm)
-        level_name = crumbs[-1]["name"] if crumbs else "Repository"
         chosen = _rendered(sheets[:1])[0]
-        del sheets, records
+        del sheets, material
         csv_name = naming.export_filename(
             "Dataset",
             "-".join(str(chosen["name"]).split()) or "Sheet",
@@ -2636,30 +2703,29 @@ async def _build_report(
             headers={"Content-Disposition": _content_disposition(csv_name)},
         )
     if fmt == "json":
-        shown = report_tools.search(sheets, q) if searching else _preview(sheets, uncounted)
+        shown = report_tools.search(sheets, q) if searching else _preview(sheets, set())
         report_tools.cap_prose(shown)
         return JSONResponse(
             {
                 "sheets": shown,
                 "query": q if searching else None,
                 "previewRows": PREVIEW_ROWS,
+                "builtAt": material.get("builtAt"),
+                "cached": cached,
             }
         )
 
-    crumbs = await _resolve_crumbs(norm)
-    level_name = crumbs[-1]["name"] if crumbs else "Repository"
-    payload = await asyncio.to_thread(
-        build_report_workbook, _rendered(sheets), f"{level_name} report"
-    )
-    del sheets, records
-    report_name = naming.export_filename(
-        "Dataset",
-        "Report",
-        "xlsx",
-        subject="All Records" if level_name == "Repository" else level_name,
-    )
-    return StreamingResponse(
-        io.BytesIO(payload),
+    del sheets, material
+    from app.services.datareport import build as report_build
+
+    chosen = report_build.from_parsed(options, name=file_name)
+    if sheet and sheet.strip() and chosen.sheets is None:
+        chosen.sheets = [sheet.strip()]
+    built = await report_build.build_report(current_user, path, chosen, status=status_filter)
+    for hook in built.ctx.delivered:
+        await hook()
+    return Response(
+        content=built.payload,
         media_type=XLSX_MIME,
-        headers={"Content-Disposition": _content_disposition(report_name)},
+        headers={"Content-Disposition": _content_disposition(built.file_name)},
     )

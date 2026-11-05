@@ -131,7 +131,8 @@ Emitted by `app.main.SecurityHeadersMiddleware`. Defaults are correct for local 
 
 | Variable | Required | Default | Secret | Notes |
 |---|---|---|---|---|
-| `NEXT_PUBLIC_APP_URL` | No | `http://localhost:3000` | No | Public origin of the web app. Same name as the frontend variable so one `.env` can feed both. |
+| `NEXT_PUBLIC_APP_URL` | **Yes** in production | `http://localhost:3000` | No | Public origin of the web app, and the base of every credential, password, mail and cross-portal `openUrl` link. Production is `https://field-repository.vercel.app`, pinned by `.github/workflows/deploy-backend.yml` on every deploy beside the CORS origins (2026-11-05: the box had `http://localhost:3000`, which broke the designer portal's links to this one). Same name as the frontend variable so one `.env` can feed both. |
+| `APP_ENV` | **Yes** in production (pinned) | `development` | No | `production` turns on the start-up guard in `backend/app/core/config.py` (`verify_app_url_configuration`): the API refuses to boot when `NEXT_PUBLIC_APP_URL` is not https, or points at localhost or a private address. Pinned to `production` by `.github/workflows/deploy-backend.yml` beside the link origin. Leave it unset on a laptop and in CI. |
 | `BACKEND_CORS_ORIGINS` | No | `http://localhost:3000` | No | **Comma-separated exact origins** allowed to call the API from a browser. No trailing slash, no path, no wildcard. Every Vercel production/preview/custom domain must be listed or the browser blocks the preflight. |
 
 ### Identity and roles
@@ -223,6 +224,8 @@ Mail is **on exactly when `MAIL_FROM_ADDRESS` is set**. Unset, nothing is queued
 | `MAIL_MAX_ATTEMPTS` | No | `5` | No | Sends per message before `FAILED`. A throttle or SES fault is retried after 1, 2, 4, 8 … minutes (capped at an hour); a rejection fails at once. |
 | `MAIL_BATCH_SIZE` | No | `10` | No | Messages sent per queue sweep. |
 | `WEEKLY_DIGEST_ENABLED` | No | `true` | No | Kill switch for the Monday summary's scheduler only. Off, the worker writes no new summary; the Settings switch and summaries already written still work. Deployed from the Actions **variable** of the same name (`true`/`false`; unset keeps the box's value). |
+| `REPORT_SCHEDULES_ENABLED` | No | `true` | No | Scheduled data reports (`services/report_schedules.py`): each saved-view schedule is e-mailed as Excel by the queue worker, only while mail is on. `false` stops new sends; schedules stay and can still be managed. |
+| `REPORT_SCHEDULE_ATTACH_MAX_BYTES` | No | `7340032` | No | The largest scheduled workbook sent as an attachment (7 MB, about 9.3 MB once encoded). A larger one is linked to a signed download that only its owner can open. |
 
 **The Monday summary.** Every Monday at 08:00 IST the `fieldrepo-queue` worker writes one summary for each Master Admin, Admin, Professor and holder of a review grant: records to review and tasks to check, what is overdue (reviews waiting over 7 days, tasks past due), what came in during the week, and how many districts approved artisans cover. It lands in the activity list always and is e-mailed (`WEEKLY_DIGEST`) when mail is on. Counts only: no record label, name or place. A worker that was down at 08:00 catches up the same day; after Monday that week is skipped, never sent late. One `WeeklyDigest` row per person per week (`(userId, weekStart)` unique) makes it idempotent; a week with nothing waiting, overdue or new sends nothing; rows are purged after 26 weeks. Each person can switch it off in Settings (`UserPreference.weeklyDigest`, on by default, read at send time) through `GET`/`PUT /api/notifications/digest`, which works with mail off. The summary page is `/digest/<id>` (`GET /api/notifications/digests/{id}`, the owner's only; anyone else gets a 404). Code: `backend/app/services/weekly_digest.py`. The designer portal has the same table, routes and schedule.
 
@@ -250,7 +253,7 @@ The names, so this file remains a complete index of what `config.py` reads:
   `SCALE_APPROX_COUNT_THRESHOLD`
 - `DATABASE_READ_REPLICA_URL` — unset by default; a replica connection string for read-only queries.
 
-### Cross-portal artisan identity (C27) — shipped OFF
+### Cross-portal artisan identity (C27) — ON in production
 
 One artisan across the two portals. A designer types the Aadhaar or Pehchan number, confirms the
 artisan agreed, and the designer portal's server asks the documentation portal's server for the
@@ -275,7 +278,7 @@ box `.env`; none is created by this repository.
 | `CROSS_PORTAL_TOKEN` | With the flag on | — | **Yes** | Shared by both servers. Authenticates requests and signs answers. 32+ characters. |
 | `AADHAAR_FINGERPRINT_KEY` | With the flag on | — | **Yes** | Not a cross-portal variable: the artisan register's Aadhaar fingerprint key (SSM `/iit/shared/aadhaar-fingerprint-key`, the same value on both servers), which the lookup reuses. Without it the feature stays off. Never rotate it: every stored fingerprint, and so every cross-portal match, depends on it. There is no `CROSS_PORTAL_AADHAAR_HMAC_KEY`. |
 
-### One search across both portals — shipped OFF
+### One search across both portals — ON in production
 
 One index per portal (`SearchDocument`), kept current by database triggers and drained by the queue
 worker every 15 seconds; ranked by Postgres full-text and trigram, and by meaning when embeddings
@@ -295,7 +298,7 @@ Every value goes to the GitHub Actions secrets **and** the box `.env`.
 | `CROSS_PORTAL_SEARCH_ENABLED` | No | **`false`** | No | Asks the designer portal and answers its searches (`/api/cross-portal/peer/search*`). Also needs `CROSS_PORTAL_TOKEN`, `AADHAAR_FINGERPRINT_KEY` and `DESIGNER_PORTAL_API_URL`; the designer portal needs its own flag, the same secrets and `FIELD_REPOSITORY_API_URL`. |
 | `DESIGNER_PORTAL_API_URL` | With cross-portal search | — | No | The designer portal's API base up to `/api`, e.g. `https://<designer-api-host>/api`. Only cross-portal search calls it. |
 
-### Cross-portal coverage feed — shipped OFF
+### Cross-portal coverage feed — ON in production
 
 The designer portal's ministry coverage map can show this portal's figures beside its own. With the
 flag on, its server may call `GET /api/cross-portal/peer/coverage`, which answers per-district
@@ -544,3 +547,17 @@ reference under `frontend/`, or a new workflow secret.
 CloudFront hostname, the Vercel org and project ids — is recorded from a deployment, not read from
 code. The CloudFront host answered `/health` and `/health/ready` on 2026-11-04; the rest are correct
 as of 2026-07-27 to the extent the deployment has not changed under them.
+
+## Cross-portal search and identity are ON in production (since 5 Nov 2026)
+
+Both boxes run with `UNIFIED_SEARCH_ENABLED=true`, `CROSS_PORTAL_IDENTITY_ENABLED=true`,
+`CROSS_PORTAL_SEARCH_ENABLED=true` and `CROSS_PORTAL_COVERAGE_ENABLED=true`, verified end to end with
+signed peer calls in both directions. This box also carries `DESIGNER_PORTAL_API_URL=https://d3ekigkotd1xa2.cloudfront.net/api`. `CROSS_PORTAL_TOKEN` is the GitHub
+Actions secret `CROSS_PORTAL_TOKEN` (the same value in both repositories) and the SSM SecureString
+`/iit/shared/cross-portal-token`. Embeddings stay off.
+
+`deploy-backend.yml` rewrites `.env` from `BACKEND_ENV` on every release, so the step *Pin cross-portal
+search and identity* appends these lines afterwards (delete, then `printf`, then a `grep` check, the way
+the CORS origins are pinned). The token is piped from the secret over SSH and never appears on a command
+line. A release without the `CROSS_PORTAL_TOKEN` secret stops before it boots, rather than switching
+the designer portal off.
