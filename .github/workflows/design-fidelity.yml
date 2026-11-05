@@ -63,7 +63,7 @@ jobs:
             sleep 2
           done
           curl -fsS -o /dev/null http://localhost:3000/login || { cat next.log; exit 1; }
-          npx playwright test e2e/fidelity-build.spec.ts
+          npx playwright test e2e/fidelity-build
 
       - name: Keep the boards and the build
         if: always()
