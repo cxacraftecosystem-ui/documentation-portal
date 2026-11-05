@@ -12,7 +12,7 @@ import java.io.File
 enum class ExplorerJobKind { FOLDER, SELECTION, FILE, REPORT, TRANSCRIPTS }
 
 @Serializable
-data class ExplorerSource(val path: String, val include: String? = null, val prefix: String? = null)
+data class ExplorerSource(val path: String, val include: String? = null, val prefix: String? = null, val manifestUrl: String? = null)
 
 @Serializable
 data class ExplorerItem(

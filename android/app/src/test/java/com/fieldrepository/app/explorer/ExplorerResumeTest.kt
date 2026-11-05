@@ -153,6 +153,44 @@ class ExplorerResumeTest {
         assertEquals(1, disk.reopened)
     }
 
+    @Test fun `a bundle downloads from its own manifest and resumes like a folder`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.manifest = { error("a bundle never asks for the folder manifest") }
+        val asked = mutableListOf<String>()
+        var block = true
+        val reachedB = CompletableDeferred<Unit>()
+        api.paths = { path, _ ->
+            asked += path
+            when {
+                path.startsWith("/api/data/bundles/") -> ndjson(
+                    listOf(
+                        line(ExplorerManifestFile(path = "B/a.jpg", url = "/api/m/a", mediaId = "a", mediaType = "IMAGE", sizeBytes = 3, sha256 = "a1")),
+                        line(ExplorerManifestFile(path = "B/b.jpg", url = "/api/m/b", mediaId = "b", mediaType = "IMAGE", sizeBytes = 3, sha256 = "b1")),
+                    ),
+                )
+                path.endsWith("/b") && block -> { reachedB.complete(Unit); awaitCancellation() }
+                else -> bytes(byteArrayOf(1, 2, 3))
+            }
+        }
+        val request = ExplorerRequest(
+            title = "Sheet: Tools",
+            fileName = "Tools.zip",
+            sources = listOf(ExplorerSource(path = "by-workshop/w1", manifestUrl = "/api/data/bundles/bd1/manifest?stream=1")),
+        )
+        val root = temp.newFolder()
+        val disk = Disk()
+        val first = async { engine(api, root, disk).run("bundle", request) { } }
+        withTimeout(10_000) { reachedB.await() }
+        first.cancel()
+        try { first.await() } catch (expected: CancellationException) { }
+        block = false
+        asked.clear()
+        val result = engine(api, root, disk).run("bundle", request, resume = true) { }
+        assertEquals(listOf("/api/data/bundles/bd1/manifest?stream=1", "/api/m/b"), asked)
+        assertEquals(2, result.saved)
+        ZipFile(disk.file).use { assertEquals(listOf("B/a.jpg", "B/b.jpg"), it.entries().toList().map { e -> e.name }) }
+    }
+
     @Test fun `without a checkpoint a resume starts a fresh zip`() = runBlocking {
         val api = FakeExplorerApi()
         api.manifest = { ndjson(listOf(line(ExplorerManifestFile(path = "W/x.txt", content = "x")))) }

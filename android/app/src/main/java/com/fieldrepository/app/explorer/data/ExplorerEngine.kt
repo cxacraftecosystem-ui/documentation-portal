@@ -310,7 +310,10 @@ class ExplorerEngine(
         var truncated = false
         var announced = 0
         val calls = ArrayList<Pair<String?, suspend () -> Response<ResponseBody>>>()
-        request.sources.forEach { source -> calls += source.prefix to { api.manifestStream(source.path, source.include) } }
+        request.sources.forEach { source ->
+            val url = source.manifestUrl?.takeIf { it.isNotBlank() }
+            calls += source.prefix to { if (url != null) api.path(ExplorerPaths.api(url)) else api.manifestStream(source.path, source.include) }
+        }
         request.selection?.let { body -> calls += null to { api.selectionManifestStream(body.copy(stream = true)) } }
         calls.forEachIndexed { index, (prefix, call) ->
             val response = call()
