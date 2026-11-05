@@ -119,7 +119,7 @@ fun MergeSessionDialog(v2: QuestionnaireV2, sessionId: String, questionnaireId: 
     var options by remember { mutableStateOf<List<QSession>?>(null) }
     var target by remember { mutableStateOf("") }
     LaunchedEffect(sessionId) {
-        options = runCatching { v2.api.sessions(questionnaireId = questionnaireId, limit = 100).items.filter { it.id != sessionId } }.getOrDefault(emptyList())
+        options = runCatching { v2.everySession(questionnaireId).filter { it.id != sessionId } }.getOrDefault(emptyList())
     }
     QuestionnairePromptContent(
         title = QuestionnaireCopy.s("session.merge"),

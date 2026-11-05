@@ -44,22 +44,29 @@ def pick(sheets: list[dict[str, Any]], name: str | None) -> list[dict[str, Any]]
 
 
 def search(
-    sheets: list[dict[str, Any]], query: str | None, *, limit: int = SEARCH_MAX_ROWS
+    sheets: list[dict[str, Any]],
+    query: str | None,
+    *,
+    limit: int = SEARCH_MAX_ROWS,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
     wanted = words(query)
+    start = max(0, offset)
+    end = start + limit
     out: list[dict[str, Any]] = []
     for sheet in sheets:
         numbered = [(n, row) for n, row in enumerate(_data_rows(sheet), start=1) if row_matches(row, wanted)]
         matched = [row for _n, row in numbered]
         entry = {k: v for k, v in sheet.items() if k not in ("rows", "noteRow")}
         entry.update(
-            rows=matched[:limit],
-            rowNumbers=[n for n, _row in numbered[:limit]],
+            rows=matched[start:end],
+            rowNumbers=[n for n, _row in numbered[start:end]],
             matchedRows=len(matched),
             totalRows=len(_data_rows(sheet)),
-            truncated=len(matched) > limit or bool(sheet.get("truncated")),
-            preview=len(matched) > limit,
+            truncated=len(matched) > end or bool(sheet.get("truncated")),
+            preview=len(matched) > end,
             capped=bool(sheet.get("truncated")),
+            offset=start,
         )
         out.append(entry)
     return out

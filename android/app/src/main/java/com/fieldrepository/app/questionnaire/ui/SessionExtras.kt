@@ -27,6 +27,7 @@ import com.fieldrepository.app.questionnaire.data.QResearcherRef
 import com.fieldrepository.app.questionnaire.data.QRevision
 import com.fieldrepository.app.questionnaire.data.QSession
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
+import com.fieldrepository.app.questionnaire.data.QuestionnairePages
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
 import com.fieldrepository.app.questionnaire.data.ResearcherRole
 import com.fieldrepository.app.questionnaire.data.SessionOutbox
@@ -210,10 +211,14 @@ fun RegisterGuestDialog(name: String, artisans: List<QArtisanOption>, onDismiss:
 fun DeletedSessionsList(v2: QuestionnaireV2, onRestored: (QSession) -> Unit, onError: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<QSession>?>(null) }
+    var cursor by remember { mutableStateOf<String?>(null) }
+    var loadingMore by remember { mutableStateOf(false) }
     var attempt by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(attempt) {
-        items = runCatching { v2.api.sessions(deleted = true, limit = 100).items }.getOrElse { onError(it.userSentence()); emptyList() }
+        val page = runCatching { v2.api.sessions(deleted = true, limit = QuestionnairePages.PAGE) }.getOrElse { onError(it.userSentence()); null }
+        items = page?.items.orEmpty()
+        cursor = page?.nextCursor
     }
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val list = items
@@ -236,5 +241,20 @@ fun DeletedSessionsList(v2: QuestionnaireV2, onRestored: (QSession) -> Unit, onE
             }
             HorizontalDivider(color = MaterialTheme.field.hairline)
         }
+        val after = cursor
+        if (list != null && after != null) PromptButtons(listOf(PromptButton(QuestionnaireCopy.s("sessions.loadMore"), primary = true) {
+            if (loadingMore) return@PromptButton
+            loadingMore = true
+            scope.launch {
+                runCatching { v2.api.sessions(deleted = true, cursor = after, limit = QuestionnairePages.PAGE) }
+                    .onSuccess { next ->
+                        val seen = items.orEmpty().map { it.id }.toHashSet()
+                        items = items.orEmpty() + next.items.filter { it.id !in seen }
+                        cursor = next.nextCursor
+                    }
+                    .onFailure { onError(it.userSentence()) }
+                loadingMore = false
+            }
+        }))
     }
 }

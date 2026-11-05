@@ -17,6 +17,12 @@ type FakeFile = {
 
 type FakeFolder = { name: string; path: string; recordType?: string; folders: string[]; files: FakeFile[] };
 
+export type SearchCorpusGroup = { type: string; label: string; singular: string; total: number };
+
+function corpusItem(group: SearchCorpusGroup, n: number) {
+  return { portal: "designer", local: true, type: group.type, id: `${group.type}-${n}`, title: `${group.singular} ${n} of ${group.total}`, subtitle: null, snippet: "", highlights: [], href: `/artisans/${group.type}-${n}`, openUrl: null };
+}
+
 export const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
   "base64"
@@ -187,6 +193,8 @@ export class DataExplorerFake {
   visit: Json = { previousVisitAt: "2026-11-01T10:00:00Z", newFiles: 3, newTranscripts: 1 };
   treeFailures = new Map<string, number>();
   folders = new Map<string, FakeFolder>();
+  searchCorpus: SearchCorpusGroup[] = [];
+  unifiedSearch = true;
 
   constructor() {
     this.folder({ name: "Dataset root", path: "", folders: ["workshops", "crafts"], files: [] });
@@ -558,6 +566,39 @@ export class DataExplorerFake {
         .filter((item) => !q || item.text.toLowerCase().includes(q))
         .map(({ text, ...item }) => (q ? { ...item, snippet: text } : item));
       return { status: 200, json: { items, total: items.length, truncated: false, query: q || null } };
+    }
+    if (path === "/search/unified" && this.unifiedSearch && this.searchCorpus.length) {
+      const type = query.get("type");
+      const limit = Number(query.get("limit") ?? 5);
+      const page = Number(query.get("page") ?? 1);
+      const offset = (page - 1) * limit;
+      const groups = this.searchCorpus
+        .filter((group) => !type || group.type === type)
+        .map((group) => ({
+          type: group.type,
+          label: group.label,
+          total: group.total,
+          localTotal: group.total,
+          remoteTotal: 0,
+          items: Array.from({ length: Math.max(0, Math.min(limit, group.total - offset)) }, (_, index) => corpusItem(group, offset + index + 1))
+        }));
+      return { status: 200, json: { query: query.get("q") ?? "", mode: "text", suggestion: null, groups, remote: { portal: "fieldRepository", label: "Field Repository", status: "off" }, typesRefused: [], page, limit, ...(type ? { type } : {}) } };
+    }
+    if (path === "/search" && this.searchCorpus.length) {
+      const pageSize = Number(query.get("pageSize") ?? 10);
+      const page = Number(query.get("page") ?? 1);
+      const wanted = (query.get("types") ?? "").split(",").filter(Boolean);
+      const out: Record<string, unknown> = { totals: {} as Record<string, number> };
+      for (const group of this.searchCorpus) {
+        if (wanted.length && !wanted.includes(group.type)) continue;
+        (out.totals as Record<string, number>)[group.type] = group.total;
+        const from = (page - 1) * pageSize;
+        out[group.type] = Array.from({ length: Math.max(0, Math.min(pageSize, group.total - from)) }, (_, index) => {
+          const n = from + index + 1;
+          return { id: `${group.type}-${n}`, name: `${group.singular} ${n} of ${group.total}`, place: "Bagru" };
+        });
+      }
+      return { status: 200, json: out };
     }
     if (path === "/search") {
       const q = (query.get("q") ?? "").toLowerCase();

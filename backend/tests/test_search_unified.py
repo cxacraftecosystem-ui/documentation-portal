@@ -156,6 +156,43 @@ async def test_limit_caps_each_group_and_type_pages(world, settings):
     assert len(seen) == 3 and len(set(seen)) == 3
 
 
+ANDROID_ITEM_KEYS = {
+    "portal", "local", "type", "id", "title", "subtitle", "snippet", "highlights", "place",
+    "craftCodes", "recordDate", "href", "openUrl", "score",
+}
+
+
+@needs_search_db
+async def test_the_all_view_answers_every_group_with_readable_items(world, settings):
+    result = await _search(world.professor, world.stamp, scope="local")
+    assert result["groups"], "the All view came back empty"
+    assert result["page"] == 1 and result["limit"] == 5 and "type" not in result
+    for group in result["groups"]:
+        assert set(group) == {"type", "label", "total", "localTotal", "remoteTotal", "items"}
+        assert group["items"], group["type"]
+        for item in group["items"]:
+            assert item["id"] and item["type"] == group["type"]
+            optional = {"startMs", "mediaType", "alsoIn"}
+            assert ANDROID_ITEM_KEYS <= set(item) <= ANDROID_ITEM_KEYS | optional
+
+
+@needs_search_db
+async def test_the_all_view_pages_every_group_to_its_last_record(world, settings):
+    first = await _search(world.professor, world.stamp, limit=2, page=1)
+    second = await _search(world.professor, world.stamp, limit=2, page=2)
+    assert second["page"] == 2 and second["limit"] == 2
+    totals = {g["type"]: g["total"] for g in first["groups"]}
+    assert {g["type"]: g["total"] for g in second["groups"]} == totals
+    for kind, total in totals.items():
+        seen = _ids(first, kind) + _ids(second, kind)
+        assert len(set(seen)) == len(seen) == min(total, 4), kind
+    products = _ids(first, "products") + _ids(second, "products")
+    assert len(products) == 3
+    beyond = await _search(world.professor, world.stamp, limit=2, page=3)
+    assert {g["type"]: g["total"] for g in beyond["groups"]} == totals
+    assert _ids(beyond, "products") == []
+
+
 @needs_search_db
 async def test_filters_narrow_the_result(world, settings):
     by_craft = await _search(world.professor, world.stamp, craftId=world.other_craft.id)

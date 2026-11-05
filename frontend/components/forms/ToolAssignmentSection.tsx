@@ -8,7 +8,8 @@ import { CraftSelect } from "@/components/forms/CraftSelect";
 import { FieldBlock } from "@/components/tasks/TaskPrimitives";
 import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
 import { Dropdown, MultiSelectDropdown } from "@/components/ui/Dropdown";
-import { apiFetch, listResource } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
+import { listAllPages } from "@/lib/listAllPages";
 import { useCraftCatalogue } from "@/lib/craftCatalogue";
 import type { Artisan, ToolDocumentation } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
@@ -31,8 +32,8 @@ export function ToolAssignmentSection() {
   useEffect(() => {
     (async () => {
       const [toolPage, artisanPage] = await Promise.all([
-        listResource<ToolDocumentation>("/tools", { pageSize: 100 }),
-        listResource<Artisan>("/artisans", { pageSize: 100 })
+        listAllPages<ToolDocumentation>("/tools", { pageSize: 100 }),
+        listAllPages<Artisan>("/artisans", { pageSize: 100 })
       ]);
       setTools(toolPage.items);
       setArtisans(artisanPage.items);

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarRange, Layers } from "lucide-react";
 
 import { MultiSelectDropdown } from "@/components/ui/Dropdown";
-import { listResource } from "@/lib/api";
+import { listAllPages } from "@/lib/listAllPages";
 import { formatDate } from "@/lib/format";
 import type { Workshop } from "@/lib/types";
 import {
@@ -42,7 +42,7 @@ export function useWorkshopScope({
 
   useEffect(() => {
     let cancelled = false;
-    listResource<Workshop>("/workshops", { pageSize: WORKSHOP_PAGE_SIZE })
+    listAllPages<Workshop>("/workshops", { pageSize: WORKSHOP_PAGE_SIZE })
       .then((result) => {
         if (cancelled) return;
         const ordered = sortWorkshopsByOccurrence(result.items);

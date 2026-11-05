@@ -152,6 +152,8 @@ data class ExplorerSheet(
     val matchedRows: Int? = null,
     val truncated: Boolean = false,
     val rowNumbers: List<Int>? = null,
+    val preview: Boolean = false,
+    val offset: Int = 0,
 ) {
     val headers: List<String> get() = columns.map { ExplorerCells.text(it) }
 }

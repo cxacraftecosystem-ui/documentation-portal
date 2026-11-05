@@ -1353,3 +1353,64 @@ test.describe("@qf:X6 links inside the report", () => {
     }
   });
 });
+
+test.describe("search reaches every record", () => {
+  test("All pages past the first five, and Show all reaches the last artisan", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser);
+    fake.searchCorpus = [
+      { type: "artisans", label: "Artisans", singular: "Artisan", total: 31 },
+      { type: "tools", label: "Tools", singular: "Tool", total: 7 }
+    ];
+    try {
+      await page.getByRole("searchbox", { name: "Search all data" }).fill("artisan");
+      const artisans = page.getByTestId("search-group-artisans");
+      await expect(artisans.getByText("Artisan 5 of 31", { exact: true })).toBeVisible();
+      await expect(artisans.getByText("Artisan 6 of 31", { exact: true })).toHaveCount(0);
+      await page.getByTestId("search-more").click();
+      await expect(artisans.getByText("Artisan 10 of 31", { exact: true })).toBeVisible();
+      await expect(page.getByTestId("search-group-tools").getByText("Tool 7 of 7", { exact: true })).toBeVisible();
+      const unpaged = fake.calls.filter((call) => call.path === "/search/unified" && !call.query.get("type") && call.query.get("page") === "2");
+      expect(unpaged.length).toBeGreaterThan(0);
+      await page.getByTestId("search-all-artisans").click();
+      await expect(page.getByText("Artisan 20 of 31", { exact: true })).toBeVisible();
+      await page.getByTestId("search-more").click();
+      await expect(page.getByText("Artisan 31 of 31", { exact: true })).toBeVisible();
+      await expect(page.getByTestId("search-more")).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("the fallback search pages too when unified search is off", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser);
+    fake.unifiedSearch = false;
+    fake.searchCorpus = [{ type: "artisans", label: "Artisans", singular: "Artisan", total: 45 }];
+    try {
+      await page.getByRole("searchbox", { name: "Search all data" }).fill("artisan");
+      await expect(page.getByText("Artisan 20 of 45", { exact: true })).toBeVisible();
+      await page.getByTestId("search-more").click();
+      await expect(page.getByText("Artisan 40 of 45", { exact: true })).toBeVisible();
+      await page.getByTestId("search-more").click();
+      await expect(page.getByText("Artisan 45 of 45", { exact: true })).toBeVisible();
+      await expect(page.getByTestId("search-more")).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("Search everywhere from quick jump runs the search", async ({ browser }) => {
+    const { context, page } = await openExplorer(browser, { path: "workshops" });
+    try {
+      await page.getByRole("heading", { name: "By workshop", exact: true }).first().click();
+      await page.keyboard.press("Control+k");
+      const palette = page.getByRole("dialog", { name: "Quick jump" });
+      await palette.getByRole("combobox", { name: "Jump to anything" }).fill("kamla");
+      await palette.getByRole("option", { name: /Search “kamla” everywhere/ }).click();
+      await expect(palette).toHaveCount(0);
+      await expect(page.getByRole("searchbox", { name: "Search all data" })).toHaveValue("kamla");
+      await expect(page.getByTestId("search-results").getByText("Kamla Devi")).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+});

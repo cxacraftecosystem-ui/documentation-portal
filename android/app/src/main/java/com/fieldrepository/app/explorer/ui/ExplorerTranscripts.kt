@@ -67,6 +67,7 @@ import com.fieldrepository.app.transcript.data.TranscriptSummary
 import com.fieldrepository.app.explorer.data.ExplorerMore
 import com.fieldrepository.app.explorer.data.ExplorerMoreApi
 import com.fieldrepository.app.explorer.data.ExplorerTranscriptItem
+import com.fieldrepository.app.explorer.data.ExplorerTranscriptList
 
 enum class TranscriptStatus { READY, TRANSLATING, TRANSCRIBING, FAILED }
 
@@ -133,7 +134,7 @@ object ExplorerTranscriptStatus {
     )
 }
 
-private class TranscriptPage(val rows: List<TranscriptRowModel>, val cursor: String?, val folder: Boolean)
+private class TranscriptPage(val rows: List<TranscriptRowModel>, val cursor: String?, val folder: Boolean, val nextOffset: Int? = null)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -163,6 +164,12 @@ internal fun ExplorerTranscriptsTab(
     var busy by remember { mutableStateOf<String?>(null) }
     val filters = DataTranscriptFilters(q = q, language = language).toQuery()
 
+    suspend fun folderRows(list: ExplorerTranscriptList): List<TranscriptRowModel> {
+        val summaries = list.items.map { it.mediaId }.chunked(50).flatMap { ids -> runCatching { server.batch(ids) }.getOrDefault(emptyList()) }.associateBy { it.mediaId }
+        val rows = list.items.map { ExplorerTranscriptStatus.row(it, summaries[it.mediaId]) }
+        return rows.filter { r -> language.isBlank() || summaries[r.mediaId]?.languages?.any { it.code == language } == true }
+    }
+
     LaunchedEffect(path, status, filters, attempt) {
         if (q.isNotBlank()) delay(350)
         loading = true
@@ -170,9 +177,7 @@ internal fun ExplorerTranscriptsTab(
         try {
             page = try {
                 val list = extras.transcripts(path, q.trim().ifBlank { null }, status)
-                val summaries = list.items.map { it.mediaId }.chunked(50).flatMap { ids -> runCatching { server.batch(ids) }.getOrDefault(emptyList()) }.associateBy { it.mediaId }
-                val rows = list.items.map { ExplorerTranscriptStatus.row(it, summaries[it.mediaId]) }
-                TranscriptPage(rows.filter { r -> language.isBlank() || summaries[r.mediaId]?.languages?.any { it.code == language } == true }, null, true)
+                TranscriptPage(folderRows(list), null, true, list.nextOffset)
             } catch (missing: retrofit2.HttpException) {
                 if (missing.code() != 404) throw missing
                 val data = server.dataPage(filters, null)
@@ -277,6 +282,22 @@ internal fun ExplorerTranscriptsTab(
         if (failed) StatusCard(ExplorerStatus.FAILED, ExplorerUiText.transcriptsFailed, action = ExplorerUiText.tryNow, tag = "explorer.transcripts.failed") { attempt++ }
         if (!loading && !failed && shown.isEmpty()) HintLine(ExplorerUiText.noTranscripts)
         shown.forEach { r -> TranscriptRow(r, busy == r.mediaId, online, onRead = { onRead(r) }, onDocx = { docx(r) }, onRetry = { retry(r) }) }
+        val after = page?.nextOffset
+        if (after != null && page?.folder == true) {
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        runCatching { extras.transcripts(path, q.trim().ifBlank { null }, status, after) }
+                            .onSuccess { got ->
+                                val have = rows.map { it.mediaId }.toSet()
+                                page = TranscriptPage(rows + folderRows(got).filter { it.mediaId !in have }, null, true, got.nextOffset)
+                            }
+                            .onFailure { if (it is CancellationException) throw it; onMessage(ExplorerUiText.transcriptsFailed) }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).testTag("transcript.folder.more"),
+            ) { Text(ExplorerUiText.moreTranscripts) }
+        }
         val next = page?.cursor
         if (next != null && page?.folder == false) {
             OutlinedButton(

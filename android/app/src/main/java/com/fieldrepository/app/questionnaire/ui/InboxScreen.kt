@@ -427,7 +427,7 @@ private fun FileItSheet(
     var instrument by remember { mutableStateOf<Instrument?>(null) }
     var target by remember { mutableStateOf(row.candidateTargetKey.orEmpty()) }
     var who by remember { mutableStateOf(emptySet<String>()) }
-    LaunchedEffect(Unit) { sessions = runCatching { v2.api.sessions(limit = 100).items }.getOrDefault(emptyList()) }
+    LaunchedEffect(Unit) { sessions = runCatching { v2.everySession() }.getOrDefault(emptyList()) }
     LaunchedEffect(sessionId) {
         if (sessionId.isBlank()) return@LaunchedEffect
         detail = runCatching { v2.api.session(sessionId) }.getOrNull()

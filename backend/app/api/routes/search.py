@@ -198,7 +198,7 @@ async def unified_search(
     local_scope.date_to = dateTo
     local_scope.workshop_ids = workshops
     local_scope.artisan_ids = _split(artisanIds)
-    offset = (page - 1) * limit if type else 0
+    offset = (page - 1) * limit
 
     remote_status = us.STATUS_OFF
     craft_codes: list[str] = []
@@ -249,7 +249,7 @@ async def unified_search(
         local.items,
         local.totals,
         remote_groups,
-        limit=limit * 2 if type else limit,
+        limit=limit * 2,
         links=links,
     )
     suggestion = None if any(g["items"] for g in groups) else await search_query.did_you_mean(text)
@@ -260,7 +260,9 @@ async def unified_search(
         "groups": groups,
         "remote": {"portal": us.PEER_PORTAL, "label": us.PEER_LABEL, "status": remote_status},
         "typesRefused": refused,
-        **({"type": type, "page": page, "limit": limit} if type else {}),
+        "page": page,
+        "limit": limit,
+        **({"type": type} if type else {}),
     }
 
 

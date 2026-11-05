@@ -13,9 +13,11 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
@@ -93,7 +95,7 @@ class ExplorerScreenUiTest {
         override suspend fun peaks(id: String) = peaks
         override suspend fun views() = ExplorerViews()
         override suspend fun saveView(body: ExplorerViewBody) = ExplorerView(id = "v1", name = body.name, path = body.path)
-        override suspend fun transcripts(path: String, q: String?, status: String?) = ExplorerTranscriptList()
+        override suspend fun transcripts(path: String, q: String?, status: String?, offset: Int?) = ExplorerTranscriptList()
         override suspend fun reportSheets(path: String, status: String?) = com.fieldrepository.app.explorer.data.ExplorerReportSheets(
             path = path,
             sheets = listOf(com.fieldrepository.app.explorer.data.ExplorerReportSheetInfo(key = "tools", name = "Tools", count = 120, group = "Records", description = "Every tool")),
@@ -136,8 +138,24 @@ class ExplorerScreenUiTest {
             ExplorerTaxonomy("craft", "Craft", "by-craft", "Craft › artisan."),
         )
 
+        var long: Int? = null
+        var tableTotal: Int? = null
+
+        private fun longPage(path: String, cursor: String?, n: Int): ExplorerTree {
+            val from = cursor?.toInt() ?: 0
+            val until = minOf(from + 10, n)
+            val entries = ((from + 1)..until).map { ExplorerEntry(name = "Photo $it.jpg", path = "w/q$it", mediaId = "q$it", mediaType = "IMAGE") }
+            return ExplorerTree(path = path, crumbs = crumbs, info = info, entries = entries, nextCursor = if (until < n) "$until" else null, total = n, taxonomies = taxonomies, taxonomy = "workshop")
+        }
+
+        private fun tablePage(total: Int, offset: Int): ExplorerReport {
+            val numbers = ((offset + 1)..minOf(offset + 200, total)).toList()
+            return ExplorerReport(listOf(ExplorerSheet(name = "Artisans", columns = listOf(JsonPrimitive("Name")), rows = numbers.map { listOf(JsonPrimitive("Artisan $it")) }, totalRows = total, rowNumbers = numbers, preview = offset + 200 < total, offset = offset)))
+        }
+
         override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int): ExplorerTree {
             calls += "tree:$path:${cursor.orEmpty()}:$slim"
+            long?.let { return longPage(path, cursor, it) }
             return if (cursor == null) {
                 ExplorerTree(path = path, crumbs = crumbs, info = info, entries = listOf(folder, video, photo, audio), nextCursor = "next", total = 5, taxonomies = taxonomies, taxonomy = "workshop")
             } else {
@@ -159,7 +177,11 @@ class ExplorerScreenUiTest {
             return ExplorerStats(files = 12, bytes = 40_000_000)
         }
         val reportQueries = mutableListOf<String?>()
-        override suspend fun reportJson(path: String, q: String?, format: String): ExplorerReport {
+        override suspend fun reportJson(path: String, q: String?, format: String, sheet: String?, offset: Int?): ExplorerReport {
+            tableTotal?.let { total ->
+                calls += "report:${offset ?: 0}"
+                return tablePage(total, offset ?: 0)
+            }
             reportQueries += q
             val rows = listOf(listOf(JsonPrimitive("Giriraj"), JsonPrimitive("Bagru")), listOf(JsonPrimitive("Meena"), JsonPrimitive("Sanganer")))
             val matched = if (q == null) rows else rows.filter { r -> r.any { it.content.contains(q, ignoreCase = true) } }
@@ -343,6 +365,62 @@ class ExplorerScreenUiTest {
         compose.waitForIdle()
         scrollTo("explorer.file.p2")
         compose.onNodeWithTag("explorer.file.p2").assertExists()
+    }
+
+    @QFeature("X1")
+    @Test fun theShowingLineLoadsMoreUntilEntryThirtyOneOfThirtyOne() {
+        val fake = Fake().apply { long = 31 }
+        show(fake)
+        compose.onNodeWithTag("explorer.showing", useUnmergedTree = true).assertExists()
+        repeat(3) {
+            scrollTo("explorer.showing.more")
+            compose.onNodeWithTag("explorer.showing.more").performClick()
+            compose.waitUntil(5_000) { fake.calls.any { call -> call == "tree:w:${(it + 1) * 10}:1" } }
+            compose.waitForIdle()
+        }
+        compose.onNodeWithTag("explorer.showing", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("explorer.showing.more").assertDoesNotExist()
+        scrollTo("explorer.file.q31")
+        compose.onNodeWithTag("explorer.file.q31").assertExists()
+    }
+
+    @QFeature("X1")
+    @Test fun theShowingLineLoadsFromTheTablesTabAndSwitchesToFiles() {
+        val fake = Fake().apply { long = 31; tableTotal = 2 }
+        show(fake)
+        scrollTo("explorer.tables.toggle")
+        compose.onNodeWithTag("explorer.tables.toggle").performClick()
+        compose.waitForIdle()
+        scrollTo("explorer.showing.more")
+        compose.onNodeWithTag("explorer.showing.more").performClick()
+        compose.waitUntil(5_000) { fake.calls.contains("tree:w:10:1") }
+        compose.waitForIdle()
+        scrollTo("explorer.file.q11")
+        compose.onNodeWithTag("explorer.file.q11").assertExists()
+    }
+
+    @QFeature("X6")
+    @Test fun showMoreRowsReachesTheLastRowOfALongTable() {
+        val fake = Fake().apply { tableTotal = 450 }
+        show(fake)
+        scrollTo("explorer.tables.toggle")
+        compose.onNodeWithTag("explorer.tables.toggle").performClick()
+        compose.waitUntil(5_000) { fake.calls.contains("report:0") }
+        compose.waitForIdle()
+        compose.onNodeWithText("Showing 20 of 450", useUnmergedTree = true).assertExists()
+        var taps = 0
+        while (compose.onAllNodesWithTag("explorer.tables.more").fetchSemanticsNodes().isNotEmpty()) {
+            scrollTo("explorer.tables.more")
+            compose.onNodeWithTag("explorer.tables.more").performClick()
+            compose.waitForIdle()
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Loading rows…").fetchSemanticsNodes().isEmpty() }
+            taps++
+            assertTrue(taps < 20)
+        }
+        assertTrue(fake.calls.contains("report:200") && fake.calls.contains("report:400"))
+        compose.onNodeWithTag("explorer.tables.showing", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("explorer.tree").performScrollToNode(hasText("Artisan 450", substring = true))
+        compose.onAllNodesWithText("Artisan 450", substring = true).onFirst().assertExists()
     }
 
     @QFeature("X6")

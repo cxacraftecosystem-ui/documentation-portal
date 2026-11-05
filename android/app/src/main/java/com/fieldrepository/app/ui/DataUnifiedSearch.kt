@@ -49,6 +49,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.fieldrepository.app.data.UnifiedSearchGroupDto
 import com.fieldrepository.app.data.UnifiedSearchItemDto
 import com.fieldrepository.app.data.UnifiedSearchResponse
 import com.fieldrepository.app.data.FieldRepository
@@ -96,6 +97,10 @@ object DataSearchText {
     fun noMatches(q: String) = "No matches for “$q”"
     fun didYouMean(s: String) = "Did you mean $s?"
     fun showMore(n: Int) = "Show $n more"
+    const val loadMore = "Load more"
+    fun showAll(total: Int, label: String) = "Show all $total ${label.lowercase()}"
+    fun shownOf(shown: Int, total: Int) = if (shown >= total) "$total" else "$shown of $total"
+    fun shownLine(shown: Int, total: Int) = if (shown >= total) "All $shown shown" else "$shown of $total shown"
     fun searchBoth(n: Int?) = if (n != null && n > 0) "Search both portals · $n" else "Search both portals"
 }
 
@@ -150,12 +155,38 @@ internal object DataSearchRules {
     fun crossBlocked(scope: String, r: UnifiedSearchResponse): Boolean = scope == "all" && !crossAvailable(r)
 
     const val RETRY_SECONDS = 10
+
+    const val ALL_LIMIT = 5
+
+    const val TYPE_LIMIT = 20
+
+    fun limitFor(type: String?) = if (type == null) ALL_LIMIT else TYPE_LIMIT
+
+    fun usable(r: UnifiedSearchResponse, type: String?): List<UnifiedSearchItemDto> =
+        r.groups.filter { type == null || it.type == type }.flatMap { g -> g.items.filter { it.id.isNotBlank() } }
+
+    fun key(item: UnifiedSearchItemDto) = "${item.portal}:${item.type}:${item.id}"
+
+    fun loaded(items: List<UnifiedSearchItemDto>, type: String) = items.count { it.type == type }
+
+    fun remaining(group: UnifiedSearchGroupDto, items: List<UnifiedSearchItemDto>) = (group.total - loaded(items, group.type)).coerceAtLeast(0)
+
+    fun more(type: String?, groups: List<UnifiedSearchGroupDto>, items: List<UnifiedSearchItemDto>): Boolean =
+        groups.filter { type == null || it.type == type }.any { remaining(it, items) > 0 }
+
+    fun nextBatch(type: String?, groups: List<UnifiedSearchGroupDto>, items: List<UnifiedSearchItemDto>): Int {
+        val left = groups.filter { type == null || it.type == type }.sumOf { remaining(it, items) }
+        return if (type == null) left else minOf(TYPE_LIMIT, left)
+    }
+
+    fun sections(groups: List<UnifiedSearchGroupDto>, items: List<UnifiedSearchItemDto>): List<Pair<UnifiedSearchGroupDto, List<UnifiedSearchItemDto>>> =
+        groups.mapNotNull { g -> items.filter { it.type == g.type }.takeIf { it.isNotEmpty() }?.let { g to it } }
 }
 
 private sealed interface Found {
     data object Idle : Found
     data object Loading : Found
-    data class Ready(val response: UnifiedSearchResponse, val items: List<UnifiedSearchItemDto>, val more: Boolean) : Found
+    data class Ready(val response: UnifiedSearchResponse, val groups: List<UnifiedSearchGroupDto>, val items: List<UnifiedSearchItemDto>, val more: Boolean) : Found
     data object Legacy : Found
     data class Failed(val offline: Boolean) : Found
 }
@@ -192,16 +223,16 @@ internal fun DataUnifiedSearch(
         val previous = (found as? Found.Ready)?.takeIf { page > 1 }
         if (previous == null) found = Found.Loading
         found = try {
-            val r = repository.unifiedSearchIn(q, limit = if (type == null) 5 else 20, scope = scope, type = type, page = page)
+            val r = repository.unifiedSearchIn(q, limit = DataSearchRules.limitFor(type), scope = scope, type = type, page = page)
             last = r
             if (DataSearchRules.crossBlocked(scope, r)) {
                 blocked = true
                 scope = "local"
             }
-            val items = r.groups.filter { type == null || it.type == type }.flatMap { g -> g.items.filter { it.id.isNotBlank() } }
-            val total = r.groups.filter { it.type == type }.sumOf { it.total }
-            val merged = (previous?.items.orEmpty() + items).distinctBy { "${it.portal}:${it.type}:${it.id}" }
-            Found.Ready(r, merged, type != null && merged.size < total)
+            val groups = previous?.groups ?: r.groups
+            val merged = (previous?.items.orEmpty() + DataSearchRules.usable(r, type)).distinctBy(DataSearchRules::key)
+            val progressed = previous == null || merged.size > previous.items.size
+            Found.Ready(r, groups, merged, progressed && DataSearchRules.more(type, groups, merged))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (e: HttpException) {
@@ -239,6 +270,7 @@ internal fun DataUnifiedSearch(
             )
         }
         val response = (found as? Found.Ready)?.response ?: last
+        val groups = (found as? Found.Ready)?.groups ?: response?.groups.orEmpty()
         if (!blocked) {
             ScopeSwitch(scope) { scope = it; page = 1 }
         }
@@ -250,8 +282,8 @@ internal fun DataUnifiedSearch(
         }
         if (response != null && found !is Found.Legacy) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TypePill("${DataSearchText.all} ${response.groups.sumOf { it.total }}", type == null, "all") { type = null; page = 1 }
-                response.groups.filter { it.total > 0 }.forEach { g ->
+                TypePill("${DataSearchText.all} ${groups.sumOf { it.total }}", type == null, "all") { type = null; page = 1 }
+                groups.filter { it.total > 0 }.forEach { g ->
                     TypePill("${g.label.ifBlank { DataSearchRules.label(g.type, null) }} ${g.total}", type == g.type, g.type) { type = g.type; page = 1 }
                 }
             }
@@ -286,13 +318,44 @@ internal fun DataUnifiedSearch(
                         onWiden = { scope = "all"; page = 1 },
                     )
                 } else {
+                    val total = now.groups.filter { type == null || it.type == type }.sumOf { it.total }
+                    Text(
+                        DataSearchText.shownLine(now.items.size, total),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("data.search.shown"),
+                    )
                     LazyColumn(Modifier.fillMaxWidth().weight(1f).testTag("data.search.results"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(now.items, key = { "${it.portal}:${it.type}:${it.id}" }) { item ->
-                            ResultCard(item, scope == "all", onOpenInData, onPlay, onOpenRemote)
+                        if (type == null) {
+                            DataSearchRules.sections(now.groups, now.items).forEach { (g, shown) ->
+                                val label = g.label.ifBlank { DataSearchRules.label(g.type, null) }
+                                item("head.${g.type}") {
+                                    Row(Modifier.fillMaxWidth().padding(top = 6.dp).testTag("data.search.group.${g.type}"), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f).semantics { heading() })
+                                        Text(DataSearchText.shownOf(shown.size, g.total), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                                items(shown, key = DataSearchRules::key) { item ->
+                                    ResultCard(item, scope == "all", onOpenInData, onPlay, onOpenRemote)
+                                }
+                                if (shown.size < g.total) {
+                                    item("all.${g.type}") {
+                                        TextButton(onClick = { type = g.type; page = 1 }, modifier = Modifier.heightIn(min = 44.dp).testTag("data.search.all.${g.type}")) {
+                                            Text(DataSearchText.showAll(g.total, label))
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            items(now.items, key = DataSearchRules::key) { item ->
+                                ResultCard(item, scope == "all", onOpenInData, onPlay, onOpenRemote)
+                            }
                         }
                         if (now.more) {
                             item("more") {
-                                OutlinedButton(onClick = { page++ }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("data.search.more")) { Text(DataSearchText.showMore(20)) }
+                                OutlinedButton(onClick = { page++ }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("data.search.more")) {
+                                    Text(if (type == null) DataSearchText.loadMore else DataSearchText.showMore(DataSearchRules.nextBatch(type, now.groups, now.items)))
+                                }
                             }
                         }
                     }
@@ -428,11 +491,12 @@ private fun NoMatches(query: String, suggestion: String?, filtered: Boolean, can
 
 @Composable
 private fun LegacyHits(repository: FieldRepository, query: String, onOpen: (String, String, String) -> Unit) {
-    val search = rememberQuickSearch(repository, SearchFilters(query = query))
-    if (search.loading && search.hits.isEmpty()) Text(DataSearchText.searching, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    search.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-    if (search.searched && !search.loading && search.hits.isEmpty() && search.error == null) {
-        Text(DataSearchText.noMatches(query.trim()), style = MaterialTheme.typography.titleMedium)
+    val filters = remember(query.trim()) { SearchFilters(query = query.trim()) }
+    val state = remember(filters) { SearchAllState(filters, quickSearchFetch(repository, filters)) }
+    LaunchedEffect(state) {
+        if (filters.query.length < QUICK_SEARCH_MIN_CHARS) return@LaunchedEffect
+        delay(SEARCH_DEBOUNCE_MILLIS)
+        state.start()
     }
-    search.hits.forEach { hit -> SearchResultRow(row = hit, onOpen = { onOpen(hit.recordType, hit.id, hit.title) }) }
+    SearchAllList(state = state, onOpen = onOpen, modifier = Modifier.fillMaxSize())
 }

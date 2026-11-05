@@ -300,10 +300,14 @@ async def list_access_levels(_: Any = Depends(get_current_user)) -> list[dict[st
 async def list_requestable_workshops(
     current_user: Any = Depends(get_current_user),
     limit: int = Query(WORKSHOP_REQUEST_MAX, ge=1, le=WORKSHOP_REQUEST_MAX),
+    offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
     uid = get_value(current_user, "id")
+    offset = offset if isinstance(offset, int) else 0
     workshops = await db.workshop.find_many(
-        take=limit + 1, order=[{"startDate": "desc"}, {"date": "desc"}, {"createdAt": "desc"}]
+        skip=offset,
+        take=limit + 1,
+        order=[{"startDate": "desc"}, {"date": "desc"}, {"createdAt": "desc"}, {"id": "asc"}],
     )
     truncated = len(workshops) > limit
     workshops = workshops[:limit]
@@ -329,7 +333,11 @@ async def list_requestable_workshops(
                 "restricted": workshop_is_curated(workshop_rows),
             }
         )
-    return {"items": public_encode(items), "truncated": truncated}
+    return {
+        "items": public_encode(items),
+        "truncated": truncated,
+        "nextOffset": offset + len(items) if truncated else None,
+    }
 
 
 @router.post("/access-requests", status_code=status.HTTP_201_CREATED)

@@ -503,7 +503,6 @@ object QuestionnaireCopy {
         "inbox.noOtherTake" to "The other take could not be found. Open the session to decide.",
         "sessions.search" to "Search sessions",
         "sessions.loadMore" to "Load more",
-        "sessions.capped" to "Showing the first results. Narrow the search to see more.",
         "artisan.new" to "+ New artisan",
         "artisan.name" to "Name",
         "artisan.place" to "Village or town",

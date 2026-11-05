@@ -124,6 +124,7 @@ export type PointRecordsResponse = {
   items: PointRecord[];
   total: number;
   truncated: boolean;
+  nextOffset?: number | null;
 };
 
 export const RECORD_HREF: Record<RecordType, (id: string) => string> = {

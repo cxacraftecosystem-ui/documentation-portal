@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 
 import {
   chartValue,
+  mergeShareViews,
   dayLabel,
   daysLabel,
   deviceOf,
@@ -168,4 +169,17 @@ test("the lang query picks the page's language and old links stay English", () =
   expect(shareLabels(null).expired).toBe(SHARE_LABELS_EN.expired);
   expect(shareLabels({ locale: "hi", labels: { tryAgain: "x" } }).tryAgain).toBe("x");
   expect(shareLabels({ locale: "hi" }).opening).toBe(SHARE_LABELS_HI.opening);
+});
+
+test("older opens page in until the last one, and an ended link is never cut from the list", () => {
+  const view = (n: number) => ({ id: `v${n}`, openedAt: "2026-11-05T10:00:00Z", viewer: null, visitor: null, userAgent: null });
+  const first = { items: Array.from({ length: 500 }, (_, i) => view(i)), total: 531, truncated: true };
+  const merged = mergeShareViews(first, { items: Array.from({ length: 31 }, (_, i) => view(500 + i)), total: 531, truncated: false });
+  expect(merged.items).toHaveLength(531);
+  expect(merged.items.at(-1)?.id).toBe("v530");
+  expect(merged.truncated).toBe(false);
+  expect(mergeShareViews(first, { items: [], total: 531, truncated: true }).truncated).toBe(false);
+  const source = readFileSync(join(__dirname, "..", "components", "dataExplorer", "ReportShareControls.tsx"), "utf8");
+  expect(source).not.toContain(".slice(0, 5)");
+  expect(source).toContain("Show older");
 });

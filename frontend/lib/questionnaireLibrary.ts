@@ -321,12 +321,13 @@ export type FormSession = {
 };
 
 export const formSessions = {
-  list: (questionnaireId: string | null, deleted = false, filters: Filters = {}) =>
+  list: (questionnaireId: string | null, deleted = false, filters: Filters = {}, cursor: string | null = null) =>
     apiFetch<{ items: FormSession[]; nextCursor: string | null }>(
       `/questionnaire/sessions${buildQuery({
         ...filtersAsParams(filters),
         questionnaireId: questionnaireId ?? undefined,
         deleted: deleted ? "true" : undefined,
+        cursor: cursor ?? undefined,
         limit: 50
       })}`
     ),

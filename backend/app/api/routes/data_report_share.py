@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials
 
@@ -157,19 +157,26 @@ async def revoke_share(share_id: str, current_user: Any = Depends(require_datase
 
 
 @router.get("/data/report/shares/{share_id}/views")
-async def share_views(share_id: str, current_user: Any = Depends(require_dataset_downloader)) -> dict[str, Any]:
+async def share_views(
+    share_id: str,
+    offset: int = Query(0, ge=0),
+    current_user: Any = Depends(require_dataset_downloader),
+) -> dict[str, Any]:
     await _owned(share_id, str(current_user.id))
+    offset = offset if isinstance(offset, int) else 0
     total = await db.datareportshareview.count(where={"shareId": share_id})
     rows = await db.datareportshareview.find_many(
         where={"shareId": share_id},
         include={"viewer": True},
-        order={"openedAt": "desc"},
+        order=[{"openedAt": "desc"}, {"id": "asc"}],
+        skip=offset,
         take=share_links.VIEWS_LIST_MAX,
     )
     return {
         "items": [share_links.view_out(r) for r in rows],
         "total": total,
-        "truncated": total > len(rows),
+        "offset": offset,
+        "truncated": total > offset + len(rows),
     }
 
 

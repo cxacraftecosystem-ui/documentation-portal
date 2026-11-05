@@ -62,8 +62,10 @@ export type MergeCandidate = {
   merge: { id: string; name: string; place: string | null };
 };
 
-export function fetchMergeCandidates() {
-  return apiFetch<{ items: MergeCandidate[]; truncated: boolean }>("/artisans/merge/candidates");
+export function fetchMergeCandidates(offset = 0) {
+  return apiFetch<{ items: MergeCandidate[]; truncated: boolean; nextOffset?: number | null }>(
+    `/artisans/merge/candidates${offset > 0 ? `?offset=${offset}` : ""}`
+  );
 }
 
 export function fetchMergePreview(keepId: string, mergeId: string) {

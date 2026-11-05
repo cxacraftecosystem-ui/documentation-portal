@@ -4,7 +4,7 @@ import { ExternalLink, FolderOpen, Loader2, Play, Search, X } from "lucide-react
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
-import type { PreviewTarget } from "@/components/dataExplorer/DataExplorer";
+import type { PreviewTarget, SearchAsk } from "@/components/dataExplorer/DataExplorer";
 import { LoadFailed } from "@/components/dataExplorer/explorerUi";
 import { ActionGroup } from "@/components/ui/ActionGroup";
 import { SearchableMultiSelect, SearchableSelect, type SelectOption } from "@/components/ui/SearchableSelect";
@@ -23,14 +23,13 @@ import {
   type UnifiedType
 } from "@/lib/unifiedSearch";
 import { OpenableBlock } from "@/components/records/OpenableRow";
-import { activeFilters, clock, EMPTY_STATE, flattenGroups, legacyRows, portalCounts, rangeBounds, type DateRange, type LegacyResult, type Row, type Scope, type SearchState } from "@/lib/dataSearch";
+import { activeFilters, ALL_LIMIT, clock, EMPTY_STATE, flattenGroups, hasMore, LEGACY_PAGE, legacyRows, legacyTotals, mergeRows, moreLabel, portalCounts, rangeBounds, rowKey, sections, showAllLabel, TYPE_LIMIT, unifiedTotals, type DateRange, type GroupTotal, type LegacyResult, type Row, type Scope, type SearchState } from "@/lib/dataSearch";
 import { workshopDisplayTitle } from "@/lib/workshopTitle";
 
-export const PAGE_STEP = 20;
-const FIRST_LIMIT = 5;
+export const PAGE_STEP = TYPE_LIMIT;
 const OPTION_PAGE = 80;
 
-type Answer = { key: string; data: UnifiedResponse | null; rows: Row[]; legacy: boolean; error: string | null };
+type Answer = { key: string; data: UnifiedResponse | null; groups: GroupTotal[]; rows: Row[]; legacy: boolean; error: string | null; page: number; more: boolean };
 
 const RANGE_OPTIONS: { value: DateRange; label: string }[] = [
   { value: "any", label: "Any date" },
@@ -162,14 +161,11 @@ function useOptions(endpoint: string, map: (row: never) => SelectOption) {
   return { options, onSearch: setTerm, pending, truncated };
 }
 
-export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: string) => void; onPreview: (target: PreviewTarget) => void }) {
+export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal: (path: string) => void; onPreview: (target: PreviewTarget) => void; ask?: SearchAsk | null }) {
   const [draft, setDraft] = useState("");
   const [state, setState] = useState<SearchState>(EMPTY_STATE);
   const [focus, setFocus] = useState<UnifiedType | null>(null);
-  const [limit, setLimit] = useState(FIRST_LIMIT);
-  const [pages, setPages] = useState(1);
   const [answer, setAnswer] = useState<Answer | null>(null);
-  const [extra, setExtra] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [locating, setLocating] = useState<string | null>(null);
@@ -195,13 +191,21 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
   }, []);
 
   useEffect(() => {
+    if (!ask) return;
+    setDraft(ask.q);
+    setFocus(null);
+    setState((previous) => ({ ...previous, q: ask.q }));
+    inputRef.current?.focus();
+  }, [ask]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => setState((previous) => (previous.q === draft ? previous : { ...previous, q: draft })), 300);
     return () => window.clearTimeout(timer);
   }, [draft]);
 
   const q = state.q.trim();
   const types = useMemo(() => (state.transcriptOnly ? (["transcripts"] as UnifiedType[]) : state.types), [state.transcriptOnly, state.types]);
-  const key = JSON.stringify([q, state.scope, state.workshopIds, state.artisanId, state.craftId, types, state.range, focus, limit, attempt]);
+  const key = JSON.stringify([q, state.scope, state.workshopIds, state.artisanId, state.craftId, types, state.range, focus, attempt]);
 
   useEffect(() => {
     if (q.length < 2) {
@@ -211,15 +215,13 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
     }
     let cancelled = false;
     setLoading(true);
-    setExtra([]);
-    setPages(1);
     const query = {
       q,
       scope: state.scope,
       types: types.length ? types : undefined,
       type: focus ?? undefined,
-      page: focus ? 1 : undefined,
-      limit: focus ? PAGE_STEP : limit,
+      page: 1,
+      limit: focus ? TYPE_LIMIT : ALL_LIMIT,
       craftId: state.craftId || undefined,
       workshopIds: state.workshopIds.length ? state.workshopIds.join(",") : undefined,
       ...rangeBounds(state.range)
@@ -240,14 +242,19 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
       .then(async (outcome) => {
         if (cancelled) return;
         if (outcome.kind === "unified") {
-          setAnswer({ key, data: outcome.data, rows: flattenGroups(outcome.data, focus), legacy: false, error: null });
+          const groups = unifiedTotals(outcome.data);
+          const rows = mergeRows([], flattenGroups(outcome.data, focus));
+          setAnswer({ key, data: outcome.data, groups, rows, legacy: false, error: null, page: 1, more: hasMore(focus, groups, rows, true) });
           return;
         }
-        const legacy = await apiFetch<LegacyResult>(`/search${buildQuery({ q, page: 1, pageSize: focus ? PAGE_STEP : 8, craftId: state.craftId || undefined, artisanId: state.artisanId || undefined, ...rangeBounds(state.range) })}`);
-        if (!cancelled) setAnswer({ key, data: null, rows: legacyRows(legacy), legacy: true, error: null });
+        const legacy = await apiFetch<LegacyResult>(`/search${buildQuery({ q, page: 1, pageSize: LEGACY_PAGE, types: focus ?? undefined, craftId: state.craftId || undefined, artisanId: state.artisanId || undefined, ...rangeBounds(state.range) })}`);
+        if (cancelled) return;
+        const groups = legacyTotals(legacy);
+        const rows = mergeRows([], legacyRows(legacy));
+        setAnswer({ key, data: null, groups, rows, legacy: true, error: null, page: 1, more: hasMore(focus, groups, rows, true) });
       })
       .catch((error) => {
-        if (!cancelled) setAnswer({ key, data: null, rows: [], legacy: false, error: error instanceof Error && error.message ? error.message : "Search didn't answer." });
+        if (!cancelled) setAnswer({ key, data: null, groups: [], rows: [], legacy: false, error: error instanceof Error && error.message ? error.message : "Search didn't answer.", page: 1, more: false });
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -255,23 +262,33 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
     return () => {
       cancelled = true;
     };
-  }, [key, q, state.scope, state.workshopIds, state.artisanId, state.craftId, state.range, types, focus, limit]);
+  }, [key, q, state.scope, state.workshopIds, state.artisanId, state.craftId, state.range, types, focus]);
 
   const more = useCallback(async () => {
-    if (!focus || !answer?.data) return;
-    const next = pages + 1;
+    if (!answer || answer.error || !answer.more) return;
+    const next = answer.page + 1;
     setLoading(true);
     try {
-      const path = `/search/unified${buildQuery({ q, type: focus, page: next, limit: PAGE_STEP, scope: state.scope === "local" ? "local" : undefined, craftId: state.craftId || undefined, workshopIds: state.workshopIds.join(",") || undefined, artisanIds: state.artisanId || undefined, ...rangeBounds(state.range) })}`;
-      const data = await apiFetch<UnifiedResponse>(path);
-      setExtra((previous) => [...previous, ...flattenGroups(data, focus)]);
-      setPages(next);
+      let fresh: Row[];
+      if (answer.legacy) {
+        const legacy = await apiFetch<LegacyResult>(`/search${buildQuery({ q, page: next, pageSize: LEGACY_PAGE, types: focus ?? undefined, craftId: state.craftId || undefined, artisanId: state.artisanId || undefined, ...rangeBounds(state.range) })}`);
+        fresh = legacyRows(legacy);
+      } else {
+        const path = `/search/unified${buildQuery({ q, type: focus ?? undefined, types: !focus && types.length ? types.join(",") : undefined, page: next, limit: focus ? TYPE_LIMIT : ALL_LIMIT, scope: state.scope === "local" ? "local" : undefined, craftId: state.craftId || undefined, workshopIds: state.workshopIds.join(",") || undefined, artisanIds: state.artisanId || undefined, ...rangeBounds(state.range) })}`;
+        const data = await apiFetch<UnifiedResponse>(path);
+        fresh = flattenGroups(data, focus);
+      }
+      setAnswer((previous) => {
+        if (!previous || previous.key !== answer.key) return previous;
+        const rows = mergeRows(previous.rows, fresh);
+        return { ...previous, rows, page: next, more: hasMore(focus, previous.groups, rows, rows.length > previous.rows.length) };
+      });
     } catch {
       setNotice("More results didn't load. Try again.");
     } finally {
       setLoading(false);
     }
-  }, [focus, answer, pages, q, state]);
+  }, [focus, answer, q, state, types]);
 
   const reveal = async (row: Row) => {
     const type = LOCATE_TYPE[row.type];
@@ -296,13 +313,15 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
 
   const shown = answer && answer.key === key ? answer : answer;
   const data = shown?.data ?? null;
-  const rows = [...(shown?.rows ?? []), ...extra];
-  const total = data ? (focus ? (data.groups.find((group) => group.type === focus)?.total ?? 0) : data.groups.reduce((sum, group) => sum + group.total, 0)) : rows.length;
+  const rows = shown?.rows ?? [];
+  const groups = shown?.groups ?? [];
+  const total = groups.length ? (focus ? (groups.find((group) => group.type === focus)?.total ?? rows.length) : groups.reduce((sum, group) => sum + group.total, 0)) : rows.length;
   const remote = data?.remote;
   const canBoth = Boolean(remote && remote.status !== "off" && remote.status !== "notPermitted");
   const filters = activeFilters(state);
   const counts = data && state.scope === "all" ? portalCounts(data) : null;
-  const showMore = data && !shown?.legacy && (focus ? rows.length < total : limit < PAGE_STEP && data.groups.some((group) => group.total > group.items.length));
+  const showMore = Boolean(shown && !shown.error && shown.more);
+  const grouped = focus ? [{ group: null as GroupTotal | null, rows }] : sections(groups, rows);
 
   return (
     <section role="search" aria-label="Search all data" className="grid gap-3">
@@ -460,12 +479,12 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${PORTAL_BADGE.fieldRepository}`}>{PORTAL_SHORT.fieldRepository} {counts.fieldRepository}</span>
                   </>
                 ) : null}
-                {data ? (
+                {groups.length ? (
                   <div role="group" aria-label="Result types" className="flex flex-wrap gap-1.5">
                     <button type="button" aria-pressed={!focus} onClick={() => setFocus(null)} className={`min-h-8 rounded-full px-3 text-xs font-semibold pointer-coarse:min-h-11 ${!focus ? "bg-ink-900 text-card" : "border border-line-200 bg-card text-ink-700"}`}>
-                      All {data.groups.reduce((sum, group) => sum + group.total, 0)}
+                      All {groups.reduce((sum, group) => sum + group.total, 0)}
                     </button>
-                    {data.groups.map((group) => (
+                    {groups.map((group) => (
                       <button
                         key={group.type}
                         type="button"
@@ -480,15 +499,23 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
                 ) : null}
               </div>
               {remote && state.scope === "all" && remote.status === "unavailable" ? <p className="text-sm text-ink-500">{remote.label} results aren&apos;t available right now.</p> : null}
-              <ul className="grid gap-2.5" aria-label="Results">
-                {rows.map((row) => {
+              {grouped.map((section) => (
+              <div key={section.group?.type ?? "all"} className="grid gap-2.5" data-testid={section.group ? `search-group-${section.group.type}` : undefined}>
+              {section.group ? (
+                <h3 className="flex items-baseline justify-between gap-2 pt-1 font-display text-sm font-bold text-ink-900">
+                  <span>{section.group.label}</span>
+                  <span className="text-xs font-semibold text-ink-500">{section.rows.length < section.group.total ? `${section.rows.length} of ${section.group.total.toLocaleString("en-IN")}` : section.group.total.toLocaleString("en-IN")}</span>
+                </h3>
+              ) : null}
+              <ul className="grid gap-2.5" aria-label={section.group ? section.group.label : "Results"}>
+                {section.rows.map((row) => {
                   const tile = TILE[row.type] ?? { tag: "REC", tone: "bg-purple-50 text-purple-800" };
                   const external = !row.local;
                   const openUrl = external ? safeOpenUrl(row.openUrl) : null;
                   const both = Boolean(row.alsoIn);
                   const time = typeof row.startMs === "number" ? clock(row.startMs) : null;
                   return (
-                    <ResultCard key={`${row.portal}:${row.type}:${row.id}`} href={external ? openUrl : row.href} external={external} className="panel flex flex-wrap gap-3.5 p-4 sm:flex-nowrap">
+                    <ResultCard key={rowKey(row)} href={external ? openUrl : row.href} external={external} className="panel flex flex-wrap gap-3.5 p-4 sm:flex-nowrap">
                       <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-md text-[11px] font-bold ${row.type === "transcripts" && row.mediaType === "VIDEO" ? "bg-purple-100 text-purple-800" : tile.tone}`} aria-hidden>
                         {row.type === "transcripts" && row.mediaType === "VIDEO" ? "VID" : tile.tag}
                       </span>
@@ -552,10 +579,19 @@ export function DataSearchPanel({ onReveal, onPreview }: { onReveal: (path: stri
                   );
                 })}
               </ul>
+              {section.group && section.rows.length < section.group.total ? (
+                <ActionGroup>
+                  <button type="button" className="field-button-secondary min-h-11" data-testid={`search-all-${section.group.type}`} onClick={() => setFocus(section.group!.type)}>
+                    {showAllLabel(section.group)}
+                  </button>
+                </ActionGroup>
+              ) : null}
+              </div>
+              ))}
               {showMore ? (
                 <ActionGroup>
-                  <button type="button" className="field-button-secondary min-h-11" disabled={loading} onClick={() => (focus ? void more() : setLimit(PAGE_STEP))}>
-                    {loading ? "Loading…" : "Show 20 more"}
+                  <button type="button" className="field-button min-h-11" data-testid="search-more" disabled={loading} onClick={() => void more()}>
+                    {loading ? "Loading…" : moreLabel(focus, groups, rows)}
                   </button>
                 </ActionGroup>
               ) : null}

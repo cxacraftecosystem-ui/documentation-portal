@@ -439,7 +439,7 @@ internal data class SearchRow(
     val date: String?
 )
 
-private data class SearchBucket(
+internal data class SearchBucket(
     val recordType: String,
     val title: String,
     val total: Int,
@@ -450,7 +450,7 @@ private fun SearchResultsDto.totalsReported(): Boolean =
     total > 0 || totals.artisans > 0 || totals.workshops > 0 || totals.products > 0 ||
         totals.tools > 0 || totals.media > 0
 
-private fun SearchResultsDto.toSearchBuckets(): List<SearchBucket> {
+internal fun SearchResultsDto.toSearchBuckets(): List<SearchBucket> {
     val reported = totalsReported()
     fun total(counted: Int, rows: Int) = if (reported) counted else rows
 
@@ -526,6 +526,9 @@ internal const val QUICK_SEARCH_LIMIT = 8
 
 internal const val QUICK_SEARCH_MIN_CHARS = 2
 
+internal fun quickSearchRuns(filters: SearchFilters, browse: Boolean): Boolean =
+    browse || filters.query.trim().length >= QUICK_SEARCH_MIN_CHARS || filters.hasFilters
+
 @Stable
 internal class QuickSearchState(private val repository: FieldRepository) {
     var hits by mutableStateOf<List<SearchRow>>(emptyList())
@@ -593,12 +596,13 @@ internal class QuickSearchState(private val repository: FieldRepository) {
 internal fun rememberQuickSearch(
     repository: FieldRepository,
     filters: SearchFilters,
-    limit: Int = QUICK_SEARCH_LIMIT
+    limit: Int = QUICK_SEARCH_LIMIT,
+    browse: Boolean = false
 ): QuickSearchState {
     val state = remember(repository) { QuickSearchState(repository) }
     val request = remember(filters) { filters.copy(query = filters.query.trim(), place = filters.place.trim()) }
-    LaunchedEffect(state, request, limit) {
-        if (request.query.length < QUICK_SEARCH_MIN_CHARS && !request.hasFilters) {
+    LaunchedEffect(state, request, limit, browse) {
+        if (!quickSearchRuns(request, browse)) {
             state.reset()
             return@LaunchedEffect
         }

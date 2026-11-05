@@ -26,10 +26,10 @@ export function fetchMapPoints(query: MapQuery, signal?: AbortSignal) {
   return apiFetch<MapPointsResponse>(`/map/points${buildQuery(params(query))}`, { signal });
 }
 
-export function fetchPointRecords(pointKey: string, query: MapQuery, signal?: AbortSignal) {
+export function fetchPointRecords(pointKey: string, query: MapQuery, signal?: AbortSignal, offset = 0) {
   const { focusType: _focusType, focusId: _focusId, ...rest } = params(query);
   return apiFetch<PointRecordsResponse>(
-    `/map/points/${encodeURIComponent(pointKey)}/records${buildQuery(rest)}`,
+    `/map/points/${encodeURIComponent(pointKey)}/records${buildQuery({ ...rest, offset: offset || undefined })}`,
     { signal }
   );
 }

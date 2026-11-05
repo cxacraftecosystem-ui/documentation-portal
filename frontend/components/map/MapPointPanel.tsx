@@ -21,7 +21,27 @@ export function MapPointPanel({
 }) {
   const [items, setItems] = useState<PointRecord[] | null>(null);
   const [truncated, setTruncated] = useState(false);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function more() {
+    if (nextOffset === null) return;
+    setLoadingMore(true);
+    try {
+      const result = await fetchPointRecords(point.key, query, undefined, nextOffset);
+      setItems((current) => {
+        const seen = new Set((current ?? []).map((item) => `${item.type}:${item.id}`));
+        return [...(current ?? []), ...result.items.filter((item) => !seen.has(`${item.type}:${item.id}`))];
+      });
+      setTruncated(result.truncated);
+      setNextOffset(result.truncated ? (result.nextOffset ?? null) : null);
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "These records could not be loaded.");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -31,6 +51,7 @@ export function MapPointPanel({
       .then((result) => {
         setItems(result.items);
         setTruncated(result.truncated);
+        setNextOffset(result.truncated ? (result.nextOffset ?? null) : null);
       })
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
@@ -42,6 +63,7 @@ export function MapPointPanel({
 
   const browseHref = `/search${buildQuery({
     ...filtersToLinkParams(query.filters),
+    q: query.q || undefined,
     workshopIds: query.workshopIds,
     place: point.layer === "ORIGIN" ? point.places?.[0] : undefined
   })}`;
@@ -114,10 +136,18 @@ export function MapPointPanel({
               </li>
             ))}
           </ul>
-          {truncated ? (
-            <p className="mt-2 text-[11px] text-ink-500">
-              Most recent of each type.
-            </p>
+          {truncated && nextOffset !== null ? (
+            <button
+              type="button"
+              className="field-button-secondary mt-2 min-h-9 px-3 text-xs"
+              data-testid="map-point-more"
+              disabled={loadingMore}
+              onClick={() => void more()}
+            >
+              {loadingMore ? "Loading…" : "Show more"}
+            </button>
+          ) : truncated ? (
+            <p className="mt-2 text-[11px] text-ink-500">Most recent of each type.</p>
           ) : null}
         </>
       )}

@@ -228,13 +228,14 @@ export type FolderTranscript = {
   snippet?: string | null;
 };
 
-export type FolderTranscripts = { items: FolderTranscript[]; total: number; truncated: boolean; query: string | null };
+export type FolderTranscripts = { items: FolderTranscript[]; total: number; truncated: boolean; query: string | null; nextOffset?: number | null };
 
-export async function fetchFolderTranscripts(path: string, q: string, extra: QueryParams, signal?: AbortSignal): Promise<FolderTranscripts | null> {
+export async function fetchFolderTranscripts(path: string, q: string, extra: QueryParams, signal?: AbortSignal, offset = 0): Promise<FolderTranscripts | null> {
   try {
-    const answer = await apiFetch<Partial<FolderTranscripts>>(`/data/transcripts/list${buildQuery({ path, q: q.trim() || undefined, ...extra })}`, { signal });
+    const answer = await apiFetch<Partial<FolderTranscripts>>(`/data/transcripts/list${buildQuery({ path, q: q.trim() || undefined, ...extra, offset: offset || undefined })}`, { signal });
     const items = Array.isArray(answer.items) ? answer.items : [];
-    return { items, total: typeof answer.total === "number" ? answer.total : items.length, truncated: Boolean(answer.truncated), query: answer.query ?? null };
+    const nextOffset = typeof answer.nextOffset === "number" && answer.nextOffset > offset ? answer.nextOffset : null;
+    return { items, total: typeof answer.total === "number" ? answer.total : items.length, truncated: Boolean(answer.truncated), query: answer.query ?? null, nextOffset };
   } catch (error) {
     if (error instanceof ApiError && (error.status === 404 || error.status === 405)) return null;
     throw error;

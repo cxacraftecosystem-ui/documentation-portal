@@ -22,8 +22,10 @@ class MergeRequest(BaseModel):
 
 
 @router.get("/candidates")
-async def candidates(_: Any = Depends(require_content_admin)) -> dict[str, Any]:
-    return await merge_candidates()
+async def candidates(
+    offset: int = Query(0, ge=0), _: Any = Depends(require_content_admin)
+) -> dict[str, Any]:
+    return await merge_candidates(offset=offset if isinstance(offset, int) else 0)
 
 
 @router.get("/preview")

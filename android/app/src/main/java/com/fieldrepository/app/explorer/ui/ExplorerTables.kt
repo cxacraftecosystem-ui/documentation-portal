@@ -60,6 +60,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonElement
 
 sealed interface TablesLoad {
     data object Idle : TablesLoad
@@ -90,6 +91,8 @@ object ExplorerTablesMemory {
 
 const val TABLE_PREVIEW_ROWS = 20
 
+const val TABLE_MORE_ROWS = 50
+
 @Stable
 class ExplorerTablesState(
     private val api: ExplorerApi,
@@ -113,11 +116,26 @@ class ExplorerTablesState(
         private set
     var sheetName by mutableStateOf<String?>(null)
         private set
+    var shown by mutableStateOf(TABLE_PREVIEW_ROWS)
+        private set
+    var loadingRows by mutableStateOf(false)
+        private set
+    var rowsFailed by mutableStateOf(false)
+        private set
 
     var requests = 0
         private set
 
     private var job: Job? = null
+    private var rowsJob: Job? = null
+
+    private fun rewind() {
+        rowsJob?.cancel()
+        rowsJob = null
+        shown = TABLE_PREVIEW_ROWS
+        loadingRows = false
+        rowsFailed = false
+    }
 
     val ready: TablesLoad.Ready? get() = load as? TablesLoad.Ready
 
@@ -126,6 +144,7 @@ class ExplorerTablesState(
         if (target != path) {
             query = ""
             sheetName = null
+            rewind()
         }
         path = target
         fetch(immediate = true)
@@ -134,17 +153,59 @@ class ExplorerTablesState(
     fun search(text: String) {
         if (text == query) return
         query = text
+        rewind()
         fetch(immediate = false)
     }
 
     fun pick(sheet: String) {
+        if (sheet != sheetName) rewind()
         sheetName = sheet
+    }
+
+    fun more(sheet: ExplorerSheet) {
+        val now = ready ?: return
+        val searching = now.query.isNotBlank()
+        val next = shown + TABLE_MORE_ROWS
+        val loaded = dataRows(sheet)
+        if (next <= loaded || !serverHasMore(sheet, searching)) {
+            shown = next
+            return
+        }
+        if (rowsJob?.isActive == true) return
+        val at = now.path
+        val words = now.query
+        val name = sheet.name
+        rowsFailed = false
+        loadingRows = true
+        rowsJob = scope.launch {
+            try {
+                val page = withBusyRetry { api.reportJson(at, words.trim().ifBlank { null }, sheet = name, offset = loaded) }
+                val fresh = page.sheets.firstOrNull { it.name == name }
+                val current = ready
+                if (fresh == null || fresh.offset != loaded) {
+                    rowsFailed = true
+                } else if (current != null && current.path == at && current.query == words) {
+                    val merged = current.report.copy(sheets = current.report.sheets.map { if (it.name == name) joined(it, fresh) else it })
+                    ExplorerTablesMemory.put(ExplorerTablesMemory.key(owner, at, words), merged)
+                    load = TablesLoad.Ready(merged, at, words)
+                    shown = next
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                rowsFailed = true
+            } finally {
+                loadingRows = false
+                busySeconds = null
+            }
+        }
     }
 
     fun retry() = fetch(immediate = true)
 
     fun reload() {
         val at = path ?: return
+        rewind()
         ExplorerTablesMemory.forget(owner, at)
         fetch(immediate = true)
     }
@@ -155,6 +216,7 @@ class ExplorerTablesState(
         path = null
         query = ""
         sheetName = null
+        rewind()
         load = TablesLoad.Idle
         refreshing = false
         busySeconds = null
@@ -234,6 +296,37 @@ class ExplorerTablesState(
 
         fun count(sheet: ExplorerSheet, searching: Boolean): Int =
             if (searching) sheet.matchedRows ?: sheet.rows.size else sheet.totalRows ?: sheet.rows.size
+
+        fun dataRows(sheet: ExplorerSheet): Int = sheet.rowNumbers?.let { numbers -> sheet.rows.indices.count { numbers.getOrNull(it) != 0 } } ?: sheet.rows.size
+
+        fun serverHasMore(sheet: ExplorerSheet, searching: Boolean): Boolean {
+            val loaded = dataRows(sheet)
+            val known = if (searching) sheet.matchedRows else sheet.totalRows
+            return if (known != null) known > loaded else sheet.preview && loaded > 0
+        }
+
+        fun window(sheet: ExplorerSheet, searching: Boolean, shown: Int): List<Pair<List<JsonElement>, Int?>> {
+            val numbers = sheet.rowNumbers
+            val paired = sheet.rows.mapIndexed { index, row -> row to numbers?.getOrNull(index) }
+            val rows = if (serverHasMore(sheet, searching)) paired.filter { it.second != 0 } else paired
+            return rows.take(shown)
+        }
+
+        fun canShowMore(sheet: ExplorerSheet, searching: Boolean, shown: Int): Boolean =
+            shown < sheet.rows.size || serverHasMore(sheet, searching)
+
+        fun joined(old: ExplorerSheet, fresh: ExplorerSheet): ExplorerSheet {
+            val numbers = old.rowNumbers
+            val incomingNumbers = fresh.rowNumbers
+            val keep = if (numbers == null) old.rows.indices.toList() else old.rows.indices.filter { numbers.getOrNull(it) != 0 }
+            val seen = keep.mapNotNull { numbers?.getOrNull(it) }.toHashSet()
+            val incoming = fresh.rows.indices.filter { i -> incomingNumbers?.getOrNull(i)?.let { it == 0 || it !in seen } ?: true }
+            return fresh.copy(
+                rows = keep.map { old.rows[it] } + incoming.map { fresh.rows[it] },
+                rowNumbers = if (numbers == null || incomingNumbers == null) null else keep.map { numbers[it] } + incoming.map { incomingNumbers[it] },
+                offset = 0,
+            )
+        }
     }
 }
 
@@ -299,15 +392,25 @@ internal fun ExplorerTables(
                 if (now.report.sheets.isEmpty() || sheet == null) {
                     HintLine(ExplorerText.noRows)
                 } else {
-                    val rows = sheet.rows.take(TABLE_PREVIEW_ROWS)
                     val words = now.query.trim()
-                    if (rows.isEmpty()) HintLine(if (words.isNotBlank()) ExplorerText.matches(0, sheet.totalRows ?: 0) else ExplorerText.noRows)
-                    rows.forEachIndexed { index, row ->
-                        RowCard(sheet.headers, row, words, sheet.rowNumbers?.getOrNull(index) ?: if (words.isBlank()) index + 1 else null, "${sheet.name}.$index")
+                    val searchingRows = words.isNotBlank()
+                    val rows = ExplorerTablesState.window(sheet, searchingRows, state.shown)
+                    if (rows.isEmpty()) HintLine(if (searchingRows) ExplorerText.matches(0, sheet.totalRows ?: 0) else ExplorerText.noRows)
+                    rows.forEachIndexed { index, (row, number) ->
+                        RowCard(sheet.headers, row, words, number ?: if (words.isBlank()) index + 1 else null, "${sheet.name}.$index")
                     }
-                    val shown = rows.size
-                    val total = ExplorerTablesState.count(sheet, words.isNotBlank())
-                    if (total > shown) Text(ExplorerUiText.showingRows(shown, total), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val shown = rows.count { it.second != 0 }
+                    val total = ExplorerTablesState.count(sheet, searchingRows)
+                    if (total > shown) Text(ExplorerUiText.showingRows(shown, total), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("explorer.tables.showing"))
+                    if (ExplorerTablesState.canShowMore(sheet, searchingRows, state.shown)) {
+                        val next = if (total > shown) minOf(TABLE_MORE_ROWS, total - shown) else TABLE_MORE_ROWS
+                        OutlinedButton(
+                            onClick = { state.more(sheet) },
+                            enabled = !state.loadingRows,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("explorer.tables.more"),
+                        ) { Text(if (state.loadingRows) ExplorerUiText.loadingRows else ExplorerUiText.moreRows(next)) }
+                    }
+                    if (state.rowsFailed) HintLine(ExplorerUiText.rowsFailed)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { onCsv(sheet.name) }, enabled = online, modifier = Modifier.weight(1f).heightIn(min = 44.dp).testTag("explorer.csv.${sheet.name}")) {
                             Text(ExplorerUiText.thisTable, maxLines = 1, overflow = TextOverflow.Ellipsis)

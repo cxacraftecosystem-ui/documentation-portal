@@ -62,6 +62,8 @@ export default function AccessRosterPage() {
 
   const [data, setData] = useState<PageResult<AccessRosterEntry> | null>(null);
   const [queue, setQueue] = useState<PageResult<AccessRosterEntry> | null>(null);
+  const [queueDepth, setQueueDepth] = useState(1);
+  const [queueLoading, setQueueLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [applied, setApplied] = useState("");
@@ -117,13 +119,28 @@ export default function AccessRosterPage() {
   const loadQueue = useCallback(async () => {
     if (!permitted) return;
     const mine = ++queueGeneration.current;
+    setQueueLoading(true);
     try {
-      const result = await listAccessRoster({ page: 1, pageSize: PENDING_PAGE_SIZE, status: "PENDING" });
-      if (mine !== queueGeneration.current) return;
-      setQueue(result);
+      const rows: AccessRosterEntry[] = [];
+      const seen = new Set<string>();
+      let last: PageResult<AccessRosterEntry> | null = null;
+      for (let at = 1; at <= queueDepth; at += 1) {
+        const result: PageResult<AccessRosterEntry> = await listAccessRoster({ page: at, pageSize: PENDING_PAGE_SIZE, status: "PENDING" });
+        if (mine !== queueGeneration.current) return;
+        for (const row of result.items) {
+          if (seen.has(row.id)) continue;
+          seen.add(row.id);
+          rows.push(row);
+        }
+        last = result;
+        if (result.items.length < PENDING_PAGE_SIZE) break;
+      }
+      setQueue(last ? { ...last, items: rows } : null);
     } catch {
+    } finally {
+      if (mine === queueGeneration.current) setQueueLoading(false);
     }
-  }, [permitted]);
+  }, [permitted, queueDepth]);
 
   useEffect(() => {
     loadList();
@@ -399,9 +416,20 @@ export default function AccessRosterPage() {
         )}
 
         {queueHidden > 0 ? (
-          <p className="border-t border-line-200 bg-amber-100 px-4 py-2 text-xs leading-5 text-amber-800">
-            Showing {queueRows.length} of {queueTotal}. Filter by “Awaiting approval” to see all.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line-200 px-4 py-2">
+            <p className="text-xs leading-5 text-ink-500">
+              Showing {queueRows.length} of {queueTotal}.
+            </p>
+            <button
+              type="button"
+              className="field-button-secondary min-h-10"
+              data-testid="access-queue-more"
+              disabled={queueLoading}
+              onClick={() => setQueueDepth((depth) => depth + 1)}
+            >
+              {queueLoading ? "Loading…" : `Show ${Math.min(PENDING_PAGE_SIZE, queueHidden)} more`}
+            </button>
+          </div>
         ) : null}
       </section>
 

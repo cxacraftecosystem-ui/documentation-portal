@@ -221,11 +221,11 @@ def merge(
                 continue
             entry["score"] = round(1.0 / (RRF_K + pos), 6)
             ranked.append((-entry["score"], 1, pos, entry))
-        if not ranked:
-            continue
-        ranked.sort(key=lambda r: (r[0], r[1], r[2]))
         local_total = int(local_totals.get(kind, 0))
         remote_total = max(0, int(remote.get("total") or 0) - merged)
+        if not ranked and not local_total + remote_total:
+            continue
+        ranked.sort(key=lambda r: (r[0], r[1], r[2]))
         groups.append(
             {
                 "type": kind,

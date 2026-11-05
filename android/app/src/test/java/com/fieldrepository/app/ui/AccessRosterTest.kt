@@ -65,14 +65,27 @@ class AccessRosterTest {
     }
 
     @Test
-    fun `a truncated queue says so and says where the rest is`() {
-        val notice = accessQueueNotice(shown = 25, total = 62)
-        requireNotNull(notice)
-        assertTrue("the sentence must carry both figures", notice.contains("25") && notice.contains("62"))
-        assertTrue(
-            "a truncation notice that does not say how to reach the rest is only half an admission",
-            notice.contains("Awaiting approval")
-        )
+    fun `a truncated queue says so and offers the next page`() {
+        assertEquals("Showing 25 of 62.", accessQueueNotice(shown = 25, total = 62))
+        assertEquals("Show 25 more", accessQueueMore(shown = 25, total = 62))
+        assertEquals("Show 12 more", accessQueueMore(shown = 50, total = 62))
+    }
+
+    @Test
+    fun `loading every queue page reaches the last request`() = kotlinx.coroutines.runBlocking {
+        val everyone = (1..62).map { "r$it" }
+        val asked = mutableListOf<Int>()
+        val fetch: suspend (Int) -> com.fieldrepository.app.data.PageResponse<String> = { page ->
+            asked += page
+            val rows = everyone.drop((page - 1) * 25).take(25)
+            com.fieldrepository.app.data.PageResponse(rows, total = 62, page = page, pageSize = 25, pages = 3)
+        }
+        assertEquals(25, accessQueuePages(1, fetch).items.size)
+        val all = accessQueuePages(3, fetch)
+        assertEquals(everyone, all.items)
+        assertEquals("r62", all.items.last())
+        assertNull(accessQueueNotice(shown = all.items.size, total = 62))
+        assertEquals(listOf(1, 1, 2, 3), asked)
     }
 
     @Test

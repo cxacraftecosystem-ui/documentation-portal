@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -52,6 +53,8 @@ import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.UserDto
 import com.fieldrepository.app.data.apiErrorMessage
 import kotlinx.coroutines.launch
+import androidx.compose.ui.platform.testTag
+import com.fieldrepository.app.data.PageResponse
 
 private const val ROSTER_PAGE_SIZE = 20
 
@@ -84,6 +87,8 @@ fun AccessRosterScreen(
 
     var queue by remember { mutableStateOf<List<AccessRosterDto>?>(null) }
     var queueTotal by remember { mutableStateOf(0) }
+    var queuePages by remember { mutableStateOf(1) }
+    var queueLoading by remember { mutableStateOf(false) }
     var rows by remember { mutableStateOf<List<AccessRosterDto>?>(null) }
     var rosterTotal by remember { mutableStateOf(0) }
     var rosterPage by remember { mutableStateOf(1) }
@@ -108,8 +113,9 @@ fun AccessRosterScreen(
 
     val roleOptions = remember(user.role) { assignableRoleOptions(user.role) }
 
-    suspend fun reload() {
-        runCatching { repository.accessRoster(page = 1, pageSize = QUEUE_PAGE_SIZE, status = "PENDING") }
+    suspend fun loadQueue() {
+        queueLoading = true
+        runCatching { accessQueuePages(queuePages) { page -> repository.accessRoster(page = page, pageSize = QUEUE_PAGE_SIZE, status = "PENDING") } }
             .onSuccess {
                 queue = it.items
                 queueTotal = it.total
@@ -118,6 +124,11 @@ fun AccessRosterScreen(
             .onFailure {
                 error = it.apiErrorMessage("Unable to load the pending requests")
             }
+        queueLoading = false
+    }
+
+    suspend fun reload() {
+        loadQueue()
         runCatching {
             repository.accessRoster(
                 page = rosterPage,
@@ -246,8 +257,18 @@ fun AccessRosterScreen(
                     }
                 }
 
-                accessQueueNotice(shown = pending?.size ?: 0, total = queueTotal)?.let {
-                    Text(it, color = MaterialTheme.field.warning, style = MaterialTheme.typography.bodySmall)
+                accessQueueNotice(shown = pending?.size ?: 0, total = queueTotal)?.let { line ->
+                    Text(line, color = Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("access-queue-shown"))
+                    OutlinedButton(
+                        onClick = {
+                            queuePages += 1
+                            scope.launch { loadQueue() }
+                        },
+                        enabled = !queueLoading,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("access-queue-more")
+                    ) {
+                        Text(if (queueLoading) "Loading…" else accessQueueMore(shown = pending?.size ?: 0, total = queueTotal))
+                    }
                 }
             }
         }
@@ -675,7 +696,23 @@ fun accessJoinedLabel(joinedAt: String?): String =
 
 fun accessQueueNotice(shown: Int, total: Int): String? {
     if (total <= shown) return null
-    return "Showing $shown of $total. Filter by “Awaiting approval” to see all."
+    return "Showing $shown of $total."
+}
+
+fun accessQueueMore(shown: Int, total: Int): String =
+    "Show ${minOf(QUEUE_PAGE_SIZE, (total - shown).coerceAtLeast(0))} more"
+
+internal suspend fun <T> accessQueuePages(pages: Int, fetch: suspend (Int) -> PageResponse<T>): PageResponse<T> {
+    val first = fetch(1)
+    val rows = first.items.toMutableList()
+    var page = 2
+    while (page <= pages && rows.size < first.total) {
+        val next = fetch(page)
+        if (next.items.isEmpty()) break
+        rows += next.items
+        page += 1
+    }
+    return first.copy(items = rows, page = 1, pageSize = rows.size)
 }
 
 fun accessRosterPageNotice(page: Int, pages: Int, total: Int): String =

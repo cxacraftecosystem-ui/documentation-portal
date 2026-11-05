@@ -68,7 +68,7 @@ export function portalCounts(data: UnifiedResponse, local: Portal = LOCAL_PORTAL
   return out;
 }
 
-export type LegacyResult = { artisans?: Artisan[]; workshops?: Workshop[]; products?: ProductDocumentation[]; tools?: ToolDocumentation[]; media?: MediaFile[] };
+export type LegacyResult = { artisans?: Artisan[]; workshops?: Workshop[]; products?: ProductDocumentation[]; tools?: ToolDocumentation[]; media?: MediaFile[]; totals?: Partial<Record<string, number>> };
 
 export function legacyRows(result: LegacyResult): Row[] {
   const base = { portal: LOCAL_PORTAL, local: true, snippet: "", highlights: [] as number[][] };
@@ -81,3 +81,59 @@ export function legacyRows(result: LegacyResult): Row[] {
   ];
 }
 
+
+export const ALL_LIMIT = 5;
+
+export const TYPE_LIMIT = 20;
+
+export const LEGACY_PAGE = 20;
+
+export function rowKey(row: Row): string {
+  return `${row.portal}:${row.type}:${row.id}`;
+}
+
+export function mergeRows(previous: Row[], next: Row[]): Row[] {
+  const seen = new Set(previous.map(rowKey));
+  return [...previous, ...next.filter((row) => !seen.has(rowKey(row)) && seen.add(rowKey(row)))];
+}
+
+export type GroupTotal = { type: UnifiedType; label: string; total: number };
+
+export function unifiedTotals(data: UnifiedResponse): GroupTotal[] {
+  return data.groups.map((group) => ({ type: group.type, label: group.label, total: group.total }));
+}
+
+const LEGACY_LABELS: [UnifiedType, string][] = [
+  ["artisans", "Artisans"],
+  ["workshops", "Workshops"],
+  ["products", "Products"],
+  ["tools", "Tools"],
+  ["media", "Media"]
+];
+
+export function legacyTotals(result: LegacyResult): GroupTotal[] {
+  const rows = legacyRows(result);
+  return LEGACY_LABELS.map(([type, label]) => ({ type, label, total: Math.max(result.totals?.[type] ?? 0, rows.filter((row) => row.type === type).length) })).filter((group) => group.total > 0);
+}
+
+export function remainingIn(group: GroupTotal, rows: Row[]): number {
+  return Math.max(0, group.total - rows.filter((row) => row.type === group.type).length);
+}
+
+export function hasMore(focus: UnifiedType | null, groups: GroupTotal[], rows: Row[], progressed: boolean): boolean {
+  return progressed && groups.filter((group) => !focus || group.type === focus).some((group) => remainingIn(group, rows) > 0);
+}
+
+export function sections(groups: GroupTotal[], rows: Row[]): { group: GroupTotal; rows: Row[] }[] {
+  return groups.map((group) => ({ group, rows: rows.filter((row) => row.type === group.type) })).filter((section) => section.rows.length > 0);
+}
+
+export function moreLabel(focus: UnifiedType | null, groups: GroupTotal[], rows: Row[]): string {
+  if (!focus) return "Load more";
+  const left = groups.filter((group) => group.type === focus).reduce((sum, group) => sum + remainingIn(group, rows), 0);
+  return `Show ${Math.min(TYPE_LIMIT, left)} more`;
+}
+
+export function showAllLabel(group: GroupTotal): string {
+  return `Show all ${group.total.toLocaleString("en-IN")} ${group.label.toLowerCase()}`;
+}

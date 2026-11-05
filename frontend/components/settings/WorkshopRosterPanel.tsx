@@ -21,7 +21,8 @@ import {
 } from "@/components/settings/workshopAccess";
 import { ComboBox, Dropdown, MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
-import { apiFetch, listResource } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
+import { listAllPages } from "@/lib/listAllPages";
 import { formatDateTime } from "@/lib/format";
 import { roleLabel } from "@/lib/permissions";
 import type { User, Workshop } from "@/lib/types";
@@ -46,7 +47,7 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
   const [grantNote, setGrantNote] = useState("");
 
   useEffect(() => {
-    listResource<Workshop>("/workshops", { pageSize: 100 })
+    listAllPages<Workshop>("/workshops", { pageSize: 100 })
       .then((result) => {
         const sorted = sortWorkshopsByOccurrence(result.items);
         setWorkshops(sorted);

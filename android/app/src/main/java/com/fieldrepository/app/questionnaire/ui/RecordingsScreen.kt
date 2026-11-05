@@ -127,11 +127,18 @@ fun FormSessionsList(
     val applied = merged(filters, fixed)
     var rows by rememberKept("form-sessions-$questionnaireId.rows") { emptyList<QSession>() }
     var offline by rememberKept("form-sessions-$questionnaireId.offline") { false }
+    var cursor by rememberKept("form-sessions-$questionnaireId.cursor") { null as String? }
     var loading by remember { mutableStateOf(true) }
+    var loadingMore by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     LaunchedEffect(applied) {
         loading = true
         val page = runCatching { v2.sessionsPage(applied, limit = 50) }.getOrNull()
-        if (page != null || rows.isEmpty()) rows = page?.items.orEmpty(); offline = page?.offline == true
+        if (page != null || rows.isEmpty()) {
+            rows = page?.items.orEmpty()
+            cursor = page?.nextCursor
+        }
+        offline = page?.offline == true
         loading = false
     }
     Column(modifier.fillMaxWidth().testTag("form-sessions"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -150,6 +157,19 @@ fun FormSessionsList(
             }
             HorizontalDivider(color = MaterialTheme.field.hairline)
         }
+        val after = cursor
+        if (!loading && after != null) PromptButtons(listOf(PromptButton(QuestionnaireCopy.s("sessions.loadMore"), primary = true) {
+            if (loadingMore) return@PromptButton
+            loadingMore = true
+            scope.launch {
+                runCatching { v2.sessionsPage(applied, after, 50) }.onSuccess { next ->
+                    val seen = rows.map { it.id }.toHashSet()
+                    rows = rows + next.items.filter { it.id !in seen }
+                    cursor = next.nextCursor
+                }
+                loadingMore = false
+            }
+        }))
     }
 }
 

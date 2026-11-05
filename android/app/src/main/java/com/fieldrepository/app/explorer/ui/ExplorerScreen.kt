@@ -1228,7 +1228,16 @@ private fun FolderCard(state: ExplorerState, size: SizeLoad?, visit: ExplorerVis
         }
         val total = state.total
         if (total != null && total > state.entries.size) {
-            Text(ExplorerText.showing(state.entries.size, total), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(ExplorerText.showing(state.entries.size, total), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f).testTag("explorer.showing"))
+                if (state.cursor != null) {
+                    TextButton(
+                        onClick = { state.tab = ExplorerTab.FILES; state.loadMore() },
+                        enabled = !state.loadingMore,
+                        modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.showing.more"),
+                    ) { Text(ExplorerText.loadMore) }
+                }
+            }
         }
         NewSinceChip(visit)
         if (fields.isNotEmpty()) {
