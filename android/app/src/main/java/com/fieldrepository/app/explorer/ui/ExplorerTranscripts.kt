@@ -128,7 +128,7 @@ object ExplorerTranscriptStatus {
         speakers = summary?.speakerCount ?: 0,
         durationMs = summary?.durationMs,
         status = if (summary == null && item.hasText) TranscriptStatus.READY else of(summary?.status),
-        percent = null,
+        percent = summary?.translation?.percent,
         hasText = item.hasText,
     )
 }
