@@ -61,7 +61,7 @@ async function signIn(page: Page): Promise<string> {
 }
 
 export const test = base.extend<{ gate: Gate }>({
-  gate: async ({ page }, use, testInfo) => {
+  gate: async ({ page }, provide, testInfo) => {
     const check = `web-${slug(basename(testInfo.file, ".spec.ts"))}-${slug(testInfo.title)}`;
     const dir = join(OUT, check);
     mkdirSync(dir, { recursive: true });
@@ -95,20 +95,14 @@ export const test = base.extend<{ gate: Gate }>({
         return res.json();
       }
     };
-    let error = "";
-    try {
-      await use(gate);
-    } catch (thrown) {
-      error = thrown instanceof Error ? thrown.message : String(thrown);
-      throw thrown;
-    } finally {
-      if (testInfo.status !== testInfo.expectedStatus && !error) error = testInfo.error?.message ?? "the test failed";
-      const ok = !error && blocked.length === 0 && rows.every((row) => row.ok);
-      writeFileSync(
-        join(dir, "result.json"),
-        `${JSON.stringify({ check, kind: "web", ok, error, blocked, counts, rows }, null, 2)}\n`
-      );
-    }
+    await provide(gate);
+    const error =
+      testInfo.status !== testInfo.expectedStatus ? (testInfo.error?.message ?? "the test failed") : "";
+    const ok = !error && blocked.length === 0 && rows.every((row) => row.ok);
+    writeFileSync(
+      join(dir, "result.json"),
+      `${JSON.stringify({ check, kind: "web", ok, error, blocked, counts, rows }, null, 2)}\n`
+    );
     expect(blocked, "writes the read-only gate blocked").toEqual([]);
     expect(rows.filter((row) => !row.ok), "rows whose actual differs from expected").toEqual([]);
   }
