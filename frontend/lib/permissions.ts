@@ -87,6 +87,10 @@ export function canReview(user: User | null | undefined) {
   return hasRank(user, "FIELD_CONTRIBUTOR") || !!user?.canReview;
 }
 
+export function anySignedIn(user: User | null | undefined) {
+  return !!user;
+}
+
 export function canDownloadDataset(user: User | null | undefined) {
   return hasRank(user, "PROFESSOR") || !!user?.canDownloadDataset;
 }
@@ -186,6 +190,14 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     title: "Dataset access required",
     message:
       "Needs dataset access. Use Search instead."
+  },
+  {
+    path: "/data/go",
+    can: anySignedIn,
+    gate: "get_current_user + the record's own visibility (data_report go routes)",
+    title: "Access required",
+    message:
+      "You need access to this record. Ask its owner or an admin."
   },
   { path: "/artisans/new", ...RECORD_CREATOR_GUARD },
   { path: "/products/new", ...RECORD_CREATOR_GUARD },

@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
 
+from app.services.datareport import i18n
+
 logger = logging.getLogger(__name__)
 
 PDF_MIME = "application/pdf"
@@ -47,6 +49,15 @@ SCRIPTS: tuple[tuple[str, int, int], ...] = (
 COVERAGE_ROWS_MAX = 400
 SECTIONS_PER_GRID = 14
 STATE_LABEL = {"complete": "Done", "partial": "Part", "missing": "None"}
+STATE_KEYS = {"complete": "pdf.state.complete", "partial": "pdf.state.partial", "missing": "pdf.state.missing"}
+MONTHS_HI = ("जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून", "जुलाई", "अगस्त", "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर")
+
+
+def stamp(when: datetime, locale: str, *, zone: bool = False) -> str:
+    tail = f" {when.strftime('%Z')}".rstrip() if zone else ""
+    if locale == "hi":
+        return f"{when.day} {MONTHS_HI[when.month - 1]} {when.year}, {when.strftime('%H:%M')}{tail}"
+    return f"{when.strftime('%d %b %Y, %H:%M')}{tail}"
 STATE_FILL = {"complete": GREEN_SOFT, "partial": AMBER_SOFT, "missing": RED_SOFT}
 STATE_INK = {"complete": GREEN_INK, "partial": AMBER_INK, "missing": RED_INK}
 
@@ -101,6 +112,7 @@ class Summary:
     coverage: list[Coverage] = field(default_factory=list)
     quotes: list[Quote] = field(default_factory=list)
     pack_files: list[tuple[str, str]] = field(default_factory=list)
+    locale: str = "en"
 
 
 @dataclass(frozen=True)
@@ -135,6 +147,12 @@ def _register(name: str, path: Path | None) -> str | None:
         logger.warning("pdf_summary: cannot register %s from %s", name, path, exc_info=True)
         return None
     return name
+
+
+def shaping() -> bool:
+    from reportlab.pdfbase import ttfonts
+
+    return getattr(ttfonts, "uharfbuzz", None) is not None
 
 
 def fonts() -> Fonts:
@@ -175,35 +193,69 @@ def _script_of(ch: str) -> str | None:
     return None
 
 
-def rich(text: Any, *, bold: bool = False) -> str:
+def runs(text: Any) -> list[tuple[str | None, str]]:
     value = "" if text is None else str(text)
-    faces = fonts()
-    out: list[str] = []
+    out: list[tuple[str | None, str]] = []
     run: list[str] = []
     current: str | None = None
-
-    def flush() -> None:
-        if not run:
-            return
-        piece = escape("".join(run)).replace("\n", "<br/>")
-        face = faces.scripts.get(current) if current else None
-        if face is not None:
-            out.append(f'<font name="{face[1] if bold else face[0]}">{piece}</font>')
-        else:
-            out.append(f"<b>{piece}</b>" if bold else piece)
-        run.clear()
-
     for ch in value:
         script = _script_of(ch)
         if script is None and ch in " ,.;:!?'\"()-–—" and current is not None:
             run.append(ch)
             continue
         if script != current:
-            flush()
+            if run:
+                out.append((current, "".join(run)))
+                run = []
             current = script
         run.append(ch)
-    flush()
+    if run:
+        out.append((current, "".join(run)))
+    return out
+
+
+def rich(text: Any, *, bold: bool = False) -> str:
+    faces = fonts()
+    out: list[str] = []
+    for script, chunk in runs(text):
+        piece = escape(chunk).replace("\n", "<br/>")
+        face = faces.scripts.get(script) if script else None
+        if face is not None:
+            out.append(f'<font name="{face[1] if bold else face[0]}">{piece}</font>')
+        else:
+            out.append(f"<b>{piece}</b>" if bold else piece)
     return "".join(out)
+
+
+def _faced(text: str, base: str) -> list[tuple[str, str]]:
+    faces = fonts()
+    bold = base == faces.bold
+    out = []
+    for script, chunk in runs(text):
+        face = faces.scripts.get(script) if script else None
+        out.append(((face[1] if bold else face[0]) if face else base, chunk))
+    return out
+
+
+def text_width(text: str, font: str, size: float) -> float:
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    return sum(stringWidth(chunk, face, size) for face, chunk in _faced(text, font))
+
+
+def draw(c: Any, x: float, y: float, text: str, font: str, size: float, *, right: bool = False) -> None:
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    if right:
+        x -= text_width(text, font, size)
+    shaped = shaping()
+    for face, chunk in _faced(text, font):
+        c.setFont(face, size)
+        if shaped and face != font:
+            c.drawString(x, y, chunk, direction="LTR", shaping=True)
+        else:
+            c.drawString(x, y, chunk)
+        x += stringWidth(chunk, face, size)
 
 
 def human_size(value: int | None) -> str:
@@ -281,15 +333,12 @@ def _flowables() -> Any:
                 c.setFillColor(colors.HexColor(BRAND))
                 c.rect(x, y + 10, 3, self.tile_h - 20, stroke=0, fill=1)
                 c.setFillColor(colors.HexColor(MUTED))
-                c.setFont(faces.regular, 7.5)
-                c.drawString(x + 12, y + self.tile_h - 16, label.upper()[:34])
+                draw(c, x + 12, y + self.tile_h - 16, _clip(c, label.upper(), faces.regular, 7.5, tile_w - 18), faces.regular, 7.5)
                 c.setFillColor(colors.HexColor(BRAND_DEEP))
-                c.setFont(faces.bold, 17)
-                c.drawString(x + 12, y + 20, value[:16])
+                draw(c, x + 12, y + 20, value[:16], faces.bold, 17)
                 if sub:
                     c.setFillColor(colors.HexColor(MUTED))
-                    c.setFont(faces.regular, 7)
-                    c.drawString(x + 12, y + 9, sub[:44])
+                    draw(c, x + 12, y + 9, _clip(c, sub, faces.regular, 7, tile_w - 18), faces.regular, 7)
 
     class Bars(Flowable):
         def __init__(
@@ -322,8 +371,7 @@ def _flowables() -> Any:
             for label, parts, note in self.rows:
                 y -= self.bar_h + self.row_gap
                 c.setFillColor(colors.HexColor(INK))
-                c.setFont(faces.regular, 8.5)
-                c.drawString(0, y + 3.5, _clip(c, label, faces.regular, 8.5, self.label_w - 6))
+                draw(c, 0, y + 3.5, _clip(c, label, faces.regular, 8.5, self.label_w - 6), faces.regular, 8.5)
                 c.setFillColor(colors.HexColor("#F1EDF5"))
                 c.roundRect(self.label_w, y, track, self.bar_h, 3, stroke=0, fill=1)
                 x = self.label_w
@@ -335,30 +383,28 @@ def _flowables() -> Any:
                     c.rect(x, y, w, self.bar_h, stroke=0, fill=1)
                     x += w
                 c.setFillColor(colors.HexColor(MUTED))
-                c.setFont(faces.regular, 8)
-                c.drawRightString(self.box_w, y + 3.5, note)
+                draw(c, self.box_w, y + 3.5, note, faces.regular, 8, right=True)
             if self.legend:
                 x = self.label_w
                 for name, colour in self.legend:
                     c.setFillColor(colors.HexColor(colour))
                     c.rect(x, self.box_h - 9, 8, 8, stroke=0, fill=1)
                     c.setFillColor(colors.HexColor(MUTED))
-                    c.setFont(faces.regular, 7.5)
-                    c.drawString(x + 11, self.box_h - 8, name)
-                    x += 14 + c.stringWidth(name, faces.regular, 7.5) + 12
+                    draw(c, x + 11, self.box_h - 8, name, faces.regular, 7.5)
+                    x += 14 + text_width(name, faces.regular, 7.5) + 12
 
     return Tiles, Bars
 
 
 def _clip(c: Any, text: str, font: str, size: float, width: float) -> str:
-    if c.stringWidth(text, font, size) <= width:
+    if text_width(text, font, size) <= width:
         return text
-    while text and c.stringWidth(text + "…", font, size) > width:
+    while text and text_width(text + "…", font, size) > width:
         text = text[:-1]
     return text + "…"
 
 
-def _numbered_canvas(summary: Summary) -> Any:
+def _numbered_canvas(summary: Summary, t: Any) -> Any:
     from reportlab.lib import colors
     from reportlab.pdfgen import canvas
 
@@ -389,20 +435,17 @@ def _numbered_canvas(summary: Summary) -> Any:
                 self.setLineWidth(1.2)
                 self.line(42, height - 34, width - 42, height - 34)
                 self.setFillColor(colors.HexColor(BRAND))
-                self.setFont(faces.bold, 8)
-                self.drawString(42, height - 28, summary.portal_title)
+                draw(self, 42, height - 28, summary.portal_title, faces.bold, 8)
                 self.setFillColor(colors.HexColor(MUTED))
-                self.setFont(faces.regular, 8)
-                self.drawRightString(width - 42, height - 28, _clip(self, summary.folder, faces.regular, 8, 300))
+                draw(self, width - 42, height - 28, _clip(self, summary.folder, faces.regular, 8, 300), faces.regular, 8, right=True)
             self.setFillColor(colors.HexColor(MUTED))
-            self.setFont(faces.regular, 7.5)
-            self.drawString(42, 26, f"{summary.portal_title} · Report summary")
-            self.drawRightString(width - 42, 26, f"Page {number} of {total}")
+            draw(self, 42, 26, t("pdf.footer", "{portal} · Report summary", portal=summary.portal_title), faces.regular, 7.5)
+            draw(self, width - 42, 26, t("pdf.page", "Page {n} of {total}", n=number, total=total), faces.regular, 7.5, right=True)
 
     return Numbered
 
 
-def _cover(summary: Summary) -> Any:
+def _cover(summary: Summary, t: Any) -> Any:
     from reportlab.lib import colors
 
     faces = fonts()
@@ -416,18 +459,15 @@ def _cover(summary: Summary) -> Any:
         c.setFillColor(colors.HexColor(BRAND_DEEP))
         c.rect(0, height - band, width, 6, stroke=0, fill=1)
         c.setFillColor(colors.HexColor("#E9D8F7"))
-        c.setFont(faces.bold, 10)
-        c.drawString(42, height - 58, summary.portal_title.upper())
+        draw(c, 42, height - 58, summary.portal_title.upper(), faces.bold, 10)
         c.setFillColor(colors.HexColor(PAPER))
-        c.setFont(faces.bold, 30)
-        c.drawString(42, height - 102, "Report summary")
-        c.setFont(faces.regular, 15)
-        c.drawString(42, height - 130, _clip(c, summary.folder, faces.regular, 15, width - 84))
+        draw(c, 42, height - 102, t("pdf.title", "Report summary"), faces.bold, 30)
+        draw(c, 42, height - 130, _clip(c, summary.folder, faces.regular, 15, width - 84), faces.regular, 15)
         c.setFillColor(colors.HexColor("#E9D8F7"))
-        c.setFont(faces.regular, 9)
-        stamp = summary.generated_at.strftime("%d %b %Y, %H:%M")
-        c.drawString(42, height - 158, f"Generated {stamp} by {summary.generated_by}")
-        c.drawString(42, height - 172, f"Data version {summary.data_version}")
+        when = stamp(summary.generated_at, summary.locale)
+        line = t("pdf.generated", "Generated {date} by {name}", date=when, name=summary.generated_by)
+        draw(c, 42, height - 158, line, faces.regular, 9)
+        draw(c, 42, height - 172, t("pdf.dataVersion", "Data version {version}", version=summary.data_version), faces.regular, 9)
         c.restoreState()
 
     return paint
@@ -436,6 +476,7 @@ def _cover(summary: Summary) -> Any:
 def build(summary: Summary) -> bytes:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
     from reportlab.platypus import (
         BaseDocTemplate,
         Frame,
@@ -449,6 +490,7 @@ def build(summary: Summary) -> bytes:
         TableStyle,
     )
 
+    t = i18n.translator(summary.locale)
     styles = _styles()
     Tiles, Bars = _flowables()
     buffer = BytesIO()
@@ -462,22 +504,30 @@ def build(summary: Summary) -> bytes:
         rightMargin=margin,
         topMargin=52,
         bottomMargin=48,
-        title=f"{summary.folder} · Report summary",
+        title=f"{summary.folder} · {t('pdf.title', 'Report summary')}",
         author=summary.generated_by,
-        subject=f"{summary.portal_title} report summary",
+        subject=f"{summary.portal_title} · {t('pdf.title', 'Report summary')}",
         creator=summary.portal_title,
     )
     cover_frame = Frame(margin, 48, text_w, height - 48 - 236, id="cover")
     body_frame = Frame(margin, 48, text_w, height - 48 - 52, id="body")
     doc.addPageTemplates(
         [
-            PageTemplate(id="cover", frames=[cover_frame], onPage=_cover(summary)),
+            PageTemplate(id="cover", frames=[cover_frame], onPage=_cover(summary, t)),
             PageTemplate(id="body", frames=[body_frame]),
         ]
     )
 
+    shaped = shaping()
+    shaped_styles: dict[str, Any] = {}
+
     def p(text: Any, style: str = "body", *, bold: bool = False) -> Any:
-        return Paragraph(rich(text, bold=bold), styles[style])
+        chosen = styles[style]
+        if shaped and any(script for script, _ in runs(text)):
+            if style not in shaped_styles:
+                shaped_styles[style] = ParagraphStyle(f"{style}-shaped", parent=chosen, shaping=1)
+            chosen = shaped_styles[style]
+        return Paragraph(rich(text, bold=bold), chosen)
 
     def table(rows: list[list[Any]], widths: list[float], *, head: bool = True, extra: list[Any] | None = None) -> Any:
         grid = Table(rows, colWidths=widths, repeatRows=1 if head else 0, hAlign="LEFT")
@@ -498,18 +548,22 @@ def build(summary: Summary) -> bytes:
         grid.setStyle(TableStyle(commands + (extra or [])))
         return grid
 
+    states = {key: rich(t(STATE_KEYS[key], label), bold=True) for key, label in STATE_LABEL.items()}
+    tiny = styles["tiny"]
+    if shaped and any(script for value in states.values() for script, _ in runs(value)):
+        tiny = ParagraphStyle("tiny-shaped", parent=tiny, shaping=1)
     story: list[Any] = [NextPageTemplate("body")]
     if summary.kpis:
         story.append(Tiles(summary.kpis, text_w))
         story.append(Spacer(1, 16))
     info = [
-        ("Portal", summary.portal_title),
-        ("Folder", summary.folder),
-        ("Path", summary.path or "Repository"),
+        (t("pdf.portal", "Portal"), summary.portal_title),
+        (t("pdf.folder", "Folder"), summary.folder),
+        (t("pdf.path", "Path"), summary.path or t("pdf.repository", "Repository")),
         *summary.options,
-        ("Generated by", summary.generated_by),
-        ("Generated at", summary.generated_at.strftime("%d %b %Y, %H:%M %Z").strip()),
-        ("Data version", summary.data_version),
+        (t("pdf.generatedBy", "Generated by"), summary.generated_by),
+        (t("pdf.generatedAt", "Generated at"), stamp(summary.generated_at, summary.locale, zone=True)),
+        (t("pdf.dataVersionLabel", "Data version"), summary.data_version),
     ]
     story.append(
         table(
@@ -518,43 +572,52 @@ def build(summary: Summary) -> bytes:
             head=False,
         )
     )
-    contents = ["Charts"]
+    contents = [t("pdf.charts", "Charts")]
     if summary.coverage:
-        contents.append("Coverage")
+        contents.append(t("pdf.coverage", "Coverage"))
     if summary.quotes:
-        contents.append("Quotes")
+        contents.append(t("pdf.quotes", "Quotes"))
     if summary.pack_files:
-        contents.append("In this pack")
-    story += [Spacer(1, 14), p("Contents", "h2")]
+        contents.append(t("pdf.inPack", "In this pack"))
+    story += [Spacer(1, 14), p(t("pdf.contents", "Contents"), "h2")]
     story += [p(f"{n}. {name}") for n, name in enumerate(contents, 1)]
 
-    story += [PageBreak(), p("Charts", "h1")]
-    story.append(p("Media by type", "h2"))
+    story += [PageBreak(), p(t("pdf.charts", "Charts"), "h1")]
+    story.append(p(t("pdf.mediaByType", "Media by type"), "h2"))
     media_rows = [
         (label, [(float(files), BRAND)], f"{files} · {human_size(size)}")
         for label, files, size in summary.media_by_type
     ]
-    story.append(Bars(media_rows, text_w) if media_rows else p("No files in this folder.", "small"))
-    story.append(p("Transcript status", "h2"))
+    story.append(Bars(media_rows, text_w) if media_rows else p(t("pdf.noFiles", "No files in this folder."), "small"))
+    story.append(p(t("pdf.transcriptStatus", "Transcript status"), "h2"))
     status_rows = [(label, [(float(count), colour)], str(count)) for label, count, colour in summary.transcript_status]
-    story.append(Bars(status_rows, text_w) if any(c for _, c, _ in summary.transcript_status) else p("No recordings in this folder.", "small"))
+    story.append(Bars(status_rows, text_w) if any(c for _, c, _ in summary.transcript_status) else p(t("pdf.noRecordings", "No recordings in this folder."), "small"))
     if summary.sections:
-        story.append(p("Completion by section", "h2"))
-        story.append(p("Artisans whose answers cover each questionnaire section fully, partly or not at all.", "small"))
+        story.append(p(t("pdf.completionBySection", "Completion by section"), "h2"))
+        story.append(p(t("pdf.completionNote", "Artisans whose answers cover each questionnaire section fully, partly or not at all."), "small"))
         story.append(Spacer(1, 4))
         section_rows = [
             (
                 bar.label,
                 [(float(bar.complete), GREEN), (float(bar.partial), AMBER), (float(bar.missing), RED)],
-                f"{bar.complete} done · {bar.partial} part · {bar.missing} none",
+                t("pdf.sectionCounts", "{complete} done · {partial} part · {missing} none", complete=bar.complete, partial=bar.partial, missing=bar.missing),
             )
             for bar in summary.sections
         ]
-        story.append(Bars(section_rows, text_w, legend=[("Complete", GREEN), ("Partial", AMBER), ("Missing", RED)]))
+        story.append(Bars(section_rows, text_w, legend=[(t("pdf.legend.complete", "Complete"), GREEN), (t("pdf.legend.partial", "Partial"), AMBER), (t("pdf.legend.missing", "Missing"), RED)]))
 
     for block in summary.coverage:
-        story += [PageBreak(), p(f"Coverage · {block.title}", "h1")]
-        head = [p(h, "cellHead") for h in ("Artisan", "Craft", "Fields filled", "Files", "Transcripts")]
+        story += [PageBreak(), p(t("pdf.coverageTitle", "Coverage · {title}", title=block.title), "h1")]
+        head = [
+            p(h, "cellHead")
+            for h in (
+                t("pdf.head.artisan", "Artisan"),
+                t("pdf.head.craft", "Craft"),
+                t("pdf.head.fieldsFilled", "Fields filled"),
+                t("pdf.head.files", "Files"),
+                t("pdf.head.transcripts", "Transcripts"),
+            )
+        ]
         rows: list[list[Any]] = [head]
         for row in block.rows[:COVERAGE_ROWS_MAX]:
             pct = f"{round(100 * row.filled / row.total)}%" if row.total else "–"
@@ -569,10 +632,10 @@ def build(summary: Summary) -> bytes:
             )
         story.append(table(rows, [text_w * w for w in (0.3, 0.22, 0.2, 0.1, 0.18)]))
         if len(block.rows) > COVERAGE_ROWS_MAX:
-            story.append(p(f"The workbook's coverage sheet lists all {len(block.rows)} artisans.", "small"))
+            story.append(p(t("pdf.coverageCapped", "The workbook's coverage sheet lists all {n} artisans.", n=len(block.rows)), "small"))
         for start in range(0, len(block.sections), SECTIONS_PER_GRID):
             chunk = block.sections[start : start + SECTIONS_PER_GRID]
-            story.append(p("Sections answered" if start == 0 else "Sections answered (continued)", "h2"))
+            story.append(p(t("pdf.sectionsAnswered", "Sections answered") if start == 0 else t("pdf.sectionsAnsweredMore", "Sections answered (continued)"), "h2"))
             legend = [
                 [p(f"{start + n}", "small", bold=True), p(label, "small")]
                 for n, (_key, label) in enumerate(chunk, 1)
@@ -580,13 +643,13 @@ def build(summary: Summary) -> bytes:
             story.append(table(legend, [24, text_w - 24], head=False))
             story.append(Spacer(1, 6))
             name_w = min(text_w - 26.0 * len(chunk), 190.0)
-            grid_rows: list[list[Any]] = [[p("Artisan", "cellHead"), *[p(str(start + n), "cellHead") for n in range(1, len(chunk) + 1)]]]
+            grid_rows: list[list[Any]] = [[p(t("pdf.head.artisan", "Artisan"), "cellHead"), *[p(str(start + n), "cellHead") for n in range(1, len(chunk) + 1)]]]
             fills: list[Any] = []
             for r, row in enumerate(block.rows[:COVERAGE_ROWS_MAX], 1):
                 cells: list[Any] = [p(row.name, "cell")]
                 for c_index in range(len(chunk)):
                     state = row.states[start + c_index] if start + c_index < len(row.states) else "missing"
-                    cells.append(Paragraph(f'<font color="{STATE_INK.get(state, MUTED)}">{STATE_LABEL.get(state, "")}</font>', styles["tiny"]))
+                    cells.append(Paragraph(f'<font color="{STATE_INK.get(state, MUTED)}">{states.get(state, "")}</font>', tiny))
                     fills.append(("BACKGROUND", (c_index + 1, r), (c_index + 1, r), colors.HexColor(STATE_FILL.get(state, PAPER))))
                 grid_rows.append(cells)
             fills += [
@@ -598,8 +661,8 @@ def build(summary: Summary) -> bytes:
             story.append(table(grid_rows, [name_w, *[26.0] * len(chunk)], extra=fills))
 
     if summary.quotes:
-        story += [PageBreak(), p("Quotes", "h1")]
-        story.append(p("Key passages from the transcripts, in the speakers' own words with an English rendering.", "small"))
+        story += [PageBreak(), p(t("pdf.quotes", "Quotes"), "h1")]
+        story.append(p(t("pdf.quotesNote", "Key passages from the transcripts, in the speakers' own words with an English rendering."), "small"))
         story.append(Spacer(1, 8))
         for quote in summary.quotes:
             parts = [p(f"“{quote.original}”", "quote")]
@@ -624,10 +687,10 @@ def build(summary: Summary) -> bytes:
             story += [KeepTogether([card]), Spacer(1, 8)]
 
     if summary.pack_files:
-        story += [PageBreak(), p("In this pack", "h1")]
-        rows = [[p("File", "cellHead"), p("What it holds", "cellHead")]]
+        story += [PageBreak(), p(t("pdf.inPack", "In this pack"), "h1")]
+        rows = [[p(t("pdf.head.file", "File"), "cellHead"), p(t("pdf.head.holds", "What it holds"), "cellHead")]]
         rows += [[p(name, "cell"), p(what, "cell")] for name, what in summary.pack_files]
         story.append(table(rows, [text_w * 0.5, text_w * 0.5]))
 
-    doc.build(story, canvasmaker=_numbered_canvas(summary))
+    doc.build(story, canvasmaker=_numbered_canvas(summary, t))
     return buffer.getvalue()

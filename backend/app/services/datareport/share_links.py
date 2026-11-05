@@ -8,6 +8,8 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
+from app.services.datareport import i18n
+
 DAYS_MIN = 1
 DAYS_MAX = 30
 DAYS_DEFAULT = 7
@@ -20,6 +22,44 @@ TOKEN_LENGTH = 43
 OPTION_KEYS = ("sheets", "answers", "rows", "links", "thumbnails", "locale", "extras", "q", "name")
 _TOKEN = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _SALT = b"data-report-share:"
+
+
+LABELS = (
+    ("eyebrow", "{product} · Live report"),
+    ("sharedBy", "Shared by"),
+    ("teamMember", "a team member"),
+    ("figuresFrom", "Figures from"),
+    ("linkExpires", "Link expires"),
+    ("truncated", "Large folder: figures cover the first 5,000 of each kind."),
+    ("keyFigures", "Key figures"),
+    ("showAsTable", "Show as table"),
+    ("date", "Date"),
+    ("category", "Category"),
+    ("legend", "Legend"),
+    ("nothingYet", "Nothing to show yet."),
+    ("earlierOmitted", "Showing the latest 52 weeks; {n} earlier not shown."),
+    ("sectionsOmitted", "{n} more sections not shown."),
+    ("weekOf", "week of {date}"),
+    ("periods", "{title}, {n} periods"),
+    ("withheldOne", "{n} recording is left out for consent."),
+    ("withheldMany", "{n} recordings are left out for consent."),
+    ("readOnly", "Read-only. Figures were fixed when the link was made."),
+    ("filter.status", "Review status"),
+    ("opening", "Opening the report…"),
+    ("expired", "This link has expired or was turned off."),
+    ("failed", "Couldn't open this report. Check your connection and try again."),
+    ("incomplete", "This link is incomplete. Open the whole link."),
+    ("tryAgain", "Try again"),
+)
+
+
+def locale_of(value: Any) -> str:
+    return "hi" if str(value or "").strip().lower() == "hi" else "en"
+
+
+def labels(locale: str) -> dict[str, str]:
+    t = i18n.translator(locale_of(locale))
+    return {name: t(f"share.{name}", english) for name, english in LABELS}
 
 
 class Invalid(ValueError):
@@ -47,8 +87,9 @@ def address_hash(address: str, secret: str) -> str:
     return hmac.new(secret.encode("utf-8"), b"report-share-viewer:" + address.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
 
 
-def share_url(base: Any, token: str) -> str:
-    return f"{str(base or '').rstrip('/')}/report-share/{token}"
+def share_url(base: Any, token: str, locale: Any = "en") -> str:
+    url = f"{str(base or '').rstrip('/')}/report-share/{token}"
+    return f"{url}?lang=hi" if locale_of(locale) == "hi" else url
 
 
 def days_of(value: Any) -> int:
@@ -153,4 +194,11 @@ def view_out(row: Any) -> dict[str, Any]:
 
 def public_out(row: Any) -> dict[str, Any]:
     snapshot = dict(row.snapshot) if isinstance(row.snapshot, dict) else {}
-    return {**snapshot, "expiresAt": _iso(row.expiresAt), "sharedAt": _iso(row.createdAt)}
+    locale = locale_of(snapshot.get("locale"))
+    return {
+        **snapshot,
+        "locale": locale,
+        "labels": labels(locale),
+        "expiresAt": _iso(row.expiresAt),
+        "sharedAt": _iso(row.createdAt),
+    }

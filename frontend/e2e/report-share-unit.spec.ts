@@ -9,7 +9,16 @@ import {
   daysLabel,
   deviceOf,
   expiryLine,
+  fill,
+  langOf,
+  SHARE_LABELS_HI,
+  filterLabel,
   filtersOf,
+  formatWhen,
+  isWeekly,
+  localeOf,
+  SHARE_LABELS_EN,
+  shareLabels,
   hasData,
   kpiValue,
   labelEvery,
@@ -111,4 +120,52 @@ test("the public page sits outside the signed-in shell and keeps its link out of
   expect(layout).toContain("index: false");
   expect(page).toContain("ReportShareView");
   expect(page).not.toContain("(protected)");
+});
+
+test("a Hindi snapshot brings its own labels and an English one falls back", () => {
+  const hindi = shareLabels({ labels: { sharedBy: "द्वारा साझा", unknown: "x", readOnly: " " } });
+  expect(hindi.sharedBy).toBe("द्वारा साझा");
+  expect(hindi.readOnly).toBe(SHARE_LABELS_EN.readOnly);
+  expect(shareLabels(undefined)).toEqual(SHARE_LABELS_EN);
+  expect(localeOf({ locale: "hi" })).toBe("hi");
+  expect(localeOf({})).toBe("en");
+  expect(fill("{product} · लाइव रिपोर्ट", { product: "Design Workshop" })).toBe("Design Workshop · लाइव रिपोर्ट");
+  expect(fill("{n} more {missing}", { n: 3 })).toBe("3 more {missing}");
+  expect(filterLabel({ ...SHARE_LABELS_EN, "filter.status": "समीक्षा की स्थिति" }, "status")).toBe("समीक्षा की स्थिति");
+  expect(filterLabel(SHARE_LABELS_EN, "craft")).toBe("craft");
+});
+
+test("Hindi dates name the month in Hindi", () => {
+  expect(dayLabel("2026-11-03", "hi")).toBe("3 नवंबर");
+  expect(dayLabel("2026-11-03")).toBe("3 Nov");
+  expect(formatWhen("2026-11-05T10:00:00Z", "hi")).not.toBe("");
+  expect(formatWhen("2026-11-05T10:00:00Z", "hi")).not.toBe(formatWhen("2026-11-05T10:00:00Z"));
+});
+
+test("weekly charts are told apart by their period, whatever the title's language", () => {
+  const chart: ShareChart = { key: "recordingsOverTime", title: "प्रति सप्ताह रिकॉर्डिंग", kind: "column", categories: [], series: [], period: "week" };
+  expect(isWeekly(chart)).toBe(true);
+  expect(isWeekly({ ...chart, period: undefined })).toBe(false);
+  expect(isWeekly({ ...chart, period: undefined, title: "Recordings per week" })).toBe(true);
+});
+
+test("the page's own words match the server's i18n strings in both languages", () => {
+  const strings = (locale: string) =>
+    JSON.parse(readFileSync(join(__dirname, "..", "..", "backend", "app", "services", "datareport", `i18n_${locale}.json`), "utf8")) as Record<string, string>;
+  const en = strings("en");
+  const hi = strings("hi");
+  for (const key of Object.keys(SHARE_LABELS_EN) as (keyof typeof SHARE_LABELS_EN)[]) {
+    expect(en[`share.${key}`], key).toBe(SHARE_LABELS_EN[key]);
+    expect(hi[`share.${key}`], key).toBe(SHARE_LABELS_HI[key]);
+  }
+});
+
+test("the lang query picks the page's language and old links stay English", () => {
+  expect(langOf("hi")).toBe("hi");
+  expect(langOf(null)).toBe("en");
+  expect(langOf("fr")).toBe("en");
+  expect(shareLabels(null, "hi").expired).toBe(SHARE_LABELS_HI.expired);
+  expect(shareLabels(null).expired).toBe(SHARE_LABELS_EN.expired);
+  expect(shareLabels({ locale: "hi", labels: { tryAgain: "x" } }).tryAgain).toBe("x");
+  expect(shareLabels({ locale: "hi" }).opening).toBe(SHARE_LABELS_HI.opening);
 });

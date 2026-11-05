@@ -40,9 +40,9 @@ def _secret() -> str:
     return str(get_settings().jwt_secret)
 
 
-def _url(share_id: str) -> str:
+def _url(share_id: str, locale: Any = "en") -> str:
     settings = get_settings()
-    return share_links.share_url(settings.next_public_app_url, share_links.token_for(share_id, _secret()))
+    return share_links.share_url(settings.next_public_app_url, share_links.token_for(share_id, _secret()), locale)
 
 
 def _now() -> datetime:
@@ -74,7 +74,10 @@ def _out(row: Any, counts: dict[str, tuple[int, Any]], now: datetime) -> dict[st
             last = datetime.fromisoformat(last)
         except ValueError:
             last = None
-    return share_links.share_out(row, url=_url(str(row.id)), now=now, views=views, last_opened=last)
+    options = row.options if isinstance(row.options, dict) else {}
+    return share_links.share_out(
+        row, url=_url(str(row.id), options.get("locale")), now=now, views=views, last_opened=last
+    )
 
 
 @router.post("/data/report/shares")
@@ -103,7 +106,9 @@ async def create_share(
             detail=f"You can keep {share_links.SHARES_PER_OWNER} live links. Turn one off first.",
         )
     try:
-        snapshot = await browser._queued(lambda: share_snapshot.build(browser, current_user, path, filters=filters, now=now))
+        snapshot = await browser._queued(lambda: share_snapshot.build(
+                browser, current_user, path, filters=filters, now=now, locale=str(options.get("locale") or "en")
+            ))
     except report_cache.ReportBusy as busy:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

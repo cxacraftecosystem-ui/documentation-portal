@@ -272,33 +272,46 @@ def _thumbnail_size(size: int | None) -> int:
     return min(THUMBNAIL_SIZES, key=lambda candidate: abs(candidate - int(size)))
 
 
-async def thumbnail_redirect(media: Any, size: int | None) -> Response:
+def thumbnailable(media: Any) -> bool:
+    return (
+        kind_of(media) == "IMAGE"
+        and _mime(media) not in PREVIEW_MIME_UNSAFE
+        and bool(getattr(media, "objectKey", None))
+    )
+
+
+async def ensure_thumbnail(media: Any, edge: int, *, wait: float | None = None) -> bytes | None:
     from app.services import s3
 
-    if kind_of(media) != "IMAGE" or _mime(media) in PREVIEW_MIME_UNSAFE:
+    if not thumbnailable(media):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No thumbnail")
-    object_key = getattr(media, "objectKey", None)
-    if not object_key:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No thumbnail")
+    key = thumbnail_key(str(media.id), edge)
+    if await asyncio.to_thread(s3.object_exists, key):
+        return None
+    try:
+        await asyncio.wait_for(
+            _THUMB_SLOT.acquire(), timeout=THUMBNAIL_WAIT_SECONDS if wait is None else wait
+        )
+    except TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Thumbnails are being made. Try again shortly.",
+            headers={"Retry-After": THUMBNAIL_RETRY_AFTER},
+        ) from None
+    try:
+        if await asyncio.to_thread(s3.object_exists, key):
+            return None
+        data = await _render_from_storage(str(media.objectKey), edge)
+        await asyncio.to_thread(s3.put_object_bytes, key, data, mime_type=THUMBNAIL_MIME)
+        return data
+    finally:
+        _THUMB_SLOT.release()
+
+
+async def thumbnail_redirect(media: Any, size: int | None) -> Response:
     edge = _thumbnail_size(size)
+    await ensure_thumbnail(media, edge)
     key = thumbnail_key(str(media.id), edge)
     name = f"{media.id!s}-{edge}.webp"
-    exists = await asyncio.to_thread(s3.object_exists, key)
-    if not exists:
-        try:
-            await asyncio.wait_for(_THUMB_SLOT.acquire(), timeout=THUMBNAIL_WAIT_SECONDS)
-        except TimeoutError:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Thumbnails are being made. Try again shortly.",
-                headers={"Retry-After": THUMBNAIL_RETRY_AFTER},
-            ) from None
-        try:
-            exists = await asyncio.to_thread(s3.object_exists, key)
-            if not exists:
-                data = await _render_from_storage(str(object_key), edge)
-                await asyncio.to_thread(s3.put_object_bytes, key, data, mime_type=THUMBNAIL_MIME)
-        finally:
-            _THUMB_SLOT.release()
     url, max_age = signing.signed_get(key, filename=name, mime_type=THUMBNAIL_MIME, inline=True)
     return _redirect(url, max_age)

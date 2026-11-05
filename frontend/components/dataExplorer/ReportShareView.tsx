@@ -5,34 +5,51 @@ import { useState } from "react";
 import {
   chartValue,
   dayLabel,
+  fill,
+  filterLabel,
   formatWhen,
   hasData,
+  isWeekly,
   kpiValue,
   labelEvery,
+  localeOf,
   niceMax,
   productName,
+  shareLabels,
   stackTotals,
   ticks,
   type ShareChart,
+  type ShareLabels,
+  type ShareLocale,
+  type ShareSeries,
   type ShareSnapshot
 } from "@/lib/dataExplorer/reportShare";
 
 const STATUS_FILL: Record<string, string> = {
+  complete: "bg-success-600",
+  partial: "bg-amber-500",
+  missing: "bg-error-600",
   Complete: "bg-success-600",
   Partial: "bg-amber-500",
   Missing: "bg-error-600"
 };
 
-function ChartTable({ chart }: { chart: ShareChart }) {
+type Say = { labels: ShareLabels; locale: ShareLocale };
+
+function fillOf(series: Pick<ShareSeries, "key" | "name">): string {
+  return STATUS_FILL[series.key ?? ""] ?? STATUS_FILL[series.name] ?? "bg-progress-fill";
+}
+
+function ChartTable({ chart, labels, locale }: { chart: ShareChart } & Say) {
   const dated = chart.key === "recordingsOverTime";
   return (
     <details className="mt-3 text-xs text-ink-500">
-      <summary className="cursor-pointer select-none font-medium text-ink-700">Show as table</summary>
+      <summary className="cursor-pointer select-none font-medium text-ink-700">{labels.showAsTable}</summary>
       <div className="mt-2 max-h-64 overflow-auto rounded-md border border-line-200">
         <table className="w-full text-left text-xs">
           <thead className="sticky top-0 z-10 bg-surface-50 text-ink-500">
             <tr>
-              <th scope="col" className="px-2 py-1.5 font-medium">{dated ? "Date" : "Category"}</th>
+              <th scope="col" className="px-2 py-1.5 font-medium">{dated ? labels.date : labels.category}</th>
               {chart.series.map((s) => (
                 <th key={s.name} scope="col" className="px-2 py-1.5 text-right font-medium">{s.name}</th>
               ))}
@@ -41,7 +58,7 @@ function ChartTable({ chart }: { chart: ShareChart }) {
           <tbody>
             {chart.categories.map((category, i) => (
               <tr key={category} className="border-t border-line-200 text-ink-700">
-                <th scope="row" className="px-2 py-1 font-normal">{dated ? dayLabel(category) : category}</th>
+                <th scope="row" className="px-2 py-1 font-normal">{dated ? dayLabel(category, locale) : category}</th>
                 {chart.series.map((s) => (
                   <td key={s.name} className="px-2 py-1 text-right tabular-nums">{chartValue(s.values[i] ?? 0, chart.unit)}</td>
                 ))}
@@ -75,14 +92,14 @@ function BarList({ chart }: { chart: ShareChart }) {
   );
 }
 
-function StackedBars({ chart }: { chart: ShareChart }) {
+function StackedBars({ chart, labels }: { chart: ShareChart; labels: ShareLabels }) {
   const totals = stackTotals(chart);
   return (
     <div className="grid gap-3">
-      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-500" aria-label="Legend">
+      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-500" aria-label={labels.legend}>
         {chart.series.map((s) => (
           <li key={s.name} className="flex items-center gap-1.5">
-            <span aria-hidden className={`h-2.5 w-2.5 rounded-sm ${STATUS_FILL[s.name] ?? "bg-progress-fill"}`} />
+            <span aria-hidden className={`h-2.5 w-2.5 rounded-sm ${fillOf(s)}`} />
             {s.name}
           </li>
         ))}
@@ -90,7 +107,7 @@ function StackedBars({ chart }: { chart: ShareChart }) {
       <ul className="grid gap-2.5">
         {chart.categories.map((category, i) => {
           const total = totals[i] || 1;
-          const parts = chart.series.map((s) => ({ name: s.name, value: s.values[i] ?? 0 })).filter((p) => p.value > 0);
+          const parts = chart.series.map((s) => ({ key: s.key, name: s.name, value: s.values[i] ?? 0 })).filter((p) => p.value > 0);
           const summary = parts.map((p) => `${p.name} ${p.value}`).join(", ");
           return (
             <li key={category} className="grid gap-1 text-sm" title={`${category}: ${summary}`}>
@@ -100,7 +117,7 @@ function StackedBars({ chart }: { chart: ShareChart }) {
               </span>
               <span className="flex h-3 gap-0.5 overflow-hidden rounded-full bg-progress-track">
                 {parts.map((p) => (
-                  <span key={p.name} className={`h-3 first:rounded-l-full last:rounded-r-full ${STATUS_FILL[p.name] ?? "bg-progress-fill"}`} style={{ width: `${(p.value / total) * 100}%` }} />
+                  <span key={p.name} className={`h-3 first:rounded-l-full last:rounded-r-full ${fillOf(p)}`} style={{ width: `${(p.value / total) * 100}%` }} />
                 ))}
               </span>
             </li>
@@ -116,7 +133,7 @@ const COLUMN_WIDTH = 420;
 const AXIS_LEFT = 28;
 const AXIS_BOTTOM = 22;
 
-function Columns({ chart }: { chart: ShareChart }) {
+function Columns({ chart, labels, locale }: { chart: ShareChart } & Say) {
   const [hover, setHover] = useState<number | null>(null);
   const values = chart.series[0]?.values ?? [];
   const top = niceMax(Math.max(0, ...values));
@@ -127,17 +144,17 @@ function Columns({ chart }: { chart: ShareChart }) {
   const barWidth = Math.max(2, Math.min(28, slot - 2));
   const every = labelEvery(count, 6);
   const plotHeight = COLUMN_HEIGHT - AXIS_BOTTOM;
-  const shown = hover !== null ? { label: dayLabel(chart.categories[hover] ?? ""), value: values[hover] ?? 0 } : null;
+  const shown = hover !== null ? { label: dayLabel(chart.categories[hover] ?? "", locale), value: values[hover] ?? 0 } : null;
   return (
     <div className="relative">
       <p className="mb-1 h-5 text-xs text-ink-700" aria-live="off">
         {shown ? (
           <>
-            <span className="font-medium text-ink-900">{chartValue(shown.value, chart.unit)}</span> {chart.series[0]?.name.toLowerCase()} · {/week/i.test(chart.title) ? `week of ${shown.label}` : shown.label}
+            <span className="font-medium text-ink-900">{chartValue(shown.value, chart.unit)}</span> {chart.series[0]?.name.toLowerCase()} · {isWeekly(chart) ? fill(labels.weekOf, { date: shown.label }) : shown.label}
           </>
         ) : null}
       </p>
-      <svg viewBox={`0 0 ${COLUMN_WIDTH} ${COLUMN_HEIGHT}`} className="h-auto w-full" role="group" aria-label={`${chart.title}, ${count} periods`} onMouseLeave={() => setHover(null)}>
+      <svg viewBox={`0 0 ${COLUMN_WIDTH} ${COLUMN_HEIGHT}`} className="h-auto w-full" role="group" aria-label={fill(labels.periods, { title: chart.title, n: count })} onMouseLeave={() => setHover(null)}>
         {marks.map((mark) => {
           const y = plotHeight - (mark / top) * (plotHeight - 4);
           return (
@@ -163,7 +180,7 @@ function Columns({ chart }: { chart: ShareChart }) {
                 onFocus={() => setHover(i)}
                 onBlur={() => setHover(null)}
                 tabIndex={value > 0 ? 0 : -1}
-                aria-label={`${dayLabel(chart.categories[i] ?? "")}: ${value}`}
+                aria-label={`${dayLabel(chart.categories[i] ?? "", locale)}: ${value}`}
               />
               {height > 0 ? (
                 <path
@@ -174,7 +191,7 @@ function Columns({ chart }: { chart: ShareChart }) {
               ) : null}
               {i % every === 0 ? (
                 <text x={AXIS_LEFT + i * slot + slot / 2} y={COLUMN_HEIGHT - 6} textAnchor="middle" className="fill-ink-500 text-[11px]">
-                  {dayLabel(chart.categories[i] ?? "")}
+                  {dayLabel(chart.categories[i] ?? "", locale)}
                 </text>
               ) : null}
             </g>
@@ -186,25 +203,25 @@ function Columns({ chart }: { chart: ShareChart }) {
   );
 }
 
-function ChartCard({ chart }: { chart: ShareChart }) {
+function ChartCard({ chart, labels, locale }: { chart: ShareChart } & Say) {
   const empty = !hasData(chart);
   return (
     <section className="panel p-4 sm:p-5" aria-labelledby={`share-chart-${chart.key}`}>
       <h2 id={`share-chart-${chart.key}`} className="font-display text-base font-bold text-ink-900">{chart.title}</h2>
       <div className="mt-3">
         {empty ? (
-          <p className="py-6 text-center text-sm text-ink-500">Nothing to show yet.</p>
+          <p className="py-6 text-center text-sm text-ink-500">{labels.nothingYet}</p>
         ) : chart.kind === "stackedBar" ? (
-          <StackedBars chart={chart} />
+          <StackedBars chart={chart} labels={labels} />
         ) : chart.kind === "column" || chart.kind === "line" ? (
-          <Columns chart={chart} />
+          <Columns chart={chart} labels={labels} locale={locale} />
         ) : (
           <BarList chart={chart} />
         )}
       </div>
-      {chart.earlierOmitted ? <p className="mt-2 text-xs text-ink-500">Showing the latest 52 weeks; {chart.earlierOmitted.toLocaleString("en-IN")} earlier not shown.</p> : null}
-      {chart.sectionsOmitted ? <p className="mt-2 text-xs text-ink-500">{chart.sectionsOmitted.toLocaleString("en-IN")} more sections not shown.</p> : null}
-      {empty ? null : <ChartTable chart={chart} />}
+      {chart.earlierOmitted ? <p className="mt-2 text-xs text-ink-500">{fill(labels.earlierOmitted, { n: chart.earlierOmitted.toLocaleString("en-IN") })}</p> : null}
+      {chart.sectionsOmitted ? <p className="mt-2 text-xs text-ink-500">{fill(labels.sectionsOmitted, { n: chart.sectionsOmitted.toLocaleString("en-IN") })}</p> : null}
+      {empty ? null : <ChartTable chart={chart} labels={labels} locale={locale} />}
     </section>
   );
 }
@@ -213,37 +230,39 @@ export function ReportShareView({ snapshot }: { snapshot: ShareSnapshot }) {
   const product = productName(snapshot.portal);
   const trail = snapshot.crumbs.slice(1, -1);
   const filters = Object.entries(snapshot.filters ?? {});
+  const labels = shareLabels(snapshot);
+  const locale = localeOf(snapshot);
   return (
-    <div className="mx-auto grid w-full max-w-6xl gap-5">
+    <div className="mx-auto grid w-full max-w-6xl gap-5" lang={locale}>
       <header className="panel grid gap-3 p-5 sm:p-6">
-        <p className="eyebrow">{product} · Live report</p>
+        <p className="eyebrow">{fill(labels.eyebrow, { product })}</p>
         <div className="grid gap-1">
           <h1 className="display-title text-2xl md:text-3xl">{snapshot.title}</h1>
           {trail.length ? <p className="text-sm text-ink-500">{trail.join(" / ")}</p> : null}
         </div>
         <dl className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-ink-500">
           <div className="flex gap-1">
-            <dt>Shared by</dt>
-            <dd className="font-medium text-ink-700">{snapshot.generatedBy || "a team member"}</dd>
+            <dt>{labels.sharedBy}</dt>
+            <dd className="font-medium text-ink-700">{snapshot.generatedBy || labels.teamMember}</dd>
           </div>
           <div className="flex gap-1">
-            <dt>Figures from</dt>
-            <dd className="font-medium text-ink-700">{formatWhen(snapshot.generatedAt)}</dd>
+            <dt>{labels.figuresFrom}</dt>
+            <dd className="font-medium text-ink-700">{formatWhen(snapshot.generatedAt, locale)}</dd>
           </div>
           <div className="flex gap-1">
-            <dt>Link expires</dt>
-            <dd className="font-medium text-ink-700">{formatWhen(snapshot.expiresAt)}</dd>
+            <dt>{labels.linkExpires}</dt>
+            <dd className="font-medium text-ink-700">{formatWhen(snapshot.expiresAt, locale)}</dd>
           </div>
           {filters.map(([key, value]) => (
             <div key={key} className="flex gap-1">
-              <dt className="capitalize">{key}</dt>
+              <dt className="capitalize">{filterLabel(labels, key)}</dt>
               <dd className="font-medium text-ink-700">{value}</dd>
             </div>
           ))}
         </dl>
-        {snapshot.truncated ? <p className="text-xs text-amber-800">Large folder: figures cover the first 5,000 of each kind.</p> : null}
+        {snapshot.truncated ? <p className="text-xs text-amber-800">{labels.truncated}</p> : null}
       </header>
-      <section aria-label="Key figures" className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+      <section aria-label={labels.keyFigures} className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         {snapshot.kpis.map((kpi) => (
           <div key={kpi.key} className="panel grid content-start gap-1 p-4">
             <span className="text-xs font-medium text-ink-500">{kpi.label}</span>
@@ -254,15 +273,15 @@ export function ReportShareView({ snapshot }: { snapshot: ShareSnapshot }) {
       </section>
       <div className="grid gap-4 lg:grid-cols-2">
         {snapshot.charts.map((chart) => (
-          <ChartCard key={chart.key} chart={chart} />
+          <ChartCard key={chart.key} chart={chart} labels={labels} locale={locale} />
         ))}
       </div>
       {snapshot.withheldTranscripts > 0 ? (
         <p className="text-center text-xs text-ink-500">
-          {snapshot.withheldTranscripts.toLocaleString("en-IN")} {snapshot.withheldTranscripts === 1 ? "recording is" : "recordings are"} left out for consent.
+          {fill(snapshot.withheldTranscripts === 1 ? labels.withheldOne : labels.withheldMany, { n: snapshot.withheldTranscripts.toLocaleString("en-IN") })}
         </p>
       ) : null}
-      <p className="text-center text-xs text-ink-500">Read-only. Figures were fixed when the link was made.</p>
+      <p className="text-center text-xs text-ink-500">{labels.readOnly}</p>
     </div>
   );
 }

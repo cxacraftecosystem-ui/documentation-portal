@@ -22,7 +22,7 @@ from app.services.data_explorer import (
     walk,
 )
 from app.services.data_explorer.zipstream import StreamingZip
-from app.services.datareport import pdf_summary
+from app.services.datareport import i18n, pdf_summary
 from app.services.naming_portal import PORTAL
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,8 @@ TYPE_LABELS = (
     ("other", "Other files"),
 )
 ANSWER_LABELS = {"original": "Original only", "english": "English only", "both": "Original and English"}
+Say = Callable[..., str]
+ENGLISH = i18n.translator("en")
 
 
 def portal_title() -> str:
@@ -117,6 +119,7 @@ class Prepared:
     coverage: bool
     scope_media: Any = None
     delivered: list[Callable[[], Awaitable[None]]] = field(default_factory=list)
+    locale: str = "en"
 
 
 XlsxBuilder = Callable[[Any, PackParams], Awaitable[tuple[Any, ...]]]
@@ -140,6 +143,10 @@ async def legacy_xlsx(user: Any, params: PackParams) -> tuple[bytes, str]:
     return body, name
 
 
+def locale_of(params: PackParams) -> str:
+    return "hi" if str(params.extra.get("locale") or "").strip().lower() == "hi" else "en"
+
+
 def _flag(value: str | None) -> bool:
     return str(value or "").strip().lower() in ("1", "true", "yes", "on")
 
@@ -149,7 +156,7 @@ async def core_xlsx(user: Any, params: PackParams) -> tuple[bytes, str, Any]:
 
     legacy = params.options()
     extras = {key.strip(): True for key in str(params.extra.get("extras") or "").split(",") if key.strip()}
-    locale = "hi" if str(params.extra.get("locale") or "").strip().lower() == "hi" else "en"
+    locale = locale_of(params)
     options = contract.ReportOptions(
         sheets=list(legacy.sheets) if legacy.sheets is not None else None,
         answers=legacy.answers,
@@ -216,13 +223,13 @@ async def _media_rows(ids: list[str]) -> list[dict[str, Any]]:
     return rows
 
 
-def _status_bars(counts: dict[str, int]) -> list[tuple[str, int, str]]:
+def _status_bars(counts: dict[str, int], t: Say = ENGLISH) -> list[tuple[str, int, str]]:
     waiting = max(0, counts["total"] - counts["ready"] - counts["translating"] - counts["failed"])
     return [
-        ("Ready", counts["ready"], pdf_summary.GREEN),
-        ("Transcribing or translating", counts["translating"], pdf_summary.AMBER),
-        ("Failed", counts["failed"], pdf_summary.RED),
-        ("Not transcribed yet", waiting, pdf_summary.GREY),
+        (t("pack.status.ready", "Ready"), counts["ready"], pdf_summary.GREEN),
+        (t("pack.status.working", "Transcribing or translating"), counts["translating"], pdf_summary.AMBER),
+        (t("pack.status.failed", "Failed"), counts["failed"], pdf_summary.RED),
+        (t("pack.status.waiting", "Not transcribed yet"), waiting, pdf_summary.GREY),
     ]
 
 
@@ -291,7 +298,7 @@ async def _ctx_quotes(ctx: Any, allowed: set[str]) -> list[pdf_summary.Quote] | 
     return out
 
 
-async def _coverage(norm: str, scope: Any) -> pdf_summary.Coverage | None:
+async def _coverage(norm: str, scope: Any, t: Say = ENGLISH) -> pdf_summary.Coverage | None:
     segs = [s for s in norm.split("/") if s]
     if len(segs) < 2 or segs[0] not in ("by-workshop", "workshops"):
         return None
@@ -312,12 +319,17 @@ async def _coverage(norm: str, scope: Any) -> pdf_summary.Coverage | None:
         fields = artisan.get("fields") or {}
         rows.append(
             pdf_summary.CoverageRow(
-                name=str(artisan.get("name") or "Unnamed artisan"),
+                name=str(artisan.get("name") or t("pack.unnamedArtisan", "Unnamed artisan")),
                 craft=str(artisan.get("craft") or ""),
                 filled=int(fields.get("filled") or 0),
                 total=int(fields.get("total") or 0),
                 files=int((artisan.get("media") or {}).get("files") or 0),
-                transcripts=f"{int(counts.get('ready') or 0)} of {int(counts.get('total') or 0)} ready",
+                transcripts=t(
+                    "pack.readyOf",
+                    "{ready} of {total} ready",
+                    ready=int(counts.get("ready") or 0),
+                    total=int(counts.get("total") or 0),
+                ),
                 states=[states.get(key, "missing") for key in order],
             )
         )
@@ -347,31 +359,37 @@ def _who(user: Any) -> str:
     return "a portal user"
 
 
-def _option_rows(params: PackParams) -> list[tuple[str, str]]:
+def _option_rows(params: PackParams, t: Say = ENGLISH) -> list[tuple[str, str]]:
     options = params.options()
-    rows = [("Answers", ANSWER_LABELS.get(options.answers, options.answers))]
+    answer = ANSWER_LABELS.get(options.answers, options.answers)
+    rows = [(t("pack.option.answers", "Answers"), t(f"pack.answers.{options.answers}", answer))]
     if options.sheets:
-        rows.append(("Sheets", ", ".join(options.sheets)))
+        rows.append((t("pack.option.sheets", "Sheets"), ", ".join(options.sheets)))
     if options.filters_rows:
-        rows.append(("Rows", f"Only rows matching “{params.q}”"))
+        rows.append((t("pack.option.rows", "Rows"), t("pack.option.matching", "Only rows matching “{q}”", q=params.q)))
     if not options.links:
-        rows.append(("Links", "File link columns left out"))
+        rows.append((t("pack.option.links", "Links"), t("pack.option.noLinks", "File link columns left out")))
     if params.status:
-        rows.append(("Review status", params.status))
+        rows.append((t("pack.option.status", "Review status"), params.status))
     return rows
 
 
-def pack_contents(xlsx_name: str, pdf_name: str) -> list[tuple[str, str]]:
+def pack_contents(xlsx_name: str, pdf_name: str, t: Say = ENGLISH) -> list[tuple[str, str]]:
     return [
-        (xlsx_name, "The full workbook: every sheet, link and data dictionary."),
-        (pdf_name, "This summary: cover, charts, coverage and quotes."),
-        (f"{TRANSCRIPT_DIR}/", "Each transcript as a bilingual .docx and timed .srt subtitles."),
-        (README, "What every file in the pack is."),
+        (xlsx_name, t("pack.contents.xlsx", "The full workbook: every sheet, link and data dictionary.")),
+        (pdf_name, t("pack.contents.pdf", "This summary: cover, charts, coverage and quotes.")),
+        (
+            f"{TRANSCRIPT_DIR}/",
+            t("pack.contents.transcripts", "Each transcript as a bilingual .docx and timed .srt subtitles."),
+        ),
+        (README, t("pack.contents.readme", "What every file in the pack is.")),
     ]
 
 
 async def prepare(user: Any, params: PackParams, *, xlsx_builder: XlsxBuilder | None = None) -> Prepared:
     params.options()
+    locale = locale_of(params)
+    t = i18n.translator(locale)
     built = await (xlsx_builder or XLSX_BUILDER)(user, params)
     xlsx, xlsx_name, ctx = (*built, None)[:3]
     if not xlsx.startswith(XLSX_SIGNATURE):
@@ -395,7 +413,7 @@ async def prepare(user: Any, params: PackParams, *, xlsx_builder: XlsxBuilder | 
         quotes = await _ctx_quotes(ctx, set(allowed))
         if quotes is None:
             quotes = await _quotes(allowed, names)
-        coverage = await _coverage(norm, scope)
+        coverage = await _coverage(norm, scope, t)
         crumbs = await browser._resolve_crumbs(norm)
         level = crumbs[-1]["name"] if crumbs else "Repository"
         version = await report_cache.data_version(db)
@@ -404,25 +422,42 @@ async def prepare(user: Any, params: PackParams, *, xlsx_builder: XlsxBuilder | 
         pdf_name = naming.export_filename("Dataset", "Report-Summary", "pdf", subject=subject)
         by_type = totals.get("byType") or {}
         media_by_type = [
-            (label, int(by_type.get(token, {}).get("files") or 0), int(by_type.get(token, {}).get("bytes") or 0))
+            (
+                t(f"pack.type.{token}", label),
+                int(by_type.get(token, {}).get("files") or 0),
+                int(by_type.get(token, {}).get("bytes") or 0),
+            )
             for token, label in TYPE_LABELS
         ]
         stored_files = sum(count for _, count, _ in media_by_type)
         stored_bytes = sum(size for _, _, size in media_by_type)
         kpis = [
-            ("Files", f"{stored_files:,}", pdf_summary.human_size(stored_bytes)),
-            ("Recordings", f"{counts['total']:,}", f"{len(allowed):,} transcripts in this pack"),
-            ("Transcripts ready", f"{counts['ready']:,}", f"of {counts['total']:,} recordings"),
-            ("Translating", f"{counts['translating']:,}", "transcribing or translating now"),
-            ("Failed", f"{counts['failed']:,}", "need a retry"),
+            (t("pack.kpi.files", "Files"), f"{stored_files:,}", pdf_summary.human_size(stored_bytes)),
+            (
+                t("pack.kpi.recordings", "Recordings"),
+                f"{counts['total']:,}",
+                t("pack.kpi.recordingsSub", "{n} transcripts in this pack", n=f"{len(allowed):,}"),
+            ),
+            (
+                t("pack.kpi.ready", "Transcripts ready"),
+                f"{counts['ready']:,}",
+                t("pack.kpi.readySub", "of {n} recordings", n=f"{counts['total']:,}"),
+            ),
+            (
+                t("pack.kpi.translating", "Translating"),
+                f"{counts['translating']:,}",
+                t("pack.kpi.translatingSub", "transcribing or translating now"),
+            ),
+            (t("pack.kpi.failed", "Failed"), f"{counts['failed']:,}", t("pack.kpi.failedSub", "need a retry")),
         ]
         if coverage is not None:
             filled = sum(r.filled for r in coverage.rows)
             total = sum(r.total for r in coverage.rows)
             pct = f"{round(100 * filled / total)}%" if total else "–"
-            kpis.append(("Coverage", pct, f"{filled:,} of {total:,} answers"))
+            sub = t("pack.kpi.coverageSub", "{filled} of {total} answers", filled=f"{filled:,}", total=f"{total:,}")
+            kpis.append((t("pack.kpi.coverage", "Coverage"), pct, sub))
         else:
-            kpis.append(("Quotes", f"{len(quotes):,}", "from transcript insights"))
+            kpis.append((t("pack.kpi.quotes", "Quotes"), f"{len(quotes):,}", t("pack.kpi.quotesSub", "from transcript insights")))
         summary = pdf_summary.Summary(
             portal_title=portal_title(),
             folder=level,
@@ -430,14 +465,15 @@ async def prepare(user: Any, params: PackParams, *, xlsx_builder: XlsxBuilder | 
             generated_by=_who(user),
             generated_at=generated_at,
             data_version=version,
-            options=_option_rows(params),
+            options=_option_rows(params, t),
             kpis=kpis,
             media_by_type=media_by_type,
-            transcript_status=_status_bars(counts),
+            transcript_status=_status_bars(counts, t),
             sections=_section_bars(coverage) if coverage is not None else [],
             coverage=[coverage] if coverage is not None else [],
             quotes=quotes,
-            pack_files=pack_contents(xlsx_name, pdf_name),
+            pack_files=pack_contents(xlsx_name, pdf_name, t),
+            locale=locale,
         )
         pdf = await asyncio.to_thread(pdf_summary.build, summary)
     zip_stem = report_options.file_name(params.name)
@@ -466,6 +502,7 @@ async def prepare(user: Any, params: PackParams, *, xlsx_builder: XlsxBuilder | 
         coverage=coverage is not None,
         scope_media=getattr(scope, "media", None) or None,
         delivered=list(getattr(ctx, "delivered", None) or []),
+        locale=locale,
     )
 
 
@@ -502,50 +539,91 @@ def doc_loader(scope_media: dict[str, Any] | None) -> DocLoader:
 
 
 def readme(prepared: Prepared, written: list[tuple[str, int]], skipped: list[str]) -> str:
-    stamp = prepared.generated_at.strftime("%d %b %Y, %H:%M %Z").strip()
+    t = i18n.translator(prepared.locale)
+    stamp = pdf_summary.stamp(prepared.generated_at, prepared.locale, zone=True)
     docx = sum(1 for name, _ in written if name.lower().endswith(".docx"))
     srt = sum(1 for name, _ in written if name.lower().endswith(".srt"))
+    facts = [
+        (t("readme.folder", "Folder"), prepared.folder),
+        (t("readme.path", "Path"), prepared.path or t("pdf.repository", "Repository")),
+        (t("readme.generated", "Generated"), stamp),
+        (t("readme.generatedBy", "Generated by"), prepared.generated_by),
+        (t("readme.dataVersion", "Data version"), prepared.data_version),
+        (
+            t("readme.storedFiles", "Stored files"),
+            f"{prepared.files:,} ({pdf_summary.human_size(prepared.bytes)})",
+        ),
+    ]
+    width = max(len(label) for label, _ in facts) + 2
+    title = t("readme.title", "{portal} · Report pack", portal=portal_title())
+    inside = t("readme.inside", "What is inside")
+    summary = t(
+        "readme.pdf",
+        "A printable summary: cover with the key numbers, charts of media by type and transcript status.",
+    )
+    if prepared.coverage:
+        summary += " " + t("readme.pdfCoverage", "It also has completion by questionnaire section and the coverage grid.")
+    if prepared.quotes:
+        summary += " " + t("readme.pdfQuotes", "It ends with {n} quotes from the transcripts.", n=prepared.quotes)
     lines = [
-        f"{portal_title()} · Report pack",
+        title,
         "=" * 40,
         "",
-        f"Folder:        {prepared.folder}",
-        f"Path:          {prepared.path or 'Repository'}",
-        f"Generated:     {stamp}",
-        f"Generated by:  {prepared.generated_by}",
-        f"Data version:  {prepared.data_version}",
-        f"Stored files:  {prepared.files:,} ({pdf_summary.human_size(prepared.bytes)})",
+        *[f"{label + ':':<{width}}{value}" for label, value in facts],
         "",
-        "What is inside",
-        "--------------",
+        inside,
+        "-" * max(len(inside), 14),
         f"{prepared.xlsx_name}",
-        "    The full workbook. Every sheet, column and link of the Report (.xlsx); the links open the",
-        "    files in the portal after you sign in.",
+        "    "
+        + t(
+            "readme.xlsx",
+            "The full workbook. Every sheet, column and link of the Report (.xlsx); the links open the files in the portal after you sign in.",
+        ),
         f"{prepared.pdf_name}",
-        "    A printable summary: cover with the key numbers, charts of media by type and transcript",
-        "    status" + (", completion by questionnaire section and the coverage grid" if prepared.coverage else "")
-        + (f", and {prepared.quotes} quotes from the transcripts." if prepared.quotes else "."),
+        "    " + summary,
         f"{TRANSCRIPT_DIR}/",
-        f"    {docx} Word transcripts (.docx, original with English beneath each turn) and {srt} subtitle",
-        "    files (.srt, timed, with speakers; an English .srt where a translation exists).",
+        "    "
+        + t(
+            "readme.transcripts",
+            "{docx} Word transcripts (.docx, original with English beneath each turn) and {srt} subtitle files (.srt, timed, with speakers; an English .srt where a translation exists).",
+            docx=docx,
+            srt=srt,
+        ),
         f"{README}",
-        "    This file.",
+        "    " + t("readme.self", "This file."),
         "",
     ]
     notes: list[str] = []
     if prepared.withheld:
         notes.append(
-            f"{prepared.withheld} transcript(s) are left out because the speakers' consent does not allow sharing them."
+            t(
+                "readme.withheld",
+                "{n} transcript(s) are left out because the speakers' consent does not allow sharing them.",
+                n=prepared.withheld,
+            )
         )
     if prepared.capped:
         notes.append(
-            f"The pack holds the first {TRANSCRIPTS_MAX} transcripts; open a smaller folder for the rest."
+            t(
+                "readme.capped",
+                "The pack holds the first {n} transcripts; open a smaller folder for the rest.",
+                n=TRANSCRIPTS_MAX,
+            )
         )
     if skipped:
-        notes.append(f"{len(skipped)} recording(s) had no transcript text to export: {', '.join(skipped[:20])}.")
-    notes.append("A recording without timings has a .docx but no .srt.")
-    lines += ["Notes", "-----", *[f"- {note}" for note in notes], ""]
-    lines += ["Every file", "----------"]
+        notes.append(
+            t(
+                "readme.skipped",
+                "{n} recording(s) had no transcript text to export: {names}.",
+                n=len(skipped),
+                names=", ".join(skipped[:20]),
+            )
+        )
+    notes.append(t("readme.untimed", "A recording without timings has a .docx but no .srt."))
+    heading = t("readme.notes", "Notes")
+    every = t("readme.everyFile", "Every file")
+    lines += [heading, "-" * max(len(heading), 5), *[f"- {note}" for note in notes], ""]
+    lines += [every, "-" * max(len(every), 10)]
     lines += [f"{name}  ({pdf_summary.human_size(size)})" for name, size in written]
     lines.append(f"{README}")
     return "\n".join(lines) + "\n"

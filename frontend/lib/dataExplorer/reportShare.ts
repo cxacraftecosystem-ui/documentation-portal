@@ -19,7 +19,7 @@ export type ShareKpi = {
   sub: string | null;
 };
 
-export type ShareSeries = { name: string; values: number[] };
+export type ShareSeries = { key?: string; name: string; values: number[] };
 
 export type ShareChart = {
   key: string;
@@ -30,7 +30,73 @@ export type ShareChart = {
   unit?: "count" | "percent";
   earlierOmitted?: number;
   sectionsOmitted?: number;
+  period?: "day" | "week";
 };
+
+export type ShareLocale = "en" | "hi";
+
+export const SHARE_LABELS_EN = {
+  eyebrow: "{product} · Live report",
+  sharedBy: "Shared by",
+  teamMember: "a team member",
+  figuresFrom: "Figures from",
+  linkExpires: "Link expires",
+  truncated: "Large folder: figures cover the first 5,000 of each kind.",
+  keyFigures: "Key figures",
+  showAsTable: "Show as table",
+  date: "Date",
+  category: "Category",
+  legend: "Legend",
+  nothingYet: "Nothing to show yet.",
+  earlierOmitted: "Showing the latest 52 weeks; {n} earlier not shown.",
+  sectionsOmitted: "{n} more sections not shown.",
+  weekOf: "week of {date}",
+  periods: "{title}, {n} periods",
+  withheldOne: "{n} recording is left out for consent.",
+  withheldMany: "{n} recordings are left out for consent.",
+  readOnly: "Read-only. Figures were fixed when the link was made.",
+  "filter.status": "Review status",
+  opening: "Opening the report…",
+  expired: "This link has expired or was turned off.",
+  failed: "Couldn't open this report. Check your connection and try again.",
+  incomplete: "This link is incomplete. Open the whole link.",
+  tryAgain: "Try again"
+} as const;
+
+export type ShareLabelKey = keyof typeof SHARE_LABELS_EN;
+export type ShareLabels = Record<ShareLabelKey, string>;
+
+export const SHARE_LABELS_HI: ShareLabels = {
+  eyebrow: "{product} · लाइव रिपोर्ट",
+  sharedBy: "द्वारा साझा",
+  teamMember: "एक दल सदस्य",
+  figuresFrom: "आँकड़े दिनांक",
+  linkExpires: "लिंक की समाप्ति",
+  truncated: "बड़ा फ़ोल्डर: आँकड़े प्रत्येक प्रकार के प्रथम 5,000 अभिलेखों के हैं।",
+  keyFigures: "मुख्य आँकड़े",
+  showAsTable: "तालिका के रूप में देखें",
+  date: "तिथि",
+  category: "श्रेणी",
+  legend: "संकेत-सूची",
+  nothingYet: "अभी दर्शाने हेतु कुछ नहीं है।",
+  earlierOmitted: "नवीनतम 52 सप्ताह दर्शाए गए हैं; इससे पहले के {n} नहीं दर्शाए गए।",
+  sectionsOmitted: "{n} और खंड नहीं दर्शाए गए।",
+  weekOf: "{date} का सप्ताह",
+  periods: "{title}, {n} अवधियाँ",
+  withheldOne: "सहमति के कारण {n} रिकॉर्डिंग छोड़ी गई है।",
+  withheldMany: "सहमति के कारण {n} रिकॉर्डिंग छोड़ी गई हैं।",
+  readOnly: "केवल पठन हेतु। आँकड़े लिंक बनाते समय निर्धारित किए गए थे।",
+  "filter.status": "समीक्षा की स्थिति",
+  opening: "रिपोर्ट खोली जा रही है…",
+  expired: "इस लिंक की अवधि समाप्त हो गई है या इसे बंद कर दिया गया है।",
+  failed: "यह रिपोर्ट नहीं खुल सकी। अपना कनेक्शन जाँचें और पुनः प्रयास करें।",
+  incomplete: "यह लिंक अधूरा है। पूरा लिंक खोलें।",
+  tryAgain: "पुनः प्रयास करें"
+};
+
+export function langOf(value: string | null | undefined): ShareLocale {
+  return value === "hi" ? "hi" : "en";
+}
 
 export type ShareSnapshot = {
   version: number;
@@ -47,6 +113,8 @@ export type ShareSnapshot = {
   truncated: boolean;
   expiresAt: string;
   sharedAt: string;
+  locale?: ShareLocale;
+  labels?: Partial<Record<string, string>>;
 };
 
 export type ShareState = "active" | "expired" | "revoked";
@@ -77,6 +145,33 @@ export type ShareViews = { items: ShareView[]; total: number; truncated: boolean
 
 export function productName(portal: string | null | undefined): string {
   return portal === "fieldRepository" ? SHARE_PRODUCT_NAMES.fieldRepository : SHARE_PRODUCT_NAMES.designer;
+}
+
+export function localeOf(snapshot: Pick<ShareSnapshot, "locale"> | null | undefined): ShareLocale {
+  return snapshot?.locale === "hi" ? "hi" : "en";
+}
+
+export function shareLabels(snapshot: Pick<ShareSnapshot, "labels" | "locale"> | null | undefined, lang?: ShareLocale): ShareLabels {
+  const locale = snapshot?.locale ?? lang ?? "en";
+  const out = { ...(locale === "hi" ? SHARE_LABELS_HI : SHARE_LABELS_EN) } as ShareLabels;
+  for (const key of Object.keys(SHARE_LABELS_EN) as ShareLabelKey[]) {
+    const value = snapshot?.labels?.[key];
+    if (typeof value === "string" && value.trim()) out[key] = value;
+  }
+  return out;
+}
+
+export function fill(template: string, values: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole));
+}
+
+export function filterLabel(labels: ShareLabels, key: string): string {
+  const known = (labels as Record<string, string>)[`filter.${key}`];
+  return known ?? key;
+}
+
+export function isWeekly(chart: ShareChart): boolean {
+  return chart.period === "week" || /week/i.test(chart.title);
 }
 
 export function kpiValue(kpi: ShareKpi): string {
@@ -119,10 +214,13 @@ export function hasData(chart: ShareChart): boolean {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-export function dayLabel(iso: string): string {
+const MONTHS_HI = ["जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून", "जुलाई", "अगस्त", "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर"];
+
+export function dayLabel(iso: string, locale: ShareLocale = "en"): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   if (!match) return iso;
-  return `${Number(match[3])} ${MONTHS[Number(match[2]) - 1] ?? ""}`.trim();
+  const months = locale === "hi" ? MONTHS_HI : MONTHS;
+  return `${Number(match[3])} ${months[Number(match[2]) - 1] ?? ""}`.trim();
 }
 
 export function labelEvery(count: number, room: number): number {
@@ -130,11 +228,11 @@ export function labelEvery(count: number, room: number): number {
   return Math.max(1, Math.ceil(count / room));
 }
 
-export function formatWhen(iso: string | null | undefined): string {
+export function formatWhen(iso: string | null | undefined, locale: ShareLocale = "en"): string {
   if (!iso) return "";
   const moment = new Date(iso);
   if (Number.isNaN(moment.getTime())) return "";
-  return moment.toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
+  return moment.toLocaleString(locale === "hi" ? "hi-IN" : "en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 export function expiryLine(state: ShareState, expiresAt: string, now: number = Date.now()): string {

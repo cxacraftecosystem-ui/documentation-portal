@@ -6,9 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, Response
 
 from app.core.db import db
-from app.core.deps import require_dataset_downloader
-from app.services.datareport import build, bundles
-from app.services.datareport.portal import current as current_portal
+from app.core.deps import get_current_user, require_dataset_downloader
+from app.services.datareport import access, build, bundles
 
 router = APIRouter(
     prefix="/data",
@@ -16,17 +15,13 @@ router = APIRouter(
     dependencies=[Depends(require_dataset_downloader)],
 )
 
+go_router = APIRouter(
+    prefix="/data",
+    tags=["data-report"],
+    dependencies=[Depends(get_current_user)],
+)
+
 CHUNK = 1000
-OPEN_DELEGATES = {
-    "artisan": ("artisan", True),
-    "workshop": ("workshop", True),
-    "craft": ("craft", False),
-    "product": ("productdocumentation", True),
-    "process": ("process", True),
-    "tool": ("tooldocumentation", True),
-    "interview": ("questionnaireinterview", True),
-    "designWorkshop": ("designworkshop", False),
-}
 
 
 def _explorer() -> Any:
@@ -35,26 +30,20 @@ def _explorer() -> Any:
     return data_explorer
 
 
-def _browser() -> Any:
-    from app.api.routes import data_browser
-
-    return data_browser
-
-
 def _not_found(what: str = "Not found") -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=what)
 
 
-@router.get("/go/media/{media_id}/download", response_model=None)
+@go_router.get("/go/media/{media_id}/download", response_model=None)
 async def go_download(
     media_id: str,
     as_: str | None = Query(None, alias="as"),
-    current_user: Any = Depends(require_dataset_downloader),
+    current_user: Any = Depends(get_current_user),
 ) -> Response:
     from app.services.data_explorer import downloads
     from app.services.media_naming import display_filename
 
-    media = await _explorer().media_for(current_user, media_id)
+    media = await access.file_for(current_user, media_id)
     answer = downloads.original_redirect(media)
     if (as_ or "").strip().lower() == "json":
         location = answer.headers.get("location")
@@ -64,60 +53,32 @@ async def go_download(
     return answer
 
 
-@router.get("/go/transcript/{media_id}/{fmt}")
+@go_router.get("/go/transcript/{media_id}/{fmt}")
 async def go_transcript(
     media_id: str,
     fmt: str,
-    current_user: Any = Depends(require_dataset_downloader),
+    current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    from app.services import transcript_export
-
     if fmt not in ("docx", "srt"):
         raise _not_found()
-    media = await _explorer().media_for(current_user, media_id)
-    if str(media.id) in await transcript_export.withheld_ids([str(media.id)]):
-        raise _not_found("Transcript not found")
+    media = await access.transcript_for(current_user, media_id)
     track, timestamps = ("both", "true") if fmt == "docx" else ("original", "true")
     return {
         "mediaId": str(media.id),
         "format": fmt,
         "apiPath": f"/transcripts/{media.id}/download?format={fmt}&track={track}&timestamps={timestamps}",
-        "openHref": f"/data?preview={media.id}",
+        "openHref": access.media_href(current_user, str(media.id)),
     }
 
 
-@router.get("/go/open/{kind}/{record_id}")
+@go_router.get("/go/open/{kind}/{record_id}")
 async def go_open(
     kind: str,
     record_id: str,
-    current_user: Any = Depends(require_dataset_downloader),
+    current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    portal = current_portal()
-    if kind == "media":
-        media = await _explorer().media_for(current_user, record_id)
-        return {"kind": kind, "id": str(media.id), "href": f"/data?preview={media.id}"}
-    spec = OPEN_DELEGATES.get(kind)
-    pattern = portal.open_paths.get(kind)
-    if spec is None or pattern is None:
-        raise _not_found()
-    delegate_name, scoped = spec
-    delegate = getattr(db, delegate_name, None)
-    if delegate is None:
-        raise _not_found()
-    scope = await _browser()._scope_for(current_user)
-    if kind == "designWorkshop" and not bool(getattr(scope, "design_workshops", False)):
-        raise _not_found()
-    where: dict[str, Any] = {"id": record_id}
-    if scoped and getattr(scope, "records", None):
-        where = {"AND": [where, scope.records]}
-    if kind == "interview":
-        where = {"AND": [where, {"deletedAt": None}]}
-    found = await delegate.find_first(where=where)
-    if found is None:
-        raise _not_found()
-    from urllib.parse import quote
-
-    return {"kind": kind, "id": record_id, "href": pattern.format(id=quote(record_id, safe=""))}
+    href = await access.record_href(current_user, kind, record_id)
+    return {"kind": kind, "id": record_id, "href": href}
 
 
 async def _visible_ids(user: Any, ids: list[str]) -> tuple[list[str], int]:

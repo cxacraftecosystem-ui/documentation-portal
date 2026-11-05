@@ -27,7 +27,7 @@ Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType
 
 ## API surface
 
-**382 operations** in the working tree — 183 GET, 124 POST, 30 DELETE,
+**379 operations** in the working tree — 180 GET, 124 POST, 30 DELETE,
 22 PATCH, 23 PUT. 2 of them (`/health`, `/health/ready`) are declared
 on the app rather than on a router; the rest are spread across `backend/app/api/routes/`:
 
@@ -52,7 +52,6 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `notifications.py` | 7 |
 | `two_factor.py` | 7 |
 | `artisan_cards.py` | 6 |
-| `data_report.py` | 6 |
 | `map_coverage.py` | 6 |
 | `access_roster.py` | 5 |
 | `ai_keys.py` | 5 |
@@ -72,6 +71,7 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `recording_consent.py` | 4 |
 | `transcript_insights.py` | 4 |
 | `app_release.py` | 3 |
+| `data_report.py` | 3 |
 | `export.py` | 3 |
 | `feedback.py` | 3 |
 | `reference.py` | 3 |
@@ -127,8 +127,8 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 214 | 2646 `def test_` | `python -m pytest -q` from `backend/` |
-| Web end-to-end (`frontend/e2e/`) | 145 | 1557 `test(` | Playwright, `frontend/playwright.config.ts` |
+| Backend unit (`backend/tests/`) | 219 | 2675 `def test_` | `python -m pytest -q` from `backend/` |
+| Web end-to-end (`frontend/e2e/`) | 146 | 1567 `test(` | Playwright, `frontend/playwright.config.ts` |
 | Android unit (`android/app/src/test/`) | 182 | 1460 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | 21 | 87 `@Test` | not run in CI |
 
@@ -140,10 +140,10 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 338 | 85,295 | 338 | 85,295 |
-| `frontend/app` | 88 | 17,116 | 88 | 17,116 |
-| `frontend/components` | 344 | 67,146 | 344 | 67,146 |
-| `frontend/lib` | 193 | 37,538 | 193 | 37,538 |
+| `backend/app` | 339 | 85,734 | 339 | 85,734 |
+| `frontend/app` | 88 | 17,127 | 88 | 17,127 |
+| `frontend/components` | 344 | 67,162 | 344 | 67,162 |
+| `frontend/lib` | 194 | 37,685 | 194 | 37,685 |
 | `android/app/src/main/java` | 294 | 91,158 | 294 | 91,158 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is

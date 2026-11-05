@@ -1,22 +1,33 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 
 import { ReportShareView } from "@/components/dataExplorer/ReportShareView";
 import { ApiError } from "@/lib/api";
-import { openShare, type ShareSnapshot } from "@/lib/dataExplorer/reportShare";
+import { langOf, openShare, shareLabels, type ShareLabels, type ShareSnapshot } from "@/lib/dataExplorer/reportShare";
 
-function refusal(error: unknown): string {
-  if (error instanceof ApiError && error.status === 404) return "This link has expired or was turned off.";
-  return "Couldn't open this report. Check your connection and try again.";
+type Refusal = "expired" | "failed";
+
+function refusal(error: unknown): Refusal {
+  return error instanceof ApiError && error.status === 404 ? "expired" : "failed";
 }
 
 export default function ReportSharePage() {
+  return (
+    <Suspense fallback={null}>
+      <ReportShare />
+    </Suspense>
+  );
+}
+
+function ReportShare() {
   const params = useParams<{ token: string }>();
+  const lang = langOf(useSearchParams()?.get("lang"));
+  const labels: ShareLabels = shareLabels(null, lang);
   const token = typeof params?.token === "string" ? params.token : "";
   const [snapshot, setSnapshot] = useState<ShareSnapshot | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Refusal | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -37,25 +48,25 @@ export default function ReportSharePage() {
     };
   }, [token, attempt]);
 
-  const gone = error !== null && error.startsWith("This link");
+  const gone = error === "expired";
 
   return (
-    <main className="min-h-dvh bg-bg-0 px-4 py-6 md:px-8 md:py-10">
+    <main className="min-h-dvh bg-bg-0 px-4 py-6 md:px-8 md:py-10" lang={snapshot?.locale ?? lang}>
       {snapshot ? (
         <ReportShareView snapshot={snapshot} />
       ) : (
         <div className="mx-auto mt-16 grid max-w-md gap-4 text-center">
           {error || !token ? (
             <div role="alert" className="panel grid gap-3 p-6">
-              <p className="text-sm text-ink-700">{token ? error : "This link is incomplete. Open the whole link."}</p>
+              <p className="text-sm text-ink-700">{token && error ? labels[error] : labels.incomplete}</p>
               {token && !gone ? (
                 <button type="button" className="field-button mx-auto" onClick={() => setAttempt((n) => n + 1)}>
-                  Try again
+                  {labels.tryAgain}
                 </button>
               ) : null}
             </div>
           ) : (
-            <p className="text-sm text-ink-500" role="status">Opening the report…</p>
+            <p className="text-sm text-ink-500" role="status">{labels.opening}</p>
           )}
         </div>
       )}

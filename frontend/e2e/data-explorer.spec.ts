@@ -1188,6 +1188,93 @@ test.describe("@qf:X6 report options overhaul", () => {
     }
   });
 
+  test("a Hindi live link renders its cover in Hindi", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1366, height: 900 }, serviceWorkers: "block" });
+    const fake = new DataExplorerFake();
+    await fake.install(context, "light");
+    await context.route(
+      (url) => url.pathname === "/api/report-share/token-hi",
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            version: 1,
+            portal: "designer",
+            locale: "hi",
+            title: "बगरू 2026",
+            crumbs: ["Repository", "बगरू 2026"],
+            generatedBy: "कमला",
+            generatedAt: "2026-11-05T10:00:00Z",
+            dataVersion: "7",
+            kpis: [{ key: "files", label: "फ़ाइलें", value: 12, unit: "count", sub: null }],
+            charts: [
+              {
+                key: "completionBySection",
+                title: "खंड अनुसार पूर्णता",
+                kind: "stackedBar",
+                categories: ["परिचय"],
+                series: [
+                  { key: "complete", name: "पूर्ण", values: [2] },
+                  { key: "partial", name: "आंशिक", values: [1] }
+                ]
+              }
+            ],
+            filters: { status: "APPROVED" },
+            withheldTranscripts: 2,
+            truncated: false,
+            expiresAt: "2026-11-12T10:00:00Z",
+            sharedAt: "2026-11-05T10:00:00Z",
+            labels: {
+              eyebrow: "{product} · लाइव रिपोर्ट",
+              sharedBy: "द्वारा साझा",
+              keyFigures: "मुख्य आँकड़े",
+              withheldMany: "सहमति के कारण {n} रिकॉर्डिंग छोड़ी गई हैं।",
+              readOnly: "केवल पठन हेतु। आँकड़े लिंक बनाते समय निर्धारित किए गए थे।",
+              legend: "संकेत-सूची",
+              "filter.status": "समीक्षा की स्थिति"
+            }
+          })
+        })
+    );
+    const page = await context.newPage();
+    try {
+      await page.goto("/report-share/token-hi");
+      await expect(page.getByRole("heading", { name: "बगरू 2026" })).toBeVisible();
+      await expect(page.getByText("Design Workshop · लाइव रिपोर्ट")).toBeVisible();
+      await expect(page.getByText("द्वारा साझा")).toBeVisible();
+      await expect(page.getByText("समीक्षा की स्थिति")).toBeVisible();
+      await expect(page.getByRole("region", { name: "मुख्य आँकड़े" })).toContainText("फ़ाइलें");
+      await expect(page.getByRole("list", { name: "संकेत-सूची" })).toContainText("पूर्ण");
+      await expect(page.getByText("सहमति के कारण 2 रिकॉर्डिंग छोड़ी गई हैं।")).toBeVisible();
+      await expect(page.locator("main[lang=hi]")).toHaveCount(1);
+      await expect(page.getByText("Shared by")).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("an expired Hindi live link says so in Hindi, and an old link without lang in English", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1366, height: 900 }, serviceWorkers: "block" });
+    const fake = new DataExplorerFake();
+    await fake.install(context, "light");
+    await context.route(
+      (url) => url.pathname === "/api/report-share/token-gone",
+      (route) => route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Not found" }) })
+    );
+    const page = await context.newPage();
+    try {
+      await page.goto("/report-share/token-gone?lang=hi");
+      await expect(page.getByRole("alert")).toHaveText("इस लिंक की अवधि समाप्त हो गई है या इसे बंद कर दिया गया है।");
+      await expect(page.locator("main[lang=hi]")).toHaveCount(1);
+      await expect(page.getByRole("button", { name: "पुनः प्रयास करें" })).toHaveCount(0);
+      await page.goto("/report-share/token-gone");
+      await expect(page.getByRole("alert")).toHaveText("This link has expired or was turned off.");
+    } finally {
+      await context.close();
+    }
+  });
+
   test("a saved view can be emailed every week and the schedule removed", async ({ browser }) => {
     const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
     try {

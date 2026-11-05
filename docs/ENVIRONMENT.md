@@ -131,7 +131,8 @@ Emitted by `app.main.SecurityHeadersMiddleware`. Defaults are correct for local 
 
 | Variable | Required | Default | Secret | Notes |
 |---|---|---|---|---|
-| `NEXT_PUBLIC_APP_URL` | No | `http://localhost:3000` | No | Public origin of the web app. Same name as the frontend variable so one `.env` can feed both. |
+| `NEXT_PUBLIC_APP_URL` | **Yes** in production | `http://localhost:3000` | No | Public origin of the web app, and the base of every credential, password, mail and cross-portal `openUrl` link. Production is `https://field-repository.vercel.app`, pinned by `.github/workflows/deploy-backend.yml` on every deploy beside the CORS origins (2026-11-05: the box had `http://localhost:3000`, which broke the designer portal's links to this one). Same name as the frontend variable so one `.env` can feed both. |
+| `APP_ENV` | **Yes** in production (pinned) | `development` | No | `production` turns on the start-up guard in `backend/app/core/config.py` (`verify_app_url_configuration`): the API refuses to boot when `NEXT_PUBLIC_APP_URL` is not https, or points at localhost or a private address. Pinned to `production` by `.github/workflows/deploy-backend.yml` beside the link origin. Leave it unset on a laptop and in CI. |
 | `BACKEND_CORS_ORIGINS` | No | `http://localhost:3000` | No | **Comma-separated exact origins** allowed to call the API from a browser. No trailing slash, no path, no wildcard. Every Vercel production/preview/custom domain must be listed or the browser blocks the preflight. |
 
 ### Identity and roles

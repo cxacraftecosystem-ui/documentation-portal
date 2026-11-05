@@ -9,6 +9,8 @@ from typing import Any
 from app.core.db import db
 from app.services import transcript_export
 from app.services.data_explorer import overview, report_cache
+from app.services.datareport import i18n
+from app.services.datareport.share_links import locale_of
 from app.services.naming_portal import PORTAL as NAMING_PORTAL
 
 logger = logging.getLogger(__name__)
@@ -22,6 +24,9 @@ CHUNK = 500
 IST = timezone(timedelta(hours=5, minutes=30))
 
 PORTALS = {"DesignWorkshop": "designer", "FieldRepository": "fieldRepository"}
+ENGLISH = i18n.translator("en")
+
+
 
 TYPE_ORDER = (
     ("IMAGE", "Photos"),
@@ -70,15 +75,15 @@ def size_of(media: Any) -> int:
         return 0
 
 
-def media_by_type(media: list[Any]) -> dict[str, Any]:
+def media_by_type(media: list[Any], t: Any = ENGLISH) -> dict[str, Any]:
     counts = Counter(type_of(m) for m in media)
     shown = [(key, label) for key, label in TYPE_ORDER if counts.get(key)]
     return {
         "key": "mediaByType",
-        "title": "Media by type",
+        "title": t("cover.chart.mediaByType", "Media by type"),
         "kind": "bar",
-        "categories": [label for _, label in shown],
-        "series": [{"name": "Files", "values": [counts[key] for key, _ in shown]}],
+        "categories": [t(f"text.{label}", label) for _, label in shown],
+        "series": [{"name": t("share.files", "Files"), "values": [counts[key] for key, _ in shown]}],
     }
 
 
@@ -96,17 +101,17 @@ def _day_of(value: Any) -> date | None:
     return None
 
 
-def recordings_over_time(media: list[Any]) -> dict[str, Any]:
+def recordings_over_time(media: list[Any], t: Any = ENGLISH) -> dict[str, Any]:
     days = [d for d in (_day_of(getattr(m, "recordedAt", None) or getattr(m, "createdAt", None)) for m in media if is_recording(m)) if d]
-    chart: dict[str, Any] = {"key": "recordingsOverTime", "kind": "column", "categories": [], "series": [{"name": "Recordings", "values": []}]}
+    chart: dict[str, Any] = {"key": "recordingsOverTime", "kind": "column", "categories": [], "series": [{"name": t("share.recordings", "Recordings"), "values": []}]}
     if not days:
-        chart["title"] = "Recordings per day"
+        chart["title"] = t("cover.chart.recordingsPerDay", "Recordings per day")
         return chart
     first, last = min(days), max(days)
     if (last - first).days < DAY_SPAN_MAX:
         counts = Counter(days)
         span = [first + timedelta(days=i) for i in range((last - first).days + 1)]
-        chart["title"] = "Recordings per day"
+        chart["title"] = t("cover.chart.recordingsPerDay", "Recordings per day")
         chart["categories"] = [d.isoformat() for d in span]
         chart["series"][0]["values"] = [counts.get(d, 0) for d in span]
         return chart
@@ -114,7 +119,8 @@ def recordings_over_time(media: list[Any]) -> dict[str, Any]:
     end = last - timedelta(days=last.weekday())
     start = max(first - timedelta(days=first.weekday()), end - timedelta(weeks=WEEKS_MAX - 1))
     span = [start + timedelta(weeks=i) for i in range((end - start).days // 7 + 1)]
-    chart["title"] = "Recordings per week"
+    chart["title"] = t("cover.chart.recordingsPerWeek", "Recordings per week")
+    chart["period"] = "week"
     chart["categories"] = [d.isoformat() for d in span]
     chart["series"][0]["values"] = [weeks.get(d, 0) for d in span]
     chart["earlierOmitted"] = sum(count for week, count in weeks.items() if week < start)
@@ -147,19 +153,19 @@ def transcript_states(media: list[Any], flags: dict[str, dict[str, Any]], withhe
     return counts
 
 
-def transcript_chart(counts: dict[str, int]) -> dict[str, Any]:
+def transcript_chart(counts: dict[str, int], t: Any = ENGLISH) -> dict[str, Any]:
     shown = [(key, label) for key, label in TRANSCRIPT_STATES if counts.get(key)]
     return {
         "key": "transcriptStatus",
-        "title": "Transcript status",
+        "title": t("cover.chart.transcriptStatus", "Transcript status"),
         "kind": "bar",
-        "categories": [label for _, label in shown],
-        "series": [{"name": "Recordings", "values": [counts[key] for key, _ in shown]}],
+        "categories": [t(f"text.{label}", label) for _, label in shown],
+        "series": [{"name": t("share.recordings", "Recordings"), "values": [counts[key] for key, _ in shown]}],
     }
 
 
 def section_completion(
-    sections: list[dict[str, Any]], answered_by_unit: list[set[str]]
+    sections: list[dict[str, Any]], answered_by_unit: list[set[str]], t: Any = ENGLISH
 ) -> tuple[dict[str, int], dict[str, Any]]:
     states: list[Counter[str]] = [Counter() for _ in sections]
     filled = total = 0
@@ -172,11 +178,11 @@ def section_completion(
     shown = [i for i, s in enumerate(sections) if s["questions"]][:SECTIONS_MAX]
     chart = {
         "key": "completionBySection",
-        "title": "Completion by section",
+        "title": t("cover.chart.completionBySection", "Completion by section"),
         "kind": "stackedBar",
         "categories": [str(sections[i]["label"]) for i in shown],
         "series": [
-            {"name": label, "values": [states[i][key] for i in shown]}
+            {"key": key, "name": t(f"pdf.legend.{key}", label), "values": [states[i][key] for i in shown]}
             for key, label in (("complete", "Complete"), ("partial", "Partial"), ("missing", "Missing"))
         ],
         "sectionsOmitted": max(0, len([s for s in sections if s["questions"]]) - len(shown)),
@@ -191,30 +197,36 @@ def percent(part: int, whole: int) -> int | None:
 
 
 def kpis(
-    media: list[Any], records: dict[str, list[Any]], transcripts: dict[str, int], fields: dict[str, int]
+    media: list[Any],
+    records: dict[str, list[Any]],
+    transcripts: dict[str, int],
+    fields: dict[str, int],
+    t: Any = ENGLISH,
 ) -> list[dict[str, Any]]:
     record_count = sum(len(records.get(key) or []) for key in RECORD_KEYS)
     coverage = percent(fields["filled"], fields["total"])
     recordings = sum(transcripts.values())
     return [
-        {"key": "files", "label": "Files", "value": len(media), "unit": "count", "sub": None},
-        {"key": "size", "label": "Size", "value": sum(size_of(m) for m in media), "unit": "bytes", "sub": None},
-        {"key": "records", "label": "Records", "value": record_count, "unit": "count", "sub": None},
+        {"key": "files", "label": t("cover.kpi.files", "Files"), "value": len(media), "unit": "count", "sub": None},
+        {"key": "size", "label": t("cover.kpi.size", "Size"), "value": sum(size_of(m) for m in media), "unit": "bytes", "sub": None},
+        {"key": "records", "label": t("cover.kpi.records", "Records"), "value": record_count, "unit": "count", "sub": None},
         {
             "key": "transcriptsReady",
-            "label": "Transcripts ready",
+            "label": t("cover.kpi.transcriptsReady", "Transcripts ready"),
             "value": transcripts["ready"],
             "unit": "count",
-            "sub": f"of {recordings} recordings" if recordings else None,
+            "sub": t("pack.kpi.readySub", "of {n} recordings", n=recordings) if recordings else None,
         },
-        {"key": "transcriptsTranslating", "label": "Translating", "value": transcripts["translating"], "unit": "count", "sub": None},
-        {"key": "transcriptsFailed", "label": "Failed", "value": transcripts["failed"], "unit": "count", "sub": None},
+        {"key": "transcriptsTranslating", "label": t("cover.kpi.transcriptsTranslating", "Translating"), "value": transcripts["translating"], "unit": "count", "sub": None},
+        {"key": "transcriptsFailed", "label": t("cover.kpi.transcriptsFailed", "Failed"), "value": transcripts["failed"], "unit": "count", "sub": None},
         {
             "key": "coverage",
-            "label": "Coverage",
+            "label": t("cover.kpi.coverage", "Coverage"),
             "value": coverage,
             "unit": "percent",
-            "sub": f"{fields['filled']} of {fields['total']} answers" if fields["total"] else "No questionnaire answers",
+            "sub": t("pack.kpi.coverageSub", "{filled} of {total} answers", filled=fields["filled"], total=fields["total"])
+            if fields["total"]
+            else t("share.noAnswers", "No questionnaire answers"),
         },
     ]
 
@@ -235,21 +247,25 @@ def assemble(
     truncated: bool,
     filters: dict[str, str] | None = None,
     charts: list[dict[str, Any]] | None = None,
+    locale: str = "en",
 ) -> dict[str, Any]:
+    locale = locale_of(locale)
+    t = i18n.translator(locale)
     media = [m for m in media if str(m.id) not in withheld]
     transcripts = transcript_states(media, flags, withheld)
-    fields, completion = section_completion(sections, answered_by_unit)
+    fields, completion = section_completion(sections, answered_by_unit, t)
     if charts is None:
-        charts = [media_by_type(media), recordings_over_time(media), completion, transcript_chart(transcripts)]
+        charts = [media_by_type(media, t), recordings_over_time(media, t), completion, transcript_chart(transcripts, t)]
     return {
         "version": SNAPSHOT_VERSION,
         "portal": portal_key(),
+        "locale": locale,
         "title": title,
         "crumbs": crumbs,
         "generatedBy": generated_by,
         "generatedAt": generated_at.isoformat(),
         "dataVersion": data_version,
-        "kpis": kpis(media, records, transcripts, fields),
+        "kpis": kpis(media, records, transcripts, fields, t),
         "charts": charts,
         "filters": dict(filters or {}),
         "withheldTranscripts": len(withheld),
@@ -268,11 +284,11 @@ CHART_TITLES = {
 }
 
 
-def chart_of(key: str, spec: Any, *, unit: str = "count") -> dict[str, Any]:
+def chart_of(key: str, spec: Any, *, unit: str = "count", t: Any = ENGLISH, period: str | None = None) -> dict[str, Any]:
     if spec is None:
         title = CHART_TITLES.get(key, "")
-        return {"key": key, "title": title, "kind": "bar", "categories": [], "series": [], "unit": unit}
-    return {
+        return {"key": key, "title": t(f"text.{title}", title), "kind": "bar", "categories": [], "series": [], "unit": unit}
+    out = {
         "key": key,
         "title": str(spec.title),
         "kind": CHART_KINDS.get(str(spec.kind), "bar"),
@@ -280,9 +296,21 @@ def chart_of(key: str, spec: Any, *, unit: str = "count") -> dict[str, Any]:
         "series": [{"name": str(name), "values": [float(v or 0) for v in values]} for name, values in spec.series],
         "unit": unit,
     }
+    if period:
+        out["period"] = period
+    return out
 
 
-def _context(user: Any, scope: Any, norm: str, title: str, records: dict[str, list[Any]], version: str, now: datetime) -> Any:
+def _context(
+    user: Any,
+    scope: Any,
+    norm: str,
+    title: str,
+    records: dict[str, list[Any]],
+    version: str,
+    now: datetime,
+    locale: str = "en",
+) -> Any:
     import dataclasses
 
     from app.services.datareport import contract
@@ -294,9 +322,9 @@ def _context(user: Any, scope: Any, norm: str, title: str, records: dict[str, li
         "path": norm,
         "folder_name": title,
         "material": {"records": records},
-        "options": contract.ReportOptions(),
+        "options": contract.ReportOptions(locale=locale_of(locale)),
         "links": None,
-        "t": lambda _key, default: default,
+        "t": i18n.translator(locale_of(locale)),
         "data_version": version,
         "generated_at": now.isoformat(),
         "cache": None,
@@ -306,22 +334,32 @@ def _context(user: Any, scope: Any, norm: str, title: str, records: dict[str, li
 
 
 async def shared_charts(
-    user: Any, scope: Any, norm: str, title: str, records: dict[str, list[Any]], version: str, now: datetime
+    user: Any,
+    scope: Any,
+    norm: str,
+    title: str,
+    records: dict[str, list[Any]],
+    version: str,
+    now: datetime,
+    locale: str = "en",
 ) -> list[dict[str, Any]] | None:
     try:
         from app.services.datareport.sheets import extras_charts, extras_common, extras_coverage
     except ImportError:
         return None
     try:
-        ctx = _context(user, scope, norm, title, records, version, now)
+        ctx = _context(user, scope, norm, title, records, version, now, locale)
+        t = ctx.t
         media = extras_common.records(ctx, "media")
         facts = await extras_common.media_facts(ctx) if media else {}
         coverage = await extras_coverage.compute(ctx)
+        over_time = extras_charts.recordings_per_day(media, t)
+        weekly = over_time is not None and str(over_time.title) == t("cover.chart.recordingsPerWeek", "Recordings per week")
         return [
-            chart_of("mediaByType", extras_charts.media_by_type(media)),
-            chart_of("recordingsOverTime", extras_charts.recordings_per_day(media)),
-            chart_of("completionBySection", extras_charts.completion_by_section(coverage), unit="percent"),
-            chart_of("transcriptStatus", extras_charts.transcript_status(media, facts)),
+            chart_of("mediaByType", extras_charts.media_by_type(media, t), t=t),
+            chart_of("recordingsOverTime", over_time, t=t, period="week" if weekly else None),
+            chart_of("completionBySection", extras_charts.completion_by_section(coverage, t), unit="percent", t=t),
+            chart_of("transcriptStatus", extras_charts.transcript_status(media, facts, t), t=t),
         ]
     except Exception:
         logger.exception("report share: the cover charts failed, using the share's own")
@@ -379,7 +417,13 @@ async def _scope(browser: Any, user: Any, filters: dict[str, str]) -> Any:
 
 
 async def build(
-    browser: Any, user: Any, norm: str, *, filters: dict[str, str] | None = None, now: datetime | None = None
+    browser: Any,
+    user: Any,
+    norm: str,
+    *,
+    filters: dict[str, str] | None = None,
+    now: datetime | None = None,
+    locale: str = "en",
 ) -> dict[str, Any]:
     from app.services.tool_scope import hide_unseen
 
@@ -404,7 +448,7 @@ async def build(
     moment = now or datetime.now(UTC)
     version = await report_cache.data_version(db)
     kept = {**records, "media": [m for m in media if str(m.id) not in withheld]}
-    charts = await shared_charts(user, scope, norm, title, kept, version, moment)
+    charts = await shared_charts(user, scope, norm, title, kept, version, moment, locale_of(locale))
     return assemble(
         title=title,
         crumbs=names,
@@ -420,4 +464,5 @@ async def build(
         truncated=truncated,
         filters=applied,
         charts=charts,
+        locale=locale,
     )
