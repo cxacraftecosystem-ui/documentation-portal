@@ -64,7 +64,6 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -209,17 +208,17 @@ internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, star
         val fraction = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
         Waveform(wave.peaks, fraction, markers, 48.dp) { f -> if (duration > 0) ExplorerAudio.seekTo((f * duration).toLong()) }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(ExplorerAudioLines.clock(position), style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            Text(ExplorerAudioLines.clock(position), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             Text(
                 speaking?.let { AudioText.speaking(it) }.orEmpty(),
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 maxLines = if (big) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
             )
-            Text(ExplorerAudioLines.clock(duration), style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(ExplorerAudioLines.clock(duration), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         val speed: @Composable () -> Unit = {
             Pill(speedLabel(audio.speed), filled = false, enabled = mine, tag = "explorer.audio.speed") { ExplorerAudio.setSpeed(ExplorerAudio.nextSpeed(audio.speed)) }
@@ -285,7 +284,7 @@ internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, star
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
                     ) {
                         Box(Modifier.size(8.dp).background(tint, CircleShape))
-                        Text(s.name?.ifBlank { null } ?: s.label, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp), fontWeight = FontWeight.SemiBold, color = tint)
+                        Text(s.name?.ifBlank { null } ?: s.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = tint)
                     }
                 }
             }
@@ -314,7 +313,7 @@ internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, star
                         text = audioHighlight(texts.getOrElse(i) { turn.text }, needle, mark.first, mark.second),
                         current = i == active,
                         markBg = markBg,
-                        textSize = 15,
+                        large = true,
                         onClick = { ExplorerAudio.seekTo(turn.startMs) },
                     )
                 }
@@ -324,7 +323,7 @@ internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, star
 }
 
 @Composable
-internal fun Segment(clock: String, speaker: String?, speakerColor: Color, text: AnnotatedString, current: Boolean, markBg: Color, textSize: Int, onClick: () -> Unit) {
+internal fun Segment(clock: String, speaker: String?, speakerColor: Color, text: AnnotatedString, current: Boolean, markBg: Color, large: Boolean, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
@@ -333,10 +332,10 @@ internal fun Segment(clock: String, speaker: String?, speakerColor: Color, text:
             .padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(clock, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.widthIn(min = 40.dp).padding(top = 2.dp))
+        Text(clock, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.widthIn(min = 40.dp).padding(top = 2.dp))
         Column(Modifier.weight(1f)) {
-            speaker?.let { Text(it, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp), fontWeight = FontWeight.Bold, color = speakerColor) }
-            Text(text, style = MaterialTheme.typography.bodyMedium.copy(fontSize = textSize.sp, lineHeight = (textSize * 1.55f).sp), color = MaterialTheme.colorScheme.onSurface)
+            speaker?.let { Text(it, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = speakerColor) }
+            Text(text, style = if (large) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp), color = MaterialTheme.colorScheme.onSurface)
         }
     }
 }
@@ -363,7 +362,7 @@ internal fun <T> SegmentTabs(options: List<Pair<T, String>>, current: T, tagPref
             ) {
                 Text(
                     label,
-                    style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
                     color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center,
@@ -388,17 +387,17 @@ internal fun FindField(needle: String, label: String, onChange: (String) -> Unit
     ) {
         Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
         Box(Modifier.weight(1f)) {
-            if (needle.isEmpty()) Text(AudioText.findHint, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp), color = MaterialTheme.field.placeholder)
+            if (needle.isEmpty()) Text(AudioText.findHint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.placeholder)
             BasicTextField(
                 value = needle,
                 onValueChange = onChange,
                 singleLine = true,
-                textStyle = TextStyle(fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 modifier = Modifier.fillMaxWidth().semantics { contentDescription = AudioText.findHint },
             )
         }
-        Text(label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("↑", modifier = Modifier.clickable(role = Role.Button) { onStep(-1) }.padding(6.dp).semantics { contentDescription = AudioText.previousMatch })
         Text("↓", modifier = Modifier.clickable(role = Role.Button) { onStep(1) }.padding(6.dp).semantics { contentDescription = AudioText.nextMatch })
     }
@@ -416,7 +415,7 @@ private fun Pill(label: String, filled: Boolean, enabled: Boolean, tag: String, 
             .testTag(tag),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp), fontWeight = if (filled) FontWeight.SemiBold else FontWeight.Normal, color = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = if (filled) FontWeight.SemiBold else FontWeight.Normal, color = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -429,7 +428,7 @@ private fun RoundButton(description: String, size: Dp, label: String, enabled: B
             .testTag(tag),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp), color = MaterialTheme.colorScheme.onSurface)
+        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -506,13 +505,13 @@ internal fun MiniPlayer(onOpen: () -> Unit) {
         }
         Row(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onOpen).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFFFEF3C7)), contentAlignment = Alignment.Center) {
-                Text("♪", color = Color(0xFF92400E), fontWeight = FontWeight.Bold)
+                Text("♪", style = MaterialTheme.typography.labelLarge, color = Color(0xFF92400E), fontWeight = FontWeight.Bold)
             }
             Column(Modifier.weight(1f)) {
-                Text(item.title, style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp), fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     ExplorerAudioLines.spoken(audio.line) ?: "${AudioText.playing} · ${ExplorerAudioLines.clock(audio.positionMs)} of ${ExplorerAudioLines.clock(audio.durationMs)}",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                    style = MaterialTheme.typography.labelMedium,
                     color = Color(0xFFCFCBE0),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -523,7 +522,7 @@ internal fun MiniPlayer(onOpen: () -> Unit) {
                 Modifier.size(40.dp).clip(CircleShape).clickable(role = Role.Button) { ExplorerAudio.seekBy(-ExplorerAudio.STEP_MS) }
                     .semantics { contentDescription = AudioText.back10Label }.testTag("explorer.miniplayer.back"),
                 contentAlignment = Alignment.Center,
-            ) { Text(AudioText.back10, color = Color.White, fontSize = 12.sp) }
+            ) { Text(AudioText.back10, style = MaterialTheme.typography.labelMedium, color = Color.White) }
             Box(
                 Modifier.size(44.dp).clip(CircleShape).background(Color(0xFFC090F5)).clickable(role = Role.Button) { ExplorerAudio.toggle() }
                     .semantics { contentDescription = if (audio.playing) ExplorerUiText.pause else ExplorerUiText.play }.testTag("explorer.miniplayer.play"),
@@ -536,7 +535,7 @@ internal fun MiniPlayer(onOpen: () -> Unit) {
                     Modifier.size(40.dp).clip(CircleShape).clickable(role = Role.Button) { ExplorerAudio.stop() }
                         .semantics { contentDescription = AudioText.stop }.testTag("explorer.miniplayer.stop"),
                     contentAlignment = Alignment.Center,
-                ) { Text("✕", color = Color.White, fontSize = 14.sp) }
+                ) { Text("✕", style = MaterialTheme.typography.labelLarge, color = Color.White) }
             }
         }
     }

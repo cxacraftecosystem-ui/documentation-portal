@@ -61,7 +61,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.fieldrepository.app.explorer.data.ExplorerAudio
@@ -208,15 +207,15 @@ private fun ColumnScope.MediaPane(
             contentAlignment = Alignment.Center,
         ) { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(20.dp)) }
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(meta, style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(meta, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (onSave != null) {
             Box(
                 Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primary)
                     .clickable(role = Role.Button, onClick = onSave).padding(horizontal = 14.dp).testTag("explorer.preview.save"),
                 contentAlignment = Alignment.Center,
-            ) { Text(ExplorerUiText.save, style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimary) }
+            ) { Text(ExplorerUiText.save, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimary) }
         }
     }
 
@@ -288,7 +287,7 @@ private fun ColumnScope.MediaPane(
             val line = if (english) turns[i].translation.text?.ifBlank { null } ?: turns[i].text else turns[i].text
             Text(
                 line,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                style = MaterialTheme.typography.bodyMedium,
                 color = Color(0xFFF2F0F9),
                 textAlign = TextAlign.Center,
                 maxLines = 2,
@@ -298,7 +297,7 @@ private fun ColumnScope.MediaPane(
             )
         }
         Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(ExplorerUiText.clock(playback.positionSeconds), color = Color(0xFFCFCBE0), fontSize = 11.sp)
+            Text(ExplorerUiText.clock(playback.positionSeconds), style = MaterialTheme.typography.labelSmall, color = Color(0xFFCFCBE0))
             val fraction = if (duration > 0) (playback.positionSeconds / duration).toFloat().coerceIn(0f, 1f) else 0f
             Box(
                 Modifier.weight(1f).height(16.dp).pointerInput(duration) {
@@ -309,7 +308,7 @@ private fun ColumnScope.MediaPane(
                 Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(Color(0xFF3A3651)))
                 Box(Modifier.fillMaxWidth(fraction).height(4.dp).clip(CircleShape).background(Color(0xFFC090F5)))
             }
-            Text(ExplorerUiText.clock(duration), color = Color(0xFFCFCBE0), fontSize = 11.sp)
+            Text(ExplorerUiText.clock(duration), style = MaterialTheme.typography.labelSmall, color = Color(0xFFCFCBE0))
         }
     }
 
@@ -323,12 +322,12 @@ private fun ColumnScope.MediaPane(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ready.view.speakers.take(4).forEach { s ->
                     Box(Modifier.size(10.dp).background(speakerColor(s.colorKey), CircleShape))
-                    Text(s.name?.ifBlank { null } ?: s.label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(s.name?.ifBlank { null } ?: s.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.weight(1f))
                 Text(
                     if (follow) "✓ " + ExplorerUiText.followsVideo else ExplorerUiText.follow,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = if (follow) (if (MaterialTheme.field.isDark) AudioColors.followDark else AudioColors.follow) else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.clickable(role = Role.Switch) { follow = !follow }.padding(vertical = 6.dp).testTag("explorer.preview.follow"),
@@ -358,7 +357,7 @@ private fun ColumnScope.MediaPane(
                             text = audioHighlight(text, find, markBg, onMark),
                             current = i == active,
                             markBg = markBg,
-                            textSize = 14,
+                            large = false,
                             onClick = { playback.seek(turn.startMs / 1000.0, play = true) },
                         )
                     }
@@ -406,7 +405,7 @@ private fun RowScope.BarButton(label: String, tag: String, onClick: () -> Unit) 
         Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface)
             .border(1.dp, MaterialTheme.field.hairline, RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 8.dp, vertical = 6.dp).testTag(tag),
         contentAlignment = Alignment.Center,
-    ) { Text(label, style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp), fontWeight = FontWeight.Normal, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center) }
+    ) { Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Normal, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center) }
 }
 
 @Composable
@@ -416,5 +415,5 @@ private fun SquareButton(description: String, glyph: String, enabled: Boolean, t
             .border(1.dp, MaterialTheme.field.hairline, RoundedCornerShape(12.dp)).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = description }.testTag(tag),
         contentAlignment = Alignment.Center,
-    ) { Text(glyph, fontSize = 18.sp, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) }
+    ) { Text(glyph, style = MaterialTheme.typography.titleLarge, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) }
 }
