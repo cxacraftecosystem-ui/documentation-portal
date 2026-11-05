@@ -40,4 +40,15 @@ class ExplorerRowMetaTest {
         assertNull(e.bytes)
         assertNull(e.capturedAt)
     }
+
+    @QFeature("X2")
+    @Test fun `measured facts join the row line only when present`() {
+        val photo = ExplorerEntry(name = "a.jpg", path = "a", mediaId = "m", mediaType = "IMAGE", sizeBytes = 3_400_000, pixels = com.fieldrepository.app.explorer.data.ExplorerPixels(4032, 3024))
+        assertEquals("Image · 3.2 MB · 4032 × 3024", fileMeta(photo))
+        assertEquals("Image · 3.2 MB", fileMeta(photo.copy(pixels = null)))
+        val pdf = ExplorerEntry(name = "c.pdf", path = "c", mediaId = "d", mediaType = "PDF", sizeBytes = 838_861, pages = 2)
+        assertEquals("Document · 0.8 MB · 2 pages", fileMeta(pdf))
+        assertEquals("Document · 0.8 MB · 1 page", fileMeta(pdf.copy(pages = 1)))
+        assertEquals("Document · 0.8 MB", fileMeta(pdf.copy(pages = null)))
+    }
 }

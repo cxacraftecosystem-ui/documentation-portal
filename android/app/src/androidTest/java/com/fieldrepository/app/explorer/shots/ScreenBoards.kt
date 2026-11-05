@@ -105,14 +105,15 @@ object ScreenBoards {
             ExplorerInfoField("Recorded fields", "34 of 40"),
             ExplorerInfoField("Review", "Approved"),
         ) + moreFields.map { ExplorerInfoField(it.first, it.second) },
+        counts = com.fieldrepository.app.explorer.data.ExplorerCounts(tools = 6),
     )
 
     val video = ExplorerEntry(name = "Interview_Dabu-mud-resist_Take-1.mp4", path = "$GIRIRAJ/v1", mediaType = "VIDEO", mediaId = "v1", sizeBytes = 701 * MB, transcriptAvailable = true, previewPath = "/data/media/v1/preview")
-    val image = ExplorerEntry(name = "Block-carving_close-up_03.jpg", path = "$GIRIRAJ/i1", mediaType = "IMAGE", mediaId = "i1", sizeBytes = (3.4 * MB).toLong())
+    val image = ExplorerEntry(name = "Block-carving_close-up_03.jpg", path = "$GIRIRAJ/i1", mediaType = "IMAGE", mediaId = "i1", sizeBytes = (3.4 * MB).toLong(), pixels = com.fieldrepository.app.explorer.data.ExplorerPixels(4032, 3024))
     val kiln = ExplorerEntry(name = "Kiln-firing_wide_07.mov", path = "$GIRIRAJ/v2", mediaType = "VIDEO", mediaId = "v2", sizeBytes = 220 * MB, previewPath = "/data/media/v2/preview")
     val audio = ExplorerEntry(name = "Section-D_Materials_Group-of-3.m4a", path = "$GIRIRAJ/a1", mediaType = "AUDIO", mediaId = "a1", sizeBytes = (14.2 * MB).toLong(), transcriptAvailable = true, previewPath = "/data/media/a1/preview")
     val dyeVat = ExplorerEntry(name = "Dye-vat_overhead_01.jpg", path = "$GIRIRAJ/i2", mediaType = "IMAGE", mediaId = "i2", sizeBytes = (4.1 * MB).toLong())
-    val consent = ExplorerEntry(name = "Consent_form_signed.pdf", path = "$GIRIRAJ/d1", mediaType = "PDF", mediaId = "d1", sizeBytes = (0.8 * MB).toLong())
+    val consent = ExplorerEntry(name = "Consent_form_signed.pdf", path = "$GIRIRAJ/d1", mediaType = "PDF", mediaId = "d1", sizeBytes = (0.8 * MB).toLong(), pages = 2)
 
     fun files(context: Context): List<ExplorerEntry> {
         val head = listOf(video, image, kiln, audio, dyeVat, consent)
@@ -291,6 +292,11 @@ object ScreenBoards {
     class More(private val base: ExplorerMore = DesignBoards.More()) : ExplorerMore by base {
         var overviewOf: ExplorerOverview? = null
         override suspend fun overview(path: String, status: String?) = overviewOf ?: base.overview(path, status)
+        override suspend fun reportSheets(path: String, status: String?) = com.fieldrepository.app.explorer.data.ExplorerReportSheets(
+            path = path,
+            sheets = listOf("Artisans" to 12, "Tools" to 120, "Processes" to 9, "Materials" to 14, "Media" to 48, "Transcripts" to 12, "Reviews" to 3, "Products" to 0)
+                .map { (name, n) -> com.fieldrepository.app.explorer.data.ExplorerReportSheetInfo(key = name.lowercase(), name = name, count = n) },
+        )
     }
 
     const val SEARCH_LOCAL = """{"query":"indigo mud resist","mode":"text","remote":{"status":"off"},"groups":[

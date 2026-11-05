@@ -137,6 +137,8 @@ internal fun fileMeta(entry: ExplorerEntry): String = listOfNotNull(
         else -> "File"
     },
     ExplorerBytes.format(entry.sizeBytes),
+    entry.pixels?.takeIf { it.width > 0 && it.height > 0 }?.let { "${it.width} × ${it.height}" },
+    entry.pages?.takeIf { it > 0 }?.let { ExplorerBytes.count(it, "page") },
     "transcript".takeIf { entry.transcriptAvailable && entry.mediaType != null },
     capturedDay(entry.capturedAt),
 ).joinToString(" · ")

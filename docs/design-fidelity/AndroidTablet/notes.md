@@ -9,3 +9,4 @@
 - Right pane: record and download cards side by side at equal height, underline tabs, and the files as a two-column grid inside one card.
 - Still differs: the search slot in the left pane carries the filter chips row from DataRecordSearch (fix-0014).
 - Type sizes and line heights snap to the app type roles (TypeScaleGuardTest forbids literal sp): board 13px reads 14sp, 15px reads 16sp, 20px reads 18sp, 22/26px read 24sp.
+- Tree expand arrows are icons. The left pane carries the review-status pills when the portal has them (Field Repository), and the right pane shows "6 tools" and "Tables 7".

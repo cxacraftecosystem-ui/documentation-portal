@@ -257,6 +257,7 @@ fun ExplorerScreen(
     val stats = remember { mutableStateMapOf<String, SizeLoad>() }
     val visits = remember { mutableStateMapOf<String, ExplorerVisit>() }
     val overviews = remember { mutableStateMapOf<String, ExplorerOverview>() }
+    val sheetCounts = remember { mutableStateMapOf<String, Int>() }
     var selectionSize by remember { mutableStateOf<Long?>(null) }
     var shareIds by rememberSaveable { mutableStateOf(setOf<String>()) }
     var hidden by rememberSaveable { mutableStateOf(setOf<String>()) }
@@ -315,6 +316,9 @@ fun ExplorerScreen(
             }
         }
         runCatching { extras.visit(ExplorerVisitBody(at)) }.getOrNull()?.let { visits[at] = it }
+        if (sheetCounts[at] == null) {
+            runCatching { extras.reportSheets(at, state.statusParam) }.getOrNull()?.let { got -> sheetCounts[at] = got.sheets.count { (it.count ?: 0) > 0 } }
+        }
         if (isWorkshopFolder(at) && overviews[at] == null) {
             runCatching { extras.overview(at, state.statusParam) }.getOrNull()?.let { overviews[at] = it }
         }
@@ -849,7 +853,7 @@ fun ExplorerScreen(
                     Tabs(
                         tab = state.tab,
                         files = state.total ?: state.entries.size,
-                        tables = tables.ready?.report?.sheets?.size,
+                        tables = sheetCounts[state.path]?.takeIf { it > 0 } ?: tables.ready?.takeIf { it.path == state.path }?.report?.sheets?.count { (it.totalRows ?: it.rows.size) > 0 }?.takeIf { it > 0 },
                         transcripts = known?.byKind?.get(ExplorerKind.TRANSCRIPTS)?.files,
                         onTab = { state.tab = it },
                     )
@@ -1370,10 +1374,13 @@ private fun FolderCard(state: ExplorerState, size: SizeLoad?, visit: ExplorerVis
                 modifier = m.semantics { heading() },
             )
         }
-        val line = when (size) {
-            is SizeLoad.Known -> ExplorerUiText.filesSize(size.size.files, size.size.bytes)
-            else -> ExplorerText.folderCount(state.folders.size, state.files.size)
-        }
+        val line = listOfNotNull(
+            when (size) {
+                is SizeLoad.Known -> ExplorerUiText.filesSize(size.size.files, size.size.bytes)
+                else -> ExplorerText.folderCount(state.folders.size, state.files.size)
+            },
+            info?.counts?.tools?.takeIf { it > 0 }?.let { ExplorerBytes.count(it, "tool") },
+        ).joinToString(" · ")
         val count: @Composable (Modifier) -> Unit = { m ->
             Text(line, style = if (large) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall, color = if (large) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, modifier = m.testTag("explorer.count"))
         }

@@ -14,3 +14,5 @@
 - Still differs: the search field and filter chips are DataRecordSearch/SearchFilterBar, owned by fix-0014 (agent ac290e23); they restyled them to this board on fix-0014 (afed54e3) but keep "Everything", type chips and "Filters" because their tests depend on them.
 - Still differs: "New since you looked +N" shows on record folders (from the WorkshopOverview board's per-folder visit data); the folder board has no such chip.
 - Type sizes and line heights snap to the app type roles (TypeScaleGuardTest forbids literal sp): board 13px reads 14sp, 15px reads 16sp, 20px reads 18sp, 22/26px read 24sp.
+- New API facts appear only when the server has measured them: "Image · 3.4 MB · 4032 × 3024", "Document · 0.8 MB · 2 pages". The record card reads "48 files · 1.24 GB · 6 tools", and the Tables tab shows the number of report sheets that have rows ("Tables 7").
+- In the Transcripts tab, a failed row shows the server's reason (statusMessage, e.g. "No speech found in the recording") on its full-red background.
