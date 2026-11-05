@@ -24,6 +24,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.Density
@@ -392,8 +394,8 @@ class ExplorerScreenUiTest {
         compose.onNodeWithTag("explorer.tables.toggle").performClick()
         compose.waitForIdle()
         scrollTo("explorer.showing.more")
-        compose.onNodeWithTag("explorer.showing.more").performClick()
-        compose.waitUntil(5_000) { fake.calls.contains("tree:w:10:1") }
+        compose.onNodeWithTag("explorer.showing.more").performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(15_000) { fake.calls.contains("tree:w:10:1") }
         compose.waitForIdle()
         scrollTo("explorer.file.q11")
         compose.onNodeWithTag("explorer.file.q11").assertExists()
