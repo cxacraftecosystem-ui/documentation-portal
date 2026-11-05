@@ -15,6 +15,8 @@ EXTRA = (
     "scripts/sync_data_explorer.py",
     "frontend/e2e/data-explorer-web-imports-unit.spec.ts",
     "frontend/e2e/data-explorer-engine-unit.spec.ts",
+    "frontend/e2e/data-explorer-preview-unit.spec.ts",
+    "frontend/e2e/data-explorer-redesign-unit.spec.ts",
     "frontend/e2e/data-explorer.spec.ts",
     "frontend/e2e/support/dataExplorerFake.ts",
 )

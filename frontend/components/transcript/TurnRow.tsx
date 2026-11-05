@@ -75,7 +75,7 @@ export const TurnRow = memo(function TurnRow(props: Props) {
   const status = turn.translation.status;
   const englishPane = (
     <div
-      className={`min-w-0 ${tab === "side" ? "border-l-2 pl-3 max-md:mt-2" : ""} ${active ? "border-purple-500" : "border-line-200"}`}
+      className={`min-w-0 ${tab === "side" ? "rounded-sm px-3 max-md:mt-2" : ""} ${tab === "side" && active ? "bg-purple-50 dark:bg-purple-950/30" : tab === "side" ? "bg-surface-50" : ""}`}
       lang="en"
       data-pane="english"
       data-active-english={active ? "true" : undefined}

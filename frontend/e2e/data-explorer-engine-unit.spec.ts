@@ -597,9 +597,12 @@ test.describe("@qf:X10 the worker job", () => {
 
 test.describe("@qf:X1 url state and table memory", () => {
   test("the folder, view, sheet, search and page round-trip through the URL", () => {
-    const search = writeUrlState({ path: "Workshops/Bagru", view: "tables", sheet: "Artisans", q: "kamla", browse: "tool", browsePage: 3, browseQ: "block" }, new URLSearchParams("status=PENDING"));
+    const state = { path: "Workshops/Bagru", view: "tables" as const, sheet: "Artisans", q: "kamla", browse: "tool", browsePage: 3, browseQ: "block", preview: "m1", t: 724, find: "indigo", kind: "VIDEO" };
+    const search = writeUrlState(state, new URLSearchParams("status=PENDING"));
     const back = readUrlState(new URLSearchParams(search));
-    expect(back).toEqual({ path: "Workshops/Bagru", view: "tables", sheet: "Artisans", q: "kamla", browse: "tool", browsePage: 3, browseQ: "block" });
+    expect(back).toEqual(state);
+    expect(readUrlState(new URLSearchParams("view=transcripts")).view).toBe("transcripts");
+    expect(readUrlState(new URLSearchParams("view=bogus&t=-3")).view).toBe("files");
     expect(new URLSearchParams(search).get("status")).toBe("PENDING");
     expect(writeUrlState(readUrlState(new URLSearchParams()))).toBe("");
     expect(ancestorsOf("a/b/c")).toEqual(["", "a", "a/b", "a/b/c"]);

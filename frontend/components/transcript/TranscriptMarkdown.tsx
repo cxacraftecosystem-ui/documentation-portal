@@ -39,7 +39,7 @@ const components: Components = {
     <pre className="mb-2 overflow-x-auto rounded-md border border-line-200 bg-surface-50 p-3 text-xs leading-5 last:mb-0">{children}</pre>
   ),
   blockquote: ({ children }) => (
-    <blockquote className="mb-2 border-l-2 border-purple-200 pl-3 text-ink-700 last:mb-0">{children}</blockquote>
+    <blockquote className="mb-2 rounded-sm bg-surface-50 px-3 py-1.5 text-ink-700 last:mb-0">{children}</blockquote>
   ),
   table: ({ children }) => (
     <div className="mb-2 overflow-x-auto last:mb-0">

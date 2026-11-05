@@ -2,7 +2,7 @@ import type { BrowserContext, Route } from "@playwright/test";
 
 type Json = Record<string, unknown>;
 
-export type Call = { method: string; path: string; query: URLSearchParams; body: Json | null; at: number };
+export type Call = { method: string; path: string; query: URLSearchParams; body: Json | null; at: number; headers: Record<string, string> };
 
 type FakeFile = {
   path: string;
@@ -23,6 +23,54 @@ export const PNG = Buffer.from(
 );
 
 const PDF = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
+
+const ZIP = Buffer.concat([Buffer.from([0x50, 0x4b, 0x05, 0x06]), Buffer.alloc(18)]);
+
+const TURN = (index: number, startMs: number, endMs: number, speakerKey: string, speakerName: string, text: string, english: string | null) => ({
+  id: `t${index}`,
+  index,
+  speakerKey,
+  speakerName,
+  startMs,
+  endMs,
+  language: "hi",
+  text,
+  textSource: "MACHINE",
+  lowConfidence: [],
+  words: [],
+  translation: { text: english, status: english ? "TRANSLATED" : "ALREADY_ENGLISH", source: "MACHINE", model: null },
+  revision: 1
+});
+
+export const TRANSCRIPT_AUD1 = {
+  mediaId: "aud1",
+  title: "interview.m4a",
+  status: "READY",
+  queueReason: null,
+  statusMessage: null,
+  version: 1,
+  languages: [{ code: "hi", label: "Hindi" }, { code: "en", label: "English" }],
+  durationMs: 754_000,
+  speakerCount: 2,
+  badges: [],
+  speakers: [
+    { speakerKey: "speaker_0", label: "Speaker 1", name: "Interviewer", role: "RESEARCHER", personId: null, suggested: false },
+    { speakerKey: "speaker_1", label: "Speaker 2", name: "Sunita", role: "ARTISAN", personId: null, suggested: false }
+  ],
+  turns: [
+    TURN(0, 0, 9_000, "speaker_0", "Interviewer", "Mitti mein kya milate hain?", "What goes into the mud?"),
+    TURN(1, 9_000, 40_000, "speaker_1", "Sunita", "Chuna aur gond. Chuna se daraar nahin aati.", "Lime and gum. Lime stops it cracking."),
+    TURN(2, 41_000, 50_000, "speaker_0", "Interviewer", "Chuna kahan se laate hain?", "Where do you buy the lime?")
+  ],
+  summary: [],
+  quotes: [],
+  cost: null,
+  audio: { url: null, durationMs: 754_000 },
+  permissions: { edit: false, retry: true, transcribeNow: false, ask: false, autodraft: false, quoteCard: false, mapSpeakers: false },
+  readOnly: null,
+  revision: 1,
+  updatedAt: "2026-09-22T10:00:00Z"
+};
 
 export const BIG_FILES = 60;
 export const BIG_FILE_BYTES = 256 * 1024;
@@ -56,6 +104,8 @@ export class DataExplorerFake {
   servedFiles: string[] = [];
   fileDelayMs = 0;
   reportBusy = 0;
+  xlsxFailures = 0;
+  transcriptStatus: Record<string, string> = { aud1: "READY", vid1: "NEEDS_ATTENTION" };
   treeFailures = new Map<string, number>();
   folders = new Map<string, FakeFolder>();
 
@@ -221,7 +271,13 @@ export class DataExplorerFake {
     }
     const format = query.get("format");
     if (format === "csv") return { status: 200, raw: Buffer.from("﻿Name,Place\nKamla Devi,Bagru\n"), contentType: "text/csv", headers: { "content-disposition": 'attachment; filename="Artisans.csv"' } };
-    if (format === "xlsx") return { status: 200, raw: Buffer.from("PK"), contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
+    if (format === "xlsx") {
+      if (this.xlsxFailures > 0) {
+        this.xlsxFailures -= 1;
+        return { status: 500, json: { detail: "The report couldn't be built." } };
+      }
+      return { status: 200, raw: Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(60)]), contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers: { "content-disposition": 'attachment; filename="Dataset_Report_Bagru-2026.xlsx"' } };
+    }
     const artisans = Array.from({ length: 200 }, (_, index) => [`Artisan ${index + 1}`, index % 2 ? "Bagru" : "Sanganer"]);
     artisans.push(["Rare Weaver", "Kaithoon"]);
     const q = (query.get("q") ?? "").trim().toLowerCase();
@@ -284,8 +340,41 @@ export class DataExplorerFake {
       const pages = Math.max(1, Math.ceil(all.length / pageSize));
       return { status: 200, json: { items, total: all.length, page, pageSize, pages, truncated: all.length > page * pageSize } };
     }
+    if (path === "/transcripts/aud1" && method === "GET") return { status: 200, json: TRANSCRIPT_AUD1 };
+    if (path === "/transcripts/batch") {
+      const ids = (query.get("ids") ?? "").split(",").filter(Boolean);
+      const items = ids
+        .filter((id) => id in this.transcriptStatus)
+        .map((id) => ({ mediaId: id, status: this.transcriptStatus[id], languages: [{ code: "hi", label: "Hindi" }, { code: "en", label: "English" }], durationMs: id === "aud1" ? 754_000 : 61_000, speakerCount: id === "aud1" ? 2 : 1 }));
+      return { status: 200, json: { items } };
+    }
+    const retried = /^\/transcripts\/([^/]+)\/retry$/.exec(path);
+    if (retried && method === "POST") {
+      this.transcriptStatus[retried[1]] = "TRANSLATING";
+      return { status: 200, json: { ...TRANSCRIPT_AUD1, mediaId: retried[1], status: "TRANSLATING" } };
+    }
+    if (/^\/transcripts\/[^/]+\/download$/.test(path) || path === "/data/transcript-bundle" || path === "/data/transcripts/export") {
+      return { status: 200, raw: ZIP, contentType: "application/zip", headers: { "content-disposition": 'attachment; filename="Transcripts.zip"' } };
+    }
+    if (path === "/data/media/aud1/peaks") return { status: 200, json: { peaks: Array.from({ length: 800 }, (_, index) => ((index * 37) % 100) / 100), durationMs: 754_000 } };
     if (path === "/data/transcripts/languages") return { status: 200, json: { languages: [{ code: "hi", label: "Hindi", count: 3 }, { code: "raj", label: "Rajasthani", count: 1 }] } };
     if (path === "/data/transcripts") return { status: 200, json: { items: [], nextCursor: null } };
+    if (path === "/data/transcripts/list") {
+      const q = (query.get("q") ?? "").toLowerCase();
+      const items = [
+        { mediaId: "aud1", name: "interview.m4a", path: "interview.m4a", mediaType: "AUDIO", hasText: true, capturedAt: "2026-09-22T10:00:00Z", text: "Namaste, this is the block." },
+        { mediaId: "vid1", name: "loom.mp4", path: "loom.mp4", mediaType: "VIDEO", hasText: false, capturedAt: "2026-09-23T10:00:00Z", text: "" }
+      ]
+        .filter((item) => !q || item.text.toLowerCase().includes(q))
+        .map(({ text, ...item }) => (q ? { ...item, snippet: text } : item));
+      return { status: 200, json: { items, total: items.length, truncated: false, query: q || null } };
+    }
+    if (path === "/search") {
+      const q = (query.get("q") ?? "").toLowerCase();
+      const artisans = q.includes("kamla") ? [{ id: "a-kamla", name: "Kamla Devi", place: "Bagru" }] : [];
+      return { status: 200, json: { artisans, workshops: [], products: [], tools: [], media: [], total: artisans.length } };
+    }
+    if (path === "/data/locate") return { status: 200, json: { path: query.get("id") === "a-kamla" ? "workshops/bagru/kamla" : null } };
     if (path === "/workshops") return { status: 200, json: { items: [], total: 0, page: 1, pageSize: 100, pages: 0 } };
     return null;
   }
@@ -330,7 +419,7 @@ export class DataExplorerFake {
         } catch {
           body = null;
         }
-        this.calls.push({ method: request.method(), path, query: url.searchParams, body, at: Date.now() });
+        this.calls.push({ method: request.method(), path, query: url.searchParams, body, at: Date.now(), headers: request.headers() });
         const out = this.answer(request.method(), path, url.searchParams, body);
         if (!out) return route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Not Found" }) });
         if (out.raw) return route.fulfill({ status: out.status, contentType: out.contentType, headers: out.headers, body: out.raw });

@@ -1,4 +1,6 @@
-export type ExplorerView = "files" | "tables";
+export type ExplorerView = "files" | "tables" | "transcripts";
+
+export const EXPLORER_VIEWS: readonly ExplorerView[] = ["files", "tables", "transcripts"];
 
 export type ExplorerUrlState = {
   path: string;
@@ -8,6 +10,10 @@ export type ExplorerUrlState = {
   browse: string;
   browsePage: number;
   browseQ: string;
+  preview: string;
+  t: number;
+  find: string;
+  kind: string;
 };
 
 export const DEFAULT_URL_STATE: ExplorerUrlState = {
@@ -17,7 +23,11 @@ export const DEFAULT_URL_STATE: ExplorerUrlState = {
   q: "",
   browse: "",
   browsePage: 1,
-  browseQ: ""
+  browseQ: "",
+  preview: "",
+  t: 0,
+  find: "",
+  kind: ""
 };
 
 const KEYS: Record<keyof ExplorerUrlState, string> = {
@@ -27,7 +37,11 @@ const KEYS: Record<keyof ExplorerUrlState, string> = {
   q: "q",
   browse: "browse",
   browsePage: "page",
-  browseQ: "find"
+  browseQ: "find",
+  preview: "preview",
+  t: "t",
+  find: "hit",
+  kind: "kind"
 };
 
 type ParamsLike = { get(name: string): string | null };
@@ -36,14 +50,19 @@ export function readUrlState(params: ParamsLike | null | undefined): ExplorerUrl
   if (!params) return { ...DEFAULT_URL_STATE };
   const page = Number(params.get(KEYS.browsePage) ?? "1");
   const view = params.get(KEYS.view);
+  const t = Number(params.get(KEYS.t) ?? "0");
   return {
     path: (params.get(KEYS.path) ?? "").replace(/^\/+|\/+$/g, ""),
-    view: view === "tables" ? "tables" : "files",
+    view: (EXPLORER_VIEWS as readonly string[]).includes(view ?? "") ? (view as ExplorerView) : "files",
     sheet: params.get(KEYS.sheet) ?? "",
     q: params.get(KEYS.q) ?? "",
     browse: params.get(KEYS.browse) ?? "",
     browsePage: Number.isInteger(page) && page > 0 ? page : 1,
-    browseQ: params.get(KEYS.browseQ) ?? ""
+    browseQ: params.get(KEYS.browseQ) ?? "",
+    preview: params.get(KEYS.preview) ?? "",
+    t: Number.isFinite(t) && t > 0 ? Math.round(t) : 0,
+    find: params.get(KEYS.find) ?? "",
+    kind: params.get(KEYS.kind) ?? ""
   };
 }
 

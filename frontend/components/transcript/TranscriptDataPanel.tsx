@@ -307,7 +307,7 @@ function RecordingRow({ item, open, onToggle }: { item: DataRecording; open: boo
               {item.quotes.length ? (
                 <div className="grid gap-1">
                   {item.quotes.map((quote, index) => (
-                    <blockquote key={index} className="border-l-2 border-purple-300 pl-3 text-ink-900">
+                    <blockquote key={index} className="rounded-sm bg-purple-50 px-3 py-1.5 text-ink-900 dark:bg-purple-950/30">
                       {quote.original}
                       {quote.english ? <span className="block italic text-ink-700">{quote.english}</span> : null}
                       {quote.speaker ? <span className="block text-xs text-ink-500">{quote.speaker}</span> : null}

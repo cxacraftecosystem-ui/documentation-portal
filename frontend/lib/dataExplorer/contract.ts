@@ -109,6 +109,61 @@ export type ReportResponse = {
   designWorkshopsVisible?: boolean;
   designWorkshopsDownloadable?: boolean;
   query?: string | null;
+  builtAt?: string | null;
+  cached?: boolean;
+};
+
+export type ReportOptions = {
+  sheets: string[] | null;
+  answers: "original" | "english" | "both";
+  rows: "all" | "filtered";
+  links: boolean;
+};
+
+export const DEFAULT_REPORT_OPTIONS: ReportOptions = { sheets: null, answers: "both", rows: "all", links: true };
+
+export type SavedViewState = { view: "files" | "tables" | "transcripts"; sheet: string; q: string; filters: Record<string, string> };
+
+export type SavedView = {
+  id: string;
+  name: string;
+  path: string;
+  state: SavedViewState;
+  shared: boolean;
+  mine: boolean;
+  ownerName: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FolderVisit = { path: string; visitedAt: string; previousVisitAt: string | null; newFiles: number; newTranscripts: number };
+
+export type CoverageState = "complete" | "partial" | "missing";
+
+export type WorkshopOverview = {
+  path: string;
+  title: string;
+  subtitle: string | null;
+  totals: {
+    files: number;
+    bytes: number;
+    fields: { filled: number; total: number };
+    transcripts: { total: number; ready: number; translating: number; failed: number };
+    review: { approved: number; pending: number; total: number };
+  };
+  sections: { key: string; label: string }[];
+  artisans: {
+    id: string;
+    name: string;
+    craft: string | null;
+    path: string;
+    fields: { filled: number; total: number };
+    media: { files: number; bytes: number };
+    transcripts: number;
+    review: string | null;
+    sections: { key: string; state: CoverageState; missing: string[] }[];
+  }[];
+  truncated: boolean;
 };
 
 export type TranscriptText = { mediaId: string; name?: string | null; content: string | null; language?: string | null };
