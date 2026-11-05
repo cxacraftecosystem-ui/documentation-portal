@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -242,7 +241,6 @@ TABLES: tuple[Table, ...] = (
     Table("dwImports", "Artisan imports", "DwArtisanImport", 212, (C("designWorkshopId", "DesignWorkshop"),), "Artisan lists imported into workshops.", DW, design_workshop=True, portals=("designer",)),
     Table("dwRounds", "Review rounds", "DwRoundSnapshot", 213, (C("designWorkshopId", "DesignWorkshop"),), "Each review round of each workshop.", DW, design_workshop=True, portals=("designer",)),
     Table("dwViewers", "Workshop viewers", "DesignWorkshopViewer", 214, (C("designWorkshopId", "DesignWorkshop"),), "Who may view each workshop.", DW, design_workshop=True, portals=("designer",)),
-    Table("dwInspectors", "Workshop inspectors", "DesignWorkshopInspector", 215, (C("designWorkshopId", "DesignWorkshop"),), "Inspectors assigned to each workshop.", DW, design_workshop=True, portals=("designer",)),
     Table("dwOversight", "Workshop oversight", "DesignWorkshopOversight", 216, (C("designWorkshopId", "DesignWorkshop"),), "Officers overseeing each workshop.", DW, design_workshop=True, portals=("designer",)),
     Table("dwAccessRequests", "Access requests", "DesignWorkshopAccessRequest", 217, (C("designWorkshopId", "DesignWorkshop"),), "Requests to join a workshop.", DW, design_workshop=True, portals=("designer",)),
     Table("dwProvisional", "Provisional members", "DesignWorkshopProvisionalMember", 218, (C("designWorkshopId", "DesignWorkshop"),), "Members admitted provisionally by scanning a code.", DW, design_workshop=True, portals=("designer",)),
@@ -477,22 +475,7 @@ def _kind_of(f: schema.Field) -> str:
     return f.kind
 
 
-_DEV_NOTE = re.compile(r"`|──|\||migration|\b(19|20)\d\d\b|\bNULL\b|[A-Za-z_]+\.[a-z_]+\(|\b[a-z]+[A-Z][A-Za-z]*\b")
-_SHOUT = re.compile(r"\b[A-Z][A-Z0-9_-]{2,}\b")
-_ACRONYMS = frozenset({"URL", "SHA", "IST", "USD", "LGD", "PDF", "GPS", "BCP", "STT", "OTP", "UTC", "JSON", "CSV", "DOCX", "SRT", "XLSX", "MIME", "UUID", "IFSC", "PAN", "API", "SMS", "ASR", "GST"})
-
-
-def user_doc(doc: str) -> str:
-    if not doc or _DEV_NOTE.search(doc):
-        return ""
-    if any(word not in _ACRONYMS for word in _SHOUT.findall(doc)):
-        return ""
-    return doc
-
-
 def _describe(table: Table, f: schema.Field, label: str) -> str:
-    if user_doc(f.doc):
-        return f.doc
     return f"{label} of the {table.title.lower().rstrip('s')} ({table.model}.{f.name})."
 
 
@@ -530,7 +513,7 @@ def plan(table: Table, portal: str, skip: tuple[str, ...] = ()) -> Plan:
         if target and target in NAME_FIELDS:
             base = f.name.removesuffix("Id")
             name_label = schema.humanize(base)
-            columns.append(Column(f"{f.name}Name", name_label, "text", user_doc(f.doc) or f"Name of the linked {schema.humanize(target).lower()}.", source=f.source))
+            columns.append(Column(f"{f.name}Name", name_label, "text", f"Name of the linked {schema.humanize(target).lower()}.", source=f.source))
             fields.append((f"{f.name}Name", f.name, target, "name"))
             ids.append(Column(f.name, f"{name_label} ID", "id", f"Identifier of the linked {schema.humanize(target).lower()} ({f.source}).", hidden=True, group="ids", source=f.source))
             fields.append((f.name, f.name, None, "id"))

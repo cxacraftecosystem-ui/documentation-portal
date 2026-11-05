@@ -3591,6 +3591,8 @@ model DataReportShareView {
   viewer User?           @relation("DataReportShareViewer", fields: [viewerId], references: [id], onDelete: SetNull)
 
   @@index([shareId, openedAt])
+}
+
 model DataReportSchedule {
   id                   String    @id @default(cuid())
   ownerId              String
