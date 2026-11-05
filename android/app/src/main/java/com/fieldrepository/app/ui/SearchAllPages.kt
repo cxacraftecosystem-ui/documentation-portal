@@ -194,7 +194,7 @@ internal fun SearchAllList(
             state.sections.forEach { section ->
                 item("head.${section.recordType}") {
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp).testTag("search.all.section.${section.recordType}"), verticalAlignment = Alignment.CenterVertically) {
-                        Text(section.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f).semantics { heading() })
+                        Text(section.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f).semantics { heading() })
                         Text(SearchAllText.count(section.rows.size, section.total), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("search.all.count.${section.recordType}"))
                     }
                 }

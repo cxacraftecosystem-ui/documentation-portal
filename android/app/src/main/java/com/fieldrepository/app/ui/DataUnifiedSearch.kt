@@ -331,7 +331,7 @@ internal fun DataUnifiedSearch(
                                 val label = g.label.ifBlank { DataSearchRules.label(g.type, null) }
                                 item("head.${g.type}") {
                                     Row(Modifier.fillMaxWidth().padding(top = 6.dp).testTag("data.search.group.${g.type}"), verticalAlignment = Alignment.CenterVertically) {
-                                        Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f).semantics { heading() })
+                                        Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f).semantics { heading() })
                                         Text(DataSearchText.shownOf(shown.size, g.total), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }

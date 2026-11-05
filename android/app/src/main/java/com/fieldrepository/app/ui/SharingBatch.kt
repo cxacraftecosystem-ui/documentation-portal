@@ -261,7 +261,7 @@ fun GrantAccessFields(
         if (myRecords != null) return
         scope.launch {
             runCatching {
-                sharingOptions(repository.allMine(myId))
+                myId?.let { sharingOptions(repository.allMine(it)) }.orEmpty()
             }.onSuccess { myRecords = it }
                 .onFailure { onError(it.apiErrorMessage("Unable to load your records")) }
         }
