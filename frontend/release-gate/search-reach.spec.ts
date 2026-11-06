@@ -19,6 +19,19 @@ test("data search reaches the last result under All and under its busiest type",
   gate.count({ query: word, groups: groups.map((g) => `${g.type}:${g.total}`).join(" "), busiest: busiest?.type ?? "none" });
   expect(busiest, "the busiest word finds records").toBeTruthy();
 
+  await page.route(
+    (url) => url.pathname.endsWith("/data/visits"),
+    async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      const sent = (route.request().postDataJSON() ?? {}) as { path?: string };
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ path: sent.path ?? "", visitedAt: new Date().toISOString(), previousVisitAt: null, newFiles: 0, newTranscripts: 0 }),
+      });
+    },
+  );
+
   await page.goto("/data");
   await page.getByRole("searchbox", { name: "Search all data" }).fill(word);
   await expect(page.getByTestId(`search-group-${busiest.type}`)).toBeVisible({ timeout: 60_000 });
@@ -32,8 +45,9 @@ test("data search reaches the last result under All and under its busiest type",
   await gate.shot("all-last-page");
   gate.expectRow("All view has no Load more left after paging", 0, await more.count());
 
-  await page.getByRole("searchbox", { name: "Search all data" }).fill("");
+  await page.goto("/data");
   await page.getByRole("searchbox", { name: "Search all data" }).fill(word);
+  await expect(page.getByTestId(`search-group-${busiest.type}`)).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId(`search-all-${busiest.type}`)).toBeVisible({ timeout: 60_000 });
   await page.getByTestId(`search-all-${busiest.type}`).click();
   for (let i = 0; i < 400 && (await more.count()) > 0; i++) {
