@@ -1525,7 +1525,7 @@ test.describe("search reaches every record", () => {
   test("Search everywhere from quick jump runs the search", async ({ browser }) => {
     const { context, page } = await openExplorer(browser, { path: "workshops" });
     try {
-      await page.getByRole("heading", { name: "By workshop", exact: true }).first().click();
+      await page.getByRole("heading", { name: "All workshops", exact: true }).first().click();
       await page.keyboard.press("Control+k");
       const palette = page.getByRole("dialog", { name: "Quick jump" });
       await palette.getByRole("combobox", { name: "Jump to anything" }).fill("kamla");

@@ -161,7 +161,7 @@ object DesignBoards {
     }
 
     class More : ExplorerMore {
-        override suspend fun reportSheets(path: String, status: String?) = ExplorerReportSheets(path = path)
+        override suspend fun reportSheets(path: String, status: String?, q: String?) = ExplorerReportSheets(path = path)
         override suspend fun createShare(body: ExplorerShareBody) = ExplorerShare(id = "s1", url = "https://portal.example.org/report-share/tok", expiresAt = "2026-11-12T00:00:00Z")
         override suspend fun shares(path: String) = ExplorerShares()
         override suspend fun revokeShare(id: String): Response<Unit> = Response.success(Unit)
@@ -169,7 +169,7 @@ object DesignBoards {
         override suspend fun goOpen(kind: String, id: String) = ExplorerGoOpen(kind, id)
         override suspend fun goTranscript(id: String, format: String) = ExplorerGoTranscript(id, format)
         override suspend fun bundle(id: String) = ExplorerBundle(id = id, label = "Bundle $id", path = GIRIRAJ, fileCount = 48, bytes = 1_331_439_861)
-        override suspend fun transcripts(path: String, q: String?, status: String?) = ExplorerTranscriptList()
+        override suspend fun transcripts(path: String, q: String?, status: String?, offset: Int?) = ExplorerTranscriptList()
         override suspend fun reportOptions() = ExplorerReportOptionsBody(null)
         override suspend fun saveReportOptions(body: ExplorerReportOptionsBody) = body
         override suspend fun visit(body: ExplorerVisitBody) = ExplorerVisit(path = body.path, previousVisitAt = "2026-11-01T00:00:00Z", newFiles = 38, newTranscripts = 4)

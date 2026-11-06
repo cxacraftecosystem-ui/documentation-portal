@@ -241,7 +241,7 @@ object ScreenBoards {
         }
         override suspend fun selectionStats(body: ExplorerStatsBody) = ExplorerStats(files = body.mediaIds.size, bytes = 0)
         val reportQueries: MutableList<String?> = Collections.synchronizedList(mutableListOf())
-        override suspend fun reportJson(path: String, q: String?, format: String): ExplorerReport {
+        override suspend fun reportJson(path: String, q: String?, format: String, sheet: String?, offset: Int?): ExplorerReport {
             reportQueries += q
             return report(q)
         }
@@ -292,7 +292,7 @@ object ScreenBoards {
     class More(private val base: ExplorerMore = DesignBoards.More()) : ExplorerMore by base {
         var overviewOf: ExplorerOverview? = null
         override suspend fun overview(path: String, status: String?) = overviewOf ?: base.overview(path, status)
-        override suspend fun reportSheets(path: String, status: String?) = com.fieldrepository.app.explorer.data.ExplorerReportSheets(
+        override suspend fun reportSheets(path: String, status: String?, q: String?) = com.fieldrepository.app.explorer.data.ExplorerReportSheets(
             path = path,
             sheets = listOf("Artisans" to 12, "Tools" to 120, "Processes" to 9, "Materials" to 14, "Media" to 48, "Transcripts" to 12, "Reviews" to 3, "Products" to 0)
                 .map { (name, n) -> com.fieldrepository.app.explorer.data.ExplorerReportSheetInfo(key = name.lowercase(), name = name, count = n) },
