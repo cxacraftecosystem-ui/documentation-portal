@@ -1529,7 +1529,7 @@ test.describe("search reaches every record", () => {
       await page.keyboard.press("Control+k");
       const palette = page.getByRole("dialog", { name: "Quick jump" });
       await palette.getByRole("combobox", { name: "Jump to anything" }).fill("kamla");
-      await palette.getByRole("option", { name: /Search “kamla” everywhere/ }).click();
+      await palette.getByRole("option", { name: /Search “kamla” in every transcript, tool and process/ }).click();
       await expect(palette).toHaveCount(0);
       await expect(page.getByRole("searchbox", { name: "Search all data" })).toHaveValue("kamla");
       await expect(page.getByTestId("search-results").getByText("Kamla Devi")).toBeVisible();
