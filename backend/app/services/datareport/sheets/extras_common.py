@@ -228,6 +228,8 @@ def material(ctx: ReportContext) -> dict[str, Any]:
 
 
 def records(ctx: ReportContext, kind: str, *, filtered: bool = True) -> list[Any]:
+    if kind == "designWorkshops" and not bool(getattr(ctx.scope, "design_workshop_downloads", False)):
+        return []
     pick = getattr(ctx, "records", None)
     if filtered and callable(pick):
         return [r for r in pick(kind) or [] if r is not None]
