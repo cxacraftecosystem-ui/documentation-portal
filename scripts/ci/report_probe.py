@@ -121,20 +121,23 @@ def shot(path: Path, sheet: str, out: Path, rows: int) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         trimmed = Path(tmp) / f"{out.stem}.xlsx"
         book.save(trimmed)
-        subprocess.run(
-            ["soffice", "--headless", "--norestore", f"-env:UserInstallation=file://{tmp}/profile", "--convert-to", "png", "--outdir", tmp, str(trimmed)],
+        result = subprocess.run(
+            ["soffice", "--headless", "--norestore", f"-env:UserInstallation=file://{tmp}/profile", "--convert-to", "pdf", "--outdir", tmp, str(trimmed)],
             capture_output=True,
             text=True,
             timeout=600,
             check=False,
         )
-        made = Path(tmp) / f"{out.stem}.png"
-        if made.is_file():
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(made.read_bytes())
+        pdf = Path(tmp) / f"{out.stem}.pdf"
+        if not pdf.is_file():
+            print(f"no PDF for {path.name} / {sheet}: {result.stdout[-400:]} {result.stderr[-400:]}")
+            return
+        out.parent.mkdir(parents=True, exist_ok=True)
+        made = subprocess.run(["pdftoppm", "-png", "-r", "110", "-f", "1", "-l", "1", "-singlefile", str(pdf), str(out.with_suffix(""))], capture_output=True, text=True, check=False)
+        if out.is_file():
             print(f"wrote {out}")
         else:
-            print(f"no PNG for {path.name} / {sheet}")
+            print(f"no PNG for {path.name} / {sheet}: {made.stderr[-400:]}")
 
 
 def main() -> None:

@@ -957,7 +957,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends libreoffice-calc-nogui fonts-noto-core
+          sudo apt-get install -y -qq --no-install-recommends libreoffice-calc-nogui fonts-noto-core poppler-utils
           soffice --version
 
       - name: Build the production-sized fixture and assert the budgets
@@ -994,7 +994,7 @@ jobs:
           python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Artisans "$shots/after-artisans.png"
           python "$probe" shot "$RUNNER_TEMP/before/main.xlsx" Everything "$shots/before-everything.png"
           python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Everything "$shots/after-everything.png"
-          ls -la "$shots"
+          ls -la "$shots" || true
 
       - name: Upload the comparison and screenshots
         if: ${{ !cancelled() }}

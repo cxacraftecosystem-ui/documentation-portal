@@ -10,7 +10,7 @@ from typing import Any
 
 import xlsxwriter
 from xlsxwriter.utility import xl_col_to_name, xl_rowcol_to_cell
-from xlsxwriter.worksheet import Worksheet
+from xlsxwriter.worksheet import CellRichStringTuple, Worksheet
 
 from app.services.datareport.contract import (
     ROW_KIND,
@@ -152,6 +152,15 @@ TEXT = {
 
 
 class SharedStringSheet(Worksheet):
+    def write_runs(self, row: int, col: int, xml: str, raw: str, cell_format: Any) -> int:
+        if self._check_dimensions(row, col):
+            return -1
+        if self.constant_memory and row > self.previous_row:
+            self._write_single_row(row)
+        index = self.str_table._get_shared_string_index(xml)
+        self.table[row][col] = CellRichStringTuple(index, cell_format, raw)
+        return 0
+
     def _share(self, row: int, col: int) -> None:
         if not self.constant_memory:
             return
@@ -229,11 +238,27 @@ def technical(column: Column) -> bool:
         return False
     if column.kind in ("id", "json") or column.hidden:
         return True
-    key = column.key
-    low = key.lower()
+    return technical_key(column.key)
+
+
+def technical_key(key: str) -> bool:
     if key in _TECH_KEYS or key.endswith(("Id", "Ids", "Key")):
         return True
+    low = key.lower()
     return any(part in low for part in _TECH_PARTS)
+
+
+def _escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def run_xml(runs: list[tuple[str, bool]], italic: bool) -> str:
+    bold = f"<rPr><b/>{'<i/>' if italic else ''}<sz val=\"10\"/><rFont val=\"{FONT}\"/><family val=\"{FONT_FAMILY}\"/></rPr>"
+    out = []
+    for text, strong in runs:
+        space = ' xml:space="preserve"' if text != text.strip() or "\n" in text else ""
+        out.append(f"<r>{bold if strong else ''}<t{space}>{_escape(text)}</t></r>")
+    return "".join(out)
 
 
 def _parse_moment(value: str) -> datetime | None:
@@ -366,16 +391,6 @@ class ReportWriter:
         if row_kind == "summary_translation":
             props["bg_color"] = BRAND_SOFT
         return self.fmt("cell", kind, row_kind, wrap, **props)
-
-    def run_format(self, row_kind: str, bold: bool) -> Any:
-        props: dict[str, Any] = {"font_color": INK}
-        if bold:
-            props["bold"] = True
-        if row_kind in ("translation", "summary_translation"):
-            props["italic"] = True
-            if not bold:
-                props["font_color"] = MUTED
-        return self.fmt("run", row_kind, bold, **props)
 
     def status_formats(self) -> list[tuple[tuple[str, ...], Any]]:
         if not self._status_formats:
@@ -888,12 +903,8 @@ class _SheetState:
         if len(runs) == 1 or not any(bold for _part, bold in runs):
             self.ws.write_string(self.row, col, "".join(part for part, _bold in runs), fmt)
             return
-        bold_fmt = self.w.run_format(row_kind, True)
-        plain_fmt = self.w.run_format(row_kind, False)
-        fragments: list[Any] = []
-        for part, bold in runs:
-            fragments.extend((bold_fmt if bold else plain_fmt, part))
-        self.ws.write_rich_string(self.row, col, *fragments, fmt)
+        italic = row_kind in ("translation", "summary_translation")
+        self.ws.write_runs(self.row, col, run_xml(runs, italic), "".join(part for part, _bold in runs), fmt)
 
     def finish(self) -> SheetSummary:
         w, ws, sheet, p = self.w, self.ws, self.sheet, self.p

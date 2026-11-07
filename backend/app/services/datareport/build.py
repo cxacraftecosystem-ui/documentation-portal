@@ -508,7 +508,7 @@ async def render_parts(ctx: ReportContext, failed: list[str] | None = None) -> P
                 twin = None
             batch: list[dict[str, Any]] = []
             full: list[dict[str, Any]] = []
-            async for row in sheet.rows:
+            async for row in _iterate(sheet.rows):
                 if twin is not None:
                     if row.get(ROW_DETAIL):
                         full.append(row)

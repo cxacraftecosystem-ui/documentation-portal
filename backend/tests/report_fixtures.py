@@ -7,9 +7,8 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
-from lxml import etree
-
 from app.services.datareport import contract, i18n, links, portal
+from lxml import etree
 
 
 class FakeDelegate:
@@ -231,6 +230,9 @@ def production_material(recordings: int = 420, images: int = 540, artisans: int 
             gender="Female" if i % 2 else "Male", village=f"Village {i % 40}", district=f"District {i % 9}", state="Rajasthan",
             languages=["Hindi", "Marwari"], yearsInCraft=10 + i % 30, familyMembers=4 + i % 5, notes=f"Learnt from the family; {HINDI[i % 4]}",
             biography=f"{ENGLISH[i % 4]}. {HINDI[(i + 1) % 4]}", awards="State award" if i % 7 == 0 else None, cooperative=f"Co-op {i % 11}",
+            education=("Primary", "Secondary", "Graduate")[i % 3], maritalStatus="Married" if i % 4 else "Single", mainProduct=f"Stole {i % 17}",
+            rawMaterials="Cotton, indigo, mud", marketChannel=("Haat", "Exporter", "Online")[i % 3], monthlyIncome=8000 + 50 * i,
+            apprentices=i % 4, workplace="Home workshop", toolsOwned=f"{3 + i % 9} blocks", aspirations=ENGLISH[(i + 2) % 4],
         )
         for i in range(artisans)
     ]
@@ -244,6 +246,7 @@ def production_material(recordings: int = 420, images: int = 540, artisans: int 
                 recordedAt=now, createdAt=now, updatedAt=now, uploadedById="u1", hasTranscript=audio, transcriptWithheld=False,
                 transcriptStatus="COMPLETED" if audio else None, mimeType="audio/aac" if audio else "image/jpeg", status="APPROVED",
                 contentSha256=f"{i:064x}", caption=f"Caption {i}", durationMs=600000 if audio else None,
+                title=f"Take {i}", device=("Phone", "Recorder")[i % 2], place=f"Village {i % 40}", season=("Summer", "Monsoon", "Winter")[i % 3], notes=ENGLISH[i % 4],
             )
         )
     products = [SimpleNamespace(id=f"p{i}", productName=f"Indigo stole {i}", artisanId=f"a{i}", workshopId=f"w{i % 8}", status="APPROVED", createdAt=now, updatedAt=now, createdById="u1", locationId=None, material="Cotton", price=1200 + i, description=ENGLISH[i % 4]) for i in range(120)]

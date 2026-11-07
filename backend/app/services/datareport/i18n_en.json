@@ -433,6 +433,7 @@
   "link.playFrom": "Play from {time}",
   "link.section": "Open section",
   "link.srt": "Subtitles (.srt)",
+  "note.everythingTechnical": "Identifiers, checksums and created or updated stamps are left out here; each record's own sheet keeps them in its collapsed technical columns.",
   "note.transcriptTurns": "Each speaker turn of every recording, in the original followed by its English translation. The whole transcripts and their links are in the main workbook.",
   "pack.answers.both": "Original and English",
   "pack.answers.english": "English only",

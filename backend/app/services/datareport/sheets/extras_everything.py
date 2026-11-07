@@ -21,6 +21,7 @@ from app.services.datareport.sheets.extras_common import (
     say,
     scalar,
 )
+from app.services.datareport.writer import technical_key
 
 ROWS_MAX = 1_000_000
 _SKIP = frozenset({"id"})
@@ -110,7 +111,7 @@ def flatten(ctx: ReportContext) -> Iterator[dict[str, Any]]:
         model = MODELS.get(kind, "")
         for rec in records(ctx, kind):
             for name in field_names(rec):
-                if name in _SKIP or is_secret(name):
+                if name in _SKIP or is_secret(name) or technical_key(name):
                     continue
                 keep, value = cell(g(rec, name))
                 if not keep or value is None or value == "":
@@ -150,6 +151,7 @@ async def build(ctx: ReportContext) -> list[Sheet]:
             columns=COLUMNS,
             rows=flatten(ctx),
             banners=[Banner(say(ctx, "banner.pivot", "One flat table of all the data, ready for PivotTables."))],
+            note=say(ctx, "note.everythingTechnical", "Identifiers, checksums and created or updated stamps are left out here; each record's own sheet keeps them in its collapsed technical columns."),
         )
     ]
 

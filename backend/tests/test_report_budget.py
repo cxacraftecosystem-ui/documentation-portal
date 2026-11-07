@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from app.services.datareport import build, contract, writer
 from app.services.datareport.contract import ROW_KIND, Column, Link, Sheet
 from app.services.datareport.sheets import core_transcripts
@@ -449,3 +448,19 @@ def test_row_kinds_survive_in_the_writer() -> None:
     sheet = Sheet("pairs", "Pairs", [Column("text", "Text", "longtext")], [{ROW_KIND: "summary", "text": contract.Rich((("Asha", True), ("  hello", False)))}], count=1)
     payload = _write([sheet])
     assert "<b/>" in parts_of(payload)["xl/sharedStrings.xml"]
+
+
+def test_a_streamed_sheet_with_links_and_no_count_is_counted_then_written(monkeypatch: pytest.MonkeyPatch) -> None:
+    def rows() -> Any:
+        for i in range(30):
+            yield {"name": f"Row {i}", "open": Link("Open", f"https://portal.example.org/data/go/open/artisan/a{i}")}
+
+    sheet = Sheet("streamed", "Streamed", [Column("name", "Name", "text"), Column("open", "Open", "link")], rows())
+
+    async def chosen(_ctx: Any, _failed: list[str]) -> list[tuple[Any, Sheet]]:
+        return [(None, sheet)]
+
+    monkeypatch.setattr(build, "collect_sheets", chosen)
+    parts = asyncio.run(build.render_parts(rf.context(contract.ReportOptions(sheets=["Streamed"]))))
+    ws = _book(parts.main)["Streamed"]
+    assert sum(1 for r in ws.iter_rows() for c in r if c.hyperlink is not None and c.row > writer.TOP) == 30
