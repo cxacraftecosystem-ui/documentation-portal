@@ -19,10 +19,16 @@ data class ExplorerLinkRequest(
     val preview: String? = null,
     val seconds: Double? = null,
     val bundle: String? = null,
+    val view: String? = null,
+    val sheet: String? = null,
+    val q: String? = null,
+    val hit: String? = null,
+    val kind: String? = null,
 )
 
 object ExplorerViewLinks {
     private val state = MutableStateFlow<ExplorerLinkRequest?>(null)
+    private val VIEWS = setOf("files", "tables", "transcripts")
     val requests: StateFlow<ExplorerLinkRequest?> = state.asStateFlow()
 
     fun parse(url: String, webBase: String = ExplorerPortal.WEB_BASE): ExplorerLinkRequest? {
@@ -45,6 +51,11 @@ object ExplorerViewLinks {
             preview = query["preview"]?.takeIf { it.isNotBlank() },
             seconds = query["t"]?.let { seconds(it) },
             bundle = query["bundle"]?.takeIf { it.isNotBlank() },
+            view = query["view"]?.takeIf { it in VIEWS },
+            sheet = query["sheet"]?.takeIf { it.isNotBlank() },
+            q = query["q"]?.takeIf { it.isNotBlank() },
+            hit = query["hit"]?.takeIf { it.isNotBlank() },
+            kind = query["kind"]?.trim()?.uppercase()?.takeIf { it.isNotBlank() },
         )
     }
 

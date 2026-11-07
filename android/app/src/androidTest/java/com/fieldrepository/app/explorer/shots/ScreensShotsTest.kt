@@ -346,7 +346,7 @@ class ScreensShotsTest {
             byKind = ScreenBoards.workshopStats.byType.entries.associate { com.fieldrepository.app.explorer.data.ExplorerKind.ofToken(it.key) to it.value },
             largest = 701L * 1024 * 1024,
         )
-        val plan = ExplorerPreflight.of(size = size, link = ExplorerLink(online = true, metered = true), freeBytes = (28.55 * gb).toLong(), speedBps = 6L * 1024 * 1024, location = "Downloads/DesignWorkshop/3rd-Craft-Toolkit.zip", totalBytes = 51L * gb)
+        val plan = ExplorerPreflight.of(size = size, link = ExplorerLink(online = true, metered = true), freeBytes = (28.55 * gb).toLong(), speedBps = 6L * 1024 * 1024, location = "Downloads/${com.fieldrepository.app.explorer.portal.ExplorerPortal.DOWNLOAD_FOLDER}/3rd-Craft-Toolkit.zip", totalBytes = 51L * gb)
         sheetFrame(scrim = true) {
             PreflightBody(title = "3rd Craft Toolkit", plan = plan, onStart = { _, _ -> }, onDismiss = {}, onChangeFolder = {})
         }

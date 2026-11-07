@@ -62,7 +62,8 @@ const OVERVIEW_SECTIONS = ["A · Identity", "B · Craft", "C · Tools", "D · Ma
 
 type Cell = "complete" | "partial" | "missing";
 
-function artisanRow(id: string, name: string, craft: string, path: string, filled: number, files: number, bytes: number, transcripts: number, review: string, cells: Cell[]) {
+function artisanRow(id: string, name: string, craft: string, path: string, filled: number, files: number, bytes: number, transcripts: number, review: "APPROVED" | "PENDING", cells: Cell[]) {
+  const approved = review === "APPROVED" ? files + 1 : Math.floor(files / 2);
   return {
     id,
     name,
@@ -70,8 +71,8 @@ function artisanRow(id: string, name: string, craft: string, path: string, fille
     path,
     fields: { filled, total: 40 },
     media: { files, bytes },
-    transcripts,
-    review,
+    transcripts: { total: transcripts, ready: transcripts, translating: 0, failed: 0 },
+    review: { approved, pending: files + 1 - approved, total: files + 1 },
     sections: cells.map((state, index) => ({ key: `s${index}`, state, missing: state === "complete" ? [] : [`${OVERVIEW_SECTIONS[index].slice(4)} answers`], href: `/questionnaire/sessions/${id}/view?section=s${index}` }))
   };
 }

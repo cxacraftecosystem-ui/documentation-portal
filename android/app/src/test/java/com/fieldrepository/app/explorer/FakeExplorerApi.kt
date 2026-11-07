@@ -36,9 +36,11 @@ open class FakeExplorerApi : ExplorerApi {
         return trees(path, status, cursor)
     }
 
+    var located: suspend (type: String, id: String) -> JsonElement = { _, id -> JsonObject(mapOf("path" to JsonPrimitive("located/$id"))) }
+
     override suspend fun locate(type: String, id: String): JsonElement {
         calls += "locate:$type:$id"
-        return JsonObject(mapOf("path" to JsonPrimitive("located/$id")))
+        return located(type, id)
     }
 
     override suspend fun transcript(id: String): ExplorerTranscript {

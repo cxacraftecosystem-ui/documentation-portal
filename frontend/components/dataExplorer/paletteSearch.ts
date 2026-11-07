@@ -78,10 +78,38 @@ export async function fetchLocateHits(q: string, signal?: AbortSignal): Promise<
   return legacyHits(legacy);
 }
 
-export async function locateHit(hit: PaletteHit): Promise<string | null> {
-  if (hit.path) return hit.path;
+export type LocateRecord = { kind: string; id: string };
+
+export type Located = { path: string | null; recordHref: string | null };
+
+const RECORD_PAGE: Record<string, string> = {
+  artisan: "/artisans/",
+  craft: "/crafts/",
+  workshop: "/workshops/",
+  product: "/products/",
+  tool: "/tools/",
+  process: "/processes/"
+};
+
+export function recordPageHref(record: LocateRecord | null | undefined): string | null {
+  if (!record || !record.id) return null;
+  const base = RECORD_PAGE[(record.kind ?? "").trim().toLowerCase()];
+  return base ? `${base}${encodeURIComponent(record.id)}` : null;
+}
+
+export function locatedOf(found: { path?: string | null; locatable?: boolean | null; record?: LocateRecord | null }): Located {
+  if (found.path) return { path: found.path, recordHref: null };
+  return { path: null, recordHref: recordPageHref(found.record) };
+}
+
+export async function locateRecord(type: string, id: string): Promise<Located> {
+  const found = await apiFetch<{ path?: string | null; locatable?: boolean | null; record?: LocateRecord | null }>(`/data/locate${buildQuery({ type, id })}`);
+  return locatedOf(found);
+}
+
+export async function locateHit(hit: PaletteHit): Promise<Located> {
+  if (hit.path) return { path: hit.path, recordHref: null };
   const type = LOCATE_TYPE[hit.type];
-  if (!type) return null;
-  const found = await apiFetch<{ path: string | null }>(`/data/locate${buildQuery({ type, id: hit.id })}`);
-  return found.path;
+  if (!type) return { path: null, recordHref: null };
+  return locateRecord(type, hit.id);
 }

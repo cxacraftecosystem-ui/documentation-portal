@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-import { legacyHits, unifiedHits } from "@/components/dataExplorer/paletteSearch";
+import { legacyHits, locatedOf, recordPageHref, unifiedHits } from "@/components/dataExplorer/paletteSearch";
 import { reportOptionParams } from "@/lib/dataExplorer/api";
 import { DEFAULT_REPORT_OPTIONS, withReportDefaults, type ReportResponse, type TreeEntry } from "@/lib/dataExplorer/contract";
-import { fileNameFrom, looksLikeZip, nextToStart, retryDelaySeconds, ROW_TONE_CLASS, TONE_CLASS, toneOf, trayHeadline, type DownloadItem } from "@/lib/dataExplorer/downloads";
-import { builtAgo, estimateLine, filterOf, highlightParts, mergeNavigation, pageOf, percentLabel, sortArtisans, viewLink, viewSummary } from "@/lib/dataExplorer/explorerView";
+import { fileNameFrom, looksLikeZip, nextToStart, OUTCOME_CARD, outcomeOf, retryDelaySeconds, ROW_TONE_CLASS, TONE_CLASS, toneOf, trayHeadline, type DownloadItem } from "@/lib/dataExplorer/downloads";
+import { builtAgo, clampTreeWidth, estimateLine, filterOf, followingCursor, highlightParts, mergeNavigation, pageOf, percentLabel, readTreeWidth, sortArtisans, thumbnailEdge, TREE_WIDTH, treeWidthBounds, treeWidthForKey, viewLink, viewSummary } from "@/lib/dataExplorer/explorerView";
 import { fetchDownload, NotAFile } from "@/lib/dataExplorer/fetchDownload";
 import { filtersLeaveNothing, recordLine, reportFilterChips, withoutStatus } from "@/lib/dataExplorer/reportFilters";
 import { DEFAULT_URL_STATE } from "@/lib/dataExplorer/urlState";
@@ -38,6 +38,17 @@ test.describe("@qf:X13 the downloads tray", () => {
   test("the headline counts running, waiting, done and failed", () => {
     expect(trayHeadline([item("running"), item("waiting"), item("saved"), item("saved"), item("failed")])).toBe("1 running · 1 waiting · 2 done · 1 failed");
     expect(trayHeadline([])).toBe("Nothing yet");
+  });
+
+  test("a partial download never reads as success", () => {
+    expect(outcomeOf(item("saved"))).toBe("saved");
+    expect(outcomeOf({ ...item("saved", "zip"), failedFiles: [{ path: "missing.jpg", reason: "404" }] })).toBe("partial");
+    expect(outcomeOf(item("failed"))).toBe("failed");
+    expect(OUTCOME_CARD.partial).not.toContain("green");
+    expect(OUTCOME_CARD.partial).not.toContain("success");
+    expect(OUTCOME_CARD.partial).toContain("amber");
+    expect(OUTCOME_CARD.saved).toContain("bg-success-100");
+    expect(OUTCOME_CARD.failed).toContain("bg-error-100");
   });
 
   test("saved is green and failed is red, every other state stays neutral", () => {
@@ -213,6 +224,15 @@ test.describe("@qf:X16 the command palette's search", () => {
     expect(hits).toEqual([{ id: "a1", title: "Kamla", subtitle: "Artisan · Bagru", type: "artisans", path: null }]);
   });
 
+  test("a locate answer with no folder falls back to the record page", () => {
+    expect(locatedOf({ path: "workshops/bagru/kamla", locatable: true, record: null })).toEqual({ path: "workshops/bagru/kamla", recordHref: null });
+    expect(locatedOf({ path: null, locatable: false, record: { kind: "craft", id: "c 1" } })).toEqual({ path: null, recordHref: "/crafts/c%201" });
+    expect(locatedOf({ path: null, locatable: false, record: { kind: "artisan", id: "a1" } }).recordHref).toBe("/artisans/a1");
+    expect(locatedOf({ path: null })).toEqual({ path: null, recordHref: null });
+    expect(recordPageHref({ kind: "cluster", id: "x" })).toBeNull();
+    expect(recordPageHref(null)).toBeNull();
+  });
+
   test("the legacy search maps to the same hits", () => {
     const hits = legacyHits({ artisans: [{ id: "a1", name: "Kamla", place: "Bagru" }], tools: [{ id: "t1", toolkitName: "Vat stirrer", artisanName: null }] });
     expect(hits.map((hit) => [hit.type, hit.title, hit.subtitle])).toEqual([
@@ -249,4 +269,41 @@ test("report filters: chips name what narrows the report, and an empty result is
   expect(filtersLeaveNothing(list, false)).toBe(false);
   expect(filtersLeaveNothing({ ...list, records: 3 }, true)).toBe(false);
   expect(filtersLeaveNothing(null, true)).toBe(false);
+});
+
+test("the folders panel width stays between its floor and half the explorer, and steps by key", () => {
+  expect(treeWidthBounds(null)).toEqual({ min: TREE_WIDTH.min, max: TREE_WIDTH.max });
+  expect(treeWidthBounds(1300)).toEqual({ min: 240, max: 560 });
+  expect(treeWidthBounds(900)).toEqual({ min: 240, max: 450 });
+  expect(treeWidthBounds(300)).toEqual({ min: 240, max: 240 });
+  const bounds = treeWidthBounds(1300);
+  expect(clampTreeWidth(100, bounds)).toBe(240);
+  expect(clampTreeWidth(9999, bounds)).toBe(560);
+  expect(clampTreeWidth(Number.NaN, bounds)).toBe(TREE_WIDTH.initial);
+  expect(treeWidthForKey("ArrowRight", 326, bounds)).toBe(342);
+  expect(treeWidthForKey("ArrowLeft", 326, bounds)).toBe(310);
+  expect(treeWidthForKey("ArrowRight", 326, bounds, true)).toBe(390);
+  expect(treeWidthForKey("Home", 326, bounds)).toBe(240);
+  expect(treeWidthForKey("End", 326, bounds)).toBe(560);
+  expect(treeWidthForKey("Enter", 326, bounds)).toBeNull();
+  expect(readTreeWidth("400")).toBe(400);
+  expect(readTreeWidth("10")).toBe(240);
+  expect(readTreeWidth("wide")).toBeNull();
+  expect(readTreeWidth(null)).toBeNull();
+});
+
+test("a thumbnail asks for the smallest stored size that covers the tile", () => {
+  expect(thumbnailEdge(48)).toBe(256);
+  expect(thumbnailEdge(48, 3)).toBe(256);
+  expect(thumbnailEdge(240)).toBe(256);
+  expect(thumbnailEdge(240, 2)).toBe(512);
+  expect(thumbnailEdge(485)).toBe(512);
+  expect(thumbnailEdge(1200, 2)).toBe(512);
+});
+
+test("the pager stops when the server repeats a cursor", () => {
+  expect(followingCursor("25", "50", new Set(["25"]))).toBe("50");
+  expect(followingCursor("25", "25", new Set(["25"]))).toBeNull();
+  expect(followingCursor("50", "25", new Set(["25", "50"]))).toBeNull();
+  expect(followingCursor("50", null, new Set(["50"]))).toBeNull();
 });

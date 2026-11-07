@@ -1,6 +1,6 @@
 import { recordViewHref } from "@/lib/recordView";
 import type { Artisan, MediaFile, ProductDocumentation, ToolDocumentation, Workshop } from "@/lib/types";
-import type { Portal, UnifiedItem, UnifiedResponse, UnifiedType } from "@/lib/unifiedSearch";
+import { UNIFIED_TYPES, type Portal, type UnifiedItem, type UnifiedResponse, type UnifiedType } from "@/lib/unifiedSearch";
 import { workshopDisplayTitle } from "@/lib/workshopTitle";
 
 export const LOCAL_PORTAL: Portal = "fieldRepository";
@@ -21,6 +21,65 @@ export type SearchState = {
 };
 
 export const EMPTY_STATE: SearchState = { q: "", scope: "local", workshopIds: [], artisanId: "", craftId: "", types: [], range: "any", transcriptOnly: false };
+
+export const SEARCH_URL_KEYS = { q: "sq", scope: "sscope", focus: "sin", types: "stypes", range: "srange", transcriptOnly: "stx", workshopIds: "sws", artisanId: "sart", craftId: "scraft" } as const;
+
+const DATE_RANGES: readonly DateRange[] = ["any", "7d", "30d", "90d", "year"];
+
+type SearchParamsLike = { get(name: string): string | null };
+
+function isUnifiedType(value: string): value is UnifiedType {
+  return (UNIFIED_TYPES as readonly string[]).includes(value);
+}
+
+function listParam(params: SearchParamsLike, key: string): string[] {
+  return (params.get(key) ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+export function searchFromParams(params: SearchParamsLike): { state: SearchState; focus: UnifiedType | null } {
+  const range = params.get(SEARCH_URL_KEYS.range) ?? "";
+  const focus = params.get(SEARCH_URL_KEYS.focus) ?? "";
+  return {
+    state: {
+      q: params.get(SEARCH_URL_KEYS.q) ?? "",
+      scope: params.get(SEARCH_URL_KEYS.scope) === "all" ? "all" : "local",
+      workshopIds: listParam(params, SEARCH_URL_KEYS.workshopIds),
+      artisanId: params.get(SEARCH_URL_KEYS.artisanId) ?? "",
+      craftId: params.get(SEARCH_URL_KEYS.craftId) ?? "",
+      types: listParam(params, SEARCH_URL_KEYS.types).filter(isUnifiedType),
+      range: (DATE_RANGES as readonly string[]).includes(range) ? (range as DateRange) : "any",
+      transcriptOnly: params.get(SEARCH_URL_KEYS.transcriptOnly) === "1"
+    },
+    focus: isUnifiedType(focus) ? focus : null
+  };
+}
+
+export function searchToParams(state: SearchState, focus: UnifiedType | null, base: string): string {
+  const params = new URLSearchParams(base);
+  const values: Record<keyof typeof SEARCH_URL_KEYS, string> = {
+    q: state.q.trim(),
+    scope: state.scope === "all" ? "all" : "",
+    focus: focus ?? "",
+    types: state.types.join(","),
+    range: state.range === "any" ? "" : state.range,
+    transcriptOnly: state.transcriptOnly ? "1" : "",
+    workshopIds: state.workshopIds.join(","),
+    artisanId: state.artisanId,
+    craftId: state.craftId
+  };
+  for (const key of Object.keys(SEARCH_URL_KEYS) as (keyof typeof SEARCH_URL_KEYS)[]) {
+    if (values[key]) params.set(SEARCH_URL_KEYS[key], values[key]);
+    else params.delete(SEARCH_URL_KEYS[key]);
+  }
+  return params.toString();
+}
+
+export function sameSearch(a: { state: SearchState; focus: UnifiedType | null }, b: { state: SearchState; focus: UnifiedType | null }): boolean {
+  return searchToParams({ ...a.state, q: a.state.q.trim() }, a.focus, "") === searchToParams({ ...b.state, q: b.state.q.trim() }, b.focus, "");
+}
 
 export type Row = UnifiedItem;
 
@@ -87,6 +146,10 @@ export const ALL_LIMIT = 5;
 export const TYPE_LIMIT = 20;
 
 export const LEGACY_PAGE = 20;
+
+export function offersOpenInData(row: Row, locateType: string | undefined): boolean {
+  return Boolean(row.local && locateType && row.locatable !== false);
+}
 
 export function rowKey(row: Row): string {
   return `${row.portal}:${row.type}:${row.id}`;

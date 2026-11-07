@@ -7,7 +7,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
 import com.fieldrepository.app.ui.field
 
-enum class ExplorerStatus { NEUTRAL, SAVED, FAILED }
+enum class ExplorerStatus { NEUTRAL, SAVED, PARTIAL, FAILED }
 
 @Immutable
 data class ExplorerTone(
@@ -38,6 +38,7 @@ fun explorerTone(status: ExplorerStatus): ExplorerTone? {
     val dark = MaterialTheme.field.isDark
     return when (status) {
         ExplorerStatus.SAVED -> if (dark) ExplorerTones.savedDark else ExplorerTones.savedLight
+        ExplorerStatus.PARTIAL -> if (dark) ExplorerTones.warnDark else ExplorerTones.warnLight
         ExplorerStatus.FAILED -> if (dark) ExplorerTones.failedDark else ExplorerTones.failedLight
         ExplorerStatus.NEUTRAL -> null
     }

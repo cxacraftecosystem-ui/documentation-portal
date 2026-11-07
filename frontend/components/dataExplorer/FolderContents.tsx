@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Download, MoreVertical, Square } from "lucide-react";
+import { Archive, ArrowUpRight, Download, MoreVertical, Square } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react";
@@ -13,7 +13,7 @@ import { apiFetch, buildQuery } from "@/lib/api";
 import { fetchTranscriptText, mediaDownloadUrl, mediaThumbnailUrl, transcriptZipUrl } from "@/lib/dataExplorer/api";
 import { fetchTranscriptSummaries, languagesLine, rowState, shortClock, translatingLabel, type TranscriptSummary } from "@/lib/dataExplorer/preview";
 import { sizeOf, type Manifest, type TreeEntry, type TreeResponse } from "@/lib/dataExplorer/contract";
-import { capturedLabel, filterOf, pageOf, TYPE_FILTERS, type TypeFilter } from "@/lib/dataExplorer/explorerView";
+import { capturedLabel, filterOf, pageOf, thumbnailEdge, TYPE_FILTERS, type TypeFilter } from "@/lib/dataExplorer/explorerView";
 import { ROW_TONE_CLASS, toneOf, type DownloadRequest, type DownloadStatus } from "@/lib/dataExplorer/downloads";
 import { formatBytes } from "@/lib/dataExplorer/plan";
 import { selectionKey, type Selection } from "@/lib/dataExplorer/selection";
@@ -68,13 +68,33 @@ export function mediaTag(mediaType: string | null | undefined): string | null {
 
 function Thumb({ entry, size = "md" }: { entry: TreeEntry; size?: "md" | "lg" }) {
   const [broken, setBroken] = useState(false);
-  const box = size === "lg" ? "h-28 w-full rounded-sm" : "h-9 w-12 rounded-sm sm:max-lg:h-[42px] sm:max-lg:w-14 max-sm:h-12 max-sm:w-12 max-sm:rounded-[10px]";
-  const source = (entry.mediaType === "IMAGE" || (entry.mediaType === "VIDEO" && entry.thumbnailPath)) && entry.mediaId ? (entry.thumbnailPath ? apiUrl(entry.thumbnailPath, { size: 256 }) : mediaThumbnailUrl(entry.mediaId)) : null;
+  const [edge, setEdge] = useState<number | null>(null);
+  const frame = useRef<HTMLSpanElement | null>(null);
+  const box = size === "lg" ? "aspect-[4/3] w-full rounded-sm" : "h-9 w-12 rounded-sm sm:max-lg:h-[42px] sm:max-lg:w-14 max-sm:h-12 max-sm:w-12 max-sm:rounded-[10px]";
   const tag = mediaTag(entry.mediaType);
-  if (source && !broken && (entry.mediaType === "IMAGE" || !tag)) {
+  const pictured = Boolean(entry.mediaId && (entry.mediaType === "IMAGE" || (entry.mediaType === "VIDEO" && entry.thumbnailPath)) && (entry.mediaType === "IMAGE" || !tag));
+  useEffect(() => {
+    const node = frame.current;
+    if (!pictured || !node) return;
+    const measure = () => {
+      const width = Math.max(node.clientWidth, node.clientHeight);
+      if (width > 0) setEdge((previous) => Math.max(previous ?? 0, thumbnailEdge(width, window.devicePixelRatio || 1)));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [pictured]);
+  if (pictured && !broken && entry.mediaId) {
+    const source = edge === null ? null : entry.thumbnailPath ? apiUrl(entry.thumbnailPath, { size: edge }) : mediaThumbnailUrl(entry.mediaId, edge);
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img src={source} alt="" loading="lazy" decoding="async" onError={() => setBroken(true)} className={`${box} shrink-0 bg-surface-50 object-cover`} />
+      <span ref={frame} className={`${box} relative block shrink-0 overflow-hidden bg-field-100`} data-thumb="">
+        {source ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={source} alt="" loading="lazy" decoding="async" onError={() => setBroken(true)} className="absolute inset-0 h-full w-full object-contain" />
+        ) : null}
+      </span>
     );
   }
   return (
@@ -305,11 +325,17 @@ export function FolderContents({
       onToggle(entry);
       return;
     }
-    if (!href) return;
     if ((event.target as HTMLElement).closest(INTERACTIVE)) return;
     if (window.getSelection()?.toString()) return;
-    if (event.metaKey || event.ctrlKey) window.open(href, "_blank", "noopener");
-    else router.push(href);
+    if (href && (event.metaKey || event.ctrlKey)) {
+      window.open(href, "_blank", "noopener");
+      return;
+    }
+    if (entry && canPreview(entry)) {
+      onPreview(entry);
+      return;
+    }
+    if (href) router.push(href);
   };
 
   const download = (file: TreeEntry) => {
@@ -338,6 +364,14 @@ export function FolderContents({
         <button key="text" type="button" className={ACTION} aria-expanded={openText.has(file.path)} onClick={() => setOpenText(flip(openText, file.path))}>
           {openText.has(file.path) ? "Hide" : "View"}
         </button>
+      );
+    const recordHref = file.mediaId ? fileHref(file.mediaId) : null;
+    if (recordHref)
+      out.push(
+        <Link key="record" href={recordHref} className={`${ACTION} lg:w-[34px] lg:px-0`} title="Open record" data-testid="row-open-record">
+          <ArrowUpRight className="h-4 w-4" aria-hidden />
+          <span className="lg:sr-only">Open record</span>
+        </Link>
       );
     if (hasTranscript(file) && file.content == null)
       out.push(
@@ -524,7 +558,7 @@ export function FolderContents({
                   return (
                     <li
                       key={file.path}
-                      className={`${rowTone(file, checked)} ${href && !rowTone(file, checked) ? "cursor-pointer hover:bg-surface-50" : href ? "cursor-pointer" : ""}`}
+                      className={`${rowTone(file, checked)} ${(href || canPreview(file)) && !rowTone(file, checked) ? "cursor-pointer hover:bg-surface-50" : href || canPreview(file) ? "cursor-pointer" : ""}`}
                       onClick={(event) => openRow(event, href, file)}
                       onPointerDown={(event) => startPress(event, file)}
                       onPointerUp={endPress}
@@ -547,7 +581,11 @@ export function FolderContents({
                           <Thumb entry={file} />
                           <div className="min-w-0 flex-1">
                             <div className={`truncate text-sm font-semibold ${isPlaying ? "text-purple-800 dark:text-purple-100" : "text-ink-900"}`}>
-                              {href ? (
+                              {canPreview(file) ? (
+                                <button type="button" className="max-w-full truncate text-left hover:text-purple-700 hover:underline" onClick={() => onPreview(file)} data-testid="row-preview-name">
+                                  <FileName entry={file} />
+                                </button>
+                              ) : href ? (
                                 <Link href={href} aria-label={file.name} className="hover:text-purple-700 hover:underline">
                                   <FileName entry={file} />
                                 </Link>
@@ -629,6 +667,11 @@ export function FolderContents({
         <div className="p-3">
           <MoreButton className={`${ACTION} mx-auto flex`} loading={loading} onMore={onMore} />
         </div>
+      ) : null}
+      {tree.truncated && !tree.nextCursor ? (
+        <p className="border-t border-line-200 px-4 py-3 text-[13px] text-ink-500 max-sm:border-0 max-sm:px-1" data-testid="folder-truncated">
+          Not every file could be listed.
+        </p>
       ) : null}
     </div>
   );

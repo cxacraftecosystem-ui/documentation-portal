@@ -2,6 +2,7 @@
 
 import { Loader2, MoreVertical, Search, X } from "lucide-react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import type { PreviewTarget, SearchAsk } from "@/components/dataExplorer/DataExplorer";
@@ -16,14 +17,16 @@ import {
   UNIFIED_TYPES,
   fetchUnified,
   highlightSegments,
+  peerSearchOffered,
   safeOpenUrl,
   type Portal,
   type UnifiedItem,
   type UnifiedResponse,
   type UnifiedType
 } from "@/lib/unifiedSearch";
+import { locateRecord } from "@/components/dataExplorer/paletteSearch";
 import { OpenableBlock } from "@/components/records/OpenableRow";
-import { activeFilters, ALL_LIMIT, clock, EMPTY_STATE, flattenGroups, hasMore, LEGACY_PAGE, legacyRows, legacyTotals, mergeRows, moreLabel, portalCounts, rangeBounds, rowKey, sections, showAllLabel, TYPE_LIMIT, unifiedTotals, type DateRange, type GroupTotal, type LegacyResult, type Row, type Scope, type SearchState } from "@/lib/dataSearch";
+import { activeFilters, ALL_LIMIT, clock, EMPTY_STATE, flattenGroups, hasMore, LEGACY_PAGE, legacyRows, legacyTotals, mergeRows, moreLabel, offersOpenInData, portalCounts, rangeBounds, rowKey, sameSearch, searchFromParams, searchToParams, sections, showAllLabel, TYPE_LIMIT, unifiedTotals, type DateRange, type GroupTotal, type LegacyResult, type Row, type Scope, type SearchState } from "@/lib/dataSearch";
 import { workshopDisplayTitle } from "@/lib/workshopTitle";
 
 export const PAGE_STEP = TYPE_LIMIT;
@@ -224,9 +227,14 @@ function suggestionCount(total: number | undefined): string {
 }
 
 export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal: (path: string) => void; onPreview: (target: PreviewTarget) => void; ask?: SearchAsk | null }) {
-  const [draft, setDraft] = useState("");
-  const [state, setState] = useState<SearchState>(EMPTY_STATE);
-  const [focus, setFocus] = useState<UnifiedType | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const [fromUrl] = useState(() => searchFromParams(params));
+  const [draft, setDraft] = useState(fromUrl.state.q);
+  const [state, setState] = useState<SearchState>(fromUrl.state);
+  const [focus, setFocus] = useState<UnifiedType | null>(fromUrl.focus);
+  const lastSearch = useRef(searchToParams(fromUrl.state, fromUrl.focus, ""));
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [loading, setLoading] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -265,6 +273,25 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
     const timer = window.setTimeout(() => setState((previous) => (previous.q === draft ? previous : { ...previous, q: draft })), 300);
     return () => window.clearTimeout(timer);
   }, [draft]);
+
+  useEffect(() => {
+    lastSearch.current = searchToParams(state, focus, "");
+    const current = window.location.search.replace(/^\?/, "");
+    const next = searchToParams(state, focus, current);
+    if (next === current) return;
+    router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
+  }, [state, focus, pathname, router]);
+
+  const paramsText = params.toString();
+  useEffect(() => {
+    const wanted = searchFromParams(new URLSearchParams(paramsText));
+    const key = searchToParams(wanted.state, wanted.focus, "");
+    if (key === lastSearch.current) return;
+    lastSearch.current = key;
+    setState((previous) => (sameSearch({ state: previous, focus: null }, { state: wanted.state, focus: null }) ? previous : wanted.state));
+    setFocus((previous) => (previous === wanted.focus ? previous : wanted.focus));
+    setDraft((previous) => (previous.trim() === wanted.state.q.trim() ? previous : wanted.state.q));
+  }, [paramsText]);
 
   const q = state.q.trim();
   const types = useMemo(() => (state.transcriptOnly ? (["transcripts"] as UnifiedType[]) : state.types), [state.transcriptOnly, state.types]);
@@ -359,8 +386,9 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
     setLocating(`${row.portal}:${row.id}`);
     setNotice(null);
     try {
-      const found = await apiFetch<{ path: string | null }>(`/data/locate${buildQuery({ type, id: row.id })}`);
+      const found = await locateRecord(type, row.id);
       if (found.path) onReveal(found.path);
+      else if (found.recordHref) router.push(found.recordHref);
       else setNotice(`“${row.title}” isn't filed in a folder yet.`);
     } catch (error) {
       setNotice(error instanceof Error && error.message ? error.message : "That record couldn't be found in the folders.");
@@ -380,7 +408,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
   const groups = shown?.groups ?? [];
   const total = groups.length ? (focus ? (groups.find((group) => group.type === focus)?.total ?? rows.length) : groups.reduce((sum, group) => sum + group.total, 0)) : rows.length;
   const remote = data?.remote;
-  const canBoth = Boolean(remote && remote.status !== "off" && remote.status !== "notPermitted");
+  const canBoth = peerSearchOffered(remote);
   const filters = activeFilters(state);
   const counts = data && state.scope === "all" ? portalCounts(data) : null;
   const showMore = Boolean(shown && !shown.error && shown.more);
@@ -402,10 +430,16 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
               onChange={(event) => setDraft(event.target.value)}
               placeholder={PLACEHOLDER[band]}
               aria-label="Search all data"
-              className={`field-input min-h-12 pl-10 text-[15px] max-sm:pr-[5.5rem] sm:pr-10 ${bothOnPhone ? "max-sm:min-h-[52px] max-sm:rounded-[14px] max-sm:border-[#9148d2]" : ""}`}
+              className={`field-input min-h-12 pl-10 text-[15px] max-sm:pr-[5.5rem] sm:pr-10 [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none ${bothOnPhone ? "max-sm:min-h-[52px] max-sm:rounded-[14px] max-sm:border-[#9148d2]" : ""}`}
             />
             {draft ? (
-              <button type="button" aria-label="Clear search" className="absolute right-2 grid h-8 w-8 place-items-center rounded-full bg-surface-50 text-ink-900 hover:bg-purple-50 max-sm:right-12 dark:hover:bg-purple-950/40" onClick={() => setDraft("")}>
+              <button type="button" aria-label="Clear search" className="absolute right-2 grid h-8 w-8 place-items-center rounded-full bg-surface-50 text-ink-900 hover:bg-purple-50 max-sm:right-12 dark:hover:bg-purple-950/40"
+                onClick={() => {
+                  setDraft("");
+                  setState((previous) => ({ ...previous, q: "" }));
+                  inputRef.current?.focus();
+                }}
+              >
                 <X className="h-4 w-4" aria-hidden />
               </button>
             ) : (
@@ -632,7 +666,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
                             Play from {time}
                           </button>
                         ) : null}
-                        {row.local && LOCATE_TYPE[row.type] ? (
+                        {offersOpenInData(row, LOCATE_TYPE[row.type]) ? (
                           <button type="button" className={CARD_BUTTON} disabled={locating === `${row.portal}:${row.id}`} onClick={() => void reveal(row)}>
                             {locating === `${row.portal}:${row.id}` ? "Finding…" : "Open in Data"}
                           </button>

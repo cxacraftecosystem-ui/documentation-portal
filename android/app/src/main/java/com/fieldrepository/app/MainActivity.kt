@@ -98,7 +98,7 @@ import com.fieldrepository.app.data.liveCompletenessCounts
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Checkbox
+import com.fieldrepository.app.ui.FieldCheckbox
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
@@ -232,7 +232,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -705,6 +707,11 @@ private enum class EntryMode(
     CRAFT("Craft", "Add craft", editable = true),
     WORKSHOP("Workshop", "Record workshop", editable = true)
 }
+
+private val ScreenSaver = Saver<Screen, String>(
+    save = { s -> if (s is Screen.DataBrowser || (s is Screen.View && s.back is Screen.DataBrowser)) "data" else "home" },
+    restore = { if (it == "data") Screen.DataBrowser else Screen.Dashboard },
+)
 
 private sealed interface Screen {
     data object Dashboard : Screen
@@ -1371,14 +1378,12 @@ private fun HomeScreen(
     var sections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
     var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
     var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
-    var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
+    var screen by rememberSaveable(stateSaver = ScreenSaver) { mutableStateOf<Screen>(Screen.Dashboard) }
+    val dataExplorer = key(user.id) { com.fieldrepository.app.explorer.ui.rememberDataExplorerState() }
+    val dataHolder = rememberSaveableStateHolder()
     val notificationOpenRequest by NotificationState.openRequests.collectAsState()
     LaunchedEffect(notificationOpenRequest) {
         if (notificationOpenRequest > 0L) screen = Screen.Notifications
-    }
-    val viewLink by com.fieldrepository.app.explorer.ui.ExplorerViewLinks.requests.collectAsState()
-    LaunchedEffect(viewLink) {
-        if (viewLink != null && screen !is Screen.DataBrowser) screen = Screen.DataBrowser
     }
     val downloadsOpenRequest by com.fieldrepository.app.explorer.data.ExplorerDownloadsTap.requests.collectAsState()
     LaunchedEffect(downloadsOpenRequest) {
@@ -1573,6 +1578,17 @@ private fun HomeScreen(
             pendingExit = leave
         } else {
             leave()
+        }
+    }
+
+    val viewLink by com.fieldrepository.app.explorer.ui.ExplorerViewLinks.requests.collectAsState()
+    var linkAsked by remember { mutableStateOf<com.fieldrepository.app.explorer.ui.ExplorerLinkRequest?>(null) }
+    LaunchedEffect(viewLink, pendingExit) {
+        val link = viewLink ?: return@LaunchedEffect
+        if (screen is Screen.DataBrowser) return@LaunchedEffect
+        when {
+            linkAsked !== link -> { linkAsked = link; attemptExit { message = null; screen = Screen.DataBrowser } }
+            pendingExit == null -> com.fieldrepository.app.explorer.ui.ExplorerViewLinks.consume(link)
         }
     }
 
@@ -1809,6 +1825,7 @@ private fun HomeScreen(
                 LocalUnsavedGuard provides unsavedGuard,
                 com.fieldrepository.app.ui.LocalContentAdminChrome provides com.fieldrepository.app.ui.contentAdminChrome(user, adminView),
                 com.fieldrepository.app.ui.LocalMayDelete provides canDelete,
+                com.fieldrepository.app.ui.LocalAudioExpand provides canDownloadDataset,
                 com.fieldrepository.app.ui.richtext.LocalRichMediaUrl provides richMediaUrl
             ) {
             val ownsViewport = screen is Screen.DataBrowser || screen is Screen.Appearance ||
@@ -1820,8 +1837,9 @@ private fun HomeScreen(
                     .appMenuHidesPage(drawerState.appMenuShowing)
             ) {
                 when (screen) {
-                    is Screen.DataBrowser -> DataBrowserScreen(
+                    is Screen.DataBrowser -> dataHolder.SaveableStateProvider("data:${user.id}") { DataBrowserScreen(
                         repository = repository,
+                        state = dataExplorer,
                         onBack = { attemptExit { goBack() } },
                         onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
                         onError = { showMessage(it, AppMessageTone.ERROR) },
@@ -1838,7 +1856,7 @@ private fun HomeScreen(
                             val artisanId = dataFolderArtisan(path)
                             screen = Screen.Create(EntryMode.MEDIA, artisanId?.let { Prefill(artisanId = it, artisanName = name) }, fresh = ++createNonce)
                         }
-                    )
+                    ) }
 
                     is Screen.Appearance -> AppearanceScreen(
                         repository = repository,
@@ -9835,7 +9853,7 @@ private fun PendingReviewRow(
             val openMode = recentSubmissionEntryMode(item.recordType)
             val open = onOpenRecord
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Checkbox(
+            FieldCheckbox(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
                 enabled = !busy,
@@ -11444,7 +11462,8 @@ private fun AndroidSavedMediaPreview(
                 mediaType = media.mediaType,
                 onSave = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) },
                 offlinePreview = offlinePreview.file,
-                onDismiss = { showViewer = false }
+                onDismiss = { showViewer = false },
+                expand = com.fieldrepository.app.ui.AudioExpand(media.id, media.originalFilename, sizeBytes = media.byteSize, onSave = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) }).takeIf { media.mediaType.equals("AUDIO", ignoreCase = true) }
             )
         }
     }

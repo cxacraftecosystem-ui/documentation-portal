@@ -393,8 +393,11 @@ data class MediaFileDto(
     val linkedRecordType: String? = null,
     val linkedRecordId: String? = null,
     val questionnaireChips: com.fieldrepository.app.questionnaire.data.QChips? = null,
-    val transcriptPreview: com.fieldrepository.app.transcript.data.TranscriptPreviewDto? = null
-)
+    val transcriptPreview: com.fieldrepository.app.transcript.data.TranscriptPreviewDto? = null,
+    val sizeBytes: kotlinx.serialization.json.JsonPrimitive? = null
+) {
+    val byteSize: Long? get() = sizeBytes?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.content?.toLongOrNull()?.takeIf { it > 0 }
+}
 
 @Serializable
 data class UserUpdateRequest(

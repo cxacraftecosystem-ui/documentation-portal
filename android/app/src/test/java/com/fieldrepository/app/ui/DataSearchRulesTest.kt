@@ -2,6 +2,7 @@ package com.fieldrepository.app.ui
 
 import com.fieldrepository.app.data.ApiClient
 import com.fieldrepository.app.data.UnifiedRemoteDto
+import com.fieldrepository.app.data.UnifiedSearchItemDto
 import com.fieldrepository.app.data.UnifiedSearchResponse
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
@@ -36,6 +37,14 @@ class DataSearchRulesTest {
     """.trimIndent()
 
     private fun parse(): UnifiedSearchResponse = ApiClient.json.decodeFromString(UnifiedSearchResponse.serializer(), body)
+
+    @Test fun `open in data is offered only where the record is locatable`() {
+        assertTrue(DataSearchRules.offersOpenInData(UnifiedSearchItemDto(type = "transcripts", id = "m1")))
+        assertTrue(DataSearchRules.offersOpenInData(UnifiedSearchItemDto(type = "crafts", id = "c1", locatable = true)))
+        assertFalse(DataSearchRules.offersOpenInData(UnifiedSearchItemDto(type = "crafts", id = "c2", locatable = false)))
+        assertFalse(DataSearchRules.offersOpenInData(UnifiedSearchItemDto(type = "crafts", id = "c3", local = false)))
+        assertFalse(DataSearchRules.offersOpenInData(UnifiedSearchItemDto(type = "unknown", id = "x")))
+    }
 
     @Test fun `the answer decodes with also-in as an object or a list`() {
         val r = parse()

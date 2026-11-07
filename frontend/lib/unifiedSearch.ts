@@ -57,6 +57,7 @@ export type UnifiedItem = {
   startMs?: number | null;
   mediaType?: string | null;
   alsoIn?: UnifiedAlsoIn | null;
+  locatable?: boolean | null;
 };
 
 export type UnifiedAlsoIn = { portal: Portal; id: string; href: string; openUrl?: string | null; subtitle?: string | null };
@@ -72,11 +73,19 @@ export type UnifiedGroup = {
 
 export type RemoteStatus = "ok" | "off" | "notPermitted" | "unavailable" | "filteredOut";
 
+export type UnifiedRemote = { portal: Portal; label: string; status: RemoteStatus; available?: boolean };
+
+export function peerSearchOffered(remote: Pick<UnifiedRemote, "status" | "available"> | null | undefined): boolean {
+  if (!remote) return false;
+  if (typeof remote.available === "boolean") return remote.available;
+  return remote.status !== "off" && remote.status !== "notPermitted";
+}
+
 export type UnifiedResponse = {
   query: string;
   mode: "hybrid" | "text";
   groups: UnifiedGroup[];
-  remote: { portal: Portal; label: string; status: RemoteStatus };
+  remote: UnifiedRemote;
   typesRefused: string[];
   suggestion?: string | null;
   suggestionTotal?: number;

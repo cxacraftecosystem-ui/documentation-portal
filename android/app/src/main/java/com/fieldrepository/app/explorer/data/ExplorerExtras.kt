@@ -2,7 +2,17 @@ package com.fieldrepository.app.explorer.data
 
 import android.content.Context
 import com.fieldrepository.app.explorer.portal.ExplorerPortal
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
@@ -109,7 +119,34 @@ data class ExplorerFilled(val filled: Int = 0, val total: Int = 0)
 data class ExplorerTranscriptTotals(val total: Int = 0, val ready: Int = 0, val translating: Int = 0, val failed: Int = 0)
 
 @Serializable
-data class ExplorerReviewTotals(val approved: Int = 0, val pending: Int = 0, val total: Int = 0)
+data class ExplorerReviewTotals(val approved: Int = 0, val pending: Int = 0, val total: Int = 0) {
+    val word: String
+        get() = when {
+            total <= 0 -> ""
+            approved >= total -> "Approved"
+            approved <= 0 -> "Pending"
+            else -> "Partly approved"
+        }
+
+    val approvedAll: Boolean get() = total > 0 && approved >= total
+
+    val counts: String get() = "$approved / $total"
+}
+
+object ExplorerCountSerializer : KSerializer<Int> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("ExplorerCount", PrimitiveKind.INT)
+
+    override fun deserialize(decoder: Decoder): Int {
+        val json = decoder as? JsonDecoder ?: return decoder.decodeInt()
+        return when (val element = json.decodeJsonElement()) {
+            is JsonPrimitive -> element.intOrNull ?: 0
+            is JsonObject -> (element["total"] as? JsonPrimitive)?.intOrNull ?: 0
+            else -> 0
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: Int) = encoder.encodeInt(value)
+}
 
 @Serializable
 data class ExplorerOverviewTotals(
@@ -137,8 +174,9 @@ data class ExplorerOverviewArtisan(
     val path: String = "",
     val fields: ExplorerFilled = ExplorerFilled(),
     val media: ExplorerFileTotals = ExplorerFileTotals(),
+    @Serializable(with = ExplorerCountSerializer::class)
     val transcripts: Int = 0,
-    val review: String? = null,
+    val review: ExplorerReviewTotals? = null,
     val sections: List<ExplorerSectionState> = emptyList(),
 ) {
     val completeness: Float get() = if (fields.total > 0) fields.filled.toFloat() / fields.total else 0f

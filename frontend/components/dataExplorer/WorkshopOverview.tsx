@@ -7,7 +7,7 @@ import { LoadFailed, Skeleton } from "@/components/dataExplorer/explorerUi";
 import { fetchOverview } from "@/lib/dataExplorer/api";
 import type { CoverageState, FolderVisit, WorkshopOverview as Overview } from "@/lib/dataExplorer/contract";
 import { formatBytes } from "@/lib/dataExplorer/plan";
-import { completeness, percentLabel, sortArtisans, type OverviewSort } from "@/lib/dataExplorer/explorerView";
+import { completeness, percentLabel, reviewDetail, reviewFraction, reviewTone, reviewWord, sortArtisans, transcriptDetail, type OverviewSort, type ReviewTone } from "@/lib/dataExplorer/explorerView";
 import type { QueryParams } from "@/lib/dataExplorer/wire";
 
 const SQUARE: Record<CoverageState, string> = {
@@ -15,6 +15,8 @@ const SQUARE: Record<CoverageState, string> = {
   partial: "bg-progress-track",
   missing: "border border-red-300 bg-error-100 dark:border-[#b91c1c] dark:bg-[#4a1717]"
 };
+
+const REVIEW_INK: Record<ReviewTone, string> = { done: "text-success-600 dark:text-green-300", waiting: "text-amber-800 dark:text-amber-300", none: "text-ink-500" };
 
 const SQUARE_WORD: Record<CoverageState, string> = { complete: "complete", partial: "partly recorded", missing: "missing" };
 
@@ -141,8 +143,8 @@ export function WorkshopOverview({ path, extra, visit, onOpen, onShowNew }: { pa
       <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-5">
         <Card label="Files" big={totals.files.toLocaleString("en-IN")} small={formatBytes(totals.bytes)} />
         <Card label="Recorded fields" big={percentLabel(totals.fields)} small={`${totals.fields.filled.toLocaleString("en-IN")} of ${totals.fields.total.toLocaleString("en-IN")}`} />
-        <Card label="Transcripts" big={totals.transcripts.total.toLocaleString("en-IN")} small={`${totals.transcripts.ready} ready · ${totals.transcripts.translating} translating · ${totals.transcripts.failed} failed`} />
-        <Card label="Review" big={`${totals.review.approved} / ${totals.review.total}`} small={`approved · ${totals.review.pending} pending`} />
+        <Card label="Transcripts" big={totals.transcripts.total.toLocaleString("en-IN")} small={transcriptDetail(totals.transcripts)} />
+        <Card label="Review" big={reviewFraction(totals.review)} small={reviewDetail(totals.review)} />
         <Card
           fresh={fresh !== null}
           label="New since you looked"
@@ -250,12 +252,15 @@ export function WorkshopOverview({ path, extra, visit, onOpen, onShowNew }: { pa
                         <td className="px-3 py-2.5 tabular-nums text-ink-900">
                           {artisan.media.files} · {formatBytes(artisan.media.bytes)}
                         </td>
-                        <td className="px-3 py-2.5 tabular-nums text-ink-900">{artisan.transcripts}</td>
-                        <td className="px-3 py-2.5">
-                          {artisan.review ? (
-                            <span className={`font-semibold ${artisan.review === "APPROVED" ? "text-success-600 dark:text-green-300" : artisan.review === "REJECTED" ? "text-red-700 dark:text-red-300" : "text-amber-800 dark:text-amber-300"}`}>
-                              {artisan.review.charAt(0) + artisan.review.slice(1).toLowerCase().replace(/_/g, " ")}
-                            </span>
+                        <td className="px-3 py-2.5 tabular-nums text-ink-900" title={transcriptDetail(artisan.transcripts)}>
+                          {artisan.transcripts.total.toLocaleString("en-IN")}
+                        </td>
+                        <td className="px-3 py-2.5" title={reviewDetail(artisan.review)} data-review="">
+                          {artisan.review.total > 0 ? (
+                            <>
+                              <span className={`block font-semibold ${REVIEW_INK[reviewTone(artisan.review)]}`}>{reviewWord(artisan.review)}</span>
+                              <span className="block text-xs tabular-nums text-ink-500">{reviewFraction(artisan.review)}</span>
+                            </>
                           ) : (
                             <span className="text-ink-500">-</span>
                           )}

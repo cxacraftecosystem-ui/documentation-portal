@@ -173,14 +173,14 @@ object ScreenBoards {
         ),
         sections = ('A'..'H').map { ExplorerSectionHead(it.toString(), "Section $it") },
         artisans = listOf(
-            artisan("mohan", "Mohan Lal Chhipa", "Block carving", 18, 22, 410 * MB, 3, "Pending", "cc p m m p m m"),
-            artisan("sunita", "Sunita Devi", "Dabu printing", 30, 61, 880 * MB, 9, "Pending", "ccc p c p c m"),
-            artisan("giriraj", "Giriraj Prasad Chhipa", "Dabu printing", 34, 48, FOLDER_BYTES, 12, "Approved", "ccccc p cc"),
-            artisan("ramesh", "Ramesh Chhipa", "Block carving", 40, 97, (1.9 * GB).toLong(), 14, "Approved", "cccccccc"),
+            artisan("mohan", "Mohan Lal Chhipa", "Block carving", 18, 22, 410 * MB, 3, ExplorerReviewTotals(0, 3, 3), "cc p m m p m m"),
+            artisan("sunita", "Sunita Devi", "Dabu printing", 30, 61, 880 * MB, 9, ExplorerReviewTotals(0, 2, 2), "ccc p c p c m"),
+            artisan("giriraj", "Giriraj Prasad Chhipa", "Dabu printing", 34, 48, FOLDER_BYTES, 12, ExplorerReviewTotals(3, 0, 3), "ccccc p cc"),
+            artisan("ramesh", "Ramesh Chhipa", "Block carving", 40, 97, (1.9 * GB).toLong(), 14, ExplorerReviewTotals(4, 0, 4), "cccccccc"),
         ),
     )
 
-    private fun artisan(id: String, name: String, craft: String, filled: Int, files: Int, bytes: Long, transcripts: Int, review: String, squares: String): ExplorerOverviewArtisan {
+    private fun artisan(id: String, name: String, craft: String, filled: Int, files: Int, bytes: Long, transcripts: Int, review: ExplorerReviewTotals, squares: String): ExplorerOverviewArtisan {
         val states = squares.replace(" ", "").map { when (it) { 'c' -> "complete"; 'p' -> "partial"; else -> "missing" } }
         return ExplorerOverviewArtisan(
             id = id, name = name, craft = craft, path = "$WORKSHOP/artisans/$id", fields = ExplorerFilled(filled, 40),
@@ -276,7 +276,7 @@ object ScreenBoards {
         current = "Interview_Dabu-mud-resist_Take-1.mp4", currentBytes = 266 * MB, currentTotal = 701 * MB,
     )
 
-    fun saved(now: Long, title: String = "Giriraj Prasad Chhipa", files: Int = 47, bytes: Long = (1.23 * GB).toLong(), folder: String = "DesignWorkshop"): ExplorerJob =
+    fun saved(now: Long, title: String = "Giriraj Prasad Chhipa", files: Int = 47, bytes: Long = (1.23 * GB).toLong(), folder: String = com.fieldrepository.app.explorer.portal.ExplorerPortal.DOWNLOAD_FOLDER): ExplorerJob =
         job("saved-$title", title, ExplorerJobKind.FOLDER, ExplorerJobState.DONE, now, "$title.zip").copy(
             doneBytes = bytes, totalBytes = bytes, doneFiles = files, totalFiles = files,
             result = ExplorerResult(location = "Downloads/$folder/$title.zip", uri = "content://downloads/1", saved = files, total = files, bytes = bytes),
@@ -286,7 +286,7 @@ object ScreenBoards {
 
     fun report(now: Long): ExplorerJob = job("report", "Report (.xlsx)", ExplorerJobKind.REPORT, ExplorerJobState.DONE, now, "3rd-Craft-Toolkit-Report.xlsx").copy(
         totalBytes = (2.1 * MB).toLong(), doneBytes = (2.1 * MB).toLong(),
-        result = ExplorerResult(location = "Downloads/DesignWorkshop/3rd-Craft-Toolkit-Report.xlsx", uri = "content://downloads/2", saved = 1, total = 1, bytes = (2.1 * MB).toLong(), message = "7 sheets"),
+        result = ExplorerResult(location = "Downloads/${com.fieldrepository.app.explorer.portal.ExplorerPortal.DOWNLOAD_FOLDER}/3rd-Craft-Toolkit-Report.xlsx", uri = "content://downloads/2", saved = 1, total = 1, bytes = (2.1 * MB).toLong(), message = "7 sheets"),
     )
 
     class More(private val base: ExplorerMore = DesignBoards.More()) : ExplorerMore by base {

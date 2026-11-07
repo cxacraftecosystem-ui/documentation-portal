@@ -43,6 +43,31 @@ export function toneOf(status: DownloadStatus): Tone {
   return "neutral";
 }
 
+export type Outcome = "saved" | "partial" | "failed" | "running" | "waiting" | "cancelled";
+
+export function outcomeOf(item: Pick<DownloadItem, "status" | "failedFiles">): Outcome {
+  if (item.status === "saved") return item.failedFiles.length ? "partial" : "saved";
+  return item.status;
+}
+
+export const OUTCOME_CARD: Record<Outcome, string> = {
+  saved: "border-green-300 bg-success-100 text-green-900 dark:border-[#15803d] dark:bg-[#123b25] dark:text-green-100",
+  partial: "border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-100",
+  failed: "border-red-300 bg-error-100 text-red-900 dark:border-[#b91c1c] dark:bg-[#4a1717] dark:text-red-100",
+  running: "border-line-200 bg-card text-ink-900",
+  waiting: "border-line-200 bg-surface-50 text-ink-900",
+  cancelled: "border-line-200 bg-card text-ink-900"
+};
+
+export const OUTCOME_SUB: Record<Outcome, string> = {
+  saved: "text-green-800 dark:text-green-200",
+  partial: "text-amber-900 dark:text-amber-200",
+  failed: "text-red-800 dark:text-red-200",
+  running: "text-ink-500",
+  waiting: "text-ink-500",
+  cancelled: "text-ink-500"
+};
+
 export const TONE_CLASS: Record<Tone, string> = {
   saved: "border-green-300 bg-success-100 text-green-900 dark:border-[#15803d] dark:bg-[#123b25] dark:text-green-100",
   failed: "border-red-300 bg-error-100 text-red-900 dark:border-[#b91c1c] dark:bg-[#4a1717] dark:text-red-100",

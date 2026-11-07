@@ -16,7 +16,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -29,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -228,6 +234,24 @@ internal fun tileColors(kind: TileKind): Pair<Color, Color> {
 internal fun ExplorerGlyph(content: @Composable () -> Unit) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 1f)) { content() }
+}
+
+enum class ExplorerMarkKind(val icon: ImageVector, val tag: String) {
+    SAVED(Icons.Filled.Check, "saved"),
+    FAILED(Icons.Filled.PriorityHigh, "failed"),
+    RUNNING(Icons.Filled.ArrowDownward, "running"),
+}
+
+@Composable
+internal fun ExplorerMarkIcon(kind: ExplorerMarkKind, tint: Color, size: Dp = 14.dp, modifier: Modifier = Modifier) {
+    Icon(kind.icon, contentDescription = null, tint = tint, modifier = modifier.size(size).testTag("explorer.mark.${kind.tag}"))
+}
+
+@Composable
+internal fun ExplorerMarkBadge(kind: ExplorerMarkKind, background: Color, tint: Color, size: Dp = 22.dp, icon: Dp = 14.dp) {
+    Box(Modifier.size(size).background(background, CircleShape).testTag("explorer.mark.badge"), contentAlignment = Alignment.Center) {
+        ExplorerMarkIcon(kind, tint, icon)
+    }
 }
 
 @Composable

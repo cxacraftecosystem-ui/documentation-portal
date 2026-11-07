@@ -17,7 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Checkbox
+import com.fieldrepository.app.ui.FieldCheckbox
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -290,7 +290,7 @@ private fun OptionPicker(
                             }.testTag("filter-option"),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Checkbox(checked = on, onCheckedChange = null)
+                            FieldCheckbox(checked = on, onCheckedChange = null)
                             Text(o.label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                             if (o.count > 0) Text("${o.count}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted)
                         }

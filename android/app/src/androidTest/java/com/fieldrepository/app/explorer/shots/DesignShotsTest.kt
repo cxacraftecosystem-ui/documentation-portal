@@ -26,6 +26,7 @@ import com.fieldrepository.app.explorer.data.ExplorerAudioState
 import com.fieldrepository.app.explorer.data.ExplorerEntry
 import com.fieldrepository.app.explorer.data.ExplorerMoreApi
 import com.fieldrepository.app.explorer.portal.DesignTheme
+import com.fieldrepository.app.explorer.ui.ExplorerAudioExpand
 import com.fieldrepository.app.explorer.ui.ExplorerMediaContent
 import com.fieldrepository.app.explorer.ui.ExplorerMediaLoader
 import com.fieldrepository.app.explorer.ui.MiniPlayer
@@ -126,7 +127,26 @@ class DesignShotsTest {
         ExplorerMediaContent(entries, entries.indexOf(DesignBoards.videoEntry), 0.0, 48, onSave = {}, onDismiss = {}, loader = loader, find = "indigo")
     }
 
+    @Composable
+    private fun expandedFromRecord() {
+        val source = DesignBoards.audioEntry
+        val entry = ExplorerAudioExpand.entry(source.mediaId!!, source.name, source.sizeBytes)
+        ExplorerMediaContent(listOf(entry), 0, 0.0, 1, onSave = {}, onDismiss = {}, loader = loader, find = "lime", knownDurationMs = DesignBoards.AUDIO_MS, positioned = false)
+    }
+
+    @Test fun androidAudioExpand() {
+        stageAudio()
+        shoot("AndroidAudio", "expand") { expandedFromRecord() }
+    }
+
+    @Test fun androidAudioExpandTablet() {
+        stageAudio()
+        shoot("AndroidAudio", "expand-tablet", widthDp = 1280, heightDp = 800, density = 1f) { expandedFromRecord() }
+    }
+
     @Test fun androidPreview() = shoot("AndroidPreview") { videoPreview() }
+
+    @Test fun androidPreviewTablet() = shoot("AndroidPreview", "tablet", widthDp = 1280, heightDp = 800, density = 1f) { videoPreview() }
 
     @Test fun androidPreviewDark() = shoot("AndroidPreview", "dark", dark = true) { videoPreview() }
 

@@ -151,6 +151,8 @@ internal object DataSearchRules {
         else -> null
     }
 
+    fun offersOpenInData(item: UnifiedSearchItemDto): Boolean = item.local && locateType(item.type) != null && item.locatable != false
+
     fun label(type: String, server: String?): String = TYPE_LABELS[type] ?: server?.ifBlank { null } ?: type
 
     fun startSeconds(item: UnifiedSearchItemDto): Double? {
@@ -572,7 +574,7 @@ private fun ResultCard(
                     CardAction(start?.let { DataSearchText.playFrom(DataSearchRules.clock(it)) } ?: DataSearchText.play, "data.search.play.${item.id}") {
                         onPlay(item.id, item.title, item.mediaType, start ?: 0.0)
                     }
-                    openLocal?.let { open -> CardAction(DataSearchText.openInData, "data.search.open.${item.id}", open) }
+                    openLocal?.takeIf { DataSearchRules.offersOpenInData(item) }?.let { open -> CardAction(DataSearchText.openInData, "data.search.open.${item.id}", open) }
                 } else if (openRemote != null) {
                     CardAction(DataSearchText.openThere, null, openRemote)
                 }
