@@ -281,6 +281,12 @@ export function FolderContents({
     setPage(1);
     setMenuFor(null);
   }
+  const orderKey = tree?.sort ? `${tree.sort.key}:${tree.sort.dir}` : "";
+  const [orderedBy, setOrderedBy] = useState(orderKey);
+  if (orderedBy !== orderKey) {
+    setOrderedBy(orderKey);
+    setPage(1);
+  }
   const entries = useMemo(() => tree?.entries ?? [], [tree]);
   const folders = entries.filter((entry) => entry.kind === "folder");
   const files = useMemo(() => entries.filter((entry) => entry.kind === "file"), [entries]);

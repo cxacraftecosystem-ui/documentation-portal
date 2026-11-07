@@ -14,6 +14,7 @@ export type TreeStore = {
   expanded: ReadonlySet<string>;
   load(path: string): Promise<void>;
   more(path: string): Promise<void>;
+  resort(paths: string[]): void;
   toggle(path: string): void;
   expand(paths: string[]): void;
 };
@@ -22,7 +23,7 @@ function message(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-export function useExplorerTree(extra: QueryParams, enabled: boolean): TreeStore {
+export function useExplorerTree(extra: QueryParams, enabled: boolean, sortOf?: (path: string) => string | undefined): TreeStore {
   const [trees, setTrees] = useState<Record<string, TreeResponse>>({});
   const [loading, setLoading] = useState<ReadonlySet<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -34,10 +35,13 @@ export function useExplorerTree(extra: QueryParams, enabled: boolean): TreeStore
   const expandedRef = useRef(expanded);
   const inFlight = useRef(new Map<string, Promise<void>>());
   const cursorsSeen = useRef(new Map<string, Set<string>>());
+  const sortOfRef = useRef(sortOf);
+  const sortUsed = useRef(new Map<string, string | undefined>());
 
   useEffect(() => {
     treesRef.current = trees;
     expandedRef.current = expanded;
+    sortOfRef.current = sortOf;
   });
 
   const mark = useCallback((path: string, on: boolean) => {
@@ -51,16 +55,18 @@ export function useExplorerTree(extra: QueryParams, enabled: boolean): TreeStore
 
   const load = useCallback(
     (path: string) => {
-      const key = `${generation.current}:${path}`;
+      const sort = sortOfRef.current?.(path);
+      const key = `${generation.current}:${path}:${sort ?? ""}`;
       const running = inFlight.current.get(key);
       if (running) return running;
       const asked = generation.current;
       mark(path, true);
       const work = (async () => {
         try {
-          const page = await fetchTreePage(path, extraRef.current);
-          if (asked !== generation.current) return;
+          const page = await fetchTreePage(path, extraRef.current, null, undefined, sort);
+          if (asked !== generation.current || sortOfRef.current?.(path) !== sort) return;
           cursorsSeen.current.delete(path);
+          sortUsed.current.set(path, sort);
           setTrees((previous) => ({ ...previous, [path]: page }));
           setErrors((previous) => {
             if (!(path in previous)) return previous;
@@ -90,8 +96,9 @@ export function useExplorerTree(extra: QueryParams, enabled: boolean): TreeStore
       mark(path, true);
       try {
         const asking = current.nextCursor;
-        const page = await fetchTreePage(path, extraRef.current, asking);
-        if (asked !== generation.current) return;
+        const sort = sortUsed.current.get(path);
+        const page = await fetchTreePage(path, extraRef.current, asking, undefined, sort);
+        if (asked !== generation.current || sortUsed.current.get(path) !== sort) return;
         const seen = cursorsSeen.current.get(path) ?? new Set<string>();
         seen.add(asking);
         cursorsSeen.current.set(path, seen);
@@ -125,6 +132,13 @@ export function useExplorerTree(extra: QueryParams, enabled: boolean): TreeStore
     if (enabled && !("" in treesRef.current)) void load("");
   }, [enabled, load]);
 
+  const resort = useCallback(
+    (paths: string[]) => {
+      for (const path of paths) if (path in treesRef.current) void load(path);
+    },
+    [load]
+  );
+
   const toggle = useCallback(
     (path: string) => {
       setExpanded((previous) => {
@@ -150,5 +164,5 @@ export function useExplorerTree(extra: QueryParams, enabled: boolean): TreeStore
     [load]
   );
 
-  return useMemo(() => ({ trees, loading, errors, expanded, load, more, toggle, expand }), [trees, loading, errors, expanded, load, more, toggle, expand]);
+  return useMemo(() => ({ trees, loading, errors, expanded, load, more, resort, toggle, expand }), [trees, loading, errors, expanded, load, more, resort, toggle, expand]);
 }

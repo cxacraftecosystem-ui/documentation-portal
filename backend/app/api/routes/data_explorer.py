@@ -23,6 +23,7 @@ from app.services.data_explorer import (
     saved,
     signing,
     slim,
+    sorting,
     stats,
     transcript_docx,
     transcript_zip,
@@ -62,6 +63,15 @@ async def download_scope(user: Any) -> Any:
     scope = await _browser()._scope_for(user)
     narrowed = getattr(scope, "for_download", None)
     return narrowed() if callable(narrowed) else scope
+
+
+def _sort_or_422(raw: str | None, allowed: tuple[str, ...], default: sorting.Sort) -> sorting.Sort:
+    try:
+        return sorting.parse(raw, allowed, default)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from None
 
 
 def _live_media_where(scope: Any, media_id: str | list[str]) -> dict[str, Any]:
@@ -344,6 +354,7 @@ async def transcript_bundle(
 
 TRANSCRIPT_LIST_MAX = 500
 TRANSCRIPT_SNIPPET_CHARS = 160
+TRANSCRIPT_SORT_CHUNK = 2000
 
 
 def _snippet(text: str, words: list[str]) -> str:
@@ -357,8 +368,25 @@ def _snippet(text: str, words: list[str]) -> str:
     return f"{lead}{piece}{tail}"
 
 
+async def _sorted_window(
+    scope: Any, seen: dict[str, dict[str, Any]], offset: int, sort: sorting.Sort
+) -> tuple[dict[str, dict[str, Any]], bool]:
+    ids = list(seen)
+    light: dict[str, Any] = {}
+    for start in range(0, len(ids), TRANSCRIPT_SORT_CHUNK):
+        rows = await slim.find_media(
+            where=_live_media_where(scope, ids[start : start + TRANSCRIPT_SORT_CHUNK])
+        )
+        light.update({str(r.id): r for r in rows})
+    items = [{**item, "_media": light[mid]} for mid, item in seen.items() if mid in light]
+    await sorting.prepare(items, sort)
+    ordered = sorting.order(items, sort, folders_first=False)
+    window = ordered[offset : offset + TRANSCRIPT_LIST_MAX]
+    return {str(item["mediaId"]): item for item in window}, offset + len(window) < len(ordered)
+
+
 async def _folder_transcripts(
-    scope: Any, norm: str, offset: int = 0
+    scope: Any, norm: str, offset: int = 0, sort: sorting.Sort | None = None
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any], bool]:
     browser = _browser()
     files, truncated = await walk.manifest_files(
@@ -378,10 +406,13 @@ async def _folder_transcripts(
             "path": f.get("path"),
             "mediaType": kind if kind != "TRANSCRIPT" else None,
         }
-        if len(seen) >= offset + TRANSCRIPT_LIST_MAX:
+        if sort is None and len(seen) >= offset + TRANSCRIPT_LIST_MAX:
             truncated = True
             break
-    if offset:
+    if sort is not None:
+        seen, more = await _sorted_window(scope, seen, offset, sort)
+        truncated = truncated or more
+    elif offset:
         seen = dict(list(seen.items())[offset:])
     ids = list(seen)
     rows = await db.mediafile.find_many(
@@ -395,18 +426,31 @@ async def transcript_list(
     path: str = "",
     q: str | None = Query(None, max_length=200),
     offset: int = Query(0, ge=0, le=walk.MAX_MANIFEST_FILES),
+    sort: str | None = Query(None, max_length=40),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
     offset = offset if isinstance(offset, int) else 0
+    chosen = _sort_or_422(
+        sort if isinstance(sort, str) else None, sorting.TRANSCRIPT_KEYS, sorting.TRANSCRIPT_DEFAULT
+    )
     scope = await download_scope(current_user)
-    seen, by_id, truncated = await _folder_transcripts(scope, _browser()._norm(path), offset)
+    seen, by_id, truncated = await _folder_transcripts(
+        scope,
+        _browser()._norm(path),
+        offset,
+        None if chosen == sorting.TRANSCRIPT_DEFAULT else chosen,
+    )
     window = len(seen)
     words = [w for w in (q or "").lower().split() if w]
     items: list[dict[str, Any]] = []
+    facts: list[dict[str, Any]] = []
     for media_id, item in seen.items():
         row = by_id.get(media_id)
+        for hidden in [key for key in item if key.startswith("_")]:
+            item.pop(hidden)
         if row is None:
             continue
+        facts.append({**item, "kind": "file", "_media": row})
         text = str(getattr(row, "transcriptText", None) or "")
         item["mediaType"] = item["mediaType"] or str(row.mediaType).split(".")[-1]
         item["name"] = row.originalFilename or item["name"]
@@ -425,6 +469,10 @@ async def transcript_list(
         "query": q or None,
         "offset": offset,
         "nextOffset": offset + window if truncated and window else None,
+        "sort": chosen.public(),
+        "sorts": sorting.available(facts, sorting.TRANSCRIPT_KEYS, sort=chosen)
+        if facts
+        else [chosen.key],
     }
 
 
@@ -539,13 +587,23 @@ async def browse_page(
     pageSize: int = Query(browse.PAGE_SIZE_DEFAULT, ge=1, le=browse.PAGE_SIZE_MAX),
     q: str | None = Query(None, max_length=200),
     workshopIds: str | None = None,
+    sort: str | None = Query(None, max_length=40),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
+    chosen = _sort_or_422(
+        sort if isinstance(sort, str) else None, sorting.BROWSE_KEYS, sorting.BROWSE_DEFAULT
+    )
     scope = await download_scope(current_user)
     page_number, size = browse.page_args(page, pageSize)
     workshops = [w.strip() for w in (workshopIds or "").split(",") if w.strip()] or None
     return await browse.page(
-        _kind(type), scope, page_number=page_number, page_size=size, q=q, workshop_ids=workshops
+        _kind(type),
+        scope,
+        page_number=page_number,
+        page_size=size,
+        q=q,
+        workshop_ids=workshops,
+        sort=chosen,
     )
 
 
@@ -555,8 +613,12 @@ async def browse_record_media(
     record_id: str,
     page: int = Query(1, ge=1),
     pageSize: int = Query(browse.PAGE_SIZE_DEFAULT, ge=1, le=browse.PAGE_SIZE_MAX),
+    sort: str | None = Query(None, max_length=40),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
+    chosen = _sort_or_422(
+        sort if isinstance(sort, str) else None, sorting.BROWSE_MEDIA_KEYS, sorting.BROWSE_DEFAULT
+    )
     kind = _kind(type)
     linked = browse.record_media_where(kind, record_id)
     if linked is None:
@@ -572,12 +634,17 @@ async def browse_record_media(
         include=_browser()._NAMING_INCLUDE,
         take=size,
         skip=(page_number - 1) * size,
-        order=[{"createdAt": "desc"}, {"id": "desc"}],
+        order=browse.media_order(chosen),
     )
     total = await db.mediafile.count(where=where)
     entries = _browser()._media_entries("", rows)
-    items, _count, _next = await tree.shape(entries, lean=True)
-    return {"items": items, **browse.envelope(total, page_number, size)}
+    items, _count, _next = await tree.shape(entries, lean=True, keep_order=True)
+    return {
+        "items": items,
+        **browse.envelope(total, page_number, size),
+        "sort": chosen.public(),
+        "sorts": list(sorting.BROWSE_MEDIA_KEYS),
+    }
 
 
 @router.get("/report-options")

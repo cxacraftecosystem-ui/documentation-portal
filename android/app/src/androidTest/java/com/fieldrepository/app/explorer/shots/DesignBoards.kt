@@ -169,7 +169,7 @@ object DesignBoards {
         override suspend fun goOpen(kind: String, id: String) = ExplorerGoOpen(kind, id)
         override suspend fun goTranscript(id: String, format: String) = ExplorerGoTranscript(id, format)
         override suspend fun bundle(id: String) = ExplorerBundle(id = id, label = "Bundle $id", path = GIRIRAJ, fileCount = 48, bytes = 1_331_439_861)
-        override suspend fun transcripts(path: String, q: String?, status: String?, offset: Int?) = ExplorerTranscriptList()
+        override suspend fun transcripts(path: String, q: String?, status: String?, offset: Int?, sort: String?) = ExplorerTranscriptList()
         override suspend fun reportOptions() = ExplorerReportOptionsBody(null)
         override suspend fun saveReportOptions(body: ExplorerReportOptionsBody) = body
         override suspend fun visit(body: ExplorerVisitBody) = ExplorerVisit(path = body.path, previousVisitAt = "2026-11-01T00:00:00Z", newFiles = 38, newTranscripts = 4)

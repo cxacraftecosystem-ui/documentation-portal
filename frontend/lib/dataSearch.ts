@@ -1,3 +1,4 @@
+import { availableKeys, LIST_DEFAULT, parseSort, sameSort, sortParam, type SortChoice, type SortKey } from "@/lib/dataExplorer/sorting";
 import { recordViewHref } from "@/lib/recordView";
 import type { Artisan, MediaFile, ProductDocumentation, ToolDocumentation, Workshop } from "@/lib/types";
 import { UNIFIED_TYPES, type Portal, type UnifiedItem, type UnifiedResponse, type UnifiedType } from "@/lib/unifiedSearch";
@@ -18,13 +19,37 @@ export type SearchState = {
   types: UnifiedType[];
   range: DateRange;
   transcriptOnly: boolean;
+  sort: SortChoice | null;
 };
 
-export const EMPTY_STATE: SearchState = { q: "", scope: "local", workshopIds: [], artisanId: "", craftId: "", types: [], range: "any", transcriptOnly: false };
+export const EMPTY_STATE: SearchState = { q: "", scope: "local", workshopIds: [], artisanId: "", craftId: "", types: [], range: "any", transcriptOnly: false, sort: null };
 
-export const SEARCH_URL_KEYS = { q: "sq", scope: "sscope", focus: "sin", types: "stypes", range: "srange", transcriptOnly: "stx", workshopIds: "sws", artisanId: "sart", craftId: "scraft" } as const;
+export const SEARCH_URL_KEYS = { q: "sq", scope: "sscope", focus: "sin", types: "stypes", range: "srange", transcriptOnly: "stx", workshopIds: "sws", artisanId: "sart", craftId: "scraft", sort: "ssort" } as const;
 
 const DATE_RANGES: readonly DateRange[] = ["any", "7d", "30d", "90d", "year"];
+
+export const SEARCH_SORT_LIST = "search-unified" as const;
+
+export const SEARCH_SORT_KEYS: readonly SortKey[] = ["relevance", "name", "recorded"];
+
+export function searchSort(raw: unknown): SortChoice | null {
+  const choice = parseSort(raw);
+  if (!choice || !SEARCH_SORT_KEYS.includes(choice.key) || sameSort(choice, LIST_DEFAULT[SEARCH_SORT_LIST])) return null;
+  return choice;
+}
+
+export function searchSortParam(choice: SortChoice | null): string | undefined {
+  return sortParam(searchSort(choice), SEARCH_SORT_LIST);
+}
+
+export function searchSortLevel(focus: UnifiedType | null): string {
+  return `search:${focus ?? "all"}`;
+}
+
+export function searchSortKeys(data: UnifiedResponse | null | undefined): SortKey[] {
+  const sorts = (data as { sorts?: unknown } | null | undefined)?.sorts;
+  return availableKeys(Array.isArray(sorts) ? sorts : null).filter((key) => SEARCH_SORT_KEYS.includes(key));
+}
 
 type SearchParamsLike = { get(name: string): string | null };
 
@@ -51,7 +76,8 @@ export function searchFromParams(params: SearchParamsLike): { state: SearchState
       craftId: params.get(SEARCH_URL_KEYS.craftId) ?? "",
       types: listParam(params, SEARCH_URL_KEYS.types).filter(isUnifiedType),
       range: (DATE_RANGES as readonly string[]).includes(range) ? (range as DateRange) : "any",
-      transcriptOnly: params.get(SEARCH_URL_KEYS.transcriptOnly) === "1"
+      transcriptOnly: params.get(SEARCH_URL_KEYS.transcriptOnly) === "1",
+      sort: searchSort(params.get(SEARCH_URL_KEYS.sort))
     },
     focus: isUnifiedType(focus) ? focus : null
   };
@@ -68,7 +94,8 @@ export function searchToParams(state: SearchState, focus: UnifiedType | null, ba
     transcriptOnly: state.transcriptOnly ? "1" : "",
     workshopIds: state.workshopIds.join(","),
     artisanId: state.artisanId,
-    craftId: state.craftId
+    craftId: state.craftId,
+    sort: searchSortParam(state.sort) ?? ""
   };
   for (const key of Object.keys(SEARCH_URL_KEYS) as (keyof typeof SEARCH_URL_KEYS)[]) {
     if (values[key]) params.set(SEARCH_URL_KEYS[key], values[key]);

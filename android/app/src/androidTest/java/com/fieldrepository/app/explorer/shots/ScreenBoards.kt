@@ -215,16 +215,23 @@ object ScreenBoards {
 
     enum class Mode { NORMAL, HANG, FAIL }
 
-    class Api(private val context: Context, var mode: Mode = Mode.NORMAL) : ExplorerApi {
+    val SORTS = listOf("name", "recorded", "added", "modified", "size", "duration", "type")
+
+    class Api(private val context: Context, var mode: Mode = Mode.NORMAL, var sorted: Boolean = false) : ExplorerApi {
         val calls: MutableList<String> = Collections.synchronizedList(mutableListOf())
 
-        override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int): ExplorerTree {
+        override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int, sort: String?): ExplorerTree {
             calls += "tree:$path"
             when (mode) {
                 Mode.HANG -> awaitCancellation()
                 Mode.FAIL -> throw IOException("offline")
                 Mode.NORMAL -> Unit
             }
+            val applied = com.fieldrepository.app.explorer.data.ExplorerSort.parse(sort) ?: com.fieldrepository.app.explorer.data.ExplorerSorts.TREE
+            return folder(path).let { if (sorted) it.copy(sorts = SORTS, sort = com.fieldrepository.app.explorer.data.ExplorerSortApplied(applied.key, applied.dir)) else it }
+        }
+
+        private fun folder(path: String): ExplorerTree {
             return when (path) {
                 "", ROOT -> ExplorerTree(path = ROOT, crumbs = crumbsRoot, entries = workshops, total = workshops.size, taxonomies = taxonomies, taxonomy = "workshop")
                 WORKSHOP -> ExplorerTree(path = WORKSHOP, crumbs = crumbsWorkshop, info = ExplorerInfo("3rd Craft Toolkit", listOf(ExplorerInfoField("Place", "Bagru, Rajasthan"), ExplorerInfoField("Dates", "14–22 Sep 2026"))), entries = artisans, total = artisans.size, taxonomies = taxonomies, taxonomy = "workshop")

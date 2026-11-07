@@ -761,6 +761,7 @@ interface FieldRepositoryApi {
         @Query("type") type: String? = null,
         @Query("page") page: Int? = null,
         @Query("artisanIds") artisanIds: String? = null,
+        @Query("sort") sort: String? = null,
     ): UnifiedSearchResponse
 
     @GET("search/remote/{type}/{id}")

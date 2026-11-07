@@ -46,6 +46,8 @@ export type TreeResponse = {
   taxonomy?: string | null;
   designWorkshopsVisible?: boolean;
   designWorkshopsDownloadable?: boolean;
+  sort?: { key: string; dir: string } | null;
+  sorts?: string[] | null;
 };
 
 export type ManifestFile = {
@@ -246,6 +248,8 @@ export type BrowsePage = {
   pageSize: number;
   pages: number;
   truncated: boolean;
+  sort?: { key: string; dir: string } | null;
+  sorts?: string[] | null;
 };
 
 export const MANIFEST_TOTAL_HEADER = "x-dataset-total";

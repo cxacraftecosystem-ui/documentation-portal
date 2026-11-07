@@ -16,9 +16,47 @@ type FakeFile = {
   transcript?: boolean;
   broken?: boolean;
   pixels?: { width: number; height: number };
+  capturedAt?: string;
 };
 
 const MANY_FILES = 1234;
+
+export const SORTED_FOLDER = "workshops/sorted";
+
+export const SORTED_FILES = [
+  { name: "alpha.jpg", mediaId: "srt1", mediaType: "IMAGE", bytes: 3000, capturedAt: "2026-05-03T10:00:00Z" },
+  { name: "Bravo.mp4", mediaId: "srt2", mediaType: "VIDEO", bytes: 9000, capturedAt: "2026-05-01T10:00:00Z" },
+  { name: "charlie.m4a", mediaId: "srt3", mediaType: "AUDIO", bytes: 1000, capturedAt: "2026-05-05T10:00:00Z" },
+  { name: "delta.jpg", mediaId: "srt4", mediaType: "IMAGE", bytes: 7000, capturedAt: "2026-05-02T10:00:00Z" },
+  { name: "echo.pdf", mediaId: "srt5", mediaType: "PDF", bytes: 5000, capturedAt: "2026-05-04T10:00:00Z" }
+];
+
+type SortableEntry = { kind?: unknown; name?: unknown; path?: unknown; mediaType?: unknown; recordType?: unknown; sizeBytes?: unknown; bytes?: unknown; capturedAt?: unknown };
+
+function sortValue(entry: SortableEntry, key: string): string | number | null {
+  if (key === "name") return String(entry.name).toLowerCase();
+  if (key === "recorded") return typeof entry.capturedAt === "string" ? Date.parse(entry.capturedAt) : null;
+  if (key === "size") {
+    const size = entry.kind === "folder" ? entry.bytes : entry.sizeBytes;
+    return typeof size === "number" ? size : null;
+  }
+  if (key === "type") return String(entry.kind === "folder" ? (entry.recordType ?? "") : (entry.mediaType ?? "TEXT")).toLowerCase() || null;
+  return null;
+}
+
+export function fakeSorted<T extends SortableEntry>(entries: T[], sort: string | null): T[] {
+  const [key, dir] = (sort || "name:asc").split(":");
+  const byName = [...entries].sort((a, b) => String(a.name).toLowerCase().localeCompare(String(b.name).toLowerCase()) || String(a.path).localeCompare(String(b.path)));
+  const present = byName.filter((entry) => sortValue(entry, key) !== null);
+  const missing = byName.filter((entry) => sortValue(entry, key) === null);
+  present.sort((a, b) => {
+    const left = sortValue(a, key)!;
+    const right = sortValue(b, key)!;
+    const order = left < right ? -1 : left > right ? 1 : 0;
+    return dir === "desc" ? -order : order;
+  });
+  return [...present, ...missing].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "folder" ? -1 : 1));
+}
 
 type FakeFolder = { name: string; path: string; recordType?: string; folders: string[]; files: FakeFile[] };
 
@@ -26,6 +64,18 @@ export type SearchCorpusGroup = { type: string; label: string; singular: string;
 
 function corpusItem(group: SearchCorpusGroup, n: number) {
   return { portal: "designer", local: true, type: group.type, id: `${group.type}-${n}`, title: `${group.singular} ${n} of ${group.total}`, subtitle: null, snippet: "", highlights: [], href: `/artisans/${group.type}-${n}`, openUrl: null };
+}
+
+export function corpusOrder(group: SearchCorpusGroup, sort: string | null): number[] {
+  const all = Array.from({ length: group.total }, (_, index) => index + 1);
+  const [key, dir] = (sort ?? "").split(":");
+  if (key === "name") {
+    const title = (n: number) => `${group.singular} ${n} of ${group.total}`.toLowerCase();
+    const named = all.sort((a, b) => (title(a) < title(b) ? -1 : title(a) > title(b) ? 1 : 0));
+    return dir === "desc" ? named.reverse() : named;
+  }
+  if (key === "recorded") return dir === "asc" ? all : all.reverse();
+  return all;
 }
 
 export const PNG = Buffer.from(
@@ -235,6 +285,8 @@ export class DataExplorerFake {
   visit: Json = { previousVisitAt: "2026-11-01T10:00:00Z", newFiles: 3, newTranscripts: 1 };
   treeFailures = new Map<string, number>();
   repeatCursor = new Set<string>();
+  sortableFolders = new Set<string>([SORTED_FOLDER]);
+  transcriptSorting = false;
   folders = new Map<string, FakeFolder>();
   searchCorpus: SearchCorpusGroup[] = [];
   unifiedSearch = true;
@@ -270,6 +322,13 @@ export class DataExplorerFake {
       recordType: "workshop",
       folders: [],
       files: ["a", "b", "c"].map((letter) => ({ path: `workshops/sanganer/${letter}.jpg`, name: `${letter}.jpg`, mediaId: `s${letter}`, mediaType: "IMAGE", bytes: 5000 }))
+    });
+    this.folder({
+      name: "Sorting check",
+      path: SORTED_FOLDER,
+      recordType: "workshop",
+      folders: [],
+      files: SORTED_FILES.map((file) => ({ ...file, path: `${SORTED_FOLDER}/${file.name}` }))
     });
     this.folder({
       name: "Many photos",
@@ -360,7 +419,7 @@ export class DataExplorerFake {
       name: file.name,
       path: file.path,
       originalFilename: file.name,
-      capturedAt: file.mediaId === "img1" ? "2026-09-23T10:00:00Z" : null,
+      capturedAt: file.capturedAt ?? (file.mediaId === "img1" ? "2026-09-23T10:00:00Z" : null),
       mediaId: file.mediaId,
       mediaType: file.mediaType,
       sizeBytes: file.bytes ?? null,
@@ -377,7 +436,7 @@ export class DataExplorerFake {
     };
   }
 
-  private tree(path: string, cursor: string | null): Json | null {
+  private tree(path: string, cursor: string | null, sort: string | null = null): Json | null {
     const folder = this.folders.get(path);
     if (!folder) return null;
     const crumbs: Json[] = [{ name: "Repository", path: "" }];
@@ -386,14 +445,17 @@ export class DataExplorerFake {
       const at = parts.slice(0, i).join("/");
       crumbs.push({ name: this.folders.get(at)?.name ?? at, path: at });
     }
-    const all = [
+    const unsorted = [
       ...folder.folders.map((child) => {
         const inner = this.walk(child).filter((item) => item.content == null);
         return { kind: "folder", name: this.folders.get(child)!.name, path: child, recordType: this.folders.get(child)!.recordType, count: inner.length, bytes: inner.reduce((sum, item) => sum + (item.bytes ?? 0), 0) };
       }),
       ...folder.files.map((file) => this.entry(file))
-    ].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "folder" ? -1 : 1) || String(a.name).toLowerCase().localeCompare(String(b.name).toLowerCase()));
-    const pageSize = path === "workshops/sanganer" ? 2 : 500;
+    ];
+    const sortable = this.sortableFolders.has(path);
+    const all = sortable ? fakeSorted(unsorted, sort) : unsorted.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "folder" ? -1 : 1) || String(a.name).toLowerCase().localeCompare(String(b.name).toLowerCase()));
+    const [sortKey, sortDir] = (sort || "name:asc").split(":");
+    const pageSize = path === "workshops/sanganer" || path === SORTED_FOLDER ? 2 : 500;
     const start = cursor ? Number(cursor) : 0;
     const entries = all.slice(start, start + pageSize);
     const next = cursor && this.repeatCursor.has(path) ? cursor : start + pageSize < all.length ? String(start + pageSize) : null;
@@ -411,7 +473,8 @@ export class DataExplorerFake {
       ],
       taxonomy: path.startsWith("crafts") ? "crafts" : "workshops",
       designWorkshopsVisible: true,
-      designWorkshopsDownloadable: true
+      designWorkshopsDownloadable: true,
+      ...(sortable ? { sort: { key: sortKey, dir: sortDir }, sorts: ["name", "recorded", "added", "modified", "size", "type"] } : {})
     };
   }
 
@@ -449,7 +512,7 @@ export class DataExplorerFake {
         this.treeFailures.set(query.get("path") ?? "", failing - 1);
         return { status: 500, json: { detail: "The folder could not be read." } };
       }
-      const tree = this.tree(query.get("path") ?? "", query.get("cursor"));
+      const tree = this.tree(query.get("path") ?? "", query.get("cursor"), query.get("sort"));
       return tree ? { status: 200, json: tree } : { status: 404, json: { detail: "No such folder." } };
     }
     if (path === "/data/stats" && method === "GET") {
@@ -489,9 +552,11 @@ export class DataExplorerFake {
       const pageSize = Number(query.get("pageSize") ?? "50");
       const q = (query.get("q") ?? "").toLowerCase();
       const all = Array.from({ length: 120 }, (_, index) => ({ id: `${type}-${index + 1}`, name: `${type === "tool" ? "Tool" : "Artisan"} ${index + 1}`, createdAt: "2026-10-01T10:00:00Z", mediaCount: index % 4 })).filter((row) => !q || row.name.toLowerCase().includes(q));
-      const items = all.slice((page - 1) * pageSize, page * pageSize);
       const pages = Math.max(1, Math.ceil(all.length / pageSize));
-      return { status: 200, json: { items, total: all.length, page, pageSize, pages, truncated: all.length > page * pageSize } };
+      const [browseKey, browseDir] = (query.get("sort") || "added:desc").split(":");
+      const ordered = browseKey === "name" ? [...all].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) * (browseDir === "desc" ? -1 : 1)) : all;
+      const shown = ordered.slice((page - 1) * pageSize, page * pageSize);
+      return { status: 200, json: { items: shown, total: all.length, page, pageSize, pages, truncated: all.length > page * pageSize, sort: { key: browseKey, dir: browseDir }, sorts: ["name", "recorded", "added", "modified"] } };
     }
     if (path === "/transcripts/aud1" && method === "GET") return { status: 200, json: TRANSCRIPT_AUD1 };
     if (path === "/transcripts/batch") {
@@ -628,7 +693,10 @@ export class DataExplorerFake {
       ]
         .filter((item) => !q || item.text.toLowerCase().includes(q))
         .map(({ text, ...item }) => (q ? { ...item, snippet: text } : item));
-      return { status: 200, json: { items, total: items.length, truncated: false, query: q || null } };
+      if (!this.transcriptSorting) return { status: 200, json: { items, total: items.length, truncated: false, query: q || null } };
+      const [txKey, txDir] = (query.get("sort") || "folder:asc").split(":");
+      const sorted = txKey === "name" || txKey === "recorded" ? fakeSorted(items.map((item) => ({ ...item, kind: "file" })), `${txKey}:${txDir}`).map(({ kind: _kind, ...item }) => item) : items;
+      return { status: 200, json: { items: sorted, total: sorted.length, truncated: false, query: q || null, sort: { key: txKey, dir: txDir }, sorts: ["folder", "name", "recorded", "duration", "type"] } };
     }
     if (path === "/search/unified" && this.unifiedSearch && this.searchCorpus.length && query.get("q") === "indgo") {
       return { status: 200, json: { query: "indgo", mode: "text", suggestion: "indigo", suggestionTotal: 38, groups: [], remote: { portal: "fieldRepository", label: "Field Repository", status: "off" }, typesRefused: [], page: 1, limit: 5 } };
@@ -646,9 +714,12 @@ export class DataExplorerFake {
           total: group.total,
           localTotal: group.total,
           remoteTotal: 0,
-          items: Array.from({ length: Math.max(0, Math.min(limit, group.total - offset)) }, (_, index) => corpusItem(group, offset + index + 1))
+          items: corpusOrder(group, query.get("sort"))
+            .slice(offset, offset + limit)
+            .map((n) => corpusItem(group, n))
         }));
-      return { status: 200, json: { query: query.get("q") ?? "", mode: "text", suggestion: null, groups, remote: { portal: "fieldRepository", label: "Field Repository", status: "off" }, typesRefused: [], page, limit, ...(type ? { type } : {}) } };
+      const [sortKey, sortDir] = (query.get("sort") ?? "relevance:desc").split(":");
+      return { status: 200, json: { query: query.get("q") ?? "", mode: "text", suggestion: null, groups, remote: { portal: "fieldRepository", label: "Field Repository", status: "off" }, typesRefused: [], page, limit, sort: { key: sortKey, dir: sortDir }, sorts: ["relevance", "name", "recorded"], ...(type ? { type } : {}) } };
     }
     if (path === "/search" && this.searchCorpus.length) {
       const pageSize = Number(query.get("pageSize") ?? 10);

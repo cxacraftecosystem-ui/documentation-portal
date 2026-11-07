@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
 
-import { BIG_FILE_BYTES, BIG_FILES, DataExplorerFake, expectedBytes, PORTRAIT } from "./support/dataExplorerFake";
+import { BIG_FILE_BYTES, BIG_FILES, corpusOrder, DataExplorerFake, expectedBytes, PORTRAIT } from "./support/dataExplorerFake";
 
 const SHOTS = process.env.E2E_SHOT_DIR ?? join("test-results", "data-explorer");
 mkdirSync(SHOTS, { recursive: true });
@@ -1844,4 +1844,57 @@ test.describe("@qf:X1 navigation keeps its place", () => {
       await context.close();
     }
   });
+});
+
+test.describe("search sort", () => {
+  for (const size of [
+    { name: "desktop", width: 1440, height: 900, mobile: false },
+    { name: "tablet", width: 834, height: 1194, mobile: true },
+    { name: "phone", width: 390, height: 844, mobile: true }
+  ] satisfies Size[]) {
+    test(`a chosen sort is asked of the server and keeps its order past every page boundary · ${size.name}`, async ({ browser }) => {
+      const { context, page, fake } = await openExplorer(browser, { size });
+      const artisansGroup = { type: "artisans", label: "Artisans", singular: "Artisan", total: 31 };
+      fake.searchCorpus = [artisansGroup, { type: "tools", label: "Tools", singular: "Tool", total: 7 }];
+      const named = corpusOrder(artisansGroup, "name:asc").map((n) => new RegExp(`Artisan ${n} of 31(?!\\d)`));
+      const results = page.getByTestId("search-results");
+      const pick = async (label: string) => {
+        await results.getByTestId("sort-button").click();
+        await results.getByTestId("sort-panel").getByRole("radio", { name: label, exact: true }).click();
+        await results.getByTestId("sort-button").click();
+        await expect(results.getByTestId("sort-panel")).toHaveCount(0);
+      };
+      const asked = (pageNumber: string, type: string | null) =>
+        fake.calls.filter((call) => call.path === "/search/unified" && call.query.get("sort") === "name:asc" && call.query.get("page") === pageNumber && call.query.get("type") === type);
+      try {
+        await page.getByRole("searchbox", { name: "Search all data" }).fill("artisan");
+        const artisans = results.getByRole("list", { name: "Artisans", exact: true }).locator(":scope > li");
+        await expect(artisans.first()).toContainText("Artisan 1 of 31");
+        expect(fake.calls.some((call) => call.path === "/search/unified" && call.query.has("sort"))).toBe(false);
+        await pick("Name");
+        await expect(artisans).toHaveText(named.slice(0, 5));
+        expect(asked("1", null).length).toBeGreaterThan(0);
+        await expect(page).toHaveURL(/ssort=name%3Aasc/);
+        await page.getByTestId("search-more").click();
+        await expect(artisans).toHaveText(named.slice(0, 10));
+        expect(asked("2", null).length).toBeGreaterThan(0);
+        await page.getByTestId("search-all-artisans").click();
+        const focused = results.getByRole("list", { name: "Results", exact: true }).locator(":scope > li");
+        await expect(focused.first()).toContainText("Artisan 1 of 31");
+        await expect(focused.nth(1)).toContainText("Artisan 2 of 31");
+        await pick("Name");
+        await expect(focused).toHaveText(named.slice(0, 20));
+        expect(asked("1", "artisans").length).toBeGreaterThan(0);
+        await expect(page.getByTestId("search-more")).toHaveText("Show 11 more");
+        await page.getByTestId("search-more").click();
+        await expect(focused).toHaveText(named);
+        expect(asked("2", "artisans").length).toBeGreaterThan(0);
+        await expect(page.getByTestId("search-more")).toHaveCount(0);
+        const width = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(width).toBeLessThanOrEqual(0);
+      } finally {
+        await context.close();
+      }
+    });
+  }
 });

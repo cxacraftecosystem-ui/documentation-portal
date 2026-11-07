@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.db import db
-from app.services.data_explorer import slim
+from app.services.data_explorer import slim, sorting
 
 PAGE_SIZE_DEFAULT = 50
 PAGE_SIZE_MAX = 100
@@ -54,6 +54,43 @@ _MEDIA_TAGS = {
     "questionnaire": ["questionnaire", "questionnaireinterview"],
     "process": ["process"],
 }
+
+
+_RECORDED = {"workshop": "date"}
+_MEDIA_FIELDS = {
+    "name": "originalFilename",
+    "recorded": "recordedAt",
+    "added": "createdAt",
+    "modified": "updatedAt",
+    "size": "sizeBytes",
+    "type": "mediaType",
+}
+
+
+def _ordered(field: str, direction: str, name_field: str) -> list[dict[str, str]]:
+    if field == name_field:
+        return [{field: direction}, {"id": "asc"}]
+    return [{field: direction}, {name_field: "asc"}, {"id": "asc"}]
+
+
+def order_for(kind_key: str, sort: sorting.Sort) -> list[dict[str, str]]:
+    if sort == sorting.BROWSE_DEFAULT:
+        return [{"createdAt": "desc"}, {"id": "desc"}]
+    kind = KINDS[kind_key]
+    name_field = kind.search[0]
+    field = {
+        "name": name_field,
+        "recorded": _RECORDED.get(kind_key, "recordedAt"),
+        "added": "createdAt",
+        "modified": "updatedAt",
+    }[sort.key]
+    return _ordered(field, sort.dir, name_field)
+
+
+def media_order(sort: sorting.Sort) -> list[dict[str, str]]:
+    if sort == sorting.BROWSE_DEFAULT:
+        return [{"createdAt": "desc"}, {"id": "desc"}]
+    return _ordered(_MEDIA_FIELDS[sort.key], sort.dir, _MEDIA_FIELDS["name"])
 
 
 def page_args(page: int | None, page_size: int | None) -> tuple[int, int]:
@@ -152,6 +189,7 @@ async def page(
     page_size: int,
     q: str | None,
     workshop_ids: list[str] | None,
+    sort: sorting.Sort = sorting.BROWSE_DEFAULT,
 ) -> dict[str, Any]:
     kind = KINDS[kind_key]
     where = where_for(kind, scope, q, workshop_ids)
@@ -160,7 +198,7 @@ async def page(
     kwargs: dict[str, Any] = {
         "take": page_size,
         "skip": (page_number - 1) * page_size,
-        "order": [{"createdAt": "desc"}, {"id": "desc"}],
+        "order": order_for(kind_key, sort),
         "include": include,
     }
     if where:
@@ -182,6 +220,8 @@ async def page(
             for row in rows
         ],
         **envelope(total, page_number, page_size),
+        "sort": sort.public(),
+        "sorts": list(sorting.BROWSE_KEYS),
     }
 
 

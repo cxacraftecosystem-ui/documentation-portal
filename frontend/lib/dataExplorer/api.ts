@@ -31,10 +31,11 @@ export async function fetchTreePage(
   path: string,
   extra: QueryParams,
   cursor?: string | null,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  sort?: string
 ): Promise<TreeResponse> {
   return apiFetch<TreeResponse>(
-    `/data/tree${buildQuery({ path, slim: 1, cursor: cursor ?? undefined, limit: LIMITS.treePageMax, ...extra })}`,
+    `/data/tree${buildQuery({ path, slim: 1, cursor: cursor ?? undefined, limit: LIMITS.treePageMax, ...extra, sort })}`,
     { signal }
   );
 }
@@ -220,7 +221,7 @@ export function fetchTranscriptText(mediaId: string, fallback: () => Promise<str
   return asking;
 }
 
-export type BrowseQuery = { type: string; page: number; pageSize?: number; q?: string; workshopIds?: string };
+export type BrowseQuery = { type: string; page: number; pageSize?: number; q?: string; workshopIds?: string; sort?: string };
 
 export function fetchBrowse(request: BrowseQuery): Promise<BrowsePage> {
   return apiFetch<BrowsePage>(
@@ -229,7 +230,8 @@ export function fetchBrowse(request: BrowseQuery): Promise<BrowsePage> {
       page: request.page,
       pageSize: request.pageSize ?? LIMITS.browsePageSize,
       q: request.q?.trim() || undefined,
-      workshopIds: request.workshopIds
+      workshopIds: request.workshopIds,
+      sort: request.sort
     })}`
   );
 }

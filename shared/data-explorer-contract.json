@@ -96,7 +96,8 @@
         "slim": "1 to leave transcript text out of entries (A3). New clients always send it.",
         "cursor": "string | absent: the nextCursor of the previous page",
         "limit": "int 1..500, default 500",
-        "status": "FR only: review status filter for the tree, unchanged"
+        "status": "FR only: review status filter for the tree, unchanged",
+        "sort": "key:dir | absent (0.0.15). See sorting.routes.tree"
       },
       "response": "{path, crumbs, entries: [TreeEntry], info, truncated: bool, total: int, nextCursor: string | null, taxonomies, taxonomy, designWorkshopsVisible (DR), designWorkshopsDownloadable (DR)}",
       "notes": "Removed recordings (removedAt set) never appear (A1). 0.0.14: every source list is read to its end in batches of treeTake (keyset on id after its own order), so a level holds every entry, total is the true count and truncated is always false; nextCursor pages the entries of this level in their shown order, treePageMax at a time. 0.0.13: every file entry carries capturedAt (ISO; the recording's recordedAt, else createdAt; null for text entries). Every folder entry carries count and bytes: the stored files (photos, videos, recordings, documents; not transcripts or details text) under it, from one grouped query per listing. They are numbers on every by-workshop level (workshops, crafts, artisans, an artisan's products, tools and questionnaire, a product's processes, a process's steps, sittings, tools), every by-design-workshop level, by-type and every by-uploader level, and null only on the repository root, the legacy users levels and the transcripts folders. by-workshop and by-design-workshop are computed set-based from the same reach rules as the walk (backend/app/services/data_explorer/reach.py), with a constant number of statements per listing."
@@ -244,7 +245,8 @@
         "page": "int >= 1, default 1",
         "pageSize": "int 1..100, default 50",
         "q": "string: case-insensitive, matched on the server across every row, not only the current page (W5, W16)",
-        "workshopIds": "comma-separated | absent: scoped types only (interview)"
+        "workshopIds": "comma-separated | absent: scoped types only (interview)",
+        "sort": "key:dir | absent (0.0.15). See sorting.routes.browse"
       },
       "response": "{type, items: [{id, name, creator: string | null, createdAt: string | null}], total, page, pageSize, pages, truncated: bool}",
       "notes": "Browse by type (W5). Newest first. Removed recordings never appear (A1). FR includes every review status (owner decision 1, W6 dropped). truncated is true when total > page * pageSize: show 'Showing N of TOTAL' and offer the next page."
@@ -255,7 +257,8 @@
       "path": "/data/browse/{type}/{record_id}/media",
       "query": {
         "page": "int >= 1",
-        "pageSize": "int 1..100, default 50"
+        "pageSize": "int 1..100, default 50",
+        "sort": "key:dir | absent (0.0.15). See sorting.routes.browse-media"
       },
       "response": "{items: [TreeEntry (kind file)], total, page, pageSize, pages, truncated: bool}",
       "notes": "The files of one record picked in Browse by type, with thumbnailPath, previewPath and downloadPath like the tree."
@@ -292,7 +295,8 @@
       "query": {
         "path": "folder path",
         "q": "string | absent",
-        "offset": "int >= 0, default 0: skip this many of the folder's recordings. Additive: absent is the first page"
+        "offset": "int >= 0, default 0: skip this many of the folder's recordings. Additive: absent is the first page",
+        "sort": "key:dir | absent (0.0.15). See sorting.routes.transcripts-list"
       },
       "response": "{items: [{mediaId, name, path, mediaType: AUDIO | VIDEO, hasText, capturedAt, snippet?}], total, truncated, query, offset, nextOffset: int | null}",
       "notes": "The Transcripts tab. snippet only when q is given. Each page walks transcriptListMax recordings of the folder (q filters within them); ask again with offset=nextOffset until it is null to reach the last recording."
@@ -437,5 +441,188 @@
     "Fetch suggestedParallelFetches files at a time and suggestedParallelConversions conversions (W1).",
     "On X-Conversion: original save under originalPath, never under the .mp4 name (D2).",
     "A file that fails 3 times is left out of the zip and listed (D1, W4)."
-  ]
+  ],
+  "sorting": {
+    "release": "0.0.15",
+    "param": "sort=<key>:<dir>, dir asc | desc. Absent means the list's default, which is the order the list had before 0.0.15. A key the route does not allow, or a malformed value, answers 422.",
+    "keys": [
+      "relevance",
+      "name",
+      "recorded",
+      "added",
+      "modified",
+      "size",
+      "duration",
+      "type",
+      "workshop",
+      "artisan",
+      "craft",
+      "status",
+      "folder"
+    ],
+    "labels": {
+      "relevance": "Best match",
+      "name": "Name",
+      "recorded": "Date recorded",
+      "added": "Date added",
+      "modified": "Last modified",
+      "size": "Size",
+      "duration": "Duration",
+      "type": "Type",
+      "workshop": "Workshop",
+      "artisan": "Artisan",
+      "craft": "Craft",
+      "status": "Review status",
+      "folder": "Folder"
+    },
+    "directions": {
+      "relevance": {
+        "desc": "Best first"
+      },
+      "name": {
+        "asc": "A–Z",
+        "desc": "Z–A"
+      },
+      "recorded": {
+        "desc": "Newest",
+        "asc": "Oldest"
+      },
+      "added": {
+        "desc": "Newest",
+        "asc": "Oldest"
+      },
+      "modified": {
+        "desc": "Newest",
+        "asc": "Oldest"
+      },
+      "size": {
+        "desc": "Largest",
+        "asc": "Smallest"
+      },
+      "duration": {
+        "desc": "Longest",
+        "asc": "Shortest"
+      },
+      "type": {
+        "asc": "A–Z",
+        "desc": "Z–A"
+      },
+      "workshop": {
+        "asc": "A–Z",
+        "desc": "Z–A"
+      },
+      "artisan": {
+        "asc": "A–Z",
+        "desc": "Z–A"
+      },
+      "craft": {
+        "asc": "A–Z",
+        "desc": "Z–A"
+      },
+      "status": {
+        "asc": "A–Z",
+        "desc": "Z–A"
+      },
+      "folder": {
+        "asc": "A–Z",
+        "desc": "Z–A"
+      }
+    },
+    "defaultDir": {
+      "relevance": "desc",
+      "name": "asc",
+      "recorded": "desc",
+      "added": "desc",
+      "modified": "desc",
+      "size": "desc",
+      "duration": "desc",
+      "type": "asc",
+      "workshop": "asc",
+      "artisan": "asc",
+      "craft": "asc",
+      "status": "asc",
+      "folder": "asc"
+    },
+    "meaning": {
+      "name": "the shown name, case-folded",
+      "recorded": "files: recordedAt, else createdAt. Folders: the record's own date (a workshop's startDate, else its date; other records recordedAt, else createdAt). Search: the index recordDate",
+      "added": "createdAt of the file or the folder's record",
+      "modified": "updatedAt of the file or the folder's record",
+      "size": "files: sizeBytes. Folders: bytes",
+      "duration": "audio and video: the current transcript version's durationMs, else the waveform's durationMs",
+      "type": "files: mediaType (text files read TEXT). Folders: recordType",
+      "workshop": "the file's workshop title",
+      "artisan": "the file's artisan name",
+      "craft": "the file's craft name",
+      "status": "the file's review status word",
+      "folder": "the file's folder path, case-folded",
+      "relevance": "search only: the fused rank"
+    },
+    "routes": {
+      "tree": {
+        "allowed": [
+          "name",
+          "recorded",
+          "added",
+          "modified",
+          "size",
+          "duration",
+          "type",
+          "workshop",
+          "artisan",
+          "craft",
+          "status"
+        ],
+        "default": "name:asc"
+      },
+      "transcripts-list": {
+        "allowed": [
+          "folder",
+          "name",
+          "recorded",
+          "added",
+          "duration",
+          "type",
+          "workshop",
+          "artisan",
+          "craft",
+          "status"
+        ],
+        "default": "folder:asc"
+      },
+      "browse": {
+        "allowed": [
+          "name",
+          "recorded",
+          "added",
+          "modified"
+        ],
+        "default": "added:desc"
+      },
+      "browse-media": {
+        "allowed": [
+          "name",
+          "recorded",
+          "added",
+          "modified",
+          "size",
+          "type"
+        ],
+        "default": "added:desc"
+      },
+      "search-unified": {
+        "allowed": [
+          "relevance",
+          "name",
+          "recorded"
+        ],
+        "default": "relevance:desc"
+      }
+    },
+    "response": "tree, transcripts-list, browse, browse-media and search-unified answer sort: {key, dir} (what was applied) and sorts: [key] (the keys that mean something for this list, in menu order). A client shows only those keys and falls back to the default when a remembered key is not among them.",
+    "order": "The server sorts the whole list before it pages it, so every page continues the same order. Folders stay before files. A missing value sorts last in either direction. Ties break by name (case-folded), then by id (mediaId, else path).",
+    "availability": "name always; recorded, added and modified when an entry carries that date; size when an entry has a size; duration when the list holds audio or video; type when more than one type is listed; workshop, artisan, craft and status only in mixed lists, when the files span more than one of them.",
+    "memory": "Remembered per viewer per list level, on the device: web localStorage dataExplorer.sort.<viewer>.<level>, Android the explorer preferences under the same name. Levels: tree:<first path segment or root>:<depth>, transcripts, browse:<type>, browse-media:<type>, search:<type or all>.",
+    "peer": "Cross-portal search forwards sort in the POST /search body; each portal sorts its own page and the merge interleaves by the same key, ties local first."
+  }
 }

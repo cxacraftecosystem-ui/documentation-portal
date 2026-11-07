@@ -95,7 +95,7 @@ class ExplorerScreenUiTest {
         override suspend fun peaks(id: String) = peaks
         override suspend fun views() = ExplorerViews()
         override suspend fun saveView(body: ExplorerViewBody) = ExplorerView(id = "v1", name = body.name, path = body.path)
-        override suspend fun transcripts(path: String, q: String?, status: String?, offset: Int?) = ExplorerTranscriptList()
+        override suspend fun transcripts(path: String, q: String?, status: String?, offset: Int?, sort: String?) = ExplorerTranscriptList()
         override suspend fun reportSheets(path: String, status: String?, q: String?) = com.fieldrepository.app.explorer.data.ExplorerReportSheets(
             path = path,
             sheets = listOf(com.fieldrepository.app.explorer.data.ExplorerReportSheetInfo(key = "tools", name = "Tools", count = 120, group = "Records", description = "Every tool")),
@@ -154,7 +154,7 @@ class ExplorerScreenUiTest {
             return ExplorerReport(listOf(ExplorerSheet(name = "Artisans", columns = listOf(JsonPrimitive("Name")), rows = numbers.map { listOf(JsonPrimitive("Artisan $it")) }, totalRows = total, rowNumbers = numbers, preview = offset + 200 < total, offset = offset)))
         }
 
-        override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int): ExplorerTree {
+        override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int, sort: String?): ExplorerTree {
             calls += "tree:$path:${cursor.orEmpty()}:$slim"
             long?.let { return longPage(path, cursor, it) }
             return if (cursor == null) {

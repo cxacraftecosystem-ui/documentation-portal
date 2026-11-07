@@ -303,3 +303,42 @@ async def test_a_record_is_a_read_only_card_or_404(world, monkeypatch):
         where={"remoteUserId": f"dp-{world.stamp}", "action": "RECORD_VIEW"}
     )
     assert {r.outcome for r in rows} == {"ok", "not_found"}
+
+
+@needs_search_db
+async def test_a_sorted_peer_page_continues_the_same_name_order(world, monkeypatch):
+    requester = {"userId": f"so-{world.stamp}", "email": "", "role": "RESEARCHER"}
+    _r, whole = await _peer_search(
+        world, monkeypatch, types=["products"], limit=20, sort="name:asc", requester=requester
+    )
+    items = _items(_body(whole))
+    titles = [i["title"].lower() for i in items]
+    assert titles == sorted(titles)
+    paged: list[str] = []
+    for page in (1, 2, 3):
+        _rp, part = await _peer_search(
+            world,
+            monkeypatch,
+            types=["products"],
+            limit=1,
+            page=page,
+            sort="name:asc",
+            requester=requester,
+        )
+        paged += [i["id"] for i in _items(_body(part))]
+    assert paged == [i["id"] for i in items][:3]
+
+
+@needs_search_db
+async def test_an_unknown_sort_is_a_signed_422(world, monkeypatch):
+    requester = {"userId": f"bs-{world.stamp}", "email": "", "role": "RESEARCHER"}
+    _r, response = await _peer_search(world, monkeypatch, sort="size:desc", requester=requester)
+    assert response.status_code == 422
+    assert cross_portal.signature_matches(
+        TOKEN,
+        response.body,
+        response.headers[cross_portal.SIGNATURE_HEADER],
+        method="POST",
+        path=SEARCH_PATH,
+        nonce=NONCE,
+    )

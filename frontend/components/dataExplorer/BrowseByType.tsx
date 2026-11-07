@@ -6,10 +6,12 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
 import { LINK_BUTTON, Problem, Spinner } from "@/components/dataExplorer/explorerUi";
+import { SortMenu, useRememberedSort } from "@/components/dataExplorer/SortMenu";
 import { EmptyState } from "@/components/EmptyState";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { fetchBrowse, unsupported } from "@/lib/dataExplorer/api";
 import type { BrowsePage } from "@/lib/dataExplorer/contract";
+import { availableKeys, LIST_DEFAULT, parseSort, sortParam, type SortChoice } from "@/lib/dataExplorer/sorting";
 
 export type BrowseType = {
   value: string;
@@ -43,6 +45,7 @@ export function BrowseByType({
   q,
   workshopIds,
   scopeControl,
+  viewer = "",
   onChange
 }: {
   types: BrowseType[];
@@ -51,6 +54,7 @@ export function BrowseByType({
   q: string;
   workshopIds?: string;
   scopeControl?: ReactNode;
+  viewer?: string;
   onChange: (next: { type: string; page: number; q: string }) => void;
 }) {
   const router = useRouter();
@@ -64,7 +68,9 @@ export function BrowseByType({
   const [result, setResult] = useState<{ key: string; page: BrowsePage } | null>(null);
   const [error, setError] = useState<{ key: string; message: string } | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const key = JSON.stringify([type, page, q, workshopIds ?? "", attempt]);
+  const [remembered, remember] = useRememberedSort(viewer, `browse:${type}`, "browse");
+  const sortText = sortParam(remembered, "browse");
+  const key = JSON.stringify([type, page, q, workshopIds ?? "", attempt, sortText ?? ""]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -86,7 +92,7 @@ export function BrowseByType({
     const scopeIds = chosen.scoped ? workshopIds : undefined;
     const ask = async () => {
       try {
-        return await fetchBrowse({ type: chosen.value, page, q, workshopIds: scopeIds });
+        return await fetchBrowse({ type: chosen.value, page, q, workshopIds: scopeIds, sort: sortText });
       } catch (err) {
         if (!unsupported(err)) throw err;
         return chosen.legacy(page, q, scopeIds);
@@ -102,12 +108,17 @@ export function BrowseByType({
     return () => {
       cancelled = true;
     };
-  }, [typeKnown, page, q, workshopIds, key]);
+  }, [typeKnown, page, q, workshopIds, key, sortText]);
 
   const current = result?.key === key ? result.page : null;
   const failed = error?.key === key ? error.message : null;
   const noun = def?.label.toLowerCase() ?? "records";
   const cut = current ? browseCutLine(current, noun) : null;
+  const sortKeys = availableKeys(current?.sorts);
+  const changeSort = (choice: SortChoice) => {
+    remember(choice);
+    if (page !== 1) onChange({ type, page: 1, q });
+  };
 
   const openRow = (event: MouseEvent<HTMLTableRowElement>, href: string | null) => {
     if (!href) return;
@@ -145,6 +156,9 @@ export function BrowseByType({
               className="field-input pl-9"
             />
           </label>
+        ) : null}
+        {def && sortKeys.length > 1 ? (
+          <SortMenu value={remembered ?? parseSort(current?.sort) ?? LIST_DEFAULT.browse} keys={sortKeys} onChange={changeSort} label={`Sort ${noun}`} className="pb-0.5" />
         ) : null}
       </div>
       {def?.scoped ? scopeControl : null}

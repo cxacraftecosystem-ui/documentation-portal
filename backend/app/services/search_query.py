@@ -13,6 +13,10 @@ TRIGRAM_THRESHOLD = 0.45
 RRF_K = 60
 MAX_VECTOR_DISTANCE = 0.65
 
+SORT_KEYS: tuple[str, ...] = ("relevance", "name", "recorded")
+SORT_DIRS: dict[str, str] = {"asc": "ASC", "desc": "DESC"}
+DEFAULT_SORT: tuple[str, str] = ("relevance", "desc")
+
 
 @dataclass
 class Scope:
@@ -94,9 +98,96 @@ def _where(scope: Scope, p: _Params) -> str:
     return " AND ".join(clauses)
 
 
-def build_sql(
-    q: str, scope: Scope, *, limit: int, offset: int = 0, qvec: str | None = None
+def parse_sort(raw: Any) -> tuple[str, str]:
+    if raw is None:
+        return DEFAULT_SORT
+    key, sep, direction = str(raw).strip().partition(":")
+    if not sep or key not in SORT_KEYS or direction not in SORT_DIRS:
+        raise ValueError(raw)
+    if key == "relevance" and direction != "desc":
+        raise ValueError(raw)
+    return key, direction
+
+
+def sort_text(sort: tuple[str, str]) -> str:
+    return f"{sort[0]}:{sort[1]}"
+
+
+_NAME_KEY = 'lower(h."title") COLLATE "C"'
+_ID_KEY = 'h."entityId" COLLATE "C" ASC'
+
+
+def order_by(sort: tuple[str, str]) -> str:
+    key, direction = sort
+    if key not in SORT_KEYS[1:] or direction not in SORT_DIRS:
+        raise ValueError(sort_text(sort))
+    word = SORT_DIRS[direction]
+    if key == "name":
+        return f"{_NAME_KEY} {word} NULLS LAST, {_ID_KEY}"
+    return f'h."recordDate" {word} NULLS LAST, {_NAME_KEY} ASC, {_ID_KEY}'
+
+
+_ITEMS_SQL = """
+  coalesce((SELECT json_agg(json_build_object(
+      'id', pg."entityId", 'type', pg."entityType", 'title', pg."title", 'subtitle', pg."subtitle",
+      'place', pg."place", 'craftCodes', pg."craftCodes", 'artisanIds', pg."artisanIds",
+      'recordDate', pg."recordDate", 'openPath', pg."openPath", 'score', round(pg.score::numeric, 6),
+      'snippet', CASE WHEN pg."body" = '' THEN '' ELSE ts_headline('english', pg."body", q.tsq,
+          'MaxWords=30, MinWords=12, StartSel="", StopSel="", HighlightAll=false') END
+    ) ORDER BY pg."entityType", pg.pos) FROM page pg, q), '[]'::json) AS items"""
+
+
+def _sorted_sql(
+    q: str, scope: Scope, sort: tuple[str, str], *, limit: int, offset: int, qvec: str | None
 ) -> tuple[str, list[Any]]:
+    p = _Params()
+    query = p.add(q)
+    where = _where(scope, p)
+    lo = p.add(offset)
+    hi = p.add(offset + limit)
+    vec = ""
+    if qvec is not None:
+        vref = p.add(qvec)
+        vec = (
+            f' OR (b."embedding" IS NOT NULL'
+            f' AND (b."embedding" <=> {vref}::vector) <= {MAX_VECTOR_DISTANCE})'
+        )
+    sql = f"""
+WITH q AS (
+  SELECT websearch_to_tsquery('english', {query}) || websearch_to_tsquery('simple', {query}) AS tsq,
+         lower({query}) AS lq
+),
+base AS NOT MATERIALIZED (SELECT d.* FROM "SearchDocument" d WHERE {where}),
+hits AS (
+  SELECT b.* FROM base b, q
+   WHERE b."tsv" @@ q.tsq OR word_similarity(q.lq, lower(b."title")) >= {TRIGRAM_THRESHOLD}{vec}
+),
+ranked AS (
+  SELECT h.*, 0::float8 AS score,
+         row_number() OVER (PARTITION BY h."entityType" ORDER BY {order_by(sort)}) AS pos,
+         count(*) OVER (PARTITION BY h."entityType") AS fused_n
+    FROM hits h
+),
+page AS (SELECT * FROM ranked WHERE pos > {lo} AND pos <= {hi})
+SELECT{_ITEMS_SQL},
+  coalesce((SELECT json_object_agg(t."entityType", t.n) FROM (
+      SELECT "entityType", max(fused_n)::int AS n FROM ranked GROUP BY 1
+  ) t), '{{}}'::json) AS totals
+"""
+    return sql, p.values
+
+
+def build_sql(
+    q: str,
+    scope: Scope,
+    *,
+    limit: int,
+    offset: int = 0,
+    qvec: str | None = None,
+    sort: tuple[str, str] | None = None,
+) -> tuple[str, list[Any]]:
+    if sort is not None and sort != DEFAULT_SORT:
+        return _sorted_sql(q, scope, sort, limit=limit, offset=offset, qvec=qvec)
     p = _Params()
     query = p.add(q)
     where = _where(scope, p)
@@ -198,14 +289,25 @@ def highlights(text: str, q: str) -> list[list[int]]:
 
 
 async def run(
-    q: str, scope: Scope, *, limit: int, offset: int = 0, qvec: list[float] | None = None
+    q: str,
+    scope: Scope,
+    *,
+    limit: int,
+    offset: int = 0,
+    qvec: list[float] | None = None,
+    sort: tuple[str, str] | None = None,
 ) -> Result:
     from app.services.search_embeddings import vector_literal
 
     if not scope.types:
         return Result(mode="hybrid" if qvec else "text", items={}, totals={})
     sql, params = build_sql(
-        q, scope, limit=limit, offset=offset, qvec=vector_literal(qvec) if qvec else None
+        q,
+        scope,
+        limit=limit,
+        offset=offset,
+        qvec=vector_literal(qvec) if qvec else None,
+        sort=sort,
     )
     rows = await db.query_raw(sql, *params)
     row = rows[0] if rows else {}
