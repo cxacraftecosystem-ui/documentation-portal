@@ -1,6 +1,7 @@
 package com.fieldrepository.app.explorer.data
 
 import android.app.PendingIntent
+import android.app.Service
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -241,6 +242,10 @@ object ExplorerAudio {
     private const val TICK_MS = 250L
 }
 
+internal fun explorerAudioStopsOnStart(redelivered: Boolean, loaded: Boolean): Boolean = redelivered && !loaded
+
+internal const val EXPLORER_AUDIO_START_MODE: Int = Service.START_NOT_STICKY
+
 internal fun explorerControllerAllowed(controllerPackage: String, ownPackage: String, trusted: Boolean): Boolean =
     trusted || (controllerPackage.isNotBlank() && controllerPackage == ownPackage)
 
@@ -326,6 +331,16 @@ class ExplorerAudioService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
         session?.takeIf { admits(controllerInfo) }
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+        val player = session?.player
+        if (explorerAudioStopsOnStart(redelivered = intent == null, loaded = player != null && player.mediaItemCount > 0)) {
+            stopSelf()
+        }
+        return EXPLORER_AUDIO_START_MODE
+    }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = session?.player

@@ -19,6 +19,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -134,6 +136,26 @@ class ScreensShotsTest {
         compose.waitForIdle()
     }
 
+    private fun treeIndices(keys: List<String>): List<Int>? {
+        val tree = compose.onAllNodes(hasTestTag("explorer.tree"), useUnmergedTree = true).fetchSemanticsNodes().singleOrNull() ?: return null
+        val indexOf = tree.config.getOrNull(SemanticsProperties.IndexForKey) ?: return null
+        return keys.map { indexOf(it) }.takeIf { found -> found.all { it >= 0 } }
+    }
+
+    private fun settleTree(vararg keys: String) {
+        var last: List<Int>? = null
+        var steady = 0
+        compose.waitUntil(15_000) {
+            val now = treeIndices(keys.toList())
+            steady = if (now != null && now == last) steady + 1 else 0
+            last = now
+            steady >= 3
+        }
+        compose.waitForIdle()
+    }
+
+    private val largeTextTree = arrayOf("folder", "download", "jobs", "tabs")
+
     private fun scrollTo(tag: String) {
         compose.onNodeWithTag("explorer.tree").performScrollToNode(hasTestTag(tag))
         compose.waitForIdle()
@@ -205,17 +227,23 @@ class ScreensShotsTest {
 
     @Test fun androidLargeText() {
         stage(ScreenBoards.runningSmall(later))
-        folderShot("AndroidLargeText", fontScale = 2f)
+        folderShot("AndroidLargeText", fontScale = 2f) { settleTree(*largeTextTree) }
     }
 
     @Test fun androidLargeTextDownload() {
         stage(ScreenBoards.runningSmall(later))
-        folderShot("AndroidLargeText", "download", fontScale = 2f) { scrollTo("explorer.progress.where") }
+        folderShot("AndroidLargeText", "download", fontScale = 2f) {
+            settleTree(*largeTextTree)
+            scrollTo("explorer.progress.where")
+        }
     }
 
     @Test fun androidLargeTextDark() {
         stage(ScreenBoards.runningSmall(later))
-        folderShot("AndroidLargeText", "dark", dark = true, fontScale = 2f) { scrollTo("explorer.download.card") }
+        folderShot("AndroidLargeText", "dark", dark = true, fontScale = 2f) {
+            settleTree(*largeTextTree)
+            scrollTo("explorer.download.card")
+        }
     }
 
     @Test fun androidTablet() = folderShot("AndroidTablet", tablet = true)
