@@ -87,13 +87,11 @@ def test_pin_script_refuses_without_a_pinned_key(tmp_path: Path) -> None:
 
 
 def test_pin_script_writes_a_strict_alias_bound_known_hosts(tmp_path: Path) -> None:
-    keys = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDummyDummyDummyDummyDummyDummyDummyDummy root@box
-"
+    keys = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDummyDummyDummyDummyDummyDummyDummyDummy root@box\r\n"
     result = _pin(tmp_path, keys)
     assert result.returncode == 0, result.stdout + result.stderr
     config = (tmp_path / "ssh" / "config").read_text(encoding="utf-8")
-    assert config.startswith("Host 198.51.100.7
-")
+    assert config.startswith("Host 198.51.100.7\n")
     assert "StrictHostKeyChecking yes" in config
     assert "HostKeyAlias deploy-target" in config
     known = (tmp_path / "ssh" / "known_hosts_pinned").read_text(encoding="utf-8")
