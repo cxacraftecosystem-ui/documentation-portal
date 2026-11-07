@@ -1,16 +1,20 @@
 package com.fieldrepository.app.explorer
 
 import com.fieldrepository.app.explorer.data.ExplorerCache
+import com.fieldrepository.app.explorer.data.ExplorerCrumb
 import com.fieldrepository.app.explorer.data.ExplorerEntry
 import com.fieldrepository.app.explorer.data.ExplorerTaxonomy
 import com.fieldrepository.app.explorer.data.ExplorerTree
+import com.fieldrepository.app.explorer.ui.ExplorerLinkRequest
 import com.fieldrepository.app.explorer.ui.ExplorerState
+import com.fieldrepository.app.explorer.ui.ExplorerViewLinks
 import com.fieldrepository.app.explorer.ui.TranscriptLoad
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -237,5 +241,169 @@ class ExplorerStateTest {
         s.toggleSelect(s.files[1])
         assertEquals(718L, s.selectedBytes)
         assertEquals(0, s.selectedFolders)
+    }
+    private fun placed(api: FakeExplorerApi, places: MutableList<String>) = ExplorerState(
+        api = api,
+        scope = scope,
+        cache = null,
+        rootName = "Repository",
+        defaultStatus = null,
+        statusParamOf = { it },
+        onPlace = { places += it },
+    )
+
+    private val groupings = listOf(ExplorerTaxonomy("w", "Workshop", "by-workshop", isDefault = true), ExplorerTaxonomy("c", "Craft", "by-craft"))
+
+    private fun grouped(path: String) = when {
+        path.isEmpty() -> ExplorerTree(taxonomies = groupings)
+        else -> ExplorerTree(
+            path = path,
+            crumbs = listOf(ExplorerCrumb(path.substringBefore('/'), path.substringBefore('/'))) + if ('/' in path) listOf(ExplorerCrumb("Leaf", path)) else emptyList(),
+            entries = listOf(ExplorerEntry(name = "F", path = "$path/f", kind = "folder")),
+            taxonomies = groupings,
+            taxonomy = if (path.startsWith("by-craft")) "c" else "w",
+        )
+    }
+
+    @Test fun `a forgotten state stops its folder load and opens nothing more`() = runBlocking {
+        val api = FakeExplorerApi()
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        api.trees = { path, _, _ -> started.complete(Unit); kotlinx.coroutines.awaitCancellation() }
+        val s = state(api)
+        s.open("w")
+        started.await()
+        s.onForgotten()
+        until { !s.loading || s.closed }
+        assertTrue(s.closed)
+        s.open("x")
+        delay(100)
+        assertEquals(1, api.calls.size)
+        assertEquals("w", s.path)
+    }
+
+    @Test fun `the place is written only when the folder changes`() = runBlocking {
+        val api = FakeExplorerApi()
+        val places = mutableListOf<String>()
+        val s = placed(api, places)
+        s.open("w")
+        until { s.tree != null }
+        s.open("w")
+        s.reload()
+        s.changeStatus("approved")
+        s.open("w/b")
+        until { s.path == "w/b" && s.tree != null }
+        assertEquals(listOf("w", "w/b"), places)
+    }
+
+    @Test fun `a grouping root is the top, so back leaves Data instead of opening a bare root`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.trees = { path, _, _ -> grouped(path) }
+        val s = state(api)
+        s.start(null)
+        until { s.path == "by-workshop" && s.tree?.path == "by-workshop" }
+        assertTrue(s.atTop)
+        assertEquals(false, s.canGoUp)
+        assertEquals(false, s.goUp())
+        assertEquals("by-workshop", s.path)
+        s.open("by-workshop/x")
+        until { s.tree?.path == "by-workshop/x" }
+        assertTrue(s.canGoUp)
+        assertTrue(s.goUp())
+        until { s.path == "by-workshop" }
+    }
+
+    private fun deep(path: String): ExplorerTree {
+        if (path.isEmpty()) return ExplorerTree(taxonomies = groupings)
+        val segments = path.split('/')
+        val crumbs = segments.indices.map { i -> ExplorerCrumb(segments[i], segments.take(i + 1).joinToString("/")) }
+        return ExplorerTree(
+            path = path,
+            crumbs = crumbs,
+            entries = listOf(ExplorerEntry(name = "F", path = "$path/f", kind = "folder")),
+            taxonomies = groupings,
+            taxonomy = if (path.startsWith("by-craft")) "c" else "w",
+        )
+    }
+
+    @Test fun `back returns to the folder viewed before, not to the parent`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.trees = { path, _, _ -> deep(path) }
+        val s = state(api)
+        s.start(null)
+        until { s.path == "by-workshop" && s.tree?.path == "by-workshop" }
+        s.open("by-craft/k1")
+        until { s.tree?.path == "by-craft/k1" }
+        s.open("by-workshop/w1/crafts/c1/artisans/a1")
+        until { s.tree?.path == "by-workshop/w1/crafts/c1/artisans/a1" }
+        assertTrue(s.canGoUp)
+        assertTrue(s.goUp())
+        until { s.path == "by-craft/k1" }
+        assertTrue(s.goUp())
+        until { s.path == "by-workshop" && s.tree?.path == "by-workshop" }
+        assertEquals(false, s.canGoUp)
+        assertEquals(false, s.goUp())
+    }
+
+    @Test fun `back skips grouping folders the user never opened`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.trees = { path, _, _ -> deep(path) }
+        val s = state(api)
+        s.start("by-workshop/w1/crafts/c1/artisans/a1")
+        until { s.tree?.path == "by-workshop/w1/crafts/c1/artisans/a1" }
+        assertTrue(s.goUp())
+        until { s.tree?.path == "by-workshop/w1/crafts/c1" }
+        assertTrue(s.goUp())
+        until { s.tree?.path == "by-workshop/w1" }
+        assertTrue(s.goUp())
+        until { s.path == "by-workshop" }
+        assertTrue(api.calls.none { it.startsWith("tree:by-workshop/w1/crafts:") || it.startsWith("tree:by-workshop/w1/crafts/c1/artisans:") })
+    }
+
+    @Test fun `only listing levels count as grouping folders`() {
+        assertTrue(ExplorerState.isGrouping("by-workshop/w1/crafts"))
+        assertTrue(ExplorerState.isGrouping("by-workshop/w1/crafts/c1/artisans"))
+        assertTrue(ExplorerState.isGrouping("by-design-workshop/d1/stages"))
+        assertEquals(false, ExplorerState.isGrouping("by-workshop"))
+        assertEquals(false, ExplorerState.isGrouping("by-workshop/w1"))
+        assertEquals(false, ExplorerState.isGrouping("by-workshop/w1/_misc"))
+        assertEquals(false, ExplorerState.isGrouping("by-type/images"))
+    }
+
+    @Test fun `a link that falls back to locate is used up only once the folder is found`() = runBlocking {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val api = object : FakeExplorerApi() {
+            override suspend fun locate(type: String, id: String): kotlinx.serialization.json.JsonElement {
+                gate.await()
+                return super.locate(type, id)
+            }
+        }
+        val s = state(api)
+        val link = ExplorerLinkRequest(viewId = null, path = null, go = listOf("open", "artisan", "r1"))
+        ExplorerViewLinks.request(link)
+        try {
+            val serving = launch(Dispatchers.Default) {
+                ExplorerViewLinks.serve(link, onFailure = { throw AssertionError(it) }) { s.locate("artisan", "r1", "").join() }
+            }
+            delay(150)
+            assertEquals(link, ExplorerViewLinks.requests.value)
+            gate.complete(Unit)
+            serving.join()
+            assertNull(ExplorerViewLinks.requests.value)
+            assertEquals("located/r1", s.path)
+        } finally {
+            ExplorerViewLinks.requests.value?.let { ExplorerViewLinks.consume(it) }
+        }
+    }
+
+    @Test fun `opening the root once groupings are known stays in the current grouping`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.trees = { path, _, _ -> grouped(path) }
+        val s = state(api)
+        s.start("by-craft/x")
+        until { s.tree?.path == "by-craft/x" }
+        s.open("")
+        assertEquals("by-craft", s.path)
+        until { s.tree?.path == "by-craft" }
+        assertTrue(api.calls.none { it == "tree:::" })
     }
 }

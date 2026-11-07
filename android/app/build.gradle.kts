@@ -17,8 +17,8 @@ val localProperties = Properties().apply {
     }
 }
 
-val appVersionName = "0.0.14"
-val appVersionCode = 34
+val appVersionName = "0.0.15"
+val appVersionCode = 35
 
 val releaseKeystorePath = signingProperty(localProperties, "releaseKeystore", "ANDROID_RELEASE_KEYSTORE")
 val releaseKeystorePassword = signingProperty(localProperties, "releaseKeystorePassword", "ANDROID_RELEASE_KEYSTORE_PASSWORD")
@@ -155,6 +155,7 @@ dependencies {
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.4.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:5.5.1")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     implementation(project(":core-imaging"))

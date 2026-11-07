@@ -202,7 +202,7 @@ fun rememberExplorerState(api: ExplorerApi): ExplorerState {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     val owner = remember { ExplorerPortal.userId(context) }
-    return remember(api) {
+    return remember(ExplorerIdentity(api)) {
         ExplorerState(
             api = api,
             scope = scope,
@@ -222,6 +222,7 @@ fun ExplorerScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onMessage: (String) -> Unit = {},
+    onError: (String) -> Unit = onMessage,
     onOpenMedia: ((mediaId: String) -> Unit)? = null,
     search: @Composable (onOpen: (recordType: String, recordId: String, title: String) -> Unit) -> Unit = {},
     api: ExplorerApi? = null,
@@ -234,12 +235,12 @@ fun ExplorerScreen(
 ) {
     val context = LocalContext.current
     val app = context.applicationContext
-    val explorerApi = remember(api) { api ?: ExplorerEnvironment.api(app) }
-    val extras = remember(more) { more ?: ExplorerMoreApi.of(app) }
+    val explorerApi = remember(ExplorerIdentity(api)) { api ?: ExplorerEnvironment.api(app) }
+    val extras = remember(ExplorerIdentity(more)) { more ?: ExplorerMoreApi.of(app) }
     val state = rememberExplorerState(explorerApi)
     val scope = rememberCoroutineScope()
     val owner = remember { ExplorerPortal.userId(app) }
-    val tables = remember(explorerApi) { ExplorerTablesState(explorerApi, scope, owner) }
+    val tables = remember(ExplorerIdentity(explorerApi)) { ExplorerTablesState(explorerApi, scope, owner) }
     val link by produceState(initialValue = ExplorerNetwork.now(app)) { ExplorerNetwork.watch(app).collect { value = it } }
     val jobs by ExplorerDownloads.store(app).jobs.collectAsState()
     val tap by ExplorerDownloadsTap.requests.collectAsState()
@@ -271,8 +272,8 @@ fun ExplorerScreen(
             pending = pending?.let { p -> Pending(p.title, p.replan(), p.start, p.replan) }
         }
     }
-    val languages by produceState(initialValue = emptyList<Pair<String, String>>(), explorerApi) {
-        value = runCatching { explorerApi.languages().languages.map { it.code to it.label.ifBlank { it.code } } }.getOrDefault(emptyList())
+    val languages by produceState(initialValue = emptyList<Pair<String, String>>(), ExplorerIdentity(explorerApi)) {
+        value = attemptOrNull { explorerApi.languages().languages.map { it.code to it.label.ifBlank { it.code } } }.orEmpty()
     }
 
     LaunchedEffect(state) {
@@ -288,7 +289,7 @@ fun ExplorerScreen(
     val systemActive = jobs.any { it.active && it.systemId != null }
     LaunchedEffect(systemActive) {
         while (systemActive) {
-            runCatching { ExplorerDownloads.refreshSystem(app) }
+            attemptOrNull { ExplorerDownloads.refreshSystem(app) }
             delay(1_000)
         }
     }
@@ -315,12 +316,12 @@ fun ExplorerScreen(
                 SizeLoad.Unknown
             }
         }
-        runCatching { extras.visit(ExplorerVisitBody(at)) }.getOrNull()?.let { visits[at] = it }
+        attemptOrNull { extras.visit(ExplorerVisitBody(at)) }?.let { visits[at] = it }
         if (sheetCounts[at] == null) {
-            runCatching { extras.reportSheets(at, state.statusParam) }.getOrNull()?.let { got -> sheetCounts[at] = got.sheets.count { (it.count ?: 0) > 0 } }
+            attemptOrNull { extras.reportSheets(at, state.statusParam) }?.let { got -> sheetCounts[at] = got.sheets.count { (it.count ?: 0) > 0 } }
         }
         if (isWorkshopFolder(at) && overviews[at] == null) {
-            runCatching { extras.overview(at, state.statusParam) }.getOrNull()?.let { overviews[at] = it }
+            attemptOrNull { extras.overview(at, state.statusParam) }?.let { overviews[at] = it }
         }
     }
     LaunchedEffect(state.tab, state.path) {
@@ -331,7 +332,7 @@ fun ExplorerScreen(
         selectionSize = null
         if (state.selected.values.any { it.isFolder }) {
             delay(400)
-            selectionSize = runCatching { explorerApi.selectionStats(state.selectionStatsBody()).bytes }.getOrNull()
+            selectionSize = attemptOrNull { explorerApi.selectionStats(state.selectionStatsBody()).bytes }
         }
     }
     LaunchedEffect(jobs, shareIds) {
@@ -386,7 +387,7 @@ fun ExplorerScreen(
                 null
             }
             if (text.isNullOrBlank()) {
-                onMessage(ExplorerText.transcriptFailed)
+                onError(ExplorerText.transcriptFailed)
                 return@launch
             }
             begin(
@@ -431,7 +432,7 @@ fun ExplorerScreen(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
-                onMessage(ExplorerText.fileFailed)
+                onError(ExplorerText.fileFailed)
             }
         }
     }
@@ -545,14 +546,18 @@ fun ExplorerScreen(
         reportOpen = false
     }
 
+    fun showMedia(entry: ExplorerEntry, seconds: Double?, find: String = "") {
+        if (entry.mediaType in setOf("VIDEO", "AUDIO", "IMAGE")) media = Viewing(listOf(entry), 0, seconds ?: 0.0, find = find) else viewing = entry
+    }
+
     suspend fun previewMedia(mediaId: String, seconds: Double?) {
         val known = state.files.firstOrNull { it.mediaId == mediaId }
         val entry = known ?: run {
-            val got = runCatching { extras.goMedia(mediaId) }.getOrNull()
+            val got = attemptOrNull { extras.goMedia(mediaId) }
             val name = got?.fileName ?: mediaId
-            ExplorerEntry(name = name, path = mediaId, mediaId = mediaId, mediaType = mediaTypeOf(name) ?: "VIDEO", transcriptAvailable = true)
+            ExplorerEntry(name = name, path = mediaId, mediaId = mediaId, mediaType = ExplorerViewLinks.mediaType(got?.mediaType, name), transcriptAvailable = true)
         }
-        if (entry.mediaType in setOf("VIDEO", "AUDIO", "IMAGE")) media = Viewing(listOf(entry), 0, seconds ?: 0.0) else viewing = entry
+        showMedia(entry, seconds)
     }
 
     suspend fun startBundle(id: String) {
@@ -570,23 +575,23 @@ fun ExplorerScreen(
         showDownloads = true
     }
 
-    suspend fun followGo(parts: List<String>) {
+    suspend fun followGo(parts: List<String>, handOff: () -> Unit) {
         when (parts.firstOrNull()) {
             "media" -> {
                 val id = parts.getOrNull(1) ?: return
                 val got = extras.goMedia(id)
                 val name = got.fileName ?: id
-                saveEntry(ExplorerEntry(name = name, path = id, mediaId = id, mediaType = mediaTypeOf(name)))
+                saveEntry(ExplorerEntry(name = name, path = id, mediaId = id, mediaType = ExplorerViewLinks.mediaType(got.mediaType, name)))
             }
             "open" -> {
                 val kind = parts.getOrNull(1) ?: return
                 val id = parts.getOrNull(2) ?: return
                 val got = extras.goOpen(kind, id)
                 when {
-                    got.kind == "media" && onOpenMedia != null -> onOpenMedia(got.id.ifBlank { id })
+                    got.kind == "media" && onOpenMedia != null -> { handOff(); onOpenMedia(got.id.ifBlank { id }) }
                     got.kind == "media" -> previewMedia(got.id.ifBlank { id }, null)
-                    onOpenRecord != null -> onOpenRecord(got.kind.ifBlank { kind }, got.id.ifBlank { id })
-                    else -> state.locate(got.kind.ifBlank { kind }, got.id.ifBlank { id }, "")
+                    onOpenRecord != null -> { handOff(); onOpenRecord(got.kind.ifBlank { kind }, got.id.ifBlank { id }) }
+                    else -> state.locate(got.kind.ifBlank { kind }, got.id.ifBlank { id }, "").join()
                 }
             }
             "transcript" -> {
@@ -598,7 +603,7 @@ fun ExplorerScreen(
                 }
                 com.fieldrepository.app.transcript.ui.shareFiles(context, listOf(file), null)
             }
-            else -> onMessage(ExplorerUiText.linkUnknown)
+            else -> onError(ExplorerUiText.linkUnknown)
         }
     }
 
@@ -619,30 +624,28 @@ fun ExplorerScreen(
     val linkRequest by ExplorerViewLinks.requests.collectAsState()
     LaunchedEffect(linkRequest) {
         val request = linkRequest ?: return@LaunchedEffect
-        ExplorerViewLinks.consume()
-        val id = request.viewId
-        try {
+        ExplorerViewLinks.serve(request, onFailure = { onError(ExplorerUiText.linkFailed) }) { r ->
+            val id = r.viewId
             when {
-                request.go.isNotEmpty() -> { followGo(request.go); return@LaunchedEffect }
-                request.bundle != null -> { startBundle(request.bundle); return@LaunchedEffect }
-                request.preview != null -> { request.path?.let { state.open(it) }; previewMedia(request.preview, request.seconds); return@LaunchedEffect }
+                r.go.isNotEmpty() -> followGo(r.go) { ExplorerViewLinks.consume(r) }
+                r.bundle != null -> startBundle(r.bundle)
+                r.preview != null -> {
+                    r.path?.let { state.open(it) }
+                    previewMedia(r.preview, r.seconds)
+                }
+                id != null -> {
+                    val view = try {
+                        extras.view(id)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        onError(ExplorerViewLinks.viewFailure(failure))
+                        null
+                    }
+                    if (view != null) openView(view) else r.path?.let { state.open(it) }
+                }
+                r.path != null -> state.open(r.path)
             }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Throwable) {
-            onMessage(ExplorerUiText.linkFailed)
-            return@LaunchedEffect
-        }
-        when {
-            id != null -> try {
-                openView(extras.view(id))
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Throwable) {
-                onMessage(ExplorerUiText.viewMissing)
-                request.path?.let { state.open(it) }
-            }
-            request.path != null -> state.open(request.path)
         }
     }
     fun tableCsv(sheet: String) {
@@ -831,7 +834,7 @@ fun ExplorerScreen(
             error != null && state.tree == null -> block("error") { LoadFailedCard(error + state.path, onRetry = { state.dismissError(); state.reload() }) }
             error != null -> block("error") { StatusCard(ExplorerStatus.FAILED, error, action = ExplorerText.retry, tag = "explorer.error") { state.dismissError(); state.reload() } }
         }
-        if (state.tree == null && state.loading && error == null) {
+        if (state.tree == null && error == null) {
             block("loading") { FolderSkeleton() }
         }
         if (state.tree != null) {
@@ -877,7 +880,7 @@ fun ExplorerScreen(
                     if (state.selecting) {
                         block("kinds") { KindPills(state.files, kindFilter) { kindFilter = it } }
                     }
-                    val folders = if (wide) emptyList() else state.folders
+                    val folders = state.folders
                     val more = state.cursor != null
                     if (!wide) {
                         val total = folders.size + shownFiles.size
@@ -902,6 +905,21 @@ fun ExplorerScreen(
                             }
                         }
                     } else {
+                        itemsIndexed(folders, key = { _, f -> "content:" + f.key }) { index, folder ->
+                            Box(Modifier.fillMaxWidth().padding(bottom = if (index == folders.lastIndex) 12.dp else 0.dp)) {
+                                FolderRow(
+                                    folder = folder,
+                                    selecting = state.selecting,
+                                    selected = folder.key in state.selected,
+                                    onOpen = { state.open(folder.path) },
+                                    onLongPress = { state.beginSelect(folder) },
+                                    onToggle = { state.toggleSelect(folder) },
+                                    first = index == 0,
+                                    last = index == folders.lastIndex,
+                                    tag = "explorer.content.folder.${folder.path}",
+                                )
+                            }
+                        }
                         val pairs = shownFiles.chunked(2)
                         itemsIndexed(pairs, key = { _, pair -> pair.joinToString("|") { it.key } }) { index, pair ->
                             val first = index == 0
@@ -1163,8 +1181,8 @@ fun ExplorerScreen(
                     { type, id, title -> searchQuery = null; state.locate(type, id, title) },
                     { mediaId, title, mediaType, seconds ->
                         val entry = state.files.firstOrNull { it.mediaId == mediaId }
-                            ?: ExplorerEntry(name = title, path = mediaId, mediaId = mediaId, mediaType = mediaType?.uppercase()?.takeIf { it == "VIDEO" || it == "AUDIO" } ?: "VIDEO", transcriptAvailable = true)
-                        media = Viewing(listOf(entry), 0, seconds, find = query.trim())
+                            ?: ExplorerEntry(name = title, path = mediaId, mediaId = mediaId, mediaType = ExplorerViewLinks.mediaType(mediaType, title), transcriptAvailable = true)
+                        showMedia(entry, seconds, query.trim())
                     },
                     { searchQuery = null },
                 )
@@ -1565,13 +1583,13 @@ private fun TreePane(
     search: @Composable () -> Unit,
     modifier: Modifier,
 ) {
-    val outline = remember(api) { mutableStateMapOf<String, List<ExplorerEntry>>() }
+    val outline = remember(ExplorerIdentity(api)) { mutableStateMapOf<String, List<ExplorerEntry>>() }
     val chain = state.crumbs.map { it.path }.filter { it.isNotEmpty() }
     val status = state.statusParam
     LaunchedEffect(chain, status) {
         chain.dropLast(1).forEach { at ->
             if (outline[at] == null) {
-                runCatching { api.tree(at, status, null) }.getOrNull()?.let { t -> outline[at] = t.entries.filter { it.isFolder } }
+                attemptOrNull { api.tree(at, status, null) }?.let { t -> outline[at] = t.entries.filter { it.isFolder } }
             }
         }
     }

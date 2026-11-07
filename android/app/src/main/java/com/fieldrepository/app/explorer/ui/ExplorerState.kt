@@ -1,5 +1,6 @@
 package com.fieldrepository.app.explorer.ui
 
+import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -23,6 +24,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -58,7 +60,12 @@ class ExplorerState(
     private val online: () -> Boolean = { true },
     private val onPlace: (String) -> Unit = {},
     private val fallbackMs: Long = FALLBACK_MS,
-) {
+) : RememberObserver {
+    private val lifetime = SupervisorJob(scope.coroutineContext[Job])
+    private val work = CoroutineScope(scope.coroutineContext + lifetime)
+
+    val closed: Boolean get() = lifetime.isCancelled
+
     var path by mutableStateOf("")
         private set
     var tree by mutableStateOf<ExplorerTree?>(null)
@@ -103,6 +110,8 @@ class ExplorerState(
     val transcripts = mutableStateMapOf<String, TranscriptLoad>()
 
     private val levels = HashMap<String, Level>()
+    private val history = ArrayDeque<String>()
+    private val visited = HashSet<String>()
     private var loadJob: Job? = null
     private var locateJob: Job? = null
     private var landed = false
@@ -133,7 +142,22 @@ class ExplorerState(
 
     val folderName: String get() = crumbs.lastOrNull()?.name?.takeIf { it.isNotBlank() } ?: rootName
 
-    val canGoUp: Boolean get() = crumbs.size >= 2
+    val atTop: Boolean get() = path.isEmpty() || taxonomies.any { it.path == path }
+
+    val canGoUp: Boolean get() = history.any { it != path } || (!atTop && crumbs.size >= 2)
+
+    private fun topPath(): String? =
+        (activeTaxonomy ?: taxonomies.firstOrNull { it.isDefault } ?: taxonomies.firstOrNull())?.path?.takeIf { it.isNotEmpty() }
+
+    fun close() {
+        lifetime.cancel()
+    }
+
+    override fun onRemembered() = Unit
+
+    override fun onForgotten() = close()
+
+    override fun onAbandoned() = close()
 
     private fun key(target: String) = ExplorerCache.key(target, statusParam)
 
@@ -160,7 +184,11 @@ class ExplorerState(
         open(path)
     }
 
-    fun open(target: String) {
+    fun open(requested: String) = open(requested, remember = true)
+
+    private fun open(requested: String, remember: Boolean) {
+        if (closed) return
+        val target = if (requested.isEmpty()) topPath() ?: requested else requested
         if (target == path && loadingTarget == target && loadJob?.isActive == true) return
         if (target != path) {
             openTranscripts = emptySet()
@@ -172,8 +200,14 @@ class ExplorerState(
         unfiled = null
         restricted = false
         loadJob?.cancel()
+        val moved = target != path
+        if (moved && remember && path.isNotEmpty() && history.lastOrNull() != path) {
+            history.addLast(path)
+            while (history.size > HISTORY_LIMIT) history.removeFirst()
+        }
+        visited += target
         path = target
-        onPlace(target)
+        if (moved) onPlace(target)
         val memory = levels[key(target)]
         if (memory != null) show(memory) else {
             tree = null
@@ -183,7 +217,7 @@ class ExplorerState(
             cachedAt = null
         }
         loadingTarget = target
-        loadJob = scope.launch {
+        loadJob = work.launch {
             try {
                 load(target, memory != null)
             } finally {
@@ -213,7 +247,15 @@ class ExplorerState(
         }
         val got = coroutineScope {
             loads++
-            val fetch = async { runCatching { api.tree(target, statusParam, null) } }
+            val fetch = async {
+                try {
+                    Result.success(api.tree(target, statusParam, null))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    Result.failure(failure)
+                }
+            }
             val early = if (disk != null) withTimeoutOrNull(fallbackMs) { fetch.await() } else fetch.await()
             if (early == null && disk != null && path == target) show(Level(disk.tree, disk.tree.entries, null, disk.fetchedAt))
             early ?: fetch.await()
@@ -267,7 +309,7 @@ class ExplorerState(
         val at = cursor ?: return
         if (loadingMore) return
         val target = path
-        scope.launch {
+        work.launch {
             loadingMore = true
             try {
                 val next = api.tree(target, statusParam, at)
@@ -288,14 +330,24 @@ class ExplorerState(
     }
 
     fun goUp(): Boolean {
-        val parent = crumbs.getOrNull(crumbs.size - 2) ?: return false
-        open(parent.path)
+        while (history.isNotEmpty()) {
+            val previous = history.removeLast()
+            if (previous != path) {
+                open(previous, remember = false)
+                return true
+            }
+        }
+        if (atTop || crumbs.size < 2) return false
+        val parent = crumbs.dropLast(1).lastOrNull { !isGrouping(it.path) || it.path in visited }
+            ?: crumbs.getOrNull(crumbs.size - 2)
+            ?: return false
+        open(parent.path, remember = false)
         return true
     }
 
-    fun locate(recordType: String, recordId: String, title: String) {
+    fun locate(recordType: String, recordId: String, title: String): Job {
         locateJob?.cancel()
-        locateJob = scope.launch {
+        return work.launch {
             locating = recordId
             unfiled = null
             error = null
@@ -310,7 +362,7 @@ class ExplorerState(
             } finally {
                 locating = null
             }
-        }
+        }.also { locateJob = it }
     }
 
     fun toggleText(entry: ExplorerEntry) {
@@ -330,7 +382,7 @@ class ExplorerState(
         val now = transcripts[k]
         if (now is TranscriptLoad.Loading || now is TranscriptLoad.Loaded || now is TranscriptLoad.None) return
         transcripts[k] = TranscriptLoad.Loading
-        scope.launch {
+        work.launch {
             transcripts[k] = try {
                 val got = loadTranscript(entry)
                 if (got.isNullOrBlank()) TranscriptLoad.None else TranscriptLoad.Loaded(got)
@@ -399,6 +451,14 @@ class ExplorerState(
 
     companion object {
         const val FALLBACK_MS = 6_000L
+        const val HISTORY_LIMIT = 64
+
+        private val GROUPINGS = setOf("crafts", "artisans", "products", "tools", "processes", "questionnaire", "stages", "designworkshops")
+
+        fun isGrouping(path: String): Boolean {
+            val segments = path.split('/').filter { it.isNotEmpty() }
+            return segments.size >= 2 && segments.last() in GROUPINGS
+        }
 
         fun selectable(entry: ExplorerEntry): Boolean = entry.isFolder || (entry.mediaId != null && !entry.isTranscriptFile)
 

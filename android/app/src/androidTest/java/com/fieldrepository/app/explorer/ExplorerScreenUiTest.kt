@@ -482,7 +482,7 @@ class ExplorerScreenUiTest {
     @Test fun theTranscriptLanguageFilterIsFilledFromTheServer() {
         val fake = Fake()
         show(fake)
-        scrollTo("data.transcripts.toggle")
+        reach("data.transcripts.toggle")
         compose.onNodeWithTag("data.transcripts.toggle").performClick()
         compose.waitForIdle()
         scrollTo("explorer.transcripts.pill.language")

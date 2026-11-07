@@ -84,6 +84,36 @@ object ApiClient {
 
     private fun backoffMillis(attempt: Int): Long = minOf(4_000L, 600L * attempt)
 
+    internal fun gatewayRetry(pause: (Long) -> Unit = { Thread.sleep(it) }): Interceptor = Interceptor { chain ->
+        val original = chain.request()
+        val counted = !original.cacheControl.onlyIfCached
+        val retriable = counted && isSafelyRetriable(original.method, original.url.encodedPath)
+        val maxAttempts = if (retriable) MAX_GATEWAY_ATTEMPTS else 1
+        var attempt = 0
+        var lastError: IOException? = null
+        while (attempt < maxAttempts) {
+            attempt++
+            try {
+                val response = chain.proceed(original)
+                if (counted) ServerReachability.recordAnswer()
+                if (retriable && response.code in RETRIABLE_GATEWAY_CODES && attempt < maxAttempts && !chain.call().isCanceled()) {
+                    response.close()
+                    runCatching { pause(backoffMillis(attempt)) }
+                    continue
+                }
+                return@Interceptor response
+            } catch (e: IOException) {
+                if (chain.call().isCanceled()) throw e
+                lastError = e
+                if (counted) ServerReachability.recordFailure(e)
+                if (!retriable || attempt >= maxAttempts) throw e
+                runCatching { pause(backoffMillis(attempt)) }
+                if (chain.call().isCanceled()) throw e
+            }
+        }
+        throw lastError ?: IOException("Request failed after $maxAttempts attempts")
+    }
+
     val json: Json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
@@ -105,33 +135,7 @@ object ApiClient {
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
-            .addInterceptor { chain ->
-                val original = chain.request()
-                val retriable = !original.cacheControl.onlyIfCached &&
-                    isSafelyRetriable(original.method, original.url.encodedPath)
-                val maxAttempts = if (retriable) MAX_GATEWAY_ATTEMPTS else 1
-                var attempt = 0
-                var lastError: IOException? = null
-                while (attempt < maxAttempts) {
-                    attempt++
-                    try {
-                        val response = chain.proceed(original)
-                        if (!original.cacheControl.onlyIfCached) ServerReachability.recordAnswer()
-                        if (retriable && response.code in RETRIABLE_GATEWAY_CODES && attempt < maxAttempts) {
-                            response.close()
-                            runCatching { Thread.sleep(backoffMillis(attempt)) }
-                            continue
-                        }
-                        return@addInterceptor response
-                    } catch (e: IOException) {
-                        lastError = e
-                        if (!original.cacheControl.onlyIfCached) ServerReachability.recordFailure(e)
-                        if (!retriable || attempt >= maxAttempts) throw e
-                        runCatching { Thread.sleep(backoffMillis(attempt)) }
-                    }
-                }
-                throw lastError ?: IOException("Request failed after $maxAttempts attempts")
-            }
+            .addInterceptor(gatewayRetry())
             .addInterceptor(sessionInterceptor(tokenStore, BuildConfig.DEFAULT_API_BASE_URL.toHttpUrlOrNull()))
             .addInterceptor(ClientClock.interceptor())
             .addInterceptor(logging)
