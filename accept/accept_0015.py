@@ -513,7 +513,7 @@ def on_dashboard(root):
 
 
 def dismiss_prompts(root):
-    hit = find(root, r"^(Skip|Not now|Later|Dismiss|Got it|Close|Maybe later)$")
+    hit = find(root, r"^(Skip|Not now|Later|Dismiss|Got it|Close|Maybe later|Wait)$")
     if hit:
         tap(hit[1])
         settle(2)

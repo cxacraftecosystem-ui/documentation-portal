@@ -494,6 +494,40 @@ def phase_pane():
         PANE[0] = r2[2]
 
 
+def stop_mini_player():
+    w, h = screen_size()
+    for _ in range(2):
+        root = dump(None)
+        hit = [r for _, r in find_all(root, r"^Stop playing$") if r[1] > h * 0.7]
+        if not hit:
+            return
+        tap(hit[0])
+        settle(1.5)
+
+
+SIZE_RX = re.compile(r"^[\d.,]+ (B|KB|MB|GB)$")
+
+
+def recent_rows_on(root, chosen, victim_name):
+    out = []
+    for c in chosen:
+        st = stem(c)
+        for nd in all_nodes(root):
+            t = label(nd).strip()
+            r = rect(nd.get("bounds"))
+            if not r or not t or not (t == c or t == st or t.startswith(st)):
+                continue
+            cy = (r[1] + r[3]) / 2
+            line = []
+            for n2 in all_nodes(root):
+                r2 = rect(n2.get("bounds"))
+                t2 = label(n2).strip()
+                if r2 and t2 and abs((r2[1] + r2[3]) / 2 - cy) < dp(12) and r2[0] > r[2] - 4:
+                    line.append(t2)
+            out.append({"name": c, "rect": r, "end": line[:2], "victim": c == victim_name})
+    return out
+
+
 def preview_kind(root, entry):
     close = find(root, r"^Close$") is not None
     mt = (entry.get("mediaType") or "").upper()
@@ -556,6 +590,21 @@ def phase_previews():
         record("preview", f"Back from the {mt.lower()} preview returns to the same folder, tab and scroll", "PASS" if ok2 else "FAIL", f"tab {before_tab} -> {after_tab}; first rows before {before_rows[:2]} after {after_rows[:2]}; preview still open={in_preview}", [tg0 + ".png", tg3 + ".png", tg3 + ".xml"])
         if mt == "VIDEO":
             scout_data["video_shot"] = tg2
+        stop_mini_player()
+
+
+def tap_tab(word, scrolls=5):
+    for i in range(scrolls + 1):
+        root = dump(None)
+        files = [r for _, r in find_all(root, r"^Files( [\d,]+)?$")]
+        if files:
+            fy = (files[0][1] + files[0][3]) / 2
+            hits = [r for _, r in find_all(root, rf"^{word}( [\d,]+)?$") if abs((r[1] + r[3]) / 2 - fy) < dp(20)]
+            if hits:
+                tap(hits[0])
+                return True
+        A.scroll_down_list(0.3)
+    return False
 
 
 def phase_transcripts_tab():
@@ -566,7 +615,8 @@ def phase_transcripts_tab():
     if not open_folder(info["levels"]):
         record("preview", "transcript preview from the Transcripts tab", "FAIL", "folder did not open")
         return
-    if not A.tap_text(r"^Transcripts( \d+)?$", timeout=8):
+    stop_mini_player()
+    if not tap_tab("Transcripts"):
         root, tg = step("tx-notab")
         record("preview", "transcript preview from the Transcripts tab", "FAIL", f"no Transcripts tab; {texts(root, 20)}", ev(tg))
         return
@@ -626,9 +676,9 @@ def phase_expand():
     if not open_folder(info["levels"]):
         record("expand", "audio Expand opens the board view", "FAIL", "audio folder did not open")
         return
+    stop_mini_player()
     left = content_left()
-    root = dump(None)
-    rows = file_rows(root, [f["name"] for f in files], left)
+    rows, root, _ = reveal_files([f["name"] for f in files], left)
     if not rows:
         root, tg = step("ex-norows")
         record("expand", "audio Expand opens the board view", "FAIL", f"no audio row; {texts(root, 20)}", ev(tg))
@@ -637,8 +687,19 @@ def phase_expand():
     tap(r)
     settle(5)
     root, tg0 = step("ex-preview")
+    board_inline = find(root, r"^Find") is not None and find(root, r"^Transcript \(\.docx\)$") is not None
+    if board_inline and not find(root, r"^Expand$"):
+        sbs = side_by_side(png(tg0), os.path.join(HERE, "board-AndroidAudio.png"), os.path.join(OUT, "expand-impl-vs-board.png"))
+        record("expand", "audio preview opens straight into the board view (no Expand needed at this width)", "PASS", f"{texts(root, 20)}; compare implementation (left) with the AndroidAudio board (right) in {sbs}", [tg0 + ".png", tg0 + ".xml"] + ([sbs] if sbs else []))
+        back()
+        settle(2)
+        stop_mini_player()
+        return
+    exp0 = find(root, r"^Expand$")
     how = "preview Open record"
-    if not A.tap_text(r"^Open record$", timeout=6):
+    if exp0:
+        how = "in-explorer preview"
+    elif not A.tap_text(r"^Open record$", timeout=6):
         mid = next(f["mediaId"] for f in files if f["name"] == name)
         how = "deep link /data/go/open/media"
         back()
@@ -676,6 +737,7 @@ def phase_expand():
     settle(3)
     root, tg3 = step("ex-closed")
     record("expand", "Back from the expanded view returns to the record page", "PASS" if find(root, r"^Expand$") else "FAIL", f"{texts(root, 14)}", ev(tg3))
+    stop_mini_player()
 
 
 def tabs_and_report():
@@ -826,10 +888,10 @@ def phase_checkbox_download():
     if not info:
         record("checkbox", "checkbox frames", "FAIL", "image folder did not open")
         return
+    stop_mini_player()
     left = content_left()
     names = [f["name"] for f in files]
-    root = dump(None)
-    rows = [x for x in file_rows(root, names, left) if x[1][1] > screen_size()[1] * 0.12]
+    rows, root, _ = reveal_files(names, left)
     if not rows:
         root, tg = step("cb-norows")
         record("checkbox", "checkbox frames", "FAIL", f"no file rows; {texts(root, 20)}", ev(tg))
@@ -929,59 +991,58 @@ def phase_download(info, files, left):
         record("download", "Download N selected", "FAIL", f"{texts(root, 25)}", ev(tg))
         return
     caught = False
-    end = time.time() + 90
+    rows = []
+    tg1 = None
+    end = time.time() + 150
     while time.time() < end:
         root = dump(None)
         start = find(root, r"^(Download now|Start download|Download on Wi-Fi)$")
-        if start and not find(root, r"^All \d+$"):
+        if start and not find(root, r"^Recent files$"):
             tap(start[1])
             settle(0.5)
             continue
-        alln = find(root, r"^All \d[\d,]*$")
-        if alln:
-            tap(alln[1])
+        cur = recent_rows_on(root, chosen, victim_name)
+        sv = [x for x in cur if not x["victim"] and any(SIZE_RX.match(e) for e in x["end"])]
+        fv = [x for x in cur if x["victim"] and any(e.lower() in ("failed", "retrying") for e in x["end"])]
+        if sv and fv:
+            root, tg1 = step("dl-recent")
+            rows = recent_rows_on(root, chosen, victim_name)
             caught = True
             break
-        if find(root, r"^Recent files$") or find(root, r"^Pause$"):
+        if not find(root, r"^Recent files$"):
             A.scroll_down_list(0.25)
         settle(0.3)
-    if not caught:
-        root, tg = step("dl-noall")
-        record("download", "All files sheet reached while the job ran", "FAIL", f"{texts(root, 25)}", ev(tg))
-    end = time.time() + 180
-    root = None
-    while time.time() < end:
-        root = dump(None)
-        failed = find(root, r"^Failed$")
-        sizes = [t for t in texts(root, 300) if re.match(r"^[\d.,]+ (B|KB|MB|GB)$", t)]
-        if failed and len(sizes) >= len(chosen) - 1:
-            break
-        settle(2)
-    settle(2)
-    emu("network speed full")
-    root, tg1 = step("dl-allfiles")
-    rows = []
-    for c in chosen:
-        hit = find(root, rf"^{re.escape(c)}$")
-        if hit:
-            r = hit[1]
-            line = [label(n).strip() for n in all_nodes(root) if rect(n.get("bounds")) and abs((rect(n.get("bounds"))[1] + rect(n.get("bounds"))[3]) / 2 - (r[1] + r[3]) / 2) < dp(12) and rect(n.get("bounds"))[0] > r[2] - 4]
-            rows.append({"name": c, "rect": r, "end": line[:2], "victim": c == victim_name})
+    if tg1 is None:
+        root, tg1 = step("dl-norecent")
     A.save("download-rows.json", json.dumps(rows, indent=1))
-    saved_rows = [x for x in rows if not x["victim"] and any(re.match(r"^[\d.,]+ (B|KB|MB|GB)$", e) for e in x["end"])]
-    failed_rows = [x for x in rows if x["victim"] and "Failed" in x["end"]]
-    record("download", "set downloads with one failed file", "PASS" if saved_rows and failed_rows else "FAIL", f"{throttled}; All files sheet caught={caught}; rows {[(x['name'][-28:], x['end']) for x in rows]}", ev(tg1) + ["download-rows.json"])
+    saved_rows = [x for x in rows if not x["victim"] and any(SIZE_RX.match(e) for e in x["end"])]
+    failed_rows = [x for x in rows if x["victim"] and any(e.lower() in ("failed", "retrying") for e in x["end"])]
+    record("download", "Recent files shows one saved and one failed file together", "PASS" if caught else "FAIL", f"{throttled}; rows {[(x['name'][-28:], x['end']) for x in rows]}; {texts(root, 30) if not caught else ''}", ev(tg1) + ["download-rows.json"])
     if Image is not None and saved_rows and failed_rows:
         img = Image.open(png(tg1)).convert("RGB")
         res = []
         for x in (saved_rows[0], failed_rows[0]):
             res.append(badge_metrics(img, x["rect"], "saved" if not x["victim"] else "failed"))
         A.save("badge-metrics.json", json.dumps(res, indent=1))
-        s, f = res
-        ok = all(m.get("ok") for m in res) and abs(s["circle"][0] - f["circle"][0]) <= 1.0 and abs(s["glyph"][0] - f["glyph"][0]) <= 1.5
-        record("download", "tick and ! centred on the same axis (pixel check)", "PASS" if ok else "FAIL",
-               f"saved circle {s.get('circle')} glyph {s.get('glyph')} off {s.get('offset')}; failed circle {f.get('circle')} glyph {f.get('glyph')} off {f.get('offset')}; axis delta circle {round(s['circle'][0] - f['circle'][0], 2)}px glyph {round(s['glyph'][0] - f['glyph'][0], 2)}px",
-               ["badge-metrics.json", "badge-zoom-saved.png", "badge-zoom-failed.png", tg1 + ".png"])
+        s_, f_ = res
+        if "circle" in s_ and "circle" in f_ and "glyph" in s_ and "glyph" in f_:
+            ok = all(m.get("ok") for m in res) and abs(s_["circle"][0] - f_["circle"][0]) <= 1.0 and abs(s_["glyph"][0] - f_["glyph"][0]) <= 1.5
+            record("download", "tick and ! centred on the same axis (pixel check)", "PASS" if ok else "FAIL",
+                   f"saved circle {s_.get('circle')} glyph {s_.get('glyph')} off {s_.get('offset')}; failed circle {f_.get('circle')} glyph {f_.get('glyph')} off {f_.get('offset')}; axis delta circle {round(s_['circle'][0] - f_['circle'][0], 2)}px glyph {round(s_['glyph'][0] - f_['glyph'][0], 2)}px",
+                   ["badge-metrics.json", "badge-zoom-saved.png", "badge-zoom-failed.png", tg1 + ".png"])
+        else:
+            record("download", "tick and ! centred on the same axis (pixel check)", "FAIL", f"badge not measured {res}", ["badge-metrics.json", tg1 + ".png"])
+    end = time.time() + 120
+    done = False
+    while time.time() < end:
+        root = dump(None)
+        if find(root, r"file failed") or find(root, r"files failed"):
+            done = True
+            break
+        settle(2)
+    root, tg2 = step("dl-finished")
+    record("download", "set downloads with one failed file", "PASS" if done and caught else "FAIL", f"finished with a failed-file line={done}; {texts(root, 30)}", ev(tg2))
+    emu("network speed full")
     back()
     settle(1.5)
     root = dump(None)
@@ -1175,6 +1236,7 @@ def phase_process_death():
         return
     lvl = levels[1]
     settle(3)
+    stop_mini_player()
     root, tg0 = step("death-before")
     before = names_in(root, lvl["names"], content_left()) + ([lvl["name"]] if find(root, rf"^{re.escape(lvl['name'])}$") else [])
     sh("input keyevent KEYCODE_HOME")

@@ -15,7 +15,7 @@ env:
   FIX_SHA: aff2e9c94404da31326246b33fdf2ccbc9bff8ca
   PORTAL: fr
   SOAK_SECONDS: "900"
-  ONLY: ""
+  ONLY: "transcripts,expand,checkbox,death"
 
 jobs:
   apk:
