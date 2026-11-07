@@ -209,7 +209,9 @@ async def consolidate_for_artisan(
             "mediaId": media.id,
             "filename": media.originalFilename,
             "mediaType": media.mediaType,
-            "url": signed_media_url(media.objectKey, media.url, media.mimeType, media.originalFilename)
+            "url": signed_media_url(
+                get_value(media, "objectKey"), media.url, get_value(media, "mimeType"), media.originalFilename
+            )
             if _may_take(media, media_owners)
             else None,
             "transcriptText": media.transcriptText,
