@@ -92,7 +92,7 @@ class DataMessageActivityTest {
                     path == "/api/me" -> json(ApiClient.json.encodeToString(UserDto.serializer(), user))
                     path.startsWith("/api/") -> MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE)
                     path == "/data/tree" -> json(ExplorerJson.encodeToString(ExplorerTree.serializer(), tree(url.queryParameter("path").orEmpty())))
-                    path == "/data/views/unreachable" -> MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START)
+                    path == "/data/views/unreachable" -> MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)
                     else -> MockResponse().setResponseCode(404).setHeader("Content-Type", "application/json").setBody("{\"detail\":\"Not found\"}")
                 }
             }
