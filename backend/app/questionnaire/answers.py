@@ -44,7 +44,13 @@ def format_phone(country_code: str | None, phone: str | None) -> str | None:
     return f"{code} {digits}"
 
 
+def never_prefilled(field: str) -> bool:
+    return field.lower().startswith("aadhaar") or field == "pehchanCardNumber"
+
+
 def prefill_value(artisan: Any, field: str, *, session: dict[str, Any] | None = None, interviewer: str | None = None) -> str | None:
+    if never_prefilled(field):
+        return None
     if field == "phone":
         return format_phone(get(artisan, "phoneCountryCode"), get(artisan, "phone"))
     if field in ("sessionDate", "interviewDate"):

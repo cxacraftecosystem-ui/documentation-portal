@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from app.services.datareport import ai_cache
+from app.services.datareport import ai_cache, exclusions
 from app.services.datareport.ai_cache import value
 from app.services.datareport.contract import Column, Image, Link, ReportContext, Sheet, register
 
@@ -217,7 +217,7 @@ def profile_rows(
             (
                 "Yes"
                 + (
-                    f", {value(artisan, 'pehchanCardNumber')}"
+                    f", {exclusions.identity_view(ctx.user, artisan, 'pehchanCardNumber', value(artisan, 'pehchanCardNumber'))}"
                     if value(artisan, "pehchanCardNumber")
                     else ""
                 )

@@ -554,6 +554,19 @@ transcript zip, languages and Browse by type routes added in 0.0.12, needs datas
 (`require_dataset_downloader`) and reads only the media the caller's access scope reaches.
 Removed recordings answer 404. See [DATA_EXPLORER.md](DATA_EXPLORER.md).
 
+### Withheld transcripts and identity numbers (0.0.15)
+
+Transcripts stay readable to every signed-in account here. `records.transcript_scope` returns no
+limit, so the questionnaire code shared with designer-portal reads them all. The voice-isolated key
+(`cleanedObjectKey`) is withheld with the recording's other storage keys. The Data page transcript
+list hides text whose consent verdict is not ALLOW (`transcript_export.withheld_ids`).
+
+Identity numbers: below PROFESSOR, the Aadhaar lookup and the duplicate check stop matching typed
+Aadhaar or Pehchan numbers after 100 misses in a day (`backend/app/services/identity_probe.py`).
+Report sheets mask Pehchan numbers by the live-read rule, and edit history masks the old and new
+Pehchan numbers below PROFESSOR. Transcript dedupe copies only machine transcripts from live
+recordings.
+
 ## 5. Route guards on the web client
 
 The client's half of gating is declared **once**, in `ROUTE_GUARDS` in `frontend/lib/permissions.ts`,

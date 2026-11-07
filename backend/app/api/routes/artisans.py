@@ -17,7 +17,7 @@ from app.services import craft_master
 from app.services.access import guard_record_edit
 from app.services.artisan_merge import created_merged_record, survivor_of
 from app.services.artisan_form_contract import assert_form_contract, take_form_contract
-from app.services import aadhaar_fingerprint, artisan_card, artisan_card_store, artisan_duplicates
+from app.services import aadhaar_fingerprint, artisan_card, artisan_card_store, artisan_duplicates, identity_probe
 from app.services.artisan_identity import aadhaar_error, mask_aadhaar, normalize_aadhaar
 from app.services import completeness as completeness_module
 from app.services.concurrency import gather_reads
@@ -501,20 +501,21 @@ class AadhaarLookup(BaseModel):
 async def lookup_artisan_by_aadhaar_body(
     payload: AadhaarLookup, current_user: Any = Depends(get_current_user)
 ) -> dict[str, Any]:
-    return await _lookup_aadhaar(payload.number)
+    return await _lookup_aadhaar(payload.number, current_user)
 
 
 @router.get("/lookup/aadhaar")
 async def lookup_artisan_by_aadhaar(
-    number: str, _: Any = Depends(get_current_user)
+    number: str, current_user: Any = Depends(get_current_user)
 ) -> dict[str, Any]:
-    return await _lookup_aadhaar(number)
+    return await _lookup_aadhaar(number, current_user)
 
 
-async def _lookup_aadhaar(number: str) -> dict[str, Any]:
+async def _lookup_aadhaar(number: str, current_user: Any) -> dict[str, Any]:
     normalized = normalize_aadhaar(number)
     if not normalized or aadhaar_error(normalized):
         return {"found": False, "artisan": None}
+    await identity_probe.assert_may_probe(current_user)
     try:
         where = aadhaar_fingerprint.match_where(
             normalized, legacy=await aadhaar_fingerprint.legacy_pending(db)
@@ -524,6 +525,7 @@ async def _lookup_aadhaar(number: str) -> dict[str, Any]:
         raise _fingerprint_unavailable() from exc
     existing = await db.artisan.find_first(where=where, include={"craft": True, "workshop": True})
     if existing is None:
+        await identity_probe.record_miss(current_user)
         return {"found": False, "artisan": None}
     return {
         "found": True,

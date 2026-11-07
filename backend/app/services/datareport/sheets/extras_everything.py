@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from datetime import datetime
 from typing import Any
 
+from app.services.datareport import exclusions
 from app.services.datareport.contract import Banner, Column, Link, ReportContext, Sheet, register
 from app.services.datareport.sheets.extras_common import (
     KIND_LABELS,
@@ -114,9 +115,9 @@ def flatten(ctx: ReportContext) -> Iterator[dict[str, Any]]:
             link = open_record(ctx, kind, rec)
             link = link if isinstance(link, Link) else None
             for name in field_names(rec):
-                if name in _SKIP or is_secret(name):
+                if name in _SKIP or is_secret(name) or (model and exclusions.excluded(model, name)):
                     continue
-                keep, value = cell(g(rec, name))
+                keep, value = cell(exclusions.identity_view(ctx.user, rec, name, g(rec, name)))
                 if not keep or value is None or value == "":
                     continue
                 yield _row(kind, rec, link, model, name, value)

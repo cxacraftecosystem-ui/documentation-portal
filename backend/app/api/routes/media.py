@@ -462,7 +462,9 @@ async def list_media(
         where["AND"] = [vis]
     if search:
         where["OR"] = [{"originalFilename": contains(search)}, {"caption": contains(search)}, {"mimeType": contains(search)}]
-        by_chips = await questionnaire_filters.media_text_ids(search.strip()[: questionnaire_filters.MAX_TEXT], client=db)
+        by_chips = await questionnaire_filters.media_text_ids(
+            search.strip()[: questionnaire_filters.MAX_TEXT], client=db, viewer=current_user
+        )
         if by_chips:
             where["OR"].append({"id": {"in": by_chips}})
     questionnaire_only = _questionnaire_media_filters(request)

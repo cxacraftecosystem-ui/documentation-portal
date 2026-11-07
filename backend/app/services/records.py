@@ -18,7 +18,7 @@ _SENSITIVE_KEYS = frozenset(SECRET_USER_FIELDS)
 
 _IDENTITY_KEYS = ("aadhaarNumber", "pehchanCardNumber")
 
-_MEDIA_URL_KEYS = ("url", "publicUrl", "objectKey")
+_MEDIA_URL_KEYS = ("url", "publicUrl", "objectKey", "cleanedObjectKey")
 
 _MEDIA_MARKER = "objectKey"
 
@@ -65,6 +65,22 @@ def mask_identity_number(value: Any) -> Any:
     return mask_aadhaar(value)
 
 
+_CHANGE_KEYS = frozenset({"old", "new"})
+
+
+def _mask_identity_value(column: Any) -> Any:
+    if isinstance(column, dict):
+        if column and set(column) <= _CHANGE_KEYS:
+            return {
+                k: v if isinstance(v, (dict, list)) else mask_identity_number(v)
+                for k, v in column.items()
+            }
+        return column
+    if isinstance(column, list):
+        return column
+    return mask_identity_number(column)
+
+
 def _redact_sensitive(
     value: Any,
     viewer_id: str | None,
@@ -88,8 +104,8 @@ def _redact_sensitive(
             value[aadhaar_fingerprint.NUMBER_FIELD] = view if view is not None else history
         if not unmasked and not (viewer_id and value.get("createdById") == viewer_id):
             for key in _IDENTITY_KEYS:
-                if key in value and not isinstance(value[key], (dict, list)):
-                    value[key] = mask_identity_number(value[key])
+                if key in value:
+                    value[key] = _mask_identity_value(value[key])
         if media_urls is not None and _MEDIA_MARKER in value:
             if value.get("uploadedById") not in media_urls:
                 for key in _MEDIA_URL_KEYS:
@@ -124,6 +140,34 @@ def public_encode(obj: Any, viewer: Any = None, *, media_urls: Any = _UNSET) -> 
         unmasked=has_rank(viewer, "PROFESSOR"),
         media_urls=allowed,
     )
+
+
+class TranscriptScope(NamedTuple):
+    owners: frozenset[str]
+    workshops: frozenset[str]
+
+    def sql(self, alias: str, bind: Any) -> str:
+        owners = bind(sorted(self.owners))
+        return f'{alias}."uploadedById" = ANY({owners}::text[])'
+
+
+def transcript_withheld(node: Any, scope: TranscriptScope | None) -> bool:
+    return False
+
+
+async def transcript_scope(viewer: Any) -> TranscriptScope | None:
+    return None
+
+
+async def transcript_readable_ids(rows: Sequence[Any], viewer: Any) -> set[str]:
+    if not viewer:
+        return set()
+    out: set[str] = set()
+    for row in rows:
+        row_id = row.get("id") if isinstance(row, dict) else getattr(row, "id", None)
+        if row_id:
+            out.add(str(row_id))
+    return out
 
 
 async def media_url_owners(viewer: Any) -> set[str] | None:

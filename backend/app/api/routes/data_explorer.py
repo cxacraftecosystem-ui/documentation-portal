@@ -402,12 +402,13 @@ async def transcript_list(
     seen, by_id, truncated = await _folder_transcripts(scope, _browser()._norm(path), offset)
     window = len(seen)
     words = [w for w in (q or "").lower().split() if w]
+    withheld = await transcript_export.withheld_ids(list(by_id))
     items: list[dict[str, Any]] = []
     for media_id, item in seen.items():
         row = by_id.get(media_id)
         if row is None:
             continue
-        text = str(getattr(row, "transcriptText", None) or "")
+        text = "" if media_id in withheld else str(getattr(row, "transcriptText", None) or "")
         item["mediaType"] = item["mediaType"] or str(row.mediaType).split(".")[-1]
         item["name"] = row.originalFilename or item["name"]
         item["hasText"] = bool(text.strip())
