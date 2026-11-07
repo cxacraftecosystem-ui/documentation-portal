@@ -3,11 +3,12 @@ import itertools
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from prisma.errors import UniqueViolationError
 
-from app.core import idempotency
+from app.core import deps, idempotency
 from app.core.idempotency import IdempotencyMiddleware, PrismaIdempotencyStore, StoredAnswer
 from app.core.security import create_access_token
 
@@ -66,6 +67,17 @@ def _app(store: MemoryStore):
 
     app.add_middleware(IdempotencyMiddleware, store=store)
     return app, records
+
+
+@pytest.fixture(autouse=True)
+def _every_token_names_a_live_account(monkeypatch):
+    async def resolve(user_id):
+        return SimpleNamespace(
+            id=user_id, email=f"{user_id}@example.invalid", sessionsValidFrom=None,
+            passwordHash=None, mustChangePassword=False,
+        )
+
+    monkeypatch.setattr(deps, "resolve_user", resolve)
 
 
 def _auth(user: str = "user_1") -> dict[str, str]:
