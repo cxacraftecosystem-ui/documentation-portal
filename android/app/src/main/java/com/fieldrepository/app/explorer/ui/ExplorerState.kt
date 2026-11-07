@@ -110,6 +110,8 @@ class ExplorerState(
     val transcripts = mutableStateMapOf<String, TranscriptLoad>()
 
     private val levels = HashMap<String, Level>()
+    private val history = ArrayDeque<String>()
+    private val visited = HashSet<String>()
     private var loadJob: Job? = null
     private var locateJob: Job? = null
     private var landed = false
@@ -142,7 +144,7 @@ class ExplorerState(
 
     val atTop: Boolean get() = path.isEmpty() || taxonomies.any { it.path == path }
 
-    val canGoUp: Boolean get() = !atTop && crumbs.size >= 2
+    val canGoUp: Boolean get() = history.any { it != path } || (!atTop && crumbs.size >= 2)
 
     private fun topPath(): String? =
         (activeTaxonomy ?: taxonomies.firstOrNull { it.isDefault } ?: taxonomies.firstOrNull())?.path?.takeIf { it.isNotEmpty() }
@@ -182,7 +184,9 @@ class ExplorerState(
         open(path)
     }
 
-    fun open(requested: String) {
+    fun open(requested: String) = open(requested, remember = true)
+
+    private fun open(requested: String, remember: Boolean) {
         if (closed) return
         val target = if (requested.isEmpty()) topPath() ?: requested else requested
         if (target == path && loadingTarget == target && loadJob?.isActive == true) return
@@ -197,6 +201,11 @@ class ExplorerState(
         restricted = false
         loadJob?.cancel()
         val moved = target != path
+        if (moved && remember && path.isNotEmpty() && history.lastOrNull() != path) {
+            history.addLast(path)
+            while (history.size > HISTORY_LIMIT) history.removeFirst()
+        }
+        visited += target
         path = target
         if (moved) onPlace(target)
         val memory = levels[key(target)]
@@ -321,15 +330,24 @@ class ExplorerState(
     }
 
     fun goUp(): Boolean {
-        if (!canGoUp) return false
-        val parent = crumbs.getOrNull(crumbs.size - 2) ?: return false
-        open(parent.path)
+        while (history.isNotEmpty()) {
+            val previous = history.removeLast()
+            if (previous != path) {
+                open(previous, remember = false)
+                return true
+            }
+        }
+        if (atTop || crumbs.size < 2) return false
+        val parent = crumbs.dropLast(1).lastOrNull { !isGrouping(it.path) || it.path in visited }
+            ?: crumbs.getOrNull(crumbs.size - 2)
+            ?: return false
+        open(parent.path, remember = false)
         return true
     }
 
-    fun locate(recordType: String, recordId: String, title: String) {
+    fun locate(recordType: String, recordId: String, title: String): Job {
         locateJob?.cancel()
-        locateJob = work.launch {
+        return work.launch {
             locating = recordId
             unfiled = null
             error = null
@@ -344,7 +362,7 @@ class ExplorerState(
             } finally {
                 locating = null
             }
-        }
+        }.also { locateJob = it }
     }
 
     fun toggleText(entry: ExplorerEntry) {
@@ -433,6 +451,14 @@ class ExplorerState(
 
     companion object {
         const val FALLBACK_MS = 6_000L
+        const val HISTORY_LIMIT = 64
+
+        private val GROUPINGS = setOf("crafts", "artisans", "products", "tools", "processes", "questionnaire", "stages", "designworkshops")
+
+        fun isGrouping(path: String): Boolean {
+            val segments = path.split('/').filter { it.isNotEmpty() }
+            return segments.size >= 2 && segments.last() in GROUPINGS
+        }
 
         fun selectable(entry: ExplorerEntry): Boolean = entry.isFolder || (entry.mediaId != null && !entry.isTranscriptFile)
 

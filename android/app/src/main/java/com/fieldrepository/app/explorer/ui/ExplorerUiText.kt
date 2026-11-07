@@ -102,6 +102,8 @@ object ExplorerUiText {
     const val linkUnknown = "This link isn't one the app can open."
     const val linkFailed = "That link didn't open. Try again, or open it on the web."
     const val viewMissing = "That saved view isn't available to you."
+    const val viewOffline = "Couldn't reach the server to open that saved view. Check the connection and try again."
+    const val viewFailed = "The server couldn't open that saved view just now. Try again in a moment."
 
     fun filteredBy(q: String) = "Filtered: “$q”"
 

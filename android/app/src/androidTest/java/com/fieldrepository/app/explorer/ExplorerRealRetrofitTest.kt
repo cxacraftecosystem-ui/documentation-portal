@@ -5,11 +5,13 @@ import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.dp
+import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.fieldrepository.app.explorer.data.ExplorerApi
@@ -76,6 +78,14 @@ class ExplorerRealRetrofitTest {
             total = 1,
             taxonomies = taxonomies,
             taxonomy = "workshop",
+        )
+        "c/indigo" -> ExplorerTree(
+            path = path,
+            crumbs = listOf(ExplorerCrumb("Craft", "by-craft"), ExplorerCrumb("Indigo", "c/indigo")),
+            entries = listOf(folder),
+            total = 1,
+            taxonomies = taxonomies,
+            taxonomy = "craft",
         )
         else -> ExplorerTree(path = path, taxonomies = taxonomies, taxonomy = "workshop")
     }
@@ -177,6 +187,26 @@ class ExplorerRealRetrofitTest {
         val landed = settled()
         assertTrue("landing asked for the tree $landed times: $seen", landed <= 3)
         compose.onNodeWithTag("explorer.pane.tree").performScrollToNode(hasTestTag("explorer.folder.w/bagru"))
+    }
+
+    @Test fun backReturnsToTheFolderViewedBeforeNotTheParent() {
+        show()
+        reach("explorer.folder.w/bagru")
+        settled()
+        ExplorerViewLinks.request(ExplorerLinkRequest(viewId = null, path = "c/indigo"))
+        compose.waitUntil(20_000) { compose.onAllNodes(hasText("Indigo")).fetchSemanticsNodes().isNotEmpty() }
+        reach("explorer.folder.w/bagru")
+        compose.onNodeWithTag("explorer.folder.w/bagru").performClick()
+        reach("explorer.file.p1")
+        Espresso.pressBack()
+        compose.waitUntil(20_000) {
+            compose.onAllNodes(hasText("Indigo")).fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodes(hasTestTag("explorer.file.p1")).fetchSemanticsNodes().isEmpty()
+        }
+        Espresso.pressBack()
+        compose.waitUntil(20_000) { compose.onAllNodes(hasText("Indigo")).fetchSemanticsNodes().isEmpty() }
+        reach("explorer.folder.w/bagru")
+        assertTrue(errors.isEmpty())
     }
 
     @Test fun aSavedViewThatIsGoneSaysSoAndTheLinkIsUsedOnce() {

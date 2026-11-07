@@ -140,8 +140,16 @@ private val LOCATE_TYPES = mapOf(
     "tools" to "tool", "processes" to "process", "reports" to "designWorkshop",
 )
 
+internal enum class DataSearchOpen { LOCATE, REMOTE }
+
 internal object DataSearchRules {
     fun locateType(type: String): String? = LOCATE_TYPES[type]
+
+    fun openOf(type: String, local: Boolean): DataSearchOpen? = when {
+        !local -> DataSearchOpen.REMOTE
+        type in LOCATE_TYPES -> DataSearchOpen.LOCATE
+        else -> null
+    }
 
     fun label(type: String, server: String?): String = TYPE_LABELS[type] ?: server?.ifBlank { null } ?: type
 
@@ -509,7 +517,7 @@ private fun ResultCard(
     val (markBg, markFg) = explorerMark()
     val start = if (item.type == "transcripts") DataSearchRules.startSeconds(item) else null
     val locate = DataSearchRules.locateType(item.type)
-    val openLocal: (() -> Unit)? = if (item.local && locate != null) ({ onOpenInData(locate, DataSearchRules.openId(item), item.title) }) else null
+    val openLocal: (() -> Unit)? = if (DataSearchRules.openOf(item.type, item.local) == DataSearchOpen.LOCATE && locate != null) ({ onOpenInData(locate, DataSearchRules.openId(item), item.title) }) else null
     val openRemote: (() -> Unit)? = if (!item.local && onOpenRemote != null) ({ onOpenRemote(item.type, item.id) }) else null
     val tap = if (item.type == "transcripts") null else openLocal ?: openRemote
     Column(

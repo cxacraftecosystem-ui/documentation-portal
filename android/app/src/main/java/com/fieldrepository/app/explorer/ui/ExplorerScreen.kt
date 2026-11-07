@@ -591,7 +591,7 @@ fun ExplorerScreen(
                     got.kind == "media" && onOpenMedia != null -> { handOff(); onOpenMedia(got.id.ifBlank { id }) }
                     got.kind == "media" -> previewMedia(got.id.ifBlank { id }, null)
                     onOpenRecord != null -> { handOff(); onOpenRecord(got.kind.ifBlank { kind }, got.id.ifBlank { id }) }
-                    else -> state.locate(got.kind.ifBlank { kind }, got.id.ifBlank { id }, "")
+                    else -> state.locate(got.kind.ifBlank { kind }, got.id.ifBlank { id }, "").join()
                 }
             }
             "transcript" -> {
@@ -634,13 +634,15 @@ fun ExplorerScreen(
                     previewMedia(r.preview, r.seconds)
                 }
                 id != null -> {
-                    val view = attemptOrNull { extras.view(id) }
-                    if (view != null) {
-                        openView(view)
-                    } else {
-                        onError(ExplorerUiText.viewMissing)
-                        r.path?.let { state.open(it) }
+                    val view = try {
+                        extras.view(id)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        onError(ExplorerViewLinks.viewFailure(failure))
+                        null
                     }
+                    if (view != null) openView(view) else r.path?.let { state.open(it) }
                 }
                 r.path != null -> state.open(r.path)
             }

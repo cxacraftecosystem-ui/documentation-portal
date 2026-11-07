@@ -6,6 +6,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import retrofit2.HttpException
+import java.io.IOException
 import java.net.URI
 import java.net.URLDecoder
 
@@ -75,12 +77,21 @@ object ExplorerViewLinks {
         try {
             handle(request)
         } catch (cancelled: CancellationException) {
+            consume(request)
             throw cancelled
         } catch (failure: Exception) {
             onFailure(failure)
         }
         consume(request)
     }
+
+    fun viewFailure(failure: Throwable): String = when {
+        failure is HttpException && failure.code() in MISSING_CODES -> ExplorerUiText.viewMissing
+        failure is IOException -> ExplorerUiText.viewOffline
+        else -> ExplorerUiText.viewFailed
+    }
+
+    private val MISSING_CODES = setOf(403, 404, 410)
 
     fun mediaType(served: String?, name: String): String? {
         val said = served?.trim()?.uppercase()?.takeIf { it.isNotEmpty() }

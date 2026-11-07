@@ -3,6 +3,7 @@ package com.fieldrepository.app.explorer
 import com.fieldrepository.app.explorer.data.ExplorerApi
 import com.fieldrepository.app.explorer.ui.ExplorerIdentity
 import com.fieldrepository.app.explorer.ui.ExplorerLinkRequest
+import com.fieldrepository.app.explorer.ui.ExplorerUiText
 import com.fieldrepository.app.explorer.ui.ExplorerViewLinks
 import com.fieldrepository.app.explorer.ui.attemptOrNull
 import kotlinx.coroutines.CancellationException
@@ -43,7 +44,7 @@ class ExplorerLinkServeTest {
         assertNull(ExplorerViewLinks.requests.value)
     }
 
-    @Test fun `a cancelled link is not used up and the cancellation goes on up`() = runBlocking {
+    @Test fun `a link cancelled because the user left Data is used up and the cancellation goes on up`() = runBlocking {
         val link = ExplorerLinkRequest(viewId = null, path = null, go = listOf("media", "m1"))
         ExplorerViewLinks.request(link)
         var failed = false
@@ -53,7 +54,30 @@ class ExplorerLinkServeTest {
         serving.cancelAndJoin()
         assertTrue(serving.isCancelled)
         assertFalse(failed)
-        assertSame(link, ExplorerViewLinks.requests.value)
+        assertNull(ExplorerViewLinks.requests.value)
+    }
+
+    @Test fun `a cancelled link never clears a newer one`() = runBlocking {
+        val old = ExplorerLinkRequest(viewId = "v1", path = null, at = 1)
+        val newer = ExplorerLinkRequest(viewId = "v2", path = null, at = 2)
+        ExplorerViewLinks.request(old)
+        val serving = launch(start = CoroutineStart.UNDISPATCHED) {
+            ExplorerViewLinks.serve(old, onFailure = {}) { awaitCancellation() }
+        }
+        ExplorerViewLinks.request(newer)
+        serving.cancelAndJoin()
+        assertSame(newer, ExplorerViewLinks.requests.value)
+    }
+
+    @Test fun `a saved view that is gone reads differently from a network or server failure`() {
+        assertEquals(ExplorerUiText.viewMissing, ExplorerViewLinks.viewFailure(FakeExplorerApi.httpError(404)))
+        assertEquals(ExplorerUiText.viewMissing, ExplorerViewLinks.viewFailure(FakeExplorerApi.httpError(403)))
+        assertEquals(ExplorerUiText.viewOffline, ExplorerViewLinks.viewFailure(IOException("Unable to resolve host")))
+        assertEquals(ExplorerUiText.viewFailed, ExplorerViewLinks.viewFailure(FakeExplorerApi.httpError(500)))
+        assertEquals(ExplorerUiText.viewFailed, ExplorerViewLinks.viewFailure(FakeExplorerApi.httpError(503)))
+        assertNotEquals(ExplorerUiText.viewMissing, ExplorerUiText.viewOffline)
+        assertNotEquals(ExplorerUiText.viewMissing, ExplorerUiText.viewFailed)
+        assertNotEquals(ExplorerUiText.viewOffline, ExplorerUiText.viewFailed)
     }
 
     @Test fun `a link that fails says so once and is used up`() = runBlocking {

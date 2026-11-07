@@ -613,6 +613,10 @@ import com.fieldrepository.app.data.ScanCopy
 import com.fieldrepository.app.data.ScanTarget
 import com.fieldrepository.app.data.dispatchScan
 
+internal object MainRepositorySeam {
+    @Volatile var factory: ((Context) -> FieldRepository)? = null
+}
+
 class MainActivity : ComponentActivity() {
     private val incomingPasswordLink = mutableStateOf<String?>(null)
 
@@ -644,7 +648,8 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) com.fieldrepository.app.explorer.ui.ExplorerViewLinks.take(intent)
         if (savedInstanceState == null) com.fieldrepository.app.forms.FormBundleInbox.take(applicationContext, intent)
         val tokenStore = TokenStore(applicationContext)
-        val repository = FieldRepository(ApiClient.create(tokenStore, OutboxSyncWorker.readCacheDir(applicationContext)), tokenStore)
+        val repository = MainRepositorySeam.factory?.invoke(applicationContext)
+            ?: FieldRepository(ApiClient.create(tokenStore, OutboxSyncWorker.readCacheDir(applicationContext)), tokenStore)
         com.fieldrepository.app.data.PreviewCache.install(java.io.File(applicationContext.noBackupFilesDir, "media-previews")) {
             repository.cachedUser()?.id
         }
@@ -2429,6 +2434,11 @@ private fun HomeScreen(
         }
                 }
                 }
+                }
+                if (ownsViewport) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        AppMessageBanner(appMessage)
+                    }
                 }
 
                 if (showWalkthrough && pendingUpdate == null) {

@@ -5,13 +5,16 @@ import com.fieldrepository.app.explorer.data.ExplorerCrumb
 import com.fieldrepository.app.explorer.data.ExplorerEntry
 import com.fieldrepository.app.explorer.data.ExplorerTaxonomy
 import com.fieldrepository.app.explorer.data.ExplorerTree
+import com.fieldrepository.app.explorer.ui.ExplorerLinkRequest
 import com.fieldrepository.app.explorer.ui.ExplorerState
+import com.fieldrepository.app.explorer.ui.ExplorerViewLinks
 import com.fieldrepository.app.explorer.ui.TranscriptLoad
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -307,6 +310,89 @@ class ExplorerStateTest {
         assertTrue(s.canGoUp)
         assertTrue(s.goUp())
         until { s.path == "by-workshop" }
+    }
+
+    private fun deep(path: String): ExplorerTree {
+        if (path.isEmpty()) return ExplorerTree(taxonomies = groupings)
+        val segments = path.split('/')
+        val crumbs = segments.indices.map { i -> ExplorerCrumb(segments[i], segments.take(i + 1).joinToString("/")) }
+        return ExplorerTree(
+            path = path,
+            crumbs = crumbs,
+            entries = listOf(ExplorerEntry(name = "F", path = "$path/f", kind = "folder")),
+            taxonomies = groupings,
+            taxonomy = if (path.startsWith("by-craft")) "c" else "w",
+        )
+    }
+
+    @Test fun `back returns to the folder viewed before, not to the parent`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.trees = { path, _, _ -> deep(path) }
+        val s = state(api)
+        s.start(null)
+        until { s.path == "by-workshop" && s.tree?.path == "by-workshop" }
+        s.open("by-craft/k1")
+        until { s.tree?.path == "by-craft/k1" }
+        s.open("by-workshop/w1/crafts/c1/artisans/a1")
+        until { s.tree?.path == "by-workshop/w1/crafts/c1/artisans/a1" }
+        assertTrue(s.canGoUp)
+        assertTrue(s.goUp())
+        until { s.path == "by-craft/k1" }
+        assertTrue(s.goUp())
+        until { s.path == "by-workshop" && s.tree?.path == "by-workshop" }
+        assertEquals(false, s.canGoUp)
+        assertEquals(false, s.goUp())
+    }
+
+    @Test fun `back skips grouping folders the user never opened`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.trees = { path, _, _ -> deep(path) }
+        val s = state(api)
+        s.start("by-workshop/w1/crafts/c1/artisans/a1")
+        until { s.tree?.path == "by-workshop/w1/crafts/c1/artisans/a1" }
+        assertTrue(s.goUp())
+        until { s.tree?.path == "by-workshop/w1/crafts/c1" }
+        assertTrue(s.goUp())
+        until { s.tree?.path == "by-workshop/w1" }
+        assertTrue(s.goUp())
+        until { s.path == "by-workshop" }
+        assertTrue(api.calls.none { it.startsWith("tree:by-workshop/w1/crafts:") || it.startsWith("tree:by-workshop/w1/crafts/c1/artisans:") })
+    }
+
+    @Test fun `only listing levels count as grouping folders`() {
+        assertTrue(ExplorerState.isGrouping("by-workshop/w1/crafts"))
+        assertTrue(ExplorerState.isGrouping("by-workshop/w1/crafts/c1/artisans"))
+        assertTrue(ExplorerState.isGrouping("by-design-workshop/d1/stages"))
+        assertEquals(false, ExplorerState.isGrouping("by-workshop"))
+        assertEquals(false, ExplorerState.isGrouping("by-workshop/w1"))
+        assertEquals(false, ExplorerState.isGrouping("by-workshop/w1/_misc"))
+        assertEquals(false, ExplorerState.isGrouping("by-type/images"))
+    }
+
+    @Test fun `a link that falls back to locate is used up only once the folder is found`() = runBlocking {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val api = object : FakeExplorerApi() {
+            override suspend fun locate(type: String, id: String): kotlinx.serialization.json.JsonElement {
+                gate.await()
+                return super.locate(type, id)
+            }
+        }
+        val s = state(api)
+        val link = ExplorerLinkRequest(viewId = null, path = null, go = listOf("open", "artisan", "r1"))
+        ExplorerViewLinks.request(link)
+        try {
+            val serving = launch(Dispatchers.Default) {
+                ExplorerViewLinks.serve(link, onFailure = { throw AssertionError(it) }) { s.locate("artisan", "r1", "").join() }
+            }
+            delay(150)
+            assertEquals(link, ExplorerViewLinks.requests.value)
+            gate.complete(Unit)
+            serving.join()
+            assertNull(ExplorerViewLinks.requests.value)
+            assertEquals("located/r1", s.path)
+        } finally {
+            ExplorerViewLinks.requests.value?.let { ExplorerViewLinks.consume(it) }
+        }
     }
 
     @Test fun `opening the root once groupings are known stays in the current grouping`() = runBlocking {
