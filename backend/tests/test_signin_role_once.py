@@ -143,7 +143,7 @@ async def test_adding_an_address_never_writes_an_account_and_says_when_it_keeps_
     monkeypatch.setattr(access_routes, "db", SimpleNamespace(user=users, accessroster=_Roster()))
     monkeypatch.setattr(access_routes, "ensure_admitted", _admit)
     monkeypatch.setattr(access_routes, "roster_payload", lambda row, **_kw: {"email": row.email})
-    monkeypatch.setattr(access_routes, "assert_role", lambda *_args: None)
+    monkeypatch.setattr(access_routes, "assert_may_grant_role", lambda *_args: None)
     actor = SimpleNamespace(id="admin-1", role="MASTER_ADMIN")
 
     answer = await access_routes.add_to_roster(

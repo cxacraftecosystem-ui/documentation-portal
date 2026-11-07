@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -65,6 +67,16 @@ def verify_password_or_decoy(password: str, password_hash: str | None) -> bool:
         return verify_password(password, password_hash)
     verify_password(password, _TIMING_DECOY_HASH)
     return False
+
+
+PASSWORD_CHECK_WORKERS = 4
+
+_password_checks = ThreadPoolExecutor(max_workers=PASSWORD_CHECK_WORKERS, thread_name_prefix="password-check")
+
+
+async def verify_password_or_decoy_off_loop(password: str, password_hash: str | None) -> bool:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_password_checks, verify_password_or_decoy, password, password_hash)
 
 
 def _jwt_secret_weakness(secret: str) -> str | None:

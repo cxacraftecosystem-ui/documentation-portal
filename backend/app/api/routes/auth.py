@@ -23,7 +23,7 @@ from app.core.security import (
     create_access_token,
     hash_password,
     verify_password,
-    verify_password_or_decoy,
+    verify_password_or_decoy_off_loop,
 )
 from app.core.user_fields import public_user
 from app.scale.rate_limit import (
@@ -32,6 +32,8 @@ from app.scale.rate_limit import (
     address_credential_attempt,
     client_address,
     forgot_password_attempt,
+    source_credential_attempt,
+    source_credential_refund,
 )
 from app.schemas.auth import (
     ChangePasswordRequest,
@@ -55,6 +57,7 @@ from app.services import (
 from app.services.access_roster import (
     ADMITTING_STATUS,
     INVALID_CREDENTIALS_DETAIL,
+    account_barred,
     gate_enforced,
     is_master_admin_email,
     mark_first_seen,
@@ -116,6 +119,34 @@ async def assert_access_admitted(email: Any, user: Any = None) -> None:
             "message": refusal_detail(refused_status),
         },
     )
+
+
+async def assert_not_barred(user: Any) -> None:
+    if not await account_barred(user):
+        return
+    row = await roster_row(getattr(user, "email", None))
+    refused_status = status_value(row.status) if row is not None else "SUSPENDED"
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={"code": f"ACCESS_{refused_status}", "message": refusal_detail(refused_status)},
+    )
+
+
+async def password_matches(scope: Any, user: Any, email: str, password: str) -> bool:
+    if user is not None:
+        allowed, _retry = account_credential_attempt(user.id)
+    else:
+        allowed, _retry = address_credential_attempt(email)
+    if allowed:
+        allowed, _retry = source_credential_attempt(scope)
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=ACCOUNT_THROTTLED_DETAIL)
+    matched = await verify_password_or_decoy_off_loop(password, user.passwordHash if user else None)
+    if matched and user is not None:
+        account_credential_refund(user.id)
+        source_credential_refund(scope)
+        return True
+    return False
 
 
 def verify_google_token(token: str) -> dict[str, Any]:
@@ -255,7 +286,7 @@ async def _sign_in_verified_address(
 
 
 @router.post("/login", response_model=TokenResponse | TwoFactorChallengeResponse)
-async def login(payload: LoginRequest) -> dict[str, Any]:
+async def login(payload: LoginRequest, request: Request) -> dict[str, Any]:
     if payload.googleIdToken:
         user = await login_with_google(payload.googleIdToken)
     elif payload.has_oidc_login:
@@ -263,18 +294,11 @@ async def login(payload: LoginRequest) -> dict[str, Any]:
     else:
         email = normalise_email(payload.email)
         user = await db.user.find_unique(where={"email": email}) if email else None
-        if user is not None:
-            allowed, _retry = account_credential_attempt(user.id)
-        else:
-            allowed, _retry = address_credential_attempt(email)
-        if not allowed:
-            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=ACCOUNT_THROTTLED_DETAIL)
-        if not verify_password_or_decoy(payload.password or "", user.passwordHash if user else None) or not user:
+        if not await password_matches(request.scope, user, email, payload.password or ""):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=INVALID_CREDENTIALS_DETAIL,
             )
-        account_credential_refund(user.id)
 
     await assert_access_admitted(user.email, user)
 
@@ -311,10 +335,10 @@ def _session_token(user: Any) -> str:
 
 
 @router.post("/google", response_model=TokenResponse | TwoFactorChallengeResponse)
-async def google_login(payload: LoginRequest) -> dict[str, Any]:
+async def google_login(payload: LoginRequest, request: Request) -> dict[str, Any]:
     if not payload.googleIdToken:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Missing Google ID token")
-    return await login(payload)
+    return await login(payload, request)
 
 
 @router.post("/logout")
@@ -450,7 +474,7 @@ async def _link_verdict(raw: str | None) -> credential_links.TokenVerdict:
         return verdict
     issuer = await db.user.find_unique(where={"id": verdict.issued_by_id})
     target = await db.user.find_unique(where={"id": verdict.user_id})
-    if target is not None and not issuer_still_manages(issuer, target):
+    if target is not None and (not issuer_still_manages(issuer, target) or await account_barred(issuer)):
         logger.info(
             "auth: refused password link for account %s: its issuer %s can no longer manage it",
             verdict.user_id,
@@ -610,6 +634,7 @@ async def change_password(
     response: Response,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, bool]:
+    await assert_not_barred(current_user)
     if current_user.passwordHash is None:
         return await _set_first_password(payload, response, current_user)
     allowed, _retry = account_credential_attempt(current_user.id)

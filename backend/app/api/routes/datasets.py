@@ -18,13 +18,8 @@ from app.core.deps import (
     require_dataset_admin,
 )
 from app.core.deps import password_credential
-from app.core.security import create_access_token, verify_password_or_decoy
-from app.api.routes.auth import ACCOUNT_THROTTLED_DETAIL
-from app.scale.rate_limit import (
-    account_credential_attempt,
-    account_credential_refund,
-    address_credential_attempt,
-)
+from app.core.security import create_access_token
+from app.api.routes.auth import assert_access_admitted, password_matches
 from app.schemas.auth import DatasetTokenRequest
 from app.services import naming, two_factor
 from app.services.access_roster import normalise_email
@@ -341,7 +336,7 @@ def _csv_shape(dataset: Dataset) -> tuple[str, list[str]]:
 
 
 @router.post("/token")
-async def mint_dataset_token(payload: DatasetTokenRequest) -> dict[str, Any]:
+async def mint_dataset_token(payload: DatasetTokenRequest, request: Request) -> dict[str, Any]:
     if payload.googleIdToken:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -350,17 +345,10 @@ async def mint_dataset_token(payload: DatasetTokenRequest) -> dict[str, Any]:
 
     email = normalise_email(payload.email)
     user = await db.user.find_unique(where={"email": email}) if email else None
-    if user is not None:
-        allowed, _retry = account_credential_attempt(user.id)
-    else:
-        allowed, _retry = address_credential_attempt(email)
-    if not allowed:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=ACCOUNT_THROTTLED_DETAIL)
-    if not verify_password_or_decoy(payload.password or "", user.passwordHash if user else None) or not user:
+    if not await password_matches(request.scope, user, email, payload.password or ""):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
         )
-    account_credential_refund(user.id)
     if getattr(user, "twoFactorEnabled", False):
         try:
             accepted = bool(payload.code) and await two_factor.check_second_factor(user, payload.code or "")
@@ -378,6 +366,7 @@ async def mint_dataset_token(payload: DatasetTokenRequest) -> dict[str, Any]:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required to issue a dataset token.",
         )
+    await assert_access_admitted(user.email, user)
 
     minutes = get_settings().dataset_token_expires_minutes
     token = create_access_token(

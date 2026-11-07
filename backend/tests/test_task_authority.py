@@ -259,8 +259,7 @@ def test_a_demoted_creator_still_may_not_move_their_old_task_onto_themselves(boa
         .patch("/t1", {"assigneeId": demoted.id})
     )
 
-    assert response.status_code == 422, response.text
-    assert response.json()["detail"] == "You cannot assign a task to yourself"
+    assert response.status_code == 403, response.text
     assert board.assignedtask.updates == []
 
 
@@ -384,3 +383,17 @@ def test_an_override_leaves_no_trace_of_who_performed_it(board: _Board) -> None:
     assert by_admin["status"] == "DONE"
     assert by_assignee["status"] == "SUBMITTED"
     assert "approvedById" not in by_admin and "approvedById" not in by_assignee
+
+
+@pytest.mark.parametrize("body", [{"status": "CANCELLED"}, {"title": "Rewritten"}, {"assigneeId": "u_field_contributor"}])
+def test_a_demoted_creator_loses_the_managers_authority_over_their_old_task(board: _Board, body: dict) -> None:
+    demoted = PEOPLE[WORKER_ID]
+
+    response = (
+        board.holding(createdById=demoted.id, assigneeId="u_someone_else")
+        .as_("RESEARCHER")
+        .patch("/t1", body)
+    )
+
+    assert response.status_code == 403, response.text
+    assert board.assignedtask.updates == []

@@ -256,7 +256,7 @@ def test_an_admin_approves_a_submitted_task(board: _Board, role: str) -> None:
     assert response.json()["statusLabel"] == "Approved"
 
 
-def test_the_task_creator_may_approve_even_without_being_an_admin(board: _Board) -> None:
+def test_a_demoted_task_creator_may_not_approve_submitted_work(board: _Board) -> None:
     demoted = _user("PROFESSOR", "u_demoted")
     PEOPLE[demoted.id] = demoted
 
@@ -266,8 +266,8 @@ def test_the_task_creator_may_approve_even_without_being_an_admin(board: _Board)
         .patch("/t1", {"status": "DONE"})
     )
 
-    assert response.status_code == 200, response.text
-    assert board.assignedtask.updates[0]["status"] == "DONE"
+    assert response.status_code == 403, response.text
+    assert board.assignedtask.updates == []
 
 
 def test_approving_does_not_restamp_the_moment_the_work_was_finished(board: _Board) -> None:

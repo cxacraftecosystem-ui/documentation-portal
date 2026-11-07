@@ -118,6 +118,14 @@ def api(monkeypatch: pytest.MonkeyPatch):
             raise AssertionError(f"unexpected database read: db.{name}")
 
     monkeypatch.setattr(datasets, "db", _Tables())
+
+    class _AdmittedRoster:
+        async def find_unique(self, where: dict[str, Any], **_: Any) -> Any:
+            return SimpleNamespace(email=where.get("email"), status="ACTIVE")
+
+    from app.services import access_roster
+
+    monkeypatch.setattr(access_roster, "db", SimpleNamespace(accessroster=_AdmittedRoster()))
     deps.clear_user_cache()
     yield stack
     deps.clear_user_cache()

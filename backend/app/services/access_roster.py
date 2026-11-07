@@ -80,6 +80,17 @@ async def roster_row(email: Any) -> Any | None:
     return await db.accessroster.find_unique(where={"email": address})
 
 
+BARRED_STATUSES = frozenset({"REJECTED", "SUSPENDED"})
+
+
+async def account_barred(account: Any) -> bool:
+    email = getattr(account, "email", None)
+    if is_master_admin_email(email) or role_value(getattr(account, "role", None)) == "MASTER_ADMIN":
+        return False
+    row = await roster_row(email)
+    return row is not None and status_value(row.status) in BARRED_STATUSES
+
+
 async def roster_admits(email: Any) -> bool:
     address = normalise_email(email)
     if not address:

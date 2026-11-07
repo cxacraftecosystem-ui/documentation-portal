@@ -6,7 +6,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 
 ## Design Prototype Workshop
 
-141 models, 1768 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+141 models, 1769 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
 
 ### Models and fields
 
@@ -1176,6 +1176,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `canDownloadDataset`: excluded. Account security and permission settings, managed on the Users page, not collected data.
   - `passwordSetAt`: excluded. Password material: never exported.
   - `mustChangePassword`: excluded. Password material: never exported.
+  - `passwordIssuerKnown`: excluded. Password material: never exported.
   - `firstLoginAt`: People › First login on
   - `lastLoginAt`: People › Last login on
   - `sessionsValidFrom`: excluded. Account security and permission settings, managed on the Users page, not collected data.

@@ -23,7 +23,7 @@ from app.core.deps import (
 from app.core.security import hash_password
 from app.schemas.users import UserCreate, UserUpdate
 from app.services import credential_links, email_outbox, mailer, signin_role
-from app.services.access_roster import ensure_admitted
+from app.services.access_roster import ensure_admitted, normalise_email
 from app.core.user_fields import public_user
 from app.services.two_factor import CLEAR_FAILURES
 from app.services.pagination import normalize_pagination, page_payload
@@ -176,6 +176,13 @@ def assert_may_create_role(role: str | None, current_user: Any) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only add people at a level below your own.",
         )
+
+
+def assert_may_grant_role(role: str | None, current_user: Any) -> None:
+    if not role:
+        return
+    assert_role(role, current_user)
+    assert_may_create_role(role, current_user)
 
 
 def duplicate_account_refusal(existing: Any) -> HTTPException:
@@ -331,6 +338,8 @@ async def update_user(
         assert_can_manage_target(current_user, user)
         if "password" in data or "mustChangePassword" in data:
             assert_not_another_master(current_user, user)
+        if "role" in data and data["role"] != str(getattr(user.role, "value", user.role)):
+            assert_may_grant_role(data["role"], current_user)
 
     ends_sessions = False
     if "password" in data:
@@ -375,6 +384,7 @@ async def update_user(
             user_id=user_id, actor_id=current_user.id, before=role_before, after=updated.role, via="users"
         )
     if "email" in data and data["email"] != previous_email:
+        await _withdraw_previous_address(user_id, previous_email, current_user.id)
         await ensure_admitted(
             updated.email,
             granted_role=str(getattr(updated.role, "value", updated.role)),
@@ -405,6 +415,20 @@ async def update_user(
     return serialize_user(updated)
 
 
+async def _withdraw_previous_address(user_id: str, previous_email: str | None, actor_id: str) -> None:
+    await credential_links.revoke_outstanding(user_id)
+    await db.emailmessage.update_many(
+        where={"recipientId": user_id, "kind": mailer.PASSWORD_LINK, "status": email_outbox.QUEUED},
+        data={"status": email_outbox.SKIPPED, "error": "The account's address changed before it was sent."},
+    )
+    address = normalise_email(previous_email)
+    if address and not is_master_email(address):
+        await db.accessroster.update_many(
+            where={"email": address, "status": "ACTIVE"},
+            data={"status": "SUSPENDED", "decidedAt": datetime.now(UTC), "decidedById": actor_id},
+        )
+
+
 @router.post("/{user_id}/sign-out-everywhere")
 async def sign_out_everywhere(user_id: str, current_user: Any = Depends(require_admin)) -> dict[str, Any]:
     user = await db.user.find_unique(where={"id": user_id})
@@ -432,6 +456,10 @@ async def delete_user(user_id: str, current_user: Any = Depends(require_admin)) 
     if user.id == current_user.id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="You cannot delete your own account")
     assert_can_manage_target(current_user, user)
+    await db.passwordresettoken.update_many(
+        where={"issuedById": user_id, "usedAt": None, "revokedAt": None},
+        data={"revokedAt": datetime.now(UTC)},
+    )
     await db.user.delete(where={"id": user_id})
     await db.accessroster.update_many(
         where={"email": user.email},

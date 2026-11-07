@@ -26,7 +26,12 @@ from app.services.email_outbox import notify_access_granted
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import contains
 
-from app.api.routes.users import assert_role, create_account, serialize_user
+from app.api.routes.users import (
+    assert_can_manage_target,
+    assert_may_grant_role,
+    create_account,
+    serialize_user,
+)
 from app.schemas.users import UserCreate
 
 router = APIRouter(prefix="/access-roster", tags=["access-roster"])
@@ -97,7 +102,7 @@ async def add_to_roster(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="An access roster entry needs an email address",
         )
-    assert_role(payload.grantedRole, current_user)
+    assert_may_grant_role(payload.grantedRole, current_user)
 
     existing = await db.accessroster.find_unique(where={"email": email})
     if existing is not None:
@@ -188,7 +193,10 @@ async def update_roster_entry(
     if new_status and new_status != ADMITTING_STATUS and is_master_admin_email(row.email):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_MASTER_ADMIN_PROTECTED)
     if "grantedRole" in values:
-        assert_role(values.get("grantedRole"), current_user)
+        assert_may_grant_role(values.get("grantedRole"), current_user)
+    readdressed = bool(values.get("email")) and normalise_email(values["email"]) != row.email
+    if (new_status and new_status != ADMITTING_STATUS) or readdressed:
+        await _assert_may_manage_holder(row.email, current_user)
 
     if new_status == ADMITTING_STATUS:
         updated = await ensure_admitted(
@@ -230,7 +238,7 @@ async def update_roster_entry(
 
     updated = await db.accessroster.update(where={"id": roster_id}, data=data)
     if new_status:
-        await _invalidate_account(row.email)
+        await _invalidate_account(row.email, end_sessions=new_status != ADMITTING_STATUS)
     return roster_payload(updated)
 
 
@@ -243,6 +251,7 @@ async def suspend_roster_entry(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
     if is_master_admin_email(row.email):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_MASTER_ADMIN_PROTECTED)
+    await _assert_may_manage_holder(row.email, current_user)
     if status_value(row.status) == "SUSPENDED":
         return roster_payload(row)
 
@@ -254,7 +263,7 @@ async def suspend_roster_entry(
             "decidedById": current_user.id,
         },
     )
-    await _invalidate_account(row.email)
+    await _invalidate_account(row.email, end_sessions=True)
     return roster_payload(updated)
 
 
@@ -268,7 +277,16 @@ async def _role_kept(email: str, role: str | None) -> str | None:
     return signin_role.role_kept_sentence(address, role_value(getattr(account, "role", None)), role)
 
 
-async def _invalidate_account(email: str) -> None:
+async def _assert_may_manage_holder(email: str, current_user: Any) -> None:
     account = await db.user.find_unique(where={"email": email})
     if account is not None:
-        invalidate_cached_user(account.id)
+        assert_can_manage_target(current_user, account)
+
+
+async def _invalidate_account(email: str, *, end_sessions: bool = False) -> None:
+    account = await db.user.find_unique(where={"email": email})
+    if account is None:
+        return
+    if end_sessions:
+        await db.user.update(where={"id": account.id}, data={"sessionsValidFrom": datetime.now(UTC)})
+    invalidate_cached_user(account.id)
