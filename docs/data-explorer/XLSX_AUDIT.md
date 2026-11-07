@@ -6,7 +6,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 
 ## Design Prototype Workshop
 
-141 models, 1769 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+142 models, 1773 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
 
 ### Models and fields
 
@@ -567,6 +567,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **MinistryExportPack**: excluded. Ministry export packs (Ministry exports page).
 - **MinistryExportRecipient**: excluded. Ministry export recipients (Ministry exports page).
 - **Notification**: excluded. In-app notifications to accounts.
+- **PaidAiSpend**: excluded. Paid-AI allowance counters that rate-limit spend, not collected data.
 - **PasswordResetRequest**: excluded. Password material: never exported.
 - **PasswordResetToken**: excluded. Password material: never exported.
 - **Process**
@@ -1363,7 +1364,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 
 ## Field Repository
 
-98 models, 1215 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+99 models, 1219 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
 
 ### Models and fields
 
@@ -1616,6 +1617,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **MediaUploadIntent**: excluded. Resumable-upload bookkeeping before a file exists.
 - **MediaWaveform**: excluded. Waveform peaks drawn by the audio player.
 - **Notification**: excluded. In-app notifications to accounts.
+- **PaidAiSpend**: excluded. Paid-AI allowance counters that rate-limit spend, not collected data.
 - **PasswordResetRequest**: excluded. Password material: never exported.
 - **PasswordResetToken**: excluded. Password material: never exported.
 - **Process**

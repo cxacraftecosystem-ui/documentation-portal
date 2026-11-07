@@ -41,6 +41,7 @@
  "MinistryExportPack": "Ministry export packs (Ministry exports page).",
  "MinistryExportRecipient": "Ministry export recipients (Ministry exports page).",
  "Notification": "In-app notifications to accounts.",
+ "PaidAiSpend": "Paid-AI allowance counters that rate-limit spend, not collected data.",
  "PasswordResetRequest": "Password material: never exported.",
  "PasswordResetToken": "Password material: never exported.",
  "RecordAccessToken": "Access token, link secret or hash: never exported.",
