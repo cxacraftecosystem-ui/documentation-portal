@@ -300,6 +300,13 @@
     <string name="q_outbox_discard_title">Discard this?</string>
     <string name="q_outbox_discard_body">It was never sent and can\'t be brought back.</string>
     <string name="q_outbox_keep">Keep</string>
+    <string name="q_outbox_held_other_title">Waiting for another account (%1$s)</string>
+    <string name="q_outbox_held_other_body">Captured by someone else on this device. They send when that account signs in.</string>
+    <string name="q_outbox_held_keep">Keep for them</string>
+    <string name="q_outbox_held_unowned_title">Saved without an account (%1$s)</string>
+    <string name="q_outbox_held_unowned_body">Send them as you only if you captured them.</string>
+    <string name="q_outbox_held_claim">Send as me</string>
+    <string name="q_outbox_held_discard_title">Discard these?</string>
     <string name="q_use_my_location">Use my location</string>
     <string name="q_location_captured">Location saved (within %1$s m)</string>
     <string name="q_location_finding">Finding your location…</string>
