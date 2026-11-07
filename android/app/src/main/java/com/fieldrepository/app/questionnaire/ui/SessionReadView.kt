@@ -32,6 +32,7 @@ import com.fieldrepository.app.questionnaire.data.QSessionDetail
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
 import com.fieldrepository.app.questionnaire.data.SharedLanguages
+import com.fieldrepository.app.ui.AudioExpand
 import com.fieldrepository.app.ui.AudioPlayer
 import com.fieldrepository.app.transcript.data.TranscriptUiText
 import com.fieldrepository.app.transcript.ui.TranscriptDialog
@@ -77,6 +78,7 @@ fun SessionReadView(
     var busy by remember { mutableStateOf(false) }
     var returning by remember { mutableStateOf(false) }
     var playing by remember { mutableStateOf<Uri?>(null) }
+    var expandFor by remember { mutableStateOf<AudioExpand?>(null) }
     LaunchedEffect(sessionId, attempt) {
         failed = false
         runCatching { v2.api.session(sessionId) }.onSuccess { d ->
@@ -130,7 +132,7 @@ fun SessionReadView(
                     }
                     if (takes.isEmpty() && answered.isEmpty()) return@forEach
                     Text("${section.code}  ${section.title}", style = MaterialTheme.typography.titleMedium)
-                    takes.forEach { r -> TakeLine(r) { scope.launch { playing = v2.playbackUrl(r.id)?.let(Uri::parse) } } }
+                    takes.forEach { r -> TakeLine(r) { scope.launch { playing = v2.playbackUrl(r.id)?.let(Uri::parse); expandFor = r.audioExpand() } } }
                     answered.forEach { (q, list) ->
                         Text(q.displayCode + "  " + q.prompt, style = MaterialTheme.typography.labelLarge)
                         list.forEach { a ->
@@ -141,9 +143,9 @@ fun SessionReadView(
                 }
                 live.filter { it.targets.isEmpty() }.takeIf { it.isNotEmpty() }?.let { whole ->
                     Text(QuestionnaireCopy.s("record.wholeSession"), style = MaterialTheme.typography.titleMedium)
-                    whole.forEach { r -> TakeLine(r) { scope.launch { playing = v2.playbackUrl(r.id)?.let(Uri::parse) } } }
+                    whole.forEach { r -> TakeLine(r) { scope.launch { playing = v2.playbackUrl(r.id)?.let(Uri::parse); expandFor = r.audioExpand() } } }
                 }
-                playing?.let { AudioPlayer(it) }
+                playing?.let { AudioPlayer(it, expand = expandFor) }
                 if (canReview && d.status != "APPROVED") {
                     HorizontalDivider(color = MaterialTheme.field.hairline)
                     Text(reviewFlags(d), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)

@@ -44,6 +44,7 @@ import com.fieldrepository.app.explorer.data.ExplorerEntry
 import com.fieldrepository.app.explorer.data.ExplorerPaths
 import com.fieldrepository.app.explorer.data.ExplorerText
 import com.fieldrepository.app.ui.FieldCircularProgressIndicator
+import com.fieldrepository.app.ui.AudioExpand
 import com.fieldrepository.app.ui.MediaViewerDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -73,7 +74,13 @@ internal fun ExplorerPreviewDialog(entry: ExplorerEntry, onSave: (() -> Unit)?, 
         }
     }
     when (val now = load) {
-        is PreviewLoad.Ready -> MediaViewerDialog(uri = Uri.parse(now.url), mediaType = entry.mediaType.orEmpty(), onSave = onSave, onDismiss = onDismiss)
+        is PreviewLoad.Ready -> MediaViewerDialog(
+            uri = Uri.parse(now.url),
+            mediaType = entry.mediaType.orEmpty(),
+            onSave = onSave,
+            onDismiss = onDismiss,
+            expand = entry.mediaId?.takeIf { entry.mediaType == "AUDIO" }?.let { AudioExpand(it, entry.name) },
+        )
         is PreviewLoad.Pdf -> PdfDialog(now.file, entry.name, onDismiss)
         else -> Dialog(onDismissRequest = onDismiss) {
             Column(

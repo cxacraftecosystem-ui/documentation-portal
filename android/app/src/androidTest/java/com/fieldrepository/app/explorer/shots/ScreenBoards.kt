@@ -276,7 +276,7 @@ object ScreenBoards {
         current = "Interview_Dabu-mud-resist_Take-1.mp4", currentBytes = 266 * MB, currentTotal = 701 * MB,
     )
 
-    fun saved(now: Long, title: String = "Giriraj Prasad Chhipa", files: Int = 47, bytes: Long = (1.23 * GB).toLong(), folder: String = "DesignWorkshop"): ExplorerJob =
+    fun saved(now: Long, title: String = "Giriraj Prasad Chhipa", files: Int = 47, bytes: Long = (1.23 * GB).toLong(), folder: String = com.fieldrepository.app.explorer.portal.ExplorerPortal.DOWNLOAD_FOLDER): ExplorerJob =
         job("saved-$title", title, ExplorerJobKind.FOLDER, ExplorerJobState.DONE, now, "$title.zip").copy(
             doneBytes = bytes, totalBytes = bytes, doneFiles = files, totalFiles = files,
             result = ExplorerResult(location = "Downloads/$folder/$title.zip", uri = "content://downloads/1", saved = files, total = files, bytes = bytes),
@@ -286,7 +286,7 @@ object ScreenBoards {
 
     fun report(now: Long): ExplorerJob = job("report", "Report (.xlsx)", ExplorerJobKind.REPORT, ExplorerJobState.DONE, now, "3rd-Craft-Toolkit-Report.xlsx").copy(
         totalBytes = (2.1 * MB).toLong(), doneBytes = (2.1 * MB).toLong(),
-        result = ExplorerResult(location = "Downloads/DesignWorkshop/3rd-Craft-Toolkit-Report.xlsx", uri = "content://downloads/2", saved = 1, total = 1, bytes = (2.1 * MB).toLong(), message = "7 sheets"),
+        result = ExplorerResult(location = "Downloads/${com.fieldrepository.app.explorer.portal.ExplorerPortal.DOWNLOAD_FOLDER}/3rd-Craft-Toolkit-Report.xlsx", uri = "content://downloads/2", saved = 1, total = 1, bytes = (2.1 * MB).toLong(), message = "7 sheets"),
     )
 
     class More(private val base: ExplorerMore = DesignBoards.More()) : ExplorerMore by base {
