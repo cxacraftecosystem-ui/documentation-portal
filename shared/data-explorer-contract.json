@@ -605,8 +605,7 @@
           "recorded",
           "added",
           "modified",
-          "size",
-          "type"
+          "size"
         ],
         "default": "added:desc"
       },

@@ -313,7 +313,7 @@ def test_browse_and_record_media_sort_in_the_database_across_pages(monkeypatch):
                         assert answer.status_code == 200, answer.text
                         pages.append(answer.json())
                     out[f"browse {sort}"] = pages
-                for sort in ("size:desc", "recorded:asc", "type:asc"):
+                for sort in ("size:desc", "recorded:asc", "name:desc"):
                     pages = []
                     for page in (1, 2, 3, 4):
                         answer = await client.get(
@@ -349,7 +349,7 @@ def test_browse_and_record_media_sort_in_the_database_across_pages(monkeypatch):
             assert listed == _expected(rows, key, direction), sort
         assert pages[0]["sort"] == {"key": key, "dir": direction}
         assert pages[0]["sorts"] == ["name", "recorded", "added", "modified"]
-    for sort in ("size:desc", "recorded:asc", "type:asc"):
+    for sort in ("size:desc", "recorded:asc", "name:desc"):
         key, direction = sort.split(":")
         pages = seen[f"media {sort}"]
         listed = [item["mediaId"] for page in pages for item in page["items"]]

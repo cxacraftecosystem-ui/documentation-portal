@@ -65,7 +65,7 @@ TRANSCRIPT_KEYS: tuple[str, ...] = (
     "status",
 )
 BROWSE_KEYS: tuple[str, ...] = ("name", "recorded", "added", "modified")
-BROWSE_MEDIA_KEYS: tuple[str, ...] = ("name", "recorded", "added", "modified", "size", "type")
+BROWSE_MEDIA_KEYS: tuple[str, ...] = ("name", "recorded", "added", "modified", "size")
 
 FACETS: tuple[str, ...] = ("workshop", "artisan", "craft")
 _FACET_FK = {"workshop": "workshopId", "artisan": "artisanId", "craft": "craftId"}

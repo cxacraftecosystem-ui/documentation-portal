@@ -63,7 +63,6 @@ _MEDIA_FIELDS = {
     "added": "createdAt",
     "modified": "updatedAt",
     "size": "sizeBytes",
-    "type": "mediaType",
 }
 
 
