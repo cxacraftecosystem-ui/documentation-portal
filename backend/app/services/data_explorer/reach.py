@@ -53,11 +53,6 @@ _MEDIA_SQL = (
     'OR m."productId" = ANY($4::text[]) OR m."toolId" = ANY($5::text[]) '
     'OR m."questionnaireInterviewId" = ANY($6::text[]) OR m."linkedRecordId" = ANY($7::text[]))'
 )
-_DW_MEDIA_SQL = (
-    'SELECT m."id", m."sizeBytes", m."designWorkshopId", m."linkedRecordType", m."linkedRecordId" '
-    'FROM "MediaFile" m WHERE m."removedAt" IS NULL AND (m."designWorkshopId" = ANY($1::text[]) '
-    'OR (m."linkedRecordType" = ANY($2::text[]) AND m."linkedRecordId" = ANY($1::text[])))'
-)
 
 Totals = dict[str, tuple[int, int]]
 
@@ -370,46 +365,4 @@ async def workshop_totals(segs: list[str], keys: list[str], scope: Any, browser:
         return tree.totals({tid: tree.tool(tid) for tid in keys})
     if branch == "questionnaire" and len(tail) == 2:
         return tree.totals({iid: tree.interview(iid) for iid in keys})
-    return None
-
-
-async def _dw_media(ids: list[str], scope: Any, browser: Any) -> tuple[dict[str, int], dict[str, set[str]]]:
-    tags = list(getattr(browser, "_DESIGN_WORKSHOP_TAGS", ["designWorkshop"]))
-    sizes: dict[str, int] = {}
-    owners: dict[str, set[str]] = defaultdict(set)
-    wanted = set(ids)
-    for row in await _rows(_DW_MEDIA_SQL, sorted(wanted), tags):
-        mid = str(row["id"])
-        sizes[mid] = int(row.get("sizeBytes") or 0)
-        if row.get("designWorkshopId") in wanted:
-            owners[str(row["designWorkshopId"])].add(mid)
-        if row.get("linkedRecordType") in tags and row.get("linkedRecordId") in wanted:
-            owners[str(row["linkedRecordId"])].add(mid)
-    visible = await _visible(db.mediafile, list(sizes), _media_where(scope))
-    if visible is not None:
-        owners = defaultdict(set, {k: {m for m in v if m in visible} for k, v in owners.items()})
-    return sizes, owners
-
-
-def _sum(ids: set[str], sizes: dict[str, int]) -> tuple[int, int]:
-    return len(ids), sum(sizes.get(m, 0) for m in ids)
-
-
-async def design_workshop_totals(segs: list[str], keys: list[str], scope: Any, browser: Any) -> Totals | None:
-    if len(segs) == 1:
-        sizes, owners = await _dw_media(keys, scope, browser)
-        return {wid: _sum(owners.get(wid, set()), sizes) for wid in keys}
-    if len(segs) in (2, 3) and (len(segs) == 2 or segs[2] == "stages"):
-        wid = segs[1]
-        record = await browser._dw_require(wid)
-        entries = await browser._dw_entries(wid)
-        sizes, owners = await _dw_media([wid], scope, browser)
-        attributions = browser.dw.media_attributions(record, entries)
-        mine = owners.get(wid, set())
-        by_stage: dict[str, set[str]] = defaultdict(set)
-        for mid in mine:
-            found = attributions.get(mid)
-            if found is not None:
-                by_stage[found.stage_key].add(mid)
-        return {key: _sum(by_stage.get(key, set()), sizes) for key in keys}
     return None
