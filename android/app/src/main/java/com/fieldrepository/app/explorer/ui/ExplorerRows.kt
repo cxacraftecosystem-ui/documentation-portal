@@ -205,7 +205,10 @@ internal fun ExplorerThumb(entry: ExplorerEntry, size: Dp = 48.dp) {
         contentScale = ContentScale.Fit,
         loading = { stored() },
         error = { stored() },
-        success = { ExplorerThumbFrame(size) { SubcomposeAsyncImageContent(modifier = Modifier.matchParentSize()) } },
+        success = {
+            val image = this
+            ExplorerThumbFrame(size) { image.SubcomposeAsyncImageContent(modifier = Modifier.matchParentSize()) }
+        },
         onSuccess = { state -> offline?.keep?.invoke(state.result.image) },
         modifier = Modifier.size(size).clip(ExplorerShapes.tile).testTag("explorer.thumb.${entry.mediaId ?: entry.path}"),
     )
