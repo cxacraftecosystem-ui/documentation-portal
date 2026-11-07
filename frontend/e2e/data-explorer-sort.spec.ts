@@ -57,8 +57,15 @@ async function withinViewport(page: Page, target: Locator) {
 }
 
 async function noSidewaysScroll(page: Page) {
-  const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  expect(wide).toBeLessThanOrEqual(1);
+  const found = await page.evaluate(() => {
+    const limit = document.documentElement.clientWidth;
+    const offenders = [...document.querySelectorAll<HTMLElement>("body *")]
+      .filter((node) => node.getBoundingClientRect().right + window.scrollX > limit + 1 && getComputedStyle(node).position !== "fixed")
+      .slice(-5)
+      .map((node) => `${node.tagName.toLowerCase()}.${String(node.className).slice(0, 80)} → ${Math.round(node.getBoundingClientRect().right + window.scrollX)}`);
+    return { wide: document.documentElement.scrollWidth - limit, offenders };
+  });
+  expect(found.wide, found.offenders.join(" | ")).toBeLessThanOrEqual(1);
 }
 
 for (const size of SIZES) {
@@ -128,13 +135,14 @@ for (const size of SIZES) {
     });
 
     test(`the Transcripts tab asks the server for the chosen order · ${size.width}`, async ({ browser }) => {
-      const { context, page, fake } = await openWith(browser, size, { path: "workshops/bagru", view: "transcripts" }, (made) => {
+      const { context, page, fake } = await openWith(browser, size, { path: "workshops/bagru/kamla", view: "transcripts" }, (made) => {
         made.transcriptSorting = true;
       });
       try {
         const tab = page.getByTestId("transcripts-tab");
         const rows = tab.locator("[data-transcript-row]");
         await expect(rows).toHaveCount(2);
+        await noSidewaysScroll(page);
         await tab.getByRole("button", { name: /^Sort transcripts: Folder · A–Z$/ }).click();
         const panel = page.getByRole("dialog", { name: "Sort transcripts" });
         await withinViewport(page, panel);
