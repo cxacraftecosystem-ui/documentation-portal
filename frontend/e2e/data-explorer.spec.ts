@@ -1860,9 +1860,9 @@ test.describe("search sort", () => {
       const results = page.getByTestId("search-results");
       const pick = async (label: string) => {
         await results.getByTestId("sort-button").click();
-        await results.getByTestId("sort-panel").getByRole("radio", { name: label, exact: true }).click();
+        await page.getByTestId("sort-panel").getByRole("radio", { name: label, exact: true }).click();
         await results.getByTestId("sort-button").click();
-        await expect(results.getByTestId("sort-panel")).toHaveCount(0);
+        await expect(page.getByTestId("sort-panel")).toHaveCount(0);
       };
       const asked = (pageNumber: string, type: string | null) =>
         fake.calls.filter((call) => call.path === "/search/unified" && call.query.get("sort") === "name:asc" && call.query.get("page") === pageNumber && call.query.get("type") === type);

@@ -126,6 +126,8 @@ for (const size of SIZES) {
         await expect(rows.last()).toContainText("interview");
         const asked = fake.calls.filter((call) => call.path === "/data/transcripts/list").at(-1);
         expect(asked?.query.get("sort")).toBe("name:desc");
+        await page.keyboard.press("Escape");
+        await expect(panel).toHaveCount(0);
         await noSidewaysScroll(page);
       } finally {
         await context.close();

@@ -24,19 +24,16 @@ export function useRememberedSort(viewer: string, level: string, list: SortList)
   return [current.choice, remember];
 }
 
-type Place = { left: number; top: number | null; bottom: number | null; maxHeight: number };
+type Place = { left: number; top: number };
 
 const PANEL_WIDTH = 240;
 const GAP = 4;
 const EDGE = 8;
 
-export function placeFor(rect: { left: number; right: number; top: number; bottom: number }, align: "left" | "right", width: number, height: number): Place {
+export function placeFor(rect: { left: number; right: number; bottom: number }, align: "left" | "right", width: number, scroll: { x: number; y: number }): Place {
   const wanted = align === "left" ? rect.left : rect.right - PANEL_WIDTH;
   const left = Math.max(EDGE, Math.min(wanted, width - PANEL_WIDTH - EDGE));
-  const below = height - rect.bottom - GAP - EDGE;
-  const above = rect.top - GAP - EDGE;
-  if (below >= 320 || below >= above) return { left, top: rect.bottom + GAP, bottom: null, maxHeight: Math.max(120, below) };
-  return { left, top: null, bottom: height - rect.top + GAP, maxHeight: Math.max(120, above) };
+  return { left: left + scroll.x, top: rect.bottom + GAP + scroll.y };
 }
 
 const ROW = "flex min-h-10 w-full items-center gap-2 rounded-sm px-3 text-left text-sm transition pointer-coarse:min-h-11";
@@ -67,15 +64,11 @@ export function SortMenu({
     if (!open) return;
     const measure = () => {
       const rect = button.current?.getBoundingClientRect();
-      if (rect) setPlace(placeFor(rect, align, window.innerWidth, window.innerHeight));
+      if (rect) setPlace(placeFor(rect, align, document.documentElement.clientWidth, { x: window.scrollX, y: window.scrollY }));
     };
     measure();
-    window.addEventListener("scroll", measure, true);
     window.addEventListener("resize", measure);
-    return () => {
-      window.removeEventListener("scroll", measure, true);
-      window.removeEventListener("resize", measure);
-    };
+    return () => window.removeEventListener("resize", measure);
   }, [open, align]);
   useEffect(() => {
     if (!open) return;
@@ -117,8 +110,8 @@ export function SortMenu({
           ref={panel}
           role="dialog"
           aria-label={label}
-          style={{ left: place.left, top: place.top ?? undefined, bottom: place.bottom ?? undefined, maxHeight: place.maxHeight }}
-          className="fixed z-50 grid w-60 content-start gap-1 overflow-y-auto overscroll-contain rounded-md border border-line-200 bg-card p-1 shadow-md"
+          style={{ left: place.left, top: place.top }}
+          className="absolute z-50 grid w-60 content-start gap-1 rounded-md border border-line-200 bg-card p-1 shadow-md"
           data-testid="sort-panel"
         >
           <p className="px-3 pt-2 pb-1 text-xs font-semibold tracking-[0.04em] text-ink-500 uppercase">Sort by</p>
