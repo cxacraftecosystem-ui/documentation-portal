@@ -6,7 +6,18 @@ from typing import Any
 import httpx
 import pytest
 from fastapi import HTTPException
-from qv2_fixtures import connect, needs_db, no_outside_calls, patch_db, record_take, run, seed, session_create, settings_v2, t
+from qv2_fixtures import (
+    connect,
+    needs_db,
+    no_outside_calls,
+    patch_db,
+    record_take,
+    run,
+    seed,
+    session_create,
+    settings_v2,
+    t,
+)
 
 pytestmark = needs_db
 

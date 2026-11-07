@@ -1,3 +1,4 @@
+import asyncio
 import os
 import uuid
 from datetime import UTC, datetime
@@ -42,12 +43,7 @@ async def _photo(uploader_id: str, stamp: str, name: str, **links):
     })
 
 
-@pytest.fixture(scope="module")
-async def env():
-    from fastapi.testclient import TestClient
-
-    from app.main import app
-
+async def _seed_env():
     stamp = uuid.uuid4().hex[:8]
     await db.connect()
     try:
@@ -108,24 +104,28 @@ async def env():
         })
     finally:
         await db.disconnect()
+    return locals()
 
+
+@pytest.fixture(scope="module")
+def env():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    seeded = asyncio.run(_seed_env())
+    people = ("sharer", "grantee", "stranger", "volunteer", "reviewer", "admin")
     with TestClient(app) as client:
         yield {
             "client": client,
-            "stamp": stamp,
-            "tokens": {
-                name: create_access_token(subject=person.id)
-                for name, person in {
-                    "sharer": sharer, "grantee": grantee, "stranger": stranger, "volunteer": volunteer,
-                    "reviewer": reviewer, "admin": admin,
-                }.items()
-            },
+            "stamp": seeded["stamp"],
+            "tokens": {name: create_access_token(subject=seeded[name].id) for name in people},
             "ids": {
-                "sharer": sharer.id, "stranger": stranger.id,
-                "granted_photo": granted_photo.id, "private_photo": private_photo.id,
-                "private_name": private_photo.originalFilename,
-                "pending": pending.id, "curated_artisan": curated_artisan.id,
-                "sitter": sitter.id, "deleted": deleted.id,
+                "sharer": seeded["sharer"].id, "stranger": seeded["stranger"].id,
+                "granted_photo": seeded["granted_photo"].id, "private_photo": seeded["private_photo"].id,
+                "private_name": seeded["private_photo"].originalFilename,
+                "pending": seeded["pending"].id, "curated_artisan": seeded["curated_artisan"].id,
+                "sitter": seeded["sitter"].id, "deleted": seeded["deleted"].id,
             },
         }
 

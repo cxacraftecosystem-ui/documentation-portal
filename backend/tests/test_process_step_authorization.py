@@ -1,3 +1,4 @@
+import asyncio
 import os
 import uuid
 
@@ -23,12 +24,7 @@ def anyio_backend():
     return "asyncio"
 
 
-@pytest.fixture(scope="module")
-async def env():
-    from fastapi.testclient import TestClient
-
-    from app.main import app
-
+async def _seed_env():
     stamp = uuid.uuid4().hex[:8]
     await db.connect()
     try:
@@ -50,16 +46,25 @@ async def env():
         })
     finally:
         await db.disconnect()
+    return locals()
 
+
+@pytest.fixture(scope="module")
+def env():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    seeded = asyncio.run(_seed_env())
     with TestClient(app) as client:
         yield {
             "client": client,
-            "owner": create_access_token(subject=owner.id),
-            "stranger": create_access_token(subject=stranger.id),
-            "admin": create_access_token(subject=admin.id),
-            "owner_id": owner.id,
-            "stranger_id": stranger.id,
-            "product_id": product.id,
+            "owner": create_access_token(subject=seeded["owner"].id),
+            "stranger": create_access_token(subject=seeded["stranger"].id),
+            "admin": create_access_token(subject=seeded["admin"].id),
+            "owner_id": seeded["owner"].id,
+            "stranger_id": seeded["stranger"].id,
+            "product_id": seeded["product"].id,
         }
 
 
