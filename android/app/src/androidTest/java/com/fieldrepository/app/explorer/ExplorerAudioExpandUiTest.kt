@@ -7,12 +7,15 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.fieldrepository.app.explorer.data.ExplorerAudio
+import com.fieldrepository.app.explorer.data.ExplorerAudioState
 import com.fieldrepository.app.explorer.data.ExplorerEntry
 import com.fieldrepository.app.explorer.portal.DesignTheme
 import com.fieldrepository.app.explorer.ui.ExplorerAudioExpand
 import com.fieldrepository.app.explorer.ui.ExplorerMediaContent
 import com.fieldrepository.app.explorer.ui.ExplorerMediaLoader
 import com.fieldrepository.app.transcript.data.Transcript
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -22,6 +25,11 @@ import org.junit.runner.RunWith
 class ExplorerAudioExpandUiTest {
     @get:Rule
     val compose = createComposeRule()
+
+    @After fun reset() {
+        ExplorerAudio.stop()
+        ExplorerAudio.stage(ExplorerAudioState())
+    }
 
     private val loader = object : ExplorerMediaLoader {
         override suspend fun source(entry: ExplorerEntry): String? = null
