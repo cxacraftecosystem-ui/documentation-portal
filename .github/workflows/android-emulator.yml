@@ -123,7 +123,7 @@ jobs:
           disable-animations: true
           working-directory: android
           script: |
-            ./gradlew :app:connectedDebugAndroidTest --console=plain -Pandroid.testInstrumentationRunnerArguments.class=com.fieldrepository.app.TopBarScanDeviceTest,com.fieldrepository.app.TopBarScanRealLookupDeviceTest
+            ./gradlew :app:connectedDebugAndroidTest --console=plain -Pandroid.testInstrumentationRunnerArguments.class=com.fieldrepository.app.TopBarScanDeviceTest,com.fieldrepository.app.TopBarScanRealLookupDeviceTest,com.fieldrepository.app.DataMessageActivityTest,com.fieldrepository.app.explorer.ExplorerRealRetrofitTest
             python3 scripts/emulator-smoke.py
             mkdir -p "$SMOKE_OUT"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t "$RUNNER_TEMP/app-debug.apk"
@@ -140,5 +140,17 @@ jobs:
         with:
           name: android-emulator-smoke-${{ inputs.api-level || '37.0' }}-${{ inputs.target || 'google_apis' }}
           path: android/build/emulator-smoke/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload the instrumented-test report when the run fails
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-emulator-test-report-${{ inputs.api-level || '37.0' }}-${{ inputs.target || 'google_apis' }}
+          path: |
+            android/app/build/reports/androidTests/
+            android/app/build/outputs/androidTest-results/
+            android/build/emulator-smoke/
           if-no-files-found: warn
           retention-days: 14

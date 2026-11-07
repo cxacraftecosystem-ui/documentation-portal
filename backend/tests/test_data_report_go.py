@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from types import SimpleNamespace
 from typing import Any
 
@@ -109,3 +110,26 @@ def test_an_unknown_kind_is_404() -> None:
     with pytest.raises(HTTPException) as unknown:
         asyncio.run(access.record_href(viewer, "spaceship", "x"))
     assert unknown.value.status_code == 404
+
+
+def test_go_media_json_names_the_real_media_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi.responses import RedirectResponse
+
+    from app.api.routes import data_report
+    from app.services import media_naming
+    from app.services.data_explorer import downloads
+
+    photo = SimpleNamespace(id="m1", mediaType=SimpleNamespace(value="IMAGE"), objectKey="media/x/a.jpg")
+
+    async def found(_user: Any, _id: str) -> Any:
+        return photo
+
+    monkeypatch.setattr(access, "file_for", found)
+    monkeypatch.setattr(downloads, "original_redirect", lambda _media: RedirectResponse("https://files.example/a.jpg"))
+    monkeypatch.setattr(media_naming, "display_filename", lambda _media, fallback: "a.jpg")
+    viewer = SimpleNamespace(id="u1", role="RESEARCHER", canDownloadDataset=False)
+    answer = asyncio.run(data_report.go_download("m1", as_="json", current_user=viewer))
+    body = json.loads(answer.body)
+    assert body == {"url": "https://files.example/a.jpg", "fileName": "a.jpg", "mediaId": "m1", "mediaType": "IMAGE"}
+    photo.mediaType = None
+    assert json.loads(asyncio.run(data_report.go_download("m1", as_="json", current_user=viewer)).body)["mediaType"] == "OTHER"

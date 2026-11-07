@@ -25,6 +25,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -40,6 +42,7 @@ fun DataBrowserScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onMessage: (String) -> Unit = {},
+    onError: (String) -> Unit = onMessage,
     onOpenMedia: ((mediaId: String) -> Unit)? = null,
     startPath: String = "",
     onPathChange: (String) -> Unit = {},
@@ -52,6 +55,7 @@ fun DataBrowserScreen(
         onBack = onBack,
         modifier = modifier,
         onMessage = onMessage,
+        onError = onError,
         onOpenMedia = onOpenMedia,
         startPath = startPath.takeIf { it.isNotBlank() },
         search = { onOpen -> DataRecordSearch(repository, onOpen) },
@@ -100,6 +104,16 @@ internal fun DataRecordSearch(repository: FieldRepository, onOpen: (recordType: 
     val search = rememberQuickSearch(repository, filters, browse = browsing)
     val searchAll = LocalExplorerSearchAll.current
     val active = quickSearchRuns(filters, browsing)
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val runSearchAll: () -> Unit = {
+        val q = filters.query
+        filters = SearchFilters()
+        browsing = false
+        focusManager.clearFocus()
+        keyboard?.hide()
+        searchAll?.invoke(q)
+    }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(
             value = filters.query,
@@ -123,7 +137,7 @@ internal fun DataRecordSearch(repository: FieldRepository, onOpen: (recordType: 
                 }
             },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { searchAll?.invoke(filters.query) }),
+            keyboardActions = KeyboardActions(onSearch = { runSearchAll() }),
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("explorer.search")
         )
         SearchFilterBar(value = filters, onChange = { filters = it; browsing = true })
@@ -157,7 +171,7 @@ internal fun DataRecordSearch(repository: FieldRepository, onOpen: (recordType: 
             }
         }
         if (searchAll != null && filters.query.trim().length >= 2) {
-            TextButton(onClick = { searchAll(filters.query) }, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.search.everything")) {
+            TextButton(onClick = runSearchAll, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.search.everything")) {
                 Text("${ExplorerUiText.searchEverything} for “${filters.query.trim()}”")
             }
         }

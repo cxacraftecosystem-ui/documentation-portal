@@ -49,7 +49,14 @@ async def go_download(
         location = answer.headers.get("location")
         if not location:
             raise _not_found("File not found")
-        return JSONResponse({"url": location, "fileName": display_filename(media, fallback=str(media.id)), "mediaId": str(media.id)})
+        return JSONResponse(
+            {
+                "url": location,
+                "fileName": display_filename(media, fallback=str(media.id)),
+                "mediaId": str(media.id),
+                "mediaType": downloads.kind_of(media),
+            }
+        )
     return answer
 
 

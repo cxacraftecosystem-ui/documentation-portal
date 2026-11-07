@@ -1,5 +1,6 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.explorer.ui.ExplorerIdentity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -134,7 +135,7 @@ class TranscriptionPanelState internal constructor(
 @Composable
 fun rememberTranscriptionPanelState(api: TranscriptionSettingsApi): TranscriptionPanelState {
     val scope = rememberCoroutineScope()
-    return remember(api, scope) { TranscriptionPanelState(api, scope) }
+    return remember(ExplorerIdentity(api), scope) { TranscriptionPanelState(api, scope) }
 }
 
 @Composable

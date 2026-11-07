@@ -78,4 +78,16 @@ class DataSearchRulesTest {
         assertNull(dataFolderArtisan("by-workshop/w1"))
         assertNull(dataFolderArtisan(""))
     }
+
+    @Test fun `every result type the backend can return opens something`() {
+        val here = listOf("artisans", "crafts", "workshops", "interviews", "transcripts", "products", "tools", "processes", "media")
+        val located = setOf("workshop", "artisan", "craft", "product", "tool", "process", "interview", "media")
+        for (type in here) {
+            assertEquals(type, DataSearchOpen.LOCATE, DataSearchRules.openOf(type, local = true))
+            assertTrue("$type locates as an unknown kind", DataSearchRules.locateType(type) in located)
+        }
+        for (type in com.fieldrepository.app.data.UNIFIED_SEARCH_TYPES) {
+            assertEquals(DataSearchOpen.REMOTE, DataSearchRules.openOf(type, local = false))
+        }
+    }
 }

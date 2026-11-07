@@ -1086,7 +1086,11 @@ async def completion_matrix(
         if unassigned_relevant
         else _zero(),
     )
-    if artisanId and not artisan_rows:
+    if (
+        artisanId
+        and not artisan_rows
+        and await db.artisan.find_unique(where={"id": artisanId}) is None
+    ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
     artisans = list(artisan_rows)
     artisan_ids = {a.id for a in artisans}

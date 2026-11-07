@@ -240,6 +240,7 @@ internal fun FolderRow(
     onToggle: () -> Unit,
     first: Boolean = true,
     last: Boolean = true,
+    tag: String = "explorer.folder.${folder.path}",
 ) {
     val container = if (selecting && selected) explorerSelectedRow() else MaterialTheme.colorScheme.surface
     Row(
@@ -256,7 +257,7 @@ internal fun FolderRow(
             )
             .semantics { if (selecting) stateDescription = if (selected) "Selected" else "Not selected" }
             .padding(start = if (selecting) 6.dp else 14.dp, end = 14.dp, top = 10.dp, bottom = 10.dp)
-            .testTag("explorer.folder.${folder.path}"),
+            .testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {

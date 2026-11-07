@@ -154,7 +154,7 @@ internal fun ExplorerTranscriptsTab(
 ) {
     val context = LocalContext.current
     val server = remember(backend) { backend ?: TranscriptPortal.backend(context) }
-    val extras = remember(more) { more ?: ExplorerMoreApi.of(context) }
+    val extras = remember(ExplorerIdentity(more)) { more ?: ExplorerMoreApi.of(context) }
     val scope = rememberCoroutineScope()
     var q by rememberSaveable(path, initialQuery) { mutableStateOf(initialQuery) }
     var language by rememberSaveable { mutableStateOf("") }

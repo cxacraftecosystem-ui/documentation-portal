@@ -207,6 +207,42 @@ def test_the_completion_payload_names_the_instrument_it_is_about_and_has_no_dupl
     assert len(codes) == len(set(codes)), codes
 
 
+def test_an_artisan_outside_the_selected_workshops_gets_the_matrix_without_artisan_rows(
+    db: _Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db.artisan.rows.append(
+        db.artisan._materialise(
+            {"id": "art-elsewhere", "name": "Meena Devi", "workshopId": "ws-other"}
+        )
+    )
+    asked: list[Any] = []
+
+    async def _outside_the_selection(where: Any = None, **_: Any) -> list[Any]:
+        asked.append(where)
+        return []
+
+    monkeypatch.setattr(db.artisan, "find_many", _outside_the_selection)
+
+    response = _call(
+        "GET",
+        f"/questionnaire/completion?questionnaireId={W3}&artisanId=art-elsewhere&workshopIds=ws-selected",
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["artisans"] == []
+    assert payload["cells"] == []
+    assert [s["code"] for s in payload["sections"]] == ["A"]
+    assert asked and "AND" in asked[0], asked
+
+
+def test_an_artisan_that_does_not_exist_is_still_not_found(db: _Db) -> None:
+    response = _call("GET", f"/questionnaire/completion?questionnaireId={W3}&artisanId=art-missing")
+
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"] == "Record not found"
+
+
 
 def _interview_body(**extra: Any) -> dict[str, Any]:
     return {"title": "A sitting", "location": LOCATION, "artisanIds": ["a1"], **extra}

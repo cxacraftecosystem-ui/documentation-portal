@@ -3,6 +3,7 @@ package com.fieldrepository.app.explorer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
@@ -60,6 +61,7 @@ import com.fieldrepository.app.explorer.data.ExplorerVisitBody
 import com.fieldrepository.app.explorer.ui.ExplorerScreen
 import com.fieldrepository.app.transcript.data.DataTranscriptFile
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.ResponseBody
@@ -141,6 +143,7 @@ class ExplorerScreenUiTest {
         var long: Int? = null
         var pageSize = 10
         var tableTotal: Int? = null
+        var unfiled = false
 
         private fun longPage(path: String, cursor: String?, n: Int): ExplorerTree {
             val from = cursor?.toInt() ?: 0
@@ -164,7 +167,7 @@ class ExplorerScreenUiTest {
             }
         }
 
-        override suspend fun locate(type: String, id: String): JsonElement = JsonObject(mapOf("path" to JsonPrimitive("w")))
+        override suspend fun locate(type: String, id: String): JsonElement = JsonObject(mapOf("path" to if (unfiled) JsonNull else JsonPrimitive("w")))
         override suspend fun transcript(id: String): ExplorerTranscript {
             transcriptCalls.incrementAndGet()
             return ExplorerTranscript(mediaId = id, content = "**Giriraj** Clay and gum.")
@@ -208,7 +211,13 @@ class ExplorerScreenUiTest {
 
     private val sections = mutableListOf<String>()
 
-    private fun show(fake: Fake, fontScale: Float? = null, width: Int? = null, start: String = "w") {
+    private fun show(
+        fake: Fake,
+        fontScale: Float? = null,
+        width: Int? = null,
+        start: String = "w",
+        search: @androidx.compose.runtime.Composable (onOpen: (String, String, String) -> Unit) -> Unit = { Text("search-slot", modifier = Modifier.testTag("explorer.search.slot")) },
+    ) {
         compose.setContent {
             MaterialTheme {
                 val density = LocalDensity.current
@@ -220,7 +229,7 @@ class ExplorerScreenUiTest {
                             more = more,
                             startPath = start,
                             onOpenSection = { artisan, key -> sections += "$artisan:$key" },
-                            search = { Text("search-slot", modifier = Modifier.testTag("explorer.search.slot")) },
+                            search = search,
                         )
                     }
                     if (width != null) Box(Modifier.requiredWidth(width.dp)) { body() } else body()
@@ -482,7 +491,7 @@ class ExplorerScreenUiTest {
     @Test fun theTranscriptLanguageFilterIsFilledFromTheServer() {
         val fake = Fake()
         show(fake)
-        scrollTo("data.transcripts.toggle")
+        reach("data.transcripts.toggle")
         compose.onNodeWithTag("data.transcripts.toggle").performClick()
         compose.waitForIdle()
         scrollTo("explorer.transcripts.pill.language")
@@ -527,6 +536,19 @@ class ExplorerScreenUiTest {
         assertTrue("the tree pane asked for the workshop level: ${fake.calls}", fake.calls.any { it.startsWith("tree:by-workshop") })
         compose.onNodeWithTag("explorer.pane.tree").performScrollToNode(hasTestTag("explorer.folder.w/bagru"))
         compose.onNodeWithTag("explorer.folder.w/bagru").assertExists()
+    }
+
+    @QFeature("X1")
+    @Test fun aRecordOutsideAnyFolderScrollsTheTabletFolderBackToItsNotice() {
+        val fake = Fake().apply { long = 31; unfiled = true }
+        show(fake, width = 900, search = { onOpen ->
+            TextButton(onClick = { onOpen("artisan", "a9", "Meena Devi") }, modifier = Modifier.testTag("explorer.search.slot")) { Text("Meena Devi") }
+        })
+        reach("explorer.file.q25")
+        compose.onNodeWithTag("explorer.search.slot").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("explorer.unfiled").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("explorer.unfiled").assertIsDisplayed()
     }
 
     @QFeature("X1")

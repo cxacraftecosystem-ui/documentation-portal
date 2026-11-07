@@ -1,6 +1,15 @@
 package com.fieldrepository.app.forms
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import com.fieldrepository.app.explorer.ui.LocalExplorerSearchAll
 import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasClickAction
@@ -297,5 +306,43 @@ class DataSearchReachUiTest {
         compose.onNodeWithTag("data.search.all.artisans", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
         requested("type=artisans&page=1")
         reach("data.search.results", "data.search.more", "data.search.shown", "All 31 shown")
+    }
+
+    @Test
+    fun searchEverythingClearsTheJumpFieldOnceAResultOpens() {
+        val repo = repository()
+        val opened = mutableListOf<String>()
+        val everything = mutableListOf<String>()
+        compose.setContent {
+            MaterialTheme {
+                var query by remember { mutableStateOf<String?>(null) }
+                CompositionLocalProvider(LocalExplorerSearchAll provides { q: String -> everything += q; query = q }) {
+                    Box(Modifier.fillMaxSize()) {
+                        DataRecordSearch(repo) { type, id, _ -> opened += "jump:$type:$id" }
+                        query?.let { q ->
+                            DataUnifiedSearch(
+                                repository = repo,
+                                initial = q,
+                                onOpenInData = { type, id, _ -> query = null; opened += "$type:$id" },
+                                onPlay = { _, _, _, _ -> },
+                                onOpenRemote = null,
+                                onClose = { query = null },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        compose.onNodeWithTag("explorer.search").performTextInput("indigo")
+        waitFor("explorer.search.summary")
+        compose.onNodeWithTag("explorer.search.everything", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
+        waitFor("data.search.item.artisans.a1")
+        compose.onNodeWithTag("data.search.item.artisans.a1", useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(30_000) { gone("data.search.item.artisans.a1") }
+        compose.waitForIdle()
+        assertEquals(listOf("indigo"), everything)
+        assertEquals(listOf("artisan:a1"), opened)
+        assertEquals("", compose.onNodeWithTag("explorer.search").fetchSemanticsNode().config.getOrNull(SemanticsProperties.EditableText)?.text)
+        assertTrue(gone("explorer.search.summary"))
     }
 }
