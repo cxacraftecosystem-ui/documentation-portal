@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.explorer.data.ExplorerBytes
 import com.fieldrepository.app.explorer.data.ExplorerOverview
 import com.fieldrepository.app.explorer.data.ExplorerOverviewArtisan
+import com.fieldrepository.app.explorer.data.ExplorerReviewTotals
 import com.fieldrepository.app.explorer.data.ExplorerVisit
 import com.fieldrepository.app.ui.field
 
@@ -193,14 +194,8 @@ internal fun OverviewCard(overview: ExplorerOverview, onOpen: (path: String) -> 
 }
 
 @Composable
-private fun reviewTint(review: String?): Color? {
-    val v = review?.lowercase() ?: return null
-    return when {
-        v.startsWith("approved") -> explorerTone(ExplorerStatus.SAVED)!!.accent
-        v.startsWith("rejected") -> explorerTone(ExplorerStatus.FAILED)!!.accent
-        else -> explorerWarnTone().muted
-    }
-}
+private fun reviewTint(review: ExplorerReviewTotals): Color =
+    if (review.approvedAll) explorerTone(ExplorerStatus.SAVED)!!.accent else explorerWarnTone().muted
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -219,7 +214,12 @@ private fun ArtisanRow(a: ExplorerOverviewArtisan, overview: ExplorerOverview, o
                 Text(a.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                 a.craft?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-            a.review?.let { r -> Text(r, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = reviewTint(r) ?: MaterialTheme.colorScheme.onSurface) }
+            a.review?.takeIf { it.total > 0 }?.let { r ->
+                Column(horizontalAlignment = Alignment.End, modifier = Modifier.testTag("explorer.overview.review.${a.id}")) {
+                    Text(r.word, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = reviewTint(r))
+                    Text(r.counts, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             ExplorerLinkButton(OverviewText.open, onClick = { onOpen(a.path) }, modifier = Modifier.padding(start = 4.dp))
         }
         if (a.sections.isNotEmpty()) {

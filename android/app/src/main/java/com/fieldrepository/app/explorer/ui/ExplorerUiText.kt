@@ -23,6 +23,7 @@ object ExplorerUiText {
     const val retrying = "retrying"
     const val failed = "Failed"
     const val saved = "Saved"
+    const val partlySaved = "Partly saved"
     const val open = "Open"
     const val share = "Share"
     const val retry = "Retry"

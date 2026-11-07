@@ -476,7 +476,7 @@ export class DataExplorerFake {
     if (media) {
       const [, id, leaf] = media;
       if (leaf === "transcript") return id === "aud1" ? { status: 200, json: { mediaId: id, name: "interview.md", content: "**Speaker 1:** Namaste, this is the block.", language: "hi" } } : { status: 404, json: { detail: "Not Found" } };
-      if (leaf === "thumbnail") return { status: 200, raw: PNG, contentType: "image/png", headers: { "cache-control": "private, max-age=1800" } };
+      if (leaf === "thumbnail") return { status: 200, raw: id === "img1" ? PORTRAIT_PNG : PNG, contentType: "image/png", headers: { "cache-control": "private, max-age=1800" } };
       if (id === "pdf1") return { status: 200, raw: PDF, contentType: "application/pdf" };
       if (id === "aud1" && leaf === "preview") return { status: 200, raw: WAV, contentType: "audio/wav" };
       if (id === "img1" && leaf === "preview") return { status: 200, raw: PORTRAIT_PNG, contentType: "image/png" };
@@ -668,10 +668,15 @@ export class DataExplorerFake {
     }
     if (path === "/search") {
       const q = (query.get("q") ?? "").toLowerCase();
-      const artisans = q.includes("kamla") ? [{ id: "a-kamla", name: "Kamla Devi", place: "Bagru" }] : [];
+      const artisans = q.includes("kamla") ? [{ id: "a-kamla", name: "Kamla Devi", place: "Bagru" }] : q.includes("meera") ? [{ id: "a-meera", name: "Meera Bai", place: "Sanganer" }] : [];
       return { status: 200, json: { artisans, workshops: [], products: [], tools: [], media: [], total: artisans.length } };
     }
-    if (path === "/data/locate") return { status: 200, json: { path: query.get("id") === "a-kamla" ? "workshops/bagru/kamla" : null } };
+    if (path === "/data/locate") {
+      const id = query.get("id");
+      if (id === "a-kamla") return { status: 200, json: { path: "workshops/bagru/kamla", locatable: true, record: null } };
+      if (id === "a-meera") return { status: 200, json: { path: null, locatable: false, record: { kind: "artisan", id } } };
+      return { status: 200, json: { path: null, locatable: false, record: null } };
+    }
     if (path === "/workshops") return { status: 200, json: { items: [], total: 0, page: 1, pageSize: 100, pages: 0 } };
     return null;
   }

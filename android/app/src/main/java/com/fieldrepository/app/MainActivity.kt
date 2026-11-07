@@ -11453,7 +11453,7 @@ private fun AndroidSavedMediaPreview(
                 onSave = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) },
                 offlinePreview = offlinePreview.file,
                 onDismiss = { showViewer = false },
-                expand = com.fieldrepository.app.ui.AudioExpand(media.id, media.originalFilename).takeIf { media.mediaType.equals("AUDIO", ignoreCase = true) }
+                expand = com.fieldrepository.app.ui.AudioExpand(media.id, media.originalFilename, sizeBytes = media.byteSize, onSave = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) }).takeIf { media.mediaType.equals("AUDIO", ignoreCase = true) }
             )
         }
     }

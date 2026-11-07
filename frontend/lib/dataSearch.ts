@@ -147,6 +147,10 @@ export const TYPE_LIMIT = 20;
 
 export const LEGACY_PAGE = 20;
 
+export function offersOpenInData(row: Row, locateType: string | undefined): boolean {
+  return Boolean(row.local && locateType && row.locatable !== false);
+}
+
 export function rowKey(row: Row): string {
   return `${row.portal}:${row.type}:${row.id}`;
 }

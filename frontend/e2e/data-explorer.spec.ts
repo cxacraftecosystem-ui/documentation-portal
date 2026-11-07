@@ -598,6 +598,10 @@ test.describe("@qf:X10 downloads go through one tray", () => {
       const item = trayItem(page, "Bagru 2026");
       await expect(item).toContainText(/Saved 6 of 7 files\. 1 failed\./);
       await expect(item.getByTestId("failed-files")).toContainText("missing.jpg");
+      await expect(item).toHaveAttribute("data-outcome", "partial");
+      await expect(item).toContainText("Partly saved");
+      await expect(item).not.toHaveClass(/bg-success-100|border-green-300/);
+      await expect(item).toHaveClass(/bg-amber-50/);
       await expect(page.getByTestId("download-announcer")).toHaveText(/Download finished\. 1 file failed\./);
       const entries = readZip(await savedZip(page));
       const names = entries.map((entry) => entry.name);
@@ -926,6 +930,22 @@ test.describe("@qf:X1 keyboard", () => {
     }
   });
 
+  test("a record with no folder opens its record page instead of a dead end", async ({ browser }) => {
+    const { context, page } = await openExplorer(browser, { path: "workshops" });
+    try {
+      await page.getByRole("heading", { name: "All workshops", exact: true }).first().click();
+      await page.keyboard.press("Control+k");
+      const palette = page.getByRole("dialog", { name: "Quick jump" });
+      await palette.getByRole("combobox", { name: "Jump to anything" }).fill("meera");
+      await expect(palette.getByRole("option", { name: /Meera Bai/ })).toBeVisible();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/\/artisans\/a-meera$/);
+      await expect(page.getByText("isn't filed in a folder yet")).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+
   test("? opens the shortcuts, / focuses search, and letters typed into a box do nothing else", async ({ browser }) => {
     const { context, page } = await openExplorer(browser, { path: "workshops/bagru" });
     try {
@@ -999,6 +1019,9 @@ test.describe("@qf:X2 workshop overview", () => {
       const rows = overview.locator("tbody tr");
       await expect(rows.first()).toContainText("Mohan Lal");
       await expect(rows.nth(1)).toContainText("Kamla Devi");
+      await expect(rows.first().locator("[data-review]")).toHaveText("Pending0 / 1");
+      await expect(rows.nth(1).locator("[data-review]")).toHaveText("Approved2 / 2");
+      await expect(rows.nth(1).locator("[data-review] span").first()).toHaveText("Approved");
       await overview.getByRole("combobox", { name: /Sort artisans/ }).or(overview.getByRole("button", { name: /Sort artisans/ })).click();
       await page.getByRole("option", { name: "By name" }).click();
       await expect(rows.first()).toContainText("Kamla Devi");
@@ -1752,6 +1775,50 @@ test.describe("@qf:X1 navigation keeps its place", () => {
       await context.close();
     }
   });
+
+  for (const width of [1440, 834, 390]) {
+    test(`a portrait photo shows whole inside its thumbnail frame at ${width}px, in the grid and the list`, async ({ browser }) => {
+      const mobile = width < 1024;
+      const { context, page } = await openExplorer(browser, { size: { name: String(width), width, height: 900, mobile }, path: "workshops/bagru" });
+      try {
+        for (const layout of ["Grid view", "List view"]) {
+          await page.getByRole("button", { name: layout }).click();
+          const frame = page.locator(`${layout === "Grid view" ? "ul[aria-label='Files']" : "[data-file-row]"} [data-thumb]:has(img[src*='/img1/'])`).first();
+          const image = frame.locator("img");
+          await expect(image).toBeVisible();
+          await expect.poll(() => image.evaluate((node) => (node as HTMLImageElement).naturalHeight)).toBeGreaterThan(0);
+          const box = await frame.evaluate((node) => {
+            const img = node.querySelector("img") as HTMLImageElement;
+            const outer = node.getBoundingClientRect();
+            const inner = img.getBoundingClientRect();
+            const scale = Math.min(inner.width / img.naturalWidth, inner.height / img.naturalHeight);
+            const drawnWidth = img.naturalWidth * scale;
+            const drawnHeight = img.naturalHeight * scale;
+            return {
+              outer: { top: outer.top, left: outer.left, right: outer.right, bottom: outer.bottom, width: outer.width, height: outer.height },
+              inner: { top: inner.top, left: inner.left, right: inner.right, bottom: inner.bottom },
+              drawnWidth,
+              drawnHeight,
+              natural: img.naturalHeight / img.naturalWidth,
+              fit: getComputedStyle(img).objectFit
+            };
+          });
+          expect(box.natural).toBeGreaterThan(1);
+          expect(box.fit).toBe("contain");
+          expect(box.inner.top).toBeGreaterThanOrEqual(box.outer.top - 0.5);
+          expect(box.inner.left).toBeGreaterThanOrEqual(box.outer.left - 0.5);
+          expect(box.inner.bottom).toBeLessThanOrEqual(box.outer.bottom + 0.5);
+          expect(box.inner.right).toBeLessThanOrEqual(box.outer.right + 0.5);
+          expect(box.drawnHeight).toBeLessThanOrEqual(box.outer.height + 0.5);
+          expect(box.drawnWidth).toBeLessThanOrEqual(box.outer.width + 0.5);
+          expect(Math.abs(box.drawnHeight - box.outer.height)).toBeLessThan(1);
+          expect(box.drawnWidth).toBeLessThan(box.outer.width);
+        }
+      } finally {
+        await context.close();
+      }
+    });
+  }
 
   test("a saved-view link is fetched once", async ({ browser }) => {
     const { context, page, fake } = await openExplorer(browser, { query: "viewId=v-shared" });

@@ -137,6 +137,9 @@ jobs:
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package $APP_ID.explorer.capture $APP_ID.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/capture.txt" 2>&1; cat "$RUNNER_TEMP/capture.txt"
             mkdir -p "$SHOTS" && "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" pull "/sdcard/Android/data/$APP_ID/files/design-fidelity/." "$SHOTS/"
             ls -R "$SHOTS"
+            test -s "$SHOTS/AndroidAudio/impl-android-expand.png"
+            test -s "$SHOTS/AndroidAudio/impl-android-expand-tablet.png"
+            test -s "$SHOTS/AndroidPreview/impl-android-tablet.png"
             grep -q "^OK (" "$RUNNER_TEMP/shots.txt"
 
       - name: Keep the Android screens

@@ -81,7 +81,7 @@ internal fun ExplorerPreviewDialog(entry: ExplorerEntry, onSave: (() -> Unit)?, 
             mediaType = entry.mediaType.orEmpty(),
             onSave = onSave,
             onDismiss = onDismiss,
-            expand = entry.mediaId?.takeIf { entry.mediaType == "AUDIO" }?.let { AudioExpand(it, entry.name) },
+            expand = entry.mediaId?.takeIf { entry.mediaType == "AUDIO" }?.let { AudioExpand(it, entry.name, sizeBytes = entry.sizeBytes, onSave = onSave) },
         )
         is PreviewLoad.Pdf -> PdfDialog(now.file, entry.name, onDismiss, onOpenRecord)
         else -> Dialog(onDismissRequest = onDismiss) {

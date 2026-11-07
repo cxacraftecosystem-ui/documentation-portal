@@ -114,9 +114,11 @@ internal fun ExplorerMediaDialog(
     onDismiss: () -> Unit,
     find: String = "",
     onOpenRecord: ((ExplorerEntry) -> Unit)? = null,
+    knownDurationMs: Long? = null,
+    positioned: Boolean = true,
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        ExplorerMediaContent(entries, start, startSeconds, total, onSave, onDismiss, Modifier.safeDrawingPadding(), find = find, onOpenRecord = onOpenRecord)
+        ExplorerMediaContent(entries, start, startSeconds, total, onSave, onDismiss, Modifier.safeDrawingPadding(), find = find, onOpenRecord = onOpenRecord, knownDurationMs = knownDurationMs, positioned = positioned)
     }
 }
 
@@ -138,6 +140,8 @@ internal fun ExplorerMediaContent(
     loader: ExplorerMediaLoader? = null,
     find: String = "",
     onOpenRecord: ((ExplorerEntry) -> Unit)? = null,
+    knownDurationMs: Long? = null,
+    positioned: Boolean = true,
 ) {
     var index by rememberSaveable { mutableStateOf(start.coerceIn(0, (entries.size - 1).coerceAtLeast(0))) }
     val entry = entries.getOrNull(index) ?: return
@@ -146,7 +150,8 @@ internal fun ExplorerMediaContent(
             Column(Modifier.fillMaxHeight().widthIn(max = 760.dp).fillMaxWidth()) {
                 MediaPane(
                     entry = entry,
-                    position = ExplorerUiText.positionOf(entries.indexOf(entry) + 1, maxOf(total, entries.size)),
+                    position = if (positioned) ExplorerUiText.positionOf(entries.indexOf(entry) + 1, maxOf(total, entries.size)) else null,
+                    knownDurationMs = if (index == start) knownDurationMs else null,
                     startSeconds = if (index == start) startSeconds else 0.0,
                     onSave = onSave?.let { save -> { save(entry) } },
                     onDismiss = onDismiss,
@@ -166,7 +171,8 @@ internal fun ExplorerMediaContent(
 @Composable
 private fun ColumnScope.MediaPane(
     entry: ExplorerEntry,
-    position: String,
+    position: String?,
+    knownDurationMs: Long?,
     startSeconds: Double,
     onSave: (() -> Unit)?,
     onDismiss: () -> Unit,
@@ -209,7 +215,7 @@ private fun ColumnScope.MediaPane(
     val mediaId = entry.mediaId
     val audioType = entry.mediaType == "AUDIO"
     val title = if (audioType) ExplorerNames.pretty(entry.name) else ExplorerNames.base(entry.name)
-    val length = if (audioType) (ready?.view?.durationMs ?: 0L).takeIf { it > 0 }?.let { ExplorerAudioLines.clock(it) } else null
+    val length = if (audioType) (ready?.view?.durationMs?.takeIf { it > 0 } ?: knownDurationMs ?: 0L).takeIf { it > 0 }?.let { ExplorerAudioLines.clock(it) } else null
     val meta = listOfNotNull(entry.mediaType?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "File", ExplorerBytes.format(entry.sizeBytes), length, position).joinToString(" · ")
 
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {

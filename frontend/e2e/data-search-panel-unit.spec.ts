@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { activeFilters, clock, EMPTY_STATE, flattenGroups, hasMore, legacyRows, legacyTotals, mergeRows, moreLabel, portalCounts, rangeBounds, sameSearch, searchFromParams, searchToParams, sections, showAllLabel, unifiedTotals } from "@/lib/dataSearch";
+import { activeFilters, clock, EMPTY_STATE, flattenGroups, hasMore, legacyRows, legacyTotals, mergeRows, moreLabel, offersOpenInData, portalCounts, rangeBounds, sameSearch, searchFromParams, searchToParams, sections, showAllLabel, unifiedTotals } from "@/lib/dataSearch";
 import type { UnifiedResponse } from "@/lib/unifiedSearch";
 
 const DATA: UnifiedResponse = {
@@ -84,4 +84,13 @@ test("a hand-edited address cannot smuggle in an unknown type, range or scope", 
   expect(back.state.types).toEqual(["tools"]);
   expect(back.state.range).toBe("any");
   expect(back.state.scope).toBe("local");
+});
+
+test("Open in Data is offered only where the record can be located", () => {
+  const row = { portal: "fieldRepository" as const, local: true, type: "crafts" as const, id: "c1", title: "Bidri", href: "/crafts/c1" };
+  expect(offersOpenInData(row, "craft")).toBe(true);
+  expect(offersOpenInData({ ...row, locatable: true }, "craft")).toBe(true);
+  expect(offersOpenInData({ ...row, locatable: false }, "craft")).toBe(false);
+  expect(offersOpenInData({ ...row, local: false }, "craft")).toBe(false);
+  expect(offersOpenInData(row, undefined)).toBe(false);
 });

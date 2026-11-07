@@ -21,6 +21,7 @@ data class UnifiedSearchItemDto(
     val startMs: Long? = null,
     val mediaType: String? = null,
     val alsoIn: kotlinx.serialization.json.JsonElement? = null,
+    val locatable: Boolean? = null,
 )
 
 @Serializable

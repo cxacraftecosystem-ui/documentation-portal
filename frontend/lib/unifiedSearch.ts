@@ -57,6 +57,7 @@ export type UnifiedItem = {
   startMs?: number | null;
   mediaType?: string | null;
   alsoIn?: UnifiedAlsoIn | null;
+  locatable?: boolean | null;
 };
 
 export type UnifiedAlsoIn = { portal: Portal; id: string; href: string; openUrl?: string | null; subtitle?: string | null };

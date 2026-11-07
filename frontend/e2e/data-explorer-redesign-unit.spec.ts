@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
 
-import { legacyHits, unifiedHits } from "@/components/dataExplorer/paletteSearch";
+import { legacyHits, locatedOf, recordPageHref, unifiedHits } from "@/components/dataExplorer/paletteSearch";
 import { reportOptionParams } from "@/lib/dataExplorer/api";
 import { DEFAULT_REPORT_OPTIONS, withReportDefaults, type ReportResponse, type TreeEntry } from "@/lib/dataExplorer/contract";
-import { fileNameFrom, looksLikeZip, nextToStart, retryDelaySeconds, ROW_TONE_CLASS, TONE_CLASS, toneOf, trayHeadline, type DownloadItem } from "@/lib/dataExplorer/downloads";
+import { fileNameFrom, looksLikeZip, nextToStart, OUTCOME_CARD, outcomeOf, retryDelaySeconds, ROW_TONE_CLASS, TONE_CLASS, toneOf, trayHeadline, type DownloadItem } from "@/lib/dataExplorer/downloads";
 import { builtAgo, clampTreeWidth, estimateLine, filterOf, followingCursor, highlightParts, mergeNavigation, pageOf, percentLabel, readTreeWidth, sortArtisans, thumbnailEdge, TREE_WIDTH, treeWidthBounds, treeWidthForKey, viewLink, viewSummary } from "@/lib/dataExplorer/explorerView";
 import { fetchDownload, NotAFile } from "@/lib/dataExplorer/fetchDownload";
 import { filtersLeaveNothing, recordLine, reportFilterChips, withoutStatus } from "@/lib/dataExplorer/reportFilters";
@@ -38,6 +38,17 @@ test.describe("@qf:X13 the downloads tray", () => {
   test("the headline counts running, waiting, done and failed", () => {
     expect(trayHeadline([item("running"), item("waiting"), item("saved"), item("saved"), item("failed")])).toBe("1 running · 1 waiting · 2 done · 1 failed");
     expect(trayHeadline([])).toBe("Nothing yet");
+  });
+
+  test("a partial download never reads as success", () => {
+    expect(outcomeOf(item("saved"))).toBe("saved");
+    expect(outcomeOf({ ...item("saved", "zip"), failedFiles: [{ path: "missing.jpg", reason: "404" }] })).toBe("partial");
+    expect(outcomeOf(item("failed"))).toBe("failed");
+    expect(OUTCOME_CARD.partial).not.toContain("green");
+    expect(OUTCOME_CARD.partial).not.toContain("success");
+    expect(OUTCOME_CARD.partial).toContain("amber");
+    expect(OUTCOME_CARD.saved).toContain("bg-success-100");
+    expect(OUTCOME_CARD.failed).toContain("bg-error-100");
   });
 
   test("saved is green and failed is red, every other state stays neutral", () => {
@@ -211,6 +222,15 @@ test.describe("@qf:X16 the command palette's search", () => {
   test("unified groups become hits, the other portal's are left out", () => {
     const hits = unifiedHits({ groups: [{ type: "artisans", items: [{ id: "a1", title: "Kamla", subtitle: "Bagru", local: true }, { id: "r1", title: "Remote", local: false }] }, { type: "clusters", items: [{ id: "c", title: "x" }] }] });
     expect(hits).toEqual([{ id: "a1", title: "Kamla", subtitle: "Artisan · Bagru", type: "artisans", path: null }]);
+  });
+
+  test("a locate answer with no folder falls back to the record page", () => {
+    expect(locatedOf({ path: "workshops/bagru/kamla", locatable: true, record: null })).toEqual({ path: "workshops/bagru/kamla", recordHref: null });
+    expect(locatedOf({ path: null, locatable: false, record: { kind: "craft", id: "c 1" } })).toEqual({ path: null, recordHref: "/crafts/c%201" });
+    expect(locatedOf({ path: null, locatable: false, record: { kind: "artisan", id: "a1" } }).recordHref).toBe("/artisans/a1");
+    expect(locatedOf({ path: null })).toEqual({ path: null, recordHref: null });
+    expect(recordPageHref({ kind: "cluster", id: "x" })).toBeNull();
+    expect(recordPageHref(null)).toBeNull();
   });
 
   test("the legacy search maps to the same hits", () => {

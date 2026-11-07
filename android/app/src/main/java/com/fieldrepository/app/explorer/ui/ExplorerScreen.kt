@@ -293,6 +293,12 @@ fun ExplorerScreen(
         value = attemptOrNull { explorerApi.languages().languages.map { it.code to it.label.ifBlank { it.code } } }.orEmpty()
     }
 
+    LaunchedEffect(state.recordToOpen) {
+        val record = state.recordToOpen ?: return@LaunchedEffect
+        val open = onOpenRecord
+        state.recordHandled(open != null)
+        open?.invoke(record.kind, record.id)
+    }
     LaunchedEffect(state) {
         state.start(startPath?.takeIf { it.isNotBlank() } ?: ExplorerPlace.read(app, owner), resume)
         withContext(Dispatchers.IO) { runCatching { ExplorerDownloads.sweep(app) } }

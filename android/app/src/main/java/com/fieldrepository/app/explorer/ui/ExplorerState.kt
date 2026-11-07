@@ -107,6 +107,8 @@ class ExplorerState(
         private set
     var unfiled by mutableStateOf<String?>(null)
         private set
+    var recordToOpen by mutableStateOf<ExplorerRecordRef?>(null)
+        private set
     var selecting by mutableStateOf(false)
         private set
     var selected by mutableStateOf<Map<String, ExplorerEntry>>(emptyMap())
@@ -361,7 +363,12 @@ class ExplorerState(
             try {
                 val body = api.locate(recordType, recordId) as? JsonObject
                 val found = (body?.get("path") as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() && it != "null" }
-                if (found == null) unfiled = ExplorerText.unfiled(title) else open(found)
+                val record = if (found == null) ExplorerRecordRef.of(body, title) else null
+                when {
+                    found != null -> open(found)
+                    record != null -> recordToOpen = record
+                    else -> unfiled = ExplorerText.unfiled(title)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
@@ -370,6 +377,12 @@ class ExplorerState(
                 locating = null
             }
         }
+    }
+
+    fun recordHandled(opened: Boolean) {
+        val record = recordToOpen ?: return
+        recordToOpen = null
+        if (!opened) unfiled = ExplorerText.unfiled(record.title)
     }
 
     fun toggleText(entry: ExplorerEntry) {
@@ -464,5 +477,16 @@ class ExplorerState(
         fun stamp(millis: Long): String? = runCatching {
             DateTimeFormatter.ofPattern("d MMM, HH:mm").format(Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()))
         }.getOrNull()
+    }
+}
+
+data class ExplorerRecordRef(val kind: String, val id: String, val title: String) {
+    companion object {
+        fun of(body: JsonObject?, title: String): ExplorerRecordRef? {
+            val record = body?.get("record") as? JsonObject ?: return null
+            val kind = (record["kind"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() && it != "null" } ?: return null
+            val id = (record["id"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() && it != "null" } ?: return null
+            return ExplorerRecordRef(kind, id, title)
+        }
     }
 }

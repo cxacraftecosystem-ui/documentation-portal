@@ -7,7 +7,7 @@ import { LoadFailed, Skeleton } from "@/components/dataExplorer/explorerUi";
 import { fetchOverview } from "@/lib/dataExplorer/api";
 import type { CoverageState, FolderVisit, WorkshopOverview as Overview } from "@/lib/dataExplorer/contract";
 import { formatBytes } from "@/lib/dataExplorer/plan";
-import { completeness, percentLabel, reviewDetail, reviewFraction, reviewTone, sortArtisans, transcriptDetail, type OverviewSort, type ReviewTone } from "@/lib/dataExplorer/explorerView";
+import { completeness, percentLabel, reviewDetail, reviewFraction, reviewTone, reviewWord, sortArtisans, transcriptDetail, type OverviewSort, type ReviewTone } from "@/lib/dataExplorer/explorerView";
 import type { QueryParams } from "@/lib/dataExplorer/wire";
 
 const SQUARE: Record<CoverageState, string> = {
@@ -255,8 +255,15 @@ export function WorkshopOverview({ path, extra, visit, onOpen, onShowNew }: { pa
                         <td className="px-3 py-2.5 tabular-nums text-ink-900" title={transcriptDetail(artisan.transcripts)}>
                           {artisan.transcripts.total.toLocaleString("en-IN")}
                         </td>
-                        <td className="px-3 py-2.5 tabular-nums" title={reviewDetail(artisan.review)}>
-                          {artisan.review.total > 0 ? <span className={`font-semibold ${REVIEW_INK[reviewTone(artisan.review)]}`}>{reviewFraction(artisan.review)}</span> : <span className="text-ink-500">-</span>}
+                        <td className="px-3 py-2.5" title={reviewDetail(artisan.review)} data-review="">
+                          {artisan.review.total > 0 ? (
+                            <>
+                              <span className={`block font-semibold ${REVIEW_INK[reviewTone(artisan.review)]}`}>{reviewWord(artisan.review)}</span>
+                              <span className="block text-xs tabular-nums text-ink-500">{reviewFraction(artisan.review)}</span>
+                            </>
+                          ) : (
+                            <span className="text-ink-500">-</span>
+                          )}
                         </td>
                         <td className="px-3 py-2.5">
                           <button type="button" className="font-semibold text-purple-700 underline underline-offset-2 dark:text-purple-300 pointer-coarse:min-h-11" onClick={() => onOpen(artisan.path)}>

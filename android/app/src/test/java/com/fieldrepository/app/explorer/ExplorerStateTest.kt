@@ -5,6 +5,7 @@ import com.fieldrepository.app.explorer.data.ExplorerCrumb
 import com.fieldrepository.app.explorer.data.ExplorerEntry
 import com.fieldrepository.app.explorer.data.ExplorerTaxonomy
 import com.fieldrepository.app.explorer.data.ExplorerTree
+import com.fieldrepository.app.explorer.ui.ExplorerRecordRef
 import com.fieldrepository.app.explorer.ui.ExplorerState
 import com.fieldrepository.app.explorer.ui.TranscriptLoad
 import kotlinx.coroutines.CoroutineScope
@@ -14,6 +15,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -159,6 +163,39 @@ class ExplorerStateTest {
         val s = state(api)
         s.locate("artisan", "r1", "Giriraj")
         until { s.path == "located/r1" }
+    }
+
+    @Test fun `a record with no folder hands its record page to the screen`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.located = { _, id -> JsonObject(mapOf("path" to JsonNull, "locatable" to JsonPrimitive(false), "record" to JsonObject(mapOf("kind" to JsonPrimitive("craft"), "id" to JsonPrimitive(id))))) }
+        val s = state(api)
+        s.locate("craft", "c7", "Bidri")
+        until { s.recordToOpen != null }
+        assertEquals(ExplorerRecordRef("craft", "c7", "Bidri"), s.recordToOpen)
+        assertEquals(null, s.unfiled)
+        s.recordHandled(true)
+        assertEquals(null, s.recordToOpen)
+        assertEquals(null, s.unfiled)
+    }
+
+    @Test fun `a record page nobody can open falls back to the unfiled notice`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.located = { _, id -> JsonObject(mapOf("path" to JsonNull, "record" to JsonObject(mapOf("kind" to JsonPrimitive("artisan"), "id" to JsonPrimitive(id))))) }
+        val s = state(api)
+        s.locate("artisan", "a1", "Giriraj")
+        until { s.recordToOpen != null }
+        s.recordHandled(false)
+        assertEquals(null, s.recordToOpen)
+        assertTrue(s.unfiled.orEmpty().contains("Giriraj"))
+    }
+
+    @Test fun `no path and no record shows the unfiled notice`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.located = { _, _ -> JsonObject(mapOf("path" to JsonNull)) }
+        val s = state(api)
+        s.locate("artisan", "a2", "Meera")
+        until { s.unfiled != null }
+        assertEquals(null, s.recordToOpen)
     }
 
     @Test fun `a forbidden folder shows the restricted panel`() = runBlocking {

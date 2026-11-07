@@ -24,8 +24,9 @@ import {
   type UnifiedResponse,
   type UnifiedType
 } from "@/lib/unifiedSearch";
+import { locateRecord } from "@/components/dataExplorer/paletteSearch";
 import { OpenableBlock } from "@/components/records/OpenableRow";
-import { activeFilters, ALL_LIMIT, clock, EMPTY_STATE, flattenGroups, hasMore, LEGACY_PAGE, legacyRows, legacyTotals, mergeRows, moreLabel, portalCounts, rangeBounds, rowKey, sameSearch, searchFromParams, searchToParams, sections, showAllLabel, TYPE_LIMIT, unifiedTotals, type DateRange, type GroupTotal, type LegacyResult, type Row, type Scope, type SearchState } from "@/lib/dataSearch";
+import { activeFilters, ALL_LIMIT, clock, EMPTY_STATE, flattenGroups, hasMore, LEGACY_PAGE, legacyRows, legacyTotals, mergeRows, moreLabel, offersOpenInData, portalCounts, rangeBounds, rowKey, sameSearch, searchFromParams, searchToParams, sections, showAllLabel, TYPE_LIMIT, unifiedTotals, type DateRange, type GroupTotal, type LegacyResult, type Row, type Scope, type SearchState } from "@/lib/dataSearch";
 import { workshopDisplayTitle } from "@/lib/workshopTitle";
 
 export const PAGE_STEP = TYPE_LIMIT;
@@ -385,8 +386,9 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
     setLocating(`${row.portal}:${row.id}`);
     setNotice(null);
     try {
-      const found = await apiFetch<{ path: string | null }>(`/data/locate${buildQuery({ type, id: row.id })}`);
+      const found = await locateRecord(type, row.id);
       if (found.path) onReveal(found.path);
+      else if (found.recordHref) router.push(found.recordHref);
       else setNotice(`“${row.title}” isn't filed in a folder yet.`);
     } catch (error) {
       setNotice(error instanceof Error && error.message ? error.message : "That record couldn't be found in the folders.");
@@ -664,7 +666,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
                             Play from {time}
                           </button>
                         ) : null}
-                        {row.local && LOCATE_TYPE[row.type] ? (
+                        {offersOpenInData(row, LOCATE_TYPE[row.type]) ? (
                           <button type="button" className={CARD_BUTTON} disabled={locating === `${row.portal}:${row.id}`} onClick={() => void reveal(row)}>
                             {locating === `${row.portal}:${row.id}` ? "Finding…" : "Open in Data"}
                           </button>

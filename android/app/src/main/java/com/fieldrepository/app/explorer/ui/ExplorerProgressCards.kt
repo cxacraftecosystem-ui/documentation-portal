@@ -48,7 +48,14 @@ import com.fieldrepository.app.ui.FieldLinearProgressIndicator
 import com.fieldrepository.app.ui.field
 
 internal fun jobStatus(job: ExplorerJob): ExplorerStatus = when (job.state) {
-    ExplorerJobState.DONE -> if ((job.result?.failedCount ?: 0) > 0 && (job.result?.saved ?: 0) == 0) ExplorerStatus.FAILED else ExplorerStatus.SAVED
+    ExplorerJobState.DONE -> {
+        val failed = job.result?.failedCount ?: 0
+        when {
+            failed > 0 && (job.result?.saved ?: 0) == 0 -> ExplorerStatus.FAILED
+            failed > 0 -> ExplorerStatus.PARTIAL
+            else -> ExplorerStatus.SAVED
+        }
+    }
     ExplorerJobState.FAILED -> ExplorerStatus.FAILED
     else -> ExplorerStatus.NEUTRAL
 }
@@ -269,7 +276,8 @@ internal fun RecentRow(file: ExplorerRecent, active: Boolean, last: Boolean = fa
 internal fun ResultCard(job: ExplorerJob, onOpen: () -> Unit, onRetry: () -> Unit) {
     val status = jobStatus(job)
     val tone = explorerTone(status) ?: return
-    val saved = status == ExplorerStatus.SAVED
+    val partial = status == ExplorerStatus.PARTIAL
+    val saved = status == ExplorerStatus.SAVED || partial
     val canOpen = job.result?.uri != null || job.result?.location != null
     Column(
         Modifier.fillMaxWidth()
@@ -281,7 +289,7 @@ internal fun ResultCard(job: ExplorerJob, onOpen: () -> Unit, onRetry: () -> Uni
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             val count = job.result?.saved ?: 0
-            if (saved) ExplorerMarkIcon(ExplorerMarkKind.SAVED, tone.content, 16.dp)
+            if (saved) ExplorerMarkIcon(if (partial) ExplorerMarkKind.FAILED else ExplorerMarkKind.SAVED, tone.content, 16.dp)
             Text(
                 if (saved) (if (count > 1 && job.request.kind != ExplorerJobKind.FOLDER) ExplorerText.savedFiles(count) else "${ExplorerText.savedShort} ${job.request.title}") else job.request.title,
                 style = MaterialTheme.typography.bodyMedium,

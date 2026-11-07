@@ -78,6 +78,13 @@ export function reviewDetail(review: ReviewCounts): string {
   return `approved · ${review.pending} pending`;
 }
 
+export function reviewWord(review: ReviewCounts): string {
+  if (review.total <= 0) return "-";
+  if (review.approved >= review.total) return "Approved";
+  if (review.approved <= 0) return "Pending";
+  return "Partly approved";
+}
+
 export function reviewTone(review: ReviewCounts): ReviewTone {
   if (review.total <= 0) return "none";
   return review.approved >= review.total ? "done" : "waiting";

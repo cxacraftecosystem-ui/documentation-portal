@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import type { Downloads } from "@/components/dataExplorer/useDownloads";
-import { trayHeadline, type DownloadItem, type DownloadStatus } from "@/lib/dataExplorer/downloads";
+import { OUTCOME_CARD, OUTCOME_SUB, outcomeOf, trayHeadline, type DownloadItem, type DownloadStatus } from "@/lib/dataExplorer/downloads";
 import { bytesOf, formatBytes, percentOf } from "@/lib/dataExplorer/plan";
 
 const TEXT_BUTTON = "min-h-8 rounded-sm px-2.5 text-xs font-semibold transition hover:bg-surface-50 disabled:opacity-60 pointer-coarse:min-h-11";
@@ -64,20 +64,14 @@ function Job({ item, downloads, zipRunning }: { item: DownloadItem; downloads: D
   const percent = item.bytesTotal ? percentOf(item.bytesDone, item.bytesTotal) : null;
   const retryIn = item.retryAt ? Math.max(0, Math.ceil((item.retryAt - downloads.now) / 1000)) : null;
   const paused = item.note === "Paused";
-  const tone =
-    item.status === "saved"
-      ? "border-green-300 bg-success-100 text-green-900 dark:border-[#15803d] dark:bg-[#123b25] dark:text-green-100"
-      : item.status === "failed"
-        ? "border-red-300 bg-error-100 text-red-900 dark:border-[#b91c1c] dark:bg-[#4a1717] dark:text-red-100"
-        : item.status === "waiting"
-          ? "border-line-200 bg-surface-50 text-ink-900"
-          : "border-line-200 bg-card text-ink-900";
-  const sub = item.status === "saved" ? "text-green-800 dark:text-green-200" : item.status === "failed" ? "text-red-800 dark:text-red-200" : "text-ink-500";
+  const outcome = outcomeOf(item);
+  const tone = OUTCOME_CARD[outcome];
+  const sub = OUTCOME_SUB[outcome];
   return (
-    <li className={`grid gap-1.5 rounded-[14px] border px-3.5 py-3 ${tone}`} data-status={item.status} data-testid="tray-item">
+    <li className={`grid gap-1.5 rounded-[14px] border px-3.5 py-3 ${tone}`} data-status={item.status} data-outcome={outcome} data-testid="tray-item">
       <div className="flex items-center justify-between gap-2 text-sm">
         <strong className="min-w-0 truncate font-semibold">
-          {item.status === "saved" ? "✓ " : ""}
+          {outcome === "saved" ? "✓ " : outcome === "partial" ? "! " : ""}
           {item.label}
         </strong>
         <span
@@ -86,14 +80,16 @@ function Job({ item, downloads, zipRunning }: { item: DownloadItem; downloads: D
               ? paused
                 ? "text-xs text-ink-500"
                 : "font-bold text-purple-700 dark:text-purple-300"
-              : item.status === "saved"
+              : outcome === "saved"
                 ? "font-bold text-success-600 dark:text-green-300"
-                : item.status === "failed"
-                  ? "font-bold text-red-700 dark:text-red-300"
-                  : "text-xs text-ink-500"
+                : outcome === "partial"
+                  ? "font-bold text-amber-800 dark:text-amber-300"
+                  : item.status === "failed"
+                    ? "font-bold text-red-700 dark:text-red-300"
+                    : "text-xs text-ink-500"
           }`}
         >
-          {item.status === "running" ? (paused ? "Paused" : percent !== null ? `${percent}%` : "Working") : item.status === "waiting" ? (paused ? "Paused" : "Waiting") : item.status === "saved" ? "Saved" : item.status === "failed" ? "Failed" : "Cancelled"}
+          {item.status === "running" ? (paused ? "Paused" : percent !== null ? `${percent}%` : "Working") : item.status === "waiting" ? (paused ? "Paused" : "Waiting") : outcome === "partial" ? "Partly saved" : item.status === "saved" ? "Saved" : item.status === "failed" ? "Failed" : "Cancelled"}
         </span>
       </div>
       {item.status === "running" ? (

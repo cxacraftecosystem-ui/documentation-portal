@@ -89,10 +89,10 @@ function Thumb({ entry, size = "md" }: { entry: TreeEntry; size?: "md" | "lg" })
   if (pictured && !broken && entry.mediaId) {
     const source = edge === null ? null : entry.thumbnailPath ? apiUrl(entry.thumbnailPath, { size: edge }) : mediaThumbnailUrl(entry.mediaId, edge);
     return (
-      <span ref={frame} className={`${box} grid shrink-0 place-items-center overflow-hidden bg-field-100`} data-thumb="">
+      <span ref={frame} className={`${box} relative block shrink-0 overflow-hidden bg-field-100`} data-thumb="">
         {source ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={source} alt="" loading="lazy" decoding="async" onError={() => setBroken(true)} className="h-full w-full object-contain" />
+          <img src={source} alt="" loading="lazy" decoding="async" onError={() => setBroken(true)} className="absolute inset-0 h-full w-full object-contain" />
         ) : null}
       </span>
     );

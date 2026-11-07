@@ -40,6 +40,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
@@ -157,6 +158,13 @@ fun VideoPlayer(uri: Uri, modifier: Modifier = Modifier) {
 
 @Composable
 fun AudioPlayer(uri: Uri, modifier: Modifier = Modifier, expand: AudioExpand? = null) {
+    key(audioRecordingKey(uri, expand)) { RecordingPlayer(uri, modifier, expand) }
+}
+
+internal fun audioRecordingKey(uri: Uri, expand: AudioExpand?): String = expand?.mediaId?.takeIf { it.isNotBlank() }?.let { "$it|$uri" } ?: uri.toString()
+
+@Composable
+private fun RecordingPlayer(uri: Uri, modifier: Modifier, expand: AudioExpand?) {
     var handoff by remember { mutableStateOf<Pair<Long, Boolean>?>(null) }
     val canExpand = expand != null && LocalAudioExpand.current
     val context = LocalContext.current
@@ -249,7 +257,15 @@ fun AudioPlayer(uri: Uri, modifier: Modifier = Modifier, expand: AudioExpand? = 
     }
     val opened = handoff
     if (expand != null && opened != null) {
-        ExplorerAudioExpanded(expand.mediaId, expand.name, opened.first, opened.second) { back ->
+        ExplorerAudioExpanded(
+            mediaId = expand.mediaId,
+            name = expand.name,
+            startMs = opened.first,
+            wasPlaying = opened.second,
+            sizeBytes = expand.sizeBytes,
+            durationMs = durationMs.toLong().takeIf { it > 0 },
+            onSave = expand.onSave,
+        ) { back ->
             handoff = null
             val target = back.positionMs.coerceIn(0L, if (durationMs > 0) durationMs.toLong() else Long.MAX_VALUE).toInt()
             positionMs = target
@@ -262,7 +278,7 @@ fun AudioPlayer(uri: Uri, modifier: Modifier = Modifier, expand: AudioExpand? = 
     }
 }
 
-data class AudioExpand(val mediaId: String, val name: String)
+data class AudioExpand(val mediaId: String, val name: String, val sizeBytes: Long? = null, val onSave: (() -> Unit)? = null)
 
 val LocalAudioExpand = staticCompositionLocalOf { false }
 

@@ -292,6 +292,7 @@ internal fun JobCard(
 ) {
     var showFailed by remember(job.id) { mutableStateOf(false) }
     val tone = explorerTone(jobStatus(job))
+    val partial = jobStatus(job) == ExplorerStatus.PARTIAL
     val content = tone?.content ?: MaterialTheme.colorScheme.onSurface
     val muted = tone?.muted ?: MaterialTheme.colorScheme.onSurfaceVariant
     val large = LocalDensity.current.fontScale >= 1.5f
@@ -340,7 +341,7 @@ internal fun JobCard(
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                ExplorerMarkIcon(ExplorerMarkKind.SAVED, content, 16.dp)
+                                ExplorerMarkIcon(if (partial) ExplorerMarkKind.FAILED else ExplorerMarkKind.SAVED, content, 16.dp)
                                 title(job.request.title, Modifier.weight(1f, fill = false))
                             }
                             Text(jobSavedLine(job), style = MaterialTheme.typography.bodySmall, color = muted, modifier = Modifier.testTag("explorer.job.done"))
@@ -351,8 +352,8 @@ internal fun JobCard(
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         title(job.request.title, Modifier.weight(1f))
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            ExplorerMarkIcon(ExplorerMarkKind.SAVED, accent, 16.dp)
-                            Text(ExplorerUiText.saved, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = accent)
+                            ExplorerMarkIcon(if (partial) ExplorerMarkKind.FAILED else ExplorerMarkKind.SAVED, accent, 16.dp)
+                            Text(if (partial) ExplorerUiText.partlySaved else ExplorerUiText.saved, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = accent)
                         }
                     }
                     Text(jobSavedLine(job), style = MaterialTheme.typography.bodySmall, color = muted, modifier = Modifier.testTag("explorer.job.done"))

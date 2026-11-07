@@ -173,14 +173,14 @@ object ScreenBoards {
         ),
         sections = ('A'..'H').map { ExplorerSectionHead(it.toString(), "Section $it") },
         artisans = listOf(
-            artisan("mohan", "Mohan Lal Chhipa", "Block carving", 18, 22, 410 * MB, 3, "Pending", "cc p m m p m m"),
-            artisan("sunita", "Sunita Devi", "Dabu printing", 30, 61, 880 * MB, 9, "Pending", "ccc p c p c m"),
-            artisan("giriraj", "Giriraj Prasad Chhipa", "Dabu printing", 34, 48, FOLDER_BYTES, 12, "Approved", "ccccc p cc"),
-            artisan("ramesh", "Ramesh Chhipa", "Block carving", 40, 97, (1.9 * GB).toLong(), 14, "Approved", "cccccccc"),
+            artisan("mohan", "Mohan Lal Chhipa", "Block carving", 18, 22, 410 * MB, 3, ExplorerReviewTotals(0, 3, 3), "cc p m m p m m"),
+            artisan("sunita", "Sunita Devi", "Dabu printing", 30, 61, 880 * MB, 9, ExplorerReviewTotals(0, 2, 2), "ccc p c p c m"),
+            artisan("giriraj", "Giriraj Prasad Chhipa", "Dabu printing", 34, 48, FOLDER_BYTES, 12, ExplorerReviewTotals(3, 0, 3), "ccccc p cc"),
+            artisan("ramesh", "Ramesh Chhipa", "Block carving", 40, 97, (1.9 * GB).toLong(), 14, ExplorerReviewTotals(4, 0, 4), "cccccccc"),
         ),
     )
 
-    private fun artisan(id: String, name: String, craft: String, filled: Int, files: Int, bytes: Long, transcripts: Int, review: String, squares: String): ExplorerOverviewArtisan {
+    private fun artisan(id: String, name: String, craft: String, filled: Int, files: Int, bytes: Long, transcripts: Int, review: ExplorerReviewTotals, squares: String): ExplorerOverviewArtisan {
         val states = squares.replace(" ", "").map { when (it) { 'c' -> "complete"; 'p' -> "partial"; else -> "missing" } }
         return ExplorerOverviewArtisan(
             id = id, name = name, craft = craft, path = "$WORKSHOP/artisans/$id", fields = ExplorerFilled(filled, 40),

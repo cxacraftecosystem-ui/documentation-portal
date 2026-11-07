@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 
 import { BROWSE_KINDS, browseKindOf } from "@/lib/dataExplorer/contract";
-import { reviewDetail, reviewFraction, reviewTone, transcriptDetail } from "@/lib/dataExplorer/explorerView";
+import { reviewDetail, reviewFraction, reviewTone, reviewWord, transcriptDetail } from "@/lib/dataExplorer/explorerView";
 import { readUrlState } from "@/lib/dataExplorer/urlState";
 
 import { OVERVIEW } from "./support/dataExplorerFake";
@@ -63,6 +63,10 @@ test("artisan counts read the way the totals cards do", () => {
   expect(reviewTone({ approved: 3, pending: 0, total: 3 })).toBe("done");
   expect(reviewTone({ approved: 1, pending: 2, total: 3 })).toBe("waiting");
   expect(reviewTone({ approved: 0, pending: 0, total: 0 })).toBe("none");
+  expect(reviewWord({ approved: 3, pending: 0, total: 3 })).toBe("Approved");
+  expect(reviewWord({ approved: 0, pending: 3, total: 3 })).toBe("Pending");
+  expect(reviewWord({ approved: 2, pending: 1, total: 3 })).toBe("Partly approved");
+  expect(reviewWord({ approved: 0, pending: 0, total: 0 })).toBe("-");
   expect(transcriptDetail({ total: 2, ready: 1, translating: 0, failed: 1 })).toBe("1 ready · 0 translating · 1 failed");
 });
 

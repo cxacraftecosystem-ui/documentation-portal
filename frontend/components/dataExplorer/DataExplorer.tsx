@@ -615,15 +615,16 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const reportItem = downloads.reportFor(url.path);
   const newHere = visit && visit.path === url.path && visit.previousVisitAt && visit.newFiles > 0 ? visit.newFiles : 0;
 
-  const withPath = useCallback(async (hit: PaletteHit, run: (path: string) => void) => {
+  const withPath = useCallback(async (hit: PaletteHit, run: (path: string) => void, openRecord = false) => {
     try {
-      const path = await locateHit(hit);
-      if (path) run(path);
+      const found = await locateHit(hit);
+      if (found.path) run(found.path);
+      else if (openRecord && found.recordHref) router.push(found.recordHref);
       else setViewError(`“${hit.title}” isn't filed in a folder yet.`);
     } catch {
       setViewError("That record couldn't be found in the folders.");
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (!pendingDownload || pendingDownload !== url.path || !folderSize.sized) return;
@@ -930,7 +931,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
         onClose={() => setPaletteOpen(false)}
         onOpen={(hit: PaletteHit) => {
           setPaletteOpen(false);
-          void withPath(hit, reveal);
+          void withPath(hit, reveal, true);
         }}
         onSearchEverything={(q) => {
           setPaletteOpen(false);

@@ -22,8 +22,8 @@ object ExplorerAudioExpandText {
 data class ExplorerAudioHandoff(val positionMs: Long, val playing: Boolean)
 
 object ExplorerAudioExpand {
-    fun entry(mediaId: String, name: String): ExplorerEntry =
-        ExplorerEntry(name = name.ifBlank { mediaId }, path = mediaId, mediaId = mediaId, mediaType = "AUDIO", transcriptAvailable = true)
+    fun entry(mediaId: String, name: String, sizeBytes: Long? = null): ExplorerEntry =
+        ExplorerEntry(name = name.ifBlank { mediaId }, path = mediaId, mediaId = mediaId, mediaType = "AUDIO", sizeBytes = sizeBytes?.takeIf { it > 0 }, transcriptAvailable = true)
 
     fun handBack(mediaId: String, startMs: Long, wasPlaying: Boolean): ExplorerAudioHandoff {
         val now = ExplorerAudio.state.value
@@ -41,13 +41,24 @@ fun ExplorerAudioExpandButton(onClick: () -> Unit, modifier: Modifier = Modifier
 }
 
 @Composable
-fun ExplorerAudioExpanded(mediaId: String, name: String, startMs: Long, wasPlaying: Boolean, onClose: (ExplorerAudioHandoff) -> Unit) {
-    val entry = remember(mediaId, name) { ExplorerAudioExpand.entry(mediaId, name) }
+fun ExplorerAudioExpanded(
+    mediaId: String,
+    name: String,
+    startMs: Long,
+    wasPlaying: Boolean,
+    sizeBytes: Long? = null,
+    durationMs: Long? = null,
+    onSave: (() -> Unit)? = null,
+    onClose: (ExplorerAudioHandoff) -> Unit,
+) {
+    val entry = remember(mediaId, name, sizeBytes) { ExplorerAudioExpand.entry(mediaId, name, sizeBytes) }
     ExplorerMediaDialog(
         entries = listOf(entry),
         start = 0,
         startSeconds = startMs.coerceAtLeast(0L) / 1000.0,
-        onSave = null,
+        onSave = onSave?.let { save -> { _: ExplorerEntry -> save() } },
         onDismiss = { onClose(ExplorerAudioExpand.handBack(mediaId, startMs, wasPlaying)) },
+        knownDurationMs = durationMs?.takeIf { it > 0 },
+        positioned = false,
     )
 }
