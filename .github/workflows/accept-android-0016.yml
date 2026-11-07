@@ -1,0 +1,126 @@
+name: Accept Android 0.0.16 live
+
+on:
+  push:
+    branches: [accept-android-0016]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accept-android-0016
+  cancel-in-progress: true
+
+env:
+  FIX_SHA: aff2e9c94404da31326246b33fdf2ccbc9bff8ca
+  PORTAL: fr
+  SOAK_SECONDS: "60"
+  ONLY: ""
+
+jobs:
+  apk:
+    name: Release-equivalent APK from fix-0016
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: The app source is exactly fix-0016
+        run: |
+          set -euo pipefail
+          git diff --quiet "$FIX_SHA" HEAD -- android backend frontend shared
+          git diff --stat "$FIX_SHA" HEAD
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+      - name: Acceptance instrumentation (OkHttp BASIC logging, one media id swapped for a missing id)
+        run: |
+          set -euo pipefail
+          python3 accept/patch_apk.py
+          git diff --stat
+      - name: Build the release variant and sign it with a throwaway key
+        working-directory: android
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          printf 'releaseAllAbis=true\n' > local.properties
+          if grep -q sherpa-onnx-static-link-onnxruntime-1.13.8 app/build.gradle.kts; then
+            aar="app/libs/sherpa-onnx-static-link-onnxruntime-1.13.8.aar"
+            mkdir -p app/libs
+            curl -fsSL --retry 3 --retry-delay 5 -o "$aar" "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-static-link-onnxruntime-1.13.8.aar"
+            echo "b22c3fc1b6a45666d28892bb2f7694beeb77a8362d7ebd77c1a5431ec9435471  $aar" | sha256sum -c -
+          fi
+          sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.2" "build-tools;37.0.0" > /dev/null
+          ./gradlew :app:assembleRelease --console=plain
+          keytool -genkeypair -keystore "$RUNNER_TEMP/accept.jks" -storepass acceptpass -keypass acceptpass -alias accept -keyalg RSA -keysize 2048 -validity 2 -dname "CN=accept" > /dev/null
+          mkdir -p ../accept-apk
+          apk=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          "$sdk/build-tools/37.0.0/zipalign" -f 4 "$apk" "$RUNNER_TEMP/aligned.apk"
+          "$sdk/build-tools/37.0.0/apksigner" sign --ks "$RUNNER_TEMP/accept.jks" --ks-pass pass:acceptpass --out ../accept-apk/app.apk "$RUNNER_TEMP/aligned.apk"
+          unzip -p ../accept-apk/app.apk 'classes*.dex' | grep -aqF 'https://d2b34i3e92al6i.cloudfront.net/api/'
+          "$sdk/build-tools/37.0.0/aapt2" dump badging ../accept-apk/app.apk | grep -E "^package"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: accept-apk
+          path: accept-apk/
+          retention-days: 3
+
+  emulator:
+    needs: apk
+    name: Live acceptance on ${{ matrix.profile }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: phone
+            device: pixel_7
+          - profile: tablet
+            device: pixel_tablet
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: accept-apk
+          path: ${{ runner.temp }}/apk
+      - name: Pixel tooling
+        run: python3 -m pip install --user --break-system-packages pillow || python3 -m pip install --user pillow
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Drive the app against production
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        env:
+          AUDIT_OUT: ${{ github.workspace }}/accept-out
+          AUDIT_APK: ${{ runner.temp }}/apk/app.apk
+          AUDIT_PROFILE: ${{ matrix.profile }}
+          GATE_EMAIL: ${{ secrets.RELEASE_GATE_EMAIL || secrets.APP_PUBLISH_EMAIL }}
+          GATE_PASSWORD: ${{ secrets.RELEASE_GATE_PASSWORD || secrets.APP_PUBLISH_PASSWORD }}
+        with:
+          api-level: "37.0"
+          target: google_apis
+          arch: x86_64
+          profile: ${{ matrix.device }}
+          cores: 4
+          ram-size: 4096M
+          emulator-boot-timeout: 900
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+            -no-snapshot-save -no-snapshot-load -camera-back none -camera-front none
+          disable-animations: false
+          script: python3 accept/accept_0016.py
+      - name: Keep everything
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: accept-${{ env.PORTAL }}-${{ matrix.profile }}
+          path: accept-out/
+          retention-days: 14
