@@ -10,7 +10,9 @@ import {
   isPresignedUrl,
   MEDIA_REFRESH_BUDGET,
   presignedExpiryAt,
+  MEDIA_NEAR_EXPIRY_MS,
   presignedUrlExpired,
+  presignedUrlExpiresSoon,
   refreshesSpent,
   refreshVerdict,
   resetMediaRefreshLedger,
@@ -394,4 +396,50 @@ test("the hook never clears a url it could not replace", () => {
   expect(writes.length).toBe(3);
   expect(HOOK_SOURCE).toContain("if (!cancelled && next && next !== stored) setFresh(next);");
   expect(HOOK_SOURCE).toContain("if (next) setFresh(next);");
+});
+
+test("a signature with under a minute left is refreshed before it is drawn; one with minutes left is not", () => {
+  expect(MEDIA_NEAR_EXPIRY_MS).toBe(60_000);
+  expect(presignedUrlExpiresSoon(signed("20260903T094530Z", 900), NOON)).toBe(true);
+  expect(presignedUrlExpiresSoon(signed("20260903T095500Z", 900), NOON)).toBe(false);
+  expect(presignedUrlExpiresSoon(signed("20260903T090000Z", 900), NOON)).toBe(true);
+  expect(presignedUrlExpiresSoon(PERMANENT, NOON)).toBe(false);
+  expect(presignedUrlExpiresSoon(null, NOON)).toBe(false);
+});
+
+test("near expiry is never narrower than the round-trip slack", () => {
+  const dying = signed("20260903T094500Z", 905);
+  expect(presignedUrlExpired(dying, NOON)).toBe(true);
+  expect(presignedUrlExpiresSoon(dying, NOON, 0)).toBe(true);
+});
+
+test("an expired url fails, is re-signed once, and a second failure of the fresh url ends in the error state", async () => {
+  const stale = signed("20260903T090000Z", 900);
+  const fresh = signed("20260903T100000Z", 900);
+  const net = stubNetwork(fresh);
+  try {
+    expect(await resolveFailedMediaUrl({ id: MEDIA_ID, url: stale })).toBe(fresh);
+    expect(net.calls.filter((call) => call.url.includes("/api/media/"))).toHaveLength(1);
+    expect(await resolveFailedMediaUrl({ id: MEDIA_ID, url: fresh })).toBeNull();
+    expect(net.calls.filter((call) => call.url.includes("/api/media/"))).toHaveLength(2);
+  } finally {
+    net.restore();
+  }
+});
+
+test("the hook refreshes ahead of expiry and reports a url it could not replace as failed", () => {
+  expect(HOOK_SOURCE).toContain("presignedUrlExpiresSoon(stored, Date.now())");
+  expect(HOOK_SOURCE).toContain("else setFailedUrl(src);");
+  expect(HOOK_SOURCE).toContain("failed: src !== null && failedUrl === src");
+  expect(HOOK_SOURCE).not.toContain("setFailedUrl(null)");
+});
+
+const LIGHTBOX_SOURCE = readFileSync(join(__dirname, "..", "components", "media", "MediaLightbox.tsx"), "utf8");
+
+test("the media tile and the lightbox re-sign on error and show an error state once the url is spent", () => {
+  expect(LIGHTBOX_SOURCE.match(/const \{ src, onError, failed: loadFailed \} = useMediaUrl\(given\);/g) ?? []).toHaveLength(2);
+  expect(LIGHTBOX_SOURCE.match(/<img src=\{item\.url\} onError=\{onError\}/g) ?? []).toHaveLength(2);
+  expect(LIGHTBOX_SOURCE.match(/<video src=\{item\.url\} onError=\{onError\}/g) ?? []).toHaveLength(2);
+  expect(LIGHTBOX_SOURCE).toContain('data-testid="media-tile-failed"');
+  expect(LIGHTBOX_SOURCE).toContain('data-testid="media-lightbox-failed"');
 });

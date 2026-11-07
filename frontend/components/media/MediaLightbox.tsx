@@ -1,7 +1,7 @@
 "use client";
 
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { Download, ExternalLink, FileText, Headphones, Image as ImageIcon, Loader2, Maximize2, Video, X } from "lucide-react";
+import { Download, ExternalLink, FileText, Headphones, Image as ImageIcon, ImageOff, Loader2, Maximize2, Video, X } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
 
 import { useMediaUrl } from "@/components/hooks/useMediaUrl";
@@ -107,7 +107,7 @@ export function MediaPreviewTile({
   onRetry?: () => void;
   downloadFile?: Blob | null;
 }) {
-  const { src } = useMediaUrl(given);
+  const { src, onError, failed: loadFailed } = useMediaUrl(given);
   const item = { ...given, url: src ?? given.url };
   const kind = resolvePreviewKind(item);
   const percent = progress === null ? null : Math.round(Math.min(1, Math.max(0, progress)) * 100);
@@ -139,11 +139,18 @@ export function MediaPreviewTile({
         }}
         aria-label={`Open preview for ${item.name}`}
       >
-        {kind === "IMAGE" && item.url ? (
+        {(kind === "IMAGE" || kind === "VIDEO") && item.url && loadFailed ? (
+          <div className="grid gap-2 text-center" data-testid="media-tile-failed">
+            <div className="mx-auto rounded-full bg-card p-3 text-ink-500 shadow-sm">
+              <ImageOff className="h-5 w-5" aria-hidden />
+            </div>
+            <span className="text-xs font-semibold">Couldn&apos;t load</span>
+          </div>
+        ) : kind === "IMAGE" && item.url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={item.url} alt={item.caption || item.name} className="h-full w-full object-cover" loading="lazy" />
+          <img src={item.url} onError={onError} alt={item.caption || item.name} className="h-full w-full object-cover" loading="lazy" />
         ) : kind === "VIDEO" && item.url ? (
-          <video src={item.url} className="h-full w-full object-cover" muted playsInline />
+          <video src={item.url} onError={onError} className="h-full w-full object-cover" muted playsInline />
         ) : kind === "AUDIO" ? (
           <div className="grid gap-2 text-center">
             <div className="mx-auto rounded-full bg-card p-3 text-field-700 dark:text-purple-300 shadow-sm">{iconForType(kind)}</div>
@@ -185,7 +192,7 @@ export function MediaPreviewTile({
 }
 
 export function MediaLightbox({ item: given, onClose }: { item: PreviewMedia; onClose: () => void }) {
-  const { src } = useMediaUrl(given);
+  const { src, onError, failed: loadFailed } = useMediaUrl(given);
   const item = { ...given, url: src ?? given.url };
   const downOnBackdrop = useRef(false);
   const kind = resolvePreviewKind(item);
@@ -240,15 +247,20 @@ export function MediaLightbox({ item: given, onClose }: { item: PreviewMedia; on
           </div>
         </div>
         <div className="grid max-h-[74vh] place-items-center overflow-auto rounded-md bg-card p-3">
-          {kind === "IMAGE" && item.url ? (
+          {item.url && loadFailed ? (
+            <div role="status" className="grid gap-3 text-center text-ink-muted" data-testid="media-lightbox-failed">
+              <ImageOff className="mx-auto h-6 w-6" aria-hidden />
+              <p>This file couldn&apos;t be loaded.</p>
+            </div>
+          ) : kind === "IMAGE" && item.url ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={item.url} alt={item.caption || item.name} className="max-h-[70vh] max-w-full rounded-md object-contain" />
+            <img src={item.url} onError={onError} alt={item.caption || item.name} className="max-h-[70vh] max-w-full rounded-md object-contain" />
           ) : kind === "VIDEO" && item.url ? (
-            <video src={item.url} controls className="max-h-[70vh] w-full rounded-md bg-black" />
+            <video src={item.url} onError={onError} controls className="max-h-[70vh] w-full rounded-md bg-black" />
           ) : kind === "AUDIO" && item.url ? (
             <AudioPlayer src={item.url} className="w-full" />
           ) : kind === "PDF" && item.url ? (
-            <iframe src={item.url} title={item.name} className="h-[70vh] w-full rounded-md border border-line-200" />
+            <iframe src={item.url} onError={onError} title={item.name} className="h-[70vh] w-full rounded-md border border-line-200" />
           ) : item.url ? (
             <div className="grid w-full max-w-md justify-items-center gap-3 rounded-md border border-line-200 bg-field-50 p-6 text-center">
               <div className="rounded-full bg-card p-3 text-field-700 dark:text-purple-300 shadow-sm">{iconForType(kind)}</div>

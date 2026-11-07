@@ -7,7 +7,7 @@ import {
   hasAttempted,
   isOnline,
   MEDIA_REFRESH_BUDGET,
-  presignedUrlExpired,
+  presignedUrlExpiresSoon,
   refreshesSpent,
   refreshMediaUrl,
   resolveFailedMediaUrl,
@@ -17,10 +17,12 @@ import {
 export function useMediaUrl(media: RefreshableMedia | null | undefined): {
   src: string | null;
   onError: () => void;
+  failed: boolean;
 } {
   const stored = media?.url ?? null;
   const mediaId = media?.id ?? null;
   const [fresh, setFresh] = useState<string | null>(null);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
   useEffect(() => {
     setFresh(null);
@@ -28,7 +30,7 @@ export function useMediaUrl(media: RefreshableMedia | null | undefined): {
 
   useEffect(() => {
     if (!mediaId || !stored) return;
-    if (!presignedUrlExpired(stored, Date.now())) return;
+    if (!presignedUrlExpiresSoon(stored, Date.now())) return;
     if (hasAttempted(attemptKey(mediaId, stored))) return;
     if (refreshesSpent(mediaId) >= MEDIA_REFRESH_BUDGET) return;
     if (!isOnline()) return;
@@ -42,12 +44,15 @@ export function useMediaUrl(media: RefreshableMedia | null | undefined): {
     };
   }, [mediaId, stored]);
 
-  const onError = useCallback(() => {
-    if (!media) return;
-    void resolveFailedMediaUrl({ id: mediaId, url: fresh ?? stored }).then((next) => {
-      if (next) setFresh(next);
-    });
-  }, [media, mediaId, stored, fresh]);
+  const src = fresh ?? stored;
 
-  return { src: fresh ?? stored, onError };
+  const onError = useCallback(() => {
+    if (!media || !src) return;
+    void resolveFailedMediaUrl({ id: mediaId, url: src }).then((next) => {
+      if (next) setFresh(next);
+      else setFailedUrl(src);
+    });
+  }, [media, mediaId, src]);
+
+  return { src, onError, failed: src !== null && failedUrl === src };
 }

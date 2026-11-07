@@ -12,6 +12,7 @@ import {
   fetchTranscriptSummaries,
   languageOptions,
   stateCounts,
+  transcriptPillCount,
   highlightRanges,
   languagesLine,
   matchesState,
@@ -147,7 +148,7 @@ export function TranscriptsTab({
         if (abort.signal.aborted) return;
         const items = answer?.items ?? [];
         setLoaded({ key, items, total: answer?.total ?? 0, truncated: answer?.truncated ?? false, nextOffset: answer?.truncated ? (answer.nextOffset ?? null) : null });
-        if (!needle) countRef.current?.(answer?.total ?? 0);
+        if (!needle && !answer?.truncated) countRef.current?.(answer?.total ?? 0);
         const found = items.length ? await fetchTranscriptSummaries(items.map((item) => item.mediaId), abort.signal).catch(() => null) : new Map<string, TranscriptSummary>();
         if (!abort.signal.aborted) setSummaries((previous) => (found ? new Map([...(previous ?? []), ...found]) : previous));
       } catch (failure) {
@@ -247,6 +248,7 @@ export function TranscriptsTab({
   ];
 
   const stale = loaded !== null && loaded.key !== key;
+  const known = { rows: loaded !== null && !stale, statuses: loaded !== null && !stale && !loading, more: (loaded?.nextOffset ?? null) !== null };
 
   return (
     <section className="min-w-0" aria-label="Transcripts" data-testid="transcripts-tab">
@@ -284,17 +286,22 @@ export function TranscriptsTab({
           />
         </label>
         <div role="group" aria-label="Transcript status" className="flex flex-wrap gap-2">
-          {pills.map((pill) => (
-            <button
-              key={pill.value}
-              type="button"
-              aria-pressed={filter === pill.value}
-              onClick={() => setFilter(pill.value)}
-              className={`min-h-10 rounded-full px-3.5 text-[13px] transition pointer-coarse:min-h-11 ${filter === pill.value ? "bg-ink-900 text-card" : "border border-line-200 bg-card text-ink-900 hover:border-purple-300"}`}
-            >
-              {pill.label} {counts[pill.value].toLocaleString("en-IN")}
-            </button>
-          ))}
+          {pills.map((pill) => {
+            const count = transcriptPillCount(pill.value, counts, known);
+            return (
+              <button
+                key={pill.value}
+                type="button"
+                aria-pressed={filter === pill.value}
+                aria-busy={count === null || undefined}
+                data-count-pending={count === null || undefined}
+                onClick={() => setFilter(pill.value)}
+                className={`inline-flex min-h-10 items-center gap-1 rounded-full px-3.5 text-[13px] transition pointer-coarse:min-h-11 ${filter === pill.value ? "bg-ink-900 text-card" : "border border-line-200 bg-card text-ink-900 hover:border-purple-300"}`}
+              >
+                {pill.label} {count ?? <span aria-hidden className="inline-block h-3 w-6 animate-pulse rounded-sm bg-line-200" />}
+              </button>
+            );
+          })}
         </div>
         <PillMenu
           label={language ? (languages.find((option) => option.value === language)?.label ?? "Language") : "Language"}

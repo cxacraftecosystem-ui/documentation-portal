@@ -25,6 +25,7 @@ import {
   speakerLanes,
   speakersLine,
   stateCounts,
+  transcriptPillCount,
   stepHit,
   talkMinutes,
   talkTime,
@@ -176,6 +177,16 @@ test.describe("transcripts tab", () => {
     expect(matchesState("ready", "failed")).toBe(false);
     const counts = stateCounts([{ state: "ready" }, { state: "ready" }, { state: "working" }, { state: "failed" }, { state: "none" }]);
     expect(counts).toEqual({ all: 5, ready: 2, working: 1, failed: 1 });
+  });
+
+  test("a transcript count still loading is pending, never zero, and a partial list says so", () => {
+    const counts = { all: 500, ready: 0, working: 0, failed: 0 };
+    expect(transcriptPillCount("all", counts, { rows: false, statuses: false, more: false })).toBeNull();
+    expect(transcriptPillCount("ready", counts, { rows: false, statuses: false, more: false })).toBeNull();
+    expect(transcriptPillCount("all", counts, { rows: true, statuses: false, more: true })).toBe("500+");
+    expect(transcriptPillCount("failed", counts, { rows: true, statuses: false, more: true })).toBeNull();
+    expect(transcriptPillCount("failed", counts, { rows: true, statuses: true, more: true })).toBe("0");
+    expect(transcriptPillCount("all", { all: 2544, ready: 2544, working: 0, failed: 0 }, { rows: true, statuses: true, more: false })).toBe("2,544");
   });
 
   test("languages and speakers read as one short line", () => {

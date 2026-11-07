@@ -60,13 +60,21 @@ function readZip(bytes: Buffer): { name: string; size: number; data: Buffer }[] 
 }
 
 async function savedZip(page: Page): Promise<Buffer> {
-  const values = await page.evaluate(async () => {
+  const encoded = await page.evaluate(async () => {
     const name = (window as unknown as { __savedAs?: string }).__savedAs ?? "download.zip";
     const root = await navigator.storage.getDirectory();
     const file = await (await root.getFileHandle(name)).getFile();
-    return Array.from(new Uint8Array(await file.arrayBuffer()));
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result);
+        resolve(url.slice(url.indexOf(",") + 1));
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
   });
-  return Buffer.from(values);
+  return Buffer.from(encoded, "base64");
 }
 
 async function showTree(page: Page) {
@@ -588,6 +596,37 @@ test.describe("@qf:X12 the Transcripts tab", () => {
       await context.close();
     }
   });
+
+  test("counts read as loading, never 0, until the list and its statuses arrive", async ({ browser }) => {
+    const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
+    let releaseList: () => void = () => undefined;
+    let releaseStatuses: () => void = () => undefined;
+    fake.holds.set("/data/transcripts/list", new Promise<void>((resolve) => (releaseList = () => resolve())));
+    fake.holds.set("/transcripts/batch", new Promise<void>((resolve) => (releaseStatuses = () => resolve())));
+    try {
+      await page.getByRole("tab", { name: /Transcripts/ }).click();
+      const tab = page.getByTestId("transcripts-tab");
+      const group = tab.getByRole("group", { name: "Transcript status" });
+      await expect.poll(() => fake.calls.filter((call) => call.path === "/data/transcripts/list").length).toBeGreaterThan(0);
+      for (const name of ["All", "Ready", "Translating", "Failed"]) {
+        const pill = group.getByRole("button", { name, exact: true });
+        await expect(pill).toHaveAttribute("data-count-pending", "true");
+        await expect(pill).not.toContainText(/\d/);
+      }
+      fake.holds.delete("/data/transcripts/list");
+      releaseList();
+      await expect(group.getByRole("button", { name: "All 2" })).toBeVisible();
+      await expect(group.getByRole("button", { name: "Failed", exact: true })).toHaveAttribute("data-count-pending", "true");
+      fake.holds.delete("/transcripts/batch");
+      releaseStatuses();
+      await expect(group.getByRole("button", { name: "Failed 1" })).toBeVisible();
+      await expect(group.getByRole("button", { name: "Ready 1" })).not.toHaveAttribute("data-count-pending");
+    } finally {
+      releaseList();
+      releaseStatuses();
+      await context.close();
+    }
+  });
 });
 
 test.describe("@qf:X10 downloads go through one tray", () => {
@@ -641,9 +680,9 @@ test.describe("@qf:X10 downloads go through one tray", () => {
       }
       expect(state).toBe("hidden");
       const before = fake.servedFiles.length;
-      await other.waitForTimeout(3000);
-      const after = fake.servedFiles.length;
-      expect(after, "files keep downloading while hidden").toBeGreaterThan(before + 5);
+      await expect.poll(() => fake.servedFiles.length, { message: "files keep downloading while hidden", timeout: 20_000 }).toBeGreaterThan(before + 5);
+      expect(await page.evaluate(() => document.visibilityState), "the page stayed hidden while the files arrived").toBe("hidden");
+      fake.fileDelayMs = 0;
       await page.evaluate(() => {
         Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
         Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
@@ -1681,8 +1720,8 @@ test.describe("@qf:X1 navigation keeps its place", () => {
       await page.mouse.move(handle!.x + handle!.width / 2 + 100, handle!.y + 200, { steps: 4 });
       await page.mouse.up();
       await expect(divider).toHaveAttribute("aria-valuenow", "426");
-      const panel = await page.getByTestId("explorer-tree-panel").boundingBox();
-      expect(Math.round(panel!.width)).toBe(426);
+      const panel = page.getByTestId("explorer-tree-panel");
+      await expect.poll(async () => Math.round((await panel.boundingBox())?.width ?? 0), { message: "the folders panel is drawn at the width the divider reports" }).toBe(426);
       await divider.focus();
       await page.keyboard.press("ArrowLeft");
       await expect(divider).toHaveAttribute("aria-valuenow", "410");
