@@ -4,7 +4,7 @@ from typing import Any
 
 from prisma.errors import UniqueViolationError
 
-from app.services import consent_gate
+from app.services import consent_gate, job_supersede
 from app.services.transcription_store import open_key
 
 QUEUED = "QUEUED"
@@ -91,7 +91,7 @@ async def enqueue(
             data["requestedById"] = requested_by_id
         data["openKey"] = open_key(media_id, TRANSCRIPTION)
         try:
-            job = await db.mediaprocessingjob.create(data=data)
+            job = await job_supersede.open_job(data, client=db)
         except UniqueViolationError:
             job = await db.mediaprocessingjob.find_first(where={"openKey": data["openKey"]})
             if job is None:

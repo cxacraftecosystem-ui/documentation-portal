@@ -14,7 +14,7 @@ from app.ai_features.settings import get_ai_settings
 from app.ai_features.types import Capability
 from app.core.config import get_settings
 from app.core.db import db
-from app.services import anthropic_verbs, recording_consent, user_ai_keys
+from app.services import anthropic_verbs, job_supersede, recording_consent, user_ai_keys
 from app.services.ai_providers import (
     AiProvider,
     AiTask,
@@ -498,7 +498,7 @@ async def enqueue(
     }
     if requested_by_id:
         data["requestedById"] = requested_by_id
-    return await db.mediaprocessingjob.create(data=data)
+    return await job_supersede.open_job(data, client=db)
 
 
 async def enqueue_after_transcript(media_id: str) -> Any | None:

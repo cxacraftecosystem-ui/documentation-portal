@@ -43,6 +43,7 @@ from app.schemas.media import (
 )
 from app.services import (
     consent_gate,
+    job_supersede,
     media_mime,
     paid_ai_allowance,
     recording_consent,
@@ -746,6 +747,7 @@ async def list_media_processing_jobs(
     where: dict[str, Any] = {} if is_content_admin(current_user) else {"requestedById": current_user.id}
     if statusFilter:
         where["status"] = statusFilter
+    where = await job_supersede.without_superseded(where, client=db)
     total = await db.mediaprocessingjob.count(where=where)
     jobs = await db.mediaprocessingjob.find_many(
         where=where,

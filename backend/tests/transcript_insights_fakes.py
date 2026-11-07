@@ -118,8 +118,18 @@ class Delegate:
         self.store.writes.append((self.name, "update_many", dict(where), dict(data)))
         return len(hit)
 
+    async def delete_many(self, where: dict[str, Any] | None = None) -> int:
+        hit = [r for r in self.rows if _matches(r, where or {})]
+        self.rows = [r for r in self.rows if r not in hit]
+        if hit:
+            self.store.writes.append((self.name, "delete_many", dict(where or {})))
+        return len(hit)
+
 
 class FakeDb:
+    async def query_raw(self, *_args: Any) -> list[dict[str, Any]]:
+        return []
+
     def __init__(self) -> None:
         self.writes: list[tuple] = []
         self.mediafile = Delegate(self, "mediafile")
