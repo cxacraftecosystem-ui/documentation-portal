@@ -792,3 +792,146 @@ def test_image_size_and_pdf_pages_are_read_from_the_file() -> None:
     document = io.BytesIO()
     writer.write(document)
     assert facts.pdf_pages(document.getvalue()) == {"pages": 2}
+
+
+def _png_header(width: int, height: int) -> bytes:
+    import struct
+    import zlib
+
+    body = b"IHDR" + struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    ihdr = struct.pack(">I", 13) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+    end = struct.pack(">I", 0) + b"IEND" + struct.pack(">I", zlib.crc32(b"IEND") & 0xFFFFFFFF)
+    return b"\x89PNG\r\n\x1a\n" + ihdr + end
+
+
+def test_a_bomb_or_broken_image_is_unknown_and_never_raises() -> None:
+    from app.services.data_explorer import facts
+
+    assert facts.image_size(_png_header(60_000, 60_000)) == {}
+    assert facts.image_size(b"\x89PNG\r\n\x1a\nbroken") == {}
+    assert facts.image_size(b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 10 10\n") == {}
+    assert facts.image_size(_png_header(640, 480)) == {"width": 640, "height": 480}
+
+
+def test_a_pdf_claiming_absurd_pages_or_broken_is_unknown_and_never_raises() -> None:
+    from pypdf import PdfWriter
+
+    from app.services.data_explorer import facts
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    writer.add_blank_page(width=200, height=200)
+    document = io.BytesIO()
+    writer.write(document)
+    forged = document.getvalue().replace(b"/Count 2", b"/Count 999999999")
+    assert facts.pdf_pages(forged) == {}
+    assert facts.pdf_pages(b"%PDF-1.7\nnot really a document") == {}
+    assert facts.pdf_pages(document.getvalue()) == {"pages": 2}
+
+
+def test_a_file_over_the_parse_ceiling_is_not_parsed(monkeypatch) -> None:
+    from app.services.data_explorer import facts
+
+    monkeypatch.setattr(facts, "PARSE_MAX_BYTES", 16)
+    assert facts.image_size(_png_header(64, 48)) == {}
+    assert facts.pdf_pages(b"%PDF-1.7\n" + b"0" * 64) == {}
+
+
+def test_a_parse_that_hangs_is_recorded_unknown_within_the_wall_clock(monkeypatch) -> None:
+    import threading
+    import time
+
+    from app.services import s3
+    from app.services.data_explorer import facts
+
+    release = threading.Event()
+    remembered: list[Any] = []
+
+    def hang(_media: Any, _path: str) -> dict[str, int]:
+        release.wait(10)
+        return {"pages": 3}
+
+    async def fetched(*_args: Any, **_kwargs: Any) -> str:
+        return "unused.fact"
+
+    async def keep(media_id: str, found: Any) -> None:
+        remembered.append((media_id, found))
+
+    monkeypatch.setattr(facts, "measure_file", hang)
+    monkeypatch.setattr(facts, "MEASURE_SECONDS", 0.05)
+    monkeypatch.setattr(facts, "remember", keep)
+    monkeypatch.setattr(s3, "download_to_temp_async", fetched)
+    monkeypatch.setattr(s3, "discard_temp", lambda _path: None)
+    media = SimpleNamespace(id="m-slow", mediaType="PDF", mimeType="application/pdf", objectKey="k")
+    started = time.monotonic()
+    try:
+        assert asyncio.run(facts.measure(media)) == {}
+        assert time.monotonic() - started < 5
+        assert remembered == [("m-slow", {})]
+        assert asyncio.run(facts.bounded_measure(media, "unused.fact")) == {}
+    finally:
+        release.set()
+    deadline = time.monotonic() + 5
+    while facts._stuck.is_set() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not facts._stuck.is_set()
+
+
+def test_the_waveform_reads_only_this_portals_media_and_never_a_protocol_or_playlist() -> None:
+    import os
+
+    from app.services.data_explorer import peaks
+    from app.transcription.audio import UnsafeInput
+
+    hosts = {"media-bucket.s3.dualstack.ap-south-1.amazonaws.com"}
+    for hostile in (
+        "https://evil.example/talk.m3u8",
+        "http://169.254.169.254/latest/meta-data/",
+        "file:///etc/passwd",
+        "ftp://media-bucket.s3.dualstack.ap-south-1.amazonaws.com/a.mp3",
+        "http://media-bucket.s3.dualstack.ap-south-1.amazonaws.com/a.mp3",
+        "https://user:pw@media-bucket.s3.dualstack.ap-south-1.amazonaws.com/a.mp3",
+    ):
+        with pytest.raises(UnsafeInput):
+            peaks.ffmpeg_args(hostile, hosts)
+    signed = "https://media-bucket.s3.dualstack.ap-south-1.amazonaws.com/media/u/a.m4a?X-Amz-Signature=x"
+    args = peaks.ffmpeg_args(signed, hosts)
+    assert args[args.index("-protocol_whitelist") + 1] == "https,tls,tcp"
+    assert args.index("-protocol_whitelist") < args.index("-i")
+    assert args[args.index("-i") + 1] == signed
+    for odd in ("concat:/etc/passwd|/etc/hosts", "-filter_complex", "subfile,,start,0,end,0,,:/etc/passwd"):
+        local = peaks.ffmpeg_args(odd)
+        target = local[local.index("-i") + 1]
+        assert os.path.isabs(target) and not target.startswith("-")
+        assert local[local.index("-protocol_whitelist") + 1] == "file"
+    formats = args[args.index("-format_whitelist") + 1].split(",")
+    assert "hls" not in formats and "concat" not in formats and "mov" in formats
+    assert args[args.index("-t") + 1] == str(peaks.MAX_SECONDS)
+
+
+def test_a_refused_waveform_source_never_starts_ffmpeg(monkeypatch) -> None:
+    import subprocess
+
+    from app.services.data_explorer import peaks
+
+    def must_not_start(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("ffmpeg was started for a refused source")
+
+    monkeypatch.setattr(subprocess, "Popen", must_not_start)
+    with pytest.raises(peaks.DecodeFailed):
+        peaks.decode("https://evil.example/talk.m3u8", hosts={"media-bucket.s3.amazonaws.com"})
+
+
+def test_the_waveform_trusts_the_configured_bucket_hosts(monkeypatch) -> None:
+    from app.core.config import get_settings
+    from app.services.data_explorer import peaks
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "aws_s3_bucket", "media-bucket")
+    monkeypatch.setattr(settings, "aws_region", "ap-south-1")
+    monkeypatch.setattr(settings, "aws_s3_endpoint", None)
+    monkeypatch.setattr(settings, "aws_s3_public_base_url", "https://d1234.cloudfront.net/")
+    hosts = peaks.media_hosts()
+    assert "media-bucket.s3.dualstack.ap-south-1.amazonaws.com" in hosts
+    assert "d1234.cloudfront.net" in hosts
+    assert "evil.example" not in hosts

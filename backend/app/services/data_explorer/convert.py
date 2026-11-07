@@ -8,6 +8,8 @@ from collections import Counter
 from collections.abc import AsyncIterator
 from typing import Any
 
+from app.transcription.audio import local_input
+
 logger = logging.getLogger(__name__)
 
 CONCURRENCY = 1
@@ -40,7 +42,7 @@ async def audio_codec(source_path: str) -> str | None:
         "stream=codec_name",
         "-of",
         "json",
-        source_path,
+        *local_input(source_path),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
     )
@@ -65,8 +67,7 @@ def ffmpeg_args(source_path: str, codec: str | None) -> list[str]:
         "-loglevel",
         "error",
         "-nostdin",
-        "-i",
-        source_path,
+        *local_input(source_path),
         "-vn",
         "-map",
         "0:a:0",

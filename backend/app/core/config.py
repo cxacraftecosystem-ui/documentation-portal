@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     auth_user_cache_enabled: bool = Field(default=True, alias="AUTH_USER_CACHE_ENABLED")
     auth_user_cache_ttl_seconds: float = Field(default=5.0, alias="AUTH_USER_CACHE_TTL_SECONDS")
     trusted_proxy_hops: int = Field(default=2, ge=1, le=5, alias="TRUSTED_PROXY_HOPS")
+    trusted_proxy_cidrs: str = Field(default="127.0.0.1/32,::1/128", alias="TRUSTED_PROXY_CIDRS")
+    origin_verify_secret: str | None = Field(default=None, alias="ORIGIN_VERIFY_SECRET")
     web_proxy_secret: str | None = Field(default=None, alias="WEB_PROXY_SECRET")
     auth_user_cache_max_entries: int = Field(default=512, alias="AUTH_USER_CACHE_MAX_ENTRIES")
     secrets_encryption_key: str | None = Field(default=None, alias="SECRETS_ENCRYPTION_KEY")

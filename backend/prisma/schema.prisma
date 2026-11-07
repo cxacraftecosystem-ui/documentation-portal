@@ -3457,6 +3457,16 @@ model TranscriptSpend {
   @@index([mediaFileId])
 }
 
+model PaidAiSpend {
+  id      String   @id @default(cuid())
+  bucket  String
+  userId  String   @default("")
+  spentAt DateTime @default(now())
+
+  @@index([bucket, spentAt])
+  @@index([bucket, userId, spentAt])
+}
+
 /// A craft term heard in transcripts, with its gloss. `scopeKey` is the craft id or ''. `craftId`
 /// and `linkedCraftId` (the master craft the term names) carry no relation on purpose.
 model TranscriptGlossaryTerm {

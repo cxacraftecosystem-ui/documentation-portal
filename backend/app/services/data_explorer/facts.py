@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import io
 import json
 import logging
+import os
+import threading
 from typing import Any
 
 from app.core.db import db
@@ -13,7 +16,15 @@ log = logging.getLogger(__name__)
 FACTS_KEY = "facts"
 MEASURE_MAX_BYTES = 64 * 1024 * 1024
 MEASURE_PER_LISTING = 12
+MEASURE_SECONDS = 20.0
+PARSE_MAX_BYTES = MEASURE_MAX_BYTES
+MAX_PAGES = 100_000
+MAX_PIXELS = 200_000_000
+MAX_SIDE = 100_000
+IMAGE_FORMATS = ("JPEG", "PNG", "GIF", "WEBP", "BMP", "TIFF", "MPO", "ICO", "AVIF", "HEIF")
 _SLOTS = asyncio.Semaphore(1)
+_parser = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="facts-parse")
+_stuck = threading.Event()
 
 
 def _meta(media: Any) -> dict[str, Any]:
@@ -67,29 +78,80 @@ def entry_facts(media: Any) -> dict[str, Any]:
     return out
 
 
+def _too_big(source: bytes | str) -> bool:
+    if isinstance(source, bytes):
+        return len(source) > PARSE_MAX_BYTES
+    try:
+        return os.path.getsize(source) > PARSE_MAX_BYTES
+    except OSError:
+        return True
+
+
+def _image_formats() -> list[str]:
+    from PIL import Image
+
+    Image.init()
+    return [name for name in IMAGE_FORMATS if name in Image.OPEN]
+
+
 def image_size(source: bytes | str) -> dict[str, int]:
     from PIL import Image
 
+    if _too_big(source):
+        return {}
     handle = io.BytesIO(source) if isinstance(source, bytes) else source
-    with Image.open(handle) as opened:
-        width, height = opened.size
-        orientation = opened.getexif().get(0x0112)
-        if orientation in (5, 6, 7, 8):
-            width, height = height, width
+    try:
+        with Image.open(handle, formats=_image_formats()) as opened:
+            width, height = opened.size
+            if width <= 0 or height <= 0 or width > MAX_SIDE or height > MAX_SIDE or width * height > MAX_PIXELS:
+                return {}
+            orientation = None
+            if opened.format in ("JPEG", "MPO", "TIFF") or "exif" in opened.info:
+                orientation = opened.getexif().get(0x0112)
+    except Exception:
+        log.info("facts: unreadable image", exc_info=True)
+        return {}
+    if orientation in (5, 6, 7, 8):
+        width, height = height, width
     return {"width": int(width), "height": int(height)}
 
 
 def pdf_pages(source: bytes | str) -> dict[str, int]:
     from pypdf import PdfReader
 
+    if _too_big(source):
+        return {}
     handle = io.BytesIO(source) if isinstance(source, bytes) else source
-    return {"pages": len(PdfReader(handle).pages)}
+    try:
+        reader = PdfReader(handle, strict=False)
+        declared = reader.trailer["/Root"].get_object()["/Pages"].get_object().get("/Count")
+        count = int(declared.get_object() if hasattr(declared, "get_object") else declared)
+    except Exception:
+        log.info("facts: unreadable pdf", exc_info=True)
+        return {}
+    if count <= 0 or count > MAX_PAGES:
+        return {}
+    return {"pages": count}
 
 
 def measure_file(media: Any, path: str) -> dict[str, int]:
     if _kind(media) == "IMAGE":
         return image_size(path)
     return pdf_pages(path)
+
+
+async def bounded_measure(media: Any, path: str, *, seconds: float | None = None) -> dict[str, int]:
+    if _stuck.is_set():
+        return {}
+    future = _parser.submit(measure_file, media, path)
+    try:
+        found = await asyncio.wait_for(asyncio.wrap_future(future), timeout=MEASURE_SECONDS if seconds is None else seconds)
+    except TimeoutError:
+        _stuck.set()
+        future.add_done_callback(lambda _done: _stuck.clear())
+        log.warning("facts: measuring %s took too long; recorded as unknown", getattr(media, "id", "?"))
+        return {}
+    return found if isinstance(found, dict) else {}
 
 
 async def remember(media_id: str, found: dict[str, int] | None) -> None:
@@ -110,7 +172,7 @@ async def measure(media: Any) -> dict[str, int]:
     path = None
     try:
         path = await download_to_temp_async(str(media.objectKey), suffix=".fact", max_bytes=MEASURE_MAX_BYTES)
-        found = await asyncio.to_thread(measure_file, media, path)
+        found = await bounded_measure(media, path)
     except ObjectTooLarge:
         found = {}
     except Exception:

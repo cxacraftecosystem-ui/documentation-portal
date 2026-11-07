@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import ipaddress
+import logging
 import time
 from collections import OrderedDict
 from typing import Any
@@ -11,6 +12,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from app.scale import keys
 from app.scale.cache import shared_window_hit
 from app.scale.flags import rate_limit_enabled, settings
+
+logger = logging.getLogger(__name__)
 
 _MAX_TRACKED_IDENTITIES = 4096
 
@@ -118,22 +121,82 @@ _forgot_password_global = _TokenBuckets(
 )
 
 
+ORIGIN_VERIFY_HEADER = b"x-origin-verify"
+
+
+def _forwarded_entries(scope: Scope) -> list[str]:
+    entries: list[str] = []
+    for name, value in scope.get("headers", []):
+        if name == b"x-forwarded-for":
+            entries.extend(
+                part.strip().decode("latin-1") for part in value.split(b",") if part.strip()
+            )
+    return entries
+
+
+def _networks(raw: str) -> tuple[Any, ...]:
+    found = []
+    for part in (raw or "").split(","):
+        text = part.strip()
+        if not text:
+            continue
+        try:
+            found.append(ipaddress.ip_network(text, strict=False))
+        except ValueError:
+            logger.warning("rate limits: TRUSTED_PROXY_CIDRS entry %r is not a network; ignored", text)
+    return tuple(found)
+
+
+def _address(text: str | None) -> Any:
+    try:
+        return ipaddress.ip_address((text or "").strip())
+    except ValueError:
+        return None
+
+
+def _trusted_proxy(address: Any, networks: tuple[Any, ...]) -> bool:
+    return address is not None and any(address.version == net.version and address in net for net in networks)
+
+
+def _origin_verified(scope: Scope, secret: str | None) -> bool:
+    wanted = (secret or "").strip()
+    if not wanted:
+        return True
+    for name, value in scope.get("headers", []):
+        if name == ORIGIN_VERIFY_HEADER:
+            return hmac.compare_digest(value.strip(), wanted.encode("utf-8"))
+    return False
+
+
 def client_address(scope: Scope) -> str:
     from app.core.config import get_settings
 
     viewer = trusted_viewer_address(scope)
     if viewer:
         return "ip:" + viewer
-    hops = max(1, int(getattr(get_settings(), "trusted_proxy_hops", 2) or 2))
-    forwarded = b""
-    for name, value in scope.get("headers", []):
-        if name == b"x-forwarded-for":
-            forwarded = value if not forwarded else forwarded + b"," + value
-    entries = [part.strip().decode("latin-1") for part in forwarded.split(b",") if part.strip()]
-    if not entries:
-        client = scope.get("client")
+    client = scope.get("client")
+    peer = _address(client[0]) if client else None
+    if peer is None:
         return f"ip:{client[0]}" if client else "ip:unknown"
-    return "ip:" + (entries[-hops] if len(entries) >= hops else entries[0])
+    current = get_settings()
+    networks = _networks(getattr(current, "trusted_proxy_cidrs", "127.0.0.1/32,::1/128"))
+    if not _trusted_proxy(peer, networks):
+        return f"ip:{peer}"
+    hops = max(1, int(getattr(current, "trusted_proxy_hops", 2) or 2))
+    entries = _forwarded_entries(scope)
+    found = peer
+    for step in range(1, hops + 1):
+        if len(entries) < step:
+            break
+        reported = _address(entries[-step])
+        if reported is None:
+            break
+        found = reported
+        if step == hops:
+            break
+        if not (_trusted_proxy(reported, networks) or _origin_verified(scope, getattr(current, "origin_verify_secret", None))):
+            break
+    return f"ip:{found}"
 
 
 def forgot_password_attempt(scope: Scope) -> tuple[bool, float]:

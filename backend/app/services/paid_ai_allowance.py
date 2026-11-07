@@ -7,6 +7,8 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
+from typing import Any
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +16,10 @@ TRANSCRIPT = "transcript"
 MEASUREMENT = "measurement"
 
 WINDOW_SECONDS = 3600.0
+KEEP_SECONDS = 2 * 3600
+DATABASE = "database"
+MEMORY = "memory"
+STORE = DATABASE
 
 _DEFAULTS: dict[str, tuple[int, int]] = {
     TRANSCRIPT: (60, 600),
@@ -97,10 +103,7 @@ def _refusal(bucket: str, retry_after: int, *, everyone: bool) -> AllowanceSpent
     return AllowanceSpent(message, retry_after)
 
 
-def take(bucket: str, user_id: str | None, *, now: float | None = None) -> None:
-    moment = time.monotonic() if now is None else now
-    caps = limits(bucket)
-    who = str(user_id or "")
+def _take_in_memory(bucket: str, who: str, caps: Limits, moment: float) -> None:
     with _lock:
         overall = _total.setdefault(bucket, deque())
         _trim(overall, moment)
@@ -116,8 +119,7 @@ def take(bucket: str, user_id: str | None, *, now: float | None = None) -> None:
             mine.append(moment)
 
 
-def refund(bucket: str, user_id: str | None) -> None:
-    who = str(user_id or "")
+def _refund_in_memory(bucket: str, who: str) -> None:
     with _lock:
         overall = _total.get(bucket)
         if overall:
@@ -125,6 +127,81 @@ def refund(bucket: str, user_id: str | None) -> None:
         mine = _by_user.get((bucket, who)) if who else None
         if mine:
             mine.pop()
+
+
+_COUNT_SQL = (
+    'SELECT count(*)::int AS "total", '
+    'count(*) FILTER (WHERE "userId" = $2)::int AS "mine", '
+    'COALESCE(CEIL(EXTRACT(EPOCH FROM (min("spentAt") + make_interval(secs => $3::int) - now()::timestamp(3))))::int, 0) AS "totalWait", '
+    'COALESCE(CEIL(EXTRACT(EPOCH FROM (min("spentAt") FILTER (WHERE "userId" = $2) + make_interval(secs => $3::int) - now()::timestamp(3))))::int, 0) AS "mineWait" '
+    'FROM "PaidAiSpend" WHERE "bucket" = $1 AND "spentAt" > now()::timestamp(3) - make_interval(secs => $3::int)'
+)
+_SPEND_SQL = 'INSERT INTO "PaidAiSpend" ("id", "bucket", "userId") VALUES ($1, $2, $3)'
+_PRUNE_SQL = 'DELETE FROM "PaidAiSpend" WHERE "bucket" = $1 AND "spentAt" < now()::timestamp(3) - make_interval(secs => $2::int)'
+_REFUND_SQL = (
+    'DELETE FROM "PaidAiSpend" WHERE "id" = (SELECT "id" FROM "PaidAiSpend" WHERE "bucket" = $1 '
+    'AND "userId" = $2 ORDER BY "spentAt" DESC LIMIT 1)'
+)
+
+_fallback_logged = False
+
+
+def _client() -> Any:
+    from app.core.db import db
+
+    return db
+
+
+def _note_fallback(exc: Exception) -> None:
+    global _fallback_logged
+    if _fallback_logged:
+        return
+    _fallback_logged = True
+    logger.warning(
+        "paid_ai_allowance: the shared counters could not be read (%s); counting in this process "
+        "until the database answers again",
+        type(exc).__name__,
+    )
+
+
+async def _take_in_database(bucket: str, who: str, caps: Limits) -> None:
+    client = _client()
+    window = int(WINDOW_SECONDS)
+    rows = await client.query_raw(_COUNT_SQL, bucket, who, window)
+    row = rows[0] if rows else {}
+    mine = int(row.get("mine") or 0)
+    total = int(row.get("total") or 0)
+    if who and mine >= caps.per_user:
+        raise _refusal(bucket, max(1, int(row.get("mineWait") or window)), everyone=False)
+    if total >= caps.total:
+        raise _refusal(bucket, max(1, int(row.get("totalWait") or window)), everyone=True)
+    await client.execute_raw(_SPEND_SQL, uuid4().hex, bucket, who)
+    await client.execute_raw(_PRUNE_SQL, bucket, KEEP_SECONDS)
+
+
+async def take(bucket: str, user_id: str | None, *, now: float | None = None) -> None:
+    caps = limits(bucket)
+    who = str(user_id or "")
+    if STORE == DATABASE:
+        try:
+            await _take_in_database(bucket, who, caps)
+            return
+        except AllowanceSpent:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            _note_fallback(exc)
+    _take_in_memory(bucket, who, caps, time.monotonic() if now is None else now)
+
+
+async def refund(bucket: str, user_id: str | None) -> None:
+    who = str(user_id or "")
+    if STORE == DATABASE:
+        try:
+            await _client().execute_raw(_REFUND_SQL, bucket, who)
+            return
+        except Exception as exc:  # noqa: BLE001
+            _note_fallback(exc)
+    _refund_in_memory(bucket, who)
 
 
 def reset() -> None:

@@ -340,3 +340,47 @@ def test_the_estimate_counts_hours_and_cost() -> None:
     )
     assert summary["recordings"] == 2 and summary["hours"] == 2.0 and summary["leftOutForConsent"] == 3
     assert summary["costUsd"] == round(120 * (0.22 / 60 + 0.002), 2)
+
+
+class _InTmpRunner(_Runner):
+    def __init__(self, root: Path) -> None:
+        super().__init__()
+        self.root = str(root)
+
+    def __call__(self, args: list[str]) -> subprocess.CompletedProcess[str]:
+        self.calls.append(args)
+        if args[-1].startswith(self.root):
+            Path(args[-1]).write_bytes(self.sound)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+
+def test_every_ffmpeg_and_ffprobe_call_reads_one_local_file_within_caps(tmp_path: Path) -> None:
+    runner = _InTmpRunner(tmp_path)
+    hostile = "concat:/etc/passwd|/etc/hosts"
+    assert transcription_audio.normalise_to_wav(hostile, str(tmp_path / "out.wav"), runner)
+    transcription_audio.extract_audio_track("-filter_complex", str(tmp_path / "out.m4a"), runner)
+    transcription_audio.probe_duration_ms(str(tmp_path / "x.wav"), runner)
+    transcription_audio.detect_silences(str(tmp_path / "x.wav"), runner)
+    plan = transcription_audio.PartPlan(0, 1, 0, 1000, 0)
+    transcription_audio.cut_part(str(tmp_path / "x.wav"), plan, str(tmp_path), runner)
+    assert len(runner.calls) == 5
+    for args in runner.calls:
+        assert args.count("-i") == 1
+        source = args[args.index("-i") + 1]
+        assert os.path.isabs(source) and not source.startswith("-")
+        assert args.index("-protocol_whitelist") < args.index("-i")
+        assert args[args.index("-protocol_whitelist") + 1] == "file"
+        formats = args[args.index("-format_whitelist") + 1].split(",")
+        assert "hls" not in formats and "concat" not in formats
+    wav, track = runner.calls[0], runner.calls[1]
+    assert wav[wav.index("-t") + 1] == str(transcription_audio.MAX_SOURCE_SECONDS)
+    assert int(wav[wav.index("-fs") + 1]) == transcription_audio.MAX_WAV_BYTES
+    assert track[track.index("-t") + 1] == str(transcription_audio.MAX_SOURCE_SECONDS)
+    assert int(track[track.index("-fs") + 1]) == transcription_audio.MAX_TRACK_BYTES
+
+
+def test_the_media_tools_refuse_a_remote_address_that_is_not_ours() -> None:
+    with pytest.raises(transcription_audio.UnsafeInput):
+        transcription_audio.remote_input("https://evil.example/a.m3u8", {"media-bucket.s3.amazonaws.com"})
+    with pytest.raises(transcription_audio.UnsafeInput):
+        transcription_audio.local_input("")
