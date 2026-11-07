@@ -7,8 +7,9 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
-from app.services.datareport import contract, i18n, links, portal
 from lxml import etree
+
+from app.services.datareport import contract, i18n, links, portal
 
 
 class FakeDelegate:

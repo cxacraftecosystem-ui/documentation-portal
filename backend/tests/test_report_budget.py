@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from app.services.datareport import build, contract, writer
 from app.services.datareport.contract import ROW_KIND, Column, Link, Sheet
 from app.services.datareport.sheets import core_transcripts
