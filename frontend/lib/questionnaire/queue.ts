@@ -60,6 +60,7 @@ export type SessionUnit = {
   sessionId: string | null;
   createdAt: string;
   steps: Step[];
+  ownerUserId?: string | null;
 };
 
 export interface QueueStore {
@@ -119,6 +120,62 @@ export function newSessionUnit(body: SessionCreate, now = new Date()): SessionUn
 
 export function existingSessionUnit(session: Pick<Session, "id" | "clientKey">, now = new Date()): SessionUnit {
   return { id: sessionUnitKey(session), sessionId: session.id, createdAt: now.toISOString(), steps: [] };
+}
+
+export function stampOwner(unit: SessionUnit, ownerUserId: string | null): SessionUnit {
+  return unit.ownerUserId ? unit : { ...unit, ownerUserId: ownerUserId || null };
+}
+
+export function unitOwnedBy(unit: Pick<SessionUnit, "ownerUserId">, userId: string | null): boolean {
+  return Boolean(userId) && unit.ownerUserId === userId;
+}
+
+export function unitsOwnedBy(units: SessionUnit[], userId: string | null): SessionUnit[] {
+  return units.filter((unit) => unitOwnedBy(unit, userId));
+}
+
+export type HeldUnits = { otherAccount: string[]; unowned: string[] };
+
+export function heldUnits(units: SessionUnit[], userId: string | null): HeldUnits {
+  const held: HeldUnits = { otherAccount: [], unowned: [] };
+  if (!userId) return held;
+  for (const unit of units) {
+    if (!unit.ownerUserId) held.unowned.push(unit.id);
+    else if (unit.ownerUserId !== userId) held.otherAccount.push(unit.id);
+  }
+  return held;
+}
+
+export async function drainableUnits(store: QueueStore, userId: string | null): Promise<SessionUnit[]> {
+  if (!userId) return [];
+  return unitsOwnedBy(await store.load(), userId);
+}
+
+export class QueueOwnerError extends Error {
+  constructor() {
+    super("Another account has unsent work for this session on this device.");
+    this.name = "QueueOwnerError";
+  }
+}
+
+function sameOwner(current: SessionUnit, base: SessionUnit): SessionUnit {
+  if ((current.ownerUserId ?? null) !== (base.ownerUserId ?? null) && current.ownerUserId) throw new QueueOwnerError();
+  return current;
+}
+
+export async function claimUnits(store: QueueStore, ids: readonly string[], userId: string): Promise<void> {
+  for (const id of ids) {
+    await mutateUnit(store, id, (current) => (current && !current.ownerUserId ? { ...current, ownerUserId: userId } : current));
+  }
+}
+
+export async function discardUnits(store: QueueStore, ids: readonly string[]): Promise<void> {
+  for (const id of ids) {
+    await mutateUnit(store, id, (current) => {
+      if (current) for (const s of current.steps) if (s.kind === "clip") void store.deleteBlob(s.blobKey).catch(() => undefined);
+      return null;
+    });
+  }
 }
 
 export function stepKey(step: Step): string {
@@ -204,7 +261,7 @@ export function mutateUnit(
 }
 
 export function enqueueStep(store: QueueStore, base: SessionUnit, step: Step): Promise<SessionUnit | null> {
-  return mutateUnit(store, base.id, (current) => appendStep(current ?? base, step));
+  return mutateUnit(store, base.id, (current) => appendStep(current ? sameOwner(current, base) : base, step));
 }
 
 function mergeRunner(stored: SessionUnit | null, runner: SessionUnit, touched: ReadonlySet<string>): SessionUnit {

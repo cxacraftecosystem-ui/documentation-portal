@@ -44,6 +44,18 @@ async def read_upload_bounded(
     return bytes(buffer)
 
 
+async def read_body_bounded(request: Any, max_bytes: int) -> bytes | None:
+    declared = _declared_length(request)
+    if declared is not None and declared > max_bytes:
+        return None
+    buffer = bytearray()
+    async for chunk in request.stream():
+        buffer += chunk
+        if len(buffer) > max_bytes:
+            return None
+    return bytes(buffer)
+
+
 def _declared_length(request: Any) -> int | None:
     try:
         raw = request.headers.get("content-length")

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import io
 import json
 from collections.abc import AsyncIterator
@@ -12,7 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from app.core.db import db
 from app.core.deps import require_dataset_downloader
-from app.services import naming, transcript_export, transcript_portal
+from app.services import csv_safe, naming, transcript_export, transcript_portal
 
 router = APIRouter(prefix="/data/transcripts", tags=["data"])
 
@@ -118,7 +117,7 @@ async def transcripts_download(
 
     async def body() -> AsyncIterator[bytes]:
         buffer = io.StringIO()
-        writer = csv.writer(buffer) if fmt == "csv" else None
+        writer = csv_safe.writer(buffer) if fmt == "csv" else None
         if writer is not None:
             buffer.write("﻿")
             writer.writerow(columns)

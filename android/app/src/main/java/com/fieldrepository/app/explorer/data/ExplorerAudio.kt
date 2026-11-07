@@ -241,6 +241,9 @@ object ExplorerAudio {
     private const val TICK_MS = 250L
 }
 
+internal fun explorerControllerAllowed(controllerPackage: String, ownPackage: String, trusted: Boolean): Boolean =
+    trusted || (controllerPackage.isNotBlank() && controllerPackage == ownPackage)
+
 class ExplorerAudioService : MediaSessionService() {
     private var session: MediaSession? = null
     private val main = Handler(Looper.getMainLooper())
@@ -265,7 +268,7 @@ class ExplorerAudioService : MediaSessionService() {
             .setSeekBackIncrementMs(ExplorerAudio.STEP_MS)
             .setSeekForwardIncrementMs(ExplorerAudio.STEP_MS)
             .build()
-        val builder = MediaSession.Builder(this, player)
+        val builder = MediaSession.Builder(this, player).setCallback(ownControllersOnly)
         launchIntent()?.let { builder.setSessionActivity(it) }
         builder.setMediaButtonPreferences(stepButtons())
         session = builder.build()
@@ -305,7 +308,24 @@ class ExplorerAudioService : MediaSessionService() {
             .build(),
     )
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+    private val ownControllersOnly = object : MediaSession.Callback {
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): MediaSession.ConnectionResult =
+            if (admits(controller)) {
+                super.onConnect(session, controller)
+            } else {
+                MediaSession.ConnectionResult.reject()
+            }
+    }
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun admits(controller: MediaSession.ControllerInfo): Boolean =
+        explorerControllerAllowed(controller.packageName, packageName, controller.isTrusted)
+
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
+        session?.takeIf { admits(controllerInfo) }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = session?.player

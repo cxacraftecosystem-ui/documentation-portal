@@ -14,6 +14,7 @@ from app.core.config import Settings
 from app.services import (
     app_settings,
     managed_secrets,
+    paid_ai_allowance,
     user_ai_keys,
 )
 from app.services.ai_providers import AiProvider, AiTask, openai_message_text, openai_sampling
@@ -858,6 +859,8 @@ async def analyze_measurement_image_bytes(
     mime_type: str,
     settings: Settings,
     dimension: str | None = None,
+    *,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     await managed_secrets.refresh_if_stale()
     if not managed_secrets.gemini_key_pool():
@@ -868,6 +871,7 @@ async def analyze_measurement_image_bytes(
             "message": "Gemini measurement analysis unavailable; fill in the value manually.",
             **_measurement_provenance(None, settings).payload(),
         }
+    paid_ai_allowance.take(paid_ai_allowance.MEASUREMENT, user_id)
     try:
         return await asyncio.to_thread(
             _post_gemini_measurement,

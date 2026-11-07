@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import csv
 import io
 from collections.abc import Iterator
 from typing import Any
+
+from app.services import csv_safe
 
 PREVIEW_TRANSCRIPT_CHARS = 2000
 SEARCH_MAX_ROWS = 200
@@ -91,7 +92,7 @@ def cap_prose(sheets: list[dict[str, Any]], limit: int = PREVIEW_TRANSCRIPT_CHAR
 
 def csv_chunks(sheet: dict[str, Any], render: Any = None) -> Iterator[bytes]:
     buffer = io.StringIO()
-    writer = csv.writer(buffer)
+    writer = csv_safe.writer(buffer)
     buffer.write("﻿")
     writer.writerow([str(c) for c in sheet.get("columns") or []])
     prose = set(sheet.get("prose") or [])

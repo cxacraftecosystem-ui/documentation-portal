@@ -5,7 +5,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Any
-from zipfile import BadZipFile
+from zipfile import BadZipFile, ZipFile
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -60,6 +60,10 @@ MAX_QUESTIONS = 2000
 MAX_SECTIONS = 200
 MAX_ROWS_SCANNED = 20000
 MAX_SHEETS_SCANNED = 12
+MAX_COLUMNS = 512
+MAX_CELLS = 2_000_000
+MAX_INFLATED_BYTES = 200 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 2_000
 MAX_HEADER_SCAN_ROWS = 15
 
 MAX_PROMPT_CHARS = 2000
@@ -288,11 +292,49 @@ def _scan_header(
     return None
 
 
-def _sheet_rows(ws: Worksheet, formulas: dict[tuple[int, int], str]) -> list[tuple[int, list[str]]]:
+TOO_LARGE = (
+    "The workbook is too large to read. Delete empty rows and columns, or split it into "
+    "smaller workbooks, and upload it again."
+)
+
+
+class _CellBudget:
+    def __init__(self, cells: int = MAX_CELLS) -> None:
+        self.left = cells
+
+    def spend(self, cells: int) -> None:
+        self.left -= cells
+        if self.left < 0:
+            raise QuestionnaireXlsxError(TOO_LARGE)
+
+
+def _bounded_rows(ws: Any, budget: _CellBudget) -> Any:
+    reset = getattr(ws, "reset_dimensions", None)
+    if reset is not None:
+        reset()
+    for row in ws.iter_rows(min_row=1, max_row=MAX_ROWS_SCANNED, values_only=True):
+        kept = row[:MAX_COLUMNS]
+        budget.spend(len(kept))
+        yield kept
+
+
+def _check_archive(data: bytes) -> None:
+    try:
+        with ZipFile(BytesIO(data)) as archive:
+            members = archive.infolist()
+    except (BadZipFile, OSError, ValueError):
+        return
+    if len(members) > MAX_ARCHIVE_MEMBERS:
+        raise QuestionnaireXlsxError(TOO_LARGE)
+    if sum(member.file_size for member in members) > MAX_INFLATED_BYTES:
+        raise QuestionnaireXlsxError(TOO_LARGE)
+
+
+def _sheet_rows(
+    ws: Worksheet, formulas: dict[tuple[int, int], str], budget: _CellBudget | None = None
+) -> list[tuple[int, list[str]]]:
     out: list[tuple[int, list[str]]] = []
-    for row_number, row in enumerate(ws.iter_rows(values_only=True), start=1):
-        if row_number > MAX_ROWS_SCANNED:
-            break
+    for row_number, row in enumerate(_bounded_rows(ws, budget or _CellBudget()), start=1):
         cells: list[str] = []
         for column, value in enumerate(row, start=1):
             text = _cell_text(value)
@@ -312,12 +354,11 @@ def _formula_map(data: bytes) -> dict[str, dict[tuple[int, int], str]]:
         wb = load_workbook(BytesIO(data), data_only=False, read_only=True)
     except (InvalidFileException, OSError, ValueError, KeyError, TypeError):
         return found
+    budget = _CellBudget()
     try:
         for ws in wb.worksheets[:MAX_SHEETS_SCANNED]:
             per_sheet: dict[tuple[int, int], str] = {}
-            for row_number, row in enumerate(ws.iter_rows(values_only=True), start=1):
-                if row_number > MAX_ROWS_SCANNED:
-                    break
+            for row_number, row in enumerate(_bounded_rows(ws, budget), start=1):
                 for column, value in enumerate(row, start=1):
                     if isinstance(value, str) and value.startswith("="):
                         per_sheet[(row_number, column)] = value
@@ -376,6 +417,7 @@ def parse_questionnaire_workbook(
 ) -> ParsedQuestionnaire:
     if not data:
         raise QuestionnaireXlsxError("The upload was empty. Attach the filled-in .xlsx pro-forma.")
+    _check_archive(data)
     try:
         wb = load_workbook(BytesIO(data), data_only=True, read_only=True)
     except (InvalidFileException, BadZipFile, OSError, ValueError, KeyError, TypeError) as exc:
@@ -384,8 +426,9 @@ def parse_questionnaire_workbook(
     try:
         formulas = _formula_map(data)
         sheets: dict[str, list[tuple[int, list[str]]]] = {}
+        budget = _CellBudget()
         for ws in wb.worksheets[:MAX_SHEETS_SCANNED]:
-            sheets[ws.title] = _sheet_rows(ws, formulas.get(ws.title, {}))
+            sheets[ws.title] = _sheet_rows(ws, formulas.get(ws.title, {}), budget)
     finally:
         wb.close()
 

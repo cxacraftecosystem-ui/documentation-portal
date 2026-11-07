@@ -1,8 +1,8 @@
-import csv
 from io import StringIO
 from typing import Any
 
 from app.core.deps import get_value
+from app.services import csv_safe
 from app.services.record_fields import sheet_columns, sheet_row
 
 
@@ -12,7 +12,7 @@ def record_media(record: Any) -> list[Any]:
 
 def records_to_csv(kind: str, records: list[Any], truncated: bool = False) -> str:
     output = StringIO()
-    writer = csv.writer(output)
+    writer = csv_safe.writer(output)
     columns = ["ID", *sheet_columns(kind)]
     writer.writerow(columns)
     for record in records:

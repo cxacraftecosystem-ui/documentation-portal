@@ -322,7 +322,7 @@ async def test_photo_is_printed_when_present(world, monkeypatch):
     )
     from app.services import s3
 
-    monkeypatch.setattr(s3, "get_object_bytes", lambda key: buffer.getvalue())
+    monkeypatch.setattr(s3, "get_object_bytes", lambda key, **_: buffer.getvalue())
     card = await routes.get_card("a1", current_user=USER)
     assert card["face"]["photoMediaId"] == "m1"
     with_photo = await routes.card_pdf("a1", size="id1", photo=1, current_user=USER)

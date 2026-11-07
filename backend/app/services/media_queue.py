@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -11,6 +12,7 @@ from app.core.db import db
 from app.core.fastapi_lazy import jsonable_encoder
 from app.services import (
     audio_isolation,
+    paid_ai_allowance,
     recording_consent,
     transcribe_choice,
     transcript_insights,
@@ -101,6 +103,7 @@ def _value(record: Any, key: str) -> Any:
 
 TRANSCRIBABLE_TYPES = frozenset({"AUDIO", "VIDEO"})
 MAX_TRANSCRIBE_FETCH_BYTES = 1024 * 1024 * 1024
+MAX_MEASUREMENT_BYTES = 32 * 1024 * 1024
 
 
 def _too_large_result(limit_bytes: int) -> dict[str, Any]:
@@ -332,7 +335,7 @@ async def process_next_media_jobs(
             locked = await _lock_job(job.id, worker_id)
             if locked is None:
                 continue
-            await _process_job(locked, settings)
+            await _run_locked(locked, settings, worker_id)
             succeeded += 1
             if locked.jobType == TRANSCRIPTION:
                 _clear_rate_limit_cooldown()
@@ -463,18 +466,78 @@ async def recover_stale_processing_jobs() -> int:
         where={"status": PROCESSING, "lockedAt": {"lt": cutoff}},
         take=25,
     )
+    requeued = 0
     for job in stale_jobs:
+        now = datetime.now(UTC)
+        if _attempts_exhausted(job):
+            logger.warning(
+                "Job %s was interrupted while held by %s and is out of attempts (%s of %s)",
+                job.id,
+                _value(job, "lockedBy") or "an unnamed worker",
+                _value(job, "attempts"),
+                _value(job, "maxAttempts"),
+            )
+            await db.mediaprocessingjob.update(
+                where={"id": job.id},
+                data={
+                    "status": FAILED,
+                    "lockedAt": None,
+                    "lockedBy": None,
+                    "openKey": None,
+                    "completedAt": now,
+                    "error": "Processing was interrupted and has stopped. Retry it to try again.",
+                },
+            )
+            continue
         await db.mediaprocessingjob.update(
             where={"id": job.id},
             data={
                 "status": QUEUED,
                 "lockedAt": None,
                 "lockedBy": None,
-                "runAfter": datetime.now(UTC),
+                "runAfter": now,
                 "error": "Recovered after worker interruption.",
             },
         )
-    return len(stale_jobs)
+        requeued += 1
+    return requeued
+
+
+def _attempts_exhausted(job: Any) -> bool:
+    try:
+        attempts = int(_value(job, "attempts") or 0)
+    except (TypeError, ValueError):
+        attempts = 0
+    try:
+        max_attempts = int(_value(job, "maxAttempts") or 0)
+    except (TypeError, ValueError):
+        max_attempts = 0
+    return attempts >= max(max_attempts, 1)
+
+
+LOCK_HEARTBEAT_SECONDS = 300.0
+
+
+async def _hold_lock(job_id: str, worker_id: str) -> None:
+    while True:
+        await asyncio.sleep(LOCK_HEARTBEAT_SECONDS)
+        try:
+            await db.mediaprocessingjob.update_many(
+                where={"id": job_id, "status": PROCESSING, "lockedBy": worker_id},
+                data={"lockedAt": datetime.now(UTC)},
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not refresh the lock on job %s: %s", job_id, exc)
+
+
+async def _run_locked(job: Any, settings: Settings, worker_id: str) -> None:
+    beat = asyncio.create_task(_hold_lock(job.id, worker_id))
+    try:
+        await _process_job(job, settings)
+    finally:
+        beat.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await beat
 
 
 async def _lock_job(job_id: str, worker_id: str) -> Any | None:
@@ -560,16 +623,59 @@ async def _process_job(job: Any, settings: Settings) -> None:
         await _apply_transcription_result(job, result)
         return
     if job.jobType == MEASUREMENT:
-        content = await asyncio.to_thread(get_object_bytes, media.objectKey)
-        result = await analyze_measurement_image_bytes(
-            content,
-            media.originalFilename or "measurement.jpg",
-            media.mimeType or "image/jpeg",
-            settings,
-        )
+        try:
+            content = await asyncio.to_thread(
+                get_object_bytes, media.objectKey, max_bytes=MAX_MEASUREMENT_BYTES
+            )
+        except ObjectTooLarge as exc:
+            megabytes = exc.limit_bytes / (1024 * 1024)
+            await _apply_measurement_result(
+                job,
+                {
+                    "available": False,
+                    "status": UNAVAILABLE,
+                    "analysis": None,
+                    "message": f"This image is too large to measure (the limit is {megabytes:,.0f} MB). "
+                    "Nothing was spent.",
+                },
+            )
+            return
+        try:
+            result = await analyze_measurement_image_bytes(
+                content,
+                media.originalFilename or "measurement.jpg",
+                media.mimeType or "image/jpeg",
+                settings,
+                user_id=_measurement_payer(job, media),
+            )
+        except paid_ai_allowance.AllowanceSpent as exc:
+            await _defer_for_allowance(job, exc)
+            return
         await _apply_measurement_result(job, result)
         return
     raise JobFailure(f"Unsupported media processing job type: {job.jobType}")
+
+
+def _measurement_payer(job: Any, media: Any) -> str | None:
+    return _value(job, "requestedById") or _value(media, "uploadedById") or None
+
+
+async def _defer_for_allowance(job: Any, exc: Any) -> None:
+    try:
+        attempts = int(_value(job, "attempts") or 0)
+    except (TypeError, ValueError):
+        attempts = 0
+    await db.mediaprocessingjob.update(
+        where={"id": job.id},
+        data={
+            "status": QUEUED,
+            "lockedAt": None,
+            "lockedBy": None,
+            "attempts": max(attempts - 1, 0),
+            "runAfter": datetime.now(UTC) + timedelta(seconds=max(int(exc.retry_after), 1)),
+            "error": str(exc.message)[:2000],
+        },
+    )
 
 
 async def _apply_transcription_result(job: Any, result: dict[str, Any]) -> None:
@@ -851,12 +957,13 @@ async def process_next_insights_jobs(
     outcome = {"processed": 0, "succeeded": 0, "failed": 0}
 
     async def one(job: Any, n: int) -> None:
-        locked = await _lock_job(job.id, f"{worker_id}-{n}")
+        holder = f"{worker_id}-{n}"
+        locked = await _lock_job(job.id, holder)
         if locked is None:
             return
         outcome["processed"] += 1
         try:
-            await _process_job(locked, settings)
+            await _run_locked(locked, settings, holder)
             outcome["succeeded"] += 1
         except Exception as exc:  # noqa: BLE001
             outcome["failed"] += 1

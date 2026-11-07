@@ -1,5 +1,6 @@
 package com.fieldrepository.app.questionnaire.data
 
+import com.fieldrepository.app.data.AadhaarAtRest
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -134,20 +135,26 @@ class FileSessionUnitStore(private val dir: File) : SessionUnitStore {
 
     override suspend fun all(): List<SessionUnit> = mutex.withLock {
         dir.listFiles { f -> f.extension == "json" }.orEmpty()
-            .mapNotNull { runCatching { outboxJson.decodeFromString(SessionUnit.serializer(), it.readText()) }.getOrNull() }
+            .mapNotNull { runCatching { opened(outboxJson.decodeFromString(SessionUnit.serializer(), it.readText())) }.getOrNull() }
             .sortedBy { it.createdAt }
     }
 
     override suspend fun read(clientKey: String): SessionUnit? = mutex.withLock {
         file(clientKey).takeIf { it.isFile }?.let {
-            runCatching { outboxJson.decodeFromString(SessionUnit.serializer(), it.readText()) }.getOrNull()
+            runCatching { opened(outboxJson.decodeFromString(SessionUnit.serializer(), it.readText())) }.getOrNull()
         }
     }
 
     override suspend fun write(unit: SessionUnit) = mutex.withLock {
         dir.mkdirs()
-        writeFileAtomically(file(unit.clientKey), outboxJson.encodeToString(SessionUnit.serializer(), unit).toByteArray())
+        writeFileAtomically(file(unit.clientKey), outboxJson.encodeToString(SessionUnit.serializer(), sealed(unit)).toByteArray())
     }
+
+    private fun sealed(unit: SessionUnit): SessionUnit =
+        unit.copy(steps = unit.steps.map { step -> step.bodyJson?.let { step.copy(bodyJson = AadhaarAtRest.sealPayload(it)) } ?: step })
+
+    private fun opened(unit: SessionUnit): SessionUnit =
+        unit.copy(steps = unit.steps.map { step -> step.bodyJson?.let { step.copy(bodyJson = AadhaarAtRest.openPayload(it)) } ?: step })
 
     override suspend fun delete(clientKey: String) {
         mutex.withLock { file(clientKey).delete() }
@@ -505,6 +512,7 @@ class SessionOutbox(
         return try {
             when (step.kind) {
                 StepKind.ARTISAN -> {
+                    if (AadhaarAtRest.numberWithheld(step.bodyJson!!)) throw PermanentStepFailure(AadhaarAtRest.RETYPE_REASON)
                     val serverId = transport.createArtisan(step.idempotencyKey, step.bodyJson!!)
                     mutate(clientKey) { u ->
                         u.copy(

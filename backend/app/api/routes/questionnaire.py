@@ -1,4 +1,4 @@
-import csv
+import asyncio
 import re
 from datetime import UTC, datetime, timedelta
 from io import StringIO
@@ -61,7 +61,7 @@ from app.schemas.questionnaire import (
     QuestionnaireSectionUpdate,
     QuestionnaireUpdate,
 )
-from app.services import answer_drafts, cross_portal_codes, naming, questionnaire_library
+from app.services import answer_drafts, cross_portal_codes, csv_safe, naming, questionnaire_library
 from app.services import completeness as completeness_module
 from app.services.access import (
     guard_record_edit,
@@ -118,7 +118,7 @@ from app.services.records import (
     viewable_where,
 )
 from app.services.standard_values import StandardValueError, apply_interview_values
-from app.services.uploads import read_upload_bounded
+from app.services.uploads import read_body_bounded, read_upload_bounded
 from app.services.workshop_access import (
     WorkshopSubmissionCheck,
     enforce_workshop_submission,
@@ -1537,7 +1537,7 @@ async def consolidated_questionnaire_csv(
         )
     payload = await _consolidated_or_404(artisan_id, current_user, workshopIds, questionnaireId)
     output = StringIO()
-    writer = csv.writer(output)
+    writer = csv_safe.writer(output)
     writer.writerow(CSV_COLUMNS)
     for row in consolidated_rows(payload):
         writer.writerow(row)
@@ -2406,7 +2406,7 @@ async def upload_questionnaire(
     current_user: Any = Depends(require_questionnaire_manager),
 ) -> dict[str, Any]:
     content = await _read_workbook_upload(file, request)
-    parsed = _parse_or_422(content, file.filename)
+    parsed = await asyncio.to_thread(_parse_or_422, content, file.filename)
     try:
         wanted_kind = questionnaire_kinds.coerce_kind(kind)
     except ValueError as exc:
@@ -2461,7 +2461,7 @@ async def reupload_questionnaire(
 ) -> dict[str, Any]:
     record = await require_questionnaire(questionnaire_id)
     content = await _read_workbook_upload(file, request)
-    parsed = _parse_or_422(content, file.filename)
+    parsed = await asyncio.to_thread(_parse_or_422, content, file.filename)
 
     if parsed.questionnaireId and parsed.questionnaireId != questionnaire_id:
         raise HTTPException(
@@ -2500,8 +2500,8 @@ async def import_questionnaire_bundle(
             v2_fail("VALIDATION_FAILED", "Choose a bundle file.")
         raw = await upload.read(limit + 1)
     else:
-        raw = await request.body()
-    if len(raw) > limit:
+        raw = await read_body_bounded(request, limit)
+    if raw is None or len(raw) > limit:
         v2_fail("VALIDATION_FAILED", "This bundle is too large.")
     document = questionnaire_library.read_bundle_bytes(raw)
     payload, created = await questionnaire_library.import_bundle(document, current_user)

@@ -1,4 +1,3 @@
-import csv
 import io
 import json
 from datetime import datetime
@@ -21,7 +20,7 @@ from app.core.deps import password_credential
 from app.core.security import create_access_token
 from app.api.routes.auth import assert_access_admitted, password_matches
 from app.schemas.auth import DatasetTokenRequest
-from app.services import naming, two_factor
+from app.services import csv_safe, naming, two_factor
 from app.services.access_roster import normalise_email
 from app.services.concurrency import gather_reads
 from app.services.csv_export import record_media
@@ -546,7 +545,7 @@ async def stream_dataset_csv(
 
     async def body() -> AsyncIterator[bytes]:
         buffer = io.StringIO()
-        writer = csv.writer(buffer)
+        writer = csv_safe.writer(buffer)
 
         def drain() -> bytes:
             chunk = buffer.getvalue()

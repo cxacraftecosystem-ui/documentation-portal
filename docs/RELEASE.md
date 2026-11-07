@@ -85,6 +85,28 @@ Order matters. The server must stop handing out permanent URLs before the bucket
 
 **Rollback.** The fastest is the bucket: re-add the `PublicReadMedia` statement and set the two public access settings back to `false` in a reverted plan, which restores every permanent URL in seconds. `MEDIA_PRESIGNED_READS=false` only helps while the bucket is still public; after step 5 it breaks images, so never set it on its own.
 
+## Release pipeline protection (0.0.15)
+
+Production deploys, the release signing key and the publishing account reach only commits on `main`. The workflows enforce what they can, and `backend/tests/test_release_workflow_policy.py` fails Checks if any of it is removed:
+
+- `deploy-backend.yml` deploys only from `refs/heads/main`, and only after Checks passed on that commit, for a push and a manual run alike. The deploy job runs in the environment `backend-production`.
+- Every SSH session to an API box authenticates the server against `EC2_SSH_HOST_KEYS` through `scripts/ci/pin_ssh_host.sh`, with `StrictHostKeyChecking yes`. Without that secret the deploy stops before anything is sent.
+- `publish-android.yml` refuses a manual run from any ref other than `main` or a tag, and any commit that `main` does not contain. The publish job runs in the environment `android-release`.
+- `release-gate.yml` runs only from `main`, in `android-release`, and DR's `recover-backend.yml` only from `main`, in `backend-production`. `deploy-frontend.yml` deploys only from `main`.
+
+`EC2_SSH_HOST_KEYS` was set in both repositories on 2026-11-07, from each running box's EC2 console output. The other steps need an admin of each repository (the `cxacraftecosystem-ui` account), because the writer account cannot change environments or rulesets. Do them once in each repository, `designer-portal` and `documentation-portal`. Every step only adds protection.
+
+1. Pinned SSH host keys, after a box is rebuilt. Read the box's public host keys over a channel that does not trust the network: the EC2 console (Instance, Actions, Monitor and troubleshoot, Get system log) or `aws ec2 get-console-output --instance-id <id> --latest --output text`, between `BEGIN SSH HOST KEY KEYS` and `END SSH HOST KEY KEYS`, or `cat /etc/ssh/ssh_host_*_key.pub` in an SSM or EC2 Instance Connect session. Keep only the `<type> <base64>` lines and save them as the secret: `gh secret set EC2_SSH_HOST_KEYS --repo cxacraftecosystem-ui/<repo> < host_keys.txt`. Each repository has its own box and its own keys. A rebuilt box has new keys, so set the secret again after every rebuild, before its first deploy.
+2. Environment `backend-production`: `gh api -X PUT repos/cxacraftecosystem-ui/<repo>/environments/backend-production -F "deployment_branch_policy[protected_branches]=false" -F "deployment_branch_policy[custom_branch_policies]=true"`, then `gh api -X POST repos/cxacraftecosystem-ui/<repo>/environments/backend-production/deployment-branch-policies -f name=main -f type=branch`.
+3. Environment `android-release`: the same two calls with `android-release`, and one more branch policy for the tags: `-f name='v*' -f type=tag`.
+4. Move the secrets into those environments, so that a workflow pushed on another branch cannot read them. Set each again as an environment secret with `gh secret set <NAME> --env <environment> --repo cxacraftecosystem-ui/<repo>`, check one deploy and one dry-run publish, then delete the repository-level copy with `gh secret delete <NAME> --repo cxacraftecosystem-ui/<repo>`.
+   - `backend-production`: every secret `deploy-backend.yml` reads, listed by `grep -o 'secrets\.[A-Z0-9_]*' .github/workflows/deploy-backend.yml | sort -u`, apart from `GITHUB_TOKEN`. That covers `EC2_HOST`, `EC2_SSH_KEY`, `EC2_SSH_HOST_KEYS`, `BACKEND_ENV`, `CROSS_PORTAL_TOKEN`, `ORIGIN_VERIFY_SECRET`, `WEB_PROXY_SECRET`, the two-factor keys, `AADHAAR_FINGERPRINT_KEY`, `ARTISAN_CARD_KEY`, the provider keys and the deploy AWS keys. Keep a repository-level copy of any secret another workflow outside these environments also reads, such as `DATABASE_URL` for `backup-db.yml` and `keep-supabase-active.yml`.
+   - `android-release`: `ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_RELEASE_KEYSTORE_PASSWORD`, `ANDROID_RELEASE_KEY_ALIAS`, `ANDROID_RELEASE_KEY_PASSWORD`, `ANDROID_RELEASE_CERT_SHA256`, `APP_PUBLISH_EMAIL`, `APP_PUBLISH_PASSWORD`, `RELEASE_GATE_EMAIL` and `RELEASE_GATE_PASSWORD`.
+5. Release tags. Add a tag ruleset so that only the release owner can create, move or delete a `v*` tag. The release owner pushes the tags, so give that account the Maintain role first (`gh api -X PUT repos/cxacraftecosystem-ui/<repo>/collaborators/<login> -f permission=maintain`), then: `gh api -X POST repos/cxacraftecosystem-ui/<repo>/rulesets --input tag-ruleset.json` with `{"name":"release tags","target":"tag","enforcement":"active","conditions":{"ref_name":{"include":["refs/tags/v*"],"exclude":[]}},"rules":[{"type":"creation"},{"type":"update"},{"type":"deletion"}],"bypass_actors":[{"actor_type":"RepositoryRole","actor_id":2,"bypass_mode":"always"},{"actor_type":"RepositoryRole","actor_id":5,"bypass_mode":"always"}]}`. Actor 2 is Maintain and 5 is Admin.
+6. Branch `main`: require a pull request before merging, so that the `main`-only rules above mean reviewed code. Releases merge locally and push `main`, so add the release owner as a bypass actor on that rule.
+
+Optional: add required reviewers to `android-release`, so that a person approves each publish. Leave `backend-production` without reviewers, because every push to `main` deploys on its own.
+
 ## Video, the upload choice and the backfill switch (DR 0.0.10, FR 0.0.10)
 
 No data step runs on deploy. The migration adds the per-file choice columns and the three admin
@@ -130,4 +152,5 @@ Release note (Designer Repository): stage 1 now requires a craft from the list. 
 | The migration name and what it seeds | `test_craft_master_migration.py` |
 | The backfill's estimate, batch size and budget stop | `backend/scripts/backfill_transcripts.py` and its tests; the switch's 409 without `confirmBackfill` |
 | The private-media order, the signed readers and the terraform shape | `test_media_storage_private.py` |
+| The release pipeline's main-only rules, environments and pinned host keys | `test_release_workflow_policy.py` |
 | The release table | the `Cut 0.0.x` commits, the `v0.0.x` tags and `appVersionCode` in each portal's `android/app/build.gradle.kts` |

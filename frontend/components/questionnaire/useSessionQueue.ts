@@ -2,29 +2,39 @@
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
+import { useAuth } from "@/components/AuthProvider";
 import { loadQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 import { questionnaireApi, type Recording, type Session } from "@/lib/questionnaire/api";
 import {
   answerConflicts,
+  claimUnits,
   discardStep,
+  discardUnits,
+  drainableUnits,
   enqueueStep,
   existingSessionUnit,
   fetchTransport,
+  heldUnits,
   indexedDbQueueStore,
   memoryQueueStore,
   mutateUnit,
+  QueueOwnerError,
   resolveAnswerConflict,
   runUnit,
   sendStepAgain,
   sendWithoutConflicts,
   sessionUnitKey,
+  stampOwner,
+  unitsOwnedBy,
+  type HeldUnits,
   type QueueStore,
   type SessionUnit,
   type Step
 } from "@/lib/questionnaire/queue";
 
-type State = { units: SessionUnit[]; progress: Record<string, number>; running: boolean; online: boolean };
-let state: State = { units: [], progress: {}, running: false, online: true };
+type State = { units: SessionUnit[]; held: HeldUnits; progress: Record<string, number>; running: boolean; online: boolean };
+let state: State = { units: [], held: { otherAccount: [], unowned: [] }, progress: {}, running: false, online: true };
+let owner: string | null = null;
 const listeners = new Set<() => void>();
 let store: QueueStore | null = null;
 let loaded = false;
@@ -43,7 +53,16 @@ function getStore(): QueueStore {
 }
 
 async function refresh() {
-  emit({ units: await getStore().load() });
+  const all = await getStore().load();
+  emit({ units: unitsOwnedBy(all, owner), held: heldUnits(all, owner) });
+}
+
+export function setQueueOwner(userId: string | null) {
+  if (owner === (userId || null)) return;
+  owner = userId || null;
+  retryDelay = null;
+  if (!loaded) return;
+  void refresh().then(() => drainQueue());
 }
 
 export const RETRY_FIRST_MS = 15_000;
@@ -90,7 +109,7 @@ export function drainQueue(): Promise<void> {
       const slowLink = typeof connection?.downlink === "number" && connection.downlink < 0.05;
       do {
         again = false;
-        for (const unit of await getStore().load()) {
+        for (const unit of await drainableUnits(getStore(), owner)) {
           await runUnit(unit, questionnaireApi, getStore(), fetchTransport, {
             multipartThresholdBytes: config.multipartThresholdBytes,
             partSizeBytes: config.partSizeBytes,
@@ -138,13 +157,17 @@ function baseUnit(session: Pick<Session, "id" | "clientKey"> | SessionUnit): Ses
 export async function enqueue(session: Pick<Session, "id" | "clientKey"> | SessionUnit, step: Step, blob?: { key: string; blob: Blob }) {
   const s = getStore();
   if (blob) await s.putBlob(blob.key, blob.blob);
-  await enqueueStep(s, baseUnit(session), step);
+  await enqueueStep(s, stampOwner(baseUnit(session), owner), step);
   await refresh();
   void drainQueue();
 }
 
 export async function enqueueUnit(unit: SessionUnit) {
-  await mutateUnit(getStore(), unit.id, (current) => current ?? unit);
+  const owned = stampOwner(unit, owner);
+  await mutateUnit(getStore(), unit.id, (current) => {
+    if (current?.ownerUserId && current.ownerUserId !== owned.ownerUserId) throw new QueueOwnerError();
+    return current ?? owned;
+  });
   await refresh();
   void drainQueue();
 }
@@ -170,6 +193,20 @@ export async function trayAct(unitId: string, key: string, act: "again" | "disca
   void drainQueue();
 }
 
+export async function settleHeld(act: "claim" | "discard", which: keyof HeldUnits) {
+  const ids = state.held[which];
+  if (!ids.length) return;
+  if (act === "claim") {
+    if (!owner || which !== "unowned") return;
+    await claimUnits(getStore(), ids, owner);
+  } else {
+    await discardUnits(getStore(), ids);
+  }
+  await refresh();
+  retryDelay = null;
+  void drainQueue();
+}
+
 export function onRecordingLanded(listener: (r: Recording) => void) {
   recordingListeners.add(listener);
   return () => recordingListeners.delete(listener);
@@ -188,6 +225,11 @@ export function useSessionQueue(session?: Pick<Session, "id" | "clientKey"> | st
     () => state,
     () => state
   );
+  const { user, loading } = useAuth();
+  const userId = loading ? null : (user?.id ?? null);
+  useEffect(() => {
+    setQueueOwner(userId);
+  }, [userId]);
   useEffect(() => {
     void ensureLoaded();
   }, []);
@@ -204,6 +246,7 @@ export function useSessionQueue(session?: Pick<Session, "id" | "clientKey"> | st
   }, []);
   return {
     units: snapshot.units,
+    held: snapshot.held,
     unit,
     pendingClips,
     conflicts: answerConflicts(unit),

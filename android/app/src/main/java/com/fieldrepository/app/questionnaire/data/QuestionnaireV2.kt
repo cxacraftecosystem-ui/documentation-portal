@@ -188,7 +188,7 @@ class QuestionnaireV2 private constructor(context: Context) {
     }
 
     @kotlinx.serialization.Serializable
-    data class PendingConsent(val artisanId: String, val body: QConsentPost)
+    data class PendingConsent(val artisanId: String, val body: QConsentPost, val ownerId: String? = null)
 
     private val consentFile = File(app.filesDir, "questionnaire-consent-queue.json")
     private val consentLock = kotlinx.coroutines.sync.Mutex()
@@ -200,7 +200,7 @@ class QuestionnaireV2 private constructor(context: Context) {
         val body = QConsentPost(state = state, clientKey = SessionOutbox.newKey())
         knownConsent[artisanId] = state
         consentLock.withLockCompat {
-            val queue = readConsents() + PendingConsent(artisanId, body)
+            val queue = readConsents() + PendingConsent(artisanId, body, meId())
             writeFileAtomically(consentFile, outboxJson.encodeToString(consentList, queue).toByteArray())
         }
         val rejected = flushConsents()
@@ -208,10 +208,25 @@ class QuestionnaireV2 private constructor(context: Context) {
         return body.clientKey !in rejected
     }
 
+    suspend fun consentsHeldForAnotherAccount(): Int {
+        val me = meId() ?: return 0
+        return consentLock.withLockCompat { readConsents().count { consentHeldForAnotherAccount(it.ownerId, me) } }
+    }
+
+    suspend fun discardConsentsHeldForAnotherAccount() {
+        val me = meId() ?: return
+        consentLock.withLockCompat {
+            val left = readConsents().filterNot { consentHeldForAnotherAccount(it.ownerId, me) }
+            writeFileAtomically(consentFile, outboxJson.encodeToString(consentList, left).toByteArray())
+        }
+    }
+
     suspend fun flushConsents(): Set<String> = consentLock.withLockCompat {
         val queue = readConsents()
+        val me = meId()
         val rejected = mutableSetOf<String>()
         val left = queue.filterIndexed { index, pending ->
+            if (consentHeldForAnotherAccount(pending.ownerId, me)) return@filterIndexed true
             val failure = try {
                 liveApi.recordConsent(pending.body.clientKey, pending.artisanId, pending.body)
                 null
@@ -278,6 +293,9 @@ class QuestionnaireV2 private constructor(context: Context) {
         )
     }
 }
+
+internal fun consentHeldForAnotherAccount(ownerId: String?, signedInUserId: String?): Boolean =
+    signedInUserId == null || ownerId == null || ownerId != signedInUserId
 
 internal fun consentRetryable(failure: Throwable): Boolean = when (failure) {
     is java.io.IOException -> true
