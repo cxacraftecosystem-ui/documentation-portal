@@ -73,7 +73,7 @@ def test_every_transcript_segment_has_its_translation_row_right_after() -> None:
         if kind == "Whole transcript":
             assert kinds[index + 1] == "Whole transcript · English translation"
     translated = [r for r in rows if r[row_col] == "English translation"]
-    assert any(r[text_col] == "The indigo colour" and r[status_col] == "Translated" for r in translated)
+    assert any(r[text_col] == "Kamla  The indigo colour" and r[status_col] == "Translated" for r in translated)
     statuses = {r[status_col] for r in translated if not r[text_col]}
     assert "Translating 50%" in statuses
     assert any(str(s).startswith("Failed: quota exceeded") for s in statuses)
@@ -83,8 +83,11 @@ def test_cells_that_look_like_formulas_or_hold_control_characters_stay_text() ->
     payload, _ctx = _render()
     ws = _book(payload)["Transcripts"]
     texts = [c for r in _rows(ws) for c in r if isinstance(c, str)]
-    assert any(t.startswith("=SUM(A1)") for t in texts)
+    assert any("=SUM(A1)" in t for t in texts)
     assert not any("\x07" in t for t in texts)
+    with zipfile.ZipFile(io.BytesIO(payload)) as z:
+        sheets = [z.read(n).decode() for n in z.namelist() if n.startswith("xl/worksheets/sheet")]
+    assert not any("SUM(A1)" in s for s in sheets if "<f>" in s and "SUM(A1)" in s.split("<f>", 1)[1][:20])
 
 
 def test_links_are_durable_portal_urls_and_bulk_banners_name_a_bundle() -> None:
@@ -100,7 +103,7 @@ def test_links_are_durable_portal_urls_and_bulk_banners_name_a_bundle() -> None:
     assert "bundle=bundle" in banner.hyperlink.target
     transcripts = book["Transcripts"]
     plays = [c.hyperlink.target for r in transcripts.iter_rows() for c in r if c.hyperlink is not None and "t=" in (c.hyperlink.target or "")]
-    assert any(p.endswith("t=4") for p in plays)
+    assert sorted(plays) == ["https://portal.example.org/data?preview=m0&t=0", "https://portal.example.org/data?preview=m2&t=0"]
     cover = _rows(book["Overview"])
     assert any(isinstance(c, str) and c.startswith("Download everything in this report") for r in cover for c in r)
     assert ctx.shared["bundles"]
@@ -311,7 +314,11 @@ def test_a_hundred_thousand_rows_stay_within_memory() -> None:
         assert peak < 160 * 1024 * 1024, f"peak {peak / 1e6:.0f} MB"
         payload = Path(path).read_bytes()
     found = rf.validate(payload)
-    assert any(t[1].endswith(str(100_000 + writer.TOP + 2)) for t in found["tables"])
+    assert not any(t[1].endswith(str(100_000 + writer.TOP + 2)) for t in found["tables"])
+    with zipfile.ZipFile(io.BytesIO(payload)) as z:
+        big = next(z.read(n).decode() for n in z.namelist() if n.startswith("xl/worksheets/sheet") and "<autoFilter" in z.read(n).decode())
+    assert big.count("<hyperlink ") <= writer.LINKS_PER_SHEET
+    assert "HYPERLINK(" not in big
 
 
 def _soffice() -> str | None:

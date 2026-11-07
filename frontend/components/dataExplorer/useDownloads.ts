@@ -141,7 +141,7 @@ export function useDownloads() {
           fileName: fetched.name,
           bytesDone: fetched.blob.size,
           bytesTotal: fetched.blob.size,
-          note: request.kind === "report" ? "Checked, opens in Excel" : request.kind === "pack" ? "Checked, opens as a zip" : null,
+          note: request.kind === "report" ? (fetched.name.toLowerCase().endsWith(".zip") ? "Checked: the workbook and its Transcripts companion, in one zip" : "Checked, opens in Excel") : request.kind === "pack" ? "Checked, opens as a zip" : null,
           timeLeft: null,
           finishedAt: Date.now()
         });

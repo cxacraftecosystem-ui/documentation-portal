@@ -31,6 +31,7 @@ SHARED_EXTRA = (
     "backend/prisma/migrations/20261211100000_data_bundles/migration.sql",
     "backend/tests/report_fixtures.py",
     "backend/tests/test_report_xlsx.py",
+    "backend/tests/test_report_budget.py",
     "backend/tests/test_report_coverage.py",
     "backend/tests/test_report_i18n.py",
     "backend/tests/test_report_pack_hindi.py",

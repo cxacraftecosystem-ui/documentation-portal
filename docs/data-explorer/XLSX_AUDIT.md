@@ -1107,7 +1107,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `id`: Transcripts › Segment ID
   - `versionId`: Transcripts › Version ID
   - `mediaFileId`: Transcripts › Media ID
-  - `position`: Transcripts › Segment
+  - `position`: Transcripts › Turn
   - `speakerKey`: Transcripts › Speaker
   - `startMs`: Quotes › At; Quotes › Play from; Transcripts › Start
   - `endMs`: Transcripts › End
@@ -1300,9 +1300,8 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - Everything › Date: The value when it is a date.
 - Everything › Field: The field, or the question for an answer.
 - Everything › Number: The value when it is a number, for sums and averages.
-- Everything › Open: Opens the record in the portal.
 - Everything › Record: The record's name or title.
-- Everything › Record ID: The record's id; every row of one record shares it.
+- Everything › Record ID: The record's id; every row of one record shares it, and the record's own sheet holds its link.
 - Everything › Record type: What the record is.
 - Everything › Section: Questionnaire section or process step, where it applies.
 - Everything › Source: Where the value is stored, as Model.field.
@@ -1347,8 +1346,8 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - Tools › Files: Derived: number of files attached to this record.
 - Tools › Files size: Derived: total size of the files attached to this record.
 - Tools › Open: Opens this record in the portal after sign-in.
-- Transcripts › Play from: Opens the recording in the portal and plays from this moment.
-- Transcripts › Row: Original speech, its English translation, or the whole transcript.
+- Transcripts › Open: Opens the recording in the portal's player from the start, after sign-in.
+- Transcripts › Row: The whole transcript or one speaker turn, in the original or in English.
 - Transcripts › Subtitles (.srt): Subtitles with speakers.
 - Transcripts › Transcript (.docx): The bilingual transcript as a Word file.
 - What changed › Change: Added, Changed, Reviewed, Transcribed or Translated.
@@ -2096,7 +2095,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `id`: Transcripts › Segment ID
   - `versionId`: Transcripts › Version ID
   - `mediaFileId`: Transcripts › Media ID
-  - `position`: Transcripts › Segment
+  - `position`: Transcripts › Turn
   - `speakerKey`: Transcripts › Speaker
   - `startMs`: Quotes › At; Quotes › Play from; Transcripts › Start
   - `endMs`: Transcripts › End
@@ -2270,9 +2269,8 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - Everything › Date: The value when it is a date.
 - Everything › Field: The field, or the question for an answer.
 - Everything › Number: The value when it is a number, for sums and averages.
-- Everything › Open: Opens the record in the portal.
 - Everything › Record: The record's name or title.
-- Everything › Record ID: The record's id; every row of one record shares it.
+- Everything › Record ID: The record's id; every row of one record shares it, and the record's own sheet holds its link.
 - Everything › Record type: What the record is.
 - Everything › Section: Questionnaire section or process step, where it applies.
 - Everything › Source: Where the value is stored, as Model.field.
@@ -2317,8 +2315,8 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - Tools › Files: Derived: number of files attached to this record.
 - Tools › Files size: Derived: total size of the files attached to this record.
 - Tools › Open: Opens this record in the portal after sign-in.
-- Transcripts › Play from: Opens the recording in the portal and plays from this moment.
-- Transcripts › Row: Original speech, its English translation, or the whole transcript.
+- Transcripts › Open: Opens the recording in the portal's player from the start, after sign-in.
+- Transcripts › Row: The whole transcript or one speaker turn, in the original or in English.
 - Transcripts › Subtitles (.srt): Subtitles with speakers.
 - Transcripts › Transcript (.docx): The bilingual transcript as a Word file.
 - What changed › Change: Added, Changed, Reviewed, Transcribed or Translated.

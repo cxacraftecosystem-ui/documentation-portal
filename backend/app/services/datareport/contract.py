@@ -26,6 +26,7 @@ RowKind = Literal["original", "translation", "summary", "summary_translation", "
 
 ROW_KIND = "_row"
 ROW_PAIR = "_pair"
+ROW_DETAIL = "_detail"
 
 Language = Literal["original", "english", "both"]
 Locale = Literal["en", "hi"]
@@ -44,6 +45,7 @@ class Column:
     source: str | None = None
     lang: Literal["original", "english"] | None = None
     wrap: bool | None = None
+    tech: bool | None = None
 
     @property
     def sources(self) -> tuple[str, ...]:
@@ -54,6 +56,21 @@ class Column:
 class Link:
     text: str
     url: str
+
+
+@dataclass(frozen=True)
+class Rich:
+    runs: tuple[tuple[str, bool], ...]
+
+    @property
+    def text(self) -> str:
+        return "".join(part for part, _bold in self.runs)
+
+    def __str__(self) -> str:
+        return self.text
+
+    def __len__(self) -> int:
+        return len(self.text)
 
 
 @dataclass(frozen=True)
@@ -95,6 +112,8 @@ class Sheet:
     description: str = ""
     totals: bool = False
     count: int | None = None
+    link_bound: int | None = None
+    detail_bytes: int = 0
 
 
 @dataclass

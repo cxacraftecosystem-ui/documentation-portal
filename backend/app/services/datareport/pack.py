@@ -120,6 +120,8 @@ class Prepared:
     scope_media: Any = None
     delivered: list[Callable[[], Awaitable[None]]] = field(default_factory=list)
     locale: str = "en"
+    companion_name: str | None = None
+    companion: bytes = b""
 
 
 XlsxBuilder = Callable[[Any, PackParams], Awaitable[tuple[Any, ...]]]
@@ -169,6 +171,8 @@ async def core_xlsx(user: Any, params: PackParams) -> tuple[bytes, str, Any]:
         name=params.name,
     )
     built = await build.build_report(user, params.path, options, status=params.status)
+    if built.companion:
+        built.ctx.shared["companion"] = (built.companion_name, built.companion)
     return built.payload, built.file_name, built.ctx
 
 
@@ -374,9 +378,11 @@ def _option_rows(params: PackParams, t: Say = ENGLISH) -> list[tuple[str, str]]:
     return rows
 
 
-def pack_contents(xlsx_name: str, pdf_name: str, t: Say = ENGLISH) -> list[tuple[str, str]]:
+def pack_contents(xlsx_name: str, pdf_name: str, t: Say = ENGLISH, companion_name: str | None = None) -> list[tuple[str, str]]:
+    extra = [(companion_name, t("pack.contents.companion", "The companion workbook: every speaker turn of every transcript, in the original and in English."))] if companion_name else []
     return [
         (xlsx_name, t("pack.contents.xlsx", "The full workbook: every sheet, link and data dictionary.")),
+        *extra,
         (pdf_name, t("pack.contents.pdf", "This summary: cover, charts, coverage and quotes.")),
         (
             f"{TRANSCRIPT_DIR}/",
@@ -394,6 +400,7 @@ async def prepare(user: Any, params: PackParams, *, xlsx_builder: XlsxBuilder | 
     xlsx, xlsx_name, ctx = (*built, None)[:3]
     if not xlsx.startswith(XLSX_SIGNATURE):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="The workbook could not be built.")
+    companion_name, companion = (getattr(ctx, "shared", None) or {}).get("companion") or (None, b"")
     browser = _browser()
     norm = browser._norm(params.path)
     async with report_cache.QUEUE.slot():
@@ -472,7 +479,7 @@ async def prepare(user: Any, params: PackParams, *, xlsx_builder: XlsxBuilder | 
             sections=_section_bars(coverage) if coverage is not None else [],
             coverage=[coverage] if coverage is not None else [],
             quotes=quotes,
-            pack_files=pack_contents(xlsx_name, pdf_name, t),
+            pack_files=pack_contents(xlsx_name, pdf_name, t, companion_name),
             locale=locale,
         )
         pdf = await asyncio.to_thread(pdf_summary.build, summary)
@@ -486,6 +493,8 @@ async def prepare(user: Any, params: PackParams, *, xlsx_builder: XlsxBuilder | 
         zip_name=zip_name,
         xlsx_name=xlsx_name,
         xlsx=xlsx,
+        companion_name=companion_name,
+        companion=companion or b"",
         pdf_name=pdf_name,
         pdf=pdf,
         folder=level,
@@ -579,6 +588,14 @@ def readme(prepared: Prepared, written: list[tuple[str, int]], skipped: list[str
             "readme.xlsx",
             "The full workbook. Every sheet, column and link of the Report (.xlsx); the links open the files in the portal after you sign in.",
         ),
+        *(
+            [
+                f"{prepared.companion_name}",
+                "    " + t("readme.companion", "The companion workbook with every speaker turn of every transcript, original then English; the main workbook keeps the whole transcripts and their links."),
+            ]
+            if prepared.companion_name
+            else []
+        ),
         f"{prepared.pdf_name}",
         "    " + summary,
         f"{TRANSCRIPT_DIR}/",
@@ -645,6 +662,14 @@ async def stream(prepared: Prepared, load: DocLoader) -> AsyncIterator[bytes]:
         yield out
     written.append((xlsx_name, size))
     prepared.xlsx = b""
+    if prepared.companion_name and prepared.companion:
+        companion_name = archive.unique(prepared.companion_name)
+        archive._names.discard(companion_name.lower())
+        size = len(prepared.companion)
+        for out in archive.add_chunks(companion_name, _pieces(prepared.companion), stored=True):
+            yield out
+        written.append((companion_name, size))
+        prepared.companion = b""
     out = await asyncio.to_thread(archive.add_bytes, prepared.pdf_name, prepared.pdf)
     written.append((prepared.pdf_name, len(prepared.pdf)))
     prepared.pdf = b""
