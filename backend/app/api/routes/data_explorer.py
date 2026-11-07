@@ -378,11 +378,16 @@ async def _sorted_window(
             where=_live_media_where(scope, ids[start : start + TRANSCRIPT_SORT_CHUNK])
         )
         light.update({str(r.id): r for r in rows})
-    items = [{**item, "_media": light[mid]} for mid, item in seen.items() if mid in light]
+    items = [
+        {**item, "kind": "file", "_media": light[mid]} for mid, item in seen.items() if mid in light
+    ]
     await sorting.prepare(items, sort)
     ordered = sorting.order(items, sort, folders_first=False)
     window = ordered[offset : offset + TRANSCRIPT_LIST_MAX]
-    return {str(item["mediaId"]): item for item in window}, offset + len(window) < len(ordered)
+    kept = {
+        str(item["mediaId"]): {k: v for k, v in item.items() if k != "kind"} for item in window
+    }
+    return kept, offset + len(window) < len(ordered)
 
 
 async def _folder_transcripts(
@@ -637,7 +642,10 @@ async def browse_record_media(
         order=browse.media_order(chosen),
     )
     total = await db.mediafile.count(where=where)
-    entries = _browser()._media_entries("", rows)
+    rank = {str(row.id): index for index, row in enumerate(rows)}
+    entries = sorted(
+        _browser()._media_entries("", rows), key=lambda e: rank.get(str(e.get("mediaId")), 0)
+    )
     items, _count, _next = await tree.shape(entries, lean=True, keep_order=True)
     return {
         "items": items,

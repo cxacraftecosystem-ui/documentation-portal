@@ -148,10 +148,10 @@ def _stamp(value: Any) -> float:
 DURATIONS = {name: duration for _kind, name, _size, _day, duration in SPECS}
 
 
-def _value(row: Any, key: str) -> Any:
+def _value(row: Any, key: str, names: dict[str, str] | None = None) -> Any:
     kind = str(getattr(row.mediaType, "value", row.mediaType)).split(".")[-1]
     if key == "name":
-        return row.originalFilename.casefold()
+        return (names or {}).get(row.id, row.originalFilename).casefold()
     if key == "recorded":
         return _stamp(row.recordedAt)
     if key == "added":
@@ -167,11 +167,13 @@ def _value(row: Any, key: str) -> Any:
     raise AssertionError(key)
 
 
-def _expected(rows: list[Any], key: str, direction: str) -> list[str]:
-    ordered = sorted(rows, key=lambda r: (r.originalFilename.casefold(), r.id))
-    present = [r for r in ordered if _value(r, key) is not None]
-    missing = [r for r in ordered if _value(r, key) is None]
-    present.sort(key=lambda r: _value(r, key), reverse=direction == "desc")
+def _expected(
+    rows: list[Any], key: str, direction: str, names: dict[str, str] | None = None
+) -> list[str]:
+    ordered = sorted(rows, key=lambda r: (_value(r, "name", names), r.id))
+    present = [r for r in ordered if _value(r, key, names) is not None]
+    missing = [r for r in ordered if _value(r, key, names) is None]
+    present.sort(key=lambda r: _value(r, key, names), reverse=direction == "desc")
     return [r.id for r in present + missing]
 
 
@@ -226,6 +228,7 @@ def test_every_tree_sort_key_orders_the_whole_folder_across_pages(monkeypatch):
 
     seen = _private(monkeypatch, work)
     rows = seen["rows"]
+    names = {e["mediaId"]: e["name"] for e in seen["plain"]["entries"] if e.get("mediaId")}
     for (key, direction), pages in seen["pages"].items():
         assert len(pages) >= 3, (key, direction)
         entries = [e for page in pages for e in page["entries"]]
@@ -233,7 +236,7 @@ def test_every_tree_sort_key_orders_the_whole_folder_across_pages(monkeypatch):
         assert kinds == sorted(kinds, key=lambda k: 0 if k == "folder" else 1), (key, direction)
         media = [e["mediaId"] for e in entries if e.get("mediaId")]
         assert len(media) == len(set(media)), (key, direction)
-        assert media == _expected(rows, key, direction), (key, direction)
+        assert media == _expected(rows, key, direction, names), (key, direction)
         assert all(page["sort"] == {"key": key, "dir": direction} for page in pages)
         assert all(page["total"] == pages[0]["total"] for page in pages)
     sorts = seen["pages"][("name", "asc")][0]["sorts"]
@@ -243,7 +246,7 @@ def test_every_tree_sort_key_orders_the_whole_folder_across_pages(monkeypatch):
     assert seen["bad"] == [422, 422, 422, 422]
     assert seen["plain"]["sort"] == {"key": "name", "dir": "asc"}
     plain = [e["mediaId"] for e in seen["plain"]["entries"] if e.get("mediaId")]
-    assert plain == _expected(rows, "name", "asc")
+    assert plain == _expected(rows, "name", "asc", names)
 
 
 def test_transcripts_list_sorts_before_it_pages(monkeypatch):

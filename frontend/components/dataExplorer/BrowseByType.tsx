@@ -11,7 +11,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { fetchBrowse, unsupported } from "@/lib/dataExplorer/api";
 import type { BrowsePage } from "@/lib/dataExplorer/contract";
-import { availableKeys, LIST_DEFAULT, parseSort, sortParam, type SortChoice } from "@/lib/dataExplorer/sorting";
+import { availableKeys, LIST_DEFAULT, parseSort, sortParam, type SortChoice, type SortKey } from "@/lib/dataExplorer/sorting";
 
 export type BrowseType = {
   value: string;
@@ -114,7 +114,10 @@ export function BrowseByType({
   const failed = error?.key === key ? error.message : null;
   const noun = def?.label.toLowerCase() ?? "records";
   const cut = current ? browseCutLine(current, noun) : null;
-  const sortKeys = availableKeys(current?.sorts);
+  const [knownSorts, setKnownSorts] = useState<{ type: string; keys: SortKey[] }>({ type, keys: [] });
+  const freshSorts = current?.sorts ? availableKeys(current.sorts) : null;
+  if (freshSorts && (knownSorts.type !== type || freshSorts.join() !== knownSorts.keys.join())) setKnownSorts({ type, keys: freshSorts });
+  const sortKeys = freshSorts ?? (knownSorts.type === type ? knownSorts.keys : []);
   const changeSort = (choice: SortChoice) => {
     remember(choice);
     if (page !== 1) onChange({ type, page: 1, q });
