@@ -46,6 +46,11 @@ def _world(monkeypatch) -> _Media:
     monkeypatch.setattr(data_explorer, "_browser", lambda: SimpleNamespace(_norm=lambda p: p.strip("/"), _list_level=None))
     monkeypatch.setattr(data_explorer.walk, "manifest_files", manifest_files)
     monkeypatch.setattr(data_explorer, "db", SimpleNamespace(mediafile=media))
+
+    async def all_consented(*_args: Any, **_kwargs: Any) -> set[str]:
+        return set()
+
+    monkeypatch.setattr(data_explorer.transcript_export, "withheld_ids", all_consented)
     return media
 
 
