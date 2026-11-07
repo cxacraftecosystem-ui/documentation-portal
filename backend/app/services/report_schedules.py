@@ -328,19 +328,10 @@ async def _visible(scope: Any, path: str) -> bool:
     return True
 
 
-BARRED_STATUSES = frozenset({"REJECTED", "SUSPENDED"})
-
-
 async def _barred(owner: Any) -> bool:
     from app.services import access_roster
 
-    email = getattr(owner, "email", None)
-    if access_roster.is_master_admin_email(email):
-        return False
-    if access_roster.role_value(getattr(owner, "role", None)) == "MASTER_ADMIN":
-        return False
-    row = await access_roster.roster_row(email)
-    return row is not None and access_roster.status_value(row.status) in BARRED_STATUSES
+    return await access_roster.account_barred(owner)
 
 
 async def may_schedule(user: Any, view: Any) -> bool:

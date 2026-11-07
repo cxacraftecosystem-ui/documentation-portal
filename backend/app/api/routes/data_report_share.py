@@ -17,6 +17,7 @@ from app.core.deps import (
     resolve_user,
 )
 from app.scale.rate_limit import client_address
+from app.services.access_roster import account_barred
 from app.services.data_explorer import report_cache, saved
 from app.services.datareport import share_links, share_snapshot
 
@@ -231,7 +232,7 @@ async def open_share(
     if row is None or not share_links.live(row, now):
         return gone
     owner = await resolve_user(str(row.ownerId))
-    if owner is None or not can_download_dataset(owner):
+    if owner is None or not can_download_dataset(owner) or await account_barred(owner):
         return gone
     await _log_view(row, request, await _viewer_id(credentials), now)
     return JSONResponse(share_links.public_out(row), headers=PUBLIC_HEADERS)

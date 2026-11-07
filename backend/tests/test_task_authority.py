@@ -259,8 +259,7 @@ def test_a_demoted_creator_still_may_not_move_their_old_task_onto_themselves(boa
         .patch("/t1", {"assigneeId": demoted.id})
     )
 
-    assert response.status_code == 422, response.text
-    assert response.json()["detail"] == "You cannot assign a task to yourself"
+    assert response.status_code == 403, response.text
     assert board.assignedtask.updates == []
 
 

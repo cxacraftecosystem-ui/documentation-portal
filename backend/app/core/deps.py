@@ -273,6 +273,16 @@ async def require_dataset_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required for the bulk dataset API.",
         )
+    from app.services.access_roster import account_barred
+
+    if await account_barred(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "This account's access has been withdrawn, so it can't download datasets. "
+                "Ask an administrator to restore the account's access."
+            ),
+        )
     return user
 
 
