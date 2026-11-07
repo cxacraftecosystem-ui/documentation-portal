@@ -386,7 +386,8 @@ class ReportWriter:
                 props["font_color"] = MUTED
             props["indent"] = 1 if kind in ("text", "longtext") else 0
         elif row_kind == "summary":
-            props["bold"] = True
+            if kind not in ("longtext", "json"):
+                props["bold"] = True
             props["bg_color"] = BRAND_SOFT
         if row_kind == "summary_translation":
             props["bg_color"] = BRAND_SOFT

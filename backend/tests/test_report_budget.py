@@ -249,6 +249,7 @@ def test_whole_transcripts_read_as_dialogue_with_bold_speakers() -> None:
         kind = ws.cell(row=r, column=row_col).value
         if kind in ("Whole transcript", "Whole transcript · English translation"):
             found.append((kind, ws.cell(row=r, column=text_col).value))
+            assert not ws.cell(row=r, column=text_col).font.b
     rich = [v for _k, v in found if isinstance(v, CellRichText)]
     assert rich
     for value in rich:
