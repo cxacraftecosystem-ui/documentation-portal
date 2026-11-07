@@ -493,7 +493,7 @@ def api(monkeypatch):
         }
     )
 
-    async def _analyze(content, filename, mime, settings, dimension=None):
+    async def _analyze(content, filename, mime, settings, dimension=None, **_kwargs):
         seen.provider_calls.append((len(content), filename, mime, dimension))
         return dict(state.result)
 
