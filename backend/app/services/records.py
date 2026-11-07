@@ -86,12 +86,16 @@ def _redact_sensitive(
         if isinstance(history, dict):
             view = aadhaar_fingerprint.ledger_view(history)
             value[aadhaar_fingerprint.NUMBER_FIELD] = view if view is not None else history
+        if "joinCode" in value and not unmasked and not (viewer_id and value.get("createdById") == viewer_id):
+            value["joinCode"] = None
+            if "clientKey" in value:
+                value["clientKey"] = None
         if not unmasked and not (viewer_id and value.get("createdById") == viewer_id):
             for key in _IDENTITY_KEYS:
                 if key in value and not isinstance(value[key], (dict, list)):
                     value[key] = mask_identity_number(value[key])
         if media_urls is not None and _MEDIA_MARKER in value:
-            if value.get("uploadedById") not in media_urls:
+            if not media_url_allows(media_urls, value):
                 for key in _MEDIA_URL_KEYS:
                     value.pop(key, None)
         for nested in value.values():
@@ -127,7 +131,6 @@ def public_encode(obj: Any, viewer: Any = None, *, media_urls: Any = _UNSET) -> 
 
 
 async def media_url_owners(viewer: Any) -> set[str] | None:
-    from app.core.db import db
     from app.core.roles import can_download_dataset, get_value, has_rank
 
     if has_rank(viewer, "PROFESSOR") or can_download_dataset(viewer):
@@ -135,10 +138,67 @@ async def media_url_owners(viewer: Any) -> set[str] | None:
     viewer_id = get_value(viewer, "id")
     if not viewer_id:
         return set()
+    full, scoped = await granted_scopes(viewer_id)
+    return MediaUrlOwners({viewer_id, *full}, scoped)
+
+
+class MediaUrlOwners(set):
+    def __init__(self, owners: Any = (), scoped: dict[str, frozenset[str]] | None = None) -> None:
+        super().__init__(owners)
+        self.scoped: dict[str, frozenset[str]] = dict(scoped or {})
+
+
+_MEDIA_SCOPE_FKS = (
+    "artisanId", "productId", "toolId", "workshopId", "questionnaireInterviewId", "processId",
+)
+
+
+def media_scope_ids(node: Any) -> set[str]:
+    read = node.get if isinstance(node, dict) else lambda key: getattr(node, key, None)
+    ids = {str(read(key)) for key in _MEDIA_SCOPE_FKS if read(key)}
+    if read("linkedRecordType") and read("linkedRecordId"):
+        ids.add(str(read("linkedRecordId")))
+    return ids
+
+
+def media_url_allows(media_urls: set[str] | None, node: Any) -> bool:
+    if media_urls is None:
+        return True
+    read = node.get if isinstance(node, dict) else lambda key: getattr(node, key, None)
+    uploader = read("uploadedById")
+    if uploader in media_urls:
+        return True
+    covered = getattr(media_urls, "scoped", {}).get(uploader)
+    return bool(covered) and not media_scope_ids(node).isdisjoint(covered)
+
+
+async def granted_scopes(grantee_id: str) -> tuple[set[str], dict[str, frozenset[str]]]:
+    from app.core.db import db
+
     grants = await db.dataaccessgrant.find_many(
-        where={"granteeId": viewer_id, "status": "GRANTED"}
+        where={"granteeId": grantee_id, "status": "GRANTED"}, include={"scopeItems": True}
     )
-    return {viewer_id, *(grant.ownerId for grant in grants)}
+    full: set[str] = set()
+    scoped: dict[str, set[str]] = {}
+    products: dict[str, set[str]] = {}
+    for grant in grants:
+        if grant.allData:
+            full.add(grant.ownerId)
+            continue
+        ids = scoped.setdefault(grant.ownerId, set())
+        for item in grant.scopeItems or []:
+            ids.add(item.recordId)
+            if str(item.recordType).lower() == "product":
+                products.setdefault(item.recordId, set()).add(grant.ownerId)
+    if products:
+        processes = await db.process.find_many(
+            where={"productId": {"in": sorted(products)}}, include={"steps": True}
+        )
+        for process in processes:
+            for owner in products.get(process.productId, ()):
+                scoped[owner].add(process.id)
+                scoped[owner].update(step.id for step in process.steps or [])
+    return full, {owner: frozenset(ids) for owner, ids in scoped.items() if owner not in full and ids}
 
 
 def to_json(value: Any) -> Any:
@@ -267,16 +327,29 @@ async def owned_or_granted_where(user: Any, owner_field: str = "createdById") ->
         return {}
     uid = get_value(user, "id")
     owner_relation = owner_field[:-2] if owner_field.endswith("Id") else owner_field
-    return {
-        "OR": [
-            {owner_field: uid},
-            {
-                owner_relation: {
-                    "is": {"dataAccessAsOwner": {"some": {"granteeId": uid, "status": "GRANTED"}}}
+    branches: list[dict[str, Any]] = [
+        {owner_field: uid},
+        {
+            owner_relation: {
+                "is": {
+                    "dataAccessAsOwner": {
+                        "some": {"granteeId": uid, "status": "GRANTED", "allData": True}
+                    }
                 }
-            },
-        ]
-    }
+            }
+        },
+    ]
+    _full, scoped = await granted_scopes(uid) if uid else (set(), {})
+    for owner, ids in scoped.items():
+        covered = sorted(ids)
+        if owner_field == "uploadedById":
+            branches.append({"AND": [{owner_field: owner}, {"OR": [
+                *({key: {"in": covered}} for key in _MEDIA_SCOPE_FKS),
+                {"linkedRecordId": {"in": covered}},
+            ]}]})
+        else:
+            branches.append({"AND": [{owner_field: owner}, {"id": {"in": covered}}]})
+    return {"OR": branches}
 
 
 async def own_rows_where(user: Any, owner_field: str = "createdById") -> dict[str, Any]:

@@ -222,18 +222,20 @@ export function TakeSheet({
               removed.map((r) => (
                 <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-line-200 p-2 text-sm">
                   <span className="text-ink-700">{takeRow(r, artisan)}</span>
-                  <button
-                    type="button"
-                    className="field-button-secondary"
-                    onClick={() =>
-                      void act(async () => {
-                        await questionnaireApi.restoreRecording(r.id);
-                        setRemoved((list) => (list ?? []).filter((x) => x.id !== r.id));
-                      })
-                    }
-                  >
-                    {qs("restore")}
-                  </button>
+                  {onRemove ? (
+                    <button
+                      type="button"
+                      className="field-button-secondary"
+                      onClick={() =>
+                        void act(async () => {
+                          await questionnaireApi.restoreRecording(r.id);
+                          setRemoved((list) => (list ?? []).filter((x) => x.id !== r.id));
+                        })
+                      }
+                    >
+                      {qs("restore")}
+                    </button>
+                  ) : null}
                 </div>
               ))
             ) : (

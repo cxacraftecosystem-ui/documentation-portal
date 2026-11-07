@@ -80,6 +80,9 @@ class WorkshopAccess:
         return level_at_least(self.level, minimum)
 
 
+REFUSED_ROW_STATUSES = frozenset({"DENIED", "REVOKED"})
+
+
 def workshop_is_curated(rows: Any) -> bool:
     return any(enum_str(r.status) == "GRANTED" and get_value(r, "assignedById") for r in rows)
 
@@ -98,10 +101,10 @@ def access_from_rows(user: Any, rows: Any) -> WorkshopAccess:
     if is_admin(user):
         return WorkshopAccess("EDIT", restricted, row_status, row_level, unrestricted=True)
     granted = row_level if row_status == "GRANTED" else None
-    if restricted:
+    if restricted or granted is not None or row_status in REFUSED_ROW_STATUSES:
         level = granted
     else:
-        level = granted if level_rank(granted) > level_rank(OPEN_WORKSHOP_LEVEL) else OPEN_WORKSHOP_LEVEL
+        level = OPEN_WORKSHOP_LEVEL
     return WorkshopAccess(level, restricted, row_status, row_level)
 
 

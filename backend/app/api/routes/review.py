@@ -232,6 +232,8 @@ def pending_keys_sql(filters: PendingFilters, *, limit: int, offset: int) -> tup
                 )
             else:
                 clause += " AND FALSE"
+        if record_type == "questionnaire":
+            clause += ' AND t."deletedAt" IS NULL AND t."mergedIntoId" IS NULL'
         join = ' JOIN "User" u ON u."id" = t."createdById"' if role_clause else ""
         parts.append(
             f"SELECT '{record_type}' AS \"recordType\", t.\"id\" AS \"id\", t.\"submittedAt\" AS \"submittedAt\""
@@ -547,6 +549,8 @@ async def approve_record_media(
     )
 
 
+ALREADY_DECIDED = "Someone has already reviewed this record. Reload it to see where it stands."
+
 REVIEW_TX_TIMEOUT = timedelta(seconds=30)
 REVIEW_TX_MAX_WAIT = timedelta(seconds=15)
 
@@ -571,6 +575,11 @@ async def set_review_status(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only review records created by users below your own tier",
         )
+    v2_session = record_type.lower() == "questionnaire" and v2_shims.enabled()
+    current_status = str(enum_or_raw(get_value(record, "status")))
+    reopened = v2_session and get_value(record, "pendingChangesAt") is not None
+    if current_status != "PENDING" and not reopened:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ALREADY_DECIDED)
     late = record_needs_admin_approval(record)
     if late and new_status == "APPROVED" and not is_admin(reviewer):
         raise HTTPException(
@@ -600,14 +609,15 @@ async def set_review_status(
     }
     if reason is not None:
         log_data["reason"] = reason.code
-    v2_session = record_type.lower() == "questionnaire" and v2_shims.enabled()
     if v2_session and new_status == "APPROVED":
         await v2_review.assert_may_approve(db, record_id)
         data["pendingChangesAt"] = None
     media_approved = 0
     async with db.tx(max_wait=REVIEW_TX_MAX_WAIT, timeout=REVIEW_TX_TIMEOUT) as tx:
         tx_delegate, _log_type, _relation = delegate_for(record_type, tx)
-        updated = await tx_delegate.update(where={"id": record_id}, data=data)
+        if not await tx_delegate.update_many(where={"id": record_id, "status": current_status}, data=data):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ALREADY_DECIDED)
+        updated = await tx_delegate.find_unique(where={"id": record_id})
         await tx.reviewlog.create(data=log_data)
         if new_status == "APPROVED" and record_type.lower() != "media":
             media_approved = await approve_record_media(

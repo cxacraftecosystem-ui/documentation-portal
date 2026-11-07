@@ -121,7 +121,18 @@ async def _counts(client: Any, session_ids: list[str]) -> dict[str, dict[str, in
     return out
 
 
-async def serialize_sessions(client: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+JOIN_SECRETS = ("joinCode", "joinQr", "clientKey")
+
+
+def _sees_join_secrets(viewer: Any, row: dict[str, Any], researcher_rows: list[dict[str, Any]]) -> bool:
+    if viewer is None:
+        return False
+    if is_admin(viewer) or has_rank(viewer, "PROFESSOR") or str(row.get("createdById")) == str(viewer.id):
+        return True
+    return any(str(r["sid"]) == str(row["id"]) and str(r["userId"]) == str(viewer.id) for r in researcher_rows)
+
+
+async def serialize_sessions(client: Any, rows: list[dict[str, Any]], viewer: Any = None) -> list[dict[str, Any]]:
     if not rows:
         return []
     sids = [str(r["id"]) for r in rows]
@@ -219,14 +230,18 @@ async def serialize_sessions(client: Any, rows: list[dict[str, Any]]) -> list[di
                 ),
             }
         )
+    for row, item in zip(rows, out, strict=True):
+        if not _sees_join_secrets(viewer, row, researchers):
+            for key in JOIN_SECRETS:
+                item[key] = None
     return out
 
 
-async def session_payload(client: Any, session_id: str) -> dict[str, Any]:
+async def session_payload(client: Any, session_id: str, viewer: Any = None) -> dict[str, Any]:
     from app.questionnaire import respondents
 
     row = await require_session(client, session_id)
-    out = (await serialize_sessions(client, [row]))[0]
+    out = (await serialize_sessions(client, [row], viewer))[0]
     out["respondents"] = await respondents.list_for(client, session_id)
     return out
 
@@ -296,6 +311,7 @@ async def _arrive_on_existing(db: Any, session_id: str, payload: Any, user: Any,
     row = await require_session(db, session_id)
     if str(row.get("createdById")) == str(user.id) or str(user.id) in await researcher_ids(db, session_id):
         return
+    await _assert_may_join(db, session_id, user)
     leads = await db.query_raw(
         'SELECT 1 FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = $1 AND "role" = \'LEAD\' LIMIT 1', session_id
     )
@@ -343,7 +359,7 @@ async def join_by_key(client_key: str, user: Any, *, client: Any = None) -> dict
     session_id = str(rows[0]["id"])
     await _assert_may_join(db, session_id, user)
     await add_researcher(db, session_id, user.id, "VOLUNTEER" if _volunteer(user) else "CONTRIBUTOR")
-    return await session_payload(db, session_id)
+    return await session_payload(db, session_id, user)
 
 
 async def create_session(payload: Any, user: Any, *, client: Any = None, origin: str = "NATIVE",
@@ -361,7 +377,7 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
     existing = await _by_client_key(db, payload.clientKey)
     if existing:
         await _arrive_on_existing(db, existing, payload, user, joining)
-        return await session_payload(db, existing), False
+        return await session_payload(db, existing, user), False
     if not can_create_records(user) or _volunteer(user):
         if joining:
             fail("SESSION_UNKNOWN", NOT_SYNCED)
@@ -441,10 +457,10 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
             again = await _by_client_key(db, payload.clientKey)
             if again:
                 await _arrive_on_existing(db, again, payload, user, joining)
-                return await session_payload(db, again), False
+                return await session_payload(db, again, user), False
             if "joinCode" not in str(exc):
                 raise
-    return await session_payload(db, session_id), True
+    return await session_payload(db, session_id, user), True
 
 
 async def _by_client_key(db: Any, client_key: str) -> str | None:
@@ -512,7 +528,7 @@ async def patch_session(session_id: str, payload: Any, user: Any, *, client: Any
     row = await require_session(db, session_id)
     await assert_can_work_in(db, user, row)
     sent = payload.model_fields_set
-    current = (await serialize_sessions(db, [row]))[0]
+    current = (await serialize_sessions(db, [row], user))[0]
     if payload.version != int(row.get("version") or 1):
         diff = {k: {"current": current.get(k), "yours": _plain(getattr(payload, k))} for k in PATCHABLE if k in sent
                 and _plain(getattr(payload, k)) != current.get(k)}
@@ -552,7 +568,7 @@ async def patch_session(session_id: str, payload: Any, user: Any, *, client: Any
         if not changed:
             fail("STALE_VERSION", current=current, diff={})
         await titles.regenerate_title(tx, session_id)
-    return await session_payload(db, session_id)
+    return await session_payload(db, session_id, user)
 
 
 def _plain(value: Any) -> Any:
@@ -571,7 +587,7 @@ async def add_participant(session_id: str, artisan_id: str, joined_at: datetime 
         if await add_participants(tx, session_id, [artisan_id], joined_at or now()):
             await _bump(tx, session_id)
             await titles.regenerate_title(tx, session_id)
-    return await session_payload(db, session_id)
+    return await session_payload(db, session_id, user)
 
 
 async def patch_participant(session_id: str, artisan_id: str, payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
@@ -591,7 +607,7 @@ async def patch_participant(session_id: str, artisan_id: str, payload: Any, user
         if not changed:
             fail("NOT_FOUND", "That artisan is not a participant of this session.")
         await _bump(db, session_id)
-    return await session_payload(db, session_id)
+    return await session_payload(db, session_id, user)
 
 
 async def takes_for(client: Any, session_id: str, artisan_id: str) -> list[str]:
@@ -629,7 +645,7 @@ async def remove_participant(session_id: str, artisan_id: str, detach: bool, use
         )
         await _bump(tx, session_id)
         await titles.regenerate_title(tx, session_id)
-    return await session_payload(db, session_id)
+    return await session_payload(db, session_id, user)
 
 
 async def log_event(client: Any, recording_id: str, kind: str, before: Any, after: Any, actor_id: str) -> None:
@@ -658,7 +674,7 @@ async def add_researcher_route(session_id: str, user_id: str, role: str, user: A
     await assert_can_work_in(db, user, row)
     await _assert_exists(db, "User", [user_id], "userId")
     await add_researcher(db, session_id, user_id, role)
-    return await session_payload(db, session_id)
+    return await session_payload(db, session_id, user)
 
 
 JOIN_MISSES_PER_WINDOW = 10
@@ -702,7 +718,7 @@ async def join(join_code: str, user: Any, *, client: Any = None) -> dict[str, An
     session_id = str(rows[0]["id"])
     await _assert_may_join(db, session_id, user)
     await add_researcher(db, session_id, user.id, "VOLUNTEER" if _volunteer(user) else "CONTRIBUTOR")
-    return await session_payload(db, session_id)
+    return await session_payload(db, session_id, user)
 
 
 async def finish(session_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
@@ -716,7 +732,7 @@ async def finish(session_id: str, user: Any, *, client: Any = None) -> dict[str,
     )
     from app.questionnaire import coverage
 
-    out = await session_payload(db, session_id)
+    out = await session_payload(db, session_id, user)
     out["requiredUnanswered"] = await coverage.required_unanswered(db, session_id)
     return out
 
@@ -776,7 +792,7 @@ async def merge_into(source_id: str, target_id: str, user: Any, *, client: Any =
         )
         await _bump(tx, target_id)
         await titles.regenerate_title(tx, target_id)
-    return await session_payload(db, target_id)
+    return await session_payload(db, target_id, user)
 
 
 async def delete_session(session_id: str, user: Any, *, client: Any = None) -> None:
@@ -809,14 +825,14 @@ async def restore_session(session_id: str, user: Any, *, client: Any = None) -> 
         '"updatedAt" = now() WHERE "id" = $1 AND "deletedAt" IS NOT NULL',
         session_id,
     )
-    return await session_payload(db, session_id)
+    return await session_payload(db, session_id, user)
 
 
 async def list_sessions(
     *, client: Any = None, workshopId: str | None = None, questionnaireId: str | None = None,
     artisanId: str | None = None, researcherId: str | None = None, dateFrom: Any = None, dateTo: Any = None,
     search: str | None = None, cursor: str | None = None, limit: int = 20, deleted: bool = False,
-    filters: Any = None,
+    filters: Any = None, viewer: Any = None,
 ) -> dict[str, Any]:
     from app.questionnaire import filters as F
 
@@ -852,7 +868,7 @@ async def list_sessions(
         last = rows[-1]
         day = as_date(last.get("sessionDate"))
         next_cursor = f"{day.isoformat() if day else '1900-01-01'}|{naive_utc(aware(last['createdAt']))}|{last['id']}"
-    return {"items": await serialize_sessions(db, rows), "nextCursor": next_cursor, "capped": False, "filters": filters.echo()}
+    return {"items": await serialize_sessions(db, rows, viewer), "nextCursor": next_cursor, "capped": False, "filters": filters.echo()}
 
 
 async def open_match(*, questionnaire_id: str, workshop_id: str | None, artisan_ids: list[str], day: Any, client: Any = None) -> dict[str, Any]:

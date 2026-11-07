@@ -4,8 +4,14 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.db import db
-from app.core.deps import require_record_creator, assert_can_delete, enum_or_raw, get_current_user
-from app.services.access import guard_record_edit
+from app.core.deps import (
+    assert_can_contribute_relation,
+    assert_can_delete,
+    enum_or_raw,
+    get_current_user,
+    require_record_creator,
+)
+from app.services.access import guard_record_edit, record_edit_privilege
 from app.schemas.records import ProcessCreate, ProcessStepInput, ProcessUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
@@ -67,6 +73,25 @@ async def _hydrate(process: Any) -> dict[str, Any]:
     for step in encoded["steps"]:
         step["media"] = by_record.get(step["id"], [])
     return encoded
+
+
+def _steps_touch_existing(existing: list[Any], steps: list[ProcessStepInput]) -> bool:
+    by_id = {step.id: step for step in existing}
+    kept: set[str] = set()
+    for index, step in enumerate(steps):
+        current = by_id.get(step.id) if step.id else None
+        if current is None:
+            continue
+        kept.add(step.id)
+        order = step.sortOrder if step.sortOrder else index + 1
+        if (
+            current.name != step.name
+            or str(enum_or_raw(current.stepType)) != str(step.stepType)
+            or current.sortOrder != order
+            or current.notes != ((step.notes or "").strip() or None)
+        ):
+            return True
+    return any(step.id not in kept for step in existing)
 
 
 async def _sync_steps(process_id: str, steps: list[ProcessStepInput]) -> None:
@@ -238,7 +263,13 @@ async def update_process(
     check = None
     if "workshopId" in data and data.get("workshopId") != process.workshopId:
         check = await enforce_workshop_submission(current_user, data.get("workshopId"))
-    await guard_record_edit(process, current_user, data, "process")
+    privileged = await record_edit_privilege(process, current_user, "process")
+    if payload.steps is not None and not privileged:
+        existing_steps = await db.processstep.find_many(where={"processId": process_id})
+        assert_can_contribute_relation(
+            process, current_user, _steps_touch_existing(existing_steps, payload.steps), "steps"
+        )
+    await guard_record_edit(process, current_user, data, "process", privileged=privileged)
     await apply_status_policy_update(current_user, process, data)
     stamp_workshop_submission(data, check=check, record=process)
     pin_pending_if_late(data, current_user, check=check, record=process)

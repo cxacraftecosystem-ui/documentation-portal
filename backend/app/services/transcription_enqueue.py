@@ -45,6 +45,8 @@ async def _verified_twin(media: Any, client: Any) -> Any:
             "contentSha256": sha,
             "shaVerifiedAt": {"not": None},
             "transcriptStatus": "COMPLETED",
+            "transcriptEditedAt": None,
+            "removedAt": None,
             "id": {"not": str(media.id)},
         },
         order={"createdAt": "asc"},

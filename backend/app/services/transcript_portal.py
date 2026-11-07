@@ -27,7 +27,18 @@ def may_edit(user: Any, media: Any) -> bool:
 
 
 async def readable_ids(rows: list[Any], viewer: Any) -> set[str]:
-    return {str(getattr(row, "id", "")) for row in rows if getattr(row, "id", None)} if viewer else set()
+    if not rows or not viewer:
+        return set()
+    from app.services.records import media_url_allows, media_url_owners
+
+    allowed = await media_url_owners(viewer)
+    return {
+        str(row.id)
+        for row in rows
+        if getattr(row, "id", None)
+        and getattr(row, "removedAt", None) is None
+        and media_url_allows(allowed, row)
+    }
 
 
 READ_ONLY_MESSAGES: dict[str, str] = {

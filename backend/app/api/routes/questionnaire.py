@@ -787,6 +787,7 @@ async def list_interviews(
     if questionnaireId:
         where["questionnaireId"] = questionnaireId
     where["mergedIntoId"] = None
+    where["deletedAt"] = None
     if statusFilter:
         where["status"] = statusFilter
     if createdBy:
@@ -1163,11 +1164,19 @@ async def set_completion_cell(
     return public_encode(record)
 
 
+async def _require_live_interview(interview_id: str, reader: Any = None) -> Any:
+    interview = await require_record(db.questionnaireinterview, interview_id)
+    gone = get_value(interview, "deletedAt") is not None or get_value(interview, "mergedIntoId") is not None
+    if gone and not (reader is not None and is_content_admin(reader)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+    return interview
+
+
 @questionnaire_router.get("/interviews/{interview_id}")
 async def get_interview(
     interview_id: str, current_user: Any = Depends(get_current_user)
 ) -> dict[str, Any]:
-    interview = await require_record(db.questionnaireinterview, interview_id)
+    interview = await _require_live_interview(interview_id, current_user)
     await hydrate_relations([interview], RELATIONS)
     return await completeness_module.attach("interview", public_encode(interview, current_user), client=db)
 
@@ -1178,7 +1187,7 @@ async def update_interview(
     payload: QuestionnaireInterviewUpdate,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    interview = await require_record(db.questionnaireinterview, interview_id)
+    interview = await _require_live_interview(interview_id)
     await redirect_merged_artisans(payload)
     data = clean_data(payload.model_dump(exclude_unset=True, exclude={"artisanIds", "responses"}))
     _standardise(apply_interview_values, data, interview)
@@ -1308,7 +1317,7 @@ async def apply_interview_transcripts(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Using transcripts as answers needs Researcher or review access.",
         )
-    interview = await require_record(db.questionnaireinterview, interview_id)
+    interview = await _require_live_interview(interview_id)
     questionnaire_id = get_value(interview, "questionnaireId")
     media_rows, responses, questions = await gather_reads(
         db.mediafile.find_many(where={"questionnaireInterviewId": interview_id, "removedAt": None}),

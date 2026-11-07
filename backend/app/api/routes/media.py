@@ -23,7 +23,7 @@ from app.questionnaire import common as v2_common
 from app.questionnaire import filters as questionnaire_filters
 from app.questionnaire import recordings as v2_recordings
 from app.questionnaire import shims_fr as v2_shims
-from app.questionnaire.live import live_media_where
+from app.questionnaire.live import live_media_where, live_session_where
 from app.questionnaire.schemas import CompleteRequest as V2CompleteRequest
 from app.questionnaire.schemas import MultipartCreateRequest as V2MultipartCreateRequest
 from app.questionnaire.schemas import PresignRequest as V2PresignRequest
@@ -406,7 +406,7 @@ async def _complete_old(payload: MediaCompleteRequest, current_user: Any) -> dic
     data = clean_data(payload.model_dump(exclude={"processingRequests"}))
     data = await attach_location(data)
     data["bucket"] = data.get("bucket") or settings.aws_s3_bucket
-    data["url"] = data.get("url") or public_url_for_key(data["objectKey"])
+    data["url"] = public_url_for_key(data["objectKey"])
     data["uploadedById"] = current_user.id
     relation_data = media_relation_data(data.get("linkedRecordType"), data.get("linkedRecordId"))
     parent: Any = None
@@ -419,12 +419,12 @@ async def _complete_old(payload: MediaCompleteRequest, current_user: Any) -> dic
     if parent is None:
         parent = await _tagged_parent(data.get("linkedRecordType"), data.get("linkedRecordId"))
 
+    inherit_parent_workshop(data, parent)
+
     check = await enforce_workshop_submission(current_user, data.get("workshopId"))
     stamp_workshop_submission(data, check=check)
     data.setdefault("status", "PENDING")
     pin_pending_if_late(data, current_user, check=check)
-
-    inherit_parent_workshop(data, parent)
 
     jsonify_metadata(data)
     try:
@@ -481,7 +481,10 @@ async def list_media(
     if uploadedBy:
         where["uploadedById"] = uploadedBy
     add_date_range(where, "createdAt", dateFrom, dateTo)
-    where = live_media_where(where)
+    where = {"AND": [live_media_where(where), {"OR": [
+        {"questionnaireInterviewId": None},
+        {"questionnaireInterview": {"is": live_session_where()}},
+    ]}]}
     total = await db.mediafile.count(where=where)
     items = await db.mediafile.find_many(
         where=where,

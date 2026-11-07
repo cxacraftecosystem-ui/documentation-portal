@@ -11,7 +11,7 @@ from app.api.routes.data_browser import (
     workshop_reaches_artisan,
 )
 from app.core.db import db
-from app.questionnaire.live import live_media_where
+from app.questionnaire.live import live_media_where, live_session_where
 from app.core.config import get_settings
 from app.services import questionnaire_library, questionnaire_readers
 from app.core.deps import can_download_dataset, get_current_user
@@ -133,7 +133,7 @@ async def dataset_manifest(
             where=rec_where, take=EXPORT_TAKE, include=_TOOL_INCLUDE, order=_EXPORT_ORDER
         ),
         db.questionnaireinterview.find_many(
-            where=rec_where, take=EXPORT_TAKE, include=_INTERVIEW_INCLUDE, order=_EXPORT_ORDER
+            where=live_session_where(rec_where), take=EXPORT_TAKE, include=_INTERVIEW_INCLUDE, order=_EXPORT_ORDER
         ),
         db.process.find_many(
             where=rec_where, take=EXPORT_TAKE, include=_PROCESS_INCLUDE, order=_EXPORT_ORDER
@@ -150,11 +150,13 @@ async def dataset_manifest(
         products = [p for p in products if _in_scope("product", p.id)]
         tools = [t for t in tools if _in_scope("tool", t.id)]
         interviews = [i for i in interviews if _in_scope("questionnaire", i.id)]
+        kept_products = {p.id for p in products}
+        processes = [p for p in processes if p.productId in kept_products]
     tool_viewer = rec_where if ownerId is None else await owned_or_granted_where(current_user)
     await hide_unseen(tools, tool_viewer)
 
     media_or: list[dict[str, Any]] = []
-    if ownerId:
+    if ownerId and scope is None:
         media_or.append({"uploadedById": ownerId})
     for fk, tags, rows in (
         ("artisanId", ["artisan"], artisans),

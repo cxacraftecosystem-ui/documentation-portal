@@ -222,7 +222,7 @@ async def build_record_wheres(
     workshop_where: dict[str, Any] = {"AND": [record_visibility]} if record_visibility else {}
     product_where: dict[str, Any] = {"AND": [record_visibility]} if record_visibility else {}
     tool_where: dict[str, Any] = {"AND": [record_visibility]} if record_visibility else {}
-    media_where: dict[str, Any] = {"AND": [media_visibility]} if media_visibility else {}
+    media_where: dict[str, Any] = {"AND": [media_visibility, {"removedAt": None}] if media_visibility else [{"removedAt": None}]}
 
     if q:
         artisan_where["OR"] = [{"name": contains(q)}, {"localName": contains(q)}, {"place": contains(q)}]

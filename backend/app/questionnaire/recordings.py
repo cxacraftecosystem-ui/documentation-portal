@@ -639,7 +639,6 @@ async def complete(payload: Any, user: Any, *, client: Any = None, provenance: s
                 'UPDATE "MediaUploadIntent" SET "closedAt" = now(), "mediaFileId" = $2 WHERE "clientClipKey" = $1',
                 payload.clientClipKey, media_id,
             )
-            await sessions.add_researcher(tx, session_id, user.id, "VOLUNTEER" if _volunteer(user) else "CONTRIBUTOR")
             await tx.execute_raw(
                 "INSERT INTO \"MediaProcessingJob\" (\"id\", \"jobType\", \"status\", \"priority\", \"mediaFileId\", \"requestedById\", \"updatedAt\") "
                 "VALUES ($1, 'SHA_VERIFY', 'QUEUED', 60, $2, $3, now())",
@@ -1045,6 +1044,8 @@ async def file_recording(recording_id: str, payload: Any, user: Any, *, client: 
         if str(dest["questionnaireId"]) != str(row.get("questionnaireId")):
             fail("MERGE_INSTRUMENT_MISMATCH", "That session is on another questionnaire.")
         target_session = str(dest["id"])
+        if target_session != row.get("sessionId") and not (is_admin(user) or str(row["recordedById"]) == str(user.id)):
+            fail("FORBIDDEN", "Moving a take to another session is for its uploader or an admin.")
     async with _owner(client).tx(max_wait=TX_MAX_WAIT, timeout=TX_TIMEOUT) as tx:
         if payload.subjects is not None:
             await _write_subjects(tx, recording_id, payload.subjects, row.get("sessionId"), user.id)
@@ -1074,8 +1075,14 @@ async def file_media(media_id: str, payload: Any, user: Any, *, client: Any = No
     session = await sessions.follow_merges(db, payload.sessionId) if payload.sessionId else None
     if session is None:
         fail("SESSION_UNKNOWN")
-    if not (is_admin(user) or str(getattr(media, "uploadedById", "")) == str(user.id) or await sessions.can_work_in(db, user, session)):
-        fail("FORBIDDEN", "Only the uploader, the session's researchers or an admin can file this.")
+    if not is_admin(user):
+        source_id = getattr(media, "questionnaireInterviewId", None)
+        source = await sessions.load_session_row(db, str(source_id)) if source_id else None
+        holds = str(getattr(media, "uploadedById", "")) == str(user.id) or (
+            source is not None and await sessions.can_work_in(db, user, source)
+        )
+        if not (holds and await sessions.can_work_in(db, user, session)):
+            fail("FORBIDDEN", "Only the uploader, the session's researchers or an admin can file this.")
     if str(enum_text(getattr(media, "mediaType", ""))) not in ("AUDIO", "VIDEO", "MediaType.AUDIO", "MediaType.VIDEO"):
         fail("VALIDATION_FAILED", "Only a recording can be filed into a session.")
     session_id = str(session["id"])
@@ -1161,9 +1168,10 @@ async def remove(recording_id: str, user: Any, *, client: Any = None) -> dict[st
 
 
 async def restore(recording_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
+    if not is_content_admin(user):
+        fail("FORBIDDEN", CONTENT_DELETE_REFUSAL)
     db = _db(client)
     row = await require_recording(db, recording_id)
-    await _assert_can_change(db, user, row)
     if row.get("removedAt"):
         await db.execute_raw('UPDATE "QuestionnaireRecording" SET "removedAt" = NULL, "removedById" = NULL WHERE "id" = $1', recording_id)
         await db.execute_raw('UPDATE "MediaFile" SET "removedAt" = NULL, "removedById" = NULL WHERE "id" = $1', str(row["mediaFileId"]))
