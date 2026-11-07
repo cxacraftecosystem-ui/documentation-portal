@@ -104,6 +104,7 @@ object ApiClient {
                 return@Interceptor response
             } catch (e: IOException) {
                 if (chain.call().isCanceled()) throw e
+                if (e is RequestBackoffException) throw e
                 lastError = e
                 if (counted) ServerReachability.recordFailure(e)
                 if (!retriable || attempt >= maxAttempts) throw e
@@ -136,6 +137,7 @@ object ApiClient {
             .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
             .addInterceptor(gatewayRetry())
+            .addInterceptor(RequestGate.shared.interceptor { tokenStore.getToken() })
             .addInterceptor(sessionInterceptor(tokenStore, BuildConfig.DEFAULT_API_BASE_URL.toHttpUrlOrNull()))
             .addInterceptor(ClientClock.interceptor())
             .addInterceptor(logging)

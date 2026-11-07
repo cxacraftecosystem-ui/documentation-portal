@@ -116,6 +116,80 @@ fun appSearchPortalLabel(portal: String): String = when (portal) {
     else -> portal
 }
 
+@Stable
+class AppSearchSession {
+    val queryState = mutableStateOf("")
+    val fullState = mutableStateOf<String?>(null)
+    val remoteState = mutableStateOf<List<AppSearchItem>>(emptyList())
+    var remoteQuery: String? = null
+    var openedResult by mutableStateOf(false)
+        private set
+    private var restoring = false
+
+    val query: String get() = queryState.value
+    val full: String? get() = fullState.value
+
+    fun markOpened() {
+        openedResult = true
+    }
+
+    fun clearOpened() {
+        openedResult = false
+    }
+
+    fun start() {
+        queryState.value = ""
+        fullState.value = null
+        remoteState.value = emptyList()
+        remoteQuery = null
+        openedResult = false
+        restoring = false
+    }
+
+    fun restore() {
+        restoring = true
+        openedResult = false
+    }
+
+    fun consumeRestore(): Boolean {
+        val was = restoring
+        restoring = false
+        return was
+    }
+}
+
+@Stable
+class AppSearchReturn<S : Any> {
+    var origin by mutableStateOf<S?>(null)
+        private set
+    var target by mutableStateOf<S?>(null)
+        private set
+
+    fun begin(current: S) {
+        origin = current
+        target = null
+    }
+
+    fun observe(current: S, session: AppSearchSession) {
+        val from = origin ?: return
+        if (session.openedResult && current != from) {
+            target = current
+            session.clearOpened()
+        } else if (current == from) {
+            target = null
+        }
+    }
+
+    fun backTo(current: S): S? {
+        val from = origin ?: return null
+        return if (target != null && current == target) from else null
+    }
+
+    fun returned() {
+        target = null
+    }
+}
+
 class AppSearchSection(val group: AppSearchGroup, val items: List<AppSearchItem>, val total: Int)
 
 const val APP_SEARCH_MIN_REMOTE_CHARS = 2
@@ -385,13 +459,14 @@ fun AppSearchPanel(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
     onError: (String) -> Unit = {},
-    fullSearch: (@Composable (query: String, onBack: () -> Unit) -> Unit)? = null
+    fullSearch: (@Composable (query: String, onBack: () -> Unit) -> Unit)? = null,
+    session: AppSearchSession = remember { AppSearchSession() }
 ) {
     val context = LocalContext.current
     val store = remember(context) { AppSearchRecentStore(context) }
     var recents by remember { mutableStateOf(store.read()) }
-    var query by remember { mutableStateOf("") }
-    var remote by remember { mutableStateOf<List<AppSearchItem>>(emptyList()) }
+    var query by session.queryState
+    var remote by session.remoteState
     var loading by remember { mutableStateOf(false) }
     var offline by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
@@ -402,15 +477,21 @@ fun AppSearchPanel(
         store.write(recents)
     }
 
-    var full by remember { mutableStateOf<String?>(null) }
+    var full by session.fullState
     BackHandler(onBack = onClose)
     BackHandler(enabled = full != null) { full = null }
     LaunchedEffect(Unit) {
-        focus.requestFocus()
-        keyboard?.show()
+        if (session.consumeRestore()) {
+            keyboard?.hide()
+        } else {
+            focus.requestFocus()
+            keyboard?.show()
+        }
     }
     LaunchedEffect(query) {
         val q = query.trim()
+        if (session.remoteQuery == q && q.isNotEmpty()) return@LaunchedEffect
+        session.remoteQuery = null
         if (q.length < APP_SEARCH_MIN_REMOTE_CHARS) {
             remote = emptyList()
             loading = false
@@ -420,6 +501,7 @@ fun AppSearchPanel(
         loading = true
         try {
             remote = remoteSearch(q)
+            session.remoteQuery = q
             offline = false
         } catch (e: CancellationException) {
             throw e
@@ -580,6 +662,8 @@ fun AppSearchPanel(
                         item(key = "r-${section.group.name}-${result.key}") {
                             AppSearchRow(result) {
                                 saveRecent(query)
+                                keyboard?.hide()
+                                session.markOpened()
                                 onClose()
                                 result.onOpen()
                             }

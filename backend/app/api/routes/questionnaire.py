@@ -1054,6 +1054,22 @@ async def _derived_completed_sections(
     return completed
 
 
+async def _completion_instrument(
+    questionnaire_id: str | None, resolved_workshops: tuple[list[str], bool] | None
+) -> Any:
+    if questionnaire_id:
+        return await require_questionnaire(questionnaire_id)
+    ids = resolved_workshops[0] if resolved_workshops is not None else []
+    if len(ids) == 1:
+        workshop = await db.workshop.find_unique(where={"id": ids[0]})
+        bound = getattr(workshop, "questionnaireId", None) if workshop is not None else None
+        if bound:
+            row = await db.questionnaire.find_unique(where={"id": bound})
+            if row is not None:
+                return row
+    return await require_questionnaire(await default_questionnaire_id())
+
+
 @questionnaire_router.get("/completion")
 async def completion_matrix(
     artisanId: str | None = None,
@@ -1061,14 +1077,12 @@ async def completion_matrix(
     workshopIds: list[str] | None = Query(None),
     _: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    instrument = await require_questionnaire(
-        questionnaireId if questionnaireId else await default_questionnaire_id()
-    )
+    resolved_workshops = resolve_workshop_ids(workshopIds)
+    instrument = await _completion_instrument(questionnaireId, resolved_workshops)
     questionnaire_id = instrument.id
     status_where = {"artisanId": artisanId} if artisanId else {}
     artisan_where: dict[str, Any] = {"id": artisanId} if artisanId else {}
 
-    resolved_workshops = resolve_workshop_ids(workshopIds)
     if resolved_workshops is not None:
         artisan_where.setdefault("AND", []).append(
             artisan_workshop_clause(*resolved_workshops)
