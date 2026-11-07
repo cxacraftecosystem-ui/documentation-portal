@@ -41,6 +41,9 @@ def _sse_params() -> dict[str, str]:
     return {"ServerSideEncryption": algorithm} if algorithm else {}
 
 
+_CLIENT_LOCK = threading.Lock()
+
+
 @lru_cache(maxsize=4)
 def _build_client(
     region: str | None,
@@ -73,13 +76,14 @@ def _client():
         endpoint = f"https://s3.dualstack.{settings.aws_region}.amazonaws.com"
         addressing_style = "virtual"
     _warn_if_insecure_endpoint(endpoint)
-    return _build_client(
-        settings.aws_region,
-        endpoint,
-        settings.aws_access_key_id,
-        settings.aws_secret_access_key,
-        addressing_style,
-    )
+    with _CLIENT_LOCK:
+        return _build_client(
+            settings.aws_region,
+            endpoint,
+            settings.aws_access_key_id,
+            settings.aws_secret_access_key,
+            addressing_style,
+        )
 
 
 def safe_filename(filename: str) -> str:
