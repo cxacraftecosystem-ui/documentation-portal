@@ -15,8 +15,13 @@ def _rows(text: str) -> list[list[str]]:
     return list(csv.reader(io.StringIO(text.lstrip("\ufeff"))))
 
 
+class _Record(SimpleNamespace):
+    def __getattr__(self, name: str) -> None:
+        return None
+
+
 def test_record_csv_export_neutralises_a_formula_in_a_creator_field() -> None:
-    record = SimpleNamespace(id="p1", productName=PAYLOAD, media=[])
+    record = _Record(id="p1", productName=PAYLOAD, media=[])
     rows = _rows(csv_export.records_to_csv("product", [record]))
     cells = rows[1]
     assert not any(cell.startswith(("=", "@")) for cell in cells)

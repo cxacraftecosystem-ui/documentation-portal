@@ -64,10 +64,10 @@ test.describe("Questionnaire offline queue is bound to the account that queued i
 
   test("a step for a session another account queued is refused, not merged into it", async () => {
     const store = memoryQueueStore();
-    await queued(store, "ck-a", "designer-a");
+    const before = (await queued(store, "ck-a", "designer-a"))?.steps.length;
     const mine = owners.stampOwner(unitFor("ck-a"), "designer-b");
     await expect(enqueueStep(store, mine, answers("b"))).rejects.toThrow(/another account/i);
-    expect((await store.get("ck-a"))?.steps).toHaveLength(1);
+    expect((await store.get("ck-a"))?.steps).toHaveLength(before ?? -1);
   });
 
   test("the drain, the list and every enqueue go through the owner", () => {
