@@ -30,7 +30,7 @@ class ScreenRestoreTest {
         assertEquals("home", restoredScreenToken("garbage"))
         assertEquals("home", restoredScreenToken(packScreenTokens(listOf("view", "NOT_A_MODE", "x"))))
         assertEquals("home", restoredScreenToken(packScreenTokens(listOf("object", "Nowhere"))))
-        assertEquals("data", restoredScreenToken("data"))
+        assertEquals(packScreenTokens(listOf("object", "DataBrowser")), restoredScreenToken("data"))
     }
 
     @Test
