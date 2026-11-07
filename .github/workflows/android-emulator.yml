@@ -123,7 +123,7 @@ jobs:
           disable-animations: true
           working-directory: android
           script: |
-            ./gradlew :app:connectedDebugAndroidTest --console=plain -Pandroid.testInstrumentationRunnerArguments.class=com.fieldrepository.app.TopBarScanDeviceTest,com.fieldrepository.app.TopBarScanRealLookupDeviceTest
+            ./gradlew :app:connectedDebugAndroidTest --console=plain -Pandroid.testInstrumentationRunnerArguments.class=com.fieldrepository.app.TopBarScanDeviceTest,com.fieldrepository.app.TopBarScanRealLookupDeviceTest,com.fieldrepository.app.DataMessageActivityTest,com.fieldrepository.app.explorer.ExplorerRealRetrofitTest
             python3 scripts/emulator-smoke.py
             mkdir -p "$SMOKE_OUT"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t "$RUNNER_TEMP/app-debug.apk"
