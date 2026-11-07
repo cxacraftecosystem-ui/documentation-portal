@@ -3,6 +3,7 @@ import logging
 import os
 import threading
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import PurePath
 from typing import Any
 from urllib.parse import urlsplit
@@ -40,24 +41,44 @@ def _sse_params() -> dict[str, str]:
     return {"ServerSideEncryption": algorithm} if algorithm else {}
 
 
-def _client():
-    settings = get_settings()
-    endpoint = settings.aws_s3_endpoint
-    s3_config: dict = {}
-    if not endpoint and settings.aws_region:
-        endpoint = f"https://s3.dualstack.{settings.aws_region}.amazonaws.com"
-        s3_config = {"addressing_style": "virtual"}
-    _warn_if_insecure_endpoint(endpoint)
+@lru_cache(maxsize=4)
+def _build_client(
+    region: str | None,
+    endpoint: str | None,
+    access_key: str | None,
+    secret_key: str | None,
+    addressing_style: str | None,
+):
     import boto3
     from botocore.client import Config
 
     return boto3.client(
         "s3",
-        region_name=settings.aws_region,
+        region_name=region,
         endpoint_url=endpoint,
-        aws_access_key_id=settings.aws_access_key_id,
-        aws_secret_access_key=settings.aws_secret_access_key,
-        config=Config(signature_version="s3v4", s3=s3_config),
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        config=Config(
+            signature_version="s3v4",
+            s3={} if addressing_style is None else {"addressing_style": addressing_style},
+        ),
+    )
+
+
+def _client():
+    settings = get_settings()
+    endpoint = settings.aws_s3_endpoint
+    addressing_style: str | None = None
+    if not endpoint and settings.aws_region:
+        endpoint = f"https://s3.dualstack.{settings.aws_region}.amazonaws.com"
+        addressing_style = "virtual"
+    _warn_if_insecure_endpoint(endpoint)
+    return _build_client(
+        settings.aws_region,
+        endpoint,
+        settings.aws_access_key_id,
+        settings.aws_secret_access_key,
+        addressing_style,
     )
 
 
