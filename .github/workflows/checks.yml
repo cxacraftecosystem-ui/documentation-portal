@@ -951,7 +951,7 @@ jobs:
           pip install -e . --no-deps
 
       - name: Generate the Prisma client
-        run: python scripts/generate_prisma_client.py --schema prisma/schema.prisma
+        run: python -m prisma generate --schema prisma/schema.prisma
 
       - name: Install LibreOffice and Devanagari fonts
         run: |
