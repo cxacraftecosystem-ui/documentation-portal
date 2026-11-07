@@ -63,6 +63,26 @@ How to add a check, the same in both repositories:
 - Environment: `GATE_API`, `GATE_WEB`, `GATE_PORTAL`, `GATE_SHA`, `GATE_OUT`, `GATE_EMAIL` and `GATE_PASSWORD`. The account comes from `RELEASE_GATE_EMAIL` and `RELEASE_GATE_PASSWORD`, falling back to the publishing account.
 - The harness files are byte-identical in both repositories, and Checks compares them. The checks under `checks/` and `release-gate/` may differ per portal.
 
+## Private media storage (DR 0.0.17, FR 0.0.17)
+
+The media bucket stops serving `media/*` to anyone holding a URL. Every reader now gets a signed URL from the API: 15 minutes for record payloads (`MEDIA_PRESIGNED_READS`, now on by default), 6 hours for the dataset export manifest and the Android update download, and the authenticated `/api/data/media/{id}/download` route for the data tree, its manifests and the report and CSV link cells. Uploads are bounded too: the presigned PUT signs its `Content-Length`, a declared size over `MEDIA_UPLOAD_MAX_BYTES` (1 GiB) is refused, a finished multipart object over it is deleted, presign-parts takes at most the parts that limit allows, and XML and SVG documents are refused.
+
+Order matters. The server must stop handing out permanent URLs before the bucket stops honouring them, and nothing may be applied before both clients are published.
+
+| | Designer Repository | Field Repository |
+|---|---|---|
+| Bucket | `designrepo-media-626159998512` | `fieldrepo-media-626159998512` |
+| Terraform | `designer-portal/infra/terraform` | `documentation-portal/infra/terraform` |
+
+1. **Check the environment.** In the `BACKEND_ENV` secret and the box `.env`, `MEDIA_PRESIGNED_READS` must be absent or `true`. Check the key name only, never print the value. A `false` there keeps permanent URLs and the next step would break every image.
+2. **Deploy the backend and publish both clients** in the usual release order. Nothing changes for users yet, because the bucket still answers the old URLs.
+3. **Verify signed reads.** As an entitled account, `GET /api/media?pageSize=1`: `url` carries `X-Amz-Signature` and `X-Amz-Expires=900`. `GET /api/app/release/latest`: `url` is signed. `GET /api/data/tree` for a folder with files: each file's `url` is `/api/data/media/{id}/download`. Open a photo, play a recording and download a folder zip on web and on a phone.
+4. **Plan, per portal**, from its terraform directory, with an operator's own credentials: `terraform init`, then `terraform plan -out media-private.tfplan`. The plan must show exactly: the `moved` rename of `aws_s3_bucket_policy.media_public_read` to `aws_s3_bucket_policy.media`, an in-place update of `aws_s3_bucket_public_access_block.media` (`block_public_policy` and `restrict_public_buckets` to `true`), an in-place update of the bucket policy that drops the `PublicReadMedia` statement, and an in-place update of `aws_s3_bucket_lifecycle_configuration.media` that adds `abort-abandoned-media-uploads`. Do not apply a plan that replaces or destroys anything.
+5. **Apply** the saved plan: `terraform apply media-private.tfplan`. The public access block is applied before the policy (`depends_on`), so `media/*` is private from the first change.
+6. **Verify the closure.** Fetch a permanent URL captured before step 2 anonymously: **403**. Then repeat step 3. Thumbnails, previews, recordings, the Android update and the dataset export must all still load.
+
+**Rollback.** The fastest is the bucket: re-add the `PublicReadMedia` statement and set the two public access settings back to `false` in a reverted plan, which restores every permanent URL in seconds. `MEDIA_PRESIGNED_READS=false` only helps while the bucket is still public; after step 5 it breaks images, so never set it on its own.
+
 ## Video, the upload choice and the backfill switch (DR 0.0.10, FR 0.0.10)
 
 No data step runs on deploy. The migration adds the per-file choice columns and the three admin
@@ -107,4 +127,5 @@ Release note (Designer Repository): stage 1 now requires a craft from the list. 
 | The translation sweep's counts, dry run and idempotence | `test_transcript_db.py` |
 | The migration name and what it seeds | `test_craft_master_migration.py` |
 | The backfill's estimate, batch size and budget stop | `backend/scripts/backfill_transcripts.py` and its tests; the switch's 409 without `confirmBackfill` |
+| The private-media order, the signed readers and the terraform shape | `test_media_storage_private.py` |
 | The release table | the `Cut 0.0.x` commits, the `v0.0.x` tags and `appVersionCode` in each portal's `android/app/build.gradle.kts` |

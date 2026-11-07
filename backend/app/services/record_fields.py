@@ -416,12 +416,20 @@ def provenance_row(record: Any) -> list[str]:
     ]
 
 
+def media_download_link(media_id: Any) -> str:
+    from urllib.parse import quote
+
+    from app.services.datareport import portal
+
+    return f"{portal.web_base()}/data/go/media/{quote(str(media_id), safe='')}/download"
+
+
 def media_row(media: Iterable[Any]) -> list[str]:
     items = list(media or [])
     if not items:
         return ["0", "", ""]
     names = [cell(getattr(m, "originalFilename", None)) or cell(m.id) for m in items]
-    urls = [cell(getattr(m, "url", None)) for m in items]
+    urls = [media_download_link(m.id) for m in items if getattr(m, "id", None)]
     return [str(len(items)), " | ".join(n for n in names if n), " | ".join(u for u in urls if u)]
 
 

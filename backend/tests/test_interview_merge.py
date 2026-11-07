@@ -385,7 +385,8 @@ def test_a_saved_interview_comes_back_with_playable_recordings(db: _Db) -> None:
 
     assert response.status_code == 200, response.text
     clip = next(node for node in response.json()["media"] if node["id"] == "m-d-1")
-    assert clip["url"] == "https://cdn.example.test/uploads/m-d-1.m4a"
+    assert "X-Amz-Signature=" in clip["url"]
+    assert clip["url"] != "https://cdn.example.test/uploads/m-d-1.m4a"
 
 
 def test_the_surviving_interview_from_a_merge_is_playable_too(db: _Db) -> None:

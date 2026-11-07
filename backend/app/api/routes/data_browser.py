@@ -59,6 +59,7 @@ from app.services.record_fields import (
     TRANSCRIPT_COLOR,
     artisan_names,
     info_panel,
+    media_download_link,
     media_row,
     provenance_row,
     sheet_columns,
@@ -400,7 +401,7 @@ def _media_entries(
                 "originalFilename": m.originalFilename,
                 "mediaType": str(_ev(m.mediaType)),
                 "mediaId": m.id,
-                "url": m.url,
+                "url": f"/api/data/media/{m.id}/download",
                 "sizeBytes": int(m.sizeBytes) if m.sizeBytes is not None else None,
                 "transcriptAvailable": slim.has_transcript(m),
                 "_transcriptText": getattr(m, "transcriptText", None),
@@ -2231,7 +2232,7 @@ def _media_facts(m: Any) -> dict[str, str]:
         "uploadedOn": _cell(_date(m.createdAt)),
         "recordedOn": _cell(_date(m.recordedAt or m.createdAt)),
         "transcript": "Yes" if transcript_export.has_text(m) else "",
-        "url": _cell(m.url),
+        "url": media_download_link(m.id),
     }
 
 

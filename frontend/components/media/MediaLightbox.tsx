@@ -4,6 +4,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Download, ExternalLink, FileText, Headphones, Image as ImageIcon, Loader2, Maximize2, Video, X } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
 
+import { useMediaUrl } from "@/components/hooks/useMediaUrl";
 import { Markdown } from "@/components/Markdown";
 import { DownloadMediaButton } from "@/components/media/DownloadMediaButton";
 import { TranscriptInsights } from "@/components/media/TranscriptInsights";
@@ -84,7 +85,7 @@ function iconForType(type: MediaType) {
 }
 
 export function MediaPreviewTile({
-  item,
+  item: given,
   onOpen,
   action,
   onRemove,
@@ -106,6 +107,8 @@ export function MediaPreviewTile({
   onRetry?: () => void;
   downloadFile?: Blob | null;
 }) {
+  const { src } = useMediaUrl(given);
+  const item = { ...given, url: src ?? given.url };
   const kind = resolvePreviewKind(item);
   const percent = progress === null ? null : Math.round(Math.min(1, Math.max(0, progress)) * 100);
   return (
@@ -181,7 +184,9 @@ export function MediaPreviewTile({
   );
 }
 
-export function MediaLightbox({ item, onClose }: { item: PreviewMedia; onClose: () => void }) {
+export function MediaLightbox({ item: given, onClose }: { item: PreviewMedia; onClose: () => void }) {
+  const { src } = useMediaUrl(given);
+  const item = { ...given, url: src ?? given.url };
   const downOnBackdrop = useRef(false);
   const kind = resolvePreviewKind(item);
 

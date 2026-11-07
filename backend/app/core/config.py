@@ -83,6 +83,9 @@ class Settings(BaseSettings):
     aws_s3_bucket: str = Field(alias="AWS_S3_BUCKET")
     aws_s3_endpoint: str | None = Field(default=None, alias="AWS_S3_ENDPOINT")
     aws_s3_public_base_url: str | None = Field(default=None, alias="AWS_S3_PUBLIC_BASE_URL")
+    media_presigned_reads: bool = Field(default=True, alias="MEDIA_PRESIGNED_READS")
+    media_presigned_read_ttl_seconds: int = Field(default=900, alias="MEDIA_PRESIGNED_READ_TTL_SECONDS")
+    media_upload_max_bytes: int = Field(default=1_073_741_824, alias="MEDIA_UPLOAD_MAX_BYTES")
     aws_s3_sse_algorithm: str = Field(default="AES256", alias="AWS_S3_SSE_ALGORITHM")
 
     mail_from_address: str | None = Field(default=None, alias="MAIL_FROM_ADDRESS")

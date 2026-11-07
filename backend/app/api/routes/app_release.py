@@ -29,6 +29,25 @@ def _durable_url(release: Any) -> str | None:
     return (public_url_for_key(key) if key else None) or getattr(release, "url", None)
 
 
+RELEASE_URL_TTL_SECONDS = 6 * 3600
+
+
+def _signed_release_url(release: Any) -> str | None:
+    key = getattr(release, "objectKey", None)
+    if not key:
+        return getattr(release, "url", None)
+    try:
+        return presign_get_url(
+            key,
+            filename=_download_filename(release),
+            mime_type=APK_MEDIA_TYPE,
+            expires_in=RELEASE_URL_TTL_SECONDS,
+        )
+    except Exception:
+        logger.exception("Could not sign the release URL for %s", getattr(release, "id", "?"))
+        return None
+
+
 def _download_filename(release: Any) -> str:
     version = str(getattr(release, "versionName", "") or getattr(release, "versionCode", "") or "latest")
     return naming.export_filename(
@@ -61,9 +80,7 @@ async def latest_release(_: Any = Depends(get_current_user)) -> dict[str, Any]:
     if not release:
         return {}
     data = jsonable_encoder(release)
-    url = _durable_url(release)
-    if url:
-        data["url"] = url
+    data["url"] = _signed_release_url(release)
     return data
 
 
