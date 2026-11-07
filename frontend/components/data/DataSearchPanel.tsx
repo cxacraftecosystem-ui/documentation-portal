@@ -2,6 +2,7 @@
 
 import { Loader2, MoreVertical, Search, X } from "lucide-react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import type { PreviewTarget, SearchAsk } from "@/components/dataExplorer/DataExplorer";
@@ -24,7 +25,7 @@ import {
   type UnifiedType
 } from "@/lib/unifiedSearch";
 import { OpenableBlock } from "@/components/records/OpenableRow";
-import { activeFilters, ALL_LIMIT, clock, EMPTY_STATE, flattenGroups, hasMore, LEGACY_PAGE, legacyRows, legacyTotals, mergeRows, moreLabel, portalCounts, rangeBounds, rowKey, sections, showAllLabel, TYPE_LIMIT, unifiedTotals, type DateRange, type GroupTotal, type LegacyResult, type Row, type Scope, type SearchState } from "@/lib/dataSearch";
+import { activeFilters, ALL_LIMIT, clock, EMPTY_STATE, flattenGroups, hasMore, LEGACY_PAGE, legacyRows, legacyTotals, mergeRows, moreLabel, portalCounts, rangeBounds, rowKey, sameSearch, searchFromParams, searchToParams, sections, showAllLabel, TYPE_LIMIT, unifiedTotals, type DateRange, type GroupTotal, type LegacyResult, type Row, type Scope, type SearchState } from "@/lib/dataSearch";
 import { workshopDisplayTitle } from "@/lib/workshopTitle";
 
 export const PAGE_STEP = TYPE_LIMIT;
@@ -225,9 +226,14 @@ function suggestionCount(total: number | undefined): string {
 }
 
 export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal: (path: string) => void; onPreview: (target: PreviewTarget) => void; ask?: SearchAsk | null }) {
-  const [draft, setDraft] = useState("");
-  const [state, setState] = useState<SearchState>(EMPTY_STATE);
-  const [focus, setFocus] = useState<UnifiedType | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const [fromUrl] = useState(() => searchFromParams(params));
+  const [draft, setDraft] = useState(fromUrl.state.q);
+  const [state, setState] = useState<SearchState>(fromUrl.state);
+  const [focus, setFocus] = useState<UnifiedType | null>(fromUrl.focus);
+  const lastSearch = useRef(searchToParams(fromUrl.state, fromUrl.focus, ""));
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [loading, setLoading] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -266,6 +272,25 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
     const timer = window.setTimeout(() => setState((previous) => (previous.q === draft ? previous : { ...previous, q: draft })), 300);
     return () => window.clearTimeout(timer);
   }, [draft]);
+
+  useEffect(() => {
+    lastSearch.current = searchToParams(state, focus, "");
+    const current = window.location.search.replace(/^\?/, "");
+    const next = searchToParams(state, focus, current);
+    if (next === current) return;
+    router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
+  }, [state, focus, pathname, router]);
+
+  const paramsText = params.toString();
+  useEffect(() => {
+    const wanted = searchFromParams(new URLSearchParams(paramsText));
+    const key = searchToParams(wanted.state, wanted.focus, "");
+    if (key === lastSearch.current) return;
+    lastSearch.current = key;
+    setState((previous) => (sameSearch({ state: previous, focus: null }, { state: wanted.state, focus: null }) ? previous : wanted.state));
+    setFocus((previous) => (previous === wanted.focus ? previous : wanted.focus));
+    setDraft((previous) => (previous.trim() === wanted.state.q.trim() ? previous : wanted.state.q));
+  }, [paramsText]);
 
   const q = state.q.trim();
   const types = useMemo(() => (state.transcriptOnly ? (["transcripts"] as UnifiedType[]) : state.types), [state.transcriptOnly, state.types]);
@@ -403,10 +428,16 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
               onChange={(event) => setDraft(event.target.value)}
               placeholder={PLACEHOLDER[band]}
               aria-label="Search all data"
-              className={`field-input min-h-12 pl-10 text-[15px] max-sm:pr-[5.5rem] sm:pr-10 ${bothOnPhone ? "max-sm:min-h-[52px] max-sm:rounded-[14px] max-sm:border-[#9148d2]" : ""}`}
+              className={`field-input min-h-12 pl-10 text-[15px] max-sm:pr-[5.5rem] sm:pr-10 [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none ${bothOnPhone ? "max-sm:min-h-[52px] max-sm:rounded-[14px] max-sm:border-[#9148d2]" : ""}`}
             />
             {draft ? (
-              <button type="button" aria-label="Clear search" className="absolute right-2 grid h-8 w-8 place-items-center rounded-full bg-surface-50 text-ink-900 hover:bg-purple-50 max-sm:right-12 dark:hover:bg-purple-950/40" onClick={() => setDraft("")}>
+              <button type="button" aria-label="Clear search" className="absolute right-2 grid h-8 w-8 place-items-center rounded-full bg-surface-50 text-ink-900 hover:bg-purple-50 max-sm:right-12 dark:hover:bg-purple-950/40"
+                onClick={() => {
+                  setDraft("");
+                  setState((previous) => ({ ...previous, q: "" }));
+                  inputRef.current?.focus();
+                }}
+              >
                 <X className="h-4 w-4" aria-hidden />
               </button>
             ) : (

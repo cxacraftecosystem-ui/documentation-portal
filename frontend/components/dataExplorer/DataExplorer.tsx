@@ -2,7 +2,7 @@
 
 import { Bookmark, Database, Download, LayoutGrid, List } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { BrowseByType, type BrowseType } from "@/components/dataExplorer/BrowseByType";
 import { CommandPalette, ShortcutsSheet, useExplorerShortcuts } from "@/components/dataExplorer/CommandPalette";
@@ -29,7 +29,7 @@ import { ActionGroup } from "@/components/ui/ActionGroup";
 import type { JobSource } from "@/lib/dataExplorer/protocol";
 import { EMPTY_SELECTION, selectionLabel, selectionSource, toggled, withAll, type Selection } from "@/lib/dataExplorer/selection";
 import { ancestorsOf, readUrlState, recallScroll, rememberScroll, writeUrlState, type ExplorerUrlState, type ExplorerView } from "@/lib/dataExplorer/urlState";
-import { mergeNavigation } from "@/lib/dataExplorer/explorerView";
+import { clampTreeWidth, mergeNavigation, readTreeWidth, TREE_WIDTH, TREE_WIDTH_KEY, treeWidthBounds, treeWidthForKey, type WidthBounds } from "@/lib/dataExplorer/explorerView";
 import type { QueryParams } from "@/lib/dataExplorer/wire";
 import { exportFilename } from "@/lib/naming";
 
@@ -135,7 +135,7 @@ function ViewTabs({ view, counts, onView, trailing }: { view: ExplorerView; coun
     document.getElementById(`${id}-${VIEW_TABS[target].value}`)?.focus();
   };
   return (
-    <div className="flex items-end gap-1 border-line-200 px-3 pt-2 max-sm:p-0 sm:border-b">
+    <div className="flex items-end gap-1 border-line-200 px-3 pt-2 max-sm:flex-wrap max-sm:gap-2 max-sm:p-0 sm:border-b">
       <div role="tablist" aria-label="Contents" className="flex gap-1 max-sm:w-full max-sm:rounded-md max-sm:border max-sm:border-line-200 max-sm:bg-card max-sm:p-[3px]">
         {VIEW_TABS.map((tab) => {
           const selected = view === tab.value;
@@ -164,12 +164,92 @@ function ViewTabs({ view, counts, onView, trailing }: { view: ExplorerView; coun
         })}
       </div>
       <span className="flex-1 max-sm:hidden" />
-      {trailing ? <div className="flex items-center gap-1.5 pb-1.5 max-lg:hidden">{trailing}</div> : null}
+      {trailing ? <div className="flex items-center gap-1.5 pb-1.5 max-sm:w-full max-sm:justify-end max-sm:pb-0">{trailing}</div> : null}
     </div>
   );
 }
 
 export type SearchAsk = { q: string; nonce: number };
+
+function readStoredWidth(): number | null {
+  try {
+    return readTreeWidth(window.localStorage.getItem(TREE_WIDTH_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function storeWidth(width: number): void {
+  try {
+    window.localStorage.setItem(TREE_WIDTH_KEY, String(width));
+  } catch {
+    return;
+  }
+}
+
+function PanelDivider({ width, bounds, controls, onWidth, onCommit }: { width: number; bounds: WidthBounds; controls: string; onWidth: (width: number) => void; onCommit: (width: number) => void }) {
+  const drag = useRef<{ pointer: number; startX: number; startWidth: number; width: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drag.current = { pointer: event.pointerId, startX: event.clientX, startWidth: width, width };
+    setDragging(true);
+  };
+  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const active = drag.current;
+    if (!active || active.pointer !== event.pointerId) return;
+    const next = clampTreeWidth(active.startWidth + event.clientX - active.startX, bounds);
+    if (next === active.width) return;
+    active.width = next;
+    onWidth(next);
+  };
+  const finish = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const active = drag.current;
+    if (!active || active.pointer !== event.pointerId) return;
+    drag.current = null;
+    setDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    onCommit(active.width);
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const next = treeWidthForKey(event.key, width, bounds, event.shiftKey);
+    if (next === null) return;
+    event.preventDefault();
+    onWidth(next);
+    onCommit(next);
+  };
+  return (
+    <div
+      role="separator"
+      tabIndex={0}
+      aria-orientation="vertical"
+      aria-label="Resize folders panel"
+      aria-controls={controls}
+      aria-valuemin={bounds.min}
+      aria-valuemax={bounds.max}
+      aria-valuenow={width}
+      aria-valuetext={`${width} pixels`}
+      data-testid="explorer-tree-divider"
+      data-dragging={dragging || undefined}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={finish}
+      onPointerCancel={finish}
+      onKeyDown={onKeyDown}
+      onDoubleClick={() => {
+        const reset = clampTreeWidth(TREE_WIDTH.initial, bounds);
+        onWidth(reset);
+        onCommit(reset);
+      }}
+      style={{ left: `calc(${width}px + 0.5rem - 8px)` }}
+      className="group absolute inset-y-0 z-10 hidden w-4 cursor-col-resize touch-none justify-center rounded-full lg:flex"
+    >
+      <span aria-hidden className={`my-2 w-0.5 rounded-full transition-colors ${dragging ? "bg-purple-700 dark:bg-purple-300" : "bg-transparent group-hover:bg-purple-300 group-focus-visible:bg-purple-700 dark:group-focus-visible:bg-purple-300"}`} />
+    </div>
+  );
+}
 
 function SearchSlot({ render, reveal, openPreview, ask }: { render: ExplorerConfig["renderSearch"]; reveal: (path: string) => void; openPreview: (target: PreviewTarget) => void; ask: SearchAsk | null }) {
   return <>{render(reveal, openPreview, ask)}</>;
@@ -207,6 +287,12 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const latest = useRef(url);
   const visited = useRef(new Set<string>());
   const dismissedPreview = useRef<string | null>(null);
+  const pushedPreview = useRef(false);
+  const fetchedTables = useRef(new Set<string>());
+  const panelId = useId();
+  const columnsRef = useRef<HTMLDivElement | null>(null);
+  const [treeWidth, setTreeWidth] = useState<number>(TREE_WIDTH.initial);
+  const [widthBounds, setWidthBounds] = useState<WidthBounds>(() => treeWidthBounds(null));
 
   useEffect(() => {
     latest.current = url;
@@ -248,6 +334,24 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   useEffect(() => {
     expand(ancestorsOf(url.path));
   }, [url.path, expand]);
+
+  useEffect(() => {
+    const stored = readStoredWidth();
+    if (stored !== null) setTreeWidth(stored);
+  }, []);
+
+  useEffect(() => {
+    const node = columnsRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const bounds = treeWidthBounds(node.clientWidth);
+      setWidthBounds((previous) => (previous.min === bounds.min && previous.max === bounds.max ? previous : bounds));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (landed.current) return;
@@ -307,7 +411,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
     fetchSavedView(viewId)
       .then((view) => {
         if (cancelled) return;
-        tree.expand(ancestorsOf(view.path));
+        expand(ancestorsOf(view.path));
         navigate({ path: view.path, view: view.state.view, sheet: view.state.sheet, q: view.state.q }, "replace");
       })
       .catch(() => {
@@ -316,7 +420,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
     return () => {
       cancelled = true;
     };
-  }, [viewId, navigate, tree]);
+  }, [viewId, navigate, expand]);
 
   const current = trees[url.path];
   useEffect(() => {
@@ -352,17 +456,22 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   }, [url.path]);
 
   const extraText = JSON.stringify(config.extra);
+  const tablesOpen = url.view === "tables";
   useEffect(() => {
-    if (!url.path) return;
-    const abort = new AbortController();
+    if (!url.path || !tablesOpen) return;
     const path = url.path;
+    const key = JSON.stringify([path, extraText]);
+    if (fetchedTables.current.has(key)) return;
+    const abort = new AbortController();
     fetchReportSheets(path, JSON.parse(extraText) as QueryParams, abort.signal)
       .then((list) => {
-        if (!abort.signal.aborted && list) setTableCount({ path, count: list.sheets.filter((sheet) => (sheet.count ?? 0) > 0).length });
+        if (abort.signal.aborted || !list) return;
+        fetchedTables.current.add(key);
+        setTableCount({ path, count: list.sheets.filter((sheet) => (sheet.count ?? 0) > 0).length });
       })
       .catch(() => undefined);
     return () => abort.abort();
-  }, [url.path, extraText]);
+  }, [url.path, extraText, tablesOpen]);
 
   const crumbs = useMemo<Crumb[]>(() => {
     const fromServer = current?.crumbs ?? [];
@@ -449,8 +558,10 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
     (target: { mediaId: string; name: string; mediaType: string | null; startMs?: number | null; find?: string }) => {
       const known = files.find((entry) => entry.mediaId === target.mediaId);
       dismissedPreview.current = null;
+      const already = Boolean(latest.current.preview);
+      if (!already) pushedPreview.current = true;
       setPreviewEntry(known ?? { name: target.name, path: `media:${target.mediaId}`, kind: "file", mediaId: target.mediaId, mediaType: target.mediaType ?? undefined });
-      navigate({ preview: target.mediaId, t: target.startMs ? Math.round(target.startMs / 1000) : 0, find: target.find ?? "", kind: target.mediaType ?? "" });
+      navigate({ preview: target.mediaId, t: target.startMs ? Math.round(target.startMs / 1000) : 0, find: target.find ?? "", kind: target.mediaType ?? "" }, already ? "replace" : "push");
     },
     [files, navigate]
   );
@@ -458,6 +569,10 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   useEffect(() => {
     if (!url.preview) {
       dismissedPreview.current = null;
+      if (!latest.current.preview) {
+        pushedPreview.current = false;
+        setPreviewEntry(null);
+      }
       return;
     }
     if (url.preview === dismissedPreview.current || (previewEntry && previewEntry.mediaId === url.preview)) return;
@@ -470,8 +585,24 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const closePreview = useCallback(() => {
     dismissedPreview.current = latest.current.preview || dismissedPreview.current;
     setPreviewEntry(null);
+    if (pushedPreview.current && latest.current.preview && typeof window !== "undefined") {
+      pushedPreview.current = false;
+      latest.current = mergeNavigation(latest.current, { preview: "", t: 0, find: "", kind: "" });
+      router.back();
+      return;
+    }
+    pushedPreview.current = false;
     navigate({ preview: "", t: 0, find: "", kind: "" });
-  }, [navigate]);
+  }, [navigate, router]);
+
+  const showView = useCallback(
+    (view: ExplorerView) => {
+      if (view !== latest.current.view) navigate({ view }, "push");
+    },
+    [navigate]
+  );
+
+  const commitWidth = useCallback((width: number) => storeWidth(width), []);
 
   const onToggle = useCallback((entry: TreeEntry) => setSelection((previous) => toggled(previous, entry)), []);
   const onSelectAll = useCallback((entries: TreeEntry[], on: boolean) => setSelection((previous) => withAll(previous, entries, on)), []);
@@ -502,9 +633,9 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
 
   useExplorerShortcuts({
     search: () => (document.querySelector<HTMLInputElement>("[data-explorer-search] input, input[data-explorer-search]") ?? null)?.focus(),
-    files: () => navigate({ view: "files" }),
-    tables: () => navigate({ view: "tables" }),
-    transcripts: () => navigate({ view: "transcripts" }),
+    files: () => showView("files"),
+    tables: () => showView("tables"),
+    transcripts: () => showView("transcripts"),
     up: () => {
       if (url.path) open(parentPath);
     },
@@ -523,6 +654,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
 
   const sidePanel = (
     <aside
+      id={panelId}
       className={`panel flex flex-col gap-2 p-3 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-y-auto lg:overscroll-contain ${showTree ? "" : wide ? "hidden" : "max-lg:hidden"}`}
       aria-label="Folders"
       data-testid="explorer-tree-panel"
@@ -573,6 +705,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
               onSaveFolder={caps.saveFolder ? () => downloadFolder("folder") : null}
               busy={false}
               loading={folderPending ? !tree.errors[url.path] : !current && tree.loading.has(url.path)}
+              recordHref={current?.info?.record && config.recordHref ? config.recordHref(current.info.record.kind, current.info.record.id) : null}
               onWholeDataset={wholeRepository ? () => downloadDataset("zip") : null}
               info={current?.info ?? null}
               fresh={newHere ? `+${newHere} new since you looked` : null}
@@ -587,7 +720,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
             {!caps.stream && !caps.saveFile && limitSentence(caps) ? <p className="text-xs text-ink-500">{limitSentence(caps)}</p> : null}
             {config.datasetLine && wholeRepository ? <p className="text-xs text-ink-500">{config.datasetLine}</p> : null}
             {current?.info ? <RecordDetails info={current.info} recordHref={current.info.record && config.recordHref ? config.recordHref(current.info.record.kind, current.info.record.id) : null} /> : null}
-            {isWorkshop ? <WorkshopOverview path={url.path} extra={config.extra} visit={visit && visit.path === url.path ? visit : null} onOpen={open} onShowNew={() => navigate({ view: "files" })} /> : null}
+            {isWorkshop ? <WorkshopOverview path={url.path} extra={config.extra} visit={visit && visit.path === url.path ? visit : null} onOpen={open} onShowNew={() => showView("files")} /> : null}
     </>
   );
 
@@ -644,13 +777,17 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
             </Problem>
           )
         ) : null}
-        {isWorkshop ? <div className="grid min-w-0 gap-4 max-lg:gap-3.5 max-sm:gap-3">{headerBlock}</div> : null}
-        <div className={`grid items-start gap-4 max-lg:gap-3.5 max-sm:gap-3 ${wide && !showTree ? "" : "lg:grid-cols-[326px_minmax(0,1fr)]"}`}>
+        <div
+          ref={columnsRef}
+          style={{ ["--explorer-tree-width" as string]: `${clampTreeWidth(treeWidth, widthBounds)}px` }}
+          className={`relative grid items-start gap-4 max-lg:gap-3.5 max-sm:gap-3 ${wide && !showTree ? "" : "lg:grid-cols-[var(--explorer-tree-width)_minmax(0,1fr)]"}`}
+        >
           {sidePanel}
+          {wide && !showTree ? null : <PanelDivider width={clampTreeWidth(treeWidth, widthBounds)} bounds={widthBounds} controls={panelId} onWidth={setTreeWidth} onCommit={commitWidth} />}
           <div className="grid min-w-0 gap-4 max-lg:gap-3.5 max-sm:gap-3">
-            {isWorkshop ? null : headerBlock}
+            {headerBlock}
             <section className="panel overflow-hidden max-sm:grid max-sm:gap-3 max-sm:overflow-visible max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:shadow-none" aria-label="Contents">
-              <ViewTabs view={url.view} counts={{ files: folderSize.sized ? `${folderSize.sized.files.toLocaleString("en-IN")}${folderSize.sized.truncated ? "+" : ""}` : filesCount, tables: tableCount && tableCount.path === url.path && tableCount.count > 0 ? tableCount.count.toLocaleString("en-IN") : null, transcripts: transcriptsKnown !== null ? transcriptsKnown.toLocaleString("en-IN") : null }} onView={(view) => navigate({ view })} trailing={tabTrailing} />
+              <ViewTabs view={url.view} counts={{ files: folderSize.sized ? `${folderSize.sized.files.toLocaleString("en-IN")}${folderSize.sized.truncated ? "+" : ""}` : filesCount, tables: tableCount && tableCount.path === url.path && tableCount.count > 0 ? tableCount.count.toLocaleString("en-IN") : null, transcripts: transcriptsKnown !== null ? transcriptsKnown.toLocaleString("en-IN") : null }} onView={showView} trailing={tabTrailing} />
               <div id="explorer-view" role="tabpanel" aria-label={VIEW_TABS.find((tab) => tab.value === url.view)?.label} className="min-w-0">
                 <div hidden={url.view !== "files"}>
                   <FolderContents
@@ -692,7 +829,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
                       onTryReport={downloads.startNow}
                       now={downloads.now}
                       onDownload={(request) => downloads.enqueue(request)}
-                      onBack={() => navigate({ view: "files" })}
+                      onBack={() => showView("files")}
                     />
                   </div>
                 ) : null}

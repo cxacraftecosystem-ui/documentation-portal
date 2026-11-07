@@ -1,3 +1,5 @@
+import { deflateSync } from "node:zlib";
+
 import type { BrowserContext, Route } from "@playwright/test";
 
 type Json = Record<string, unknown>;
@@ -13,6 +15,7 @@ type FakeFile = {
   bytes?: number;
   transcript?: boolean;
   broken?: boolean;
+  pixels?: { width: number; height: number };
 };
 
 const MANY_FILES = 1234;
@@ -29,6 +32,43 @@ export const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
   "base64"
 );
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+
+function crc32(bytes: Buffer): number {
+  let c = 0xffffffff;
+  for (const byte of bytes) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(data.length, 0);
+  head.write(type, 4, "ascii");
+  const tail = Buffer.alloc(4);
+  tail.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0);
+  return Buffer.concat([head, data, tail]);
+}
+
+export function solidPng(width: number, height: number): Buffer {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 2;
+  const row = Buffer.alloc(1 + width * 3);
+  for (let x = 0; x < width; x += 1) row.set([145, 72, 210], 1 + x * 3);
+  const raw = Buffer.concat(Array.from({ length: height }, () => row));
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), pngChunk("IHDR", header), pngChunk("IDAT", deflateSync(raw)), pngChunk("IEND", Buffer.alloc(0))]);
+}
+
+export const PORTRAIT = { width: 300, height: 400 };
+
+const PORTRAIT_PNG = solidPng(PORTRAIT.width, PORTRAIT.height);
 
 const PDF = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
 
@@ -194,14 +234,15 @@ export class DataExplorerFake {
   sharedViews: Json[] = [{ id: "v-shared", name: "Sanganer tables", path: "workshops/sanganer", state: { view: "tables", sheet: "", q: "", filters: {} }, shared: true, mine: false, ownerName: "Ravi Kumar", createdAt: "2026-11-01T10:00:00Z", updatedAt: "2026-11-01T10:00:00Z" }];
   visit: Json = { previousVisitAt: "2026-11-01T10:00:00Z", newFiles: 3, newTranscripts: 1 };
   treeFailures = new Map<string, number>();
+  repeatCursor = new Set<string>();
   folders = new Map<string, FakeFolder>();
   searchCorpus: SearchCorpusGroup[] = [];
   unifiedSearch = true;
 
   constructor() {
     this.folder({ name: "Dataset root", path: "", folders: ["workshops", "crafts"], files: [] });
-    this.folder({ name: "By workshop", path: "workshops", recordType: "category", folders: ["workshops/bagru", "workshops/sanganer", "workshops/big"], files: [] });
-    this.folder({ name: "By craft", path: "crafts", recordType: "category", folders: [], files: [] });
+    this.folder({ name: "By workshop", path: "workshops", recordType: "taxonomy", folders: ["workshops/bagru", "workshops/sanganer", "workshops/big"], files: [] });
+    this.folder({ name: "By craft", path: "crafts", recordType: "taxonomy", folders: [], files: [] });
     this.folder({
       name: "Bagru 2026",
       path: "workshops/bagru",
@@ -209,7 +250,7 @@ export class DataExplorerFake {
       folders: ["workshops/bagru/kamla"],
       files: [
         { path: "workshops/bagru/details.txt", name: "details.txt", content: "Workshop: Bagru 2026\nCraft: Hand block printing\n" },
-        { path: "workshops/bagru/photo.jpg", name: "photo.jpg", mediaId: "img1", mediaType: "IMAGE", bytes: 40_000 },
+        { path: "workshops/bagru/photo.jpg", name: "photo.jpg", mediaId: "img1", mediaType: "IMAGE", bytes: 40_000, pixels: PORTRAIT },
         { path: "workshops/bagru/loom.mp4", name: "loom.mp4", mediaId: "vid1", mediaType: "VIDEO", bytes: 90_000 },
         { path: "workshops/bagru/interview.m4a", name: "interview.m4a", mediaId: "aud1", mediaType: "AUDIO", bytes: 30_000, transcript: true },
         { path: "workshops/bagru/brief.pdf", name: "brief.pdf", mediaId: "pdf1", mediaType: "PDF", bytes: PDF.length },
@@ -313,16 +354,18 @@ export class DataExplorerFake {
   }
 
   private entry(file: FakeFile): Json {
-    if (file.content != null) return { kind: "file", name: file.name, path: file.path, content: file.content };
+    if (file.content != null) return { kind: "file", name: file.name, path: file.path, content: file.content, capturedAt: null };
     return {
       kind: "file",
       name: file.name,
       path: file.path,
+      originalFilename: file.name,
       capturedAt: file.mediaId === "img1" ? "2026-09-23T10:00:00Z" : null,
       mediaId: file.mediaId,
       mediaType: file.mediaType,
-      sizeBytes: file.bytes,
+      sizeBytes: file.bytes ?? null,
       url: `/e2e-files/original-${file.mediaId}`,
+      ...(file.pixels ? { pixels: file.pixels } : {}),
       transcriptAvailable: Boolean(file.transcript),
       transcriptPath: file.transcript ? `/data/media/${file.mediaId}/transcript` : undefined,
       transcriptFiles: file.transcript
@@ -337,7 +380,7 @@ export class DataExplorerFake {
   private tree(path: string, cursor: string | null): Json | null {
     const folder = this.folders.get(path);
     if (!folder) return null;
-    const crumbs: Json[] = [];
+    const crumbs: Json[] = [{ name: "Repository", path: "" }];
     const parts = path.split("/").filter(Boolean);
     for (let i = 1; i <= parts.length; i += 1) {
       const at = parts.slice(0, i).join("/");
@@ -349,11 +392,11 @@ export class DataExplorerFake {
         return { kind: "folder", name: this.folders.get(child)!.name, path: child, recordType: this.folders.get(child)!.recordType, count: inner.length, bytes: inner.reduce((sum, item) => sum + (item.bytes ?? 0), 0) };
       }),
       ...folder.files.map((file) => this.entry(file))
-    ];
+    ].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "folder" ? -1 : 1) || String(a.name).toLowerCase().localeCompare(String(b.name).toLowerCase()));
     const pageSize = path === "workshops/sanganer" ? 2 : 500;
     const start = cursor ? Number(cursor) : 0;
     const entries = all.slice(start, start + pageSize);
-    const next = start + pageSize < all.length ? String(start + pageSize) : null;
+    const next = cursor && this.repeatCursor.has(path) ? cursor : start + pageSize < all.length ? String(start + pageSize) : null;
     return {
       path,
       crumbs,
@@ -361,12 +404,14 @@ export class DataExplorerFake {
       nextCursor: next,
       total: all.length,
       truncated: false,
-      info: path === "workshops/bagru" ? { title: "Bagru 2026", fields: [{ label: "Craft", value: "Hand block printing" }, { label: "District", value: "Jaipur" }] } : null,
+      info: path === "workshops/bagru" ? { title: "Bagru 2026", fields: [{ label: "Craft", value: "Hand block printing" }, { label: "District", value: "Jaipur" }], record: { kind: "workshop", id: "w-bagru" } } : null,
       taxonomies: [
         { id: "workshops", name: "By workshop", path: "workshops", description: "Each workshop and its records.", default: true },
         { id: "crafts", name: "By craft", path: "crafts", description: "Each craft and its records.", default: false }
       ],
-      taxonomy: path.startsWith("crafts") ? "crafts" : "workshops"
+      taxonomy: path.startsWith("crafts") ? "crafts" : "workshops",
+      designWorkshopsVisible: true,
+      designWorkshopsDownloadable: true
     };
   }
 
@@ -434,6 +479,7 @@ export class DataExplorerFake {
       if (leaf === "thumbnail") return { status: 200, raw: PNG, contentType: "image/png", headers: { "cache-control": "private, max-age=1800" } };
       if (id === "pdf1") return { status: 200, raw: PDF, contentType: "application/pdf" };
       if (id === "aud1" && leaf === "preview") return { status: 200, raw: WAV, contentType: "audio/wav" };
+      if (id === "img1" && leaf === "preview") return { status: 200, raw: PORTRAIT_PNG, contentType: "image/png" };
       if (id.startsWith("img")) return { status: 200, raw: PNG, contentType: "image/png" };
       return { status: 200, raw: bytesFor(id, 2048), contentType: "application/octet-stream", headers: { "content-disposition": `attachment; filename="${id}.bin"` } };
     }

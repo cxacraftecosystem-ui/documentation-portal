@@ -241,7 +241,8 @@ export function FolderHeader({
   foldersButton,
   fresh = null,
   busy,
-  loading
+  loading,
+  recordHref = null
 }: {
   crumbs: Crumb[];
   folderName: string;
@@ -261,6 +262,7 @@ export function FolderHeader({
   fresh?: string | null;
   busy: boolean;
   loading: boolean;
+  recordHref?: string | null;
 }) {
   const sized = size.sized;
   const chosen = sized ? sizedFor(sized, include) : null;
@@ -280,6 +282,7 @@ export function FolderHeader({
       ].filter((part): part is string => Boolean(part))
     : [size.error ? "Size unknown" : "Checking size…"];
   const compact = compactFields(info ?? null);
+  const detailsDrawn = (info?.fields ?? []).some((field) => field.value != null && String(field.value).trim() !== "");
   return (
     <>
       <div className="flex items-center justify-between gap-2 sm:hidden">
@@ -313,6 +316,11 @@ export function FolderHeader({
                 </span>
               ))}
               {fresh ? <span className="rounded-full bg-purple-100 px-2.5 py-1 font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-200">{fresh}</span> : null}
+              {recordHref ? (
+                <Link href={recordHref} data-testid="folder-open-record" className={`inline-flex min-h-9 items-center font-semibold text-purple-700 underline underline-offset-2 hover:text-purple-800 pointer-coarse:min-h-11 dark:text-purple-300 ${detailsDrawn ? "lg:hidden" : ""}`}>
+                  Open record
+                </Link>
+              ) : null}
             </p>
           </div>
           <div className="flex gap-2 max-sm:w-full">
