@@ -674,8 +674,31 @@ fun ExplorerScreen(
     }
 
     val linkRequest by ExplorerViewLinks.requests.collectAsState()
+    var linkSave by remember { mutableStateOf<ExplorerLinkRequest?>(null) }
+    linkSave?.let { pending ->
+        ExplorerLinkSaveConfirm(
+            onConfirm = {
+                linkSave = null
+                scope.launch {
+                    try {
+                        if (pending.go.isNotEmpty()) followGo(pending.go) {} else pending.bundle?.let { startBundle(it) }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Throwable) {
+                        onError(ExplorerUiText.linkFailed)
+                    }
+                }
+            },
+            onCancel = { linkSave = null },
+        )
+    }
     LaunchedEffect(linkRequest) {
         val request = linkRequest ?: return@LaunchedEffect
+        if (explorerLinkSavesFiles(request)) {
+            ExplorerViewLinks.consume(request)
+            linkSave = request
+            return@LaunchedEffect
+        }
         ExplorerViewLinks.serve(request, onFailure = { onError(ExplorerUiText.linkFailed) }) { r ->
             val id = r.viewId
             when {

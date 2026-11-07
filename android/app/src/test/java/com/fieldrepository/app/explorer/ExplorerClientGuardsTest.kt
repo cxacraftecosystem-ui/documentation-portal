@@ -70,7 +70,7 @@ class ExplorerClientGuardsTest {
     @Test
     fun `the explorer screen holds link downloads until the user confirms`() {
         val source = sourceOf("explorer/ui/ExplorerScreen.kt").readText()
-        val effect = source.substringAfter("LaunchedEffect(linkRequest)").substringBefore("followGo(request.go)")
+        val effect = source.substringAfter("LaunchedEffect(linkRequest)").substringBefore("ExplorerViewLinks.serve(")
         assertTrue("a /data/go/media or bundle link downloads with no confirmation", effect.contains("explorerLinkSavesFiles(request)"))
     }
 
