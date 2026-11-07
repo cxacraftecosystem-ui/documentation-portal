@@ -1,3 +1,5 @@
+import { browseKindOf } from "@/lib/dataExplorer/contract";
+
 export type ExplorerView = "files" | "tables" | "transcripts";
 
 export const EXPLORER_VIEWS: readonly ExplorerView[] = ["files", "tables", "transcripts"];
@@ -56,7 +58,7 @@ export function readUrlState(params: ParamsLike | null | undefined): ExplorerUrl
     view: (EXPLORER_VIEWS as readonly string[]).includes(view ?? "") ? (view as ExplorerView) : "files",
     sheet: params.get(KEYS.sheet) ?? "",
     q: params.get(KEYS.q) ?? "",
-    browse: params.get(KEYS.browse) ?? "",
+    browse: browseKindOf(params.get(KEYS.browse) ?? ""),
     browsePage: Number.isInteger(page) && page > 0 ? page : 1,
     browseQ: params.get(KEYS.browseQ) ?? "",
     preview: params.get(KEYS.preview) ?? "",

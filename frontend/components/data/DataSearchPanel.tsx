@@ -16,6 +16,7 @@ import {
   UNIFIED_TYPES,
   fetchUnified,
   highlightSegments,
+  peerSearchOffered,
   safeOpenUrl,
   type Portal,
   type UnifiedItem,
@@ -380,7 +381,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
   const groups = shown?.groups ?? [];
   const total = groups.length ? (focus ? (groups.find((group) => group.type === focus)?.total ?? rows.length) : groups.reduce((sum, group) => sum + group.total, 0)) : rows.length;
   const remote = data?.remote;
-  const canBoth = Boolean(remote && remote.status !== "off" && remote.status !== "notPermitted");
+  const canBoth = peerSearchOffered(remote);
   const filters = activeFilters(state);
   const counts = data && state.scope === "all" ? portalCounts(data) : null;
   const showMore = Boolean(shown && !shown.error && shown.more);

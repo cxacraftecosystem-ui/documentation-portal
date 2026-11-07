@@ -184,6 +184,10 @@ export type FolderVisit = { path: string; visitedAt: string; previousVisitAt: st
 
 export type CoverageState = "complete" | "partial" | "missing";
 
+export type TranscriptCounts = { total: number; ready: number; translating: number; failed: number };
+
+export type ReviewCounts = { approved: number; pending: number; total: number };
+
 export type WorkshopOverview = {
   path: string;
   title: string;
@@ -192,8 +196,8 @@ export type WorkshopOverview = {
     files: number;
     bytes: number;
     fields: { filled: number; total: number };
-    transcripts: { total: number; ready: number; translating: number; failed: number };
-    review: { approved: number; pending: number; total: number };
+    transcripts: TranscriptCounts;
+    review: ReviewCounts;
   };
   sections: { key: string; label: string }[];
   artisans: {
@@ -203,8 +207,8 @@ export type WorkshopOverview = {
     path: string;
     fields: { filled: number; total: number };
     media: { files: number; bytes: number };
-    transcripts: number;
-    review: string | null;
+    transcripts: TranscriptCounts;
+    review: ReviewCounts;
     sections: { key: string; state: CoverageState; missing: string[]; href?: string | null }[];
   }[];
   truncated: boolean;
@@ -222,6 +226,18 @@ export type BrowseItem = {
   status?: string | null;
   mediaCount?: number | null;
 };
+
+export const BROWSE_KINDS = ["artisan", "product", "tool", "workshop", "craft", "interview", "process", "media"] as const;
+
+export type BrowseKind = (typeof BROWSE_KINDS)[number];
+
+const BROWSE_KIND_ALIASES: Record<string, BrowseKind> = { questionnaire: "interview" };
+
+export function browseKindOf(value: string): BrowseKind | "" {
+  const key = value.trim().toLowerCase();
+  if ((BROWSE_KINDS as readonly string[]).includes(key)) return key as BrowseKind;
+  return BROWSE_KIND_ALIASES[key] ?? "";
+}
 
 export type BrowsePage = {
   items: BrowseItem[];

@@ -80,7 +80,7 @@ export const TRANSCRIPT_AUD1 = {
   updatedAt: "2026-09-22T10:00:00Z"
 };
 
-const OVERVIEW = {
+export const OVERVIEW = {
   path: "workshops/bagru",
   title: "Bagru 2026",
   subtitle: "Hand block printing",
@@ -98,8 +98,8 @@ const OVERVIEW = {
       path: "workshops/bagru/kamla",
       fields: { filled: 8, total: 10 },
       media: { files: 1, bytes: 20_000 },
-      transcripts: 1,
-      review: "APPROVED",
+      transcripts: { total: 1, ready: 1, translating: 0, failed: 0 },
+      review: { approved: 2, pending: 0, total: 2 },
       sections: [
         { key: "identity", state: "complete", missing: [] },
         { key: "tools", state: "partial", missing: ["Tool names"], href: "/questionnaire/sessions/s-kamla/view?section=tools" },
@@ -113,8 +113,8 @@ const OVERVIEW = {
       path: "workshops/bagru/kamla",
       fields: { filled: 2, total: 10 },
       media: { files: 0, bytes: 0 },
-      transcripts: 0,
-      review: "PENDING",
+      transcripts: { total: 0, ready: 0, translating: 0, failed: 0 },
+      review: { approved: 0, pending: 1, total: 1 },
       sections: [
         { key: "identity", state: "partial", missing: ["Phone"] },
         { key: "tools", state: "missing", missing: ["Tool names", "Materials"] },
