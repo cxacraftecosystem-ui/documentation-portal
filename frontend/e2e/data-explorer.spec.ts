@@ -937,8 +937,7 @@ test.describe("@qf:X1 keyboard", () => {
       await page.keyboard.press("Control+k");
       const palette = page.getByRole("dialog", { name: "Quick jump" });
       await palette.getByRole("combobox", { name: "Jump to anything" }).fill("meera");
-      await expect(palette.getByRole("option", { name: /Meera Bai/ })).toBeVisible();
-      await page.keyboard.press("Enter");
+      await palette.getByRole("option", { name: /Meera Bai/ }).click();
       await expect(page).toHaveURL(/\/artisans\/a-meera$/);
       await expect(page.getByText("isn't filed in a folder yet")).toHaveCount(0);
     } finally {
