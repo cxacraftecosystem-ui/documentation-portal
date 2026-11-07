@@ -365,6 +365,7 @@ jobs:
     timeout-minutes: 25
     if: >-
       ${{ !cancelled()
+          && github.ref == 'refs/heads/main'
           && needs.gate.result == 'success'
           && needs.gate.outputs.should_deploy == 'true'
           && (needs.wait-for-checks.result == 'success' || needs.wait-for-checks.result == 'skipped')

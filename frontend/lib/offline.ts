@@ -77,6 +77,7 @@ export type OutboxEntry = {
     candidates: Array<{ id: string; name: string; place?: string | null; craft?: string | null }>;
   } | null;
   attachedToExisting?: boolean;
+  ownerUserId?: string | null;
 };
 
 export function possibleDuplicateSentence(entry: Pick<OutboxEntry, "possibleDuplicate">): string | null {
@@ -171,6 +172,42 @@ export function getServerOutboxSnapshot(): OutboxEntry[] {
   return SERVER_SNAPSHOT;
 }
 
+let outboxSessionUserId: string | null = null;
+
+export function setOutboxSessionUser(userId: string | null): void {
+  if (outboxSessionUserId === userId) return;
+  outboxSessionUserId = userId;
+  publish();
+}
+
+export function outboxSessionUser(): string | null {
+  return outboxSessionUserId;
+}
+
+export function outboxEntryIsForAnotherAccount(
+  ownerUserId: string | null | undefined,
+  signedInUserId: string | null
+): boolean {
+  if (!signedInUserId || !ownerUserId) return false;
+  return ownerUserId !== signedInUserId;
+}
+
+export function outboxEntryIsHeld(ownerUserId: string | null | undefined, signedInUserId: string | null): boolean {
+  return !signedInUserId || !ownerUserId || ownerUserId !== signedInUserId;
+}
+
+export function outboxEntriesForThisAccount(entries: readonly OutboxEntry[], signedInUserId: string | null): OutboxEntry[] {
+  return entries.filter((entry) => !outboxEntryIsHeld(entry.ownerUserId, signedInUserId));
+}
+
+export function outboxEntriesForAnotherAccount(entries: readonly OutboxEntry[], signedInUserId: string | null): number {
+  return entries.filter((entry) => outboxEntryIsForAnotherAccount(entry.ownerUserId, signedInUserId)).length;
+}
+
+export function outboxEntriesWithoutOwner(entries: readonly OutboxEntry[], signedInUserId: string | null): number {
+  return signedInUserId ? entries.filter((entry) => !entry.ownerUserId).length : 0;
+}
+
 export async function refreshOutbox(): Promise<OutboxEntry[]> {
   try {
     const rows = await tx<OutboxEntry[]>("readonly", (store) => store.getAll() as IDBRequest<OutboxEntry[]>);
@@ -182,15 +219,45 @@ export async function refreshOutbox(): Promise<OutboxEntry[]> {
   return cache;
 }
 
-export async function queueOffline(entry: Omit<OutboxEntry, "id" | "createdAt" | "attempts" | "failure">): Promise<void> {
+export async function queueOffline(
+  entry: Omit<OutboxEntry, "id" | "createdAt" | "attempts" | "failure" | "ownerUserId">
+): Promise<void> {
   await tx("readwrite", (store) =>
-    store.add({ ...entry, media: (entry.media ?? []).map(withTranscribeFlags), createdAt: Date.now(), attempts: 0, failure: null } as OutboxEntry)
+    store.add({
+      ...entry,
+      media: (entry.media ?? []).map(withTranscribeFlags),
+      createdAt: Date.now(),
+      attempts: 0,
+      failure: null,
+      ownerUserId: outboxSessionUserId
+    } as OutboxEntry)
   );
   await refreshOutbox();
 }
 
 export async function discardOutboxEntry(id: number): Promise<void> {
   await tx("readwrite", (store) => store.delete(id));
+  await refreshOutbox();
+}
+
+export async function claimUnownedOutboxEntries(): Promise<void> {
+  const owner = outboxSessionUserId;
+  if (!owner) return;
+  for (const entry of await refreshOutbox()) {
+    if (entry.ownerUserId || entry.id === undefined) continue;
+    await tx("readwrite", (store) => store.put({ ...entry, ownerUserId: owner }));
+  }
+  await refreshOutbox();
+}
+
+export async function discardHeldOutboxEntries(which: "otherAccount" | "unowned"): Promise<void> {
+  const owner = outboxSessionUserId;
+  if (!owner) return;
+  for (const entry of await refreshOutbox()) {
+    if (entry.id === undefined) continue;
+    const held = which === "unowned" ? !entry.ownerUserId : outboxEntryIsForAnotherAccount(entry.ownerUserId, owner);
+    if (held) await tx("readwrite", (store) => store.delete(entry.id!));
+  }
   await refreshOutbox();
 }
 
@@ -244,9 +311,11 @@ async function runSync(): Promise<SyncResult> {
   let synced = 0;
   let failed = 0;
   let stoppedOffline = false;
+  const sessionUserId = outboxSessionUserId;
 
   for (const entry of entries) {
     if (entry.failure) continue;
+    if (outboxEntryIsHeld(entry.ownerUserId, sessionUserId)) continue;
     const progress: OutboxEntry = { ...entry };
     try {
       if (progress.mediaOnly) {
@@ -355,7 +424,7 @@ async function runSync(): Promise<SyncResult> {
     }
   }
 
-  const remaining = (await refreshOutbox()).length;
+  const remaining = outboxEntriesForThisAccount(await refreshOutbox(), sessionUserId).length;
   return { synced, failed, remaining, stoppedOffline };
 }
 

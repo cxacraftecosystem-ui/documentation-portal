@@ -8,7 +8,7 @@ from fastapi.responses import Response
 
 from app.core.db import db
 from app.core.deps import get_current_user
-from app.services import transcript_pipeline as pipeline, transcript_portal
+from app.services import paid_ai_allowance, transcript_pipeline as pipeline, transcript_portal
 from app.transcription.transcript import render
 from app.transcription.transcript.schema import (
     AskBody,
@@ -51,6 +51,21 @@ ENABLED = [Depends(require_enabled)]
 
 def _refused(exc: pipeline.PipelineRefused) -> HTTPException:
     return _error(exc.code, exc.message, exc.status)
+
+
+def _take_allowance(user: Any) -> None:
+    try:
+        paid_ai_allowance.take(paid_ai_allowance.TRANSCRIPT, getattr(user, "id", None))
+    except paid_ai_allowance.AllowanceSpent as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"code": "RATE_LIMITED", "message": exc.message},
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from None
+
+
+def _refund_allowance(user: Any) -> None:
+    paid_ai_allowance.refund(paid_ai_allowance.TRANSCRIPT, getattr(user, "id", None))
 
 
 async def _media(media_id: str, user: Any) -> Any:
@@ -176,9 +191,11 @@ async def turn_history(media_id: str, turn_id: str, user: Any = Depends(get_curr
 async def retranslate(media_id: str, turn_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     media = await _media(media_id, user)
     await transcript_portal.guard_write(user, media)
+    _take_allowance(user)
     try:
         return await pipeline.retranslate_turn(media, user, turn_id)
     except pipeline.PipelineRefused as exc:
+        _refund_allowance(user)
         raise _refused(exc) from None
 
 
@@ -202,6 +219,7 @@ async def retry(media_id: str, user: Any = Depends(get_current_user)) -> dict[st
     may, refusal = await transcript_portal.may_send(media)
     if not may:
         raise _error("CONSENT_REFUSED", refusal or "Consent was refused.", status.HTTP_409_CONFLICT)
+    _take_allowance(user)
     from app.services import transcript_store
 
     if await transcript_store.current_version(str(media.id)) is not None or (media.transcriptText or "").strip():
@@ -292,9 +310,11 @@ async def download(
 @router.post("/{media_id}/ask", dependencies=ENABLED)
 async def ask(media_id: str, body: AskBody, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     media = await _media(media_id, user)
+    _take_allowance(user)
     try:
         return await pipeline.ask(media, body.question)
     except pipeline.PipelineRefused as exc:
+        _refund_allowance(user)
         raise _refused(exc) from None
 
 
@@ -302,9 +322,11 @@ async def ask(media_id: str, body: AskBody, user: Any = Depends(get_current_user
 async def autodraft(media_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     media = await _media(media_id, user)
     await transcript_portal.guard_write(user, media)
+    _take_allowance(user)
     try:
         return await pipeline.autodraft(media, user)
     except pipeline.PipelineRefused as exc:
+        _refund_allowance(user)
         raise _refused(exc) from None
 
 

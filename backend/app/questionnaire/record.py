@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-import csv
 import io
 from collections import defaultdict
 from typing import Any
 
-from app.questionnaire import answers as answers_service, coverage, ports, recordings, sessions
+from app.questionnaire import (
+    answers as answers_service,
+    coverage,
+    csv_cells,
+    ports,
+    recordings,
+    sessions,
+)
 from app.questionnaire.common import fail
 from app.questionnaire.ports import naming
 
@@ -136,7 +142,7 @@ async def artisan_record_csv(artisan_id: str, user: Any, *, questionnaire_id: st
     local = name_rows[0].get("localName") if name_rows else None
     subject = name if (name or "").isascii() else (local if (local or "").isascii() and local else name)
     buffer = io.StringIO()
-    writer = csv.writer(buffer)
+    writer = csv_cells.writer(buffer)
     writer.writerow(["Questionnaire", "Section", "Question", "Answer", "Origin", "Attribution", "Primary recording", "Other recordings", "Covered by"])
     for inst in record["instruments"]:
         for section in inst["document"]:

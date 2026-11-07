@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { PromptDialog } from "@/components/questionnaire/Prompts";
-import { trayAct, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
+import { settleHeld, trayAct, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { qs } from "@/lib/questionnaire/qs";
 import { trayItems, type SessionUnit, type Step, type TrayItem } from "@/lib/questionnaire/queue";
@@ -13,9 +13,22 @@ export function OutboxTray({ sessionId }: { sessionId?: string | null }) {
   const queue = useSessionQueue();
   const [confirm, setConfirm] = useState<TrayItem | null>(null);
   const [busy, setBusy] = useState(false);
+  const [discardHeld, setDiscardHeld] = useState<"otherAccount" | "unowned" | null>(null);
+  const [keptForThem, setKeptForThem] = useState(false);
   const units = sessionId ? queue.units.filter((u) => u.id === sessionId || u.sessionId === sessionId) : queue.units;
   const items = trayItems(units);
-  if (!items.length) return null;
+  const otherAccount = sessionId || keptForThem ? 0 : queue.held.otherAccount.length;
+  const unowned = sessionId ? 0 : queue.held.unowned.length;
+  if (!items.length && !otherAccount && !unowned) return null;
+
+  async function settle(act: "claim" | "discard", which: "otherAccount" | "unowned") {
+    setBusy(true);
+    try {
+      await settleHeld(act, which);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function act(item: TrayItem, what: "again" | "discard" | "without") {
     setBusy(true);
@@ -29,6 +42,38 @@ export function OutboxTray({ sessionId }: { sessionId?: string | null }) {
   return (
     <section className="panel mb-4 grid gap-3 p-4" data-outbox-tray aria-label={qs("outboxTitle")}>
       <h2 className="font-display text-base font-bold text-ink-900">{qs("outboxTitle")}</h2>
+      {otherAccount ? (
+        <div className="grid gap-2 rounded-md border border-line-200 p-3" data-outbox-held="otherAccount">
+          <div className="grid gap-0.5 text-sm">
+            <span className="font-medium text-ink-900">{qs("outboxHeldOtherTitle", { count: otherAccount })}</span>
+            <span className="text-ink-600">{qs("outboxHeldOtherBody")}</span>
+          </div>
+          <ButtonRow size="sm" align="start">
+            <button type="button" className="field-button-secondary" disabled={busy} onClick={() => setKeptForThem(true)}>
+              {qs("outboxHeldKeep")}
+            </button>
+            <button type="button" className="field-danger" disabled={busy} onClick={() => setDiscardHeld("otherAccount")}>
+              {qs("discard")}
+            </button>
+          </ButtonRow>
+        </div>
+      ) : null}
+      {unowned ? (
+        <div className="grid gap-2 rounded-md border border-line-200 p-3" data-outbox-held="unowned">
+          <div className="grid gap-0.5 text-sm">
+            <span className="font-medium text-ink-900">{qs("outboxHeldUnownedTitle", { count: unowned })}</span>
+            <span className="text-ink-600">{qs("outboxHeldUnownedBody")}</span>
+          </div>
+          <ButtonRow size="sm" align="start">
+            <button type="button" className="field-button-secondary" disabled={busy} onClick={() => void settle("claim", "unowned")}>
+              {qs("outboxHeldClaim")}
+            </button>
+            <button type="button" className="field-danger" disabled={busy} onClick={() => setDiscardHeld("unowned")}>
+              {qs("discard")}
+            </button>
+          </ButtonRow>
+        </div>
+      ) : null}
       <ul className="grid gap-3">
         {items.map((item) => {
           const unit = queue.units.find((u) => u.id === item.unitId);
@@ -87,6 +132,26 @@ export function OutboxTray({ sessionId }: { sessionId?: string | null }) {
             const item = confirm;
             setConfirm(null);
             if (choice === "discard") void act(item, "discard");
+          }}
+        />
+      ) : null}
+      {discardHeld ? (
+        <PromptDialog
+          open
+          spec={{
+            id: "outboxDiscardHeld",
+            title: qs("outboxHeldDiscardTitle"),
+            body: qs("outboxDiscardBody"),
+            buttons: [
+              { id: "keep", label: qs("outboxKeep"), tone: "secondary" },
+              { id: "discard", label: qs("discard"), tone: "danger" }
+            ],
+            dismiss: "keep"
+          }}
+          onChoose={(choice) => {
+            const which = discardHeld;
+            setDiscardHeld(null);
+            if (choice === "discard" && which) void settle("discard", which);
           }}
         />
       ) : null}

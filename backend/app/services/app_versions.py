@@ -3,13 +3,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import OrderedDict
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 SCOPE_USER_KEY = "appVersionUserId"
 THROTTLE_SECONDS = 600
-_last_write: dict[tuple[str, str, int], float] = {}
+MAX_TRACKED_BUILDS = 10_000
+MAX_PENDING_WRITES = 32
+MAX_VERSION_CODE = 10_000_000
+MAX_VERSION_NAME = 64
+MAX_ROWS_PER_PLATFORM = 20
+_last_write: OrderedDict[tuple[str, str, int], float] = OrderedDict()
 _pending: set[asyncio.Task[Any]] = set()
 
 
@@ -42,7 +48,10 @@ def build_of(scope: dict[str, Any]) -> tuple[str, int, str | None] | None:
         if "okhttp" not in agent and "android" not in agent:
             return None
     platform, code, name = client_build(headers)
-    return platform, int(code or 0), name
+    code = int(code or 0)
+    if code > MAX_VERSION_CODE:
+        return None
+    return platform, code, (name[:MAX_VERSION_NAME] if name else name)
 
 
 def should_write(user_id: str, platform: str, code: int, *, now: float | None = None) -> bool:
@@ -52,6 +61,9 @@ def should_write(user_id: str, platform: str, code: int, *, now: float | None = 
     if last is not None and moment - last < THROTTLE_SECONDS:
         return False
     _last_write[key] = moment
+    _last_write.move_to_end(key)
+    while len(_last_write) > MAX_TRACKED_BUILDS:
+        _last_write.popitem(last=False)
     return True
 
 
@@ -63,6 +75,12 @@ async def record(user_id: str, platform: str, code: int, name: str | None, *, cl
         'VALUES ($1, $2, $3, $4, now(), now()) ON CONFLICT ("userId", "platform", "versionCode") DO UPDATE SET '
         '"lastSeenAt" = now(), "versionName" = COALESCE(EXCLUDED."versionName", "AppClientVersion"."versionName")',
         user_id, platform, code, name,
+    )
+    await client.execute_raw(
+        'DELETE FROM "AppClientVersion" WHERE "userId" = $1 AND "platform" = $2 AND "versionCode" NOT IN ('
+        'SELECT "versionCode" FROM "AppClientVersion" WHERE "userId" = $1 AND "platform" = $2 '
+        'ORDER BY "lastSeenAt" DESC, "versionCode" DESC LIMIT $3)',
+        user_id, platform, MAX_ROWS_PER_PLATFORM,
     )
 
 
@@ -97,6 +115,8 @@ class AppVersionMiddleware:
             if build is None:
                 return
             platform, code, name = build
+            if len(_pending) >= MAX_PENDING_WRITES:
+                return
             if not should_write(str(user_id), platform, code):
                 return
             task = asyncio.get_running_loop().create_task(_record_quietly(str(user_id), platform, code, name))

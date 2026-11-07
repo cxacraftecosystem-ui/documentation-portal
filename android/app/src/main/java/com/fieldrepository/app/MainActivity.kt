@@ -121,6 +121,7 @@ import com.fieldrepository.app.ui.MediaDownloadButton
 import com.fieldrepository.app.ui.TILE_OUTLINE_ALPHA
 import androidx.compose.foundation.BorderStroke
 import com.fieldrepository.app.ui.OutboxPendingBanner
+import com.fieldrepository.app.ui.HeldForAnotherAccountPrompt
 import com.fieldrepository.app.ui.FormDraft
 import com.fieldrepository.app.ui.TranscriptInsightsCard
 import com.fieldrepository.app.transcript.ui.TranscriptEntry
@@ -1153,6 +1154,7 @@ private fun RepositoryApp(
                 }
             ) }
         }
+        if (user != null && !mustChangePasswordBlocks(user)) HeldForAnotherAccountPrompt(user?.id)
         if (bannersShown) {
             Column(
                 modifier = Modifier

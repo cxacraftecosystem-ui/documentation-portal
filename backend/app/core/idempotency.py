@@ -10,8 +10,6 @@ from typing import Any, Protocol
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.core.security import decode_access_token
-
 logger = logging.getLogger(__name__)
 
 HEADER = b"idempotency-key"
@@ -53,6 +51,7 @@ def is_create_route(path: str) -> bool:
     )
 _KEY_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 MAX_STORED_BODY = 256 * 1024
+MAX_FINGERPRINT_BODY = 1024 * 1024
 
 
 @dataclass
@@ -151,16 +150,26 @@ def _header(scope: Scope, name: bytes) -> str | None:
     return None
 
 
-def _caller(scope: Scope) -> str | None:
+async def _caller(scope: Scope) -> str | None:
     auth = _header(scope, b"authorization")
     if not auth or not auth.lower().startswith("bearer "):
         return None
+    from fastapi import HTTPException
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.core import deps
+
     try:
-        claims = decode_access_token(auth[7:].strip())
-    except ValueError:
+        user = await deps._user_from_bearer(
+            HTTPAuthorizationCredentials(scheme="Bearer", credentials=auth[7:].strip()),
+            allowed_scopes=frozenset(),
+        )
+    except HTTPException:
         return None
-    sub = claims.get("sub")
-    return str(sub) if sub else None
+    if deps.password_change_pending(user):
+        return None
+    user_id = getattr(user, "id", None)
+    return str(user_id) if user_id else None
 
 
 def _fingerprint(method: str, path: str, query: bytes, body: bytes) -> str:
@@ -176,6 +185,17 @@ async def _send_json(send: Send, status_code: int, payload: dict[str, Any], extr
     headers = [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode()), *extra]
     await send({"type": "http.response.start", "status": status_code, "headers": headers})
     await send({"type": "http.response.body", "body": body})
+
+
+def _replaying(chunks: list[bytes], receive: Receive) -> Receive:
+    pending = list(chunks)
+
+    async def replay() -> Message:
+        if pending:
+            return {"type": "http.request", "body": pending.pop(0), "more_body": True}
+        return await receive()
+
+    return replay
 
 
 class IdempotencyMiddleware:
@@ -197,19 +217,25 @@ class IdempotencyMiddleware:
                 send, 422, {"detail": "Idempotency-Key must be 8 to 128 letters, digits, '-' or '_'."}, []
             )
             return
-        user_id = _caller(scope)
+        user_id = await _caller(scope)
         if user_id is None:
             await self.app(scope, receive, send)
             return
 
         chunks: list[bytes] = []
+        size = 0
         more = True
         while more:
             message = await receive()
             if message["type"] == "http.disconnect":
                 return
-            chunks.append(message.get("body", b""))
+            chunk = message.get("body", b"")
+            chunks.append(chunk)
+            size += len(chunk)
             more = message.get("more_body", False)
+            if more and size > MAX_FINGERPRINT_BODY:
+                await self.app(scope, _replaying(chunks, receive), send)
+                return
         body = b"".join(chunks)
         fingerprint = _fingerprint("POST", scope.get("path", ""), scope.get("query_string", b""), body)
 

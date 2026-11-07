@@ -71,9 +71,8 @@ def test_detached_writes_are_capped_when_the_database_is_slow(monkeypatch):
 
 @needs_db
 def test_rows_per_account_and_platform_stay_bounded_and_keep_the_newest():
-    from prisma import Prisma
-
     from app.core.security import hash_password
+    from prisma import Prisma
 
     async def go() -> tuple[int, set[int]]:
         client = Prisma()

@@ -3,15 +3,24 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { CloudOff, RefreshCw, Trash2, TriangleAlert, Users } from "lucide-react";
 
+import { useAuth } from "@/components/AuthProvider";
 import { LocalFileDownloads } from "@/components/media/DownloadMediaButton";
+import { OutboxAccountHold } from "@/components/OutboxAccountHold";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { useToast } from "@/components/ui/Toast";
 import {
+  claimUnownedOutboxEntries,
+  discardHeldOutboxEntries,
   discardOutboxEntry,
   getOutboxSnapshot,
   getServerOutboxSnapshot,
+  outboxEntriesForAnotherAccount,
+  outboxEntriesForThisAccount,
+  outboxEntriesWithoutOwner,
+  outboxSessionUser,
   refreshOutbox,
   resolvePossibleDuplicate,
+  setOutboxSessionUser,
   subscribeOutbox,
   syncOutbox,
   type OutboxEntry
@@ -27,9 +36,20 @@ function entryFiles(entry: OutboxEntry): File[] {
 }
 
 export function OutboxBanner() {
-  const entries = useSyncExternalStore(subscribeOutbox, getOutboxSnapshot, getServerOutboxSnapshot);
+  const stored = useSyncExternalStore(subscribeOutbox, getOutboxSnapshot, getServerOutboxSnapshot);
   const [syncing, setSyncing] = useState(false);
   const { toast } = useToast();
+  const { user, loading: authLoading } = useAuth();
+  const signedIn = authLoading ? null : (user?.id ?? null);
+  const entries = outboxEntriesForThisAccount(stored, signedIn);
+  const otherAccount = outboxEntriesForAnotherAccount(stored, signedIn);
+  const unowned = outboxEntriesWithoutOwner(stored, signedIn);
+
+  useEffect(() => {
+    if (authLoading) return;
+    setOutboxSessionUser(user?.id ?? null);
+    return () => setOutboxSessionUser(null);
+  }, [authLoading, user?.id]);
 
   const announcedCount = useRef<number | null>(null);
 
@@ -100,13 +120,34 @@ export function OutboxBanner() {
 
   useEffect(() => {
     function onOnline() {
-      if (getOutboxSnapshot().length) drain("auto");
+      if (outboxEntriesForThisAccount(getOutboxSnapshot(), outboxSessionUser()).length) drain("auto");
     }
     window.addEventListener("online", onOnline);
     return () => window.removeEventListener("online", onOnline);
   }, [drain]);
 
-  if (!entries.length) return null;
+  const held = otherAccount + unowned;
+  const holdPanel = held ? (
+    <OutboxAccountHold
+      otherAccount={otherAccount}
+      unowned={unowned}
+      busy={syncing}
+      onClaim={() =>
+        void claimUnownedOutboxEntries()
+          .then(() => drain("manual"))
+          .catch(() => undefined)
+      }
+      onDiscard={(which) => void discardHeldOutboxEntries(which).catch(() => undefined)}
+    />
+  ) : null;
+
+  if (!entries.length) {
+    return holdPanel ? (
+      <section aria-live="polite" className="mb-4 grid gap-2 rounded-lg border border-amber-500/40 bg-amber-100/60 p-4 text-ink-900">
+        {holdPanel}
+      </section>
+    ) : null;
+  }
 
   const rejected = entries.filter((entry) => entry.failure);
   const waiting = entries.length - rejected.length;
@@ -139,6 +180,8 @@ export function OutboxBanner() {
           </button>
         ) : null}
       </div>
+
+      {holdPanel}
 
       <ul className="grid gap-1.5">
         {entries.map((entry) => (

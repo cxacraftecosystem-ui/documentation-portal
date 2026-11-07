@@ -75,24 +75,29 @@ def trusted_viewer_address(scope: Scope) -> str | None:
         return None
 
 
+def _bearer_subject(token: bytes) -> str | None:
+    from app.core.security import decode_access_token
+
+    try:
+        claims = decode_access_token(token.decode("latin-1"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    subject = claims.get("sub")
+    return str(subject) if subject else None
+
+
 def _identity(scope: Scope, *, ignore_bearer: bool = False) -> str:
-    forwarded = b""
-    viewer = trusted_viewer_address(scope)
-    for name, value in scope.get("headers", []):
-        if name == b"authorization" and not ignore_bearer:
+    if not ignore_bearer:
+        for name, value in scope.get("headers", []):
+            if name != b"authorization":
+                continue
             token = value.strip()
             if token[:7].lower() == b"bearer " and len(token) > 7:
-                return "t:" + hashlib.sha256(token[7:]).hexdigest()[:16]
-        elif name == b"x-forwarded-for" and not forwarded:
-            forwarded = value
-    if viewer:
-        return "ip:" + viewer
-    if forwarded:
-        first = forwarded.split(b",")[0].strip()
-        if first:
-            return "ip:" + first.decode("latin-1")
-    client = scope.get("client")
-    return f"ip:{client[0]}" if client else "ip:unknown"
+                subject = _bearer_subject(token[7:].strip())
+                if subject:
+                    return "u:" + hashlib.sha256(subject.encode("utf-8")).hexdigest()[:16]
+            break
+    return client_address(scope)
 
 
 FORGOT_PASSWORD_REQUESTS = 5

@@ -32,7 +32,6 @@ UNLINKED_DESIGNER_CARD = (
 BAD_CODE = "Check the code. One character is wrong."
 
 _PHOTO_MAX_BYTES = 15 * 1024 * 1024
-_PHOTO_BUDGET_BYTES = 80 * 1024 * 1024
 _PHOTO_CONCURRENCY = 6
 
 _ARTISAN_INCLUDE = {"craft": True, "location": True}
@@ -75,28 +74,30 @@ async def _photos(artisan_ids: list[str], viewer: Any) -> dict[str, Any]:
     return out
 
 
-async def _photo_bytes(media: dict[str, Any]) -> dict[str, bytes]:
+def _load_photo(object_key: str) -> bytes | None:
     from app.services import s3
 
-    budget = _PHOTO_BUDGET_BYTES
-    chosen: list[tuple[str, Any]] = []
-    for artisan_id, row in media.items():
-        size = int(getattr(row, "sizeBytes", 0) or 0)
-        if size > _PHOTO_MAX_BYTES or size > budget:
-            continue
-        budget -= size
-        chosen.append((artisan_id, row))
+    try:
+        data = s3.get_object_bytes(object_key, max_bytes=_PHOTO_MAX_BYTES)
+    except Exception:
+        return None
+    return _pdf_module().scale_photo(data)
+
+
+async def _photo_bytes(media: dict[str, Any]) -> dict[str, bytes]:
     gate = asyncio.Semaphore(_PHOTO_CONCURRENCY)
     out: dict[str, bytes] = {}
 
     async def fetch(artisan_id: str, row: Any) -> None:
+        object_key = getattr(row, "objectKey", None)
+        if not object_key:
+            return
         async with gate:
-            try:
-                out[artisan_id] = await asyncio.to_thread(s3.get_object_bytes, row.objectKey)
-            except Exception:
-                return
+            data = await asyncio.to_thread(_load_photo, object_key)
+        if data:
+            out[artisan_id] = data
 
-    await asyncio.gather(*(fetch(a, r) for a, r in chosen))
+    await asyncio.gather(*(fetch(a, r) for a, r in media.items()))
     return out
 
 
@@ -230,8 +231,8 @@ async def card_pdf(
     image = None
     if photo:
         image = (await _photo_bytes(await _photos([artisan_id], current_user))).get(artisan_id)
-    content = _pdf_module().render(
-        [_face(settings, artisan, card, image)], size, portal=PORTAL_NAME
+    content = await asyncio.to_thread(
+        _pdf_module().render, [_face(settings, artisan, card, image)], size, portal=PORTAL_NAME
     )
     await store.log_event(
         db,
@@ -311,8 +312,13 @@ async def sheet_pdf(payload: SheetIn, current_user: Any = Depends(get_current_us
     if payload.photo:
         images = await _photo_bytes(await _photos(ids, current_user))
     faces = [_face(settings, a, cards[a.id], images.get(a.id)) for a in artisans]
-    content = _pdf_module().render(
-        faces, payload.size, portal=PORTAL_NAME, sheet=True, title="Artisan cards"
+    content = await asyncio.to_thread(
+        _pdf_module().render,
+        faces,
+        payload.size,
+        portal=PORTAL_NAME,
+        sheet=True,
+        title="Artisan cards",
     )
     await store.log_event(
         db,

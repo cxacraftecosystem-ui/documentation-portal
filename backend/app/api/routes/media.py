@@ -42,6 +42,7 @@ from app.schemas.media import (
 )
 from app.services import (
     consent_gate,
+    paid_ai_allowance,
     recording_consent,
     transcribe_choice,
     transcript_insights,
@@ -346,7 +347,7 @@ async def analyze_media_measurement(
     request: Request,
     file: UploadFile = File(...),
     dimension: str | None = Query(default=None),
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     content = await read_upload_bounded(
         file,
@@ -355,13 +356,21 @@ async def analyze_media_measurement(
         purpose="grid-sheet photograph",
         remedy="Photograph the grid sheet alone rather than the whole workbench.",
     )
-    return await analyze_measurement_image_bytes(
-        content,
-        file.filename or "measurement.jpg",
-        file.content_type or "image/jpeg",
-        get_settings(),
-        dimension,
-    )
+    try:
+        return await analyze_measurement_image_bytes(
+            content,
+            file.filename or "measurement.jpg",
+            file.content_type or "image/jpeg",
+            get_settings(),
+            dimension,
+            user_id=current_user.id,
+        )
+    except paid_ai_allowance.AllowanceSpent as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=exc.message,
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from None
 
 
 async def _finish_pending_media(existing: Any, processing_requests: list[str] | None, user_id: str, settings: Any) -> dict[str, Any]:

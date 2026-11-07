@@ -51,9 +51,40 @@ jobs:
           ENFORCE: ${{ (github.event_name == 'push' || inputs.dry_run == false) && 'true' || 'false' }}
         run: bash scripts/ci/await_backend_release.sh
 
-  publish:
-    needs: backend-live
+  provenance:
+    name: The commit is on main
     runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout with history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Refuse a ref or commit that main does not contain
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$REF" != "refs/heads/main" ] && [ "$REF_TYPE" != "tag" ]; then
+            echo "::error title=Android publish refused: not main::Dispatch this workflow from main or from a release tag, not from '${REF}'. The signing key and the publish account only reach commits on main."
+            exit 1
+          fi
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error title=Android publish refused: commit not on main::${GITHUB_SHA} is not reachable from main. Tag a commit that has been merged to main."
+            exit 1
+          fi
+          echo "${GITHUB_SHA} is on main"
+
+  publish:
+    needs: [backend-live, provenance]
+    runs-on: ubuntu-26.04
+    environment: android-release
     outputs:
       version: ${{ steps.version.outputs.version_name }}
       artifact: app-release-${{ steps.version.outputs.version_name }}-${{ github.sha }}

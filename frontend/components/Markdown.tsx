@@ -25,6 +25,22 @@ const components: Components = {
       {children}
     </a>
   ),
+  img: ({ src, alt }) => {
+    const href = typeof src === "string" && /^https?:/i.test(src.trim()) ? src.trim() : "";
+    const label = alt?.trim() || "Image";
+    return href ? (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="font-medium text-purple-700 dark:text-purple-300 underline decoration-purple-300 underline-offset-2"
+      >
+        {label}
+      </a>
+    ) : (
+      <span>{label}</span>
+    );
+  },
   code: ({ children }) => (
     <code className="rounded border border-line-200 bg-surface-50 px-1 py-0.5 font-mono text-[0.85em] text-ink-700">{children}</code>
   ),

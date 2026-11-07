@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import csv
 import io
 import json
 from typing import Any
 
-from app.questionnaire import coverage, ports
+from app.questionnaire import coverage, csv_cells, ports
 from app.questionnaire.common import fail, iso
 from app.questionnaire.ports import consent_gate, naming
 
@@ -102,7 +101,7 @@ def render(rows: list[dict[str, Any]], fields: list[str], fmt: str) -> str:
     if fmt == "jsonl":
         return "".join(json.dumps(row, ensure_ascii=False, default=str, sort_keys=True) + "\n" for row in rows)
     buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=fields, extrasaction="ignore")
+    writer = csv_cells.dict_writer(buffer, fields, extrasaction="ignore")
     writer.writeheader()
     for row in rows:
         writer.writerow({k: (json.dumps(v) if isinstance(v, (list, dict)) else v) for k, v in row.items()})

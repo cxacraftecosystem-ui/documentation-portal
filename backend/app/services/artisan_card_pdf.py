@@ -17,6 +17,8 @@ SHEET_ROWS = 5
 PER_SHEET = SHEET_COLUMNS * SHEET_ROWS
 
 PHOTO_MAX_PX = 600
+PHOTO_MAX_BYTES = 15 * 1024 * 1024
+PHOTO_MAX_PIXELS = 60_000_000
 
 INK = (0.11, 0.11, 0.12)
 MUTED = (0.38, 0.38, 0.42)
@@ -80,6 +82,25 @@ def _draw_qr(c: Any, token: str, x: float, y: float, side: float) -> None:
                 start = None
 
 
+def scale_photo(data: bytes | None) -> bytes | None:
+    if not data:
+        return None
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as opened:
+            if opened.width * opened.height > PHOTO_MAX_PIXELS:
+                return None
+            opened.draft("RGB", (PHOTO_MAX_PX, PHOTO_MAX_PX))
+            image = opened.convert("RGB")
+            image.thumbnail((PHOTO_MAX_PX, PHOTO_MAX_PX))
+            out = io.BytesIO()
+            image.save(out, format="JPEG", quality=85)
+            return out.getvalue()
+    except Exception:
+        return None
+
+
 def _photo_reader(photo: bytes | None) -> Any | None:
     if not photo:
         return None
@@ -88,6 +109,9 @@ def _photo_reader(photo: bytes | None) -> Any | None:
         from reportlab.lib.utils import ImageReader
 
         image = Image.open(io.BytesIO(photo))
+        if image.width * image.height > PHOTO_MAX_PIXELS:
+            return None
+        image.draft("RGB", (PHOTO_MAX_PX, PHOTO_MAX_PX))
         image.load()
         image = image.convert("RGB")
         image.thumbnail((PHOTO_MAX_PX, PHOTO_MAX_PX))

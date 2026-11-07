@@ -214,13 +214,31 @@ def put_object_bytes(object_key: str, data: bytes, *, mime_type: str) -> None:
     )
 
 
-def get_object_bytes(object_key: str) -> bytes:
+_READ_CHUNK_BYTES = 1024 * 1024
+
+
+def get_object_bytes(object_key: str, *, max_bytes: int | None = None) -> bytes:
     settings = get_settings()
+    if max_bytes is not None:
+        head = head_object(object_key)
+        if head is not None and head.size_bytes > max_bytes:
+            raise ObjectTooLarge(object_key, head.size_bytes, max_bytes)
     response = _client().get_object(Bucket=settings.aws_s3_bucket, Key=object_key)
+    body = response["Body"]
     try:
-        return response["Body"].read()
+        if max_bytes is None:
+            return body.read()
+        buffer = bytearray()
+        while True:
+            chunk = body.read(_READ_CHUNK_BYTES)
+            if not chunk:
+                break
+            buffer += chunk
+            if len(buffer) > max_bytes:
+                raise ObjectTooLarge(object_key, len(buffer), max_bytes)
+        return bytes(buffer)
     finally:
-        response["Body"].close()
+        body.close()
 
 
 
