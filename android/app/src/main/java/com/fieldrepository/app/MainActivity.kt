@@ -1819,6 +1819,7 @@ private fun HomeScreen(
                         repository = repository,
                         onBack = { attemptExit { goBack() } },
                         onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
+                        onError = { showMessage(it, AppMessageTone.ERROR) },
                         onOpenMedia = { mediaId -> openRecordView(EntryMode.MEDIA, mediaId) },
                         onOpenRemote = { type, id -> screen = Screen.RemoteRecord(type, id, from = Screen.DataBrowser) },
                         onOpenRecord = { kind, id ->

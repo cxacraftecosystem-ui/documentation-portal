@@ -66,7 +66,7 @@ data class ExplorerShare(
 data class ExplorerShares(val items: List<ExplorerShare> = emptyList())
 
 @Serializable
-data class ExplorerGoMedia(val url: String? = null, val fileName: String? = null, val mediaId: String = "")
+data class ExplorerGoMedia(val url: String? = null, val fileName: String? = null, val mediaId: String = "", val mediaType: String? = null)
 
 @Serializable
 data class ExplorerGoOpen(val kind: String = "", val id: String = "", val href: String? = null)

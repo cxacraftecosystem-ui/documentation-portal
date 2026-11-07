@@ -18,9 +18,13 @@ object ExplorerPlace {
 
     fun read(context: Context, owner: String?): String? = runCatching { prefs(context).getString(key(owner), null) }.getOrNull()
 
-    fun write(context: Context, owner: String?, path: String) {
-        runCatching { prefs(context).edit().putString(key(owner), path).apply() }
-    }
+    fun write(context: Context, owner: String?, path: String): Boolean = runCatching {
+        val prefs = prefs(context)
+        val k = key(owner)
+        if (prefs.getString(k, null) == path) return@runCatching false
+        prefs.edit().putString(k, path).apply()
+        true
+    }.getOrDefault(false)
 }
 
 data class ExplorerLink(val online: Boolean, val metered: Boolean)

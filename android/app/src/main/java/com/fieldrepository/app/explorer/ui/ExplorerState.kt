@@ -1,5 +1,6 @@
 package com.fieldrepository.app.explorer.ui
 
+import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -23,6 +24,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -58,7 +60,12 @@ class ExplorerState(
     private val online: () -> Boolean = { true },
     private val onPlace: (String) -> Unit = {},
     private val fallbackMs: Long = FALLBACK_MS,
-) {
+) : RememberObserver {
+    private val lifetime = SupervisorJob(scope.coroutineContext[Job])
+    private val work = CoroutineScope(scope.coroutineContext + lifetime)
+
+    val closed: Boolean get() = lifetime.isCancelled
+
     var path by mutableStateOf("")
         private set
     var tree by mutableStateOf<ExplorerTree?>(null)
@@ -133,7 +140,22 @@ class ExplorerState(
 
     val folderName: String get() = crumbs.lastOrNull()?.name?.takeIf { it.isNotBlank() } ?: rootName
 
-    val canGoUp: Boolean get() = crumbs.size >= 2
+    val atTop: Boolean get() = path.isEmpty() || taxonomies.any { it.path == path }
+
+    val canGoUp: Boolean get() = !atTop && crumbs.size >= 2
+
+    private fun topPath(): String? =
+        (activeTaxonomy ?: taxonomies.firstOrNull { it.isDefault } ?: taxonomies.firstOrNull())?.path?.takeIf { it.isNotEmpty() }
+
+    fun close() {
+        lifetime.cancel()
+    }
+
+    override fun onRemembered() = Unit
+
+    override fun onForgotten() = close()
+
+    override fun onAbandoned() = close()
 
     private fun key(target: String) = ExplorerCache.key(target, statusParam)
 
@@ -160,7 +182,9 @@ class ExplorerState(
         open(path)
     }
 
-    fun open(target: String) {
+    fun open(requested: String) {
+        if (closed) return
+        val target = if (requested.isEmpty()) topPath() ?: requested else requested
         if (target == path && loadingTarget == target && loadJob?.isActive == true) return
         if (target != path) {
             openTranscripts = emptySet()
@@ -172,8 +196,9 @@ class ExplorerState(
         unfiled = null
         restricted = false
         loadJob?.cancel()
+        val moved = target != path
         path = target
-        onPlace(target)
+        if (moved) onPlace(target)
         val memory = levels[key(target)]
         if (memory != null) show(memory) else {
             tree = null
@@ -183,7 +208,7 @@ class ExplorerState(
             cachedAt = null
         }
         loadingTarget = target
-        loadJob = scope.launch {
+        loadJob = work.launch {
             try {
                 load(target, memory != null)
             } finally {
@@ -213,7 +238,15 @@ class ExplorerState(
         }
         val got = coroutineScope {
             loads++
-            val fetch = async { runCatching { api.tree(target, statusParam, null) } }
+            val fetch = async {
+                try {
+                    Result.success(api.tree(target, statusParam, null))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    Result.failure(failure)
+                }
+            }
             val early = if (disk != null) withTimeoutOrNull(fallbackMs) { fetch.await() } else fetch.await()
             if (early == null && disk != null && path == target) show(Level(disk.tree, disk.tree.entries, null, disk.fetchedAt))
             early ?: fetch.await()
@@ -267,7 +300,7 @@ class ExplorerState(
         val at = cursor ?: return
         if (loadingMore) return
         val target = path
-        scope.launch {
+        work.launch {
             loadingMore = true
             try {
                 val next = api.tree(target, statusParam, at)
@@ -288,6 +321,7 @@ class ExplorerState(
     }
 
     fun goUp(): Boolean {
+        if (!canGoUp) return false
         val parent = crumbs.getOrNull(crumbs.size - 2) ?: return false
         open(parent.path)
         return true
@@ -295,7 +329,7 @@ class ExplorerState(
 
     fun locate(recordType: String, recordId: String, title: String) {
         locateJob?.cancel()
-        locateJob = scope.launch {
+        locateJob = work.launch {
             locating = recordId
             unfiled = null
             error = null
@@ -330,7 +364,7 @@ class ExplorerState(
         val now = transcripts[k]
         if (now is TranscriptLoad.Loading || now is TranscriptLoad.Loaded || now is TranscriptLoad.None) return
         transcripts[k] = TranscriptLoad.Loading
-        scope.launch {
+        work.launch {
             transcripts[k] = try {
                 val got = loadTranscript(entry)
                 if (got.isNullOrBlank()) TranscriptLoad.None else TranscriptLoad.Loaded(got)

@@ -2,6 +2,7 @@ package com.fieldrepository.app.explorer.ui
 
 import android.content.Intent
 import com.fieldrepository.app.explorer.portal.ExplorerPortal
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -68,7 +69,21 @@ object ExplorerViewLinks {
         state.value = request
     }
 
-    fun consume() {
-        state.value = null
+    fun consume(request: ExplorerLinkRequest): Boolean = state.compareAndSet(request, null)
+
+    suspend fun serve(request: ExplorerLinkRequest, onFailure: (Throwable) -> Unit, handle: suspend (ExplorerLinkRequest) -> Unit) {
+        try {
+            handle(request)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            onFailure(failure)
+        }
+        consume(request)
+    }
+
+    fun mediaType(served: String?, name: String): String? {
+        val said = served?.trim()?.uppercase()?.takeIf { it.isNotEmpty() }
+        return said?.takeIf { it != "OTHER" } ?: mediaTypeOf(name) ?: said
     }
 }

@@ -28,7 +28,7 @@ All links are portal web URLs that need sign-in and are permission-checked when 
 
 | Link | Web route | API the page calls |
 | --- | --- | --- |
-| Download | `/data/go/media/<id>/download` | `GET /api/data/go/media/<id>/download?as=json` → `{url, fileName, mediaId}` (without `as=json`: 307 to a fresh signed URL) |
+| Download | `/data/go/media/<id>/download` | `GET /api/data/go/media/<id>/download?as=json` → `{url, fileName, mediaId, mediaType}` (without `as=json`: 307 to a fresh signed URL) |
 | Open in portal, Play from | `/data?preview=<id>&t=<seconds>` | the explorer's own state |
 | Open this record | `/data/go/open/<kind>/<id>` | `GET /api/data/go/open/<kind>/<id>` → `{kind, id, href}` |
 | Transcript .docx / .srt | `/data/go/transcript/<id>/<docx\|srt>` | `GET /api/data/go/transcript/<id>/<fmt>` → `{apiPath, openHref}` |
