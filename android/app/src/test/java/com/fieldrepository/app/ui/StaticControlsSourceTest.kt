@@ -26,7 +26,7 @@ class StaticControlsSourceTest {
     @Test
     fun theStaticControlsNeverAnimate() {
         for (name in listOf("FieldRadioButton.kt", "FieldSwitch.kt")) {
-            val source = File(sourceRoot(), "$com.fieldrepository.app_PATH/ui/$name").readText()
+            val source = File(sourceRoot(), "$PKG_PATH/ui/$name").readText()
             for (word in listOf("animate", "Animatable", "Transition", "tween", "spring(")) {
                 assertFalse("$name must not use $word", source.contains(word))
             }
@@ -47,7 +47,7 @@ class StaticControlsSourceTest {
         while (dir != null) {
             for (path in listOf("src/main/java", "app/src/main/java", "android/app/src/main/java")) {
                 val candidate = File(dir, path)
-                if (File(candidate, "$com.fieldrepository.app_PATH/ui/FieldSwitch.kt").isFile) return candidate
+                if (File(candidate, "$PKG_PATH/ui/FieldSwitch.kt").isFile) return candidate
             }
             dir = dir.parentFile
         }
@@ -55,6 +55,6 @@ class StaticControlsSourceTest {
     }
 
     private companion object {
-        const val com.fieldrepository.app_PATH = "com/fieldrepository/app"
+        const val PKG_PATH = "com/fieldrepository/app"
     }
 }
