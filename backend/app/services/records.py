@@ -148,9 +148,7 @@ class MediaUrlOwners(set):
         self.scoped: dict[str, frozenset[str]] = dict(scoped or {})
 
 
-_MEDIA_SCOPE_FKS = (
-    "artisanId", "productId", "toolId", "workshopId", "questionnaireInterviewId", "processId",
-)
+_MEDIA_SCOPE_FKS = ("artisanId", "productId", "toolId", "workshopId", "questionnaireInterviewId")
 
 
 def media_scope_ids(node: Any) -> set[str]:

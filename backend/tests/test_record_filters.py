@@ -59,14 +59,20 @@ def test_a_free_text_query_is_the_only_thing_a_plain_search_adds():
         assert "AND" not in where, f"{bucket} carries an empty AND"
 
 
-def test_the_download_predicate_still_narrows_below_professor():
+def test_the_download_predicate_still_narrows_below_professor(monkeypatch):
+    from app.services import records
     from app.services.records import owned_or_granted_where
 
+    async def _no_scoped_grants(user_id: str) -> tuple[set[str], dict[str, frozenset[str]]]:
+        return set(), {}
+
+    monkeypatch.setattr(records, "granted_scopes", _no_scoped_grants)
     records = asyncio.run(owned_or_granted_where(VOLUNTEER))
     assert records["OR"][0] == {"createdById": "u1"}
     assert records["OR"][1]["createdBy"]["is"]["dataAccessAsOwner"]["some"] == {
         "granteeId": "u1",
         "status": "GRANTED",
+        "allData": True,
     }
 
     media = asyncio.run(owned_or_granted_where(VOLUNTEER, owner_field="uploadedById"))

@@ -77,7 +77,7 @@ async def world():
             "workshopId": w.open_workshop.id, "userId": w.grantee.id, "status": "GRANTED", "accessLevel": "VIEW",
         })
         w.removed = await _file(
-            w.sharer.id, stamp, "removed.mp3",
+            w.sharer.id, stamp, f"removed-{stamp}.mp3",
             transcriptText=f"words that were removed {stamp}", removedAt=datetime.now(UTC),
         )
         sha = uuid.uuid4().hex * 2
@@ -140,11 +140,29 @@ async def test_removed_media_and_its_transcript_leave_the_search_index(world):
 
 
 async def test_the_map_filters_leave_out_removed_media(world):
-    from app.services.record_filters import build_record_wheres
+    import json
 
-    wheres = await build_record_wheres(world.admin)
-    rows = await db.mediafile.find_many(where={"AND": [wheres["media"], {"id": world.removed.id}]})
-    assert rows == []
+    from app.api.routes.map_points import map_points
+
+    answer = await map_points(
+        current_user=world.admin, q=f"removed-{world.stamp}", craftId=None, place=None, artisanId=None,
+        mediaType=None, types=["media"], dateFrom=None, dateTo=None, workshopIds=None, level=None,
+        focusType=None, focusId=None,
+    )
+    assert world.removed.id not in json.dumps(answer, default=str)
+    assert sum(int(v or 0) for v in (_find_by_type(answer) or {}).values()) == 0
+
+
+def _find_by_type(node):
+    if isinstance(node, dict):
+        if "byType" in node and isinstance(node["byType"], dict):
+            return node["byType"]
+        for value in node.values():
+            found = _find_by_type(value)
+            if found is not None:
+                return found
+    return None
+
 
 
 async def test_dedupe_never_copies_a_hand_edited_or_removed_transcript(world):

@@ -14,6 +14,7 @@ from typing import Any
 from app.scale.replica import read_via_replica
 from app.services import cross_portal_codes, lgd
 from app.services.concurrency import gather_reads
+from app.questionnaire.live import live_media_where
 from app.services.record_filters import build_record_wheres
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -372,7 +373,9 @@ async def fold_for(wheres: dict[str, dict[str, Any]]) -> Fold:
 
 
 async def scope_wheres(user: Any) -> dict[str, dict[str, Any]]:
-    return await build_record_wheres(user)
+    wheres = await build_record_wheres(user)
+    wheres["media"] = live_media_where(wheres["media"])
+    return wheres
 
 
 PEER_PRINCIPAL = SimpleNamespace(id="cross-portal-peer", role="MASTER_ADMIN")

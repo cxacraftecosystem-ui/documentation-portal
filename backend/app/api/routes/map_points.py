@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.db import db
+from app.questionnaire.live import live_media_where
 from app.core.deps import get_current_user
 from app.services.concurrency import gather_reads
 from app.services.geography import (
@@ -500,6 +501,7 @@ async def map_points(
         date_to=dateTo,
         workshop_ids=workshopIds,
     )
+    wheres["media"] = live_media_where(wheres["media"])
 
     counted = [bucket for bucket in RECORD_TYPES if bucket in selected]
     placed = [bucket for bucket in PLACED_TYPES if bucket in selected]
@@ -626,6 +628,7 @@ async def point_records(
         date_to=dateTo,
         workshop_ids=workshopIds,
     )
+    wheres["media"] = live_media_where(wheres["media"])
 
     if point_key.startswith("capture:"):
         narrowed = await _capture_narrowing(point_key, wheres, selected, "latitude", "longitude")
