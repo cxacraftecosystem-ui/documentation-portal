@@ -305,9 +305,29 @@ class ScreensShotsTest {
 
     @Test fun statesLoadingDark() = folderShot("States", "loading-dark", dark = true, mode = ScreenBoards.Mode.HANG)
 
-    @Test fun statesEmpty() = folderShot("States", "empty", start = ScreenBoards.EMPTY) { scrollTo("explorer.empty") }
+    private fun steadyTreeKey(key: String) {
+        val indexForKey = androidx.compose.ui.semantics.SemanticsProperties.IndexForKey
+        var last = -1
+        var steady = 0
+        compose.waitUntil(15_000) {
+            val tree = compose.onAllNodes(hasTestTag("explorer.tree"), useUnmergedTree = true).fetchSemanticsNodes().singleOrNull()
+            val now = if (tree != null && indexForKey in tree.config) tree.config[indexForKey](key) else -1
+            steady = if (now >= 0 && now == last) steady + 1 else 0
+            last = now
+            steady >= 3
+        }
+        compose.waitForIdle()
+    }
 
-    @Test fun statesEmptyDark() = folderShot("States", "empty-dark", dark = true, start = ScreenBoards.EMPTY) { scrollTo("explorer.empty") }
+    @Test fun statesEmpty() = folderShot("States", "empty", start = ScreenBoards.EMPTY) {
+        steadyTreeKey("empty")
+        scrollTo("explorer.empty")
+    }
+
+    @Test fun statesEmptyDark() = folderShot("States", "empty-dark", dark = true, start = ScreenBoards.EMPTY) {
+        steadyTreeKey("empty")
+        scrollTo("explorer.empty")
+    }
 
     @Test fun statesError() = folderShot("States", "error", mode = ScreenBoards.Mode.FAIL) { waitTag("explorer.error") }
 

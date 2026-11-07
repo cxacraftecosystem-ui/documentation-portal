@@ -451,6 +451,15 @@ export function stateCounts(rows: readonly { state: RowState }[]): Record<StateF
   };
 }
 
+export type CountsKnown = { rows: boolean; statuses: boolean; more: boolean };
+
+export function transcriptPillCount(pill: StateFilter, counts: Record<StateFilter, number>, known: CountsKnown): string | null {
+  if (!known.rows) return null;
+  if (pill !== "all" && !known.statuses) return null;
+  const value = counts[pill].toLocaleString("en-IN");
+  return pill === "all" && known.more ? `${value}+` : value;
+}
+
 export function languageOptions(rows: readonly { summary: Pick<TranscriptSummary, "languages"> | null }[]): { value: string; label: string }[] {
   const seen = new Map<string, string>();
   for (const row of rows) for (const language of row.summary?.languages ?? []) if (language.code && !seen.has(language.code)) seen.set(language.code, language.label || language.code);

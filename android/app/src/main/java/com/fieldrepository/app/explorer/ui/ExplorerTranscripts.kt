@@ -86,6 +86,12 @@ data class TranscriptRowModel(
 )
 
 object ExplorerTranscriptStatus {
+    fun countLabel(label: String, count: Int?, more: Boolean = false): String {
+        if (count == null) return "$label …"
+        val n = String.format(java.util.Locale.ROOT, "%,d", count)
+        return if (more) "$label $n+" else "$label $n"
+    }
+
     private val pending = setOf("PENDING", "QUEUED", "RUNNING", "TRANSLATING")
     private val finished = setOf("COMPLETED", "READY", "SKIPPED_DUPLICATE")
 
@@ -234,6 +240,9 @@ internal fun ExplorerTranscriptsTab(
 
     val rows = page?.rows.orEmpty()
     val counts = TranscriptStatus.entries.associateWith { s -> rows.count { it.status == s } }
+    val countsKnown = !loading && page != null
+    val moreToLoad = page?.folder == true && page?.nextOffset != null
+    fun pillCount(status: TranscriptStatus): Int? = if (countsKnown) counts[status] ?: 0 else null
     val shown = rows.filter { shownStatus == null || it.status.name == shownStatus }
 
     Column(Modifier.fillMaxWidth().testTag("explorer.transcripts"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -252,7 +261,7 @@ internal fun ExplorerTranscriptsTab(
             }
             if (onBundle != null) {
                 Button(onClick = onBundle, enabled = online && rows.isNotEmpty(), modifier = Modifier.weight(1f).heightIn(min = 44.dp).testTag("explorer.transcripts.zip")) {
-                    Text(ExplorerUiText.zipCount(rows.size), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(if (countsKnown) ExplorerUiText.zipCount(rows.size) else ExplorerUiText.zipPending, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -265,10 +274,10 @@ internal fun ExplorerTranscriptsTab(
             modifier = Modifier.fillMaxWidth().testTag("explorer.transcripts.q"),
         )
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Pill("${ExplorerUiText.all} ${rows.size}", shownStatus == null, "all") { shownStatus = null }
-            Pill("${ExplorerUiText.ready} ${counts[TranscriptStatus.READY] ?: 0}", shownStatus == TranscriptStatus.READY.name, "ready") { shownStatus = TranscriptStatus.READY.name }
-            Pill("${ExplorerUiText.translating} ${counts[TranscriptStatus.TRANSLATING] ?: 0}", shownStatus == TranscriptStatus.TRANSLATING.name, "translating") { shownStatus = TranscriptStatus.TRANSLATING.name }
-            Pill("${ExplorerUiText.failed} ${counts[TranscriptStatus.FAILED] ?: 0}", shownStatus == TranscriptStatus.FAILED.name, "failed") { shownStatus = TranscriptStatus.FAILED.name }
+            Pill(ExplorerTranscriptStatus.countLabel(ExplorerUiText.all, if (countsKnown) rows.size else null, moreToLoad), shownStatus == null, "all") { shownStatus = null }
+            Pill(ExplorerTranscriptStatus.countLabel(ExplorerUiText.ready, pillCount(TranscriptStatus.READY)), shownStatus == TranscriptStatus.READY.name, "ready") { shownStatus = TranscriptStatus.READY.name }
+            Pill(ExplorerTranscriptStatus.countLabel(ExplorerUiText.translating, pillCount(TranscriptStatus.TRANSLATING)), shownStatus == TranscriptStatus.TRANSLATING.name, "translating") { shownStatus = TranscriptStatus.TRANSLATING.name }
+            Pill(ExplorerTranscriptStatus.countLabel(ExplorerUiText.failed, pillCount(TranscriptStatus.FAILED)), shownStatus == TranscriptStatus.FAILED.name, "failed") { shownStatus = TranscriptStatus.FAILED.name }
             var open by remember { mutableStateOf(false) }
             Box {
                 Pill((offeredLanguages.firstOrNull { it.first == language }?.second ?: ExplorerUiText.language) + " ▾", language.isNotBlank(), "language") { open = true }

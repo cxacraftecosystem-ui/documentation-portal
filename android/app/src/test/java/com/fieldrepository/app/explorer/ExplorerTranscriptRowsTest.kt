@@ -35,4 +35,13 @@ class ExplorerTranscriptRowsTest {
         assertEquals("No speech found in the recording", row.message)
         assertNull(ExplorerTranscriptStatus.row(item, TranscriptSummary(mediaId = "m1", status = "NEEDS_ATTENTION", statusMessage = " ")).message)
     }
+
+    @QFeature("X12")
+    @Test fun `a count still loading reads as pending, never as zero`() {
+        assertEquals("All …", ExplorerTranscriptStatus.countLabel("All", null))
+        assertEquals("Failed …", ExplorerTranscriptStatus.countLabel("Failed", null, more = true))
+        assertEquals("Ready 0", ExplorerTranscriptStatus.countLabel("Ready", 0))
+        assertEquals("All 2,544", ExplorerTranscriptStatus.countLabel("All", 2544))
+        assertEquals("All 500+", ExplorerTranscriptStatus.countLabel("All", 500, more = true))
+    }
 }

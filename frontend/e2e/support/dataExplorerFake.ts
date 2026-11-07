@@ -219,6 +219,7 @@ export class DataExplorerFake {
   servedFiles: string[] = [];
   fileDelayMs = 0;
   fileDelays = new Map<string, number>();
+  holds = new Map<string, Promise<void>>();
   rangeRequests: { id: string; from: number }[] = [];
   reportBusy = 0;
   xlsxFailures = 0;
@@ -743,6 +744,8 @@ export class DataExplorerFake {
           body = null;
         }
         this.calls.push({ method: request.method(), path, query: url.searchParams, body, at: Date.now(), headers: request.headers() });
+        const hold = this.holds.get(path);
+        if (hold) await hold;
         const out = this.answer(request.method(), path, url.searchParams, body);
         if (!out) return route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Not Found" }) });
         if (out.status === 204) return route.fulfill({ status: 204 });

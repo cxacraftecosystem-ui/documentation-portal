@@ -161,6 +161,8 @@ object ExplorerUiText {
 
     fun zipCount(n: Int) = "Transcripts (.zip) · $n"
 
+    const val zipPending = "Transcripts (.zip) · …"
+
     fun speakers(n: Int) = ExplorerBytes.count(n, "speaker")
 
     fun translatingPercent(n: Int) = "Translating $n%"

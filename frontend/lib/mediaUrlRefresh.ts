@@ -61,6 +61,18 @@ export function presignedUrlExpired(url: string | null | undefined, nowMs: numbe
   return nowMs >= expiresAt - EXPIRY_SLACK_MS;
 }
 
+export const MEDIA_NEAR_EXPIRY_MS = 60_000;
+
+export function presignedUrlExpiresSoon(
+  url: string | null | undefined,
+  nowMs: number,
+  windowMs: number = MEDIA_NEAR_EXPIRY_MS
+): boolean {
+  const expiresAt = presignedExpiryAt(url);
+  if (expiresAt === null) return false;
+  return nowMs >= expiresAt - Math.max(windowMs, EXPIRY_SLACK_MS);
+}
+
 export function attemptKey(mediaId: string, url: string | null | undefined): string {
   return `${mediaId}\n${url ?? ""}`;
 }
