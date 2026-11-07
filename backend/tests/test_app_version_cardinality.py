@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from conftest import needs_db
+from qv2_fixtures import needs_db
 
 from app.services import app_versions
 
