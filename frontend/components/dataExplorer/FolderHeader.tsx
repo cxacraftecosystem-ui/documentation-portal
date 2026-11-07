@@ -299,7 +299,7 @@ export function FolderHeader({
         </div>
         <div className="flex flex-wrap items-start justify-between gap-4 max-lg:items-center max-lg:gap-3 max-sm:gap-2.5">
           <div className="grid min-w-0 gap-1.5 max-lg:gap-1 max-sm:w-full max-sm:gap-2.5">
-            <h2 className="font-display text-2xl font-extrabold text-ink-900 max-lg:text-[22px] max-sm:text-xl">{loading && !folderName ? <Skeleton className="h-7 w-48" /> : folderName}</h2>
+            <h2 className="font-display text-2xl font-extrabold text-ink-900 max-lg:text-[22px] max-sm:text-xl">{folderName || (loading ? <Skeleton className="h-7 w-48" /> : "Folder")}</h2>
             <p className="flex flex-wrap items-center gap-2 text-[13px] text-ink-700" data-testid="folder-size">
               {typeLabel ? <span className="rounded-full bg-purple-100 px-2.5 py-1 font-semibold text-purple-800 max-lg:hidden dark:bg-purple-950/60 dark:text-purple-200">{typeLabel}</span> : null}
               {facts.map((fact, index) => (

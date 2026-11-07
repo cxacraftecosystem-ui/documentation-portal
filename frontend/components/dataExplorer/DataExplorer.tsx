@@ -369,9 +369,11 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
     if (fromServer.some((crumb) => crumb.path === "")) return fromServer;
     return [{ name: config.rootName, path: "" }, ...fromServer];
   }, [current, config.rootName]);
-  const folderName = crumbs[crumbs.length - 1]?.name || config.rootName;
   const parentPath = url.path.split("/").slice(0, -1).join("/");
   const ownEntry = trees[parentPath]?.entries.find((entry) => entry.path === url.path) ?? null;
+  const folderPending = Boolean(url.path) && !current;
+  const folderTitle = folderPending ? (ownEntry?.name ?? "") : crumbs[crumbs.length - 1]?.name || config.rootName;
+  const folderName = folderTitle || "Folder";
   const recordType = ownEntry?.recordType ?? null;
   const taxonomies = current?.taxonomies ?? trees[""]?.taxonomies ?? [];
   const activeTaxonomy = current?.taxonomy ?? null;
@@ -559,7 +561,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
     <>
             <FolderHeader
               crumbs={shownCrumbs}
-              folderName={shownCrumbs[shownCrumbs.length - 1]?.name ?? folderName}
+              folderName={folderPending ? folderTitle : (shownCrumbs[shownCrumbs.length - 1]?.name ?? folderName)}
               recordType={recordType}
               size={folderSize}
               include={include}
@@ -570,7 +572,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
               onDownload={() => downloadFolder("zip")}
               onSaveFolder={caps.saveFolder ? () => downloadFolder("folder") : null}
               busy={false}
-              loading={!current && tree.loading.has(url.path)}
+              loading={folderPending ? !tree.errors[url.path] : !current && tree.loading.has(url.path)}
               onWholeDataset={wholeRepository ? () => downloadDataset("zip") : null}
               info={current?.info ?? null}
               fresh={newHere ? `+${newHere} new since you looked` : null}

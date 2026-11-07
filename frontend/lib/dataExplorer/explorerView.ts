@@ -1,4 +1,4 @@
-import { includeKeyOf, type IncludeKey, type ReportResponse, type SavedView, type SavedViewState, type TreeEntry } from "@/lib/dataExplorer/contract";
+import { includeKeyOf, type IncludeKey, type ReportResponse, type ReviewCounts, type SavedView, type SavedViewState, type TranscriptCounts, type TreeEntry } from "@/lib/dataExplorer/contract";
 import type { ExplorerUrlState } from "@/lib/dataExplorer/urlState";
 
 export const FILES_PAGE_SIZE = 25;
@@ -66,6 +66,25 @@ export function sortArtisans<T extends { name: string; fields: { filled: number;
 
 export function percentLabel(fields: { filled: number; total: number }): string {
   return fields.total > 0 ? `${Math.round((fields.filled / fields.total) * 100)}%` : "-";
+}
+
+export type ReviewTone = "done" | "waiting" | "none";
+
+export function reviewFraction(review: ReviewCounts): string {
+  return `${review.approved} / ${review.total}`;
+}
+
+export function reviewDetail(review: ReviewCounts): string {
+  return `approved · ${review.pending} pending`;
+}
+
+export function reviewTone(review: ReviewCounts): ReviewTone {
+  if (review.total <= 0) return "none";
+  return review.approved >= review.total ? "done" : "waiting";
+}
+
+export function transcriptDetail(transcripts: TranscriptCounts): string {
+  return `${transcripts.ready} ready · ${transcripts.translating} translating · ${transcripts.failed} failed`;
 }
 
 

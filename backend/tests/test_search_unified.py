@@ -131,7 +131,12 @@ async def test_groups_come_in_vocabulary_order_with_totals(world, settings):
         i["local"] is True and i["portal"] == "fieldRepository" for i in products["items"]
     )
     assert result["mode"] == "text"
-    assert result["remote"] == {"portal": "designer", "label": "Designer portal", "status": "off"}
+    assert result["remote"] == {
+        "portal": "designer",
+        "label": "Designer portal",
+        "status": "off",
+        "available": False,
+    }
     assert result["typesRefused"] == []
 
 

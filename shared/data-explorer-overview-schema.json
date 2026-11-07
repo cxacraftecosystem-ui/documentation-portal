@@ -1,0 +1,32 @@
+{
+  "contract": "data-explorer-overview",
+  "route": "GET /data/overview",
+  "rules": "Every key is required unless it ends in '?'. No other key may appear. A leaf names its JSON types joined by '|'. An array holds one schema that every element must match.",
+  "schema": {
+    "path": "string",
+    "title": "string",
+    "subtitle": "string|null",
+    "totals": {
+      "files": "number",
+      "bytes": "number",
+      "fields": { "filled": "number", "total": "number" },
+      "transcripts": { "total": "number", "ready": "number", "translating": "number", "failed": "number" },
+      "review": { "approved": "number", "pending": "number", "total": "number" }
+    },
+    "sections": [{ "key": "string", "label": "string" }],
+    "artisans": [
+      {
+        "id": "string",
+        "name": "string",
+        "craft": "string|null",
+        "path": "string",
+        "fields": { "filled": "number", "total": "number" },
+        "media": { "files": "number", "bytes": "number" },
+        "transcripts": { "total": "number", "ready": "number", "translating": "number", "failed": "number" },
+        "review": { "approved": "number", "pending": "number", "total": "number" },
+        "sections": [{ "key": "string", "state": "string", "missing": ["string"], "href?": "string|null" }]
+      }
+    ],
+    "truncated": "boolean"
+  }
+}

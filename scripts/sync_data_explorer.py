@@ -29,6 +29,9 @@ EXTRA = (
     "frontend/e2e/data-go-links-unit.spec.ts",
     "frontend/app/report-share/[token]/layout.tsx",
     "frontend/app/report-share/[token]/page.tsx",
+    "shared/data-explorer-overview-schema.json",
+    "frontend/e2e/data-explorer-web-contract-unit.spec.ts",
+    "backend/tests/test_data_explorer_web_contract.py",
 )
 
 

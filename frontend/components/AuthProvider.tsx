@@ -2,7 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
-import { ApiError, apiFetch, clearPasswordChangeOwed, endSession, onPasswordChangeRequired } from "@/lib/api";
+import { ApiError, apiFetch, clearPasswordChangeOwed, endSession, getSessionMarker, onPasswordChangeRequired } from "@/lib/api";
+import { forgetCachedMe, meFailure, meRetryDelay, readCachedMe, withinTimeout, writeCachedMe, type MeReach } from "@/lib/meProbe";
 import { migrateStoredToken } from "@/lib/session";
 import type { loginBody } from "@/lib/oidcSignIn";
 import { isTwoFactorChallenge, type SignInResult, type TwoFactorChallenge } from "@/lib/twoFactor";
@@ -12,6 +13,8 @@ import { invalidateWorkshopList } from "@/lib/workshopList";
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
+  reach: MeReach;
+  retryMe: () => void;
   login: (email: string, password: string) => Promise<User | TwoFactorChallenge>;
   loginWithGoogle: (googleIdToken: string) => Promise<User | TwoFactorChallenge>;
   loginWithOidc: (body: ReturnType<typeof loginBody>) => Promise<User | TwoFactorChallenge>;
@@ -26,30 +29,97 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUserState] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reach, setReach] = useState<MeReach>("ok");
+  const attempts = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const probeRef = useRef<() => Promise<void>>(async () => undefined);
+
+  const setUser = useCallback((next: User | null) => {
+    writeCachedMe(getSessionMarker(), next);
+    setUserState(next);
+  }, []);
+
+  const scheduleRetry = useCallback(() => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    const delay = meRetryDelay(attempts.current);
+    attempts.current += 1;
+    retryTimer.current = setTimeout(() => {
+      retryTimer.current = null;
+      void probeRef.current();
+    }, delay);
+  }, []);
 
   const signInPassword = useRef("");
   const pendingPassword = useRef("");
 
   const refreshMe = useCallback(async () => {
     try {
-      const me = await apiFetch<User>("/me");
+      const me = await withinTimeout((signal) => apiFetch<User>("/me", { signal }));
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+      attempts.current = 0;
+      setReach("ok");
       setUser(me);
     } catch (err) {
-      if (err instanceof ApiError && err.sessionReplaced) return;
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+      const failure = meFailure(err, err instanceof ApiError && err.sessionReplaced);
+      if (failure === "replaced") return;
+      if (failure === "signedOut") {
         endSession();
+        setReach("ok");
+        setUser(null);
+        return;
       }
-      setUser(null);
+      if (!getSessionMarker()) {
+        setReach("ok");
+        setUser(null);
+        return;
+      }
+      setReach("retrying");
+      scheduleRetry();
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [scheduleRetry, setUser]);
 
   useEffect(() => {
-    void migrateStoredToken().finally(() => refreshMe());
+    probeRef.current = refreshMe;
   }, [refreshMe]);
+
+  const retryMe = useCallback(() => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = null;
+    attempts.current = 0;
+    void refreshMe();
+  }, [refreshMe]);
+
+  useEffect(() => {
+    void migrateStoredToken().finally(() => {
+      const cached = readCachedMe(getSessionMarker());
+      if (cached) {
+        setUserState(cached);
+        setLoading(false);
+      }
+      void refreshMe();
+    });
+    return () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+    };
+  }, [refreshMe]);
+
+  useEffect(() => {
+    if (reach !== "retrying") return;
+    const again = () => {
+      if (document.visibilityState === "visible") retryMe();
+    };
+    window.addEventListener("online", again);
+    document.addEventListener("visibilitychange", again);
+    return () => {
+      window.removeEventListener("online", again);
+      document.removeEventListener("visibilitychange", again);
+    };
+  }, [reach, retryMe]);
 
   const rereading = useRef(false);
   useEffect(() => {
@@ -65,7 +135,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearSession = useCallback(() => {
     endSession();
-    setUser(null);
+    forgetCachedMe();
+    setUserState(null);
     signInPassword.current = "";
     pendingPassword.current = "";
     clearPasswordChangeOwed();
@@ -84,7 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isTwoFactorChallenge(result)) return result;
     setUser(result.user);
     return result.user;
-  }, []);
+  }, [setUser]);
 
   const signIn = useCallback(
     async (body: unknown) =>
@@ -148,6 +219,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       user,
       loading,
+      reach,
+      retryMe,
       login,
       loginWithGoogle,
       loginWithOidc,
@@ -161,6 +234,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [
       user,
       loading,
+      reach,
+      retryMe,
       login,
       loginWithGoogle,
       loginWithOidc,

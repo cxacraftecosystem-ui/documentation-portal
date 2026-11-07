@@ -13,7 +13,7 @@ import { TranscriptDataPanel } from "@/components/transcript/TranscriptDataPanel
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { useWorkshopScope, WorkshopScopeSelect } from "@/components/WorkshopScopeSelect";
 import { listResource } from "@/lib/api";
-import type { BrowsePage } from "@/lib/dataExplorer/contract";
+import type { BrowseKind, BrowsePage } from "@/lib/dataExplorer/contract";
 import { canCreateRecords, canDownloadDataset } from "@/lib/permissions";
 import { canUpdateRecord, recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import { DATA_STATUS_OPTIONS, DEFAULT_DATA_STATUS, dataStatusLabel, statusQuery } from "@/lib/review";
@@ -42,7 +42,7 @@ type BrowseDef = {
   load: (page: number, q: string, workshopIds: string | undefined) => Promise<BrowsePage>;
 };
 
-const BROWSE_TYPES: Record<string, BrowseDef> = {
+const BROWSE_TYPES: Record<BrowseKind, BrowseDef> = {
   artisan: {
     label: "Artisans",
     load: async (page, q) =>
@@ -93,7 +93,7 @@ const BROWSE_TYPES: Record<string, BrowseDef> = {
         createdAt: x.createdAt
       }))
   },
-  questionnaire: {
+  interview: {
     label: "Questionnaire",
     scoped: true,
     load: async (page, q, workshopIds) =>
