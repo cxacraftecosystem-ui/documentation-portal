@@ -54,6 +54,7 @@ object ExplorerUiText {
     const val next = "Next file"
     const val close = "Close"
     const val save = "Save"
+    const val openRecord = "Open record"
     const val noTranscript = "No transcript for this recording."
     const val loadingTranscript = "Loading the transcript…"
     const val noEnglish = "No English yet."

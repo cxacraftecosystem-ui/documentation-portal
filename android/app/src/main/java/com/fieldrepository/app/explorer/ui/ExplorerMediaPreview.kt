@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -52,6 +53,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -111,10 +113,17 @@ internal fun ExplorerMediaDialog(
     onSave: ((ExplorerEntry) -> Unit)?,
     onDismiss: () -> Unit,
     find: String = "",
+    onOpenRecord: ((ExplorerEntry) -> Unit)? = null,
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        ExplorerMediaContent(entries, start, startSeconds, total, onSave, onDismiss, Modifier.safeDrawingPadding(), find = find)
+        ExplorerMediaContent(entries, start, startSeconds, total, onSave, onDismiss, Modifier.safeDrawingPadding(), find = find, onOpenRecord = onOpenRecord)
     }
+}
+
+internal fun videoFrame(maxWidth: Float, maxHeight: Float, aspect: Float?): Pair<Float, Float> {
+    val ratio = aspect?.takeIf { it.isFinite() && it > 0f } ?: (16f / 9f)
+    val height = minOf(maxWidth / ratio, maxHeight)
+    return (height * ratio) to height
 }
 
 @Composable
@@ -128,6 +137,7 @@ internal fun ExplorerMediaContent(
     modifier: Modifier = Modifier,
     loader: ExplorerMediaLoader? = null,
     find: String = "",
+    onOpenRecord: ((ExplorerEntry) -> Unit)? = null,
 ) {
     var index by rememberSaveable { mutableStateOf(start.coerceIn(0, (entries.size - 1).coerceAtLeast(0))) }
     val entry = entries.getOrNull(index) ?: return
@@ -146,6 +156,7 @@ internal fun ExplorerMediaContent(
                     onNext = { if (index < entries.lastIndex) index++ },
                     loader = loader,
                     find = if (index == start) find else "",
+                    onOpenRecord = onOpenRecord?.takeIf { entry.mediaId != null }?.let { open -> { open(entry) } },
                 )
             }
         }
@@ -165,6 +176,7 @@ private fun ColumnScope.MediaPane(
     onNext: () -> Unit,
     loader: ExplorerMediaLoader? = null,
     find: String = "",
+    onOpenRecord: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -209,6 +221,13 @@ private fun ColumnScope.MediaPane(
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(meta, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (onOpenRecord != null) {
+            Box(
+                Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, MaterialTheme.field.hairline, RoundedCornerShape(12.dp))
+                    .clickable(role = Role.Button, onClick = onOpenRecord).padding(horizontal = 12.dp).testTag("explorer.preview.record"),
+                contentAlignment = Alignment.Center,
+            ) { Text(ExplorerUiText.openRecord, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface) }
         }
         if (onSave != null) {
             Box(
@@ -270,9 +289,12 @@ private fun ColumnScope.MediaPane(
     val duration = playback.durationSeconds.takeIf { it > 0 } ?: ((ready?.view?.durationMs ?: 0L) / 1000.0)
     val english = tab == PreviewTab.ENGLISH
 
-    Box(Modifier.fillMaxWidth().height(219.dp).background(Color(0xFF12101C)).testTag("explorer.preview.stage")) {
-        if (source != null) TranscriptVideoSurface(playback, Modifier.fillMaxSize())
-        if (!started) Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF4B3A2E), Color(0xFF1A1520)))))
+    val stageCap = (LocalConfiguration.current.screenHeightDp * 0.45f).coerceAtLeast(219f)
+    BoxWithConstraints(Modifier.fillMaxWidth().background(Color(0xFF12101C)).testTag("explorer.preview.stage")) {
+        val (frameWidth, frameHeight) = videoFrame(maxWidth.value, stageCap, playback.videoAspect)
+        Box(Modifier.fillMaxWidth().height(frameHeight.dp))
+        if (source != null) TranscriptVideoSurface(playback, Modifier.align(Alignment.Center).size(frameWidth.dp, frameHeight.dp).testTag("explorer.preview.frame"))
+        if (!started) Box(Modifier.matchParentSize().background(Brush.linearGradient(listOf(Color(0xFF4B3A2E), Color(0xFF1A1520)))))
         if (!playback.playing) {
             Box(
                 Modifier.align(Alignment.Center).size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f))
@@ -281,7 +303,7 @@ private fun ColumnScope.MediaPane(
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(26.dp)) }
         } else {
-            Box(Modifier.fillMaxSize().clickable(role = Role.Button, onClick = playback::toggle).semantics { contentDescription = ExplorerUiText.pause }.testTag("explorer.preview.pause"))
+            Box(Modifier.matchParentSize().clickable(role = Role.Button, onClick = playback::toggle).semantics { contentDescription = ExplorerUiText.pause }.testTag("explorer.preview.pause"))
         }
         active?.let { i ->
             val line = if (english) turns[i].translation.text?.ifBlank { null } ?: turns[i].text else turns[i].text

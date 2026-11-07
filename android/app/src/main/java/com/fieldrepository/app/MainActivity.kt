@@ -232,7 +232,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -700,6 +702,11 @@ private enum class EntryMode(
     CRAFT("Craft", "Add craft", editable = true),
     WORKSHOP("Workshop", "Record workshop", editable = true)
 }
+
+private val ScreenSaver = Saver<Screen, String>(
+    save = { s -> if (s is Screen.DataBrowser || (s is Screen.View && s.back is Screen.DataBrowser)) "data" else "home" },
+    restore = { if (it == "data") Screen.DataBrowser else Screen.Dashboard },
+)
 
 private sealed interface Screen {
     data object Dashboard : Screen
@@ -1366,14 +1373,12 @@ private fun HomeScreen(
     var sections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
     var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
     var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
-    var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
+    var screen by rememberSaveable(stateSaver = ScreenSaver) { mutableStateOf<Screen>(Screen.Dashboard) }
+    val dataExplorer = key(user.id) { com.fieldrepository.app.explorer.ui.rememberDataExplorerState() }
+    val dataHolder = rememberSaveableStateHolder()
     val notificationOpenRequest by NotificationState.openRequests.collectAsState()
     LaunchedEffect(notificationOpenRequest) {
         if (notificationOpenRequest > 0L) screen = Screen.Notifications
-    }
-    val viewLink by com.fieldrepository.app.explorer.ui.ExplorerViewLinks.requests.collectAsState()
-    LaunchedEffect(viewLink) {
-        if (viewLink != null && screen !is Screen.DataBrowser) screen = Screen.DataBrowser
     }
     val downloadsOpenRequest by com.fieldrepository.app.explorer.data.ExplorerDownloadsTap.requests.collectAsState()
     LaunchedEffect(downloadsOpenRequest) {
@@ -1568,6 +1573,17 @@ private fun HomeScreen(
             pendingExit = leave
         } else {
             leave()
+        }
+    }
+
+    val viewLink by com.fieldrepository.app.explorer.ui.ExplorerViewLinks.requests.collectAsState()
+    var linkAsked by remember { mutableStateOf<com.fieldrepository.app.explorer.ui.ExplorerLinkRequest?>(null) }
+    LaunchedEffect(viewLink, pendingExit) {
+        val link = viewLink ?: return@LaunchedEffect
+        if (screen is Screen.DataBrowser) return@LaunchedEffect
+        when {
+            linkAsked !== link -> { linkAsked = link; attemptExit { message = null; screen = Screen.DataBrowser } }
+            pendingExit == null -> com.fieldrepository.app.explorer.ui.ExplorerViewLinks.consume(link)
         }
     }
 
@@ -1815,8 +1831,9 @@ private fun HomeScreen(
                     .appMenuHidesPage(drawerState.appMenuShowing)
             ) {
                 when (screen) {
-                    is Screen.DataBrowser -> DataBrowserScreen(
+                    is Screen.DataBrowser -> dataHolder.SaveableStateProvider("data:${user.id}") { DataBrowserScreen(
                         repository = repository,
+                        state = dataExplorer,
                         onBack = { attemptExit { goBack() } },
                         onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
                         onError = { showMessage(it, AppMessageTone.ERROR) },
@@ -1833,7 +1850,7 @@ private fun HomeScreen(
                             val artisanId = dataFolderArtisan(path)
                             screen = Screen.Create(EntryMode.MEDIA, artisanId?.let { Prefill(artisanId = it, artisanName = name) }, fresh = ++createNonce)
                         }
-                    )
+                    ) }
 
                     is Screen.Appearance -> AppearanceScreen(
                         repository = repository,

@@ -5,6 +5,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import com.fieldrepository.app.explorer.data.ExplorerApi
 import com.fieldrepository.app.explorer.data.ExplorerBusy
@@ -47,11 +48,27 @@ sealed interface TranscriptLoad {
 
 enum class ExplorerTab { FILES, TABLES, TRANSCRIPTS }
 
+data class ExplorerResume(val path: String, val tab: ExplorerTab, val status: String?) {
+    companion object {
+        private const val NONE = "\u0000"
+
+        val saver: Saver<ExplorerResume?, Any> = Saver(
+            save = { r -> r?.let { arrayListOf(it.path, it.tab.name, it.status ?: NONE) } },
+            restore = { saved ->
+                (saved as? List<*>)?.let { parts ->
+                    val tab = runCatching { ExplorerTab.valueOf(parts[1] as String) }.getOrDefault(ExplorerTab.FILES)
+                    ExplorerResume(parts[0] as String, tab, (parts[2] as String).takeIf { it != NONE })
+                }
+            },
+        )
+    }
+}
+
 private class Level(val tree: ExplorerTree, val entries: List<ExplorerEntry>, val cursor: String?, val cachedAt: Long?)
 
 @Stable
 class ExplorerState(
-    private val api: ExplorerApi,
+    internal val api: ExplorerApi,
     private val scope: CoroutineScope,
     private val cache: ExplorerCache?,
     private val rootName: String,
@@ -113,7 +130,8 @@ class ExplorerState(
     private var loadJob: Job? = null
     private var locateJob: Job? = null
     private var landed = false
-    private var started = false
+    var started = false
+        private set
 
     val statusParam: String? get() = statusParamOf(status)
 
@@ -163,9 +181,16 @@ class ExplorerState(
         error = null
     }
 
-    fun start(saved: String?) {
+    fun start(saved: String?, resume: ExplorerResume? = null) {
         if (started) return
         started = true
+        if (resume != null) {
+            status = resume.status
+            landed = resume.path.isNotEmpty()
+            open(resume.path)
+            tab = resume.tab
+            return
+        }
         if (!saved.isNullOrBlank()) {
             landed = true
             open(saved)

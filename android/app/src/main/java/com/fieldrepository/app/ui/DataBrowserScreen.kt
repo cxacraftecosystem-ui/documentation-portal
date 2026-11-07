@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.explorer.data.ExplorerText
 import com.fieldrepository.app.explorer.ui.ExplorerScreen
+import com.fieldrepository.app.explorer.ui.ExplorerState
 import com.fieldrepository.app.explorer.ui.ExplorerUiText
 import com.fieldrepository.app.explorer.ui.LocalExplorerSearchAll
 
@@ -48,6 +49,7 @@ fun DataBrowserScreen(
     onRecordNow: ((folderPath: String, folderName: String) -> Unit)? = null,
     onOpenSection: ((artisanId: String, sectionKey: String) -> Unit)? = null,
     onOpenRecord: ((kind: String, id: String) -> Unit)? = null,
+    state: ExplorerState? = null,
 ) {
     ExplorerScreen(
         onBack = onBack,
@@ -56,6 +58,8 @@ fun DataBrowserScreen(
         onError = onError,
         onOpenMedia = onOpenMedia,
         startPath = startPath.takeIf { it.isNotBlank() },
+        onPathChange = onPathChange,
+        held = state,
         search = { onOpen -> DataRecordSearch(repository, onOpen) },
         searchScreen = { query, onOpenInData, onPlay, onClose ->
             DataUnifiedSearch(
