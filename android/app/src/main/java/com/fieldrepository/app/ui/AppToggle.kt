@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -59,18 +57,6 @@ fun AppToggle(
                 Text(description, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodyMedium, lineHeight = 18.sp)
             }
         }
-        Switch(
-            checked = checked,
-            onCheckedChange = null,
-            enabled = interactive || busy,
-            colors = SwitchDefaults.colors(
-                checkedTrackColor = FieldPalette.Purple700,
-                checkedThumbColor = androidx.compose.ui.graphics.Color.White,
-                checkedBorderColor = FieldPalette.Purple700,
-                uncheckedTrackColor = MaterialTheme.colorScheme.surface,
-                uncheckedThumbColor = MaterialTheme.field.muted,
-                uncheckedBorderColor = MaterialTheme.field.muted
-            )
-        )
+        FieldSwitch(checked = checked, onCheckedChange = null, enabled = interactive || busy)
     }
 }

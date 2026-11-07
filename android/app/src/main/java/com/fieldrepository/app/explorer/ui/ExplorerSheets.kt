@@ -1,6 +1,7 @@
 package com.fieldrepository.app.explorer.ui
 
 import androidx.compose.foundation.background
+import com.fieldrepository.app.ui.FieldRadioButton
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.sp
@@ -28,7 +29,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -166,7 +166,7 @@ private fun ChoiceRow(icon: ImageVector, label: String, detail: String, selected
             Text(label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        RadioButton(selected = selected, onClick = null)
+        FieldRadioButton(selected = selected, onClick = null)
     }
 }
 

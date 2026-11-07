@@ -45,6 +45,20 @@ interface TranscriptPlayback {
     val sampling: Boolean get() = false
     val videoAspect: Float? get() = null
     fun playRange(startSeconds: Double, endSeconds: Double) = seek(startSeconds)
+    val error: String? get() = null
+    fun retry() {}
+}
+
+object PlaybackErrors {
+    const val DECODER = "This phone can't play this video's format."
+    const val SOURCE = "The video couldn't be loaded. Check the connection."
+    const val OTHER = "The video couldn't play."
+
+    fun line(errorCode: Int): String = when (errorCode) {
+        in 4000..4999 -> DECODER
+        in 2000..2999 -> SOURCE
+        else -> OTHER
+    }
 }
 
 class ManualPlayback(available: Boolean = true, duration: Double = 0.0) : TranscriptPlayback {
@@ -59,6 +73,9 @@ class ManualPlayback(available: Boolean = true, duration: Double = 0.0) : Transc
         if (sampling) { sampling = false; playing = false; return }
         positionSeconds = startSeconds; playing = true; sampling = true
     }
+    override var error by mutableStateOf<String?>(null)
+    var retries by mutableStateOf(0)
+    override fun retry() { error = null; retries++ }
 }
 
 private class ExoPlayback(val player: ExoPlayer) : TranscriptPlayback {
@@ -68,7 +85,19 @@ private class ExoPlayback(val player: ExoPlayer) : TranscriptPlayback {
     override var durationSeconds by mutableDoubleStateOf(0.0)
     override var sampling by mutableStateOf(false)
     override var videoAspect by mutableStateOf<Float?>(null)
+    override var error by mutableStateOf<String?>(null)
     private var stopAt: Double? = null
+    val listener = object : Player.Listener {
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            this@ExoPlayback.error = PlaybackErrors.line(error.errorCode)
+            playing = false
+        }
+    }
+    override fun retry() {
+        error = null
+        player.prepare()
+        player.play()
+    }
     override fun playRange(startSeconds: Double, endSeconds: Double) {
         if (sampling && player.isPlaying) {
             stopAt = null; sampling = false; player.pause(); return
@@ -80,6 +109,7 @@ private class ExoPlayback(val player: ExoPlayer) : TranscriptPlayback {
     override fun toggle() {
         stopAt = null
         sampling = false
+        if (error != null || player.playerError != null) { retry(); return }
         if (player.isPlaying) player.pause() else {
             if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
             player.play()
@@ -123,7 +153,13 @@ fun rememberTranscriptPlayback(uri: Uri?): TranscriptPlayback {
         }
     }
     val playback = remember(player) { ExoPlayback(player) }
-    DisposableEffect(player) { onDispose { player.release() } }
+    DisposableEffect(player) {
+        player.addListener(playback.listener)
+        onDispose {
+            player.removeListener(playback.listener)
+            player.release()
+        }
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { player.pause() }
     LaunchedEffect(player) {
         while (true) {

@@ -16,7 +16,6 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -149,7 +148,7 @@ fun AddPersonCard(
                     modifier = Modifier.fillMaxWidth()
                         .selectable(selected = mode == option, role = Role.RadioButton, onClick = { mode = option })
                 ) {
-                    RadioButton(selected = mode == option, onClick = null)
+                    FieldRadioButton(selected = mode == option, onClick = null)
                     Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
                 }
             }
