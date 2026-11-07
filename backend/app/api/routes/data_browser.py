@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.core.db import db
 from app.core.deps import require_dataset_downloader
-from app.questionnaire.live import live_media_where
+from app.questionnaire.live import live_media_where, live_session_where
 from app.services import (
     answer_drafts,
     naming,
@@ -59,6 +59,7 @@ from app.services.record_fields import (
     TRANSCRIPT_COLOR,
     artisan_names,
     info_panel,
+    media_download_link,
     media_row,
     provenance_row,
     sheet_columns,
@@ -400,7 +401,7 @@ def _media_entries(
                 "originalFilename": m.originalFilename,
                 "mediaType": str(_ev(m.mediaType)),
                 "mediaId": m.id,
-                "url": m.url,
+                "url": f"/api/data/media/{m.id}/download",
                 "sizeBytes": int(m.sizeBytes) if m.sizeBytes is not None else None,
                 "transcriptAvailable": slim.has_transcript(m),
                 "_transcriptText": getattr(m, "transcriptText", None),
@@ -995,7 +996,7 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
         if len(segs) == 5:
             interviews = await _every(
                 db.questionnaireinterview.find_many,
-                where=_and({"artisans": {"some": {"artisanId": aid}}}, scope.records),
+                where=live_session_where(_and({"artisans": {"some": {"artisanId": aid}}}, scope.records)),
                 order={"createdAt": "asc"},
                 include={"artisans": {"include": {"artisan": True}}},
             )
@@ -1017,7 +1018,7 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
                     "responses": {"include": {"question": True}},
                     "artisans": {"include": {"artisan": True}},
                 },
-                scope_where=scope.readable,
+                scope_where=live_session_where(scope.readable),
             )
             info = _interview_info(interview)
             entries = []
@@ -1280,6 +1281,7 @@ async def _uploader_records(
                                 "some": {"artisan": {"workshops": {"some": {"workshopId": wid}}}}
                             }
                         },
+                        live_session_where(),
                     ]
                 },
                 scope.records,
@@ -1480,7 +1482,7 @@ async def _locate_path(record_type: str, record_id: str, scope: Scope) -> str | 
 
     if kind in {"interview", "questionnaire", "questionnaireinterview"}:
         link = await db.questionnaireinterviewartisan.find_first(
-            where={"interviewId": record_id}
+            where={"interviewId": record_id, "interview": {"is": live_session_where()}}
         )
         if link is None:
             return None
@@ -1834,7 +1836,7 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
                 where=scope.records, take=REPORT_TAKE, order=order, include=_TOOL_INCLUDE
             ),
             db.questionnaireinterview.find_many(
-                where=scope.records, take=REPORT_TAKE, order=order, include=_INTERVIEW_INCLUDE
+                where=live_session_where(scope.records), take=REPORT_TAKE, order=order, include=_INTERVIEW_INCLUDE
             ),
             _report_media(None, scope),
         )
@@ -2012,12 +2014,12 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
                     rid,
                     "Interview",
                     include=_INTERVIEW_INCLUDE,
-                    scope_where=scope.readable,
+                    scope_where=live_session_where(scope.readable),
                 )
             ]
         else:
             interviews = await db.questionnaireinterview.find_many(
-                where=_and({"artisans": {"some": {"artisanId": {"in": aids}}}}, scope.records),
+                where=live_session_where(_and({"artisans": {"some": {"artisanId": {"in": aids}}}}, scope.records)),
                 take=REPORT_TAKE,
                 order={"createdAt": "desc"},
                 include=_INTERVIEW_INCLUDE,
@@ -2230,7 +2232,7 @@ def _media_facts(m: Any) -> dict[str, str]:
         "uploadedOn": _cell(_date(m.createdAt)),
         "recordedOn": _cell(_date(m.recordedAt or m.createdAt)),
         "transcript": "Yes" if transcript_export.has_text(m) else "",
-        "url": _cell(m.url),
+        "url": media_download_link(m.id),
     }
 
 

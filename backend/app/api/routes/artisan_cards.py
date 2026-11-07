@@ -14,7 +14,7 @@ from app.core.deps import get_current_user, get_value
 from app.services import artisan_card, cross_portal, naming
 from app.services import artisan_card_store as store
 from app.services.access import record_edit_privilege
-from app.services.records import ALL_MEDIA_URLS, media_url_owners
+from app.services.records import media_url_allows, media_url_owners
 
 if TYPE_CHECKING:
     from app.services import artisan_card_pdf
@@ -61,7 +61,7 @@ async def _photos(artisan_ids: list[str], viewer: Any) -> dict[str, Any]:
     if not artisan_ids:
         return {}
     rows = await db.mediafile.find_many(
-        where={"artisanId": {"in": artisan_ids}, "mediaType": "IMAGE"},
+        where={"artisanId": {"in": artisan_ids}, "mediaType": "IMAGE", "removedAt": None},
         order={"createdAt": "asc"},
     )
     allowed = await media_url_owners(viewer)
@@ -69,7 +69,7 @@ async def _photos(artisan_ids: list[str], viewer: Any) -> dict[str, Any]:
     for row in rows:
         if row.artisanId in out:
             continue
-        if allowed is not ALL_MEDIA_URLS and row.uploadedById not in (allowed or set()):
+        if not media_url_allows(allowed, row):
             continue
         out[row.artisanId] = row
     return out

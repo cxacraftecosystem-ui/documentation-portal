@@ -38,9 +38,6 @@ terraform {
   required_version = ">= 1.16.5"
 
   # The state lives in this portal's own media bucket under tfstate/, like designer-portal's.
-  # Two policies keep it private: the public-read grant covers `media/*` only, and the bucket
-  # policy denies the API's user `tfstate/*` outright. It also replicates to Hyderabad with the
-  # rest of the bucket, so a lost or corrupted state can be restored from a version there.
   backend "s3" {
     bucket = "fieldrepo-media-626159998512"
     key    = "tfstate/documentation-portal.tfstate"
@@ -71,24 +68,21 @@ resource "aws_s3_bucket_public_access_block" "media" {
   bucket                  = aws_s3_bucket.media.id
   block_public_acls       = true
   ignore_public_acls      = true
-  block_public_policy     = false
-  restrict_public_buckets = false
+  block_public_policy     = true
+  restrict_public_buckets = true
 }
 
-# Public read for objects under media/ only; uploads stay private (presigned PUT).
-resource "aws_s3_bucket_policy" "media_public_read" {
+moved {
+  from = aws_s3_bucket_policy.media_public_read
+  to   = aws_s3_bucket_policy.media
+}
+
+resource "aws_s3_bucket_policy" "media" {
   bucket     = aws_s3_bucket.media.id
   depends_on = [aws_s3_bucket_public_access_block.media]
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      {
-        Sid       = "PublicReadMedia"
-        Effect    = "Allow"
-        Principal = "*"
-        Action    = "s3:GetObject"
-        Resource  = "${aws_s3_bucket.media.arn}/media/*"
-      },
       # Added 2026-10-17. The API's key holds no grant on backups/ (see
       # aws_iam_user_policy.media); this deny keeps it that way even if somebody
       # widens that policy later. The backup job runs as aws_iam_user.backup_writer.
@@ -196,6 +190,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "media" {
   }
 
   rule {
+    id     = "abort-abandoned-media-uploads"
+    status = "Enabled"
+
+    filter {
+      prefix = "media/"
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 2
+    }
+  }
+
+  rule {
     id     = "noncurrent-versions"
     status = "Enabled"
     filter {}
@@ -261,9 +268,6 @@ resource "aws_iam_user" "media" {
 #                              S3 — granting the HEAD grants the GET — so `head-object` would hand
 #                              back exactly the read this split exists to remove. Listing yields
 #                              the name and the size, which is all the assert ever used.
-#
-# If a third prefix is ever added to this bucket, it is a change to THIS policy and to
-# `aws_s3_bucket_policy.media_public_read` above, not a change to a path string somewhere.
 resource "aws_iam_user_policy" "media" {
   name = "${var.project}-media-s3"
   user = aws_iam_user.media.name

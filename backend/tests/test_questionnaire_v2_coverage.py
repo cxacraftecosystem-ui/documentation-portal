@@ -91,7 +91,7 @@ def test_remove_then_restore_leaves_the_view_identical_and_removed_media_is_invi
         await recordings.remove(take["id"], ids.admin, client=client)
         assert await coverage.take_rows(client, ids.q) == []
         assert await client.mediafile.count(where=live_media_where({"id": take["mediaFileId"]}, always=True)) == 0
-        await recordings.restore(take["id"], ids.lead, client=client)
+        await recordings.restore(take["id"], ids.admin, client=client)
         after = await coverage.take_rows(client, ids.q)
         strip = lambda rows: [{k: v for k, v in r.items() if k != "changeSeq"} for r in rows]  # noqa: E731
         assert strip(after) == strip(before)

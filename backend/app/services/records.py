@@ -25,6 +25,53 @@ _MEDIA_MARKER = "objectKey"
 ALL_MEDIA_URLS = None
 
 
+def presigned_read_ttl() -> int | None:
+    from app.core.config import get_settings
+
+    try:
+        settings = get_settings()
+    except Exception:
+        return None
+    if not getattr(settings, "media_presigned_reads", True):
+        return None
+    ttl = int(getattr(settings, "media_presigned_read_ttl_seconds", 0) or 0)
+    return ttl if ttl > 0 else None
+
+
+def signed_media_url(object_key: Any, stored: Any, mime_type: Any, filename: Any) -> Any:
+    ttl = presigned_read_ttl()
+    if ttl is None or not object_key or not isinstance(stored, str) or not stored:
+        return stored
+    from app.services import s3
+    from app.services.media_mime import signed_read_headers
+
+    signed_mime, disposition = signed_read_headers(mime_type)
+    try:
+        return s3.presign_get_url(
+            str(object_key),
+            filename=str(filename or object_key),
+            mime_type=signed_mime,
+            expires_in=ttl,
+            disposition=disposition,
+        )
+    except Exception:
+        return stored
+
+
+def _sign_media_urls(value: Any) -> Any:
+    if isinstance(value, dict):
+        if _MEDIA_MARKER in value and isinstance(value.get("url"), str) and value.get("url"):
+            value["url"] = signed_media_url(
+                value.get(_MEDIA_MARKER), value["url"], value.get("mimeType"), value.get("originalFilename")
+            )
+        for nested in value.values():
+            _sign_media_urls(nested)
+    elif isinstance(value, list):
+        for item in value:
+            _sign_media_urls(item)
+    return value
+
+
 class _Unset:
     def __repr__(self) -> str:  # pragma: no cover
         return "<unset>"
@@ -102,12 +149,16 @@ def _redact_sensitive(
         if isinstance(history, dict):
             view = aadhaar_fingerprint.ledger_view(history)
             value[aadhaar_fingerprint.NUMBER_FIELD] = view if view is not None else history
+        if "joinCode" in value and not unmasked and not (viewer_id and value.get("createdById") == viewer_id):
+            value["joinCode"] = None
+            if "clientKey" in value:
+                value["clientKey"] = None
         if not unmasked and not (viewer_id and value.get("createdById") == viewer_id):
             for key in _IDENTITY_KEYS:
                 if key in value:
                     value[key] = _mask_identity_value(value[key])
         if media_urls is not None and _MEDIA_MARKER in value:
-            if value.get("uploadedById") not in media_urls:
+            if not media_url_allows(media_urls, value):
                 for key in _MEDIA_URL_KEYS:
                     value.pop(key, None)
         for nested in value.values():
@@ -124,7 +175,7 @@ def public_encode(obj: Any, viewer: Any = None, *, media_urls: Any = _UNSET) -> 
     encoded = jsonable_encoder(obj)
     if viewer is None:
         allowed: set[str] | None = set() if media_urls is _UNSET else media_urls
-        return _redact_sensitive(encoded, viewer_id=None, unmasked=False, media_urls=allowed)
+        return _sign_media_urls(_redact_sensitive(encoded, viewer_id=None, unmasked=False, media_urls=allowed))
 
     viewer_id = get_value(viewer, "id")
     if media_urls is _UNSET:
@@ -134,11 +185,13 @@ def public_encode(obj: Any, viewer: Any = None, *, media_urls: Any = _UNSET) -> 
             allowed = {viewer_id} if viewer_id else set()
     else:
         allowed = media_urls
-    return _redact_sensitive(
-        encoded,
-        viewer_id=viewer_id,
-        unmasked=has_rank(viewer, "PROFESSOR"),
-        media_urls=allowed,
+    return _sign_media_urls(
+        _redact_sensitive(
+            encoded,
+            viewer_id=viewer_id,
+            unmasked=has_rank(viewer, "PROFESSOR"),
+            media_urls=allowed,
+        )
     )
 
 
@@ -171,7 +224,6 @@ async def transcript_readable_ids(rows: Sequence[Any], viewer: Any) -> set[str]:
 
 
 async def media_url_owners(viewer: Any) -> set[str] | None:
-    from app.core.db import db
     from app.core.roles import can_download_dataset, get_value, has_rank
 
     if has_rank(viewer, "PROFESSOR") or can_download_dataset(viewer):
@@ -179,10 +231,65 @@ async def media_url_owners(viewer: Any) -> set[str] | None:
     viewer_id = get_value(viewer, "id")
     if not viewer_id:
         return set()
+    full, scoped = await granted_scopes(viewer_id)
+    return MediaUrlOwners({viewer_id, *full}, scoped)
+
+
+class MediaUrlOwners(set):
+    def __init__(self, owners: Any = (), scoped: dict[str, frozenset[str]] | None = None) -> None:
+        super().__init__(owners)
+        self.scoped: dict[str, frozenset[str]] = dict(scoped or {})
+
+
+_MEDIA_SCOPE_FKS = ("artisanId", "productId", "toolId", "workshopId", "questionnaireInterviewId")
+
+
+def media_scope_ids(node: Any) -> set[str]:
+    read = node.get if isinstance(node, dict) else lambda key: getattr(node, key, None)
+    ids = {str(read(key)) for key in _MEDIA_SCOPE_FKS if read(key)}
+    if read("linkedRecordType") and read("linkedRecordId"):
+        ids.add(str(read("linkedRecordId")))
+    return ids
+
+
+def media_url_allows(media_urls: set[str] | None, node: Any) -> bool:
+    if media_urls is None:
+        return True
+    read = node.get if isinstance(node, dict) else lambda key: getattr(node, key, None)
+    uploader = read("uploadedById")
+    if uploader in media_urls:
+        return True
+    covered = getattr(media_urls, "scoped", {}).get(uploader)
+    return bool(covered) and not media_scope_ids(node).isdisjoint(covered)
+
+
+async def granted_scopes(grantee_id: str) -> tuple[set[str], dict[str, frozenset[str]]]:
+    from app.core.db import db
+
     grants = await db.dataaccessgrant.find_many(
-        where={"granteeId": viewer_id, "status": "GRANTED"}
+        where={"granteeId": grantee_id, "status": "GRANTED"}, include={"scopeItems": True}
     )
-    return {viewer_id, *(grant.ownerId for grant in grants)}
+    full: set[str] = set()
+    scoped: dict[str, set[str]] = {}
+    products: dict[str, set[str]] = {}
+    for grant in grants:
+        if grant.allData:
+            full.add(grant.ownerId)
+            continue
+        ids = scoped.setdefault(grant.ownerId, set())
+        for item in grant.scopeItems or []:
+            ids.add(item.recordId)
+            if str(item.recordType).lower() == "product":
+                products.setdefault(item.recordId, set()).add(grant.ownerId)
+    if products:
+        processes = await db.process.find_many(
+            where={"productId": {"in": sorted(products)}}, include={"steps": True}
+        )
+        for process in processes:
+            for owner in products.get(process.productId, ()):
+                scoped[owner].add(process.id)
+                scoped[owner].update(step.id for step in process.steps or [])
+    return full, {owner: frozenset(ids) for owner, ids in scoped.items() if owner not in full and ids}
 
 
 def to_json(value: Any) -> Any:
@@ -311,16 +418,29 @@ async def owned_or_granted_where(user: Any, owner_field: str = "createdById") ->
         return {}
     uid = get_value(user, "id")
     owner_relation = owner_field[:-2] if owner_field.endswith("Id") else owner_field
-    return {
-        "OR": [
-            {owner_field: uid},
-            {
-                owner_relation: {
-                    "is": {"dataAccessAsOwner": {"some": {"granteeId": uid, "status": "GRANTED"}}}
+    branches: list[dict[str, Any]] = [
+        {owner_field: uid},
+        {
+            owner_relation: {
+                "is": {
+                    "dataAccessAsOwner": {
+                        "some": {"granteeId": uid, "status": "GRANTED", "allData": True}
+                    }
                 }
-            },
-        ]
-    }
+            }
+        },
+    ]
+    _full, scoped = await granted_scopes(uid) if uid else (set(), {})
+    for owner, ids in scoped.items():
+        covered = sorted(ids)
+        if owner_field == "uploadedById":
+            branches.append({"AND": [{owner_field: owner}, {"OR": [
+                *({key: {"in": covered}} for key in _MEDIA_SCOPE_FKS),
+                {"linkedRecordId": {"in": covered}},
+            ]}]})
+        else:
+            branches.append({"AND": [{owner_field: owner}, {"id": {"in": covered}}]})
+    return {"OR": branches}
 
 
 async def own_rows_where(user: Any, owner_field: str = "createdById") -> dict[str, Any]:

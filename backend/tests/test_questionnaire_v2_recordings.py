@@ -39,7 +39,7 @@ def test_patch_decide_replace_remove_restore_are_logged_and_never_refuse_on_cove
         assert kept["removedAt"] is None and two["filing"] == "FILED"
         assert two["subjects"][0]["repeatReason"] == "REDO"
         await recordings.remove(take["id"], ids.admin, client=client)
-        await recordings.restore(take["id"], ids.lead, client=client)
+        await recordings.restore(take["id"], ids.admin, client=client)
         three = await record_take(client, ids, s["id"], ids.other, targets=[{"questionLineageId": ids.questions["D2"]}], at=t(0.4))
         assert three["filing"] == "NEEDS_DECISION"
         decided = await recordings.decide(three["id"], DecideRequest(action="CONTINUATION", otherRecordingId=two["id"]), ids.lead, client=client)

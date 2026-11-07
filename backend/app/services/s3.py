@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from app.core.config import get_settings
+from app.services.media_mime import is_uploadable_mime, over_ceiling
 from app.services.naming import ascii_leaf, content_disposition
 from app.transcription import workdir
 
@@ -117,15 +118,18 @@ def public_url_for_key(object_key: str) -> str | None:
     return base
 
 
-def presign_put_url(object_key: str, mime_type: str) -> str:
+def presign_put_url(object_key: str, mime_type: str, size_bytes: int | None = None) -> str:
     settings = get_settings()
+    params: dict[str, Any] = {
+        "Bucket": settings.aws_s3_bucket,
+        "Key": object_key,
+        "ContentType": mime_type,
+    }
+    if size_bytes is not None:
+        params["ContentLength"] = int(size_bytes)
     return _client().generate_presigned_url(
         ClientMethod="put_object",
-        Params={
-            "Bucket": settings.aws_s3_bucket,
-            "Key": object_key,
-            "ContentType": mime_type,
-        },
+        Params=params,
         ExpiresIn=900,
         HttpMethod="PUT",
     )
@@ -345,10 +349,22 @@ def delete_object(object_key: str) -> None:
     _client().delete_object(Bucket=settings.aws_s3_bucket, Key=object_key)
 
 
-def presign_put_url_checksum(object_key: str, mime_type: str, checksum_b64: str | None, expires_in: int = 900) -> str:
+def upload_refusal(mime_type: str | None, size_bytes: int | None) -> str | None:
+    if not is_uploadable_mime(mime_type):
+        return "type"
+    if over_ceiling(size_bytes, get_settings()):
+        return "size"
+    return None
+
+
+def presign_put_url_checksum(
+    object_key: str, mime_type: str, checksum_b64: str | None, expires_in: int = 900, size_bytes: int | None = None
+) -> str:
     params: dict[str, Any] = {"Bucket": get_settings().aws_s3_bucket, "Key": object_key, "ContentType": mime_type}
     if checksum_b64:
         params["ChecksumSHA256"] = checksum_b64
+    if size_bytes is not None:
+        params["ContentLength"] = int(size_bytes)
     return _client().generate_presigned_url(ClientMethod="put_object", Params=params, ExpiresIn=expires_in, HttpMethod="PUT")
 
 

@@ -220,7 +220,7 @@ async def _interview(entity_id: str) -> dict[str, Any] | None:
         where={"id": entity_id},
         include={"artisans": True, "location": True, "responses": {"include": {"question": True}}},
     )
-    if row is None:
+    if row is None or row.deletedAt is not None or row.mergedIntoId is not None:
         return None
     answers: list[str] = []
     for response in row.responses or []:
@@ -332,7 +332,7 @@ async def _media_common(row: Any) -> dict[str, Any]:
 
 async def _media(entity_id: str) -> dict[str, Any] | None:
     row = await db.mediafile.find_unique(where={"id": entity_id}, include=_MEDIA_INCLUDE)
-    if row is None:
+    if row is None or row.removedAt is not None:
         return None
     return _doc(
         "media",
@@ -346,7 +346,7 @@ async def _media(entity_id: str) -> dict[str, Any] | None:
 
 async def _transcript(entity_id: str) -> dict[str, Any] | None:
     row = await db.mediafile.find_unique(where={"id": entity_id}, include=_MEDIA_INCLUDE)
-    if row is None or not (row.transcriptText or "").strip():
+    if row is None or row.removedAt is not None or not (row.transcriptText or "").strip():
         return None
     return _doc(
         "transcripts",

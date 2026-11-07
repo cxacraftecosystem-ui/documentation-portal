@@ -738,6 +738,8 @@ repository alone.
 
 ### P0 — Media objects are public to anyone holding a URL
 
+**Closed in code in 0.0.17.** Every reader gets a signed URL from the API, `media/*` is private in terraform (`block_public_policy` and `restrict_public_buckets` on, no `PublicReadMedia`), and the live cut-over is the ordered runbook in [RELEASE.md](RELEASE.md#private-media-storage-dr-0017-fr-0017). The history below explains how it got here.
+
 `media/*` is world-readable, and object URLs are stored in the database, embedded in exports and
 shared in comments. A leaked URL is a permanent, unauthenticated read of an interview recording or a
 photograph of a person.

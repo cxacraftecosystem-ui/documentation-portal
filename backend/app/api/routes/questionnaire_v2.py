@@ -101,7 +101,7 @@ async def sessions_list(
     if deleted and not authoring.may_list_deleted_sessions(user):
         fail("FORBIDDEN", "Only an admin can see deleted sessions.")
     return await sessions.list_sessions(
-        filters=filters.parse(request.query_params), cursor=cursor, limit=limit, deleted=deleted,
+        filters=filters.parse(request.query_params), cursor=cursor, limit=limit, deleted=deleted, viewer=user,
     )
 
 
@@ -146,7 +146,7 @@ async def sessions_continue(request: Request, user: Any = Depends(get_current_us
 async def sessions_get(session_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     from app.core.db import db
 
-    session = await sessions.session_payload(db, session_id)
+    session = await sessions.session_payload(db, session_id, user)
     rows = await recordings.recording_rows(db, session_id=session_id)
     recs = await recordings.serialize_recordings(db, rows, user)
     participant_ids = [p["artisanId"] for p in session["participants"]]
@@ -439,17 +439,17 @@ async def recordings_download(recording_id: str, user: Any = Depends(get_current
 
 async def assert_may_download_recording(recording_id: str, user: Any) -> None:
     from app.core.db import db
-    from app.services.records import media_url_owners
+    from app.services.records import media_url_allows, media_url_owners
 
     rows = await db.query_raw(
-        'SELECT m."uploadedById" AS uploader FROM "QuestionnaireRecording" r JOIN "MediaFile" m ON m."id" = r."mediaFileId" '
-        'WHERE r."id" = $1',
+        'SELECT m."uploadedById", m."questionnaireInterviewId", m."artisanId", m."workshopId", '
+        'm."linkedRecordType", m."linkedRecordId" FROM "QuestionnaireRecording" r '
+        'JOIN "MediaFile" m ON m."id" = r."mediaFileId" WHERE r."id" = $1',
         recording_id,
     )
     if not rows:
         return
-    owners = await media_url_owners(user)
-    if owners is not None and str(rows[0]["uploader"]) not in owners:
+    if not media_url_allows(await media_url_owners(user), rows[0]):
         fail("FORBIDDEN", "You need download access to this researcher's recordings. Request it from them.")
 
 

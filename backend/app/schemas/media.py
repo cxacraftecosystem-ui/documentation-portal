@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.schemas.common import APIModel, LocationInput
 
@@ -58,7 +58,14 @@ class MultipartCreateResponse(APIModel):
 class MultipartPresignPartsRequest(APIModel):
     objectKey: str = Field(min_length=1)
     uploadId: str = Field(min_length=1)
-    partNumbers: list[int]
+    partNumbers: list[Annotated[int, Field(ge=1, le=10_000)]] = Field(min_length=1, max_length=10_000)
+
+    @field_validator("partNumbers")
+    @classmethod
+    def _distinct_parts(cls, value: list[int]) -> list[int]:
+        if len(set(value)) != len(value):
+            raise ValueError("Each part number is asked for once.")
+        return value
 
 
 class MultipartPresignPartsResponse(APIModel):

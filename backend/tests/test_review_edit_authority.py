@@ -72,6 +72,10 @@ class _Delegate:
         self.updates.append(data)
         return self.row
 
+    async def update_many(self, where: dict, data: dict) -> int:
+        self.updates.append(data)
+        return 1
+
     async def create(self, data: dict) -> Any:
         self.creates.append(data)
         return SimpleNamespace(id="new")

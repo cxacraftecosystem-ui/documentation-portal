@@ -2,12 +2,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.core.db import db
-from app.questionnaire.live import live_media_where
+from app.questionnaire.live import live_media_where, live_session_where
 from app.core.deps import get_value, is_empty_value
 from app.services import answer_drafts
 from app.services.concurrency import gather_reads
 from app.services.record_filters import resolve_workshop_ids, workshop_clause
-from app.services.records import media_url_owners, public_encode, viewable_where
+from app.services.records import media_url_owners, public_encode, signed_media_url, viewable_where
 
 QUERY_COUNT = 8
 
@@ -103,7 +103,9 @@ async def consolidate_for_artisan(
         db.questionnairequestion.find_many(
             where=question_where, order=[{"sortOrder": "asc"}, {"createdAt": "asc"}]
         ),
-        db.questionnaireinterview.find_many(where=interview_where, include={"workshop": True}),
+        db.questionnaireinterview.find_many(
+            where=live_session_where(interview_where), include={"workshop": True}
+        ),
     )
     if artisan is None:
         return None
@@ -209,7 +211,11 @@ async def consolidate_for_artisan(
             "mediaId": media.id,
             "filename": media.originalFilename,
             "mediaType": media.mediaType,
-            "url": media.url if _may_take(media, media_owners) else None,
+            "url": signed_media_url(
+                get_value(media, "objectKey"), media.url, get_value(media, "mimeType"), media.originalFilename
+            )
+            if _may_take(media, media_owners)
+            else None,
             "transcriptText": media.transcriptText,
             "transcriptStatus": media.transcriptStatus,
             "recordedByName": None,

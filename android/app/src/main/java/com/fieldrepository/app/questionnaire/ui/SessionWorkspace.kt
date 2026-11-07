@@ -593,7 +593,7 @@ fun SessionWorkspace(
                         if (o.uploading) OutboxTrayModel.uploadLine(clip?.uploadedPercent ?: 0) else QuestionnaireCopy.s("upload.onDevice"), null, local = true, removable = false)
                 } +
             removed.filter { r -> r.targets.any { it.targetKey in keys } && (artisanId == null || r.allSubjects.any { it.artisanId == artisanId }) }.map { r ->
-                TakeRow(r.id, 0, listOfNotNull(QuestionnaireCopy.minutes(r.durationMs), r.recordedBy?.name?.ifBlank { null }).joinToString("  "), "", null, local = false, removable = false, removed = true)
+                TakeRow(r.id, 0, listOfNotNull(QuestionnaireCopy.minutes(r.durationMs), r.recordedBy?.name?.ifBlank { null }).joinToString("  "), "", null, local = false, removable = mayDelete, removed = true)
             }
         val missing = section?.let { s -> s.questions.count { q -> artisanId != null && (artisanId to q.lineageId) in typed } }
         TakeSheet(

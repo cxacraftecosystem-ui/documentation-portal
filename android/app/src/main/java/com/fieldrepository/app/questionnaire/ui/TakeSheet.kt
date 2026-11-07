@@ -114,7 +114,7 @@ fun TakeSheet(
                             Text(t.first, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
                             Text(QuestionnaireCopy.s("take.removed"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
                         }
-                        TextButton(onClick = { onRestore(t) }) { Text(QuestionnaireCopy.s("take.restore")) }
+                        if (t.removable) TextButton(onClick = { onRestore(t) }) { Text(QuestionnaireCopy.s("take.restore")) }
                     }
                 }
             }

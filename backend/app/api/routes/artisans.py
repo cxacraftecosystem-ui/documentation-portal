@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.core.db import db
+from app.questionnaire.live import live_session_where
 from app.core.deps import (
     require_record_creator,
     assert_can_delete,
@@ -545,14 +546,20 @@ async def get_artisan_questionnaire(artisan_id: str, _: Any = Depends(get_curren
         db.artisan.find_unique(where={"id": artisan_id}),
         db.questionnaireresponse.find_many(
             where={
-                "interview": {"is": {"artisans": {"some": {"artisanId": artisan_id}}}},
+                "interview": {
+                    "is": {
+                        "artisans": {"some": {"artisanId": artisan_id}},
+                        "deletedAt": None,
+                        "mergedIntoId": None,
+                    }
+                },
                 "answerText": {"not": None},
             },
             include={"question": True, "interview": True, "answeredBy": True},
             order={"createdAt": "asc"},
         ),
         db.questionnaireinterview.find_many(
-            where={"artisans": {"some": {"artisanId": artisan_id}}},
+            where=live_session_where({"artisans": {"some": {"artisanId": artisan_id}}}),
             include={"artisans": {"include": {"artisan": True}}, "media": True},
             order={"createdAt": "desc"},
         ),

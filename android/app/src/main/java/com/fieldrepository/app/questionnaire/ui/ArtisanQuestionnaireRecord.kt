@@ -209,7 +209,7 @@ fun ArtisanQuestionnaireRecord(
                             listOfNotNull(ArtisanTimeline.targetsLabel(r.targets), QuestionnaireCopy.minutes(r.durationMs), dayAndTime(r.capturedAt)).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted, modifier = Modifier.weight(1f)
                         )
-                        androidx.compose.material3.TextButton(onClick = {
+                        if (com.fieldrepository.app.ui.LocalMayDelete.current) androidx.compose.material3.TextButton(onClick = {
                             scope.launch {
                                 runCatching { v2.api.restoreRecording(r.id) }
                                     .onSuccess { removed = removed.filterNot { it.id == r.id }; attempt++ }

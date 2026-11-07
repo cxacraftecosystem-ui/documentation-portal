@@ -17,11 +17,11 @@ def is_live(media: Any) -> bool:
     return (media.get("removedAt") if isinstance(media, dict) else getattr(media, "removedAt", None)) is None
 
 
-LIVE_SESSION_SQL = 'i."deletedAt" IS NULL'
+LIVE_SESSION_SQL = 'i."deletedAt" IS NULL AND i."mergedIntoId" IS NULL'
 
 
 def live_session_where(where: dict[str, Any] | None = None) -> dict[str, Any]:
-    clause = {"deletedAt": None}
+    clause = {"deletedAt": None, "mergedIntoId": None}
     if not where:
         return clause
     return {"AND": [where, clause]}
