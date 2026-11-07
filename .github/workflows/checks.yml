@@ -1074,6 +1074,101 @@ jobs:
       - name: Release gate harness, read-only client and summary
         run: shellcheck -x scripts/release_gate/run.sh && python3 scripts/release_gate/test_gate.py -v
 
+  report-budget:
+    name: Report workbook budget
+    runs-on: ubuntu-26.04
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      PYTHONUTF8: "1"
+      DATABASE_URL: "postgresql://ci:ci@ci.invalid:5432/no_such_database"
+      JWT_SECRET: "ci-placeholder-not-a-secret-0123456789abcdef"
+      AWS_ACCESS_KEY_ID: "ci-placeholder"
+      AWS_SECRET_ACCESS_KEY: "ci-placeholder"
+      AWS_S3_BUCKET: "ci-placeholder"
+      MASTER_ADMIN_EMAIL: "ci@example.invalid"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15.2"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/pyproject.toml
+
+      - name: Install the backend
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+          pip install -e . --no-deps
+
+      - name: Generate the Prisma client
+        run: python -m prisma generate --schema prisma/schema.prisma
+
+      - name: Install LibreOffice and Devanagari fonts
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libreoffice-calc-nogui fonts-noto-core poppler-utils
+          soffice --version
+
+      - name: Build the production-sized fixture and assert the budgets
+        env:
+          REPORT_PRODUCTION: "1"
+          REQUIRE_LIBREOFFICE: "1"
+          REPORT_OUT: ${{ runner.temp }}/after
+        run: python -m pytest tests/test_report_budget.py -k production -s -rf -p no:cacheprovider
+
+      - name: Build the same fixture with the builder on main
+        run: |
+          set -euo pipefail
+          before="$RUNNER_TEMP/before-tree"
+          git -C "$GITHUB_WORKSPACE" worktree add --detach "$before" origin/main
+          cp tests/report_fixtures.py "$before/backend/tests/report_fixtures.py"
+          cd "$before/backend"
+          PYTHONPATH="$before/backend" python "$GITHUB_WORKSPACE/scripts/ci/report_probe.py" build --root "$before/backend" --out "$RUNNER_TEMP/before"
+
+      - name: Compare before and after
+        run: |
+          set -euo pipefail
+          python "$GITHUB_WORKSPACE/scripts/ci/report_probe.py" stats "$RUNNER_TEMP/before/main.xlsx" "$RUNNER_TEMP/after/after-main.xlsx" "$RUNNER_TEMP/after/after-companion.xlsx" | tee "$RUNNER_TEMP/compare.txt"
+          sed -n '/^| file/,$p' "$RUNNER_TEMP/compare.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Render sample sheets to PNG
+        run: |
+          set -euo pipefail
+          shots="$RUNNER_TEMP/shots"
+          probe="$GITHUB_WORKSPACE/scripts/ci/report_probe.py"
+          tcols="File,Row,Segment,Turn,Start,End,Speaker,Text,Status,Play from,Open"
+          python "$probe" shot "$RUNNER_TEMP/before/main.xlsx" Transcripts "$shots/before-transcripts.png" --rows 30 --cols "$tcols" --lines 6
+          python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Transcripts "$shots/after-transcripts-main.png" --rows 12 --cols "$tcols" --lines 6
+          python "$probe" shot "$RUNNER_TEMP/after/after-companion.xlsx" Transcripts "$shots/after-transcripts-companion.png" --rows 30 --cols "$tcols"
+          python "$probe" shot "$RUNNER_TEMP/before/main.xlsx" Artisans "$shots/before-artisans.png" --rows 25
+          python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Artisans "$shots/after-artisans.png" --rows 25
+          python "$probe" shot "$RUNNER_TEMP/before/main.xlsx" Everything "$shots/before-everything.png" --rows 30
+          python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Everything "$shots/after-everything.png" --rows 30
+          ls -la "$shots" || true
+
+      - name: Upload the comparison and screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: report-budget
+          path: |
+            ${{ runner.temp }}/compare.txt
+            ${{ runner.temp }}/shots/
+          retention-days: 14
+
   shared-manifests:
     name: Shared-file manifests
     runs-on: ubuntu-26.04

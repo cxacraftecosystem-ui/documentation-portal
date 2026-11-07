@@ -10,6 +10,7 @@ from typing import Any
 
 import xlsxwriter
 from xlsxwriter.utility import xl_col_to_name, xl_rowcol_to_cell
+from xlsxwriter.worksheet import CellRichStringTuple, Worksheet
 
 from app.services.datareport.contract import (
     ROW_KIND,
@@ -19,6 +20,7 @@ from app.services.datareport.contract import (
     Image,
     Link,
     ReportContext,
+    Rich,
     Sheet,
 )
 
@@ -45,8 +47,14 @@ RED_KEYS = ("failed", "failedReason", "rejected", "notStarted", "withdrawn")
 SPARK_ROWS_MAX = 20000
 
 CELL_MAX = 32000
-URL_LIMIT = 65000
-FORMULA_URL_MAX = 255
+URL_MAX = 2000
+LINKS_PER_SHEET = 5000
+LINKS_PER_BOOK = 20000
+LINK_RESERVE = 400
+TABLE_ROWS_MAX = 10000
+TABLE_BYTES_MAX = 8 * 1024 * 1024
+XML_BUDGET = 40 * 1024 * 1024
+URL_SUFFIX = "__url"
 THUMB_PX = 48
 TOP = 4
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -107,6 +115,9 @@ TEXT = {
     "banner.downloadReport": "Download everything in this report · {size}",
     "banner.downloadSheet": "Download all {n} files in this sheet · {size}",
     "banner.empty": "Nothing to show for this selection.",
+    "banner.urlText": "This sheet has more links than a fast workbook can hold live, so each web address is written as text in the column after its link.",
+    "col.webAddress": "{label} (web address)",
+    "dict.webAddress": "The web address of the {label} link, as text.",
     "link.back": "Back to contents",
     "sheet.overview": "Overview",
     "sheet.dictionary": "Data dictionary",
@@ -138,6 +149,46 @@ TEXT = {
     "print.header": "&L{portal}&R{title}",
     "print.footer": "&LGenerated {date}&RPage &P of &N",
 }
+
+
+class SharedStringSheet(Worksheet):
+    def write_runs(self, row: int, col: int, xml: str, raw: str, cell_format: Any) -> int:
+        if self._check_dimensions(row, col):
+            return -1
+        if self.constant_memory and row > self.previous_row:
+            self._write_single_row(row)
+        index = self.str_table._get_shared_string_index(xml)
+        self.table[row][col] = CellRichStringTuple(index, cell_format, raw)
+        return 0
+
+    def _share(self, row: int, col: int) -> None:
+        if not self.constant_memory:
+            return
+        cell = self.table[row].get(col) if row in self.table else None
+        if cell is not None and isinstance(getattr(cell, "string", None), str):
+            self.table[row][col] = cell._replace(string=self.str_table._get_shared_string_index(cell.string))
+
+    def _write_string(self, row: int, col: int, string: str, cell_format: Any = None) -> Any:
+        result = super()._write_string(row, col, string, cell_format)
+        if result in (0, -2):
+            self._share(row, col)
+        return result
+
+    def _write_rich_string(self, row: int, col: int, *args: Any) -> int:
+        result = super()._write_rich_string(row, col, *args)
+        if result == 0:
+            self._share(row, col)
+        return result
+
+    def _write_cell(self, row: int, col: int, cell: Any) -> None:
+        if self.constant_memory and isinstance(getattr(cell, "string", None), int):
+            self.constant_memory = False
+            try:
+                super()._write_cell(row, col, cell)
+            finally:
+                self.constant_memory = True
+            return
+        super()._write_cell(row, col, cell)
 
 
 def human_size(value: float | None) -> str:
@@ -176,6 +227,40 @@ def _local(value: datetime) -> datetime:
     return value.astimezone(IST).replace(tzinfo=None)
 
 
+_TECH_KEYS = frozenset({"id", "source", "origin", "checksum", "revision", "version", "model", "createdAt", "updatedAt", "deletedAt", "turnCreated", "turnUpdated"})
+_TECH_PARTS = ("checksum", "sha256", "fingerprint", "hash", "createdby", "updatedby", "uploadedby", "reviewedby", "editedby", "deletedby", "recordedby", "answeredby", "capturedby")
+
+
+def technical(column: Column) -> bool:
+    if column.tech is not None:
+        return column.tech
+    if column.kind == "link":
+        return False
+    if column.kind in ("id", "json") or column.hidden:
+        return True
+    return technical_key(column.key)
+
+
+def technical_key(key: str) -> bool:
+    if key in _TECH_KEYS or key.endswith(("Id", "Ids", "Key")):
+        return True
+    low = key.lower()
+    return any(part in low for part in _TECH_PARTS)
+
+
+def _escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def run_xml(runs: list[tuple[str, bool]], italic: bool) -> str:
+    bold = f"<rPr><b/>{'<i/>' if italic else ''}<sz val=\"10\"/><rFont val=\"{FONT}\"/><family val=\"{FONT_FAMILY}\"/></rPr>"
+    out = []
+    for text, strong in runs:
+        space = ' xml:space="preserve"' if text != text.strip() or "\n" in text else ""
+        out.append(f"<r>{bold if strong else ''}<t{space}>{_escape(text)}</t></r>")
+    return "".join(out)
+
+
 def _parse_moment(value: str) -> datetime | None:
     text = value.strip()
     if not text:
@@ -198,6 +283,10 @@ class SheetSummary:
     group: str | None
     columns: list[Column]
     bundle_url: str | None
+    links: int = 0
+    xml_bytes: int = 0
+    table: bool = False
+    url_text: bool = False
 
 
 @dataclass
@@ -205,6 +294,8 @@ class _Prepared:
     columns: list[Column]
     labels: list[str]
     widths: list[float]
+    tech_from: int | None = None
+    url_text: bool = False
     spark_cols: dict[str, int] = field(default_factory=dict)
     spark_width: int = 0
 
@@ -226,6 +317,7 @@ class ReportWriter:
                 "default_format_properties": {"font_name": FONT, "font_size": 10},
             },
         )
+        self.wb.worksheet_class = SharedStringSheet
         self.wb.set_properties(
             {
                 "title": f"{ctx.portal_name} · {ctx.folder_name}",
@@ -239,6 +331,7 @@ class ReportWriter:
         self._status_formats: list[tuple[tuple[str, ...], Any]] = []
         self._used_titles: set[str] = set()
         self._tables = 0
+        self.links = 0
         self.summaries: list[SheetSummary] = []
         self.cover_title = sheet_title(self.text("sheet.overview"), self._used_titles)
         self.cover = self.wb.add_worksheet(self.cover_title)
@@ -278,7 +371,7 @@ class ReportWriter:
         elif kind == "link":
             props["font_color"] = self.brand
             props["underline"] = 1
-        elif kind == "id":
+        elif kind in ("id", "url"):
             props["font_color"] = MUTED
             props["font_size"] = 9
         elif kind == "bool":
@@ -293,7 +386,8 @@ class ReportWriter:
                 props["font_color"] = MUTED
             props["indent"] = 1 if kind in ("text", "longtext") else 0
         elif row_kind == "summary":
-            props["bold"] = True
+            if kind not in ("longtext", "json"):
+                props["bold"] = True
             props["bg_color"] = BRAND_SOFT
         if row_kind == "summary_translation":
             props["bg_color"] = BRAND_SOFT
@@ -320,6 +414,36 @@ class ReportWriter:
             border_color=self.brand,
         )
 
+    def url(self, ws: Any, row: int, col: int, url: str, fmt: Any, *, string: str) -> None:
+        self.links += 1
+        ws.write_url(row, col, url, fmt, string=string)
+
+    def link_allowance(self) -> int:
+        return max(0, min(LINKS_PER_SHEET, LINKS_PER_BOOK - LINK_RESERVE - self.links))
+
+    def arrange(self, sheet: Sheet, bundle_url: str | None) -> tuple[list[Column], int | None, bool]:
+        spark_members = {c.key for c in sheet.columns if c.group and c.group in sheet.sparkline_columns}
+        tech = [c for c in sheet.columns if technical(c) and c.key not in spark_members]
+        if len(tech) == len(sheet.columns):
+            tech = []
+        main = [c for c in sheet.columns if c not in tech]
+        link_cols = [c for c in main if c.kind == "link"]
+        rows = sheet.count
+        if rows is None and isinstance(sheet.rows, (list, tuple)):
+            rows = len(sheet.rows)
+        bound = sheet.link_bound if sheet.link_bound is not None else (None if rows is None else rows * len(link_cols))
+        fixed = 1 + (1 if bundle_url and sheet.media_ids else 0) + sum(1 for b in sheet.banners[:3] if b.url)
+        url_text = bool(link_cols) and (bound is None or bound > self.link_allowance() - fixed)
+        if url_text:
+            widened: list[Column] = []
+            for c in main:
+                widened.append(c)
+                if c.kind == "link":
+                    label = self.t(f"col.{sheet.key}.{c.key}", c.label)
+                    widened.append(Column(c.key + URL_SUFFIX, self.text("col.webAddress", label=label), "text", self.text("dict.webAddress", label=label), width=36, tech=False))
+            main = widened
+        return main + tech, (len(main) if tech else None), url_text
+
     def begin(self, sheet: Sheet, *, bundle_url: str | None) -> _SheetState:
         if self._current is not None:
             raise RuntimeError("finish the previous sheet first")
@@ -328,11 +452,14 @@ class ReportWriter:
         ws = self.wb.add_worksheet(title)
         ws.set_tab_color(f"#{(sheet.color or self.brand).lstrip('#')}")
         ws.hide_gridlines(2)
-        labels = _unique([clean(self.t(f"col.{sheet.key}.{c.key}", c.label)).replace("\n", " ").strip() or c.key for c in sheet.columns])
+        columns, tech_from, url_text = self.arrange(sheet, bundle_url)
+        labels = _unique([clean(self.t(f"col.{sheet.key}.{c.key}", c.label)).replace("\n", " ").strip() or c.key for c in columns])
         prepared = _Prepared(
-            columns=list(sheet.columns),
+            columns=columns,
             labels=labels,
-            widths=[float(max(c.width or DEFAULT_WIDTH.get(c.kind, 18), 6)) for c in sheet.columns],
+            widths=[float(max(c.width or DEFAULT_WIDTH.get(c.kind, 18), 6)) for c in columns],
+            tech_from=tech_from,
+            url_text=url_text,
         )
         spark_keys = [k for k in sheet.sparkline_columns if any(c.key == k for c in sheet.columns)]
         state = _SheetState(self, ws, sheet, title, prepared, bundle_url, spark_keys)
@@ -357,7 +484,7 @@ class ReportWriter:
         ws.hide_gridlines(2)
         ws.set_tab_color(f"#{MUTED}")
         ws.write_string(0, 0, clean(self.text("dict.title")), self.fmt("h1", bold=True, font_size=16, font_color=self.brand))
-        ws.write_url(1, 0, f"internal:'{self.cover_title}'!A1", self.fmt("backlink", font_color=self.brand, underline=1), string=clean(self.text("link.back")))
+        self.url(ws, 1, 0, f"internal:'{self.cover_title}'!A1", self.fmt("backlink", font_color=self.brand, underline=1), string=clean(self.text("link.back")))
         headers = _unique([clean(self.text(k)) for k in ("dict.heading.sheet", "dict.heading.column", "dict.heading.kind", "dict.heading.description", "dict.heading.source")])
         top = 3
         for col, label in enumerate(headers):
@@ -459,8 +586,8 @@ class ReportWriter:
         if everything_url and everything_files:
             ws.set_row(row, 24)
             ws.merge_range(row, 1, row, 8, "", self.fmt("bulk_bg", bg_color=self.brand))
-            ws.write_url(
-                row, 1, everything_url,
+            self.url(
+                ws, row, 1, everything_url,
                 self.fmt("bulk", bold=True, font_color="FFFFFF", bg_color=self.brand, underline=1, valign="vcenter"),
                 string=clean(self.text("banner.downloadReport", size=human_size(everything_bytes), n=f"{everything_files:,}")),
             )
@@ -477,7 +604,7 @@ class ReportWriter:
         about = self.fmt("toc_about", font_color=MUTED, font_size=9)
         for summary in self.summaries:
             row += 1
-            ws.write_url(row, 1, f"internal:'{summary.title.replace(chr(39), chr(39) * 2)}'!A1", link, string=clean(summary.title))
+            self.url(ws, row, 1, f"internal:'{summary.title.replace(chr(39), chr(39) * 2)}'!A1", link, string=clean(summary.title))
             ws.write_number(row, 2, summary.rows, number)
             ws.write_number(row, 3, summary.files, number)
             ws.write_number(row, 4, summary.bytes, size)
@@ -593,6 +720,7 @@ class _SheetState:
         self.row = TOP
         self.count = 0
         self.urls = 0
+        self.overflow = 0
         self.samples = 0
         self.spark_base = len(prepared.columns) + 1
         self.spark_pending: list[tuple[int, int, int, int]] = []
@@ -600,25 +728,29 @@ class _SheetState:
 
     def start(self) -> None:
         w, ws, sheet = self.w, self.ws, self.sheet
+        before = w.links
         ws.write_string(0, 0, clean(w.t(f"sheet.{sheet.key}", sheet.name)), w.fmt("h1", bold=True, font_size=16, font_color=w.brand))
         ws.set_row(0, 24)
-        ws.write_url(0, min(len(self.p.columns), 3), f"internal:'{w.cover_title}'!A1", w.fmt("backlink", font_color=w.brand, underline=1), string=clean(w.text("link.back")))
+        w.url(ws, 0, min(len(self.p.columns), 3), f"internal:'{w.cover_title}'!A1", w.fmt("backlink", font_color=w.brand, underline=1), string=clean(w.text("link.back")))
         note = sheet.note or sheet.description
         if note:
             ws.write_string(1, 0, clean(note), w.fmt("note", font_color=MUTED, italic=True))
         if self.bundle_url and sheet.media_ids:
-            ws.write_url(
-                2, 0, self.bundle_url,
+            w.url(
+                ws, 2, 0, self.bundle_url,
                 w.fmt("banner", bold=True, font_color=w.brand, underline=1),
                 string=clean(w.text("banner.downloadSheet", n=f"{len(sheet.media_ids):,}", size=human_size(sheet.media_bytes))),
             )
         place = 4 if (self.bundle_url and sheet.media_ids) else 0
         for banner in sheet.banners[:3]:
             if banner.url:
-                ws.write_url(2, place, clean(banner.url), w.fmt("banner2", font_color=w.brand, underline=1), string=clean(banner.text))
+                w.url(ws, 2, place, clean(banner.url), w.fmt("banner2", font_color=w.brand, underline=1), string=clean(banner.text))
             else:
                 ws.write_string(2, place, clean(banner.text), w.fmt("note", font_color=MUTED, italic=True))
             place += 3
+        if self.p.url_text:
+            ws.write_string(3, 0, clean(w.text("banner.urlText")), w.fmt("note", font_color=MUTED, italic=True))
+        self.urls = w.links - before
         header = w.header_format()
         ws.set_row(self.header_row, 30)
         for col, label in enumerate(self.p.labels):
@@ -637,7 +769,7 @@ class _SheetState:
         for col, column in enumerate(self.p.columns):
             value = values.get(column.key)
             if value is None or value == "":
-                if row_kind != "plain":
+                if row_kind in ("summary", "summary_translation"):
                     ws.write_blank(self.row, col, None, self.w.cell_format(column.kind, row_kind, bool(column.wrap)))
                 continue
             if column.kind == "image":
@@ -657,7 +789,7 @@ class _SheetState:
                 value = values.get(column.key)
                 if value is None or column.kind in ("image", "longtext", "json") or column.width:
                     continue
-                text = value.text if isinstance(value, Link) else str(value)
+                text = value.text if isinstance(value, (Link, Rich)) else str(value)
                 longest = max((len(part) for part in text.split("\n")), default=0)
                 self.p.widths[col] = max(self.p.widths[col], min(longest * 1.1 + 2, 60))
 
@@ -682,6 +814,9 @@ class _SheetState:
         fmt = self.w.cell_format(column.kind, row_kind, bool(column.wrap))
         if isinstance(value, Link):
             self._link(col, value, row_kind, bool(column.wrap))
+            return
+        if isinstance(value, Rich):
+            self._rich(col, value, row_kind, fmt)
             return
         kind = column.kind
         if kind in ("date", "datetime"):
@@ -736,22 +871,41 @@ class _SheetState:
         ws.write_string(self.row, col, clean(value), fmt)
 
     def _link(self, col: int, link: Link, row_kind: str, wrap: bool) -> None:
-        fmt = self.w.cell_format("link", row_kind, wrap)
         text = clean(link.text or link.url)
         url = clean(link.url)
         if not url:
-            self.ws.write_string(self.row, col, text, fmt)
+            self.ws.write_string(self.row, col, text, self.w.cell_format("text", row_kind, wrap))
             return
-        if self.urls < URL_LIMIT and len(url) <= 2000:
+        if self.p.url_text:
+            self.ws.write_string(self.row, col, text, self.w.cell_format("text", row_kind, wrap))
+            self.ws.write_string(self.row, col + 1, url, self.w.cell_format("url", row_kind, False))
+            return
+        if self.urls < LINKS_PER_SHEET and self.w.links < LINKS_PER_BOOK and len(url) <= URL_MAX:
             self.urls += 1
-            self.ws.write_url(self.row, col, url, fmt, string=text)
+            self.w.url(self.ws, self.row, col, url, self.w.cell_format("link", row_kind, wrap), string=text)
             return
-        if len(url) <= FORMULA_URL_MAX and len(text) <= FORMULA_URL_MAX:
-            safe_url = url.replace('"', '""')
-            safe_text = text.replace('"', '""')
-            self.ws.write_formula(self.row, col, f'=HYPERLINK("{safe_url}","{safe_text}")', fmt, text)
+        self.overflow += 1
+        self.ws.write_string(self.row, col, url, self.w.cell_format("url", row_kind, wrap))
+
+    def _rich(self, col: int, value: Rich, row_kind: str, fmt: Any) -> None:
+        runs: list[tuple[str, bool]] = []
+        used = 0
+        for part, bold in value.runs:
+            piece = clean(part)[: max(0, CELL_MAX - used)]
+            if not piece:
+                continue
+            used += len(piece)
+            if runs and runs[-1][1] == bold:
+                runs[-1] = (runs[-1][0] + piece, bold)
+            else:
+                runs.append((piece, bold))
+        if not runs:
             return
-        self.ws.write_string(self.row, col, text, fmt)
+        if len(runs) == 1 or not any(bold for _part, bold in runs):
+            self.ws.write_string(self.row, col, "".join(part for part, _bold in runs), fmt)
+            return
+        italic = row_kind in ("translation", "summary_translation")
+        self.ws.write_runs(self.row, col, run_xml(runs, italic), "".join(part for part, _bold in runs), fmt)
 
     def finish(self) -> SheetSummary:
         w, ws, sheet, p = self.w, self.ws, self.sheet, self.p
@@ -762,8 +916,11 @@ class _SheetState:
                 totals[index] = "sum"
             elif column.total == "count":
                 totals[index] = "count"
+        xml_bytes = self.measured()
+        use_table = bool(sheet.table) and self.count <= TABLE_ROWS_MAX and xml_bytes <= TABLE_BYTES_MAX
         if self.count == 0:
             ws.write_string(self.header_row + 1, 0, clean(w.text("banner.empty")), w.fmt("note", font_color=MUTED, italic=True))
+            use_table = False
         else:
             last_row = self.row
             use_totals = bool(totals) and 0 not in totals
@@ -772,11 +929,18 @@ class _SheetState:
                 bold = w.fmt("total", bold=True, top=1, top_color=w.brand)
                 ws.write_string(total_row, 0, clean(w.text("row.total")), bold)
                 for index, func in totals.items():
-                    formula = ws._table_function_to_formula(func, p.labels[index])
+                    if use_table:
+                        formula = ws._table_function_to_formula(func, p.labels[index])
+                    else:
+                        code = 109 if func == "sum" else 103
+                        formula = f"SUBTOTAL({code},{xl_rowcol_to_cell(self.header_row + 1, index)}:{xl_rowcol_to_cell(self.row, index)})"
                     kind = p.columns[index].kind
                     ws.write_formula(total_row, index, f"={formula}", w.fmt("total", kind, bold=True, top=1, top_color=w.brand, num_format=NUM_FORMATS.get(kind, "General")))
                 last_row = total_row
-            w._table(ws, self.header_row, 0, last_row, last_col, p.labels, sheet.key, totals if use_totals else None, w.text("row.total") if use_totals else None)
+            if use_table:
+                w._table(ws, self.header_row, 0, last_row, last_col, p.labels, sheet.key, totals if use_totals else None, w.text("row.total") if use_totals else None)
+            else:
+                ws.autofilter(self.header_row, 0, self.row, last_col)
             data_last = self.row
             first = self.header_row + 1
             for index, column in enumerate(p.columns):
@@ -784,11 +948,14 @@ class _SheetState:
                     self._status_colours(first, data_last, index)
                 if column.key in sheet.databar_columns:
                     ws.conditional_format(first, index, data_last, index, {"type": "data_bar", "bar_color": f"#{w.brand}", "bar_solid": True, "bar_no_border": False, "data_bar_2010": True})
+        tech_from = p.tech_from
         for index, column in enumerate(p.columns):
             options: dict[str, Any] = {}
-            if column.hidden or column.kind == "id":
+            if (tech_from is not None and index >= tech_from) or column.hidden:
                 options = {"hidden": True, "level": 1}
             ws.set_column(index, index, round(p.widths[index], 1), None, options)
+        if tech_from is not None:
+            ws.set_column(len(p.columns), len(p.columns), None, None, {"collapsed": True})
         quoted = self.title.replace(chr(39), chr(39) * 2)
         for key in self.spark_keys:
             spark_col = next(i for i, c in enumerate(p.columns) if c.key == key)
@@ -808,9 +975,9 @@ class _SheetState:
                 ws.add_sparkline(row, col, {"range": f"'{quoted}'!{rng}", "type": "line", "series_color": f"#{w.brand}", "markers": False, "high_point": True})
             widest = max(offset + length for _r, _c, offset, length in pending)
             ws.set_column(self.spark_base, widest, 4, None, {"hidden": True, "level": 1})
-        if any(c.hidden or c.kind == "id" for c in p.columns) or pending:
+        if tech_from is not None or any(c.hidden for c in p.columns) or pending:
             ws.outline_settings(True, False, True, False)
-        ws.freeze_panes(self.header_row + 1, 1 if len(p.columns) > 3 else 0)
+        ws.freeze_panes(self.header_row + 1, 1 if len(p.columns) > 1 else 0)
         w._print_setup(ws, self.header_row, self.title)
         if last_col >= 0:
             ws.print_area(0, 0, max(self.row + 1, self.header_row + 1), last_col)
@@ -825,7 +992,18 @@ class _SheetState:
             group=sheet.group,
             columns=list(p.columns),
             bundle_url=self.bundle_url,
+            links=self.urls,
+            xml_bytes=xml_bytes,
+            table=use_table,
+            url_text=p.url_text,
         )
+
+    def measured(self) -> int:
+        handle = getattr(self.ws, "row_data_fh", None)
+        try:
+            return int(handle.tell()) if handle is not None else 0
+        except (OSError, ValueError):
+            return 0
 
     def _status_colours(self, first: int, last: int, col: int) -> None:
         ws, w = self.ws, self.w

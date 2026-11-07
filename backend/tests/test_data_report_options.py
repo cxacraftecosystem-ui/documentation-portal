@@ -190,7 +190,7 @@ def test_the_xlsx_follows_the_options_and_reuses_one_build(monkeypatch):
     assert again.body == full.body
     cache = data_browser.REPORT_CACHE
     key = next(iter(cache._entries))
-    assert all(name.startswith("xlsx2:") for name in cache._entries[key].files)
+    assert all(name.startswith("xlsx3:") for name in cache._entries[key].files)
 
 
 def test_unknown_options_are_a_422_and_an_empty_pick_is_a_404(monkeypatch):

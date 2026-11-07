@@ -74,7 +74,7 @@ export async function fetchDownload(url: string, options: FetchOptions): Promise
     options.onPartial?.({ chunks, bytes, total, etag });
     throw new DownloadRefused("The connection dropped before the file finished.", 0);
   }
-  const blob = new Blob(chunks as BlobPart[], { type: options.expect === "xlsx" ? XLSX_TYPE : type || "application/octet-stream" });
+  const blob = new Blob(chunks as BlobPart[], { type: options.expect === "xlsx" && !type.includes("zip") ? XLSX_TYPE : type || "application/octet-stream" });
   if (options.expect === "xlsx" || options.expect === "zip") {
     const head = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
     if (!looksLikeZip(head)) throw new NotAFile("The report came back damaged. Nothing was saved.");
