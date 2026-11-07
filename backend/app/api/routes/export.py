@@ -150,13 +150,11 @@ async def dataset_manifest(
         products = [p for p in products if _in_scope("product", p.id)]
         tools = [t for t in tools if _in_scope("tool", t.id)]
         interviews = [i for i in interviews if _in_scope("questionnaire", i.id)]
-        kept_products = {p.id for p in products}
-        processes = [p for p in processes if p.productId in kept_products]
     tool_viewer = rec_where if ownerId is None else await owned_or_granted_where(current_user)
     await hide_unseen(tools, tool_viewer)
 
     media_or: list[dict[str, Any]] = []
-    if ownerId and scope is None:
+    if ownerId:
         media_or.append({"uploadedById": ownerId})
     for fk, tags, rows in (
         ("artisanId", ["artisan"], artisans),
