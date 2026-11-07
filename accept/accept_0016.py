@@ -496,13 +496,25 @@ def phase_pane():
 
 def stop_mini_player():
     w, h = screen_size()
-    for _ in range(2):
+    for _ in range(3):
         root = dump(None)
+        pause = [r for _, r in find_all(root, r"^Pause$") if r[1] > h * 0.7]
+        if pause:
+            tap(pause[0])
+            settle(1.5)
+            continue
         hit = [r for _, r in find_all(root, r"^Stop playing$") if r[1] > h * 0.7]
         if not hit:
             return
         tap(hit[0])
         settle(1.5)
+
+
+def scroll_to_top(n=8):
+    w, h = screen_size()
+    for _ in range(n):
+        A.swipe(A.content_x(), int(h * 0.3), int(h * 0.85), 250)
+    settle(1)
 
 
 SIZE_RX = re.compile(r"^[\d.,]+ (B|KB|MB|GB)$")
@@ -620,7 +632,15 @@ def phase_transcripts_tab():
         root, tg = step("tx-notab")
         record("preview", "transcript preview from the Transcripts tab", "FAIL", f"no Transcripts tab; {texts(root, 20)}", ev(tg))
         return
-    settle(6)
+    end = time.time() + 90
+    stems0 = [os.path.splitext(f["name"])[0] for f in info["files"]]
+    while time.time() < end:
+        root = dump(None)
+        if find(root, r"^Read( original)?$") or any(label(n).strip()[:24] in [x[:24] for x in stems0] for n in all_nodes(root) if label(n).strip()):
+            break
+        if find(root, r"^All [1-9]"):
+            A.scroll_down_list(0.3)
+        settle(3)
     root, tg0 = step("tx-tab")
     tab0 = selected_tab(root)
     left = content_left()
@@ -691,10 +711,6 @@ def phase_expand():
     if board_inline and not find(root, r"^Expand$"):
         sbs = side_by_side(png(tg0), os.path.join(HERE, "board-AndroidAudio.png"), os.path.join(OUT, "expand-impl-vs-board.png"))
         record("expand", "audio preview opens straight into the board view (no Expand needed at this width)", "PASS", f"{texts(root, 20)}; compare implementation (left) with the AndroidAudio board (right) in {sbs}", [tg0 + ".png", tg0 + ".xml"] + ([sbs] if sbs else []))
-        back()
-        settle(2)
-        stop_mini_player()
-        return
     exp0 = find(root, r"^Expand$")
     how = "preview Open record"
     if exp0:
@@ -714,6 +730,24 @@ def phase_expand():
             exp = find(root, r"^Expand$")
             if exp:
                 break
+    for opener in (r"^Transcript$", r"^Open$", r"^Play$"):
+        if exp:
+            break
+        scroll_to_top(4)
+        if A.tap_text(opener, timeout=4, scroll=3):
+            how += f" then {opener.strip('^$')}"
+            settle(6)
+            root, tg1 = step("ex-record-opened")
+            exp = find(root, r"^Expand$")
+            for _ in range(3):
+                if exp:
+                    break
+                A.scroll_down_list(0.3)
+                root = dump(None)
+                exp = find(root, r"^Expand$")
+            if not exp:
+                back()
+                settle(2)
     if not exp:
         root, tg1b = step("ex-record-noexpand")
         record("expand", "compact player shows Expand", "FAIL", f"via {how}; no Expand control; {texts(root, 24)}", [tg0 + ".png", tg1 + ".png", tg1b + ".xml"])
@@ -993,6 +1027,9 @@ def phase_download(info, files, left):
     caught = False
     rows = []
     tg1 = None
+    settle(2)
+    scroll_to_top()
+    downs = 0
     end = time.time() + 150
     while time.time() < end:
         root = dump(None)
@@ -1010,7 +1047,12 @@ def phase_download(info, files, left):
             caught = True
             break
         if not find(root, r"^Recent files$"):
-            A.scroll_down_list(0.25)
+            if downs >= 8:
+                scroll_to_top()
+                downs = 0
+            else:
+                A.scroll_down_list(0.2)
+                downs += 1
         settle(0.3)
     if tg1 is None:
         root, tg1 = step("dl-norecent")
@@ -1239,6 +1281,7 @@ def phase_process_death():
     stop_mini_player()
     root, tg0 = step("death-before")
     before = names_in(root, lvl["names"], content_left()) + ([lvl["name"]] if find(root, rf"^{re.escape(lvl['name'])}$") else [])
+    A.save("death-services.txt", sh(f"dumpsys activity services {PKG}", check=False)[:6000])
     sh("input keyevent KEYCODE_HOME")
     settle(3)
     mark("process death")
