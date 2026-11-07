@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
 
-import { DataExplorerFake, fakeSorted, SORTED_FILES, SORTED_FOLDER } from "./support/dataExplorerFake";
+import { DataExplorerFake, fakeSorted, LONG_NAME, LONG_PARENT, SORTED_FILES, SORTED_FOLDER } from "./support/dataExplorerFake";
 
 const SHOTS = process.env.E2E_SHOT_DIR ?? join("test-results", "data-explorer");
 mkdirSync(SHOTS, { recursive: true });
@@ -104,6 +104,24 @@ for (const size of SIZES) {
         await expect(fileNames(page)).toHaveText(expected("name:asc"));
         const last = treeCalls(fake).at(-1);
         expect(last?.query.get("sort")).toBeNull();
+      } finally {
+        await context.close();
+      }
+    });
+
+    test(`a 200-character folder name truncates and never makes the page scroll sideways · ${size.width}`, async ({ browser }) => {
+      const { context, page } = await openWith(browser, size, { path: LONG_PARENT });
+      try {
+        const folders = page.getByRole("list", { name: "Folders" });
+        const long = folders.getByTitle(LONG_NAME, { exact: true });
+        await expect(long).toBeVisible();
+        expect(LONG_NAME).toHaveLength(200);
+        const box = await long.boundingBox();
+        expect(box!.x + box!.width).toBeLessThanOrEqual(size.width);
+        await noSidewaysScroll(page);
+        const sorted = page.getByRole("button", { name: /^Sort folder:/ });
+        if (await sorted.isVisible().catch(() => false)) await sorted.click();
+        await noSidewaysScroll(page);
       } finally {
         await context.close();
       }

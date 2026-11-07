@@ -465,9 +465,9 @@ export function FolderContents({
         </div>
       ) : null}
       {folders.length ? (
-        <ul className="grid gap-2 border-b border-line-200 p-3 max-sm:panel sm:grid-cols-2 xl:grid-cols-3" aria-label="Folders">
+        <ul className="grid grid-cols-[minmax(0,1fr)] gap-2 border-b border-line-200 p-3 max-sm:panel sm:grid-cols-2 xl:grid-cols-3" aria-label="Folders">
           {folders.map((folder) => (
-            <li key={folder.path} className={`flex items-center gap-1 rounded-md border border-line-200 pr-2 transition hover:border-purple-300 ${selection.has(selectionKey(folder)) ? "bg-[#faf6ff] dark:bg-purple-950/30" : "bg-card"}`}>
+            <li key={folder.path} className={`flex min-w-0 items-center gap-1 rounded-md border border-line-200 pr-2 transition hover:border-purple-300 ${selection.has(selectionKey(folder)) ? "bg-[#faf6ff] dark:bg-purple-950/30" : "bg-card"}`}>
               <label className="grid h-11 w-11 shrink-0 cursor-pointer place-items-center" data-row-ignore="">
                 <input type="checkbox" checked={selection.has(selectionKey(folder))} onChange={() => onToggle(folder)} aria-label={`Select ${folder.name}`} className="h-[18px] w-[18px] accent-purple-700" />
               </label>
@@ -475,8 +475,10 @@ export function FolderContents({
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-sm bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-200">
                   <RecordIcon recordType={folder.recordType} className="h-4 w-4" />
                 </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-semibold text-ink-900">{folder.name}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-ink-900" title={folder.name}>
+                    {folder.name}
+                  </span>
                   <span className="block text-xs text-ink-500">
                     {[folder.recordType ? folder.recordType.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (first) => first.toUpperCase()) : null, typeof folder.count === "number" ? `${folder.count.toLocaleString("en-IN")} files` : null]
                       .filter(Boolean)

@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowDownUp, Check } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { directionsOf, readSort, SORT_DIRECTIONS, SORT_LABEL, sortWords, withKey, writeSort, type SortChoice, type SortKey, type SortList } from "@/lib/dataExplorer/sorting";
@@ -60,16 +60,25 @@ export function SortMenu({
   const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const measure = useCallback(() => {
+    const rect = button.current?.getBoundingClientRect();
+    if (!rect) return;
+    const next = placeFor(rect, align, document.documentElement.clientWidth, { x: window.scrollX, y: window.scrollY });
+    setPlace((previous) => (previous && previous.left === next.left && previous.top === next.top ? previous : next));
+  }, [align]);
+  useLayoutEffect(() => {
+    if (open) measure();
+  });
   useEffect(() => {
     if (!open) return;
-    const measure = () => {
-      const rect = button.current?.getBoundingClientRect();
-      if (rect) setPlace(placeFor(rect, align, document.documentElement.clientWidth, { x: window.scrollX, y: window.scrollY }));
-    };
-    measure();
     window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [open, align]);
+    const watcher = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    watcher?.observe(document.body);
+    return () => {
+      window.removeEventListener("resize", measure);
+      watcher?.disconnect();
+    };
+  }, [open, measure]);
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {

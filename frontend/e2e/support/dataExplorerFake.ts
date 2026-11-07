@@ -23,6 +23,10 @@ const MANY_FILES = 1234;
 
 export const SORTED_FOLDER = "workshops/sorted";
 
+export const LONG_PARENT = "workshops/long";
+
+export const LONG_NAME = `Artisan ${"Gangaram Chhipa of Bagru, ".repeat(8)}`.slice(0, 200);
+
 export const SORTED_FILES = [
   { name: "alpha.jpg", mediaId: "srt1", mediaType: "IMAGE", bytes: 3000, capturedAt: "2026-05-03T10:00:00Z" },
   { name: "Bravo.mp4", mediaId: "srt2", mediaType: "VIDEO", bytes: 9000, capturedAt: "2026-05-01T10:00:00Z" },
@@ -323,6 +327,9 @@ export class DataExplorerFake {
       folders: [],
       files: ["a", "b", "c"].map((letter) => ({ path: `workshops/sanganer/${letter}.jpg`, name: `${letter}.jpg`, mediaId: `s${letter}`, mediaType: "IMAGE", bytes: 5000 }))
     });
+    this.folder({ name: "Long names", path: LONG_PARENT, recordType: "workshop", folders: [`${LONG_PARENT}/one`, `${LONG_PARENT}/two`], files: [] });
+    this.folder({ name: LONG_NAME, path: `${LONG_PARENT}/one`, recordType: "artisan", folders: [], files: [] });
+    this.folder({ name: "Short", path: `${LONG_PARENT}/two`, recordType: "artisan", folders: [], files: [] });
     this.folder({
       name: "Sorting check",
       path: SORTED_FOLDER,
