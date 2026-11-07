@@ -301,6 +301,9 @@ fun ExplorerScreen(
         }
         lastPath = state.path
     }
+    LaunchedEffect(state.unfiled, state.error) {
+        if (state.unfiled != null || state.error != null) listState.animateScrollToItem(0)
+    }
     val loaded = state.tree != null
     LaunchedEffect(state.path, loaded) {
         if (!loaded) return@LaunchedEffect
@@ -823,7 +826,7 @@ fun ExplorerScreen(
 
     val content: LazyListScope.(Boolean) -> Unit = { wide ->
         if (state.locating != null) block("locating") { LoadingLine(ExplorerText.preparing) }
-        state.unfiled?.let { text -> block("unfiled") { Notice(text, warn = true) } }
+        state.unfiled?.let { text -> block("unfiled") { Notice(text, warn = true, tag = "explorer.unfiled") } }
         if (!link.online && state.tree != null) {
             block("offline") { OfflineCard(state.cachedAt?.let { ExplorerUiText.ago((System.currentTimeMillis() - it) / 60_000) }) }
         } else {
