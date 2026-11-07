@@ -36,7 +36,6 @@ export function DeadEndFrame({ nav, children }: { nav: boolean; children: ReactN
   );
 }
 
-
 const ICON: Record<ErrorKind, ReactNode> = {
   "not-found": <SearchX className="h-5 w-5" aria-hidden />,
   forbidden: <Lock className="h-5 w-5" aria-hidden />,

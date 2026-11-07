@@ -125,7 +125,7 @@ async function dismissOfflineDialog(page: Page) {
 }
 
 function shellNav(page: Page) {
-  return page.getByRole("navigation", { name: "Primary" }).or(page.getByRole("button", { name: "Toggle navigation menu" })).first();
+  return page.locator('nav[aria-label="Primary"]:visible, button[aria-label="Toggle navigation menu"]:visible').first();
 }
 
 async function noSideScroll(page: Page) {
