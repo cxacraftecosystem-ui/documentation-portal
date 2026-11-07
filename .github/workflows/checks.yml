@@ -501,7 +501,7 @@ jobs:
             sleep 2
           done
           curl -fsS -o /dev/null http://localhost:3000/login || { cat next.log; exit 1; }
-          npx playwright test e2e/list-back-nav.spec.ts e2e/page-width.spec.ts
+          npx playwright test e2e/list-back-nav.spec.ts e2e/page-width.spec.ts e2e/artisan-card-qr.spec.ts
 
       - name: Keep the screenshots and traces
         if: always()

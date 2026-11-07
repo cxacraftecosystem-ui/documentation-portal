@@ -56,7 +56,9 @@ export const WEB_ONLY_STRINGS = {
   continueSplit: "Sessions",
   colSection: "Section",
   chooseRecording: "Which recording?",
-  takesLoadError: "Couldn't load the recordings. Try again."
+  takesLoadError: "Couldn't load the recordings. Try again.",
+  coverageLoadError: "Couldn't load coverage. Try again.",
+  coverageNoArtisans: "No artisans in this workshop yet."
 } as const;
 
 type SharedKey = keyof typeof questionnaireStrings;
