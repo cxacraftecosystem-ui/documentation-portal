@@ -150,7 +150,8 @@ class QuestionnaireSessionUiTest {
                     heading = "Section D · Giriraj",
                     takes = listOf(
                         TakeRow("r1", 1, "Take 1  14 min", "Solo", null, local = false, removable = false),
-                        TakeRow("r2", 0, "3 min", "", null, local = false, removable = false, removed = true)
+                        TakeRow("r2", 0, "3 min", "", null, local = false, removable = true, removed = true),
+                        TakeRow("r3", 0, "2 min", "", null, local = false, removable = false, removed = true)
                     ),
                     locked = false, playing = null,
                     onPlay = {}, onRemove = {}, onRecord = {}, onUpload = {}, onDismiss = {},
@@ -162,7 +163,8 @@ class QuestionnaireSessionUiTest {
         }
         compose.onNodeWithText("Add a recording?").assertIsDisplayed()
         compose.onNodeWithText("History").performClick()
-        compose.onNodeWithText("Show removed (1)").performClick()
+        compose.onNodeWithText("Show removed (2)").performClick()
+        assertEquals(1, compose.onAllNodesWithText("Restore").fetchSemanticsNodes().size)
         compose.onNodeWithText("Restore").performClick()
         assertEquals(listOf("history:r1", "restore:r2"), picked)
     }
