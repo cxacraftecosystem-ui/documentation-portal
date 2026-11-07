@@ -632,6 +632,7 @@ jobs:
       ARTISAN_CARD_DB_TESTS: "1"
       ARTISAN_DUPLICATE_DB_TESTS: "1"
       TRANSCRIPT_INSIGHTS_DB_TESTS: "1"
+      W4_APPLY_DB_TESTS: "1"
       QV2_TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
       REVIEW_SQL_TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
       RECORD_COMPLETENESS_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"

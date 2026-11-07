@@ -10,6 +10,9 @@ W2_TITLE = "2nd Craft Toolkit Workshop"
 W3_ID = "qnr_3rd_craft_toolkit_workshop"
 W3_TITLE = "3rd Craft Toolkit Workshop"
 
+W4_ID = "qnr_4th_craft_toolkit_workshop"
+W4_TITLE = "4th Craft Toolkit Workshop"
+
 _NO_INSTRUMENT = (
     "The interview questionnaire hasn't been set up. Ask an administrator."
 )

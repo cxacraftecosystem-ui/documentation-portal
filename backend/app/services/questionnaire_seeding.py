@@ -71,6 +71,7 @@ async def seed_instrument(
     title: str,
     description: str,
     corpus_path: Path,
+    created_by_id: str | None = None,
 ) -> tuple[str, dict[str, int]]:
     sections = load_corpus(corpus_path)
     counts = {
@@ -95,7 +96,7 @@ async def seed_instrument(
                 "description": description,
                 "isActive": True,
                 "sortOrder": await _next_sort_order(),
-                "createdById": await _owner_id(),
+                "createdById": created_by_id or await _owner_id(),
             }
         )
         print(f"created questionnaire {record.id} — {title!r}")

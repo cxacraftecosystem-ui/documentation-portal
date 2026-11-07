@@ -33,11 +33,11 @@ import asyncio
 from typing import Any
 
 from app.core.db import connect_db, db, disconnect_db
-from app.services.questionnaire_instruments import W2_ID, W3_ID
+from app.services.questionnaire_instruments import W2_ID, W3_ID, W4_ID
 
 LIVE_TASK_STATUSES = ("PENDING", "IN_PROGRESS", "BLOCKED")
 
-ALIASES = {"w2": W2_ID, "w3": W3_ID}
+ALIASES = {"w2": W2_ID, "w3": W3_ID, "w4": W4_ID}
 
 
 def value(row: Any, field: str) -> Any:
