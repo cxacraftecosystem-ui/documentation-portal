@@ -97,8 +97,32 @@ def convert(path: Path, timeout: int) -> float | None:
         return seconds
 
 
-def shot(path: Path, sheet: str, out: Path, rows: int) -> None:
+def clip_lines(value, lines: int):
+    from openpyxl.cell.rich_text import CellRichText, TextBlock
+
+    if not isinstance(value, (CellRichText, str)):
+        return value
+    blocks = list(value) if isinstance(value, CellRichText) else [value]
+    kept = []
+    seen = 0
+    for block in blocks:
+        text = block.text if isinstance(block, TextBlock) else str(block)
+        room = lines - seen
+        if room <= 0:
+            break
+        parts = text.split("\n")
+        if len(parts) - 1 >= room:
+            text = "\n".join(parts[:room]) + " …"
+            seen = lines
+        else:
+            seen += len(parts) - 1
+        kept.append(TextBlock(block.font, text) if isinstance(block, TextBlock) else text)
+    return CellRichText(kept) if isinstance(value, CellRichText) else "".join(kept)
+
+
+def shot(path: Path, sheet: str, out: Path, rows: int, cols: list[str], lines: int) -> None:
     import openpyxl
+    from openpyxl.utils import get_column_letter
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -114,8 +138,19 @@ def shot(path: Path, sheet: str, out: Path, rows: int) -> None:
         del ws.tables[name]
     if ws.max_row > rows:
         ws.delete_rows(rows + 1, ws.max_row - rows)
+    header = [c.value for c in ws[5]]
+    if cols:
+        for index, label in enumerate(header, start=1):
+            ws.column_dimensions[get_column_letter(index)].hidden = label not in cols
+    for row in ws.iter_rows(min_row=6):
+        for cell in row:
+            if lines and isinstance(cell.value, object) and cell.value is not None and not isinstance(cell.value, (int, float)):
+                cell.value = clip_lines(cell.value, lines)
+        ws.row_dimensions[row[0].row].height = None
     ws.print_area = None
-    ws.sheet_properties.pageSetUpPr.fitToPage = False
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
     ws.auto_filter.ref = None
     book.active = 0
     with tempfile.TemporaryDirectory() as tmp:
@@ -154,6 +189,8 @@ def main() -> None:
     p.add_argument("sheet")
     p.add_argument("out")
     p.add_argument("--rows", type=int, default=40)
+    p.add_argument("--cols", default="")
+    p.add_argument("--lines", type=int, default=0)
     args = parser.parse_args()
     if args.cmd == "build":
         build(Path(args.out), Path(args.root))
@@ -172,7 +209,7 @@ def main() -> None:
         for f in table:
             print(f"| {f['file']} | {f['sheets']} | {f['rows']:,} | {f['links']:,} | {f['formulas']:,} | {f['xml_mb']} | {f['zip_mb']} | {f['openpyxl_load_s']} | {f['soffice_csv_s']} |")
     else:
-        shot(Path(args.file), args.sheet, Path(args.out), args.rows)
+        shot(Path(args.file), args.sheet, Path(args.out), args.rows, [c for c in args.cols.split(",") if c], args.lines)
 
 
 if __name__ == "__main__":

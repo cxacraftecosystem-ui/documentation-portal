@@ -987,13 +987,14 @@ jobs:
           set -euo pipefail
           shots="$RUNNER_TEMP/shots"
           probe="$GITHUB_WORKSPACE/scripts/ci/report_probe.py"
-          python "$probe" shot "$RUNNER_TEMP/before/main.xlsx" Transcripts "$shots/before-transcripts.png"
-          python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Transcripts "$shots/after-transcripts-main.png" --rows 14
-          python "$probe" shot "$RUNNER_TEMP/after/after-companion.xlsx" Transcripts "$shots/after-transcripts-companion.png"
-          python "$probe" shot "$RUNNER_TEMP/before/main.xlsx" Artisans "$shots/before-artisans.png"
-          python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Artisans "$shots/after-artisans.png"
-          python "$probe" shot "$RUNNER_TEMP/before/main.xlsx" Everything "$shots/before-everything.png"
-          python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Everything "$shots/after-everything.png"
+          tcols="File,Row,Segment,Turn,Start,End,Speaker,Text,Status,Play from,Open"
+          python "$probe" shot "$RUNNER_TEMP/before/main.xlsx" Transcripts "$shots/before-transcripts.png" --rows 30 --cols "$tcols" --lines 6
+          python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Transcripts "$shots/after-transcripts-main.png" --rows 12 --cols "$tcols" --lines 6
+          python "$probe" shot "$RUNNER_TEMP/after/after-companion.xlsx" Transcripts "$shots/after-transcripts-companion.png" --rows 30 --cols "$tcols"
+          python "$probe" shot "$RUNNER_TEMP/before/main.xlsx" Artisans "$shots/before-artisans.png" --rows 25
+          python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Artisans "$shots/after-artisans.png" --rows 25
+          python "$probe" shot "$RUNNER_TEMP/before/main.xlsx" Everything "$shots/before-everything.png" --rows 30
+          python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Everything "$shots/after-everything.png" --rows 30
           ls -la "$shots" || true
 
       - name: Upload the comparison and screenshots
