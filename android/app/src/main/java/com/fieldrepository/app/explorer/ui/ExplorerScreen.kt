@@ -1037,6 +1037,7 @@ fun ExplorerScreen(
     CompositionLocalProvider(LocalExplorerSearchAll provides searchScreen?.let { { q: String -> searchQuery = q } }) {
         BoxWithConstraints(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).testTag("explorer.screen")) {
             val wide = maxWidth >= 840.dp
+            val screenDp = maxWidth.value
             val tablesScreen = !wide && state.tab == ExplorerTab.TABLES && state.tree != null && !state.selecting
             Column(Modifier.fillMaxSize()) {
                 if (state.restricted) {
@@ -1080,7 +1081,6 @@ fun ExplorerScreen(
                         }
                     }
                 } else {
-                    val screenDp = maxWidth.value
                     val pane = ExplorerPaneWidth.clamp(paneWidth, screenDp)
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         Row(Modifier.fillMaxSize().testTag("explorer.tablet")) {
