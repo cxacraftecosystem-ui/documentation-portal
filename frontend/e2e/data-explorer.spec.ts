@@ -238,7 +238,7 @@ test.describe("@qf:X1 the tree", () => {
       await page.keyboard.press("ArrowRight");
       await expect(page.getByRole("treeitem", { name: "Bagru 2026", exact: true })).toBeFocused();
       await page.keyboard.press("ArrowDown");
-      await expect(page.getByRole("treeitem", { name: "Sanganer", exact: true })).toBeFocused();
+      await expect(page.getByRole("treeitem", { name: "Big archive", exact: true })).toBeFocused();
       await page.keyboard.press("ArrowUp");
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(/path=workshops%2Fbagru/);
@@ -252,6 +252,9 @@ test.describe("@qf:X1 the tree", () => {
       await expect(page.getByTestId("explorer-tree-panel")).toBeHidden();
       await showTree(page);
       await expect(page.getByRole("treeitem", { name: "Bagru 2026", exact: true })).toHaveAttribute("aria-selected", "true");
+      await page.goBack();
+      await expect(page.getByRole("tab", { name: /Files/ })).toHaveAttribute("aria-selected", "true");
+      await expect(page).toHaveURL(/path=workshops%2Fbagru/);
       await page.goBack();
       await expect(page).not.toHaveURL(/path=workshops%2Fbagru/);
     } finally {

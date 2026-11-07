@@ -232,7 +232,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
   const [draft, setDraft] = useState(fromUrl.state.q);
   const [state, setState] = useState<SearchState>(fromUrl.state);
   const [focus, setFocus] = useState<UnifiedType | null>(fromUrl.focus);
-  const written = useRef<string | null>(null);
+  const lastSearch = useRef(searchToParams(fromUrl.state, fromUrl.focus, ""));
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [loading, setLoading] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -273,17 +273,19 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
   }, [draft]);
 
   useEffect(() => {
+    lastSearch.current = searchToParams(state, focus, "");
     const current = window.location.search.replace(/^\?/, "");
     const next = searchToParams(state, focus, current);
     if (next === current) return;
-    written.current = next;
     router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
   }, [state, focus, pathname, router]);
 
   const paramsText = params.toString();
   useEffect(() => {
-    if (paramsText === written.current) return;
     const wanted = searchFromParams(new URLSearchParams(paramsText));
+    const key = searchToParams(wanted.state, wanted.focus, "");
+    if (key === lastSearch.current) return;
+    lastSearch.current = key;
     setState((previous) => (sameSearch({ state: previous, focus: null }, { state: wanted.state, focus: null }) ? previous : wanted.state));
     setFocus((previous) => (previous === wanted.focus ? previous : wanted.focus));
     setDraft((previous) => (previous.trim() === wanted.state.q.trim() ? previous : wanted.state.q));
