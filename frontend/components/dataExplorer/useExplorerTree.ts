@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchTreePage } from "@/lib/dataExplorer/api";
 import type { TreeResponse } from "@/lib/dataExplorer/contract";
+import { followingCursor } from "@/lib/dataExplorer/explorerView";
 import type { QueryParams } from "@/lib/dataExplorer/wire";
 
 export type TreeStore = {
@@ -32,6 +33,7 @@ export function useExplorerTree(extra: QueryParams, enabled: boolean): TreeStore
   const treesRef = useRef(trees);
   const expandedRef = useRef(expanded);
   const inFlight = useRef(new Map<string, Promise<void>>());
+  const cursorsSeen = useRef(new Map<string, Set<string>>());
 
   useEffect(() => {
     treesRef.current = trees;
@@ -58,6 +60,7 @@ export function useExplorerTree(extra: QueryParams, enabled: boolean): TreeStore
         try {
           const page = await fetchTreePage(path, extraRef.current);
           if (asked !== generation.current) return;
+          cursorsSeen.current.delete(path);
           setTrees((previous) => ({ ...previous, [path]: page }));
           setErrors((previous) => {
             if (!(path in previous)) return previous;
@@ -86,12 +89,18 @@ export function useExplorerTree(extra: QueryParams, enabled: boolean): TreeStore
       const asked = generation.current;
       mark(path, true);
       try {
-        const page = await fetchTreePage(path, extraRef.current, current.nextCursor);
+        const asking = current.nextCursor;
+        const page = await fetchTreePage(path, extraRef.current, asking);
         if (asked !== generation.current) return;
+        const seen = cursorsSeen.current.get(path) ?? new Set<string>();
+        seen.add(asking);
+        cursorsSeen.current.set(path, seen);
+        const following = followingCursor(asking, page.nextCursor, seen);
+        const repeated = Boolean(page.nextCursor) && following === null;
         setTrees((previous) => {
           const base = previous[path];
-          if (!base) return previous;
-          return { ...previous, [path]: { ...base, entries: [...base.entries, ...page.entries], nextCursor: page.nextCursor ?? null, truncated: page.truncated } };
+          if (!base || base.nextCursor !== asking) return previous;
+          return { ...previous, [path]: { ...base, entries: [...base.entries, ...page.entries], nextCursor: following, truncated: page.truncated || repeated } };
         });
       } catch (error) {
         if (asked === generation.current) setErrors((previous) => ({ ...previous, [path]: message(error, "More entries didn't load.") }));
@@ -107,6 +116,7 @@ export function useExplorerTree(extra: QueryParams, enabled: boolean): TreeStore
     extraRef.current = JSON.parse(extraKey) as QueryParams;
     generation.current += 1;
     inFlight.current.clear();
+    cursorsSeen.current.clear();
     setLoading(new Set());
     for (const path of Object.keys(treesRef.current)) void load(path);
   }, [extraKey, load]);
@@ -140,5 +150,5 @@ export function useExplorerTree(extra: QueryParams, enabled: boolean): TreeStore
     [load]
   );
 
-  return { trees, loading, errors, expanded, load, more, toggle, expand };
+  return useMemo(() => ({ trees, loading, errors, expanded, load, more, toggle, expand }), [trees, loading, errors, expanded, load, more, toggle, expand]);
 }

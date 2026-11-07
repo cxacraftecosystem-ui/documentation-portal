@@ -93,6 +93,49 @@ export function viewLink(id: string, origin = typeof window === "undefined" ? ""
 }
 
 
+export const TREE_WIDTH = { min: 240, initial: 326, max: 560, step: 16 } as const;
+
+export const TREE_WIDTH_KEY = "data-explorer-tree-width";
+
+export type WidthBounds = { min: number; max: number };
+
+export function treeWidthBounds(containerWidth: number | null | undefined): WidthBounds {
+  const ceiling = containerWidth && containerWidth > 0 ? Math.floor(containerWidth * 0.5) : TREE_WIDTH.max;
+  return { min: TREE_WIDTH.min, max: Math.max(TREE_WIDTH.min, Math.min(TREE_WIDTH.max, ceiling)) };
+}
+
+export function clampTreeWidth(width: number, bounds: WidthBounds = treeWidthBounds(null)): number {
+  const wanted = Number.isFinite(width) ? width : TREE_WIDTH.initial;
+  return Math.round(Math.min(bounds.max, Math.max(bounds.min, wanted)));
+}
+
+export function treeWidthForKey(key: string, width: number, bounds: WidthBounds, large = false): number | null {
+  const step = large ? TREE_WIDTH.step * 4 : TREE_WIDTH.step;
+  if (key === "ArrowLeft" || key === "ArrowDown") return clampTreeWidth(width - step, bounds);
+  if (key === "ArrowRight" || key === "ArrowUp") return clampTreeWidth(width + step, bounds);
+  if (key === "Home") return bounds.min;
+  if (key === "End") return bounds.max;
+  return null;
+}
+
+export function readTreeWidth(raw: string | null | undefined): number | null {
+  if (raw == null || raw.trim() === "") return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? clampTreeWidth(value) : null;
+}
+
+export const THUMBNAIL_EDGES = [256, 512] as const;
+
+export function thumbnailEdge(renderedWidth: number, pixelRatio = 1): number {
+  const needed = Math.max(0, renderedWidth) * Math.max(1, Number.isFinite(pixelRatio) ? pixelRatio : 1);
+  return THUMBNAIL_EDGES.find((edge) => edge >= needed) ?? THUMBNAIL_EDGES[THUMBNAIL_EDGES.length - 1];
+}
+
+export function followingCursor(asked: string, answered: string | null | undefined, seen: ReadonlySet<string>): string | null {
+  if (!answered || answered === asked || seen.has(answered)) return null;
+  return answered;
+}
+
 export function mergeNavigation(base: ExplorerUrlState, next: Partial<ExplorerUrlState>): ExplorerUrlState {
   return { ...base, ...next };
 }
