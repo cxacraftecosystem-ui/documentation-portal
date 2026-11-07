@@ -35,6 +35,7 @@ swap(
     '        val acceptVictim = runCatching { ProcessBuilder("getprop", "debug.accept.victim").start().inputStream.bufferedReader().use { it.readText().trim() } }.getOrDefault("")\n'
     "        if (acceptVictim.isNotEmpty() && mediaId == acceptVictim) {\n"
     '            android.util.Log.i("ACCEPT", "VICTIM $mediaId requested as accept-0016-missing")\n'
+    "            kotlinx.coroutines.delay(20000)\n"
     '            return ExplorerTransfer.fetchTo(temp, resumable = resumable, keep = keep, backoffMs = backoffMs, open = { offset -> openApi(api.media("accept-0016-missing", format, null, ExplorerTransfer.range(offset))) }, onBytes = onBytes)\n'
     "        }\n"
     "        if (url.isNullOrBlank()) {",

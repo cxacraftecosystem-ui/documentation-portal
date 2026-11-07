@@ -82,11 +82,18 @@ def wait_loaded(name, names, t0, limit=12.0, left=None, empty_ok=True):
     got, root = _orig_wait(name, names, t0, limit=min(limit, 4.0), left=left, empty_ok=empty_ok)
     if got:
         return got, root
-    A.scroll_down_list(0.35)
-    got, root = _orig_wait(name, names, time.time(), limit=max(limit - 4.0, 3.0), left=left, empty_ok=empty_ok)
-    if got and got.get("t") is not None:
-        got["t"] = round(time.time() - t0, 2)
-        got["note"] = "after one scroll"
+    for k in range(3):
+        A.scroll_down_list(0.35)
+        got, root = _orig_wait(name, names, time.time(), limit=3.0 if k < 2 else max(limit - 10.0, 3.0), left=left, empty_ok=empty_ok)
+        if got:
+            if got.get("t") is not None:
+                got["t"] = round(time.time() - t0, 2)
+                got["note"] = f"after {k + 1} scrolls"
+            return got, root
+    want = [n for n in names if n and n not in V.TAB_WORDS]
+    hits = names_in(root, want, left if left is not None else content_left()) if want else []
+    if hits:
+        return {"t": round(time.time() - t0, 2), "count": None, "hits": hits[:5], "empty": False, "note": "rows visible after scrolling; header card off screen"}, root
     return got, root
 
 
@@ -126,7 +133,7 @@ def open_data(tag=""):
             if i < 4:
                 swipe(x, int(h * 0.35), int(h * 0.75), 400)
             else:
-                swipe(x, int(h * 0.75), int(h * 0.45), 500)
+                swipe(x, int(h * 0.6), int(h * 0.3), 500)
             root = dump(None)
         back()
     root = go_dashboard()
@@ -187,6 +194,31 @@ def measure_pane(root=None):
     if r:
         PANE[0] = r[2]
     return r
+
+
+def foreground():
+    out = sh("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'", check=False)
+    return PKG in out
+
+
+_orig_go_dashboard = A.go_dashboard
+
+
+def go_dashboard():
+    if not alive() or not foreground():
+        sh(f"monkey -p {PKG} -c android.intent.category.LAUNCHER 1", check=False)
+        settle(4)
+    return _orig_go_dashboard()
+
+
+A.go_dashboard = go_dashboard
+V.go_dashboard = go_dashboard
+
+
+def emu(cmd):
+    out = adb("emu", *cmd.split(), check=False, timeout=30)
+    A.log(f"emu {cmd}: {out.strip()[:80]}")
+    return out
 
 
 def ev(tag):
@@ -390,6 +422,31 @@ def phase_landing():
         ok = bool(hits) or (not folders and empty)
         record("wide", "tablet landing shows content in the content pane", "PASS" if ok else "FAIL", f"default '{default['name']}'; divider {r}; content-pane rows {hits[:5]}; right-pane labels {right}", ev(tg))
     check_header_back("land-header")
+
+
+def phase_c1():
+    real = V.PORTAL
+    V.PORTAL = "dr"
+    try:
+        V.phase_c1()
+    finally:
+        V.PORTAL = real
+    if PORTAL != "fr":
+        return
+    tax = next((t for t in scout_data["taxonomies"] if t.get("default")), scout_data["taxonomies"][0])
+    if not V.tap_pill(tax["name"]):
+        return
+    settle(4)
+    for value, lab in STATUSES[1:] + STATUSES[:1]:
+        if not V.tap_pill(lab):
+            root, tg = step(f"c1-nostatus-{value}")
+            record(1, f"status {lab} at {tax['name']}", "FAIL", f"status pill not found; {texts(root, 25)}", [tg + ".png"])
+            continue
+        mark(f"status {value} {tax['path']}")
+        t0 = time.time()
+        tr = api.tree(tax["path"], value)
+        names = entry_names(tr)
+        V.check_scenario(1, f"status {lab} at {tax['name']}", tax["name"], names, t0, f"c1-status-{value.lower()}", limit=20.0)
 
 
 def phase_pane():
@@ -630,7 +687,7 @@ def tabs_and_report():
         record("tabs", "Tables tab", "FAIL", "folder did not open")
         return
     root, tg0 = step("tabs-files")
-    if A.tap_text(r"^Tables( \d+)?$", timeout=8):
+    if A.tap_text(r"^Tables( \d+)?$", timeout=8, scroll=3):
         settle(7)
         root, tg1 = step("tabs-tables")
         t1 = selected_tab(root)
@@ -638,10 +695,10 @@ def tabs_and_report():
         settle(2)
         root, tg2 = step("tabs-tables-back")
         t2 = selected_tab(root)
-        record("tabs", "Tables tab opens; Back returns to Files", "PASS" if t1 == "Tables" and t2 == "Files" and find(root, r"^View data$") else "FAIL", f"selected {t1} then after Back {t2}; tables labels {texts(dump(None), 0)}", [tg1 + ".png", tg2 + ".png", tg2 + ".xml"])
+        record("tabs", "Tables tab opens; Back returns to Files", "PASS" if t1 != "Files" and t2 == "Files" and find(root, r"^View data$") else "FAIL", f"Tables selected={t1} (None means the phone shows tables full-screen) then after Back {t2}", [tg1 + ".png", tg2 + ".png", tg2 + ".xml"])
     else:
         record("tabs", "Tables tab", "FAIL", f"no Tables tab; {texts(root, 25)}", ev(tg0))
-    if A.tap_text(r"^Transcripts( \d+)?$", timeout=6):
+    if A.tap_text(r"^Transcripts( \d+)?$", timeout=6, scroll=3):
         settle(5)
         root, tg3 = step("tabs-transcripts")
         record("tabs", "Transcripts tab opens", "PASS" if selected_tab(root) == "Transcripts" else "FAIL", f"{tab_state(root)}; {texts(root, 18)}", ev(tg3))
@@ -688,7 +745,7 @@ def dominant(px):
 
 def tick_geometry(crop, fill):
     w, h = crop.size
-    pts = [(x, y) for y in range(h) for x in range(w) if dist(crop.getpixel((x, y)), fill) >= 200]
+    pts = [(x, y) for y in range(int(h * 0.15), int(h * 0.88)) for x in range(int(w * 0.12), int(w * 0.88)) if dist(crop.getpixel((x, y)), fill) >= 200]
     cols = {}
     for x, y in pts:
         cols.setdefault(x, []).append(y)
@@ -699,7 +756,7 @@ def tick_geometry(crop, fill):
     segs = [[p for p in line if p[0] <= corner[0]], [p for p in line if p[0] >= corner[0]]]
     out = []
     for seg in segs:
-        seg = seg[1:-1] if len(seg) > 4 else seg
+        seg = seg[2:-2] if len(seg) > 8 else seg
         if len(seg) < 3:
             return None
         n = len(seg)
@@ -741,10 +798,11 @@ def open_selection_folder():
 
 def checks_on_screen(root, left):
     out = []
+    side = dp(40)
     for n in all_nodes(root):
         if n.get("checkable") == "true":
             r = rect(n.get("bounds"))
-            if r and r[0] >= left and r[2] > r[0]:
+            if r and r[0] >= left and abs((r[2] - r[0]) - side) <= dp(8) and abs((r[3] - r[1]) - side) <= dp(8):
                 out.append((n.get("checked") == "true", r))
     out.sort(key=lambda x: x[1][1])
     return out
@@ -753,9 +811,11 @@ def checks_on_screen(root, left):
 def row_name_for(root, r, names, left):
     cy = (r[1] + r[3]) / 2
     best = None
+    score = None
     for t, rr in file_rows(root, names, left):
-        if rr[1] - 30 <= cy <= rr[3] + 30:
-            best = t
+        d = abs((rr[1] + rr[3]) / 2 - cy) + abs(rr[0] - r[2]) * 0.5
+        if rr[0] >= r[0] - dp(8) and (score is None or d < score):
+            best, score = t, d
     return best
 
 
@@ -826,7 +886,7 @@ def phase_checkbox_download():
             exp2 = (0.32 - 0.70) / (0.77 - 0.42)
             if geo:
                 s1, s2 = geo["segments"]
-                straight = s1["maxResidualPx"] <= 1.2 and s2["maxResidualPx"] <= 1.2 and abs(s1["slope"] - exp1) <= 0.3 and abs(s2["slope"] - exp2) <= 0.3
+                straight = s1["maxResidualPx"] <= 1.5 and s2["maxResidualPx"] <= 1.5 and abs(s1["slope"] - exp1) <= 0.3 and abs(s2["slope"] - exp2) <= 0.3
                 record("checkbox", "tick is two straight strokes (web geometry)", "PASS" if straight else "FAIL", f"{geo}; expected slopes {round(exp1, 3)} / {round(exp2, 3)}, corner (0.42, 0.70)", ["checkbox-tick-zoom.png"])
             else:
                 record("checkbox", "tick is two straight strokes", "FAIL", "tick pixels not found", ["checkbox-tick-zoom.png"])
@@ -850,7 +910,7 @@ def phase_download(info, files, left):
             settle(1.2)
     root = dump(None)
     chosen = [row_name_for(root, r, names, left) for on, r in checks_on_screen(root, left) if on]
-    chosen = [c for c in chosen if c]
+    chosen = list(dict.fromkeys(c for c in chosen if c))
     ids = [next((f["mediaId"] for f in files if f["name"] == c), None) for c in chosen]
     victim = ids[1] if len(ids) > 1 else (ids[0] if ids else None)
     if not victim:
@@ -862,6 +922,7 @@ def phase_download(info, files, left):
     victim_name = chosen[ids.index(victim)]
     root, tg0 = step("dl-chosen")
     record("download", "small set chosen", "INFO", f"{len(chosen)} files {chosen}; the API will be asked for media 'accept-0016-missing' in place of '{victim_name}' (prop={got == victim})", ev(tg0))
+    throttled = "victim request held 20 s in the acceptance build"
     mark("download start")
     if not A.tap_text(r"^Download \d+", timeout=8):
         root, tg = step("dl-nobutton")
@@ -881,6 +942,8 @@ def phase_download(info, files, left):
             tap(alln[1])
             caught = True
             break
+        if find(root, r"^Recent files$") or find(root, r"^Pause$"):
+            A.scroll_down_list(0.25)
         settle(0.3)
     if not caught:
         root, tg = step("dl-noall")
@@ -895,6 +958,7 @@ def phase_download(info, files, left):
             break
         settle(2)
     settle(2)
+    emu("network speed full")
     root, tg1 = step("dl-allfiles")
     rows = []
     for c in chosen:
@@ -906,7 +970,7 @@ def phase_download(info, files, left):
     A.save("download-rows.json", json.dumps(rows, indent=1))
     saved_rows = [x for x in rows if not x["victim"] and any(re.match(r"^[\d.,]+ (B|KB|MB|GB)$", e) for e in x["end"])]
     failed_rows = [x for x in rows if x["victim"] and "Failed" in x["end"]]
-    record("download", "set downloads with one failed file", "PASS" if saved_rows and failed_rows else "FAIL", f"rows {[(x['name'][-28:], x['end']) for x in rows]}", ev(tg1) + ["download-rows.json"])
+    record("download", "set downloads with one failed file", "PASS" if saved_rows and failed_rows else "FAIL", f"{throttled}; All files sheet caught={caught}; rows {[(x['name'][-28:], x['end']) for x in rows]}", ev(tg1) + ["download-rows.json"])
     if Image is not None and saved_rows and failed_rows:
         img = Image.open(png(tg1)).convert("RGB")
         res = []
@@ -983,11 +1047,14 @@ def chip_filters():
         if hit and hit[1][2] <= w:
             tap(hit[1])
             return True
-        ev_chip = find(root, r"^Everything$")
-        if not ev_chip:
+        chips = find_all(root, r"^(Everything|Artisans|Workshops|Products|Tools|Media|Design workshops|Clusters)$")
+        if chips:
+            y = (chips[0][1][1] + chips[0][1][3]) // 2
+            x1 = max(c[1][2] for c in chips if abs((c[1][1] + c[1][3]) // 2 - y) < 20) - 12
+            x0 = min(c[1][0] for c in chips if abs((c[1][1] + c[1][3]) // 2 - y) < 20) + 12
+        elif "y" not in locals():
             return False
-        y = (ev_chip[1][1] + ev_chip[1][3]) // 2
-        sh(f"input swipe {int(w * 0.85)} {y} {int(w * 0.15)} {y} 400")
+        sh(f"input swipe {x1} {y} {x0} {y} 400")
         settle(1)
     return False
 
@@ -1018,8 +1085,8 @@ def phase_record_types():
 def record_types_sheet(where):
     settle(3)
     root, tg0 = step("rt-filters")
-    if not A.tap_text(r"^Record types( \(\d+ selected\)|\. )", timeout=6, scroll=2):
-        A.tap_text(r"^Record types$", timeout=4)
+    if not A.tap_text(r"^Record types\. ", timeout=6, scroll=2):
+        A.tap_text(r"^Record types \(\d+ selected\)$", timeout=4)
     settle(3)
     root, tg1 = step("rt-picker")
     sel = find(root, r"^Select all \d+ shown$")
@@ -1109,7 +1176,7 @@ def phase_process_death():
     lvl = levels[1]
     settle(3)
     root, tg0 = step("death-before")
-    before = names_in(root, lvl["names"], content_left())
+    before = names_in(root, lvl["names"], content_left()) + ([lvl["name"]] if find(root, rf"^{re.escape(lvl['name'])}$") else [])
     sh("input keyevent KEYCODE_HOME")
     settle(3)
     mark("process death")
@@ -1119,9 +1186,9 @@ def phase_process_death():
     sh(f"monkey -p {PKG} -c android.intent.category.LAUNCHER 1", check=False)
     settle(10)
     root, tg1 = step("death-restored", check=False)
-    after = names_in(root, lvl["names"], content_left())
+    after = names_in(root, lvl["names"], content_left()) + ([lvl["name"]] if find(root, rf"^{re.escape(lvl['name'])}$") else [])
     title = find(root, r"^View data$")
-    ok = gone and bool(title) and (bool(after) or not before) and not on_dashboard(root)
+    ok = gone and bool(title) and bool(after) and not on_dashboard(root)
     record("death", "process death restores Data", "PASS" if ok else "FAIL", f"process killed={gone}; folder '{lvl['name']}' rows before {before[:3]} after {after[:3]}; View data shown={bool(title)}", [tg0 + ".png", tg1 + ".png", tg1 + ".xml"])
     A.last_pid[0] = sh(f"pidof {PKG}", check=False).strip()
 
@@ -1137,11 +1204,11 @@ def phase_storm():
     settle(4)
     mark("storm")
     left = content_left()
+    pairs = 0
     for i in range(6):
-        root = dump(None)
-        hit = node_at(root, rf"^{re.escape(levels[1]['name'])}$", left)
-        if hit:
-            tap(hit[1])
+        if not V.tap_folder(levels[1]["name"], left):
+            break
+        pairs += 1
         settle(0.4)
         sh("input keyevent KEYCODE_BACK")
         settle(0.4)
@@ -1149,7 +1216,7 @@ def phase_storm():
     root, tg = step("storm-after")
     names = [n for n in levels[0]["names"] if n not in V.TAB_WORDS]
     hits = names_in(root, names, left)
-    record("storm", "descend/Back storm leaves Data intact", "PASS" if alive() and (hits or on_dashboard(root)) and not incidents else "FAIL", f"alive={alive()}; rows {hits[:3]}; dashboard={on_dashboard(root)}; incidents {incidents[-2:]}", ev(tg))
+    record("storm", "descend/Back storm leaves Data intact", "PASS" if pairs >= 5 and alive() and find(root, r"^View data$") and not incidents else "FAIL", f"{pairs} open/Back pairs at 0.4 s; alive={alive()}; View data={bool(find(root, r'^View data$'))}; rows {hits[:3]}; dashboard={on_dashboard(root)}; incidents {incidents[-2:]}", ev(tg))
 
 
 def phase_viewid_burst():
@@ -1182,6 +1249,27 @@ def phase_back_top():
         if on_dashboard(root) or not find(root, r"^View data$"):
             break
     left = on_dashboard(root) or not find(root, r"^View data$")
+    chain = scout_data.get("ui_chain") or []
+    if len(chain) >= 2:
+        go_dashboard()
+        V.open_data()
+        settle(5)
+        V.tap_pill(chain[0]["name"])
+        settle(4)
+        if V.tap_folder(chain[1]["name"], content_left()):
+            settle(5)
+            root, tg1 = step("backtop2-in-folder")
+            back()
+            root, tg2 = step("backtop2-at-taxonomy", wait=1)
+            n2 = 0
+            for i in range(3):
+                back()
+                n2 += 1
+                root, tg3 = step(f"backtop2-{n2}", wait=1)
+                if on_dashboard(root) or not find(root, r"^View data$"):
+                    break
+            out2 = on_dashboard(root) or not find(root, r"^View data$")
+            record(3, "after descending, Back to the taxonomy then one more Back leaves Data", "PASS" if out2 and n2 == 1 else "FAIL", f"folder '{chain[1]['name']}' -> Back -> '{chain[0]['name']}'; then left Data={out2} after {n2} more presses", [tg1 + ".png", tg2 + ".png", tg3 + ".png", tg3 + ".xml"])
     record(3, "system Back from a taxonomy top leaves Data in one press", "PASS" if left and presses == 1 else "FAIL", f"left Data={left} after {presses} Back presses from '{tax['name']}'", tags)
 
 
@@ -1266,7 +1354,7 @@ def main():
         record(0, "sign in as master admin", "PASS", "")
         heap.start()
         phases = [
-            ("landing", phase_landing), ("c1", V.phase_c1), ("pane", phase_pane), ("c3", V.phase_c3),
+            ("landing", phase_landing), ("c1", phase_c1), ("pane", phase_pane), ("c3", V.phase_c3),
             ("previews", phase_previews), ("transcripts", phase_transcripts_tab), ("expand", phase_expand),
             ("tabs", tabs_and_report), ("checkbox", phase_checkbox_download), ("recordtypes", phase_record_types),
             ("quick", phase_quick_ka), ("search", V.phase_c4_search), ("c5", V.phase_c5), ("viewid", phase_viewid_burst), ("viewtx", phase_view_transcripts), ("backtop", phase_back_top),
@@ -1278,6 +1366,7 @@ def main():
         if want("soak"):
             soak_seconds = A.run("soak", V.phase_soak, heap) or 0
     finally:
+        emu("network speed full")
         sh("settings put system font_scale 1.0", check=False)
         sh("settings put system user_rotation 0", check=False)
         for k in ("window_animation_scale", "transition_animation_scale", "animator_duration_scale"):

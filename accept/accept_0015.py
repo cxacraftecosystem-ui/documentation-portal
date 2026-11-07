@@ -431,7 +431,7 @@ def scout():
     queue = [(t.get("path"), 1) for t in taxes]
     seen = 0
     chain_candidates = []
-    while queue and seen < 80:
+    while queue and seen < 40:
         path, depth = queue.pop(0)
         tr = api.tree(path)
         seen += 1
