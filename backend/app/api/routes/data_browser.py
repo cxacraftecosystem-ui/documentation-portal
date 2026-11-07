@@ -799,7 +799,7 @@ def _craft_folder_entries(ws: Any, base: str, artisans: list[Any]) -> list[dict[
 
 async def _workshop_craft_artisans(wid: str, cid: str, scope: Scope) -> list[Any]:
     ws = await _require(
-        db.workshop, wid, "Workshop", include=_WS_CRAFTS_INCLUDE, scope_where=scope.records
+        db.workshop, wid, "Workshop", include=_WS_CRAFTS_INCLUDE, scope_where=scope.readable
     )
     reachable = await _linked_artisans(ws, scope)
     if cid == NO_CRAFT:
@@ -829,7 +829,7 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
 
     if len(segs) == 2:
         ws = await _require(
-            db.workshop, wid, "Workshop", include=_WS_CRAFTS_INCLUDE, scope_where=scope.records
+            db.workshop, wid, "Workshop", include=_WS_CRAFTS_INCLUDE, scope_where=scope.readable
         )
         info = _workshop_info(ws)
         entries = _craft_folder_entries(ws, f"{parent}/crafts", await _linked_artisans(ws, scope))
@@ -849,7 +849,7 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
     if segs[2] == "crafts":
         if len(segs) == 3:
             ws = await _require(
-                db.workshop, wid, "Workshop", include=_WS_CRAFTS_INCLUDE, scope_where=scope.records
+                db.workshop, wid, "Workshop", include=_WS_CRAFTS_INCLUDE, scope_where=scope.readable
             )
             return _craft_folder_entries(ws, parent, await _linked_artisans(ws, scope)), None
 
@@ -903,7 +903,7 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
             wid,
             "Workshop",
             include={"artisans": {"include": {"artisan": True}}},
-            scope_where=scope.records,
+            scope_where=scope.readable,
         )
         entries = []
         used = set()
@@ -927,7 +927,7 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
             aid,
             "Artisan",
             include={"craft": True, "location": True},
-            scope_where=scope.records,
+            scope_where=scope.readable,
         )
         info = _artisan_info(artisan)
         if info is not None:
@@ -975,7 +975,7 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
                 segs[5],
                 "Tool",
                 include=TOOL_SCOPE_INCLUDE,
-                scope_where=scope.records,
+                scope_where=scope.readable,
             )
             await hide_unseen([tool], scope.readable)
             info = _tool_info(tool)
@@ -1017,7 +1017,7 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
                     "responses": {"include": {"question": True}},
                     "artisans": {"include": {"artisan": True}},
                 },
-                scope_where=scope.records,
+                scope_where=scope.readable,
             )
             info = _interview_info(interview)
             entries = []
@@ -1078,7 +1078,7 @@ async def _list_products_level(
 
     if len(segs) == 6:
         product = await _require(
-            db.productdocumentation, pid, "Product", scope_where=scope.records
+            db.productdocumentation, pid, "Product", scope_where=scope.readable
         )
         info = _product_info(product)
         entries = []
@@ -1108,7 +1108,7 @@ async def _list_products_level(
 
     if len(segs) == 8 and segs[6] == "processes":
         process = await _require(
-            db.process, segs[7], "Process", include={"steps": True}, scope_where=scope.records
+            db.process, segs[7], "Process", include={"steps": True}, scope_where=scope.readable
         )
         info = _process_info(process)
         entries = []
@@ -1131,7 +1131,7 @@ async def _list_products_level(
     if len(segs) == 9 and segs[6] == "processes":
         step_scope: dict[str, Any] | None = None
         if scope.records:
-            await _require(db.process, segs[7], "Process", scope_where=scope.records)
+            await _require(db.process, segs[7], "Process", scope_where=scope.readable)
             step_scope = {"processId": segs[7]}
         step = await _require(
             db.processstep,
@@ -1306,7 +1306,7 @@ async def _list_uploader_level(segs: list[str], parent: str, scope: Scope) -> Le
 
     if len(segs) == 2:
         ws = await _require(
-            db.workshop, wid, "Workshop", include=_WS_CRAFTS_INCLUDE, scope_where=scope.records
+            db.workshop, wid, "Workshop", include=_WS_CRAFTS_INCLUDE, scope_where=scope.readable
         )
         uploaders = await _every(
             db.user.find_many,
@@ -1850,7 +1850,7 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
             "crafts": {"include": {"craft": True}},
             "artisans": {"include": {"artisan": True}},
         },
-        scope_where=scope.records,
+        scope_where=scope.readable,
     )
     data["workshops"] = [ws]
     linked = await _linked_artisans(ws, scope)
@@ -1886,7 +1886,7 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
 
     if aid is not None:
         artisan = await _require(
-            db.artisan, aid, "Artisan", include=_ARTISAN_INCLUDE, scope_where=scope.records
+            db.artisan, aid, "Artisan", include=_ARTISAN_INCLUDE, scope_where=scope.readable
         )
         scoped = [artisan]
     else:
@@ -1945,7 +1945,7 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
                     rid,
                     "Product",
                     include=_PRODUCT_INCLUDE,
-                    scope_where=scope.records,
+                    scope_where=scope.readable,
                 )
             ]
         else:
@@ -1991,7 +1991,7 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
                     rid,
                     "Tool",
                     include=_TOOL_INCLUDE,
-                    scope_where=scope.records,
+                    scope_where=scope.readable,
                 )
             ]
         else:
@@ -2012,7 +2012,7 @@ async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]
                     rid,
                     "Interview",
                     include=_INTERVIEW_INCLUDE,
-                    scope_where=scope.records,
+                    scope_where=scope.readable,
                 )
             ]
         else:

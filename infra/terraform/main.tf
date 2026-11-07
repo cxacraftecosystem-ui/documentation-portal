@@ -280,6 +280,15 @@ resource "aws_iam_user_policy" "media" {
           "s3:AbortMultipartUpload"
         ]
         Resource = "${aws_s3_bucket.media.arn}/media/*"
+      },
+      {
+        Sid    = "AppThumbnails"
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject"
+        ]
+        Resource = "${aws_s3_bucket.media.arn}/thumbnails/*"
       }
     ]
   })

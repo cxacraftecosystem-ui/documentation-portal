@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import time
+from collections import OrderedDict
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -23,6 +25,9 @@ THUMBNAIL_RESIZABLE_MODES = frozenset({"RGB", "RGBA", "L", "LA", "CMYK", "YCbCr"
 _THUMB_SLOT = asyncio.Semaphore(1)
 THUMBNAIL_WAIT_SECONDS = 20.0
 THUMBNAIL_RETRY_AFTER = "15"
+THUMBNAIL_UNSTORED_TTL_SECONDS = 600.0
+THUMBNAIL_UNSTORED_MAX = 2048
+_UNSTORED: OrderedDict[str, float] = OrderedDict()
 
 PREVIEW_MIME_PREFIXES = ("image/", "video/", "audio/")
 PREVIEW_MIME_EXACT = frozenset({"application/pdf"})
@@ -280,6 +285,36 @@ def thumbnailable(media: Any) -> bool:
     )
 
 
+def _mark_unstored(key: str) -> None:
+    _UNSTORED[key] = time.monotonic() + THUMBNAIL_UNSTORED_TTL_SECONDS
+    _UNSTORED.move_to_end(key)
+    while len(_UNSTORED) > THUMBNAIL_UNSTORED_MAX:
+        _UNSTORED.popitem(last=False)
+
+
+def thumbnail_unstored(key: str) -> bool:
+    until = _UNSTORED.get(key)
+    if until is None:
+        return False
+    if until <= time.monotonic():
+        _UNSTORED.pop(key, None)
+        return False
+    return True
+
+
+async def _store_thumbnail(key: str, data: bytes) -> bool:
+    from app.services import s3
+
+    try:
+        await asyncio.to_thread(s3.put_object_bytes, key, data, mime_type=THUMBNAIL_MIME)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("thumbnail %s could not be stored: %s", key, type(exc).__name__)
+        _mark_unstored(key)
+        return False
+    _UNSTORED.pop(key, None)
+    return True
+
+
 async def ensure_thumbnail(media: Any, edge: int, *, wait: float | None = None) -> bytes | None:
     from app.services import s3
 
@@ -287,6 +322,7 @@ async def ensure_thumbnail(media: Any, edge: int, *, wait: float | None = None) 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No thumbnail")
     key = thumbnail_key(str(media.id), edge)
     if await asyncio.to_thread(s3.object_exists, key):
+        _UNSTORED.pop(key, None)
         return None
     try:
         await asyncio.wait_for(
@@ -302,16 +338,32 @@ async def ensure_thumbnail(media: Any, edge: int, *, wait: float | None = None) 
         if await asyncio.to_thread(s3.object_exists, key):
             return None
         data = await _render_from_storage(str(media.objectKey), edge)
-        await asyncio.to_thread(s3.put_object_bytes, key, data, mime_type=THUMBNAIL_MIME)
+        await _store_thumbnail(key, data)
         return data
     finally:
         _THUMB_SLOT.release()
 
 
+def _original_inline(media: Any) -> Response:
+    url, max_age = signing.signed_get(
+        str(media.objectKey),
+        filename=display_filename(media, fallback=str(media.id)),
+        mime_type=_mime(media),
+        inline=True,
+    )
+    response = _redirect(url, max_age)
+    response.headers["X-Thumbnail"] = "original"
+    return response
+
+
 async def thumbnail_redirect(media: Any, size: int | None) -> Response:
     edge = _thumbnail_size(size)
-    await ensure_thumbnail(media, edge)
     key = thumbnail_key(str(media.id), edge)
+    if thumbnailable(media) and thumbnail_unstored(key):
+        return _original_inline(media)
+    await ensure_thumbnail(media, edge)
+    if thumbnail_unstored(key):
+        return _original_inline(media)
     name = f"{media.id!s}-{edge}.webp"
     url, max_age = signing.signed_get(key, filename=name, mime_type=THUMBNAIL_MIME, inline=True)
     return _redirect(url, max_age)

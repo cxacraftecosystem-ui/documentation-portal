@@ -153,5 +153,14 @@ async def report_sheets(
     q: str | None = None,
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
-    return await build.catalog(current_user, path, status=status_value, q=q)
+    from app.services.data_explorer import report_cache
+
+    try:
+        return await build.catalog(current_user, path, status=status_value, q=q)
+    except report_cache.ReportBusy as busy:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=report_cache.REPORT_BUSY,
+            headers={"Retry-After": str(busy.retry_after)},
+        ) from None
 
