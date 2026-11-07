@@ -509,7 +509,15 @@ async def step_binding(report: Report, client: Any, state: State) -> None:
 
 
 async def grant(
-    report: Report, client: Any, state: State, *, user_id: str, level: str, label: str, note: str
+    report: Report,
+    client: Any,
+    state: State,
+    *,
+    user_id: str,
+    level: str,
+    label: str,
+    note: str | None,
+    step: str = "assignments",
 ) -> None:
     existing = None
     if state.workshop_id is not None:
@@ -517,18 +525,18 @@ async def grant(
             where={"workshopId_userId": {"workshopId": state.workshop_id, "userId": user_id}}
         )
     if existing is not None and _text(existing.status) == "GRANTED" and _text(existing.accessLevel) == level:
-        report.add("assignments", EXISTS, f"{label} {level}", existing.id)
+        report.add(step, EXISTS, f"{label} {level}", existing.id)
         return
     if not report.apply:
         outcome = PLANNED if existing is None else WOULD_UPDATE
-        report.add("assignments", outcome, f"{label} {level} GRANTED")
+        report.add(step, outcome, f"{label} {level} GRANTED")
         return
     row = await workshop_routes.grant_workshop_assignment(
         state.workshop_id,
         WorkshopGrantIn(userId=user_id, accessLevel=level, note=note),
         current_user=state.admin,
     )
-    report.add("assignments", CREATED if existing is None else UPDATED, f"{label} {level}", row["id"])
+    report.add(step, CREATED if existing is None else UPDATED, f"{label} {level}", row["id"])
 
 
 async def step_assignments(report: Report, client: Any, state: State) -> None:
@@ -653,7 +661,8 @@ async def step_after_signin(report: Report, client: Any, state: State) -> None:
             )
             continue
         await grant(
-            report, client, state, user_id=user.id, level=CONTRIBUTE, label=email, note=None
+            report, client, state,
+            user_id=user.id, level=CONTRIBUTE, label=email, note=None, step="after-signin",
         )
 
 
