@@ -200,6 +200,7 @@ async def unified_search(
     local_scope.artisan_ids = _split(artisanIds)
     offset = (page - 1) * limit
 
+    peer_available = cross_portal.search_active(settings) and us.may_search_across(current_user)
     remote_status = us.STATUS_OFF
     craft_codes: list[str] = []
     if scope == "all" and cross_portal.search_active(settings):
@@ -263,7 +264,12 @@ async def unified_search(
         "suggestionTotal": suggestion_total,
         "mode": local.mode,
         "groups": groups,
-        "remote": {"portal": us.PEER_PORTAL, "label": us.PEER_LABEL, "status": remote_status},
+        "remote": {
+            "portal": us.PEER_PORTAL,
+            "label": us.PEER_LABEL,
+            "status": remote_status,
+            "available": peer_available,
+        },
         "typesRefused": refused,
         "page": page,
         "limit": limit,

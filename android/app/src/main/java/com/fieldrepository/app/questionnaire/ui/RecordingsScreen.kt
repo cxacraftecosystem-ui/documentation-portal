@@ -36,6 +36,7 @@ import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireFilters
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
 import com.fieldrepository.app.transcript.ui.TranscriptPreviewText
+import com.fieldrepository.app.ui.AudioExpand
 import com.fieldrepository.app.ui.AudioPlayer
 import com.fieldrepository.app.ui.FieldLinearProgressIndicator
 import com.fieldrepository.app.ui.field
@@ -68,6 +69,7 @@ fun RecordingsList(
     var offline by rememberKept("$screen.offline") { false }
     var loading by remember { mutableStateOf(true) }
     var playing by remember { mutableStateOf<Uri?>(null) }
+    var expandFor by remember { mutableStateOf<AudioExpand?>(null) }
     LaunchedEffect(applied) {
         loading = true
         val page = runCatching { v2.recordingsPage(applied) }.getOrNull()
@@ -86,7 +88,7 @@ fun RecordingsList(
         if (!loading && rows.isEmpty()) Text(QuestionnaireCopy.t("filterNoMatches"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
         rows.forEach { r ->
             Column(
-                Modifier.fillMaxWidth().clickable { scope.launch { playing = v2.playbackUrl(r.id)?.let(Uri::parse) } }.padding(vertical = 6.dp).testTag("recording-row"),
+                Modifier.fillMaxWidth().clickable { scope.launch { playing = v2.playbackUrl(r.id)?.let(Uri::parse); expandFor = r.audioExpand() } }.padding(vertical = 6.dp).testTag("recording-row"),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 r.chips?.session?.title?.ifBlank { null }?.let { title ->
@@ -108,9 +110,12 @@ fun RecordingsList(
                     .onFailure { onError(QuestionnaireCopy.s("error.needsSignal")) }
             }
         }))
-        playing?.let { AudioPlayer(it) }
+        playing?.let { AudioPlayer(it, expand = expandFor) }
     }
 }
+
+internal fun QRecording.audioExpand(): AudioExpand? =
+    mediaFileId?.takeIf { it.isNotBlank() }?.let { AudioExpand(it, downloadName.orEmpty()) }
 
 internal fun merged(filters: QuestionnaireFilters, fixed: QuestionnaireFilters): QuestionnaireFilters =
     fixed.values.entries.fold(filters) { f, (k, v) -> f.with(k, v) }

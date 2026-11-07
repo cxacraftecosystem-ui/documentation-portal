@@ -4,7 +4,7 @@ import { legacyHits, unifiedHits } from "@/components/dataExplorer/paletteSearch
 import { reportOptionParams } from "@/lib/dataExplorer/api";
 import { DEFAULT_REPORT_OPTIONS, withReportDefaults, type ReportResponse, type TreeEntry } from "@/lib/dataExplorer/contract";
 import { fileNameFrom, looksLikeZip, nextToStart, retryDelaySeconds, ROW_TONE_CLASS, TONE_CLASS, toneOf, trayHeadline, type DownloadItem } from "@/lib/dataExplorer/downloads";
-import { builtAgo, estimateLine, filterOf, highlightParts, mergeNavigation, pageOf, percentLabel, sortArtisans, viewLink, viewSummary } from "@/lib/dataExplorer/explorerView";
+import { builtAgo, clampTreeWidth, estimateLine, filterOf, followingCursor, highlightParts, mergeNavigation, pageOf, percentLabel, readTreeWidth, sortArtisans, thumbnailEdge, TREE_WIDTH, treeWidthBounds, treeWidthForKey, viewLink, viewSummary } from "@/lib/dataExplorer/explorerView";
 import { fetchDownload, NotAFile } from "@/lib/dataExplorer/fetchDownload";
 import { filtersLeaveNothing, recordLine, reportFilterChips, withoutStatus } from "@/lib/dataExplorer/reportFilters";
 import { DEFAULT_URL_STATE } from "@/lib/dataExplorer/urlState";
@@ -249,4 +249,41 @@ test("report filters: chips name what narrows the report, and an empty result is
   expect(filtersLeaveNothing(list, false)).toBe(false);
   expect(filtersLeaveNothing({ ...list, records: 3 }, true)).toBe(false);
   expect(filtersLeaveNothing(null, true)).toBe(false);
+});
+
+test("the folders panel width stays between its floor and half the explorer, and steps by key", () => {
+  expect(treeWidthBounds(null)).toEqual({ min: TREE_WIDTH.min, max: TREE_WIDTH.max });
+  expect(treeWidthBounds(1300)).toEqual({ min: 240, max: 560 });
+  expect(treeWidthBounds(900)).toEqual({ min: 240, max: 450 });
+  expect(treeWidthBounds(300)).toEqual({ min: 240, max: 240 });
+  const bounds = treeWidthBounds(1300);
+  expect(clampTreeWidth(100, bounds)).toBe(240);
+  expect(clampTreeWidth(9999, bounds)).toBe(560);
+  expect(clampTreeWidth(Number.NaN, bounds)).toBe(TREE_WIDTH.initial);
+  expect(treeWidthForKey("ArrowRight", 326, bounds)).toBe(342);
+  expect(treeWidthForKey("ArrowLeft", 326, bounds)).toBe(310);
+  expect(treeWidthForKey("ArrowRight", 326, bounds, true)).toBe(390);
+  expect(treeWidthForKey("Home", 326, bounds)).toBe(240);
+  expect(treeWidthForKey("End", 326, bounds)).toBe(560);
+  expect(treeWidthForKey("Enter", 326, bounds)).toBeNull();
+  expect(readTreeWidth("400")).toBe(400);
+  expect(readTreeWidth("10")).toBe(240);
+  expect(readTreeWidth("wide")).toBeNull();
+  expect(readTreeWidth(null)).toBeNull();
+});
+
+test("a thumbnail asks for the smallest stored size that covers the tile", () => {
+  expect(thumbnailEdge(48)).toBe(256);
+  expect(thumbnailEdge(48, 3)).toBe(256);
+  expect(thumbnailEdge(240)).toBe(256);
+  expect(thumbnailEdge(240, 2)).toBe(512);
+  expect(thumbnailEdge(485)).toBe(512);
+  expect(thumbnailEdge(1200, 2)).toBe(512);
+});
+
+test("the pager stops when the server repeats a cursor", () => {
+  expect(followingCursor("25", "50", new Set(["25"]))).toBe("50");
+  expect(followingCursor("25", "25", new Set(["25"]))).toBeNull();
+  expect(followingCursor("50", "25", new Set(["25", "50"]))).toBeNull();
+  expect(followingCursor("50", null, new Set(["50"]))).toBeNull();
 });

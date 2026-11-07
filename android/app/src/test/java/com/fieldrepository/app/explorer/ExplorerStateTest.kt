@@ -1,6 +1,7 @@
 package com.fieldrepository.app.explorer
 
 import com.fieldrepository.app.explorer.data.ExplorerCache
+import com.fieldrepository.app.explorer.data.ExplorerCrumb
 import com.fieldrepository.app.explorer.data.ExplorerEntry
 import com.fieldrepository.app.explorer.data.ExplorerTaxonomy
 import com.fieldrepository.app.explorer.data.ExplorerTree
@@ -237,5 +238,86 @@ class ExplorerStateTest {
         s.toggleSelect(s.files[1])
         assertEquals(718L, s.selectedBytes)
         assertEquals(0, s.selectedFolders)
+    }
+    private fun placed(api: FakeExplorerApi, places: MutableList<String>) = ExplorerState(
+        api = api,
+        scope = scope,
+        cache = null,
+        rootName = "Repository",
+        defaultStatus = null,
+        statusParamOf = { it },
+        onPlace = { places += it },
+    )
+
+    private val groupings = listOf(ExplorerTaxonomy("w", "Workshop", "by-workshop", isDefault = true), ExplorerTaxonomy("c", "Craft", "by-craft"))
+
+    private fun grouped(path: String) = when {
+        path.isEmpty() -> ExplorerTree(taxonomies = groupings)
+        else -> ExplorerTree(
+            path = path,
+            crumbs = listOf(ExplorerCrumb(path.substringBefore('/'), path.substringBefore('/'))) + if ('/' in path) listOf(ExplorerCrumb("Leaf", path)) else emptyList(),
+            entries = listOf(ExplorerEntry(name = "F", path = "$path/f", kind = "folder")),
+            taxonomies = groupings,
+            taxonomy = if (path.startsWith("by-craft")) "c" else "w",
+        )
+    }
+
+    @Test fun `a forgotten state stops its folder load and opens nothing more`() = runBlocking {
+        val api = FakeExplorerApi()
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        api.trees = { path, _, _ -> started.complete(Unit); kotlinx.coroutines.awaitCancellation() }
+        val s = state(api)
+        s.open("w")
+        started.await()
+        s.onForgotten()
+        until { !s.loading || s.closed }
+        assertTrue(s.closed)
+        s.open("x")
+        delay(100)
+        assertEquals(1, api.calls.size)
+        assertEquals("w", s.path)
+    }
+
+    @Test fun `the place is written only when the folder changes`() = runBlocking {
+        val api = FakeExplorerApi()
+        val places = mutableListOf<String>()
+        val s = placed(api, places)
+        s.open("w")
+        until { s.tree != null }
+        s.open("w")
+        s.reload()
+        s.changeStatus("approved")
+        s.open("w/b")
+        until { s.path == "w/b" && s.tree != null }
+        assertEquals(listOf("w", "w/b"), places)
+    }
+
+    @Test fun `a grouping root is the top, so back leaves Data instead of opening a bare root`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.trees = { path, _, _ -> grouped(path) }
+        val s = state(api)
+        s.start(null)
+        until { s.path == "by-workshop" && s.tree?.path == "by-workshop" }
+        assertTrue(s.atTop)
+        assertEquals(false, s.canGoUp)
+        assertEquals(false, s.goUp())
+        assertEquals("by-workshop", s.path)
+        s.open("by-workshop/x")
+        until { s.tree?.path == "by-workshop/x" }
+        assertTrue(s.canGoUp)
+        assertTrue(s.goUp())
+        until { s.path == "by-workshop" }
+    }
+
+    @Test fun `opening the root once groupings are known stays in the current grouping`() = runBlocking {
+        val api = FakeExplorerApi()
+        api.trees = { path, _, _ -> grouped(path) }
+        val s = state(api)
+        s.start("by-craft/x")
+        until { s.tree?.path == "by-craft/x" }
+        s.open("")
+        assertEquals("by-craft", s.path)
+        until { s.tree?.path == "by-craft" }
+        assertTrue(api.calls.none { it == "tree:::" })
     }
 }

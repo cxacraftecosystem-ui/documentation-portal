@@ -2,6 +2,7 @@ package com.fieldrepository.app.explorer.ui
 
 import android.content.Intent
 import com.fieldrepository.app.explorer.portal.ExplorerPortal
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,10 +17,16 @@ data class ExplorerLinkRequest(
     val preview: String? = null,
     val seconds: Double? = null,
     val bundle: String? = null,
+    val view: String? = null,
+    val sheet: String? = null,
+    val q: String? = null,
+    val hit: String? = null,
+    val kind: String? = null,
 )
 
 object ExplorerViewLinks {
     private val state = MutableStateFlow<ExplorerLinkRequest?>(null)
+    private val VIEWS = setOf("files", "tables", "transcripts")
     val requests: StateFlow<ExplorerLinkRequest?> = state.asStateFlow()
 
     fun parse(url: String, webBase: String = ExplorerPortal.WEB_BASE): ExplorerLinkRequest? {
@@ -42,6 +49,11 @@ object ExplorerViewLinks {
             preview = query["preview"]?.takeIf { it.isNotBlank() },
             seconds = query["t"]?.let { seconds(it) },
             bundle = query["bundle"]?.takeIf { it.isNotBlank() },
+            view = query["view"]?.takeIf { it in VIEWS },
+            sheet = query["sheet"]?.takeIf { it.isNotBlank() },
+            q = query["q"]?.takeIf { it.isNotBlank() },
+            hit = query["hit"]?.takeIf { it.isNotBlank() },
+            kind = query["kind"]?.trim()?.uppercase()?.takeIf { it.isNotBlank() },
         )
     }
 
@@ -68,7 +80,21 @@ object ExplorerViewLinks {
         state.value = request
     }
 
-    fun consume() {
-        state.value = null
+    fun consume(request: ExplorerLinkRequest): Boolean = state.compareAndSet(request, null)
+
+    suspend fun serve(request: ExplorerLinkRequest, onFailure: (Throwable) -> Unit, handle: suspend (ExplorerLinkRequest) -> Unit) {
+        try {
+            handle(request)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            onFailure(failure)
+        }
+        consume(request)
+    }
+
+    fun mediaType(served: String?, name: String): String? {
+        val said = served?.trim()?.uppercase()?.takeIf { it.isNotEmpty() }
+        return said?.takeIf { it != "OTHER" } ?: mediaTypeOf(name) ?: said
     }
 }

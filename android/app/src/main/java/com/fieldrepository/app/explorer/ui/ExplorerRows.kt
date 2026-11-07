@@ -1,5 +1,6 @@
 package com.fieldrepository.app.explorer.ui
 
+import com.fieldrepository.app.ui.FieldCheckbox
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,7 +51,6 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -86,6 +86,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.SubcomposeAsyncImage
+import coil3.compose.SubcomposeAsyncImageContent
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.request.ImageRequest
@@ -179,7 +180,7 @@ internal fun ExplorerThumb(entry: ExplorerEntry, size: Dp = 48.dp) {
     val stored: @Composable () -> Unit = {
         val file = offline?.file
         if (file != null) {
-            coil3.compose.AsyncImage(model = file, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size).clip(ExplorerShapes.tile))
+            ExplorerThumbFrame(size) { coil3.compose.AsyncImage(model = file, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.matchParentSize()) }
         } else {
             fallback()
         }
@@ -201,31 +202,36 @@ internal fun ExplorerThumb(entry: ExplorerEntry, size: Dp = 48.dp) {
     SubcomposeAsyncImage(
         model = request,
         contentDescription = null,
-        contentScale = ContentScale.Crop,
+        contentScale = ContentScale.Fit,
         loading = { stored() },
         error = { stored() },
+        success = {
+            val image = this
+            ExplorerThumbFrame(size) { image.SubcomposeAsyncImageContent(modifier = Modifier.matchParentSize()) }
+        },
         onSuccess = { state -> offline?.keep?.invoke(state.result.image) },
         modifier = Modifier.size(size).clip(ExplorerShapes.tile).testTag("explorer.thumb.${entry.mediaId ?: entry.path}"),
     )
 }
 
 @Composable
+internal fun ExplorerThumbFrame(size: Dp, content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+    Box(
+        Modifier.size(size).clip(ExplorerShapes.tile).background(MaterialTheme.colorScheme.surfaceVariant).testTag("explorer.thumb.frame"),
+        contentAlignment = Alignment.Center,
+        content = content,
+    )
+}
+
+@Composable
 internal fun ExplorerCheck(checked: Boolean, onToggle: () -> Unit, tag: String, enabled: Boolean = true) {
-    val dark = MaterialTheme.field.isDark
     Box(
         Modifier.size(40.dp)
             .toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = { onToggle() })
             .testTag(tag),
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            Modifier.size(24.dp)
-                .background(if (checked) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(7.dp))
-                .let { if (checked) it else it.border(2.dp, if (dark) MaterialTheme.field.placeholder else Color(0xFFA7A3BC), RoundedCornerShape(7.dp)) },
-            contentAlignment = Alignment.Center,
-        ) {
-            if (checked) ExplorerGlyph { Text("✓", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary) }
-        }
+        FieldCheckbox(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }
 
@@ -240,6 +246,7 @@ internal fun FolderRow(
     onToggle: () -> Unit,
     first: Boolean = true,
     last: Boolean = true,
+    tag: String = "explorer.folder.${folder.path}",
 ) {
     val container = if (selecting && selected) explorerSelectedRow() else MaterialTheme.colorScheme.surface
     Row(
@@ -256,7 +263,7 @@ internal fun FolderRow(
             )
             .semantics { if (selecting) stateDescription = if (selected) "Selected" else "Not selected" }
             .padding(start = if (selecting) 6.dp else 14.dp, end = 14.dp, top = 10.dp, bottom = 10.dp)
-            .testTag("explorer.folder.${folder.path}"),
+            .testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {

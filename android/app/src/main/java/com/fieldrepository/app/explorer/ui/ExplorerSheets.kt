@@ -339,7 +339,10 @@ internal fun JobCard(
                 if (compact && canOpen) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            title("✓ ${job.request.title}", Modifier)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                ExplorerMarkIcon(ExplorerMarkKind.SAVED, content, 16.dp)
+                                title(job.request.title, Modifier.weight(1f, fill = false))
+                            }
                             Text(jobSavedLine(job), style = MaterialTheme.typography.bodySmall, color = muted, modifier = Modifier.testTag("explorer.job.done"))
                         }
                         openButton(Modifier)
@@ -347,7 +350,10 @@ internal fun JobCard(
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         title(job.request.title, Modifier.weight(1f))
-                        Text(ExplorerUiText.saved, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = accent)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            ExplorerMarkIcon(ExplorerMarkKind.SAVED, accent, 16.dp)
+                            Text(ExplorerUiText.saved, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = accent)
+                        }
                     }
                     Text(jobSavedLine(job), style = MaterialTheme.typography.bodySmall, color = muted, modifier = Modifier.testTag("explorer.job.done"))
                     if (result != null && result.failedCount > 0) {

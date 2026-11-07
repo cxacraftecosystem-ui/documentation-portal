@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { activeFilters, clock, EMPTY_STATE, flattenGroups, hasMore, legacyRows, legacyTotals, mergeRows, moreLabel, portalCounts, rangeBounds, sections, showAllLabel, unifiedTotals } from "@/lib/dataSearch";
+import { activeFilters, clock, EMPTY_STATE, flattenGroups, hasMore, legacyRows, legacyTotals, mergeRows, moreLabel, portalCounts, rangeBounds, sameSearch, searchFromParams, searchToParams, sections, showAllLabel, unifiedTotals } from "@/lib/dataSearch";
 import type { UnifiedResponse } from "@/lib/unifiedSearch";
 
 const DATA: UnifiedResponse = {
@@ -61,4 +61,27 @@ test("paging helpers: rows merge once, All keeps a way forward, a pill pages its
   const all = Array.from({ length: 31 }, (_, index) => ({ portal: DATA.groups[0].items[0].portal, local: true, type: "artisans" as const, id: `a${index}`, title: `A${index}`, href: "" }));
   expect(hasMore("artisans", [{ type: "artisans", label: "Artisans", total: 31 }], all, true)).toBe(false);
   expect(legacyTotals({ artisans: [{ id: "a1", name: "K" } as never], totals: { artisans: 40 } })).toEqual([{ type: "artisans", label: "Artisans", total: 40 }]);
+});
+
+test("a search round-trips through the address and leaves the explorer's own keys alone", () => {
+  const state = { ...EMPTY_STATE, q: " indigo ", scope: "all" as const, types: ["tools" as const, "artisans" as const], range: "30d" as const, transcriptOnly: true, workshopIds: ["w1", "w2"], artisanId: "a1", craftId: "c1" };
+  const text = searchToParams(state, "tools", "path=workshops%2Fbagru&view=tables&q=kamla");
+  const params = new URLSearchParams(text);
+  expect(params.get("path")).toBe("workshops/bagru");
+  expect(params.get("view")).toBe("tables");
+  expect(params.get("q")).toBe("kamla");
+  expect(params.get("sq")).toBe("indigo");
+  const back = searchFromParams(params);
+  expect(back.focus).toBe("tools");
+  expect(back.state).toEqual({ ...state, q: "indigo" });
+  expect(sameSearch(back, { state, focus: "tools" })).toBe(true);
+  expect(searchToParams(EMPTY_STATE, null, text)).toBe("path=workshops%2Fbagru&view=tables&q=kamla");
+});
+
+test("a hand-edited address cannot smuggle in an unknown type, range or scope", () => {
+  const back = searchFromParams(new URLSearchParams("sq=x&sin=nonsense&stypes=tools,bogus&srange=forever&sscope=everywhere"));
+  expect(back.focus).toBeNull();
+  expect(back.state.types).toEqual(["tools"]);
+  expect(back.state.range).toBe("any");
+  expect(back.state.scope).toBe("local");
 });

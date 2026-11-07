@@ -77,7 +77,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -202,7 +205,7 @@ fun rememberExplorerState(api: ExplorerApi): ExplorerState {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     val owner = remember { ExplorerPortal.userId(context) }
-    return remember(api) {
+    return remember(ExplorerIdentity(api)) {
         ExplorerState(
             api = api,
             scope = scope,
@@ -216,12 +219,20 @@ fun rememberExplorerState(api: ExplorerApi): ExplorerState {
     }
 }
 
+@Composable
+fun rememberDataExplorerState(): ExplorerState {
+    val app = LocalContext.current.applicationContext
+    val api = remember { ExplorerEnvironment.api(app) }
+    return rememberExplorerState(api)
+}
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ExplorerScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onMessage: (String) -> Unit = {},
+    onError: (String) -> Unit = onMessage,
     onOpenMedia: ((mediaId: String) -> Unit)? = null,
     search: @Composable (onOpen: (recordType: String, recordId: String, title: String) -> Unit) -> Unit = {},
     api: ExplorerApi? = null,
@@ -231,15 +242,17 @@ fun ExplorerScreen(
     onOpenSection: ((artisanId: String, sectionKey: String) -> Unit)? = null,
     onOpenRecord: ((kind: String, id: String) -> Unit)? = null,
     more: ExplorerMore? = null,
+    held: ExplorerState? = null,
+    onPathChange: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val app = context.applicationContext
-    val explorerApi = remember(api) { api ?: ExplorerEnvironment.api(app) }
-    val extras = remember(more) { more ?: ExplorerMoreApi.of(app) }
-    val state = rememberExplorerState(explorerApi)
+    val explorerApi = remember(ExplorerIdentity(api), ExplorerIdentity(held)) { held?.api ?: api ?: ExplorerEnvironment.api(app) }
+    val extras = remember(ExplorerIdentity(more)) { more ?: ExplorerMoreApi.of(app) }
+    val state = held ?: rememberExplorerState(explorerApi)
     val scope = rememberCoroutineScope()
     val owner = remember { ExplorerPortal.userId(app) }
-    val tables = remember(explorerApi) { ExplorerTablesState(explorerApi, scope, owner) }
+    val tables = remember(ExplorerIdentity(explorerApi)) { ExplorerTablesState(explorerApi, scope, owner) }
     val link by produceState(initialValue = ExplorerNetwork.now(app)) { ExplorerNetwork.watch(app).collect { value = it } }
     val jobs by ExplorerDownloads.store(app).jobs.collectAsState()
     val tap by ExplorerDownloadsTap.requests.collectAsState()
@@ -264,6 +277,11 @@ fun ExplorerScreen(
     val openedAt = rememberSaveable { System.currentTimeMillis() }
     var lastPath by rememberSaveable { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
+    var resume by rememberSaveable(stateSaver = ExplorerResume.saver) { mutableStateOf<ExplorerResume?>(null) }
+    var keptIndex by rememberSaveable { mutableIntStateOf(0) }
+    var keptOffset by rememberSaveable { mutableIntStateOf(0) }
+    val entryScroll = remember { (keptIndex to keptOffset).takeIf { state.tree == null && it.first > 0 } }
+    var paneWidth by rememberSaveable { mutableFloatStateOf(ExplorerPaneWidth.read(app) ?: ExplorerPaneWidth.DEFAULT) }
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -271,12 +289,12 @@ fun ExplorerScreen(
             pending = pending?.let { p -> Pending(p.title, p.replan(), p.start, p.replan) }
         }
     }
-    val languages by produceState(initialValue = emptyList<Pair<String, String>>(), explorerApi) {
-        value = runCatching { explorerApi.languages().languages.map { it.code to it.label.ifBlank { it.code } } }.getOrDefault(emptyList())
+    val languages by produceState(initialValue = emptyList<Pair<String, String>>(), ExplorerIdentity(explorerApi)) {
+        value = attemptOrNull { explorerApi.languages().languages.map { it.code to it.label.ifBlank { it.code } } }.orEmpty()
     }
 
     LaunchedEffect(state) {
-        state.start(startPath?.takeIf { it.isNotBlank() } ?: ExplorerPlace.read(app, owner))
+        state.start(startPath?.takeIf { it.isNotBlank() } ?: ExplorerPlace.read(app, owner), resume)
         withContext(Dispatchers.IO) { runCatching { ExplorerDownloads.sweep(app) } }
     }
     LaunchedEffect(tap) {
@@ -288,9 +306,18 @@ fun ExplorerScreen(
     val systemActive = jobs.any { it.active && it.systemId != null }
     LaunchedEffect(systemActive) {
         while (systemActive) {
-            runCatching { ExplorerDownloads.refreshSystem(app) }
+            attemptOrNull { ExplorerDownloads.refreshSystem(app) }
             delay(1_000)
         }
+    }
+    LaunchedEffect(state.path, state.tab, state.status) {
+        if (state.started && state.path.isNotEmpty()) {
+            resume = ExplorerResume(state.path, state.tab, state.status)
+            onPathChange(state.path)
+        }
+    }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }.collect { (index, offset) -> keptIndex = index; keptOffset = offset }
     }
     LaunchedEffect(state.path) {
         if (lastPath != null && lastPath != state.path) {
@@ -301,6 +328,9 @@ fun ExplorerScreen(
         lastPath = state.path
     }
     val loaded = state.tree != null
+    LaunchedEffect(loaded) {
+        if (loaded && entryScroll != null) listState.scrollToItem(entryScroll.first, entryScroll.second)
+    }
     LaunchedEffect(state.path, loaded) {
         if (!loaded) return@LaunchedEffect
         val at = state.path
@@ -315,12 +345,12 @@ fun ExplorerScreen(
                 SizeLoad.Unknown
             }
         }
-        runCatching { extras.visit(ExplorerVisitBody(at)) }.getOrNull()?.let { visits[at] = it }
+        attemptOrNull { extras.visit(ExplorerVisitBody(at)) }?.let { visits[at] = it }
         if (sheetCounts[at] == null) {
-            runCatching { extras.reportSheets(at, state.statusParam) }.getOrNull()?.let { got -> sheetCounts[at] = got.sheets.count { (it.count ?: 0) > 0 } }
+            attemptOrNull { extras.reportSheets(at, state.statusParam) }?.let { got -> sheetCounts[at] = got.sheets.count { (it.count ?: 0) > 0 } }
         }
         if (isWorkshopFolder(at) && overviews[at] == null) {
-            runCatching { extras.overview(at, state.statusParam) }.getOrNull()?.let { overviews[at] = it }
+            attemptOrNull { extras.overview(at, state.statusParam) }?.let { overviews[at] = it }
         }
     }
     LaunchedEffect(state.tab, state.path) {
@@ -331,7 +361,7 @@ fun ExplorerScreen(
         selectionSize = null
         if (state.selected.values.any { it.isFolder }) {
             delay(400)
-            selectionSize = runCatching { explorerApi.selectionStats(state.selectionStatsBody()).bytes }.getOrNull()
+            selectionSize = attemptOrNull { explorerApi.selectionStats(state.selectionStatsBody()).bytes }
         }
     }
     LaunchedEffect(jobs, shareIds) {
@@ -386,7 +416,7 @@ fun ExplorerScreen(
                 null
             }
             if (text.isNullOrBlank()) {
-                onMessage(ExplorerText.transcriptFailed)
+                onError(ExplorerText.transcriptFailed)
                 return@launch
             }
             begin(
@@ -431,7 +461,7 @@ fun ExplorerScreen(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
-                onMessage(ExplorerText.fileFailed)
+                onError(ExplorerText.fileFailed)
             }
         }
     }
@@ -545,14 +575,28 @@ fun ExplorerScreen(
         reportOpen = false
     }
 
-    suspend fun previewMedia(mediaId: String, seconds: Double?) {
+    val openRecordOf: ((ExplorerEntry) -> Unit)? = onOpenMedia?.let { open ->
+        { entry: ExplorerEntry ->
+            entry.mediaId?.let { id ->
+                media = null
+                viewing = null
+                open(id)
+            }
+        }
+    }
+
+    fun showMedia(entry: ExplorerEntry, seconds: Double?, find: String = "") {
+        if (entry.mediaType in setOf("VIDEO", "AUDIO", "IMAGE")) media = Viewing(listOf(entry), 0, seconds ?: 0.0, find = find) else viewing = entry
+    }
+
+    suspend fun previewMedia(mediaId: String, seconds: Double?, find: String = "", kind: String? = null) {
         val known = state.files.firstOrNull { it.mediaId == mediaId }
         val entry = known ?: run {
-            val got = runCatching { extras.goMedia(mediaId) }.getOrNull()
+            val got = attemptOrNull { extras.goMedia(mediaId) }
             val name = got?.fileName ?: mediaId
-            ExplorerEntry(name = name, path = mediaId, mediaId = mediaId, mediaType = mediaTypeOf(name) ?: "VIDEO", transcriptAvailable = true)
+            ExplorerEntry(name = name, path = mediaId, mediaId = mediaId, mediaType = ExplorerViewLinks.mediaType(got?.mediaType ?: kind, name), transcriptAvailable = true)
         }
-        if (entry.mediaType in setOf("VIDEO", "AUDIO", "IMAGE")) media = Viewing(listOf(entry), 0, seconds ?: 0.0) else viewing = entry
+        showMedia(entry, seconds, find)
     }
 
     suspend fun startBundle(id: String) {
@@ -570,22 +614,22 @@ fun ExplorerScreen(
         showDownloads = true
     }
 
-    suspend fun followGo(parts: List<String>) {
+    suspend fun followGo(parts: List<String>, handOff: () -> Unit) {
         when (parts.firstOrNull()) {
             "media" -> {
                 val id = parts.getOrNull(1) ?: return
                 val got = extras.goMedia(id)
                 val name = got.fileName ?: id
-                saveEntry(ExplorerEntry(name = name, path = id, mediaId = id, mediaType = mediaTypeOf(name)))
+                saveEntry(ExplorerEntry(name = name, path = id, mediaId = id, mediaType = ExplorerViewLinks.mediaType(got.mediaType, name)))
             }
             "open" -> {
                 val kind = parts.getOrNull(1) ?: return
                 val id = parts.getOrNull(2) ?: return
                 val got = extras.goOpen(kind, id)
                 when {
-                    got.kind == "media" && onOpenMedia != null -> onOpenMedia(got.id.ifBlank { id })
+                    got.kind == "media" && onOpenMedia != null -> { handOff(); onOpenMedia(got.id.ifBlank { id }) }
                     got.kind == "media" -> previewMedia(got.id.ifBlank { id }, null)
-                    onOpenRecord != null -> onOpenRecord(got.kind.ifBlank { kind }, got.id.ifBlank { id })
+                    onOpenRecord != null -> { handOff(); onOpenRecord(got.kind.ifBlank { kind }, got.id.ifBlank { id }) }
                     else -> state.locate(got.kind.ifBlank { kind }, got.id.ifBlank { id }, "")
                 }
             }
@@ -598,51 +642,54 @@ fun ExplorerScreen(
                 }
                 com.fieldrepository.app.transcript.ui.shareFiles(context, listOf(file), null)
             }
-            else -> onMessage(ExplorerUiText.linkUnknown)
+            else -> onError(ExplorerUiText.linkUnknown)
         }
+    }
+
+    fun showView(path: String, view: String?, sheet: String?, q: String?) {
+        viewQuery = q?.takeIf { it.isNotBlank() }?.let { path to it }
+        state.tab = when (view) {
+            "tables" -> ExplorerTab.TABLES
+            "transcripts" -> ExplorerTab.TRANSCRIPTS
+            else -> ExplorerTab.FILES
+        }
+        if (view == "tables") q?.takeIf { it.isNotBlank() }?.let { query -> scope.launch { delay(50); tables.show(path); tables.search(query) } }
+        sheet?.takeIf { it.isNotBlank() }?.let { tables.pick(it) }
     }
 
     fun openView(view: ExplorerView) {
         reportOpen = false
         view.state.filters["status"]?.takeIf { it != state.status && ExplorerPortal.statusOptions.any { o -> o.first == it } }?.let { state.changeStatus(it) }
         state.open(view.path)
-        viewQuery = view.state.q?.takeIf { it.isNotBlank() }?.let { view.path to it }
-        state.tab = when (view.state.view) {
-            "tables" -> ExplorerTab.TABLES
-            "transcripts" -> ExplorerTab.TRANSCRIPTS
-            else -> ExplorerTab.FILES
-        }
-        if (view.state.view == "tables") view.state.q?.let { q -> scope.launch { delay(50); tables.show(view.path); tables.search(q) } }
-        view.state.sheet?.let { tables.pick(it) }
+        showView(view.path, view.state.view, view.state.sheet, view.state.q)
     }
 
     val linkRequest by ExplorerViewLinks.requests.collectAsState()
     LaunchedEffect(linkRequest) {
         val request = linkRequest ?: return@LaunchedEffect
-        ExplorerViewLinks.consume()
-        val id = request.viewId
-        try {
+        ExplorerViewLinks.serve(request, onFailure = { onError(ExplorerUiText.linkFailed) }) { r ->
+            val id = r.viewId
             when {
-                request.go.isNotEmpty() -> { followGo(request.go); return@LaunchedEffect }
-                request.bundle != null -> { startBundle(request.bundle); return@LaunchedEffect }
-                request.preview != null -> { request.path?.let { state.open(it) }; previewMedia(request.preview, request.seconds); return@LaunchedEffect }
+                r.go.isNotEmpty() -> followGo(r.go) { ExplorerViewLinks.consume(r) }
+                r.bundle != null -> startBundle(r.bundle)
+                r.preview != null -> {
+                    r.path?.let { state.open(it) }
+                    previewMedia(r.preview, r.seconds, r.hit.orEmpty(), r.kind)
+                }
+                id != null -> {
+                    val view = attemptOrNull { extras.view(id) }
+                    if (view != null) {
+                        openView(view)
+                    } else {
+                        onError(ExplorerUiText.viewMissing)
+                        r.path?.let { state.open(it) }
+                    }
+                }
+                r.path != null -> {
+                    state.open(r.path)
+                    if (r.view != null || r.sheet != null || r.q != null) showView(r.path, r.view, r.sheet, r.q)
+                }
             }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Throwable) {
-            onMessage(ExplorerUiText.linkFailed)
-            return@LaunchedEffect
-        }
-        when {
-            id != null -> try {
-                openView(extras.view(id))
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Throwable) {
-                onMessage(ExplorerUiText.viewMissing)
-                request.path?.let { state.open(it) }
-            }
-            request.path != null -> state.open(request.path)
         }
     }
     fun tableCsv(sheet: String) {
@@ -725,8 +772,8 @@ fun ExplorerScreen(
                 val mediaId = file.mediaId
                 when {
                     file.isTranscriptFile -> state.toggleText(file)
-                    mediaId != null && onOpenMedia != null -> onOpenMedia(mediaId)
                     file.mediaType in ExplorerPaths.PREVIEWABLE -> play(state.files, file)
+                    mediaId != null && onOpenMedia != null -> onOpenMedia(mediaId)
                     else -> state.toggleText(file)
                 }
             },
@@ -831,7 +878,7 @@ fun ExplorerScreen(
             error != null && state.tree == null -> block("error") { LoadFailedCard(error + state.path, onRetry = { state.dismissError(); state.reload() }) }
             error != null -> block("error") { StatusCard(ExplorerStatus.FAILED, error, action = ExplorerText.retry, tag = "explorer.error") { state.dismissError(); state.reload() } }
         }
-        if (state.tree == null && state.loading && error == null) {
+        if (state.tree == null && error == null) {
             block("loading") { FolderSkeleton() }
         }
         if (state.tree != null) {
@@ -877,7 +924,7 @@ fun ExplorerScreen(
                     if (state.selecting) {
                         block("kinds") { KindPills(state.files, kindFilter) { kindFilter = it } }
                     }
-                    val folders = if (wide) emptyList() else state.folders
+                    val folders = state.folders
                     val more = state.cursor != null
                     if (!wide) {
                         val total = folders.size + shownFiles.size
@@ -902,6 +949,21 @@ fun ExplorerScreen(
                             }
                         }
                     } else {
+                        itemsIndexed(folders, key = { _, f -> "content:" + f.key }) { index, folder ->
+                            Box(Modifier.fillMaxWidth().padding(bottom = if (index == folders.lastIndex) 12.dp else 0.dp)) {
+                                FolderRow(
+                                    folder = folder,
+                                    selecting = state.selecting,
+                                    selected = folder.key in state.selected,
+                                    onOpen = { state.open(folder.path) },
+                                    onLongPress = { state.beginSelect(folder) },
+                                    onToggle = { state.toggleSelect(folder) },
+                                    first = index == 0,
+                                    last = index == folders.lastIndex,
+                                    tag = "explorer.content.folder.${folder.path}",
+                                )
+                            }
+                        }
                         val pairs = shownFiles.chunked(2)
                         itemsIndexed(pairs, key = { _, pair -> pair.joinToString("|") { it.key } }) { index, pair ->
                             val first = index == 0
@@ -975,6 +1037,7 @@ fun ExplorerScreen(
     CompositionLocalProvider(LocalExplorerSearchAll provides searchScreen?.let { { q: String -> searchQuery = q } }) {
         BoxWithConstraints(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).testTag("explorer.screen")) {
             val wide = maxWidth >= 840.dp
+            val screenDp = maxWidth.value
             val tablesScreen = !wide && state.tab == ExplorerTab.TABLES && state.tree != null && !state.selecting
             Column(Modifier.fillMaxSize()) {
                 if (state.restricted) {
@@ -1018,37 +1081,48 @@ fun ExplorerScreen(
                         }
                     }
                 } else {
-                    Row(Modifier.weight(1f).fillMaxWidth().testTag("explorer.tablet")) {
-                        TreePane(
-                            state = state,
-                            api = explorerApi,
-                            activeDownloads = activeCount,
-                            onDownloads = { showDownloads = true },
-                            search = searchSlot,
-                            modifier = Modifier.width(340.dp).fillMaxHeight(),
-                        )
-                        Column(Modifier.weight(1f).fillMaxHeight()) {
-                            if (state.selecting) {
-                                TopBar(
-                                    selecting = true,
-                                    selectedCount = state.selected.size,
-                                    selectedSize = ExplorerBytes.format((selectionSize ?: state.selectedBytes).takeIf { it > 0 }),
-                                    selectableCount = state.entries.count { ExplorerState.selectable(it) },
-                                    loading = state.loading,
-                                    activeDownloads = activeCount,
-                                    onBack = { state.endSelect() },
-                                    onDownloads = { showDownloads = true },
-                                    onSelectAll = { state.selectAll(if (kindFilter == null) state.entries else shownFiles) },
-                                )
-                            }
-                            PullToRefreshBox(isRefreshing = state.loading && state.tree != null, onRefresh = refresh, modifier = Modifier.weight(1f).fillMaxWidth()) {
-                                LazyColumn(
-                                    state = listState,
-                                    modifier = Modifier.fillMaxSize().testTag("explorer.tree"),
-                                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 24.dp),
-                                ) { content(true) }
+                    val pane = ExplorerPaneWidth.clamp(paneWidth, screenDp)
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        Row(Modifier.fillMaxSize().testTag("explorer.tablet")) {
+                            TreePane(
+                                state = state,
+                                api = explorerApi,
+                                activeDownloads = activeCount,
+                                onDownloads = { showDownloads = true },
+                                onBack = { if (!state.canGoUp || !state.goUp()) onBack() },
+                                search = searchSlot,
+                                modifier = Modifier.width(pane.dp).fillMaxHeight(),
+                            )
+                            Column(Modifier.weight(1f).fillMaxHeight()) {
+                                if (state.selecting) {
+                                    TopBar(
+                                        selecting = true,
+                                        selectedCount = state.selected.size,
+                                        selectedSize = ExplorerBytes.format((selectionSize ?: state.selectedBytes).takeIf { it > 0 }),
+                                        selectableCount = state.entries.count { ExplorerState.selectable(it) },
+                                        loading = state.loading,
+                                        activeDownloads = activeCount,
+                                        onBack = { state.endSelect() },
+                                        onDownloads = { showDownloads = true },
+                                        onSelectAll = { state.selectAll(if (kindFilter == null) state.entries else shownFiles) },
+                                    )
+                                }
+                                PullToRefreshBox(isRefreshing = state.loading && state.tree != null, onRefresh = refresh, modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                    LazyColumn(
+                                        state = listState,
+                                        modifier = Modifier.fillMaxSize().testTag("explorer.tree"),
+                                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 24.dp),
+                                    ) { content(true) }
+                                }
                             }
                         }
+                        PaneDivider(
+                            width = pane,
+                            screen = screenDp,
+                            onWidth = { paneWidth = it },
+                            onSettled = { ExplorerPaneWidth.write(app, paneWidth) },
+                            modifier = Modifier.offset(x = pane.dp - 24.dp),
+                        )
                     }
                 }
                 if (media == null && !state.selecting && !tablesScreen) {
@@ -1139,6 +1213,7 @@ fun ExplorerScreen(
             entry = entry,
             onSave = if (entry.mediaId != null) ({ saveEntry(entry) }) else null,
             onDismiss = { viewing = null },
+            onOpenRecord = openRecordOf?.let { open -> { open(entry) } },
         )
     }
 
@@ -1151,6 +1226,7 @@ fun ExplorerScreen(
             find = v.find,
             onSave = { saveEntry(it) },
             onDismiss = { media = null },
+            onOpenRecord = openRecordOf,
         )
     }
 
@@ -1163,8 +1239,8 @@ fun ExplorerScreen(
                     { type, id, title -> searchQuery = null; state.locate(type, id, title) },
                     { mediaId, title, mediaType, seconds ->
                         val entry = state.files.firstOrNull { it.mediaId == mediaId }
-                            ?: ExplorerEntry(name = title, path = mediaId, mediaId = mediaId, mediaType = mediaType?.uppercase()?.takeIf { it == "VIDEO" || it == "AUDIO" } ?: "VIDEO", transcriptAvailable = true)
-                        media = Viewing(listOf(entry), 0, seconds, find = query.trim())
+                            ?: ExplorerEntry(name = title, path = mediaId, mediaId = mediaId, mediaType = ExplorerViewLinks.mediaType(mediaType, title), transcriptAvailable = true)
+                        showMedia(entry, seconds, query.trim())
                     },
                     { searchQuery = null },
                 )
@@ -1393,6 +1469,19 @@ private fun FolderCard(state: ExplorerState, size: SizeLoad?, visit: ExplorerVis
                 count(Modifier)
             }
         }
+        val total = state.total
+        if (total != null && total > state.entries.size) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(ExplorerText.showing(state.entries.size, total), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f).testTag("explorer.showing"))
+                if (state.cursor != null) {
+                    ExplorerLinkButton(
+                        if (state.loadingMore) ExplorerText.preparing else ExplorerText.loadMore,
+                        onClick = { state.tab = ExplorerTab.FILES; state.loadMore() },
+                        modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.showing.more"),
+                    )
+                }
+            }
+        }
         NewSinceChip(visit)
         if (fields.isNotEmpty()) {
             if (showAll) {
@@ -1562,16 +1651,17 @@ private fun TreePane(
     api: ExplorerApi,
     activeDownloads: Int,
     onDownloads: () -> Unit,
+    onBack: () -> Unit,
     search: @Composable () -> Unit,
     modifier: Modifier,
 ) {
-    val outline = remember(api) { mutableStateMapOf<String, List<ExplorerEntry>>() }
+    val outline = remember(ExplorerIdentity(api)) { mutableStateMapOf<String, List<ExplorerEntry>>() }
     val chain = state.crumbs.map { it.path }.filter { it.isNotEmpty() }
     val status = state.statusParam
     LaunchedEffect(chain, status) {
         chain.dropLast(1).forEach { at ->
             if (outline[at] == null) {
-                runCatching { api.tree(at, status, null) }.getOrNull()?.let { t -> outline[at] = t.entries.filter { it.isFolder } }
+                attemptOrNull { api.tree(at, status, null) }?.let { t -> outline[at] = t.entries.filter { it.isFolder } }
             }
         }
     }
@@ -1583,11 +1673,13 @@ private fun TreePane(
             else -> outline[at]
         }
     }
-    val line = MaterialTheme.field.hairline
     Column(
-        modifier.background(MaterialTheme.colorScheme.surface).drawBehind { drawLine(line, Offset(size.width - 0.5f, 0f), Offset(size.width - 0.5f, size.height), 1.dp.toPx()) },
+        modifier.background(MaterialTheme.colorScheme.surface),
     ) {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 10.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 10.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack, modifier = Modifier.size(44.dp).testTag("explorer.pane.back")) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = ExplorerText.back, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(26.dp))
+            }
             Text(ExplorerText.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f).semantics { heading() })
             if (state.loading) FieldCircularProgressIndicator(modifier = Modifier.size(16.dp).padding(end = 4.dp), strokeWidth = 2.dp)
             DownloadsButton(activeDownloads, 40.dp, onDownloads)

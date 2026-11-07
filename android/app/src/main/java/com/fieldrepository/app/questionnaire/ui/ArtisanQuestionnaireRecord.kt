@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.questionnaire.data.QArtisanRecord
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
+import com.fieldrepository.app.ui.AudioExpand
 import com.fieldrepository.app.ui.AudioPlayer
 import com.fieldrepository.app.transcript.data.TranscriptUiText
 import com.fieldrepository.app.transcript.ui.TranscriptDialog
@@ -65,6 +66,7 @@ fun ArtisanQuestionnaireRecord(
     var attempt by remember { mutableIntStateOf(0) }
     var view by remember { mutableStateOf(if (wanted != null) "Q" else "T") }
     var playing by remember { mutableStateOf<Uri?>(null) }
+    var expandFor by remember { mutableStateOf<AudioExpand?>(null) }
     var consent by remember { mutableStateOf<String?>("…") }
     var transcriptOf by remember { mutableStateOf<String?>(null) }
     var removed by remember { mutableStateOf<List<com.fieldrepository.app.questionnaire.data.QRecording>>(emptyList()) }
@@ -137,7 +139,7 @@ fun ArtisanQuestionnaireRecord(
                                 is TimelineRow.SessionHead -> Text(row.text, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 6.dp))
                                 TimelineRow.Uncertain -> Text(QuestionnaireCopy.s("record.uncertain"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.field.muted)
                                 is TimelineRow.Take -> Row(Modifier.fillMaxWidth().clickable {
-                                    scope.launch { playing = v2.playbackUrl(row.recordingId)?.let(Uri::parse) }
+                                    scope.launch { playing = v2.playbackUrl(row.recordingId)?.let(Uri::parse); expandFor = record?.audioExpand(row.recordingId) }
                                 }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(row.time ?: "", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(44.dp))
                                     Column(Modifier.weight(1f)) {
@@ -217,7 +219,7 @@ fun ArtisanQuestionnaireRecord(
                     }
                 }
             }
-            playing?.let { AudioPlayer(it) }
+            playing?.let { AudioPlayer(it, expand = expandFor) }
             transcriptOf?.let { id -> TranscriptDialog(id, audio = null, onDismiss = { transcriptOf = null }) }
         }
     }
@@ -240,6 +242,10 @@ fun ArtisanQuestionnaireRecord(
 
 internal fun latestSession(instrument: com.fieldrepository.app.questionnaire.data.QRecordInstrument): com.fieldrepository.app.questionnaire.data.QRecordSession? =
     instrument.sessions.maxByOrNull { it.session.sessionDate.orEmpty() }
+
+internal fun QArtisanRecord.audioExpand(recordingId: String): AudioExpand? =
+    instruments.asSequence().flatMap { it.sessions.asSequence() }.flatMap { (it.recordings + it.uncertain).asSequence() }
+        .firstOrNull { it.id == recordingId }?.audioExpand()
 
 internal fun chipsOf(record: QArtisanRecord, recordingId: String): com.fieldrepository.app.questionnaire.data.QChips? =
     record.instruments.asSequence().flatMap { it.sessions.asSequence() }.flatMap { (it.recordings + it.uncertain).asSequence() }

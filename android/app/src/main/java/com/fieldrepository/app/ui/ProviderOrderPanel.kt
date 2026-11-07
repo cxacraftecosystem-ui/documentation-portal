@@ -1,5 +1,6 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.explorer.ui.ExplorerIdentity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -205,7 +206,7 @@ class ProviderOrderState internal constructor(
 @Composable
 fun rememberProviderOrderState(api: SttProviderApi): ProviderOrderState {
     val scope = rememberCoroutineScope()
-    return remember(api, scope) { ProviderOrderState(api, scope) }
+    return remember(ExplorerIdentity(api), scope) { ProviderOrderState(api, scope) }
 }
 
 @Composable

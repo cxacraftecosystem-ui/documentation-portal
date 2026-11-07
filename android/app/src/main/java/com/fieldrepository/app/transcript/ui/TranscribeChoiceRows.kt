@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.material3.Checkbox
+import com.fieldrepository.app.ui.FieldCheckbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -80,7 +80,7 @@ fun TranscribeChoiceRows(
                     .testTag("upload.transcribe.item:${item.key}"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Checkbox(checked = checked, onCheckedChange = null, enabled = interactive)
+                FieldCheckbox(checked = checked, onCheckedChange = null, enabled = interactive)
                 Column(Modifier.padding(start = 8.dp)) {
                     Text(TranscriptStrings.uploadTranscribe, style = MaterialTheme.typography.bodyMedium)
                     Text(

@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from app.core.db import db
-from app.services.data_explorer import reach
+from app.services.data_explorer import reach, stats, walk
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ TYPE_SLUGS: dict[str, tuple[str, ...]] = {
 }
 TEXT_ONLY_BRANCHES = frozenset({"artisans", "products", "tools", "questionnaire"})
 TYPE_HEADS = frozenset({"by-type", "media-types"})
+WALKED_HEADS = frozenset({"by-design-workshop"})
 WORKSHOP_HEADS = frozenset({"by-workshop", "workshops"})
 
 Totals = dict[str, tuple[int, int]]
@@ -65,6 +66,19 @@ def _browser() -> Any:
     return data_browser
 
 
+async def walked_totals(segs: list[str], keys: list[str], scope: Any) -> Totals:
+    browser = _browser()
+    parent = "/".join(segs)
+    out: Totals = {}
+    for key in keys:
+        files, _cut = await walk.manifest_files(
+            browser._list_level, scope, [(f"{parent}/{key}", "")], None, fill=False
+        )
+        sizes = [stats.size_of(entry) for entry in files if entry is not None]
+        out[key] = (len(sizes), sum(size or 0 for size in sizes))
+    return out
+
+
 async def level_totals(
     segs: list[str], keys: list[str], scope_media: dict[str, Any] | None, scope: Any = None
 ) -> Totals | None:
@@ -73,8 +87,8 @@ async def level_totals(
     head = segs[0]
     if head in WORKSHOP_HEADS:
         return await reach.workshop_totals(segs, keys, scope, _browser())
-    if head == "by-design-workshop":
-        return await reach.design_workshop_totals(segs, keys, scope, _browser())
+    if head in WALKED_HEADS:
+        return await walked_totals(segs, keys, scope)
     if head in TYPE_HEADS and len(segs) == 1:
         return _by_type(await grouped("mediaType", {}, scope_media))
     if head != "by-uploader":
