@@ -71,13 +71,13 @@ export function RecordingsList() {
       ) : items.length === 0 ? (
         <EmptyState title={filtered ? qs("filterNoMatches") : qs("noSessionsYet")} />
       ) : (
-        <ul className="grid gap-2" data-recordings-list>
+        <ul className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" data-recordings-list>
           {items.map((r) => (
-            <li key={r.id} className="panel grid gap-2 p-3" data-recording-row={r.id}>
+            <li key={r.id} className="panel grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 p-3" data-recording-row={r.id}>
               <RecordingChips chips={r.chips} onChip={onChip} filters={filters} />
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Link
-                  className="min-w-0 truncate text-sm text-purple-700 underline-offset-2 hover:underline"
+                  className="min-w-0 max-w-full truncate text-sm text-purple-700 underline-offset-2 hover:underline"
                   href={`/questionnaire/sessions/${encodeURIComponent(r.sessionId)}/view`}
                 >
                   {r.chips?.session?.title || r.downloadName}

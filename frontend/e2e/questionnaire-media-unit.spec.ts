@@ -19,7 +19,7 @@ test("the read view has no transcript or Add media action", () => {
 });
 
 test("old interview and consolidated URLs redirect under v2", () => {
-  expect(read("app", "(protected)", "questionnaire", "interviews", "[id]", "page.tsx")).toContain("useV2Redirect(`/questionnaire/sessions/");
+  expect(read("app", "(protected)", "questionnaire", "interviews", "[id]", "page.tsx")).toContain("useInterviewRoute(id)");
   expect(read("app", "(protected)", "questionnaire", "consolidated", "[artisanId]", "page.tsx")).toContain(
     "useV2Redirect(`/artisans/${encodeURIComponent(artisanId)}?tab=questionnaire`)"
   );

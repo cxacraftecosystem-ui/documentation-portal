@@ -92,7 +92,7 @@ export function WorkshopAccessQueuePanel({ refreshToken, onChanged }: { refreshT
   const pendingCount = rows?.filter((row) => row.status === "PENDING").length ?? 0;
 
   return (
-    <section className="panel p-5">
+    <section className="panel min-w-0 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <span className="grid h-8 w-8 place-items-center rounded-md bg-purple-950 text-purple-100">

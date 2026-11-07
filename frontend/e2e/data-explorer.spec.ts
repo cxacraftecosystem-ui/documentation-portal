@@ -339,6 +339,18 @@ test.describe("@qf:X1 errors and empty folders in place", () => {
     }
   });
 
+  test("an empty folder offers no download of nothing", async ({ browser }) => {
+    const { context, page } = await openExplorer(browser);
+    try {
+      await organiseBy(page, "Craft");
+      await expect(page.getByRole("heading", { name: "Nothing recorded here yet" })).toBeVisible();
+      await expect(page.getByTestId("folder-size")).toContainText("0 files");
+      await expect(page.getByTestId("folder-download")).toBeDisabled();
+    } finally {
+      await context.close();
+    }
+  });
+
   test("a failed folder retries by itself", async ({ browser }) => {
     const { context, page, fake } = await openExplorer(browser);
     try {

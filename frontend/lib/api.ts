@@ -72,6 +72,24 @@ export class ApiUnconfiguredError extends ApiError {
 
 export function assertApiConfigured(): void {}
 
+function fieldLabel(field: string | null): string {
+  if (!field) return "This field";
+  const words = field.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : "This field";
+}
+
+export function validationSentence(field: string | null, message: string): string | null {
+  const text = message.trim();
+  if (/valid email address/i.test(text) || (field && /^e-?mail$/i.test(field) && /^value is not a valid/i.test(text))) return "Enter a valid email address.";
+  if (/^Field required$/i.test(text)) return field && /^e-?mail$/i.test(field) ? "Enter your email address." : `${fieldLabel(field)} is required.`;
+  const least = /^String should have at least (\d+) characters?$/i.exec(text);
+  if (least) return `${fieldLabel(field)} needs at least ${least[1]} characters.`;
+  const most = /^String should have at most (\d+) characters?$/i.exec(text);
+  if (most) return `${fieldLabel(field)} can be at most ${most[1]} characters.`;
+  if (/^(Input should be|value is not a valid)/i.test(text)) return `Check ${fieldLabel(field).toLowerCase()}.`;
+  return null;
+}
+
 export function describeApiDetail(detail: unknown, fallback: string): string {
   if (typeof detail === "string" && detail.trim()) return detail;
   if (Array.isArray(detail)) {
@@ -84,6 +102,10 @@ export function describeApiDetail(detail: unknown, fallback: string): string {
         const field = Array.isArray(record.loc)
           ? record.loc.filter((part): part is string => typeof part === "string").at(-1)
           : null;
+        if (!/^(Value error|Assertion failed),/.test(message)) {
+          const human = validationSentence(field && field !== "body" ? field : null, message);
+          if (human) return human;
+        }
         const cleaned = message.replace(/^Value error,\s*/, "").trim();
         return field && field !== "body" ? `${field}: ${cleaned}` : cleaned;
       })

@@ -259,11 +259,29 @@ def face(artisan: Any, photo_media_id: str | None) -> dict[str, Any]:
     }
 
 
+QR_BORDER_MODULES = 2
+
+
 def qr_svg(token: str) -> str:
     import segno
 
+    from app.services.two_factor import qr_path
+
     symbol = segno.make(token, error="q", mode="alphanumeric", micro=False, boost_error=False)
-    return symbol.svg_inline(scale=4, border=2, dark="#000", light="#fff")
+    border = QR_BORDER_MODULES
+    rows = [[bool(cell) for cell in row] for row in symbol.matrix]
+    width = len(rows[0]) + 2 * border
+    matrix = [[False] * width for _ in range(border)]
+    matrix += [[False] * border + row + [False] * border for row in rows]
+    matrix += [[False] * width for _ in range(border)]
+    size = len(matrix)
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" '
+        f'width="{size * 4}" height="{size * 4}" shape-rendering="crispEdges">'
+        f'<rect width="{size}" height="{size}" fill="#ffffff"/>'
+        f'<path fill="#000000" d="{qr_path(matrix)}"/>'
+        "</svg>"
+    )
 
 
 def card_payload(

@@ -92,6 +92,8 @@ export const REPEAT_REASONS: readonly RepeatReason[] = RepeatReasonValues;
 
 export type Person = { id: string; name: string };
 
+export type CoverageScope = { workshopId?: string; designWorkshopId?: string; artisanIds?: string[] };
+
 export type SessionCreate = {
   clientKey: string;
   questionnaireId: string;
@@ -723,11 +725,12 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
     insights: (id: string) => fetchJson<{ items: unknown[] }>(`${Q}/sessions/${encodeURIComponent(id)}/insights`),
 
     checkCoverage: (body: CoverageCheckRequest) => fetchJson<CoverageCheckResponse>(`${Q}/coverage/check`, json("POST", body)),
-    coverage: (params: { questionnaireId: string; workshopId?: string; artisanIds?: string[] }) =>
+    coverage: (params: { questionnaireId: string } & CoverageScope) =>
       fetchJson<CoverageGrid>(
         `${Q}/coverage${buildQuery({
           questionnaireId: params.questionnaireId,
           workshopId: params.workshopId,
+          designWorkshopId: params.designWorkshopId,
           artisanIds: params.artisanIds?.join(",")
         })}`
       ),

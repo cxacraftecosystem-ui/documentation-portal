@@ -1,6 +1,7 @@
 import { mostRecentRecordableWorkshop } from "@/components/forms/WorkshopSelect";
 import { apiFetch, buildQuery } from "@/lib/api";
 import type { TitleWorkshop } from "@/lib/naming";
+import type { CoverageScope } from "@/lib/questionnaire/api";
 import type { PageResult, Workshop } from "@/lib/types";
 
 export const PORTAL = "documentation-portal" as const;
@@ -119,7 +120,7 @@ export async function searchPeople(search: string): Promise<{ id: string; name: 
   return people.map((r) => ({ id: r.id, name: r.name }));
 }
 
-export async function coverageScope(workshopId: string): Promise<{ workshopId?: string; artisanIds?: string[] }> {
+export async function coverageScope(workshopId: string): Promise<CoverageScope> {
   return { workshopId };
 }
 

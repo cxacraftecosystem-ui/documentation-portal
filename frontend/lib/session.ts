@@ -65,6 +65,21 @@ function readLegacyToken(): string | null {
   }
 }
 
+export function hasLegacyToken(): boolean {
+  return Boolean(readLegacyToken());
+}
+
+const SIGNED_OUT_ROUTES = ["/", "/login", "/forgot-password", "/set-password", "/terms", "/report-share", "/report-schedule", "/report-download", "/asset-links"];
+
+export function isSignedOutRoute(pathname: string): boolean {
+  const path = pathname.replace(/\/+$/, "") || "/";
+  return SIGNED_OUT_ROUTES.some((route) => (route === "/" ? path === "/" : path === route || path.startsWith(`${route}/`)));
+}
+
+export function mayHoldSession(pathname: string, legacyToken: boolean): boolean {
+  return Boolean(getSessionMarker()) || legacyToken || !isSignedOutRoute(pathname);
+}
+
 function dropLegacyToken(): void {
   try {
     window.localStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);

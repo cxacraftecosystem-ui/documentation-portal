@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { includeKeyOf, type ManifestFile } from "@/lib/dataExplorer/contract";
+import { expectedBytes, includeKeyOf, textFileBody, type ManifestFile } from "@/lib/dataExplorer/contract";
 import { PauseGate, sourcesOf, writeFolder, writeZip, type JobProgress } from "@/lib/dataExplorer/engine";
 import {
   announceStep,
@@ -190,6 +190,28 @@ test.describe("@qf:X10 the streaming zip", () => {
     const last = seen[seen.length - 1];
     expect(last.bytesDone).toBe(last.bytesTotal);
     expect(served.peak).toBeLessThanOrEqual(FETCH_CONCURRENCY);
+  });
+
+  test("a details file in Bengali opens as Bengali in any reader, because it carries a byte order mark", async () => {
+    const scheme = "হ্যালো সরি বাংলা মনোজ কুমার মন্ডল আমি আজকে কলকাতা থেকে এসেছি ।";
+    const manifest: ManifestFile[] = [
+      { path: "Design workshops/Test/details.txt", content: `Scheme: ${scheme}
+` },
+      { path: "Design workshops/Test/transcript.vtt", content: "WEBVTT
+" }
+    ];
+    const out = collectSink();
+    const { hooks: h, seen } = hooks(server({}).fetcher);
+    await writeZip(manifest, out.sink, h);
+    const entries = readZip(out.bytes());
+    expect(Array.from(entries[0].data.slice(0, 3))).toEqual([0xef, 0xbb, 0xbf]);
+    expect(new TextDecoder("utf-8", { ignoreBOM: true }).decode(entries[0].data.slice(3))).toBe(`Scheme: ${scheme}
+`);
+    expect(Array.from(entries[1].data.slice(0, 3))).not.toEqual([0xef, 0xbb, 0xbf]);
+    expect(expectedBytes(manifest[0])).toBe(entries[0].data.length);
+    const last = seen[seen.length - 1];
+    expect(last.bytesDone).toBe(last.bytesTotal);
+    expect(textFileBody("a.csv", textFileBody("a.csv", "x"))).toBe("﻿x");
   });
 
   test("zip64 records are written once an offset passes 4 GB", () => {

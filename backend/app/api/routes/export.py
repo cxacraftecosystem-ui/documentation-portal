@@ -43,9 +43,12 @@ EXPORT_URL_TTL_SECONDS = 6 * 3600
 logger = logging.getLogger(__name__)
 
 
+UTF8_BOM = "\ufeff"
+
+
 def csv_response(filename: str, body: str) -> Response:
     return Response(
-        content=body,
+        content=(body if body.startswith(UTF8_BOM) else UTF8_BOM + body).encode("utf-8"),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": naming.content_disposition(filename)},
     )
