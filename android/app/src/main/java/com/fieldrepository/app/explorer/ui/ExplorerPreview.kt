@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,6 +22,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -59,7 +61,7 @@ private sealed interface PreviewLoad {
 }
 
 @Composable
-internal fun ExplorerPreviewDialog(entry: ExplorerEntry, onSave: (() -> Unit)?, onDismiss: () -> Unit) {
+internal fun ExplorerPreviewDialog(entry: ExplorerEntry, onSave: (() -> Unit)?, onDismiss: () -> Unit, onOpenRecord: (() -> Unit)? = null) {
     val context = LocalContext.current
     var load by remember(entry.key) { mutableStateOf<PreviewLoad>(PreviewLoad.Resolving) }
     LaunchedEffect(entry.key) {
@@ -81,7 +83,7 @@ internal fun ExplorerPreviewDialog(entry: ExplorerEntry, onSave: (() -> Unit)?, 
             onDismiss = onDismiss,
             expand = entry.mediaId?.takeIf { entry.mediaType == "AUDIO" }?.let { AudioExpand(it, entry.name) },
         )
-        is PreviewLoad.Pdf -> PdfDialog(now.file, entry.name, onDismiss)
+        is PreviewLoad.Pdf -> PdfDialog(now.file, entry.name, onDismiss, onOpenRecord)
         else -> Dialog(onDismissRequest = onDismiss) {
             Column(
                 Modifier.background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.large).padding(24.dp).testTag("explorer.preview.status"),
@@ -117,7 +119,7 @@ private fun fetchPdf(context: android.content.Context, entry: ExplorerEntry, url
 }.getOrNull()
 
 @Composable
-private fun PdfDialog(file: File, title: String, onDismiss: () -> Unit) {
+private fun PdfDialog(file: File, title: String, onDismiss: () -> Unit, onOpenRecord: (() -> Unit)?) {
     val renderer = remember(file) {
         runCatching { PdfRenderer(ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)) }.getOrNull()
     }
@@ -126,6 +128,11 @@ private fun PdfDialog(file: File, title: String, onDismiss: () -> Unit) {
         Column(Modifier.fillMaxSize().background(Color(0xF0101010)).testTag("explorer.preview.pdf")) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(start = 8.dp), maxLines = 1)
+                if (onOpenRecord != null) {
+                    TextButton(onClick = onOpenRecord, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.preview.record")) {
+                        Text(ExplorerUiText.openRecord, color = Color.White, style = MaterialTheme.typography.labelLarge)
+                    }
+                }
                 IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = ExplorerText.dismiss, tint = Color.White) }
             }
             if (renderer == null) {

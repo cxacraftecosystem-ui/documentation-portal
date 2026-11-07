@@ -5,6 +5,7 @@ import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
@@ -42,6 +43,7 @@ interface TranscriptPlayback {
     fun toggle()
     fun seek(seconds: Double, play: Boolean = true)
     val sampling: Boolean get() = false
+    val videoAspect: Float? get() = null
     fun playRange(startSeconds: Double, endSeconds: Double) = seek(startSeconds)
 }
 
@@ -65,6 +67,7 @@ private class ExoPlayback(val player: ExoPlayer) : TranscriptPlayback {
     override var positionSeconds by mutableDoubleStateOf(0.0)
     override var durationSeconds by mutableDoubleStateOf(0.0)
     override var sampling by mutableStateOf(false)
+    override var videoAspect by mutableStateOf<Float?>(null)
     private var stopAt: Double? = null
     override fun playRange(startSeconds: Double, endSeconds: Double) {
         if (sampling && player.isPlaying) {
@@ -99,6 +102,11 @@ private class ExoPlayback(val player: ExoPlayer) : TranscriptPlayback {
         }
         val d = player.duration
         if (d > 0) durationSeconds = d / 1000.0
+        val size = player.videoSize
+        if (size.width > 0 && size.height > 0) {
+            val aspect = size.width * size.pixelWidthHeightRatio / size.height
+            if (aspect != videoAspect) videoAspect = aspect
+        }
     }
 }
 
@@ -150,7 +158,7 @@ fun TranscriptVideoSurface(playback: TranscriptPlayback, modifier: Modifier = Mo
                 },
                 update = { view -> view.player = exo.player },
                 onRelease = { view -> view.player = null },
-                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+                modifier = Modifier.fillMaxSize(),
             )
         }
     }
