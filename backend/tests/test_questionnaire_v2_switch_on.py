@@ -223,7 +223,7 @@ def _old_body(ids: Any, artisans: list[str], **extra: Any) -> dict[str, Any]:
 
 
 @needs_db
-def test_h5_a_volunteer_old_create_is_attached_to_the_open_session_never_a_new_403(monkeypatch) -> None:
+def test_h5_an_old_create_attaches_only_a_member_of_the_open_session(monkeypatch) -> None:
     from app.api.routes import questionnaire
     from app.schemas.questionnaire import QuestionnaireInterviewCreate
     from app.questionnaire import sessions
@@ -238,12 +238,22 @@ def test_h5_a_volunteer_old_create_is_attached_to_the_open_session_never_a_new_4
         s, _ = await sessions.create_session(session_create(ids, ids.artisans[:2], day=_today()), ids.lead)
         request = SimpleNamespace(headers={"x-app-version": "0.0.13"})
         body = _old_body(ids, ids.artisans[:2], responses=[{"questionId": ids.questions["D1"], "answerText": "Chisels"}])
+
+        async def members() -> dict[str, str]:
+            rows = await client.query_raw(
+                'SELECT "userId", "role"::text AS role FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = $1', s["id"]
+            )
+            return {r["userId"]: r["role"] for r in rows}
+
+        with pytest.raises(HTTPException) as outsider:
+            await questionnaire.create_interview(QuestionnaireInterviewCreate.model_validate(body), request, ids.vol)
+        assert outsider.value.status_code == 403
+        assert ids.vol.id not in await members(), "an old create never grants itself membership"
+
+        await sessions.add_researcher(client, s["id"], ids.vol.id, "VOLUNTEER")
         attached = await questionnaire.create_interview(QuestionnaireInterviewCreate.model_validate(body), request, ids.vol)
-        assert attached["id"] == s["id"], "attached to the matching open session, not refused"
-        researchers = await client.query_raw(
-            'SELECT "userId", "role"::text AS role FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = $1', s["id"]
-        )
-        assert {r["userId"]: r["role"] for r in researchers}[ids.vol.id] == "VOLUNTEER"
+        assert attached["id"] == s["id"], "a member is attached to the matching open session"
+        assert (await members())[ids.vol.id] == "VOLUNTEER"
         count = await client.query_raw('SELECT count(*) AS n FROM "QuestionnaireInterview" WHERE "questionnaireId" = $1', ids.q)
         assert int(count[0]["n"]) == 1, "no new session"
         with pytest.raises(HTTPException) as nothing:

@@ -20,7 +20,7 @@ pytestmark = pytest.mark.skipif(
 def test_the_counters_live_in_the_database_and_survive_a_restart(monkeypatch):
     bucket = f"test_{uuid.uuid4().hex[:12]}"
     monkeypatch.setitem(paid_ai_allowance._DEFAULTS, bucket, (2, 3))
-    monkeypatch.setattr(paid_ai_allowance, "STORE", paid_ai_allowance.DATABASE)
+    monkeypatch.setattr(paid_ai_allowance, "STORE", getattr(paid_ai_allowance, "DATABASE", None), raising=False)
 
     async def scenario() -> None:
         await db.connect()

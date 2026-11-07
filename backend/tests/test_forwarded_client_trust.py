@@ -12,10 +12,14 @@ ORIGIN_SECRET = "originsecretfortestsonly0123456789"
 @pytest.fixture(autouse=True)
 def production_shape(monkeypatch):
     settings = get_settings()
-    monkeypatch.setattr(settings, "web_proxy_secret", None)
-    monkeypatch.setattr(settings, HOPS_SETTING, 2)
-    monkeypatch.setattr(settings, "trusted_proxy_cidrs", "127.0.0.1/32,::1/128")
-    monkeypatch.setattr(settings, "origin_verify_secret", None)
+    for name, value in (
+        ("web_proxy_secret", None),
+        (HOPS_SETTING, 2),
+        ("trusted_proxy_cidrs", "127.0.0.1/32,::1/128"),
+        ("origin_verify_secret", None),
+    ):
+        if hasattr(settings, name):
+            monkeypatch.setattr(settings, name, value)
     monkeypatch.setattr(rate_limit, "_hop_mismatch_logged", True, raising=False)
     return settings
 

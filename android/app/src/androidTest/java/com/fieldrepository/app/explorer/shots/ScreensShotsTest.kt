@@ -27,6 +27,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
@@ -139,7 +140,8 @@ class ScreensShotsTest {
     private fun treeIndices(keys: List<String>): List<Int>? {
         val tree = compose.onAllNodes(hasTestTag("explorer.tree"), useUnmergedTree = true).fetchSemanticsNodes().singleOrNull() ?: return null
         val indexOf = tree.config.getOrNull(SemanticsProperties.IndexForKey) ?: return null
-        return keys.map { indexOf(it) }.takeIf { found -> found.all { it >= 0 } }
+        val found = compose.runOnUiThread { keys.map { indexOf(it) } }
+        return found.takeIf { all -> all.all { it >= 0 } }
     }
 
     private fun settleTree(vararg keys: String) {
@@ -305,28 +307,31 @@ class ScreensShotsTest {
 
     @Test fun statesLoadingDark() = folderShot("States", "loading-dark", dark = true, mode = ScreenBoards.Mode.HANG)
 
-    private fun steadyTreeKey(key: String) {
-        val indexForKey = androidx.compose.ui.semantics.SemanticsProperties.IndexForKey
+    private fun steadyTreeKey(key: String): Int {
         var last = -1
         var steady = 0
         compose.waitUntil(15_000) {
-            val tree = compose.onAllNodes(hasTestTag("explorer.tree"), useUnmergedTree = true).fetchSemanticsNodes().singleOrNull()
-            val now = if (tree != null && indexForKey in tree.config) tree.config[indexForKey](key) else -1
+            val now = treeIndices(listOf(key))?.single() ?: -1
             steady = if (now >= 0 && now == last) steady + 1 else 0
             last = now
             steady >= 3
         }
         compose.waitForIdle()
+        return last
+    }
+
+    private fun scrollToKey(key: String) {
+        val index = steadyTreeKey(key)
+        compose.onNodeWithTag("explorer.tree").performScrollToIndex(index)
+        compose.waitForIdle()
     }
 
     @Test fun statesEmpty() = folderShot("States", "empty", start = ScreenBoards.EMPTY) {
-        steadyTreeKey("empty")
-        scrollTo("explorer.empty")
+        scrollToKey("empty")
     }
 
     @Test fun statesEmptyDark() = folderShot("States", "empty-dark", dark = true, start = ScreenBoards.EMPTY) {
-        steadyTreeKey("empty")
-        scrollTo("explorer.empty")
+        scrollToKey("empty")
     }
 
     @Test fun statesError() = folderShot("States", "error", mode = ScreenBoards.Mode.FAIL) { waitTag("explorer.error") }

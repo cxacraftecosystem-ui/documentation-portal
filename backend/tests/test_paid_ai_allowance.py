@@ -22,7 +22,7 @@ def _fresh_counters(monkeypatch):
     try:
         allowance = importlib.import_module("app.services.paid_ai_allowance")
         allowance.reset()
-        monkeypatch.setattr(allowance, "STORE", allowance.MEMORY, raising=False)
+        monkeypatch.setattr(allowance, "STORE", getattr(allowance, "MEMORY", None), raising=False)
     except ImportError:
         pass
     yield
@@ -253,7 +253,7 @@ def shared_ledger(monkeypatch):
     from app.services import paid_ai_allowance
 
     ledger = _SharedLedger()
-    monkeypatch.setattr(paid_ai_allowance, "STORE", paid_ai_allowance.DATABASE)
+    monkeypatch.setattr(paid_ai_allowance, "STORE", getattr(paid_ai_allowance, "DATABASE", None), raising=False)
     monkeypatch.setattr(paid_ai_allowance, "_client", lambda: ledger)
     return ledger
 
@@ -296,7 +296,7 @@ def test_an_unreachable_store_still_counts_in_the_process(monkeypatch):
         async def execute_raw(self, *_args):
             raise ConnectionError("database is down")
 
-    monkeypatch.setattr(paid_ai_allowance, "STORE", paid_ai_allowance.DATABASE)
+    monkeypatch.setattr(paid_ai_allowance, "STORE", getattr(paid_ai_allowance, "DATABASE", None), raising=False)
     monkeypatch.setattr(paid_ai_allowance, "_client", _Down)
     monkeypatch.setenv("PAID_AI_TRANSCRIPT_PER_USER_PER_HOUR", "1")
     asyncio.run(paid_ai_allowance.take(paid_ai_allowance.TRANSCRIPT, "usr_b"))
