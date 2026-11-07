@@ -245,7 +245,7 @@ internal fun DataUnifiedSearch(
     var blocked by rememberSaveable { mutableStateOf(false) }
     var countdown by remember { mutableStateOf<Int?>(null) }
     val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    LaunchedEffect(Unit) { if (initial.isBlank()) runCatching { focus.requestFocus() } }
 
     LaunchedEffect(query, scope, type, page, attempt) {
         val q = query.trim()
