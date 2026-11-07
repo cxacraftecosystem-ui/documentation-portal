@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.fieldrepository.app.explorer.data.ExplorerAudio
 import com.fieldrepository.app.explorer.data.ExplorerAudioState
 import com.fieldrepository.app.explorer.data.ExplorerEntry
@@ -27,8 +28,10 @@ class ExplorerAudioExpandUiTest {
     val compose = createComposeRule()
 
     @After fun reset() {
-        ExplorerAudio.stop()
-        ExplorerAudio.stage(ExplorerAudioState())
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            ExplorerAudio.stop()
+            ExplorerAudio.stage(ExplorerAudioState())
+        }
     }
 
     private val loader = object : ExplorerMediaLoader {
