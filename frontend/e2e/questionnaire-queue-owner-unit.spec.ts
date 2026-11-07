@@ -37,7 +37,7 @@ test.describe("Questionnaire offline queue is bound to the account that queued i
   test("a queued session keeps the account that queued it", async () => {
     const store = memoryQueueStore();
     const stored = await queued(store, "ck-a", "designer-a");
-    expect(stored?.ownerUserId).toBe("designer-a");
+    expect((stored as unknown as { ownerUserId?: string } | undefined)?.ownerUserId).toBe("designer-a");
   });
 
   test("the next account on the browser drains only its own sessions", async () => {
