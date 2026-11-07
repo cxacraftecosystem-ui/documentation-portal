@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Bot, Loader2, Pencil } from "lucide-react";
 
+import { useMediaUrl } from "@/components/hooks/useMediaUrl";
 import { Markdown } from "@/components/Markdown";
 import { TranscriptInsights } from "@/components/media/TranscriptInsights";
 import { TranscriptRefine } from "@/components/media/TranscriptRefine";
@@ -61,13 +62,14 @@ export function TranscriptBlock({ media: stored, readOnly = false }: { media: Me
 }
 
 function LegacyTranscriptBlock({ media }: { media: MediaFile }) {
+  const { src: playable } = useMediaUrl(media);
   const status = (media.transcriptStatus ?? "").toUpperCase();
   const isAudio = media.mediaType === "AUDIO" || (media.mimeType ?? "").toLowerCase().startsWith("audio/");
   const hasText = !!media.transcriptText && media.transcriptText.trim().length > 0;
 
   if (!isAudio && !status && !hasText) return null;
 
-  const player = isAudio && media.url ? <AudioPlayer src={media.url} className="mt-2" /> : null;
+  const player = isAudio && playable ? <AudioPlayer src={playable} className="mt-2" /> : null;
 
   if (hasText) {
     return (

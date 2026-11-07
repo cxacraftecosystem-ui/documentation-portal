@@ -64,7 +64,7 @@ def no_outside_calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     calls: dict[str, list] = {"presign": [], "multipart": [], "deleted": [], "aborted": []}
     missing: set[str] = set()
 
-    def presign(key: str, mime: str, checksum: str | None, expires_in: int = 900) -> str:
+    def presign(key: str, mime: str, checksum: str | None, expires_in: int = 900, size_bytes: int | None = None) -> str:
         calls["presign"].append((key, checksum))
         return f"https://s3.test/{key}?sig={uuid.uuid4().hex[:8]}"
 

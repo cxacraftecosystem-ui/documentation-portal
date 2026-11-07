@@ -236,12 +236,24 @@ async def _rearm_if_expired(client: Any, intent: dict[str, Any]) -> dict[str, An
     return await _intent_row(client, str(intent["clientClipKey"])) or intent
 
 
+def _assert_storable(payload: Any) -> None:
+    from app.questionnaire.ports import s3
+
+    content_type = _ext_mime(payload.extension, payload.contentType)
+    refusal = s3.upload_refusal(content_type, int(payload.sizeBytes))
+    if refusal == "type":
+        fail("VALIDATION_FAILED", f"{content_type.split(';')[0].strip().lower()} cannot be uploaded here.")
+    if refusal == "size":
+        fail("VALIDATION_FAILED", "That recording is over the upload limit; split it or send a smaller one.")
+
+
 async def _intent_for(client: Any, payload: Any, user: Any) -> dict[str, Any]:
     intent = await _intent_row(client, payload.clientClipKey)
     if intent:
         if str(intent["uploaderId"]) != str(user.id):
             fail("FORBIDDEN", "This upload belongs to another user.")
         return await _rearm_if_expired(client, intent)
+    _assert_storable(payload)
     session = await _session_for_upload(client, payload.sessionId, user)
     object_key = await _mint_object_key(client, payload, user, session)
     meta = {
@@ -279,7 +291,11 @@ async def presign(payload: Any, user: Any, *, client: Any = None) -> dict[str, A
         return closed
     content_type = str(intent["contentType"])
     sha_b64 = _b64(intent.get("contentSha256"))
-    url = await asyncio.to_thread(s3.presign_put_url_checksum, str(intent["objectKey"]), content_type, sha_b64, int(URL_TTL.total_seconds()))
+    size = intent.get("sizeBytes")
+    url = await asyncio.to_thread(
+        s3.presign_put_url_checksum, str(intent["objectKey"]), content_type, sha_b64, int(URL_TTL.total_seconds()),
+        int(size) if size else None,
+    )
     headers = {"Content-Type": content_type}
     if sha_b64:
         headers["x-amz-checksum-sha256"] = sha_b64

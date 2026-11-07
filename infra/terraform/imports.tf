@@ -15,10 +15,6 @@ import {
   id = "fieldrepo-media-626159998512"
 }
 import {
-  to = aws_s3_bucket_policy.media_public_read
-  id = "fieldrepo-media-626159998512"
-}
-import {
   to = aws_s3_bucket_cors_configuration.media
   id = "fieldrepo-media-626159998512"
 }

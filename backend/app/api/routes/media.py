@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import math
 from datetime import UTC, datetime
 from typing import Any
@@ -42,11 +43,13 @@ from app.schemas.media import (
 )
 from app.services import (
     consent_gate,
+    media_mime,
     recording_consent,
     transcribe_choice,
     transcript_insights,
     transcription_jobs,
 )
+from app.services import s3 as s3_service
 from app.services import transcription_enqueue as transcription
 from app.services.ai import (
     analyze_measurement_image_bytes,
@@ -97,6 +100,8 @@ MEASUREMENT_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 DICTATION_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 router = APIRouter(prefix="/media", tags=["media"])
+
+logger = logging.getLogger(__name__)
 
 _MEDIA_OWN_FILTERS = ("q", "dateFrom", "dateTo", "designWorkshopId")
 
@@ -220,15 +225,48 @@ async def presign_media_upload(
         return await v2_recordings.presign(await _v2(V2PresignRequest, body), current_user)
     payload = _old(PresignRequest, body)
     settings = get_settings()
+    _assert_uploadable(payload.mimeType, payload.sizeBytes, settings)
     object_key = make_object_key(current_user.id, payload.filename)
     return {
-        "uploadUrl": presign_put_url(object_key, payload.mimeType),
+        "uploadUrl": presign_put_url(object_key, payload.mimeType, payload.sizeBytes),
         "method": "PUT",
         "objectKey": object_key,
         "bucket": settings.aws_s3_bucket,
         "headers": {"Content-Type": payload.mimeType},
-        "publicUrl": public_url_for_key(object_key),
+        "publicUrl": None,
     }
+
+
+def _assert_uploadable(mime_type: str, size_bytes: int | None, settings: Any) -> None:
+    normalized = media_mime.normalized_mime(mime_type)
+    if not media_mime.is_uploadable_mime(normalized):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{normalized or 'That file type'} cannot be uploaded here.",
+        )
+    if media_mime.over_ceiling(size_bytes, settings):
+        raise _too_large(settings)
+
+
+def _too_large(settings: Any) -> HTTPException:
+    ceiling = media_mime.upload_ceiling(settings)
+    return HTTPException(
+        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        detail=f"That file is over the {ceiling // (1024 * 1024)} MB upload limit; split it or send a smaller one.",
+    )
+
+
+async def _assert_stored_object_within_ceiling(object_key: str, settings: Any) -> None:
+    if not media_mime.upload_ceiling(settings):
+        return
+    head = await asyncio.to_thread(s3_service.head_object, object_key)
+    if head is None or not media_mime.over_ceiling(head.size_bytes, settings):
+        return
+    try:
+        await asyncio.to_thread(s3_service.delete_object, object_key)
+    except Exception:
+        logger.warning("Could not delete an over-limit upload %s", object_key)
+    raise _too_large(settings)
 
 
 def _assert_owns_object(object_key: str, current_user: Any) -> None:
@@ -246,6 +284,7 @@ async def create_multipart(
         return await v2_recordings.multipart_create(await _v2(V2MultipartCreateRequest, body), current_user)
     payload = _old(MultipartCreateRequest, body)
     settings = get_settings()
+    _assert_uploadable(payload.mimeType, payload.sizeBytes, settings)
     object_key = make_object_key(current_user.id, payload.filename)
     upload_id = await asyncio.to_thread(create_multipart_upload, object_key, payload.mimeType)
     part_count = max(1, math.ceil(payload.sizeBytes / MULTIPART_PART_SIZE))
@@ -255,7 +294,7 @@ async def create_multipart(
         "bucket": settings.aws_s3_bucket,
         "partSize": MULTIPART_PART_SIZE,
         "partCount": part_count,
-        "publicUrl": public_url_for_key(object_key),
+        "publicUrl": None,
     }
 
 
@@ -265,6 +304,12 @@ async def presign_multipart_parts(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     _assert_owns_object(payload.objectKey, current_user)
+    ceiling_part = media_mime.max_part_number(get_settings())
+    if len(payload.partNumbers) > ceiling_part or any(n > ceiling_part for n in payload.partNumbers):
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="That upload has more parts than the upload limit allows.",
+        )
     urls: dict[str, str] = {}
     for part_number in payload.partNumbers:
         urls[str(part_number)] = await asyncio.to_thread(
@@ -287,10 +332,11 @@ async def complete_multipart(
     if not parts:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="No parts to complete")
     await asyncio.to_thread(complete_multipart_upload, payload.objectKey, payload.uploadId, parts)
+    await _assert_stored_object_within_ceiling(payload.objectKey, settings)
     return {
         "objectKey": payload.objectKey,
         "bucket": settings.aws_s3_bucket,
-        "publicUrl": public_url_for_key(payload.objectKey),
+        "publicUrl": None,
     }
 
 

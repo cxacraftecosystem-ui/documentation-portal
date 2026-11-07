@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -21,6 +22,7 @@ from app.services.concurrency import gather_reads
 from app.services.csv_export import records_to_csv
 from app.services.record_fields import info_panel, info_text, interview_label
 from app.services.records import owned_or_granted_where
+from app.services.s3 import presign_get_url
 from app.services.tool_scope import (
     TOOL_SCOPE_INCLUDE,
     artisan_workshop_ids,
@@ -36,6 +38,9 @@ router = APIRouter(prefix="/export", tags=["export"])
 EXPORT_TAKE = 5000
 _EXPORT_ORDER = [{"createdAt": "asc"}, {"id": "asc"}]
 MEDIA_TAKE = 20000
+EXPORT_URL_TTL_SECONDS = 6 * 3600
+
+logger = logging.getLogger(__name__)
 
 
 def csv_response(filename: str, body: str) -> Response:
@@ -202,9 +207,20 @@ async def dataset_manifest(
 
     def add_media(prefix: str, rtype: str, rid: str) -> None:
         for m in media_by.get((rtype, rid), []):
-            if m.url:
-                path = _uniq(f"{prefix}/{_seg(m.originalFilename, m.id)}", used_files)
-                files.append({"path": path, "url": m.url})
+            if not m.objectKey:
+                continue
+            leaf = _seg(m.originalFilename, m.id)
+            try:
+                signed = presign_get_url(
+                    m.objectKey,
+                    filename=leaf,
+                    mime_type=m.mimeType or "application/octet-stream",
+                    expires_in=EXPORT_URL_TTL_SECONDS,
+                )
+            except Exception:
+                logger.exception("Could not sign export media %s", m.id)
+                continue
+            files.append({"path": _uniq(f"{prefix}/{leaf}", used_files), "url": signed})
 
     def add_text(prefix: str, name: str, content: str) -> None:
         if content.strip():

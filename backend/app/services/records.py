@@ -18,11 +18,58 @@ _SENSITIVE_KEYS = frozenset(SECRET_USER_FIELDS)
 
 _IDENTITY_KEYS = ("aadhaarNumber", "pehchanCardNumber")
 
-_MEDIA_URL_KEYS = ("url", "publicUrl", "objectKey")
+_MEDIA_URL_KEYS = ("url", "publicUrl", "objectKey", "cleanedObjectKey")
 
 _MEDIA_MARKER = "objectKey"
 
 ALL_MEDIA_URLS = None
+
+
+def presigned_read_ttl() -> int | None:
+    from app.core.config import get_settings
+
+    try:
+        settings = get_settings()
+    except Exception:
+        return None
+    if not getattr(settings, "media_presigned_reads", True):
+        return None
+    ttl = int(getattr(settings, "media_presigned_read_ttl_seconds", 0) or 0)
+    return ttl if ttl > 0 else None
+
+
+def signed_media_url(object_key: Any, stored: Any, mime_type: Any, filename: Any) -> Any:
+    ttl = presigned_read_ttl()
+    if ttl is None or not object_key or not isinstance(stored, str) or not stored:
+        return stored
+    from app.services import s3
+    from app.services.media_mime import signed_read_headers
+
+    signed_mime, disposition = signed_read_headers(mime_type)
+    try:
+        return s3.presign_get_url(
+            str(object_key),
+            filename=str(filename or object_key),
+            mime_type=signed_mime,
+            expires_in=ttl,
+            disposition=disposition,
+        )
+    except Exception:
+        return stored
+
+
+def _sign_media_urls(value: Any) -> Any:
+    if isinstance(value, dict):
+        if _MEDIA_MARKER in value and isinstance(value.get("url"), str) and value.get("url"):
+            value["url"] = signed_media_url(
+                value.get(_MEDIA_MARKER), value["url"], value.get("mimeType"), value.get("originalFilename")
+            )
+        for nested in value.values():
+            _sign_media_urls(nested)
+    elif isinstance(value, list):
+        for item in value:
+            _sign_media_urls(item)
+    return value
 
 
 class _Unset:
@@ -108,7 +155,7 @@ def public_encode(obj: Any, viewer: Any = None, *, media_urls: Any = _UNSET) -> 
     encoded = jsonable_encoder(obj)
     if viewer is None:
         allowed: set[str] | None = set() if media_urls is _UNSET else media_urls
-        return _redact_sensitive(encoded, viewer_id=None, unmasked=False, media_urls=allowed)
+        return _sign_media_urls(_redact_sensitive(encoded, viewer_id=None, unmasked=False, media_urls=allowed))
 
     viewer_id = get_value(viewer, "id")
     if media_urls is _UNSET:
@@ -118,11 +165,13 @@ def public_encode(obj: Any, viewer: Any = None, *, media_urls: Any = _UNSET) -> 
             allowed = {viewer_id} if viewer_id else set()
     else:
         allowed = media_urls
-    return _redact_sensitive(
-        encoded,
-        viewer_id=viewer_id,
-        unmasked=has_rank(viewer, "PROFESSOR"),
-        media_urls=allowed,
+    return _sign_media_urls(
+        _redact_sensitive(
+            encoded,
+            viewer_id=viewer_id,
+            unmasked=has_rank(viewer, "PROFESSOR"),
+            media_urls=allowed,
+        )
     )
 
 

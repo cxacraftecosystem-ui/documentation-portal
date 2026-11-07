@@ -257,7 +257,7 @@ def test_report_workbook_media_cell_is_a_signed_in_portal_link(monkeypatch):
 def test_record_csv_media_column_is_a_signed_in_portal_link(monkeypatch):
     monkeypatch.setattr(portal, "web_base", lambda: "https://portal.example.test")
 
-    count, names, urls = record_fields.media_row([_media_row()])
+    *_, urls = record_fields.media_row([_media_row()])
 
     assert urls == "https://portal.example.test/data/go/media/media-77/download"
 
