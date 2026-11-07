@@ -1299,12 +1299,7 @@ async def update_task(
         assert_status_value(new_status)
 
     is_creator = task.createdById == current_user.id
-    approves_submitted_work = (
-        set(data) == {"status"} and new_status == "DONE" and task.status == SUBMITTED
-    )
-    is_manager = is_admin(current_user) or (
-        is_creator and (is_content_admin(current_user) or approves_submitted_work)
-    )
+    is_manager = is_admin(current_user) or (is_creator and is_content_admin(current_user))
     if is_manager:
         if data.get("assigneeId") and data["assigneeId"] != task.assigneeId:
             await assert_assignable(current_user, data["assigneeId"])
