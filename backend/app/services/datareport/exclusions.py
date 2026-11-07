@@ -21,6 +21,7 @@ FIELDS: dict[str, str] = {
     "User.passwordHash": PASSWORD,
     "User.passwordSetAt": PASSWORD,
     "User.mustChangePassword": PASSWORD,
+    "User.passwordIssuerKnown": PASSWORD,
     "User.firstPasswordCodeAttempts": PASSWORD,
     "User.firstPasswordCodeWindowStartedAt": PASSWORD,
     "User.sessionsValidFrom": ACCOUNT,

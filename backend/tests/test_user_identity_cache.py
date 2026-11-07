@@ -248,6 +248,7 @@ def test_every_module_that_writes_a_user_row_also_invalidates_the_identity_cache
             writers[path.relative_to(BACKEND_ROOT).as_posix()] = "invalidate_cached_user" in text
 
     assert set(writers) == {
+        "app/api/routes/access_roster.py",
         "app/api/routes/auth.py",
         "app/api/routes/two_factor.py",
         "app/api/routes/users.py",
