@@ -98,7 +98,7 @@ import com.fieldrepository.app.data.liveCompletenessCounts
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Checkbox
+import com.fieldrepository.app.ui.FieldCheckbox
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
@@ -1804,6 +1804,7 @@ private fun HomeScreen(
                 LocalUnsavedGuard provides unsavedGuard,
                 com.fieldrepository.app.ui.LocalContentAdminChrome provides com.fieldrepository.app.ui.contentAdminChrome(user, adminView),
                 com.fieldrepository.app.ui.LocalMayDelete provides canDelete,
+                com.fieldrepository.app.ui.LocalAudioExpand provides canDownloadDataset,
                 com.fieldrepository.app.ui.richtext.LocalRichMediaUrl provides richMediaUrl
             ) {
             val ownsViewport = screen is Screen.DataBrowser || screen is Screen.Appearance ||
@@ -9825,7 +9826,7 @@ private fun PendingReviewRow(
             val openMode = recentSubmissionEntryMode(item.recordType)
             val open = onOpenRecord
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Checkbox(
+            FieldCheckbox(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
                 enabled = !busy,
@@ -11434,7 +11435,8 @@ private fun AndroidSavedMediaPreview(
                 mediaType = media.mediaType,
                 onSave = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) },
                 offlinePreview = offlinePreview.file,
-                onDismiss = { showViewer = false }
+                onDismiss = { showViewer = false },
+                expand = com.fieldrepository.app.ui.AudioExpand(media.id, media.originalFilename).takeIf { media.mediaType.equals("AUDIO", ignoreCase = true) }
             )
         }
     }

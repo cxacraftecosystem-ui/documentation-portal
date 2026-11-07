@@ -22,7 +22,7 @@ object ExplorerUiText {
     const val recentFiles = "Recent files"
     const val retrying = "retrying"
     const val failed = "Failed"
-    const val saved = "✓ Saved"
+    const val saved = "Saved"
     const val open = "Open"
     const val share = "Share"
     const val retry = "Retry"

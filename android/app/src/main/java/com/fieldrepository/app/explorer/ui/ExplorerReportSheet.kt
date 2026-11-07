@@ -20,7 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
+import com.fieldrepository.app.ui.FieldCheckbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -288,7 +288,7 @@ internal fun ReportOptionsSheet(
                                 .testTag("explorer.report.sheet.${s.name}"),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Checkbox(checked = on, onCheckedChange = null)
+                            FieldCheckbox(checked = on, onCheckedChange = null)
                             Column(Modifier.weight(1f).padding(start = 8.dp, top = 6.dp, bottom = 6.dp)) {
                                 Text(s.name, style = MaterialTheme.typography.bodyMedium)
                                 s.description?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }

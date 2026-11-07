@@ -31,7 +31,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -635,7 +634,7 @@ private fun PickerRow(
 
     Row(verticalAlignment = Alignment.CenterVertically, modifier = rowModifier) {
         if (multiple) {
-            Checkbox(checked = selected, onCheckedChange = null)
+            FieldCheckbox(checked = selected, onCheckedChange = null)
             Spacer(Modifier.size(8.dp))
         }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {

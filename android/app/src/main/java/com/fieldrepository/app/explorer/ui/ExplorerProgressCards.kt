@@ -248,17 +248,12 @@ internal fun RecentRow(file: ExplorerRecent, active: Boolean, last: Boolean = fa
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         val mark = when (file.status) {
-            ExplorerRecentStatus.SAVED -> "✓"
-            ExplorerRecentStatus.FAILED, ExplorerRecentStatus.RETRYING -> "!"
-            ExplorerRecentStatus.RUNNING -> "↓"
+            ExplorerRecentStatus.SAVED -> ExplorerMarkKind.SAVED
+            ExplorerRecentStatus.FAILED, ExplorerRecentStatus.RETRYING -> ExplorerMarkKind.FAILED
+            ExplorerRecentStatus.RUNNING -> ExplorerMarkKind.RUNNING
         }
         val (markBg, markFg) = explorerMark()
-        Box(
-            Modifier.size(22.dp).background(if (tone != null) MaterialTheme.colorScheme.surface else markBg, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            ExplorerGlyph { Text(mark, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center, color = tone?.accent ?: markFg) }
-        }
+        ExplorerMarkBadge(mark, if (tone != null) MaterialTheme.colorScheme.surface else markBg, tone?.accent ?: markFg)
         Text(file.name.substringAfterLast('/'), style = MaterialTheme.typography.bodyMedium, color = tone?.content ?: MaterialTheme.colorScheme.onSurface, maxLines = if (androidx.compose.ui.platform.LocalDensity.current.fontScale >= 1.5f) Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         val end = when (file.status) {
             ExplorerRecentStatus.SAVED -> ExplorerBytes.format(file.sizeBytes)
@@ -286,8 +281,9 @@ internal fun ResultCard(job: ExplorerJob, onOpen: () -> Unit, onRetry: () -> Uni
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             val count = job.result?.saved ?: 0
+            if (saved) ExplorerMarkIcon(ExplorerMarkKind.SAVED, tone.content, 16.dp)
             Text(
-                if (saved) (if (count > 1 && job.request.kind != ExplorerJobKind.FOLDER) "✓ ${ExplorerText.savedFiles(count)}" else "✓ ${ExplorerText.savedShort} ${job.request.title}") else job.request.title,
+                if (saved) (if (count > 1 && job.request.kind != ExplorerJobKind.FOLDER) ExplorerText.savedFiles(count) else "${ExplorerText.savedShort} ${job.request.title}") else job.request.title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
                 color = tone.content,

@@ -27,6 +27,8 @@ import com.fieldrepository.app.explorer.data.ExplorerJob
 import com.fieldrepository.app.explorer.data.ExplorerNotifications
 import com.fieldrepository.app.explorer.data.ExplorerText
 import com.fieldrepository.app.explorer.portal.ExplorerPortal
+import com.fieldrepository.app.explorer.ui.ExplorerMarkIcon
+import com.fieldrepository.app.explorer.ui.ExplorerMarkKind
 
 private class Shown(val title: String, val text: String?, val detail: String?, val fraction: Float?, val actions: List<String>)
 
@@ -45,7 +47,7 @@ private fun shown(n: Notification): Shown {
 }
 
 @Composable
-private fun Card(kind: String, mark: String, markBg: Color, markFg: Color, bg: Color, line: Color?, head: Color, body: Color, action: Color, item: Shown) {
+private fun Card(kind: String, mark: ExplorerMarkKind?, markBg: Color, markFg: Color, bg: Color, line: Color?, head: Color, body: Color, action: Color, item: Shown) {
     Column(
         Modifier.fillMaxWidth()
             .background(bg, RoundedCornerShape(20.dp))
@@ -55,7 +57,7 @@ private fun Card(kind: String, mark: String, markBg: Color, markFg: Color, bg: C
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.size(18.dp).background(markBg, RoundedCornerShape(5.dp)), contentAlignment = Alignment.Center) {
-                Text(mark, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = markFg)
+                mark?.let { ExplorerMarkIcon(it, markFg, 12.dp) }
             }
             Text("${ExplorerPortal.PRODUCT} · $kind", fontSize = 12.sp, color = head)
         }
@@ -81,8 +83,8 @@ internal fun NotificationPreviews(running: ExplorerJob, saved: ExplorerJob, fail
     val progress = remember(running) { shown(ExplorerNotifications.progress(context, running, com.fieldrepository.app.explorer.data.ExplorerCancelReceiver.intent(context, running.id))) }
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Notifications", fontSize = 12.sp, color = Color(0xFFCFCBE0), modifier = Modifier.padding(horizontal = 4.dp))
-        Card(ExplorerText.downloads, "", Color(0xFF762CB1), Color.White, Color(0xFF2A2640), null, Color(0xFFCFCBE0), Color(0xFFD0CBDF), Color(0xFFC090F5), progress)
-        Card(ExplorerText.savedShort, "✓", Color(0xFF22C55E), Color(0xFF052E16), Color(0xFF123B25), Color(0xFF15803D), Color(0xFFB7E4C7), Color(0xFFC9EED6), Color(0xFF86EFAC), Shown(ExplorerNotifications.finishedTitle(saved), ExplorerNotifications.finishedText(saved), null, null, listOf(ExplorerText.open, ExplorerText.share)))
-        Card(ExplorerText.failedShort, "!", Color(0xFFEF4444), Color(0xFF450A0A), Color(0xFF4A1717), Color(0xFFB91C1C), Color(0xFFF5B5B5), Color(0xFFF5B5B5), Color(0xFFFCA5A5), Shown(ExplorerNotifications.finishedText(failed), null, null, null, listOf(ExplorerText.retry, ExplorerText.details)))
+        Card(ExplorerText.downloads, null, Color(0xFF762CB1), Color.White, Color(0xFF2A2640), null, Color(0xFFCFCBE0), Color(0xFFD0CBDF), Color(0xFFC090F5), progress)
+        Card(ExplorerText.savedShort, ExplorerMarkKind.SAVED, Color(0xFF22C55E), Color(0xFF052E16), Color(0xFF123B25), Color(0xFF15803D), Color(0xFFB7E4C7), Color(0xFFC9EED6), Color(0xFF86EFAC), Shown(ExplorerNotifications.finishedTitle(saved), ExplorerNotifications.finishedText(saved), null, null, listOf(ExplorerText.open, ExplorerText.share)))
+        Card(ExplorerText.failedShort, ExplorerMarkKind.FAILED, Color(0xFFEF4444), Color(0xFF450A0A), Color(0xFF4A1717), Color(0xFFB91C1C), Color(0xFFF5B5B5), Color(0xFFF5B5B5), Color(0xFFFCA5A5), Shown(ExplorerNotifications.finishedText(failed), null, null, null, listOf(ExplorerText.retry, ExplorerText.details)))
     }
 }

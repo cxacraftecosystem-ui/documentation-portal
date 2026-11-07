@@ -1,5 +1,8 @@
 package com.fieldrepository.app.transcript.ui
 
+import com.fieldrepository.app.explorer.ui.ExplorerAudioExpandButton
+import com.fieldrepository.app.explorer.ui.ExplorerAudioExpanded
+import com.fieldrepository.app.ui.LocalAudioExpand
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -52,7 +55,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
+import com.fieldrepository.app.ui.FieldCheckbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -159,6 +162,8 @@ fun TranscriptViewer(
     var sampleKey by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     var reading by rememberSaveable { mutableStateOf(false) }
+    var expandAt by remember { mutableStateOf<Pair<Long, Boolean>?>(null) }
+    val canExpand = LocalAudioExpand.current && view.mediaId.isNotBlank()
     val paragraphs = remember(turns) { TranscriptReading.paragraphs(turns) }
     var following by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(listState) {
@@ -312,10 +317,21 @@ fun TranscriptViewer(
                     cleaned = view.audio.cleaned && view.audio.originalUrl != null && onPlayOriginal != null,
                     playingOriginal = playingOriginal,
                     onPlayOriginal = onPlayOriginal,
+                    onExpand = if (canExpand) ({
+                        val was = playback.playing
+                        if (was) playback.toggle()
+                        expandAt = (playback.positionSeconds * 1000).toLong() to was
+                    }) else null,
                 )
             }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp))
+    }
+    expandAt?.let { (at, was) ->
+        ExplorerAudioExpanded(view.mediaId, view.title, at, was) { back ->
+            expandAt = null
+            playback.seek(back.positionMs / 1000.0, play = back.playing)
+        }
     }
 
     when (sheet) {
@@ -566,7 +582,7 @@ private fun TurnRow(
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (selecting) Checkbox(checked = selected, onCheckedChange = { onToggle() }, modifier = Modifier.testTag("turn.select.${turn.id}"))
+            if (selecting) FieldCheckbox(checked = selected, onCheckedChange = { onToggle() }, modifier = Modifier.testTag("turn.select.${turn.id}"))
             val speakerTint = speakerColor(TranscriptPreview.colorKeyOf(turn))
             Box(Modifier.size(8.dp).background(speakerTint, CircleShape))
             Spacer(Modifier.width(6.dp))
@@ -605,7 +621,7 @@ private fun TurnRow(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.clickable { onMark(!marked) }.testTag("turn.mark.${turn.id}")
             ) {
-                Checkbox(checked = marked, onCheckedChange = { onMark(it) }, modifier = Modifier.size(32.dp))
+                FieldCheckbox(checked = marked, onCheckedChange = { onMark(it) }, modifier = Modifier.size(32.dp))
                 Text(TranscriptStrings.markOnTimeline, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.field.muted)
             }
         }
@@ -805,6 +821,7 @@ private fun PlayerBar(
     cleaned: Boolean = false,
     playingOriginal: Boolean = false,
     onPlayOriginal: ((Boolean) -> Unit)? = null,
+    onExpand: (() -> Unit)? = null,
 ) {
     val dark = MaterialTheme.field.isDark
     Surface(color = MaterialTheme.colorScheme.background) {
@@ -818,7 +835,7 @@ private fun PlayerBar(
             if (cleaned && onPlayOriginal != null) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(TranscriptStrings.cleanedAudioNote, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.field.muted, modifier = Modifier.weight(1f))
-                    Checkbox(checked = playingOriginal, onCheckedChange = onPlayOriginal, modifier = Modifier.testTag("transcript.playOriginal"))
+                    FieldCheckbox(checked = playingOriginal, onCheckedChange = onPlayOriginal, modifier = Modifier.testTag("transcript.playOriginal"))
                     Text(TranscriptStrings.originalAudio, style = MaterialTheme.typography.labelMedium)
                 }
             }
@@ -845,6 +862,7 @@ private fun PlayerBar(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
+                onExpand?.let { ExplorerAudioExpandButton(onClick = it) }
             }
         }
     }
