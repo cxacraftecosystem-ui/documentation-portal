@@ -20,7 +20,9 @@ def _fresh_counters(monkeypatch):
     ):
         monkeypatch.delenv(name, raising=False)
     try:
-        importlib.import_module("app.services.paid_ai_allowance").reset()
+        allowance = importlib.import_module("app.services.paid_ai_allowance")
+        allowance.reset()
+        monkeypatch.setattr(allowance, "STORE", allowance.MEMORY, raising=False)
     except ImportError:
         pass
     yield
@@ -218,3 +220,85 @@ def test_a_queued_measurement_over_the_allowance_waits_instead_of_spending(monke
     assert written["status"] == media_queue.QUEUED
     assert written["attempts"] == 0
     assert written["runAfter"] > datetime.now(UTC)
+
+
+class _SharedLedger:
+    def __init__(self) -> None:
+        self.rows: list[tuple[str, str, str]] = []
+
+    async def query_raw(self, sql: str, bucket: str, who: str, window: int) -> list[dict[str, int]]:
+        from app.services import paid_ai_allowance
+
+        assert sql == paid_ai_allowance._COUNT_SQL and window == int(paid_ai_allowance.WINDOW_SECONDS)
+        live = [row for row in self.rows if row[1] == bucket]
+        return [{"total": len(live), "mine": sum(1 for row in live if row[2] == who), "totalWait": 900, "mineWait": 600}]
+
+    async def execute_raw(self, sql: str, *args) -> int:
+        from app.services import paid_ai_allowance
+
+        if sql == paid_ai_allowance._SPEND_SQL:
+            self.rows.append(tuple(args))
+            return 1
+        if sql == paid_ai_allowance._REFUND_SQL:
+            mine = [row for row in self.rows if row[1] == args[0] and row[2] == args[1]]
+            if mine:
+                self.rows.remove(mine[-1])
+            return len(mine[-1:])
+        assert sql == paid_ai_allowance._PRUNE_SQL
+        return 0
+
+
+@pytest.fixture
+def shared_ledger(monkeypatch):
+    from app.services import paid_ai_allowance
+
+    ledger = _SharedLedger()
+    monkeypatch.setattr(paid_ai_allowance, "STORE", paid_ai_allowance.DATABASE)
+    monkeypatch.setattr(paid_ai_allowance, "_client", lambda: ledger)
+    return ledger
+
+
+def test_a_restart_does_not_hand_back_a_spent_allowance(shared_ledger, monkeypatch):
+    from app.services import paid_ai_allowance
+
+    monkeypatch.setenv("PAID_AI_TRANSCRIPT_PER_USER_PER_HOUR", "2")
+    asyncio.run(paid_ai_allowance.take(paid_ai_allowance.TRANSCRIPT, "usr_a"))
+    asyncio.run(paid_ai_allowance.take(paid_ai_allowance.TRANSCRIPT, "usr_a"))
+    paid_ai_allowance.reset()
+    with pytest.raises(paid_ai_allowance.AllowanceSpent) as caught:
+        asyncio.run(paid_ai_allowance.take(paid_ai_allowance.TRANSCRIPT, "usr_a"))
+    assert caught.value.retry_after == 600
+    assert len(shared_ledger.rows) == 2
+
+
+def test_the_queue_worker_and_the_api_spend_one_portal_wide_count(shared_ledger, monkeypatch):
+    from app.services import paid_ai_allowance
+
+    monkeypatch.setenv("PAID_AI_MEASUREMENT_TOTAL_PER_HOUR", "2")
+    asyncio.run(paid_ai_allowance.take(paid_ai_allowance.MEASUREMENT, "usr_api"))
+    paid_ai_allowance.reset()
+    asyncio.run(paid_ai_allowance.take(paid_ai_allowance.MEASUREMENT, "usr_worker"))
+    with pytest.raises(paid_ai_allowance.AllowanceSpent) as caught:
+        asyncio.run(paid_ai_allowance.take(paid_ai_allowance.MEASUREMENT, "usr_third"))
+    assert caught.value.retry_after == 900
+    asyncio.run(paid_ai_allowance.refund(paid_ai_allowance.MEASUREMENT, "usr_worker"))
+    asyncio.run(paid_ai_allowance.take(paid_ai_allowance.MEASUREMENT, "usr_third"))
+    assert [row[2] for row in shared_ledger.rows] == ["usr_api", "usr_third"]
+
+
+def test_an_unreachable_store_still_counts_in_the_process(monkeypatch):
+    from app.services import paid_ai_allowance
+
+    class _Down:
+        async def query_raw(self, *_args):
+            raise ConnectionError("database is down")
+
+        async def execute_raw(self, *_args):
+            raise ConnectionError("database is down")
+
+    monkeypatch.setattr(paid_ai_allowance, "STORE", paid_ai_allowance.DATABASE)
+    monkeypatch.setattr(paid_ai_allowance, "_client", _Down)
+    monkeypatch.setenv("PAID_AI_TRANSCRIPT_PER_USER_PER_HOUR", "1")
+    asyncio.run(paid_ai_allowance.take(paid_ai_allowance.TRANSCRIPT, "usr_b"))
+    with pytest.raises(paid_ai_allowance.AllowanceSpent):
+        asyncio.run(paid_ai_allowance.take(paid_ai_allowance.TRANSCRIPT, "usr_b"))

@@ -94,14 +94,15 @@ def test_a_first_password_ends_every_older_session_too(monkeypatch) -> None:
 
 
 
-def _scope(forwarded: str | None, peer: str = "10.0.0.9") -> dict[str, Any]:
+def _scope(forwarded: str | None, peer: str = "127.0.0.1") -> dict[str, Any]:
     headers = [(b"x-forwarded-for", forwarded.encode())] if forwarded is not None else []
     return {"headers": headers, "client": (peer, 1234)}
 
 
 def test_the_client_key_is_never_the_entry_a_client_types(monkeypatch) -> None:
     monkeypatch.setattr(get_settings(), "trusted_proxy_hops", 1)
-    assert client_address(_scope(None)) == "ip:10.0.0.9"
+    assert client_address(_scope(None, peer="10.0.0.9")) == "ip:10.0.0.9"
+    assert client_address(_scope("6.6.6.6, 203.0.113.7", peer="10.0.0.9")) == "ip:10.0.0.9"
     assert client_address(_scope("6.6.6.6, 203.0.113.7")) == "ip:203.0.113.7"
     assert client_address(_scope("203.0.113.7")) == "ip:203.0.113.7"
     monkeypatch.setattr(get_settings(), "trusted_proxy_hops", 2)

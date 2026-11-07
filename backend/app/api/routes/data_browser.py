@@ -1445,6 +1445,16 @@ async def _artisan_path(aid: str, scope: Scope) -> str | None:
     return f"by-workshop/{workshop.id}/crafts/{craft}/artisans/{artisan.id}"
 
 
+async def _record_fallback(kind: str, record_id: str, scope: Scope) -> dict[str, str] | None:
+    if kind == "craft":
+        found = await db.craft.find_unique(where={"id": record_id})
+    elif kind == "artisan":
+        found = await db.artisan.find_first(where=_and({"id": record_id}, scope.records))
+    else:
+        return None
+    return {"kind": kind, "id": str(found.id)} if found else None
+
+
 async def _locate_path(record_type: str, record_id: str, scope: Scope) -> str | None:
     kind = (record_type or "").strip().lower()
 
@@ -1523,9 +1533,12 @@ async def data_locate(
     id: str = Query(..., min_length=1),
     status_value: str | None = Query(None, alias="status"),
     current_user: Any = Depends(require_dataset_downloader),
-) -> dict[str, str | None]:
+) -> dict[str, Any]:
     scope = await _scope_for(current_user, data_status(status_value))
-    return {"path": await _locate_path(type, id, scope)}
+    path = await _locate_path(type, id, scope)
+    kind = (type or "").strip().lower()
+    record = None if path else await _record_fallback(kind, id, scope)
+    return {"path": path, "locatable": path is not None, "record": record}
 
 
 @router.get("/tree")

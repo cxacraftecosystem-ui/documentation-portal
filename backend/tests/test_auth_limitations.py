@@ -418,7 +418,7 @@ def test_trusted_proxy_hops_defaults_to_cloudfront_then_nginx() -> None:
 
 def test_the_default_keys_on_the_viewer_cloudfront_saw(monkeypatch) -> None:
     monkeypatch.setattr(get_settings(), "trusted_proxy_hops", 2)
-    scope = {"headers": [(b"x-forwarded-for", b"6.6.6.6, 198.51.100.4, 130.176.1.1")], "client": ("10.0.0.9", 1)}
+    scope = {"headers": [(b"x-forwarded-for", b"6.6.6.6, 198.51.100.4, 130.176.1.1")], "client": ("127.0.0.1", 1)}
     assert client_address(scope) == "ip:198.51.100.4"
 
 

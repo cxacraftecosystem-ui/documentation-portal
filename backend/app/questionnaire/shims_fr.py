@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.questionnaire import legacy_resolver, ports, sessions, titles
-from app.questionnaire.common import IST, aware, enum_text, naive_utc, now, today_ist
+from app.questionnaire.common import IST, aware, naive_utc, now, today_ist
 from app.questionnaire.errors import http_error
 from app.questionnaire.ports import get_settings
 
@@ -101,8 +101,11 @@ async def matching_session(questionnaire_id: str, workshop_id: str | None, artis
 async def attach_to_session(session_id: str, payload: Any, user: Any, questionnaire_id: str) -> Any:
     db = ports.db()
 
-    role = "VOLUNTEER" if str(enum_text(getattr(user, "role", None))) == "CROWDSOURCE_VOLUNTEER" else "CONTRIBUTOR"
-    await sessions.add_researcher(db, session_id, user.id, role)
+    row = await sessions.load_session_row(db, session_id)
+    if row is None or row.get("deletedAt") is not None:
+        return None
+    if str(row.get("createdById")) != str(user.id) and str(user.id) not in await sessions.researcher_ids(db, session_id):
+        return None
     if payload.responses:
         await responses_to_answers(session_id, questionnaire_id, payload.responses, user)
     return await db.questionnaireinterview.find_unique(where={"id": session_id})

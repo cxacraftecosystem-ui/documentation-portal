@@ -5,8 +5,9 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from app.transcription import workdir
 
@@ -18,10 +19,45 @@ SEARCH_WINDOW_MS = 45_000
 OVERLAP_MS = 1_000
 SILENCE_NOISE = "-35dB"
 SILENCE_MIN_S = 0.4
+RUN_SECONDS = 1800
+MAX_SOURCE_SECONDS = 8 * 3600
+MAX_WAV_BYTES = MAX_SOURCE_SECONDS * SAMPLE_RATE * 2 + 1024 * 1024
+MAX_TRACK_BYTES = 512 * 1024 * 1024
+INPUT_FORMATS = "mov,matroska,ogg,mp3,wav,w64,aac,flac,amr,amrnb,amrwb,caf,asf,avi,aiff,au,mpegts,mpeg,flv"
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "minio", "host.docker.internal"})
+
+
+class UnsafeInput(ValueError):
+    pass
+
+
+def local_input(path: str) -> list[str]:
+    text = str(path or "")
+    if not text or "\x00" in text:
+        raise UnsafeInput("no local file to read")
+    return ["-protocol_whitelist", "file", "-format_whitelist", INPUT_FORMATS, "-i", os.path.abspath(text)]
+
+
+def remote_input(url: str, hosts: Iterable[str]) -> list[str]:
+    try:
+        parts = urlsplit(str(url or ""))
+        host = (parts.hostname or "").lower()
+    except ValueError as exc:
+        raise UnsafeInput("not a media address") from exc
+    allowed = {str(h).lower() for h in hosts if h}
+    if not host or host not in allowed or parts.username or parts.password or "\x00" in url:
+        raise UnsafeInput("not one of this portal's media addresses")
+    if parts.scheme == "https":
+        protocols = "https,tls,tcp"
+    elif parts.scheme == "http" and host in LOOPBACK_HOSTS:
+        protocols = "http,tcp"
+    else:
+        raise UnsafeInput("not one of this portal's media addresses")
+    return ["-protocol_whitelist", protocols, "-format_whitelist", INPUT_FORMATS, "-i", url]
 
 
 def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, capture_output=True, text=True, timeout=1800, check=False)
+    return subprocess.run(args, capture_output=True, text=True, timeout=RUN_SECONDS, check=False)
 
 
 def ffmpeg_available() -> bool:
@@ -38,7 +74,7 @@ def probe_duration_ms(path: str, runner: Runner = _run) -> int | None:
             "format=duration",
             "-of",
             "default=nw=1:nk=1",
-            path,
+            *local_input(path),
         ]
     )
     if done.returncode != 0:
@@ -57,15 +93,18 @@ def normalise_to_wav(source: str, target: str, runner: Runner = _run) -> bool:
             "-y",
             "-v",
             "error",
-            "-i",
-            source,
+            *local_input(source),
             "-vn",
+            "-t",
+            str(MAX_SOURCE_SECONDS),
             "-ac",
             "1",
             "-ar",
             str(SAMPLE_RATE),
             "-c:a",
             "pcm_s16le",
+            "-fs",
+            str(MAX_WAV_BYTES),
             target,
         ]
     )
@@ -90,10 +129,11 @@ def extract_audio_track(source: str, target: str, runner: Runner = _run) -> bool
             "-y",
             "-v",
             "error",
-            "-i",
-            source,
+            *local_input(source),
             "-map",
             "0:a:0",
+            "-t",
+            str(MAX_SOURCE_SECONDS),
             "-vn",
             "-sn",
             "-dn",
@@ -105,6 +145,8 @@ def extract_audio_track(source: str, target: str, runner: Runner = _run) -> bool
             "aac",
             "-b:a",
             "48k",
+            "-fs",
+            str(MAX_TRACK_BYTES),
             target,
         ]
     )
@@ -115,7 +157,7 @@ def extract_to_workdir(source: str, runner: Runner | None = None) -> str | None:
     runner = runner or _run
     with workdir.named_file(prefix="transcription_source_", suffix=VIDEO_AUDIO_SUFFIX) as handle:
         target = handle.name
-    with contextlib.suppress(OSError, subprocess.SubprocessError):
+    with contextlib.suppress(OSError, subprocess.SubprocessError, UnsafeInput):
         if extract_audio_track(source, target, runner):
             return target
     with contextlib.suppress(OSError):
@@ -134,8 +176,9 @@ def detect_silences(path: str, runner: Runner = _run) -> list[tuple[int, int]]:
             "-nostdin",
             "-v",
             "info",
-            "-i",
-            path,
+            *local_input(path),
+            "-t",
+            str(MAX_SOURCE_SECONDS),
             "-af",
             f"silencedetect=noise={SILENCE_NOISE}:d={SILENCE_MIN_S}",
             "-f",
@@ -212,8 +255,7 @@ def cut_part(wav_path: str, part: PartPlan, directory: str, runner: Runner = _ru
             f"{part.start_ms / 1000:.3f}",
             "-t",
             f"{(part.end_ms - part.start_ms) / 1000:.3f}",
-            "-i",
-            wav_path,
+            *local_input(wav_path),
             "-c",
             "copy",
             target,

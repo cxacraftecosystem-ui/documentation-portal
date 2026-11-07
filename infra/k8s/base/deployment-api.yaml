@@ -65,9 +65,7 @@ spec:
             - "8000"
             - --workers
             - "1"
-            - --proxy-headers
-            - --forwarded-allow-ips
-            - "*"
+            - --no-proxy-headers
           ports:
             - name: http
               containerPort: 8000

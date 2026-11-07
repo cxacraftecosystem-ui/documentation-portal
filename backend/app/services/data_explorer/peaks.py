@@ -5,7 +5,11 @@ import shutil
 import subprocess
 import threading
 from array import array
+from collections.abc import Iterable
 from typing import Any
+from urllib.parse import urlsplit
+
+from app.transcription.audio import UnsafeInput, local_input, remote_input
 
 BUCKETS = 800
 SAMPLE_RATE = 2000
@@ -14,6 +18,7 @@ MAX_SECONDS = 4 * 3600
 DECODE_SECONDS = 120.0
 WAIT_SECONDS = 30.0
 READ_BYTES = 256 * 1024
+MAX_OUTPUT_BYTES = MAX_SECONDS * SAMPLE_RATE * 2 + READ_BYTES
 KINDS = frozenset({"AUDIO", "VIDEO"})
 
 _slot = asyncio.Semaphore(1)
@@ -31,15 +36,39 @@ def available() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
-def ffmpeg_args(source: str) -> list[str]:
+def media_hosts() -> frozenset[str]:
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    hosts: set[str] = set()
+    for base in (settings.aws_s3_endpoint, settings.aws_s3_public_base_url):
+        if base:
+            hosts.add((urlsplit(str(base)).hostname or "").lower())
+    bucket = str(settings.aws_s3_bucket or "").lower()
+    region = str(settings.aws_region or "").lower()
+    if bucket:
+        hosts.add(f"{bucket}.s3.amazonaws.com")
+        if region:
+            hosts.add(f"{bucket}.s3.{region}.amazonaws.com")
+            hosts.add(f"{bucket}.s3.dualstack.{region}.amazonaws.com")
+    hosts.discard("")
+    return frozenset(hosts)
+
+
+def input_args(source: str, hosts: Iterable[str] | None = None) -> list[str]:
+    if "://" in str(source or ""):
+        return remote_input(source, media_hosts() if hosts is None else hosts)
+    return local_input(source)
+
+
+def ffmpeg_args(source: str, hosts: Iterable[str] | None = None) -> list[str]:
     return [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
         "error",
         "-nostdin",
-        "-i",
-        source,
+        *input_args(source, hosts),
         "-vn",
         "-t",
         str(MAX_SECONDS),
@@ -96,10 +125,16 @@ def bucket(blocks: Any, buckets: int = BUCKETS) -> list[float]:
     return [round(value / loudest, 3) for value in out]
 
 
-def decode(source: str, *, timeout: float = DECODE_SECONDS) -> tuple[list[float], int | None]:
+def decode(
+    source: str, *, timeout: float = DECODE_SECONDS, hosts: Iterable[str] | None = None
+) -> tuple[list[float], int | None]:
+    try:
+        args = ffmpeg_args(source, hosts)
+    except UnsafeInput as exc:
+        raise DecodeFailed(str(exc)) from None
     try:
         process = subprocess.Popen(
-            ffmpeg_args(source),
+            args,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -109,12 +144,17 @@ def decode(source: str, *, timeout: float = DECODE_SECONDS) -> tuple[list[float]
     timer = threading.Timer(timeout, process.kill)
     timer.start()
     reducer = _Reducer()
+    read = 0
     try:
         if process.stdout is None:
             raise DecodeFailed("ffmpeg has no output pipe")
         while True:
             chunk = process.stdout.read(READ_BYTES)
             if not chunk:
+                break
+            read += len(chunk)
+            if read > MAX_OUTPUT_BYTES:
+                process.kill()
                 break
             reducer.feed(chunk)
         code = process.wait()

@@ -922,8 +922,8 @@ async def create_interview(
         v2_shims.assert_old_build_may_create(request.headers)
         if not can_create_records(current_user):
             match = await v2_shims.matching_session(questionnaire_id, payload.workshopId, payload.artisanIds)
-            if match:
-                attached = await v2_shims.attach_to_session(match, payload, current_user, questionnaire_id)
+            attached = await v2_shims.attach_to_session(match, payload, current_user, questionnaire_id) if match else None
+            if attached is not None:
                 await hydrate_relations([attached], RELATIONS)
                 return public_encode(attached, current_user)
         assert_can_create_records(current_user)
