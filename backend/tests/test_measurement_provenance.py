@@ -25,7 +25,7 @@ from app.services.measurement_provenance import (
 from app.services.records import PROVENANCE_SKIP_FIELDS, merge_field_provenance
 
 BACKEND = Path(__file__).resolve().parents[1]
-MODEL_ID = "gemini-2.5-flash-lite"
+MODEL_ID = "gemini-3.5-flash-lite"
 
 
 def _settings(**overrides) -> SimpleNamespace:

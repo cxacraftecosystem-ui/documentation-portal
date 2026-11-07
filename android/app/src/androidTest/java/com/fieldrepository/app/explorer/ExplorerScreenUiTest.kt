@@ -636,6 +636,9 @@ class ExplorerScreenUiTest {
         show(fake)
         val app = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
         com.fieldrepository.app.explorer.ui.ExplorerViewLinks.request(com.fieldrepository.app.explorer.ui.ExplorerLinkRequest(null, null, bundle = "b1"))
+        compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("explorer.link.confirm")).fetchSemanticsNodes().isNotEmpty() }
+        assertTrue(com.fieldrepository.app.explorer.data.ExplorerDownloads.store(app).jobs.value.none { it.request.title == "Bundle b1" })
+        compose.onNodeWithTag("explorer.link.confirm").performClick()
         compose.waitUntil(5_000) { com.fieldrepository.app.explorer.data.ExplorerDownloads.store(app).jobs.value.any { it.request.title == "Bundle b1" } }
         val job = com.fieldrepository.app.explorer.data.ExplorerDownloads.store(app).jobs.value.first { it.request.title == "Bundle b1" }
         assertEquals("/api/data/bundles/b1/manifest?stream=1", job.request.sources.first().manifestUrl)

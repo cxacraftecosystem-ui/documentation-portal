@@ -38,7 +38,7 @@ class _Response:
 
 
 def test_the_deployment_defaults_are_the_approved_current_models() -> None:
-    assert Settings.model_fields["gemini_measurement_model"].default == "gemini-3.8-flash"
+    assert Settings.model_fields["gemini_measurement_model"].default == "gemini-3.5-flash-lite"
     assert Settings.model_fields["openai_chat_model"].default == default_model_for(AiProvider.OPENAI)
     assert supports(AiProvider.OPENAI, Settings.model_fields["openai_chat_model"].default, AiTask.TRANSLATE)
     assert supports(AiProvider.GEMINI, Settings.model_fields["gemini_measurement_model"].default, AiTask.CAPTION)
@@ -90,9 +90,9 @@ def test_measurement_moves_to_the_fallback_model_when_the_first_is_missing(monke
 
     monkeypatch.setattr(managed_secrets, "gemini_key_pool", lambda: ["k1"])
     monkeypatch.setattr(ai.requests, "post", post)
-    settings = SimpleNamespace(gemini_measurement_model="gemini-3.8-flash")
+    settings = SimpleNamespace(gemini_measurement_model="gemini-3.5-flash-lite")
     result = ai._post_gemini_measurement(b"image", "image/jpeg", settings)
-    assert "gemini-3.8-flash" in calls[0] and "gemini-3.7-flash" in calls[1]
+    assert "gemini-3.5-flash-lite" in calls[0] and "gemini-3.7-flash" in calls[1]
     assert result["status"] == "COMPLETED"
     assert "gemini-3.7-flash" in str(result)
 
