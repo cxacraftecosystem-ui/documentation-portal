@@ -53,6 +53,129 @@ A.content_left = content_left
 V.content_left = content_left
 
 
+def stem(n):
+    return os.path.splitext(n)[0] if re.search(r"\.[A-Za-z0-9]{2,4}$", n or "") else n
+
+
+def names_in(root, names, left=0):
+    want = {}
+    for n in names:
+        if n:
+            want[n] = n
+            want[stem(n)] = n
+    hits = []
+    for nd in all_nodes(root):
+        t = label(nd).strip()
+        if t in want:
+            r = rect(nd.get("bounds"))
+            if r and r[2] > r[0] and r[3] > r[1] and r[0] >= left:
+                hits.append(want[t])
+    return hits
+
+
+A.names_in = names_in
+V.names_in = names_in
+_orig_wait = V.wait_loaded
+
+
+def wait_loaded(name, names, t0, limit=12.0, left=None, empty_ok=True):
+    got, root = _orig_wait(name, names, t0, limit=min(limit, 4.0), left=left, empty_ok=empty_ok)
+    if got:
+        return got, root
+    A.scroll_down_list(0.35)
+    got, root = _orig_wait(name, names, time.time(), limit=max(limit - 4.0, 3.0), left=left, empty_ok=empty_ok)
+    if got and got.get("t") is not None:
+        got["t"] = round(time.time() - t0, 2)
+        got["note"] = "after one scroll"
+    return got, root
+
+
+V.wait_loaded = wait_loaded
+_orig_opened = V.opened_ok
+
+
+def opened_ok(root, title):
+    kind = _orig_opened(root, title)
+    if kind:
+        return kind
+    if find(root, r"^View data$") and not find(root, r"^Search everything") and any(V.COUNT.match(t) for t, _ in V.labelled(root)):
+        return "its folder"
+    return None
+
+
+V.opened_ok = opened_ok
+
+
+def open_data(tag=""):
+    go_dashboard()
+    if A.tap_text(r"^Open menu$", timeout=10):
+        settle(1.5)
+        root = dump(None)
+        x = V.menu_x(root)
+        w, h = screen_size()
+        for i in range(16):
+            hit = find(root, r"^Data$")
+            if hit:
+                mark("open-data-menu")
+                t = time.time()
+                tap(hit[1])
+                return t, "menu" + (f" after {i} drawer scrolls" if i else "")
+            if tag:
+                root, tg = step(f"{tag}-drawer-{i}")
+                V.drawer_shots.append(tg + ".png")
+            if i < 4:
+                swipe(x, int(h * 0.35), int(h * 0.75), 400)
+            else:
+                swipe(x, int(h * 0.75), int(h * 0.45), 500)
+            root = dump(None)
+        back()
+    root = go_dashboard()
+    if A.tap_text(r"^(View Data|Browse records)$", timeout=6, scroll=6):
+        settle(3)
+        hit = None
+        for _ in range(6):
+            root = dump(None)
+            hit = find(root, r"^(Open Data|Open the Data Browser)$")
+            if hit:
+                break
+            A.scroll_down_list(0.4)
+        if hit:
+            mark("open-data-tile")
+            t = time.time()
+            tap(hit[1])
+            return t, "tile"
+    if tag:
+        root, tg = step(f"{tag}-no-entry")
+        V.drawer_shots.append(tg + ".png")
+    return None, None
+
+
+V.open_data = open_data
+A.open_data = open_data
+
+
+def reveal_tabs():
+    root = dump(None)
+    for _ in range(4):
+        if tab_state(root):
+            return root
+        A.scroll_down_list(0.3)
+        root = dump(None)
+    return root
+
+
+def reveal_files(names, left, skip_rows=0):
+    w, h = screen_size()
+    root = dump(None)
+    for i in range(8):
+        rows = [r for r in file_rows(root, names, left) if r[1][1] > h * 0.15 and r[1][3] < h * 0.85]
+        if len(rows) > skip_rows:
+            return rows, root, i
+        A.scroll_down_list(0.3)
+        root = dump(None)
+    return [], root, 8
+
+
 def divider(root):
     hit = find(root, r"^Resize folders panel$")
     return hit[1] if hit else None
@@ -105,13 +228,16 @@ def selected_tab(root):
 
 
 def file_rows(root, names, left):
-    want = set(names)
+    want = {}
+    for x in names:
+        want[x] = x
+        want[stem(x)] = x
     rows = []
     for n in all_nodes(root):
         t = label(n).strip()
         r = rect(n.get("bounds"))
         if t in want and r and r[0] >= left and r[2] > r[0] and r[3] > r[1]:
-            rows.append((t, r))
+            rows.append((want[t], r))
     rows.sort(key=lambda x: x[1][1])
     return rows
 
@@ -149,7 +275,18 @@ def by_type_levels(token):
     return lv, files
 
 
+def backend_probe(tag):
+    t = time.time()
+    tr = api.tree("")
+    d1 = round(time.time() - t, 2)
+    t = time.time()
+    s, _ = api.call("/dashboard/stats")
+    d2 = round(time.time() - t, 2)
+    record("backend", f"production API latency ({tag})", "INFO", f"/data/tree root {'ok' if tr else 'failed'} in {d1}s; /dashboard/stats {s} in {d2}s")
+
+
 def scout_0016():
+    backend_probe("start")
     extra = {}
     for token in ("images", "audios", "videos", "documents", "transcripts"):
         lv, files = by_type_levels(token)
@@ -325,17 +462,9 @@ def phase_previews():
         left = content_left()
         names = [f["name"] for f in files]
         settle(3)
-        root = dump(None)
-        scrolled = 0
-        if len(files) > 8:
-            for _ in range(2):
-                A.scroll_down_list(0.4)
-                scrolled += 1
-            settle(1.5)
-            root = dump(None)
-        rows = file_rows(root, names, left)
-        w, h = screen_size()
-        rows = [r for r in rows if r[1][1] > h * 0.15 and r[1][3] < h * 0.88]
+        rows, root, scrolled = reveal_files(names, left, skip_rows=3 if len(files) > 8 else 0)
+        if len(files) > 8 and len(rows) > 3:
+            rows = rows[3:]
         if not rows:
             root, tg = step(f"pv-{token}-norows")
             record("preview", f"{mt.lower()} preview from a row tap", "FAIL", f"no file rows on screen; {texts(root, 25)}", ev(tg))
@@ -840,11 +969,33 @@ def open_search_everything(term):
         return False
     settle(3)
     hide_ime()
-    return bool(A.tap_text(r"^Search everything", timeout=8))
+    return bool(A.tap_text(r"^Search everything", timeout=8, scroll=5))
+
+
+def chip_filters():
+    go_dashboard()
+    V.open_data()
+    settle(4)
+    w, h = screen_size()
+    for _ in range(5):
+        root = dump(None)
+        hit = find(root, r"^Filters( · \d+)?$")
+        if hit and hit[1][2] <= w:
+            tap(hit[1])
+            return True
+        ev_chip = find(root, r"^Everything$")
+        if not ev_chip:
+            return False
+        y = (ev_chip[1][1] + ev_chip[1][3]) // 2
+        sh(f"input swipe {int(w * 0.85)} {y} {int(w * 0.15)} {y} 400")
+        settle(1)
+    return False
 
 
 def phase_record_types():
-    if not open_search_everything("ka" if PORTAL == "dr" else "Giriraj"):
+    if chip_filters():
+        return record_types_sheet("Data chips")
+    if not open_search_everything("Test" if PORTAL == "dr" else "Heera"):
         root, tg = step("rt-nosearch")
         record("recordtypes", "Record types picker has Select all / Clear all", "FAIL", f"search everything did not open; {texts(root, 20)}", ev(tg))
         return
@@ -861,6 +1012,10 @@ def phase_record_types():
         record("recordtypes", "Record types picker has Select all / Clear all", "FAIL", f"no Filters chip; {texts(root, 25)}", ev(tg))
         return
     tap(hit[1])
+    return record_types_sheet("Search everything")
+
+
+def record_types_sheet(where):
     settle(3)
     root, tg0 = step("rt-filters")
     if not A.tap_text(r"^Record types( \(\d+ selected\)|\. )", timeout=6, scroll=2):
@@ -869,7 +1024,7 @@ def phase_record_types():
     root, tg1 = step("rt-picker")
     sel = find(root, r"^Select all \d+ shown$")
     clr = find(root, r"^Clear all$")
-    record("recordtypes", f"{PORTAL.upper()} Record types shows Select all / Clear all", "PASS" if sel and clr else "FAIL", f"select all={label(sel[0]) if sel else None}; clear all={bool(clr)}; {texts(root, 20)}", [tg0 + ".png", tg1 + ".png", tg1 + ".xml"])
+    record("recordtypes", f"{PORTAL.upper()} Record types shows Select all / Clear all", "PASS" if sel and clr else "FAIL", f"via {where} Filters; select all={label(sel[0]) if sel else None}; clear all={bool(clr)}; {texts(root, 20)}", [tg0 + ".png", tg1 + ".png", tg1 + ".xml"])
     if sel:
         tap(sel[1])
         settle(1.5)
@@ -908,7 +1063,7 @@ def phase_quick_ka():
         record("quick", "quick search 'ka' lists crafts (DR)", "PASS" if hits else "FAIL", f"api crafts matching 'ka': {len(want)} e.g. {want[:4]}; on screen {hits[:5]}; Crafts heading={bool(heading)}; {texts(root, 22)}", ev(tg))
     else:
         record("quick", "quick search 'ka' lists crafts", "INFO", f"api crafts {len(want)}; on screen {hits[:5]}", ev(tg))
-    if A.tap_text(r"^Search everything", timeout=6):
+    if A.tap_text(r"^Search everything", timeout=6, scroll=5):
         settle(6)
         root, tg3 = step("everything-ka")
         tab = find(root, r"^Crafts \d+$")
@@ -938,7 +1093,7 @@ def phase_view_transcripts():
     settle(4)
     root, tg1 = step("dl-view-transcripts-4s")
     root, tg2 = step("dl-view-transcripts-10s", wait=6)
-    st = tab_state(root)
+    st = tab_state(root) or tab_state(reveal_tabs())
     record("deeplink", "deep link view=transcripts opens Transcripts", "PASS" if st.get("Transcripts") else "FAIL", f"{folder}: tabs {st}; {texts(root, 16)}", [tg1 + ".png", tg2 + ".png", tg2 + ".xml"])
     back()
 
@@ -997,6 +1152,39 @@ def phase_storm():
     record("storm", "descend/Back storm leaves Data intact", "PASS" if alive() and (hits or on_dashboard(root)) and not incidents else "FAIL", f"alive={alive()}; rows {hits[:3]}; dashboard={on_dashboard(root)}; incidents {incidents[-2:]}", ev(tg))
 
 
+def phase_viewid_burst():
+    go_dashboard()
+    V.open_data()
+    settle(5)
+    url = f"{WEB}/data?viewId=bogus-accept-0016"
+    mark("deeplink viewid burst")
+    sh(f"am start -a android.intent.action.VIEW -d {A.shlex.quote(url)} {PKG}", check=False, timeout=60)
+    frames = burst("viewid", None, n=10)
+    root, tg = step("viewid-after")
+    record("deeplink", "?viewId=bogus shows an error-toned message (screenshot burst)", "INFO", f"{len(frames)} screenshots over {frames[-1][0]}s; read them for the banner: {[f[1] for f in frames]}", [f[1] for f in frames] + ev(tg))
+
+
+def phase_back_top():
+    go_dashboard()
+    V.open_data()
+    settle(5)
+    tax = next((t for t in scout_data["taxonomies"] if t["path"] == "by-type"), scout_data["taxonomies"][0])
+    V.tap_pill(tax["name"])
+    settle(4)
+    root, tg0 = step("backtop-start")
+    presses = 0
+    tags = [tg0 + ".png"]
+    for i in range(4):
+        back()
+        presses += 1
+        root, tg = step(f"backtop-{presses}", wait=1)
+        tags.append(tg + ".png")
+        if on_dashboard(root) or not find(root, r"^View data$"):
+            break
+    left = on_dashboard(root) or not find(root, r"^View data$")
+    record(3, "system Back from a taxonomy top leaves Data in one press", "PASS" if left and presses == 1 else "FAIL", f"left Data={left} after {presses} Back presses from '{tax['name']}'", tags)
+
+
 def finish_analysis(raw, heap, soak_seconds):
     segments, minutes, oks = A.analyse_requests(raw)
     A.save("okhttp-segments.json", json.dumps(segments, indent=1, ensure_ascii=False))
@@ -1036,7 +1224,9 @@ def finish_analysis(raw, heap, soak_seconds):
         record(2, "heap flat over the soak", "PASS" if flat else "FAIL", f"soak {soak_seconds}s; Java heap {js} KB -> {je} KB, soak peak {pk} KB over {len(soak)} samples; PSS {start[0].get('pssKB')} -> {end[-1].get('pssKB')} KB", ["heap.csv"])
     oom = [l for l in raw.splitlines() if "OutOfMemoryError" in l]
     anr = [l for l in raw.splitlines() if re.search(rf"ANR in {re.escape(PKG)}", l)]
-    fatal = [l for l in raw.splitlines() if "FATAL EXCEPTION" in l]
+    fatal = [l for i, l in enumerate(raw.splitlines()) if "FATAL EXCEPTION" in l]
+    lines = raw.splitlines()
+    fatal = [l for i, l in enumerate(lines) if "FATAL EXCEPTION" in l and any(PKG in x for x in lines[i + 1:i + 3])]
     record(2, "no OOM, ANR or crash", "PASS" if not (oom or anr or fatal or incidents) else "FAIL", f"OOM {len(oom)}; ANR {len(anr)}; FATAL {len(fatal)}; incidents {incidents[:6]}", ["logcat.txt", "logcat-crash.txt"])
 
 
@@ -1079,7 +1269,7 @@ def main():
             ("landing", phase_landing), ("c1", V.phase_c1), ("pane", phase_pane), ("c3", V.phase_c3),
             ("previews", phase_previews), ("transcripts", phase_transcripts_tab), ("expand", phase_expand),
             ("tabs", tabs_and_report), ("checkbox", phase_checkbox_download), ("recordtypes", phase_record_types),
-            ("quick", phase_quick_ka), ("search", V.phase_c4_search), ("c5", V.phase_c5), ("viewtx", phase_view_transcripts),
+            ("quick", phase_quick_ka), ("search", V.phase_c4_search), ("c5", V.phase_c5), ("viewid", phase_viewid_burst), ("viewtx", phase_view_transcripts), ("backtop", phase_back_top),
             ("death", phase_process_death), ("storm", phase_storm), ("c6", V.phase_c6),
         ]
         for name, fn in phases:
@@ -1101,6 +1291,10 @@ def main():
         os.remove(os.path.join(OUT, "logcat-raw.txt"))
         A.save("logcat.txt", raw)
         A.save("logcat-crash.txt", adb("logcat", "-d", "-b", "crash", check=False))
+        try:
+            backend_probe("end")
+        except Exception:
+            pass
         A.save("victim-lines.txt", "\n".join(l for l in raw.splitlines() if "VICTIM" in l or "accept-0016-missing" in l))
         try:
             finish_analysis(raw, heap, soak_seconds)

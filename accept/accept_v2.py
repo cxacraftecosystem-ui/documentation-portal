@@ -525,7 +525,7 @@ def phase_c5():
         check_scenario(5, f"/data?path={folder}", lvl["name"], lvl["names"], t0, "c5-path")
         back()
     img = scout_data.get("image")
-    if sf.get("mediaType", "").upper() == "IMAGE":
+    if (sf.get("mediaType") or "").upper() == "IMAGE":
         img = {"name": sf["name"], "mediaId": sf["mediaId"], "folder": folder}
     if img and img.get("mediaId"):
         go_dashboard()
