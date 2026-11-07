@@ -14,6 +14,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Changed areas
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      beyond_android: ${{ steps.diff.outputs.beyond_android }}
+    steps:
+      - name: Checkout
+        if: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release/') }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Does this change touch anything outside android/
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          verdict=true
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "${EVENT} runs every job."
+          elif [[ "$HEAD_REF" == release/* ]]; then
+            echo "A pull request from ${HEAD_REF} runs every job."
+          elif files="$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")" && [ -n "$files" ]; then
+            echo "Changed against the pull request base:"
+            printf '%s\n' "$files" | sed 's/^/  /'
+            if ! printf '%s\n' "$files" | grep -qv '^android/'; then
+              verdict=false
+              echo "Only android/ changed: the backend database suites and the browser jobs skip."
+            fi
+          else
+            echo "::warning::could not diff ${BASE_SHA:-<none>}...${HEAD_SHA:-<none>}, so every job runs."
+          fi
+          echo "beyond_android=${verdict}" >> "$GITHUB_OUTPUT"
+
   backend:
     name: Backend tests
     runs-on: ubuntu-26.04
@@ -182,6 +222,8 @@ jobs:
 
   map-coverage:
     name: Map coverage view in a browser
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.beyond_android != 'false' }}
     runs-on: ubuntu-26.04
     defaults:
       run:
@@ -238,6 +280,8 @@ jobs:
 
   questionnaire-web:
     name: Questionnaire screens in a browser
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.beyond_android != 'false' }}
     runs-on: ubuntu-26.04
     defaults:
       run:
@@ -294,6 +338,8 @@ jobs:
 
   transcript-web:
     name: Transcript viewer in a browser
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.beyond_android != 'false' }}
     runs-on: ubuntu-26.04
     defaults:
       run:
@@ -350,6 +396,8 @@ jobs:
 
   data-explorer:
     name: Data explorer in a browser
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.beyond_android != 'false' }}
     runs-on: ubuntu-26.04
     defaults:
       run:
@@ -406,6 +454,8 @@ jobs:
 
   list-back-nav:
     name: Back to the list in a browser
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.beyond_android != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     defaults:
@@ -542,9 +592,15 @@ jobs:
           exit 0
 
   backend-db:
-    name: Backend database tests
+    name: Backend database tests (${{ matrix.shard }} of 2)
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.beyond_android != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     defaults:
       run:
         working-directory: backend
@@ -623,11 +679,18 @@ jobs:
           PEER_ENV_NAMES: CROSS_PORTAL_PEER_REPO SIBLING_REPO DESIGNER_PORTAL_DIR
         run: bash scripts/ci/peer_checkout.sh
 
-      - name: Run the suite against the database
+      - name: Run this shard of the suite against the database
+        env:
+          SHARD: ${{ matrix.shard }}
         run: |
           set -uo pipefail
+          if ! python ../scripts/ci/pytest_shard.py --index "$SHARD" --total 2 > shard-files.txt; then
+            echo "::error::could not split the test files into shards."
+            exit 1
+          fi
+          mapfile -t files < shard-files.txt
           status=0
-          if ! python -m pytest -rfs --durations=15 | tee pytest-db.log; then
+          if ! python -m pytest -rfs --durations=15 "${files[@]}" | tee pytest-db.log; then
             status=1
           fi
           gated=$(grep -E '^SKIPPED .*(_DB_TESTS|_DATABASE_URL|DATABASE_URL naming a running Postgres)' pytest-db.log || :)
@@ -638,8 +701,104 @@ jobs:
           fi
           exit "$status"
 
+  failing-first:
+    name: Failing-first proofs
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.beyond_android != 'false' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: field_repository
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PYTHONUTF8: "1"
+      DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
+      JWT_SECRET: "ci-db-tests-not-a-secret-0123456789abcdef"
+      AWS_ACCESS_KEY_ID: "ci-placeholder"
+      AWS_SECRET_ACCESS_KEY: "ci-placeholder"
+      AWS_S3_BUCKET: "ci-placeholder"
+      MASTER_ADMIN_EMAIL: "ci@example.invalid"
+      SEARCH_DB_TESTS: "1"
+      ARTISAN_CARD_DB_TESTS: "1"
+      ARTISAN_DUPLICATE_DB_TESTS: "1"
+      TRANSCRIPT_INSIGHTS_DB_TESTS: "1"
+      QV2_TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
+      REVIEW_SQL_TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
+      RECORD_COMPLETENESS_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
+      QV2_BACKFILL_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository_backfill"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15.2"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/pyproject.toml
+
+      - name: Install the backend from the lock
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+          pip install --no-deps -e .
+
+      - name: Runner self-test
+        working-directory: .
+        run: python scripts/ci/test_failing_first.py -v
+
+      - name: Fetch the Prisma engines and generate the client
+        run: |
+          set -euo pipefail
+          python -m prisma py fetch
+          python -m prisma generate --schema prisma/schema.prisma
+
+      - name: Create the backfill database and apply the migrations to both
+        run: |
+          set -euo pipefail
+          docker exec "${{ job.services.postgres.id }}" \
+            psql -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE field_repository_backfill'
+          python -m app.prisma_cli migrate deploy --schema prisma/schema.prisma
+          DATABASE_URL="$QV2_BACKFILL_DATABASE_URL" python -m app.prisma_cli migrate deploy --schema prisma/schema.prisma
+
+      - name: The other portal, for the shared-file parity tests
+        working-directory: .
+        env:
+          PEER: cxacraftecosystem-ui/designer-portal
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          PEER_ENV_NAMES: CROSS_PORTAL_PEER_REPO SIBLING_REPO DESIGNER_PORTAL_DIR
+        run: bash scripts/ci/peer_checkout.sh
+
+      - name: Each proof fails with its fix reverted and passes at this commit
+        working-directory: .
+        run: python scripts/ci/failing_first.py --manifest backend/tests/failing_first.json --workdir backend
+
   web-v2-stack:
     name: Web outbox against a real stack
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.beyond_android != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     defaults:
@@ -761,6 +920,8 @@ jobs:
 
   questionnaire-unify-backfill:
     name: Questionnaire unify backfill
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.beyond_android != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     defaults:

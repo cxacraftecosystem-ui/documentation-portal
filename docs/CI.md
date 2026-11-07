@@ -76,12 +76,12 @@ under "it runs; it does not gate", for what this still does not cover.
 | 1 | Deploy backend to EC2 | `.github/workflows/deploy-backend.yml` | `push` to `main` | `wait-for-checks` → **the release venv built on the runner** (CPython 3.15.2 from a checksummed python-build-standalone build, the lock, the Prisma client generated from this schema, `pip check` and the app's own imports; named after interpreter, lock and schema, so a code-only release ships none, 2026-10-19) → open port 22 for this runner's /32 → the pinned CPython under `/opt/cpython` if the box lacks it → rsync into the **idle** blue/green port's tree → write and pin `.env` (database URL, CORS, origin secret, provider keys, two-step keys, proxy hops) → `backend/deploy/blue_green.sh release`: migrate through `python -m app.prisma_cli` with the live port still serving, start the idle port, wait for `/health`, reload nginx onto it, stop the old port → ask the transcript providers from the box (status codes only) → close port 22. [backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) has the layout and `blue_green.sh rollback`. |
 | 2 | Deploy frontend to Vercel | `.github/workflows/deploy-frontend.yml` | `workflow_run` on **1** completing | gate → `wait-for-checks` (2026-10-09) → `vercel pull` → **refuse any project but `field-repository`** → **assert the pulled env carries what the app needs** (every `NEXT_PUBLIC_*`, `[SENSITIVE]` placeholders included), and *warn* when the project's Node.js Version is not `engines.node` → `vercel build --prod` → print the Node runtime the functions were stamped with → **assert those values actually reached the bundle** → `vercel deploy --prebuilt --prod` → **prove the production domain resolves to the new deployment, and `vercel promote` it when a rollback has turned auto-assignment off** (2026-10-09) → smoke-check the alias → **assert the bundle the CDN serves is the one that was verified**, starting with which deployment it is |
 | 3 | Android build | `.github/workflows/android-build.yml` | `workflow_run` on **2** completing, plus `pull_request` filtered to `android/**` | JDK 25 → `compileDebugKotlin` → `testDebugUnitTest` plus the four core modules' `test` (ParityTest among them, since 2026-10-09) → `lintDebug` (a gate since 2026-10-09) → `assembleDebug` → upload APK. **Debug variants only.** Nothing it produces can install over a release build, and nothing it produces reaches a phone. |
-| 4 | Checks | `.github/workflows/checks.yml` | `pull_request`, `push` to `main`, manual | Independent jobs; the three that gate a deploy are the backend suite, the web typecheck/lint/unit specs and the documentation check, and the rest are listed under **The checks** below (browser specs, database tests, questionnaire parity, the deploy scripts, the comment stripper). **No `paths:` filter.** |
+| 4 | Checks | `.github/workflows/checks.yml` | `pull_request`, `push` to `main`, manual | Independent jobs; the three that gate a deploy are the backend suite, the web typecheck/lint/unit specs and the documentation check, and the rest are listed under **The checks** below (browser specs, database tests, questionnaire parity, the deploy scripts, the comment stripper). **No `paths:` filter**; since 0.0.15 a first `Changed areas` job lets a pull request that touches only `android/` skip the database suites and the browser jobs, never the three that gate (*CI speed* below). |
 | 11 | README check | `.github/workflows/readme-check.yml` | `push` and `pull_request` touching `README.md`, `docs/**/*.md`, `.claude/skills/**` or the kit; manual | Kit assets match `kit.json`, SVG rules and xmllint, image references and budgets, every mermaid block renders in mermaid-cli, GitHub renders the Markdown, and github.com draws every mermaid block (Playwright; errors, raw tags or entities and clipped labels fail); `github-mermaid` and `readme-preview` artifacts. |
 | 5 | Publish Android release | `.github/workflows/publish-android.yml` | `push` of a `v*` **tag**, plus a manual dry run | Builds and **signs** the release APK on the runner, proves the signer against `ANDROID_RELEASE_CERT_SHA256`, uploads it, and `POST`s `/api/app/release` so the in-app updater offers it. See [RELEASING.md](RELEASING.md). |
 | 6 | Keep Supabase active | `.github/workflows/keep-supabase-active.yml` | nightly cron | Pings Postgres so Supabase does not pause the free-tier project. |
 | 7 | Back up the database | `.github/workflows/backup-db.yml` | cron 21:47 UTC (03:17 IST) and 09:53 UTC, plus manual | The night run `pg_dump`s to S3 and writes the week's copy under `weekly/`. The afternoon run checks the newest dumps with `scripts/ci/backup_freshness.sh` (0.0.9): it expects the dump the schedule says should exist by now, today's IST date once IST is past 03:17 plus 6 hours of grace and yesterday's before that, not simply today's; it fails when that dump is missing, when the newest nightly was written more than 26 hours before its deadline, or when the newest weekly copy is over 8 days old. `scripts/ci/test_backup_freshness.sh` pins the verdict against fixed clocks in Checks → Deploy scripts. |
-| 8 | Android emulator smoke | `.github/workflows/android-emulator.yml` | manual only (`workflow_dispatch`; inputs `api-level`, default `37.0`, and `target`) | Builds the same debug APK as row 3, and the release variant unsigned to check what its manifest declares (target 37, no local-network permission); boots an emulator and runs `android/scripts/emulator-smoke.py`: launch, edge-to-edge insets in portrait, landscape and at a large-screen size, back and home, and — with a second debug build aimed at a stub on the runner — the Android 17 local-network permission. Screenshots and logcat come back as an artifact. Signs nothing in, publishes nothing. |
+| 8 | Android emulator smoke | `.github/workflows/android-emulator.yml` | manual only (`workflow_dispatch`; inputs `api-level`, default `37.0`, and `target`) | Two parts since 0.0.15, each on its own emulator (*CI speed* below). Builds the same debug APK as row 3, and the release variant unsigned to check what its manifest declares (target 37, no local-network permission); boots an emulator and runs `android/scripts/emulator-smoke.py`: launch, edge-to-edge insets in portrait, landscape and at a large-screen size, back and home, and — with a second debug build aimed at a stub on the runner — the Android 17 local-network permission. Screenshots and logcat come back as an artifact. Signs nothing in, publishes nothing. |
 | 9 | Uptime probe | `.github/workflows/monitor.yml` | cron every 15 minutes, plus manual | Asks production four questions from a GitHub runner: is the API up (`/health`), can it reach the database in under 2000 ms (`/health/ready`), does the web app serve its home page, and is the Android App Link file (`/.well-known/assetlinks.json`) served as JSON for `com.fieldrepository.app` with the release certificate from `ANDROID_RELEASE_CERT_SHA256`. Any red check fails the run and opens an issue labelled `outage` (updated, not duplicated, while it lasts); the first all-green run comments and closes it. The `outage` label is reserved for the probe: it only edits or closes an issue it opened itself (marked by a hidden `outage-signature` line), so an issue a person labels `outage` by hand stays open until a person closes it. Same shape as designer-portal's. It runs on GitHub, so a GitHub outage silences it; a free external checker on `/health/ready` is the upgrade. |
 | 10 | Live end-to-end specs | `.github/workflows/e2e-live.yml` | manual (`workflow_dispatch`; input `specs`, default `e2e/scan-session-join.spec.ts`), and `push` touching the workflow or that spec | A pgvector Postgres service container, `prisma migrate deploy`, `scripts/seed_admin.py` with a throwaway password written in the workflow, the API on the runner, `next build` + `next start`, Chromium, then the named specs. No repository secret is read and nothing reaches production. Report and traces come back as an artifact on failure. |
 
@@ -209,7 +209,8 @@ not named in `GATING_JOBS`, so a deploy does not wait on them:
 
 | Job | What it runs |
 |---|---|
-| **Backend database tests** | the suites that need a migrated Postgres, against a service container |
+| **Backend database tests (1 of 2)**, **(2 of 2)** | the suites that need a migrated Postgres, against a service container, split by test file into two shards (*CI speed* below) |
+| **Failing-first proofs** | each entry in `backend/tests/failing_first.json` fails with its fix reverted and passes at this commit (*CI speed* below) |
 | **Map coverage view in a browser**, **Questionnaire screens in a browser**, **Transcript viewer in a browser**, **Back to the list in a browser** | Playwright specs for that screen in Chromium |
 | **Web outbox against a real stack** | the web outbox replaying against a real API and database on the runner |
 | **Questionnaire unify backfill** | the questionnaire backfill before and after the U0 migration, then the deferred migrations, on an empty Postgres |
@@ -225,7 +226,9 @@ runs it in, so **anything the workflow reports you can reproduce in one line** �
 
 **There is no `paths:` filter, and one must never be added.** A filter is why `android-build.yml`
 cannot see the change that breaks it (next paragraph); the property that makes this workflow worth
-having is that *every* pull request runs it.
+having is that *every* pull request runs it. The job-level skip added in 0.0.15 keeps that property:
+the workflow still starts on every pull request, the three gating jobs always run, and only an
+`android/`-only pull request skips the database and browser jobs (*CI speed* below).
 
 **No secrets.** The backend job exports six obviously-fake placeholder values because
 `app.core.config.Settings` refuses to build without `DATABASE_URL`, `JWT_SECRET`, the three `AWS_*`
@@ -474,6 +477,77 @@ brings; it runs against the production database, so it was not exercised here, a
 until the Node it uses bundles 12.
 
 ---
+
+### CI speed: concurrency, path filters, shards and failing-first proofs (0.0.15)
+
+The account is a free GitHub user with about twenty concurrent jobs across both portals, so 0.0.15
+cut the runner time a pull request costs without changing what any job tests. designer-portal's
+`docs/CI.md` §1.7 describes the same design.
+
+**Concurrency.** Checks, Android build, Design fidelity and CodeQL each have
+`concurrency: { group: <workflow>-<ref>, cancel-in-progress: true }`, so a new push to a pull request
+cancels the run for the old head. The key is the pull request number, or the ref outside a pull
+request (`android-build.yml` uses `github.event.workflow_run.head_branch` for its `workflow_run`
+trigger). `android-build.yml` used to key on the head SHA, which never cancelled anything because
+every push has a new SHA. The deploys and the release still never cancel.
+
+**Path filters, job by job.** The workflows still start on every pull request; a first `Changed areas`
+job diffs the pull request against its base with plain git (`git diff --name-only base...head`, a
+blobless full-history checkout) and the other jobs read its output in their `if:`.
+
+| Change | Skips |
+|---|---|
+| only `android/**` (Checks) | `Backend database tests` (both shards), `Failing-first proofs`, `Questionnaire unify backfill`, `Web outbox against a real stack` and the five `… in a browser` jobs |
+| nothing under `android/**` and not `design-fidelity.yml` (Design fidelity) | `Android screens at board size`, the only emulator a pull request starts. `Board and build side by side` already treats the Android shots as optional |
+| nothing under `android/**` or `android-build.yml` (unchanged `paths:`) | the whole Android build |
+
+`android-emulator.yml` runs only by hand, so no change starts it. These are never skipped:
+`Backend tests`, `Web typecheck, lint and unit specs` and `Docs check` (the three in `GATING_JOBS`),
+plus `Questionnaire parity (both portals)`, `Deploy scripts`, `Shared-file manifests` and
+`Comment stripper`. `Backend tests` stays on for Android-only changes because 26 of its test modules
+read Kotlin sources under `android/` (contract and parity tests). Pushes to `main`,
+`workflow_dispatch`, and pull requests from a `release/*` branch always run everything. If the diff
+cannot be computed, everything runs.
+
+There is no branch protection on `main` (read 2026-11-08:
+`gh api repos/cxacraftecosystem-ui/documentation-portal/branches/main/protection` answers 404, and the
+repository has no rulesets), so a skipped job cannot leave a required check pending. If protection is
+added, require only the three gating jobs, which never skip.
+
+**Shards.** `Backend database tests` is a two-way matrix. `scripts/ci/pytest_shard.py` lists every
+`test_*.py` and `*_test.py` under `backend/tests` as pytest would collect them, sorts the paths, and
+gives shard *k* the files whose position modulo 2 is *k−1*. It refuses to run if the shards do not
+partition the list exactly, or if a shard is empty, so every test file runs in exactly one shard.
+Each shard keeps the check that no test skipped on its database opt-in gate. On run 42405238515, the
+suite took 300 s of a 6-minute job.
+
+`android-emulator.yml` is a two-part matrix, `device` and `ui`, each on its own emulator:
+
+- `device` builds the release variant check and the local-network APK, then runs the
+  `connectedDebugAndroidTest` classes and `android/scripts/emulator-smoke.py`.
+- `ui` installs the debug and test APKs, then runs the five `am instrument` groups (the map, admin,
+  focus and static-control classes, plus the questionnaire, forms, transcript and explorer packages).
+
+Every test and check runs in exactly one part. The artifacts carry the part as a suffix:
+`android-emulator-smoke-<api>-<target>-<part>`.
+
+**Failing-first proofs.** `backend/tests/failing_first.json` is a JSON array, sorted by `id`, of
+`{"id", "tests", "revert", "to"}` entries. `tests` are pytest node ids relative to `backend/`.
+`revert` are paths relative to the repository root, and must not include the test files.
+`to` is the commit before the fix. The `Failing-first proofs` job checks out the full history, runs
+the runner's self-test (`scripts/ci/test_failing_first.py`, with no database), then migrates the same
+service databases as `Backend database tests`, with the same environment, and runs
+`scripts/ci/failing_first.py`. For each entry, the runner:
+
+1. checks out `revert` at `to` (a path that did not exist at `to` is removed);
+2. runs the tests, which must **fail**: exit code 1, at least one failed test, and no errors. A
+   collection or import error is a runner failure, not proof;
+3. restores the paths from `HEAD`;
+4. runs the tests again, which must **pass**, with at least one test executed.
+
+It refuses an entry whose paths are identical at `to` and `HEAD`, or that have local changes. It
+writes a proven or NOT proven table to the job summary. An empty array passes. An entry is proof for
+the release that adds it: delete it once that release is on `main`.
 
 ## 2. Required repository secrets
 
