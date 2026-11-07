@@ -12,6 +12,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Changed areas
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      android: ${{ steps.diff.outputs.android }}
+    steps:
+      - name: Checkout
+        if: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release/') }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Does this change touch android/
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          verdict=true
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "${EVENT} runs every job."
+          elif [[ "$HEAD_REF" == release/* ]]; then
+            echo "A pull request from ${HEAD_REF} runs every job."
+          elif files="$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")" && [ -n "$files" ]; then
+            echo "Changed against the pull request base:"
+            printf '%s\n' "$files" | sed 's/^/  /'
+            if ! printf '%s\n' "$files" | grep -qE '^(android/|\.github/workflows/design-fidelity\.yml$)'; then
+              verdict=false
+              echo "Nothing under android/ changed: the Android screens job skips."
+            fi
+          else
+            echo "::warning::could not diff ${BASE_SHA:-<none>}...${HEAD_SHA:-<none>}, so every job runs."
+          fi
+          echo "android=${verdict}" >> "$GITHUB_OUTPUT"
+
   web:
     name: Boards and the web build at board size
     runs-on: ubuntu-26.04
@@ -75,6 +115,8 @@ jobs:
 
   android:
     name: Android screens at board size
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.android != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     defaults:

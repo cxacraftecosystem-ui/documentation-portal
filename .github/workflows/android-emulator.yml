@@ -24,9 +24,13 @@ concurrency:
 
 jobs:
   smoke:
-    name: Debug APK on an API ${{ inputs.api-level || '37.0' }} emulator (${{ inputs.target || 'google_apis' }})
+    name: Debug APK on an API ${{ inputs.api-level || '37.0' }} emulator (${{ inputs.target || 'google_apis' }}, ${{ matrix.part }})
     runs-on: ubuntu-26.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [device, ui]
     defaults:
       run:
         working-directory: android
@@ -60,6 +64,7 @@ jobs:
           cp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk "$RUNNER_TEMP/app-debug-androidTest.apk"
 
       - name: Build the release variant, unsigned, and read what it declares
+        if: ${{ matrix.part == 'device' }}
         run: |
           set -euo pipefail
           ./gradlew :app:assembleRelease --console=plain
@@ -75,6 +80,7 @@ jobs:
           fi
 
       - name: Build a second debug APK pointed at the runner, for the local-network check
+        if: ${{ matrix.part == 'device' }}
         run: |
           set -euo pipefail
           printf 'apiBaseUrl=http://10.0.2.2:8000/api/\n' > local.properties
@@ -103,7 +109,8 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
 
-      - name: Run the smoke script on the emulator
+      - name: Run the device tests and the smoke script on the emulator
+        if: ${{ matrix.part == 'device' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         env:
           SMOKE_OUT: ${{ github.workspace }}/android/build/emulator-smoke
@@ -125,6 +132,26 @@ jobs:
           script: |
             ./gradlew :app:connectedDebugAndroidTest --console=plain -Pandroid.testInstrumentationRunnerArguments.class=com.fieldrepository.app.TopBarScanDeviceTest,com.fieldrepository.app.TopBarScanRealLookupDeviceTest,com.fieldrepository.app.DataMessageActivityTest,com.fieldrepository.app.explorer.ExplorerRealRetrofitTest
             python3 scripts/emulator-smoke.py
+
+      - name: Run the UI test packages on the emulator
+        if: ${{ matrix.part == 'ui' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          SMOKE_OUT: ${{ github.workspace }}/android/build/emulator-smoke
+        with:
+          api-level: ${{ inputs.api-level || '37.0' }}
+          target: ${{ inputs.target || 'google_apis' }}
+          arch: x86_64
+          profile: pixel_7
+          cores: 4
+          ram-size: 4096M
+          emulator-boot-timeout: 900
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+            -no-snapshot-save -no-snapshot-load -camera-back none -camera-front none
+          disable-animations: true
+          working-directory: android
+          script: |
             mkdir -p "$SMOKE_OUT"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t "$RUNNER_TEMP/app-debug.apk"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t "$RUNNER_TEMP/app-debug-androidTest.apk"
@@ -138,7 +165,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: android-emulator-smoke-${{ inputs.api-level || '37.0' }}-${{ inputs.target || 'google_apis' }}
+          name: android-emulator-smoke-${{ inputs.api-level || '37.0' }}-${{ inputs.target || 'google_apis' }}-${{ matrix.part }}
           path: android/build/emulator-smoke/
           if-no-files-found: warn
           retention-days: 14
@@ -147,7 +174,7 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: android-emulator-test-report-${{ inputs.api-level || '37.0' }}-${{ inputs.target || 'google_apis' }}
+          name: android-emulator-test-report-${{ inputs.api-level || '37.0' }}-${{ inputs.target || 'google_apis' }}-${{ matrix.part }}
           path: |
             android/app/build/reports/androidTests/
             android/app/build/outputs/androidTest-results/
