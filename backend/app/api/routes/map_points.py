@@ -501,7 +501,8 @@ async def map_points(
         date_to=dateTo,
         workshop_ids=workshopIds,
     )
-    wheres["media"] = live_media_where(wheres["media"])
+    if "media" in wheres:
+        wheres["media"] = live_media_where(wheres["media"])
 
     counted = [bucket for bucket in RECORD_TYPES if bucket in selected]
     placed = [bucket for bucket in PLACED_TYPES if bucket in selected]
@@ -628,7 +629,8 @@ async def point_records(
         date_to=dateTo,
         workshop_ids=workshopIds,
     )
-    wheres["media"] = live_media_where(wheres["media"])
+    if "media" in wheres:
+        wheres["media"] = live_media_where(wheres["media"])
 
     if point_key.startswith("capture:"):
         narrowed = await _capture_narrowing(point_key, wheres, selected, "latitude", "longitude")

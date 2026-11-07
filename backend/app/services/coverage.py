@@ -374,7 +374,8 @@ async def fold_for(wheres: dict[str, dict[str, Any]]) -> Fold:
 
 async def scope_wheres(user: Any) -> dict[str, dict[str, Any]]:
     wheres = await build_record_wheres(user)
-    wheres["media"] = live_media_where(wheres["media"])
+    if "media" in wheres:
+        wheres["media"] = live_media_where(wheres["media"])
     return wheres
 
 
