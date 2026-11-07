@@ -213,3 +213,105 @@ def validate(payload: bytes) -> dict[str, Any]:
                     last_col = c
             found["sheets"].append(name)
     return found
+
+
+HINDI = ("नील का रंग पक्का करने के लिए हम पहले कपड़े को धोते हैं", "फिर लकड़ी के ठप्पे से छपाई होती है और मिट्टी का लेप लगाते हैं", "यह काम हमारे परिवार में चार पीढ़ियों से चल रहा है", "धूप में सुखाने के बाद रंग और गहरा हो जाता है")
+ENGLISH = ("To fix the indigo we first wash the cloth", "Then we print with the wooden block and apply the mud paste", "This work has run in our family for four generations", "After drying in the sun the colour gets deeper")
+SPEAKERS = (("s0", "Ankit Shah", "RESEARCHER"), ("s1", "Om Prakash Chhipa", "ARTISAN"), ("s2", "Heera Singh", "ARTISAN"))
+
+
+def production_material(recordings: int = 420, images: int = 540, artisans: int = 600, sittings: int = 60, answers_each: int = 62) -> dict[str, Any]:
+    now = datetime(2026, 11, 5, 10, 30, tzinfo=UTC)
+    workshops = [SimpleNamespace(id=f"w{i}", title=f"Workshop {i}", status="APPROVED", createdAt=now, createdById="u1", locationId=None, startDate=now, endDate=now + timedelta(days=3), place=f"Place {i}") for i in range(8)]
+    crafts = [SimpleNamespace(id=f"c{i}", name=f"Craft {i}", createdAt=now, createdById="u1", status="APPROVED", subCategoryId=None) for i in range(12)]
+    people = [
+        SimpleNamespace(
+            id=f"a{i}", name=f"Artisan {i} Kumar", craftId=f"c{i % 12}", workshopId=f"w{i % 8}", status="APPROVED" if i % 3 else "PENDING",
+            phone="9999999999", createdAt=now, updatedAt=now, createdById="u1", locationId=None, dateOfBirth=datetime(1970, 1, 1, tzinfo=UTC),
+            gender="Female" if i % 2 else "Male", village=f"Village {i % 40}", district=f"District {i % 9}", state="Rajasthan",
+            languages=["Hindi", "Marwari"], yearsInCraft=10 + i % 30, familyMembers=4 + i % 5, notes=f"Learnt from the family; {HINDI[i % 4]}",
+            biography=f"{ENGLISH[i % 4]}. {HINDI[(i + 1) % 4]}", awards="State award" if i % 7 == 0 else None, cooperative=f"Co-op {i % 11}",
+            education=("Primary", "Secondary", "Graduate")[i % 3], maritalStatus="Married" if i % 4 else "Single", mainProduct=f"Stole {i % 17}",
+            rawMaterials="Cotton, indigo, mud", marketChannel=("Haat", "Exporter", "Online")[i % 3], monthlyIncome=8000 + 50 * i,
+            apprentices=i % 4, workplace="Home workshop", toolsOwned=f"{3 + i % 9} blocks", aspirations=ENGLISH[(i + 2) % 4],
+        )
+        for i in range(artisans)
+    ]
+    media = []
+    for i in range(recordings + images):
+        audio = i < recordings
+        media.append(
+            SimpleNamespace(
+                id=f"m{i}", originalFilename=f"D_SEC_RECORDING_{i:06d}_240620261438.aac" if audio else f"photo-{i}.jpg", mediaType="AUDIO" if audio else "IMAGE",
+                sizeBytes=1024 * 1024 * (3 + i % 40), artisanId=f"a{i % artisans}", workshopId=f"w{i % 8}", linkedRecordType=None, linkedRecordId=None,
+                recordedAt=now, createdAt=now, updatedAt=now, uploadedById="u1", hasTranscript=audio, transcriptWithheld=False,
+                transcriptStatus="COMPLETED" if audio else None, mimeType="audio/aac" if audio else "image/jpeg", status="APPROVED",
+                contentSha256=f"{i:064x}", caption=f"Caption {i}", durationMs=600000 if audio else None,
+                title=f"Take {i}", device=("Phone", "Recorder")[i % 2], place=f"Village {i % 40}", season=("Summer", "Monsoon", "Winter")[i % 3], notes=ENGLISH[i % 4],
+            )
+        )
+    products = [SimpleNamespace(id=f"p{i}", productName=f"Indigo stole {i}", artisanId=f"a{i}", workshopId=f"w{i % 8}", status="APPROVED", createdAt=now, updatedAt=now, createdById="u1", locationId=None, material="Cotton", price=1200 + i, description=ENGLISH[i % 4]) for i in range(120)]
+    tools = [SimpleNamespace(id=f"t{i}", toolkitName=f"Block {i}", artisanId=f"a{i}", status="APPROVED", createdAt=now, updatedAt=now, createdById="u1", locationId=None, material="Teak", description=ENGLISH[i % 4]) for i in range(120)]
+    interviews = []
+    for i in range(sittings):
+        responses = [
+            SimpleNamespace(id=f"r{i}-{k}", questionId=f"qq{k}", answerText=f"{HINDI[k % 4]} ({k})", question=SimpleNamespace(prompt=f"Question {k}?", sectionTitle=f"Section {k % 6}", sectionCode=f"S{k % 6}"))
+            for k in range(answers_each)
+        ]
+        interviews.append(SimpleNamespace(id=f"i{i}", title=f"Sitting {i}", workshopId=f"w{i % 8}", status="APPROVED", createdAt=now, createdById="u1", locationId=None, questionnaireId="q1", responses=responses))
+    return {"workshops": workshops, "crafts": crafts, "artisans": people, "products": products, "processes": [], "tools": tools, "interviews": interviews, "media": media, "designWorkshops": []}
+
+
+def production_turns(version: str, segments_each: int) -> list[dict[str, Any]]:
+    mid = version.removeprefix("v-")
+    seed = sum(ord(ch) for ch in mid)
+    out = []
+    speaker = seed % 3
+    for p in range(segments_each):
+        if (p + seed) % 3 == 0:
+            speaker = (speaker + 1) % 3
+        out.append(
+            {
+                "id": f"t{p}-{mid}", "versionId": version, "mediaFileId": mid, "position": p, "speakerKey": f"s{speaker}",
+                "startMs": p * 6000, "endMs": p * 6000 + 5500, "language": "hi",
+                "machineText": f"{HINDI[(p + seed) % 4]}, {HINDI[(p + 1) % 4][: 20 + (seed + p) % 25]} {mid}.{p}", "editedText": None,
+                "machineEnglish": f"{ENGLISH[(p + seed) % 4]}, {ENGLISH[(p + 1) % 4][: 20 + (seed + p) % 25]} {mid}.{p}", "editedEnglish": None,
+                "translationStatus": "TRANSLATED", "translationModel": "claude", "editedAt": None, "editedById": None, "revision": 1,
+                "createdAt": None, "updatedAt": None,
+            }
+        )
+    return out
+
+
+def production_raw(recordings: int = 420, segments_each: int = 49) -> Any:
+    audio = {f"m{i}" for i in range(recordings)}
+
+    def raw(sql: str, *args: Any) -> list[dict[str, Any]]:
+        ids = list(args[0]) if args else []
+        if '"TranscriptVersion"' in sql and "DISTINCT ON" in sql:
+            return [{"id": f"v-{m}", "mediaFileId": m, "version": 1, "languages": ["hi"], "durationMs": segments_each * 6000, "translationStatus": "COMPLETED", "turnCount": segments_each} for m in ids if m in audio]
+        if "octet_length" in sql:
+            mine = [m for m in ids if m in audio]
+            if not mine:
+                return [{"turns": 0, "bytes": 0}]
+            sample = production_turns(f"v-{mine[0]}", segments_each)
+            per = sum(len(t["machineText"].encode()) + len(t["machineEnglish"].encode()) for t in sample)
+            return [{"turns": len(mine) * segments_each, "bytes": len(mine) * per}]
+        if 'FROM "TranscriptTurn"' in sql and "GROUP BY" in sql:
+            return [{"id": v, "done": segments_each, "total": segments_each} for v in ids]
+        if 'FROM "TranscriptTurn"' in sql:
+            return [t for v in ids for t in production_turns(v, segments_each)]
+        if '"TranscriptSpeaker"' in sql:
+            return [{"mediaFileId": m, "speakerKey": k, "name": n, "role": r} for m in ids for k, n, r in SPEAKERS]
+        return []
+
+    return raw
+
+
+def production_context(options: contract.ReportOptions | None = None, *, recordings: int = 420, segments_each: int = 49) -> contract.ReportContext:
+    ctx = context(options or contract.ReportOptions(extras={"everything": True}))
+    ctx.path = ""
+    ctx.folder_name = "Repository"
+    ctx.material = {"records": production_material(recordings=recordings), "sheets": [], "level": "Repository"}
+    ctx.shared["db"] = FakeDB(raw=production_raw(recordings, segments_each))
+    return ctx

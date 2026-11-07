@@ -2584,6 +2584,7 @@ async def data_report(
     thumbnails: str | None = None,
     locale: str | None = None,
     extras: str | None = None,
+    parts: str | None = None,
     offset: int = Query(0, ge=0, le=REPORT_TAKE),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
@@ -2605,6 +2606,7 @@ async def data_report(
         return await _build_report(
             path, fmt, status_filter, current_user, q=q, sheet=sheet, options=options,
             file_name=report_options.file_name(name), offset=offset,
+            parts=(parts or "").strip().lower() == "zip",
         )
     except report_cache.ReportBusy as busy:
         raise HTTPException(
@@ -2729,6 +2731,7 @@ async def _build_report(
     options: report_options.ReportOptions | None = None,
     file_name: str | None = None,
     offset: int = 0,
+    parts: bool = False,
 ) -> Response:
     options = options or report_options.ReportOptions()
     scope = await _scope_for(current_user, status_filter)
@@ -2782,8 +2785,9 @@ async def _build_report(
     built = await report_build.build_report(current_user, path, chosen, status=status_filter)
     for hook in built.ctx.delivered:
         await hook()
+    payload, delivered_name, mime = report_build.deliverable(built, parts=parts)
     return Response(
-        content=built.payload,
-        media_type=XLSX_MIME,
-        headers={"Content-Disposition": _content_disposition(built.file_name)},
+        content=payload,
+        media_type=mime,
+        headers={"Content-Disposition": _content_disposition(delivered_name)},
     )

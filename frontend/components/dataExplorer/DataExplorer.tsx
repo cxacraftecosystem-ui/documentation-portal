@@ -541,7 +541,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
 
   const makeReport = useCallback(
     (options: ReportOptions, name: string, extra: QueryParams = config.extra) => {
-      downloads.enqueue({ kind: "report", label: `Report (.xlsx) · ${folderName}`, url: reportFileUrl(url.path, "xlsx", { ...extra, ...reportOptionParams(options, url.q, name) }), fileName: name, path: url.path });
+      downloads.enqueue({ kind: "report", label: `Report (.xlsx) · ${folderName}`, url: reportFileUrl(url.path, "xlsx", { ...extra, ...reportOptionParams(options, url.q, name), parts: "zip" }), fileName: name, path: url.path });
     },
     [downloads, folderName, url.path, url.q, config.extra]
   );
