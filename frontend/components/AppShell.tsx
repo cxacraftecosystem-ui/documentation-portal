@@ -14,10 +14,13 @@ import {
 } from "@/components/AdminViewProvider";
 import { AuthCard } from "@/components/AuthCard";
 import { useAuth } from "@/components/AuthProvider";
+import { DeadEndFrame, ErrorState } from "@/components/DeadEnd";
 import { DynamicIslandNav } from "@/components/DynamicIslandNav";
+import { ErrorPanel } from "@/components/ErrorPanel";
 import { FirstPasswordGate } from "@/components/FirstPasswordGate";
 import { PageSelvedge } from "@/components/PageSelvedge";
-import { isAdmin, roleLabel, routeGuardFor } from "@/lib/permissions";
+import { isAdmin, routeGuardFor } from "@/lib/permissions";
+import { browserOffline, signInHref } from "@/lib/errorKind";
 import { mustChangePassword } from "@/lib/signIn";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 
@@ -28,7 +31,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!loading && !user && reach === "ok") router.replace("/login");
+    if (!loading && !user && reach === "ok") router.replace(signInHref(`${window.location.pathname}${window.location.search}`));
   }, [loading, reach, router, user]);
 
   if (loading) {
@@ -93,7 +96,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </p>
         ) : null}
         {blocked && guard ? (
-          <RouteLocked title={guard.title} message={guard.message} role={roleLabel(user.role)} />
+          <RouteLocked title={guard.title} message={guard.message} />
         ) : chrome && chromeSettling ? (
           <section className="panel p-6 text-sm text-ink-500">Checking your admin view…</section>
         ) : chrome && chromeHidden ? (
@@ -108,43 +111,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
 function Unreachable({ onRetry }: { onRetry: () => void }) {
   return (
-    <main id="main-content" tabIndex={-1} className="flex min-h-screen items-center justify-center bg-bg-0 px-4">
-      <section className="panel w-full max-w-md px-6 py-12 text-center" role="alert" data-testid="unreachable">
-        <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-full bg-surface-50 text-ink-500">
-          <WifiOff className="h-5 w-5" aria-hidden />
-        </div>
-        <h1 className="font-display text-xl font-bold tracking-tight text-ink-900">Can&apos;t connect</h1>
-        <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-ink-500">Retrying automatically.</p>
-        <ButtonRow className="mt-7">
-          <button type="button" onClick={onRetry} className="field-button">
-            Try again
-          </button>
-        </ButtonRow>
-      </section>
-    </main>
+    <div role="alert" data-testid="unreachable">
+      <DeadEndFrame nav={false}>
+        <ErrorState kind={browserOffline() ? "offline" : "unavailable"} onRetry={onRetry} />
+      </DeadEndFrame>
+    </div>
   );
 }
 
-function RouteLocked({ title, message, role }: { title: string; message: string; role: string }) {
+function RouteLocked({ title, message }: { title: string; message: string }) {
   return (
-    <section className="panel px-6 py-14 text-center" aria-live="polite">
-      <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-full bg-purple-50 text-purple-700">
-        <Lock className="h-5 w-5" aria-hidden />
-      </div>
-      <h1 className="font-display text-xl font-bold tracking-tight text-ink-900">{title}</h1>
-      <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-ink-500">{message}</p>
-      <p className="mt-3 text-xs text-ink-500">
-        You are signed in as <span className="font-medium text-ink-700">{role}</span>. An admin can raise your access.
-      </p>
-      <ButtonRow className="mt-7">
-        <Link href="/dashboard" className="field-button">
-          Back to dashboard
-        </Link>
-        <Link href="/guide" className="field-button-secondary">
-          Open the walkthrough
-        </Link>
-      </ButtonRow>
-    </section>
+    <ErrorPanel screen="forbidden" tone="notice" icon={<Lock className="h-5 w-5" aria-hidden />} title={title} line={message}>
+      <Link href="/dashboard" className="field-button">
+        Home
+      </Link>
+    </ErrorPanel>
   );
 }
 

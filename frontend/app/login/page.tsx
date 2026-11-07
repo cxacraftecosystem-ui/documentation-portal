@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { GLASS_PANEL, GlassSurface } from "@/components/ui/GlassSurface";
 import { useToast } from "@/components/ui/Toast";
 import { accessRefusalCode } from "@/lib/accessRoster";
+import { rememberSignInReturn, takeSignInReturn } from "@/lib/errorKind";
 import {
   beginSignIn,
   callbackErrorMessage,
@@ -77,13 +78,17 @@ function LoginView() {
   const [oidcProviders] = useState<OidcProvider[]>(() => configuredOidcProviders());
 
   useEffect(() => {
-    if (user) router.replace("/dashboard");
+    rememberSignInReturn(window.location.search);
+  }, []);
+
+  useEffect(() => {
+    if (user) router.replace(takeSignInReturn());
   }, [router, user]);
 
   const proceed = useCallback(
     (result: User | TwoFactorChallenge) => {
       if (isTwoFactorChallenge(result)) setChallenge(result.challenge_token);
-      else router.replace("/dashboard");
+      else router.replace(takeSignInReturn());
     },
     [router]
   );
@@ -226,7 +231,7 @@ function LoginView() {
           {challenge ? (
             <TwoStepChallengeForm
               challengeToken={challenge}
-              onSignedIn={() => router.replace("/dashboard")}
+              onSignedIn={() => router.replace(takeSignInReturn())}
               onCancel={() => {
                 setChallenge(null);
                 setPassword("");
