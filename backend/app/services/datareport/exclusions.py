@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 SECRET = "Secret or credential material: never leaves the server."
 TWO_FACTOR = "Two-factor authentication material: never exported."
@@ -104,6 +105,18 @@ SENSITIVE_ALLOWED = frozenset(
         "Artisan.aadhaarNotShared",
     }
 )
+
+
+IDENTITY_FIELDS = frozenset({"aadhaarNumber", "pehchanCardNumber"})
+
+
+def identity_view(viewer: Any, row: Any, name: str, value: Any) -> Any:
+    if name not in IDENTITY_FIELDS or value is None or value == "":
+        return value
+    from app.services.records import public_encode
+
+    creator = row.get("createdById") if isinstance(row, dict) else getattr(row, "createdById", None)
+    return public_encode({name: value, "createdById": creator}, viewer).get(name)
 
 
 def excluded(model: str, name: str | None = None) -> str | None:

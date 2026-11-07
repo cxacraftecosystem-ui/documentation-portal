@@ -248,7 +248,17 @@ def session_where(f: Filters, b: Sql, *, alias: str = "i", text: bool = True) ->
     return w
 
 
-def recording_text(term: str, b: Sql) -> str:
+NO_TRANSCRIPTS = object()
+
+
+def _transcript_text_match(t: str, esc: str, b: Sql, scope: Any) -> str | None:
+    if scope is NO_TRANSCRIPTS:
+        return None
+    clause = f'm."transcriptText" ILIKE {t} {esc}'
+    return clause if scope is None else f"({clause} AND {scope.sql('m', b.p)})"
+
+
+def recording_text(term: str, b: Sql, scope: Any = NO_TRANSCRIPTS) -> str:
     t = b.p(like(term))
     esc = "ESCAPE '\\'"
     parts = [
@@ -260,13 +270,13 @@ def recording_text(term: str, b: Sql) -> str:
         f'EXISTS (SELECT 1 FROM "QuestionnaireRecordingSubject" xa JOIN "Artisan" a2 ON a2."id" = xa."artisanId" '
         f'WHERE xa."recordingId" = r."id" AND (a2."name" ILIKE {t} {esc} OR a2."localName" ILIKE {t} {esc}))',
         f'EXISTS (SELECT 1 FROM "User" xu WHERE xu."id" = r."recordedById" AND xu."name" ILIKE {t} {esc})',
-        f'm."transcriptText" ILIKE {t} {esc}',
+        _transcript_text_match(t, esc, b, scope),
         f'm."originalFilename" ILIKE {t} {esc}',
     ]
-    return "(" + " OR ".join(parts) + ")"
+    return "(" + " OR ".join(p for p in parts if p) + ")"
 
 
-def recording_where(f: Filters, b: Sql) -> list[str]:
+def recording_where(f: Filters, b: Sql, scope: Any = NO_TRANSCRIPTS) -> list[str]:
     w = ['r."removedAt" IS NULL', 'm."removedAt" IS NULL', 'i."deletedAt" IS NULL', 'i."mergedIntoId" IS NULL']
     session_only = f.without("q", "artisanId", "researcherId", "sectionId", "questionLineageId", "dateFrom", "dateTo",
                              "transcript", "languageCode")
@@ -300,7 +310,7 @@ def recording_where(f: Filters, b: Sql) -> list[str]:
     if f.languageCode:
         w.append(f'COALESCE(r."languageCode", i."languageCode") = ANY({b.arr(f.languageCode)})')
     if f.q:
-        w.append(recording_text(f.q, b))
+        w.append(recording_text(f.q, b, scope))
     return w
 
 
@@ -317,7 +327,7 @@ async def list_recordings(f: Filters, user: Any = None, *, session_id: str | Non
     db = client or ports.db()
     limit = max(1, min(int(limit or 30), PAGE_MAX))
     b = Sql()
-    w = recording_where(f, b)
+    w = recording_where(f, b, await ports.records.transcript_scope(user))
     if session_id:
         w.append(f'm."questionnaireInterviewId" = {b.p(session_id)}')
     if cursor:
@@ -346,10 +356,11 @@ async def list_recordings(f: Filters, user: Any = None, *, session_id: str | Non
     return {"items": items, "nextCursor": next_cursor, "filters": f.echo()}
 
 
-async def media_ids_matching(f: Filters, *, client: Any = None, limit: int = 5000) -> list[str]:
+async def media_ids_matching(f: Filters, *, client: Any = None, limit: int = 5000, viewer: Any = NO_TRANSCRIPTS) -> list[str]:
     db = client or ports.db()
     b = Sql()
-    w = recording_where(f, b)
+    scope = NO_TRANSCRIPTS if viewer is NO_TRANSCRIPTS else await ports.records.transcript_scope(viewer)
+    w = recording_where(f, b, scope)
     rows = await db.query_raw(
         'SELECT DISTINCT r."mediaFileId" AS id ' + _RECORDING_FROM + "WHERE " + " AND ".join(w) + f" LIMIT {int(limit)}",
         *b.params,
@@ -361,8 +372,8 @@ def media_filtered(f: Filters) -> bool:
     return not f.without("q").empty()
 
 
-async def media_text_ids(term: str, *, client: Any = None, limit: int = 5000) -> list[str]:
-    return await media_ids_matching(Filters(q=term), client=client, limit=limit)
+async def media_text_ids(term: str, *, client: Any = None, limit: int = 5000, viewer: Any = NO_TRANSCRIPTS) -> list[str]:
+    return await media_ids_matching(Filters(q=term), client=client, limit=limit, viewer=viewer)
 
 
 async def form_ids_matching(f: Filters, *, client: Any = None) -> set[str] | None:

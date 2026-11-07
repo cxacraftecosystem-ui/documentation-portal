@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.BuildConfig
+import com.fieldrepository.app.data.AadhaarAtRest
 import com.fieldrepository.app.data.ApiClient
 import com.fieldrepository.app.data.ArtisanCreateRequest
 import com.fieldrepository.app.data.FieldRepository
@@ -51,7 +52,7 @@ object QuestionnairePortal {
 
     fun requestSync(context: Context) = OutboxSyncWorker.schedule(context.applicationContext)
 
-    fun artisanCreateJson(artisan: NewArtisan, workshopId: String?): String = json.encodeToString(
+    fun artisanCreateJson(artisan: NewArtisan, workshopId: String?): String = AadhaarAtRest.sealPayload(json.encodeToString(
         ArtisanCreateRequest.serializer(),
         ArtisanCreateRequest(
             name = artisan.name.trim(), place = artisan.place.trim(),
@@ -59,11 +60,17 @@ object QuestionnairePortal {
             aadhaarNotShared = if (artisan.aadhaarNotShared) true else null,
             dos = artisan.dos.trim(), donts = artisan.donts.trim(), workshopId = workshopId?.ifBlank { null }
         )
-    )
+    ))
+
+    internal fun openedArtisanBody(bodyJson: String): String {
+        val opened = AadhaarAtRest.openPayload(bodyJson)
+        check(!AadhaarAtRest.numberWithheld(opened)) { AadhaarAtRest.RETYPE_REASON }
+        return opened
+    }
 
     suspend fun createArtisan(context: Context, idempotencyKey: String, bodyJson: String): String =
         ApiClient.create(TokenStore(context.applicationContext))
-            .createArtisan(idempotencyKey, json.decodeFromString(ArtisanCreateRequest.serializer(), bodyJson)).id
+            .createArtisan(idempotencyKey, json.decodeFromString(ArtisanCreateRequest.serializer(), openedArtisanBody(bodyJson))).id
 
     private suspend fun workshopRows(context: Context) =
         FieldRepository(ApiClient.create(TokenStore(context.applicationContext)), TokenStore(context.applicationContext)).workshops()

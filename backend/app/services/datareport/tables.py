@@ -597,7 +597,7 @@ def table_rows(ctx: ReportContext, table: Table, store: Store, p: Plan) -> Itera
         if table.model == "MediaFile" and rid and links:
             out["download"] = Link(ctx.t("link.download", "Download"), ctx.links.download(rid))
         for key, name, target, ckind in p.fields:
-            value = _value(row, name)
+            value = exclusions.identity_view(ctx.user, row, name, _value(row, name))
             if target:
                 out[key] = store.name(target, value) or (str(value) if value else None)
             else:

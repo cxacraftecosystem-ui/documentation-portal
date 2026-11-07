@@ -36,6 +36,9 @@ async def _open_job(media_id: str, client: Any) -> Any:
     )
 
 
+_MACHINE_ONLY = ("removedAt", "transcriptEditedAt", "transcriptEditedById")
+
+
 async def _verified_twin(media: Any, client: Any) -> Any:
     sha = getattr(media, "contentSha256", None)
     if not sha or not getattr(media, "shaVerifiedAt", None):
@@ -45,6 +48,7 @@ async def _verified_twin(media: Any, client: Any) -> Any:
             "contentSha256": sha,
             "shaVerifiedAt": {"not": None},
             "transcriptStatus": "COMPLETED",
+            **dict.fromkeys(_MACHINE_ONLY),
             "id": {"not": str(media.id)},
         },
         order={"createdAt": "asc"},

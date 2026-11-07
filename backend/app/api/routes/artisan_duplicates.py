@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -9,7 +10,7 @@ from app.core.db import db
 from app.core.deps import get_value, require_content_admin, require_record_creator
 from app.scale.rate_limit import _TokenBuckets
 from app.schemas.duplicates import DismissIn, DuplicateCheckIn
-from app.services import aadhaar_fingerprint, artisan_duplicates
+from app.services import aadhaar_fingerprint, artisan_duplicates, identity_probe
 from app.services.artisan_merge import unjson
 from app.services.artisan_identity import aadhaar_error, normalize_aadhaar, normalize_pehchan
 from app.services.pagination import normalize_pagination, page_payload
@@ -115,12 +116,27 @@ async def check_duplicates(
         fingerprint=fingerprint,
         pehchanCardNumber=payload.pehchanCardNumber,
     )
+    typed = {
+        code
+        for code, value in (
+            (artisan_duplicates.REASON_AADHAAR, profile.aadhaarFingerprint),
+            (artisan_duplicates.REASON_PEHCHAN, profile.pehchanCardNumber),
+        )
+        if value
+    }
+    if typed and not await identity_probe.may_probe(current_user):
+        profile = replace(profile, aadhaarFingerprint=None, pehchanCardNumber=None)
+        fingerprint = None
+        typed = set()
     found = await artisan_duplicates.candidates_for_profile(
         profile,
         exclude_id=payload.excludeArtisanId,
         limit=artisan_duplicates.CHECK_MAX_CANDIDATES,
         viewer=current_user,
     )
+    matched = {code for _other, result in found for code, _label in result.reasons}
+    if typed - matched:
+        await identity_probe.record_miss(current_user)
     return {
         "candidates": [
             artisan_duplicates.candidate_payload(other, result, typed_aadhaar=bool(fingerprint))

@@ -405,4 +405,4 @@ async def list_revisions(
         include={"editedBy": True},
         order={"createdAt": "asc"},
     )
-    return public_encode(rows)
+    return public_encode(rows, current_user)

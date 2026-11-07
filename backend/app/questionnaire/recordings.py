@@ -31,6 +31,7 @@ from app.questionnaire.ports import (
     is_admin,
     is_content_admin,
     naming,
+    records,
     transcription,
 )
 
@@ -691,6 +692,7 @@ async def recording_rows(client: Any, *, recording_ids: list[str] | None = None,
     return await client.query_raw(
         'SELECT r.*, r."capturedAtSource"::text AS source, r."filing"::text AS filing_t, r."provenance"::text AS provenance_t, '
         'm."questionnaireInterviewId" AS "sessionId", m."objectKey", m."mimeType", m."transcriptStatus", m."transcriptText", '
+        'm."uploadedById", m."linkedRecordType", m."linkedRecordId", '
         'm."originalFilename", m."createdAt" AS "mediaCreatedAt", m."contentSha256", m."shaVerifiedAt", m."extraMetadata" AS "mediaExtra", '
         'u."name" AS "recordedByName", i."questionnaireId" '
         'FROM "QuestionnaireRecording" r JOIN "MediaFile" m ON m."id" = r."mediaFileId" JOIN "User" u ON u."id" = r."recordedById" '
@@ -730,8 +732,14 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
     title_inputs = await titles.title_inputs(client, [r["sessionId"] for r in rows if r.get("sessionId")])
     parts = await _part_numbers(client, [str(r["id"]) for r in rows if r.get("continuationOfId")])
     chip_by = await chips.for_rows(client, rows, targets=targets, subjects=every_subject)
+    readable = await records.transcript_readable_ids(
+        [{"id": str(r["mediaFileId"]), "uploadedById": r.get("uploadedById"), "linkedRecordType": r.get("linkedRecordType"),
+          "linkedRecordId": r.get("linkedRecordId")} for r in rows],
+        user,
+    )
     shown = {
-        str(r["mediaFileId"]): (r.get("transcriptText") if r.get("transcriptStatus") in ("COMPLETED", "SKIPPED_DUPLICATE") else None)
+        str(r["mediaFileId"]): (r.get("transcriptText") if r.get("transcriptStatus") in ("COMPLETED", "SKIPPED_DUPLICATE")
+                                and str(r["mediaFileId"]) in readable else None)
         for r in rows
     }
     preview_by = await transcription.previews(shown, client=client)
@@ -778,7 +786,7 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
             "languageCode": r.get("languageCode"), "removedAt": iso(r.get("removedAt")), "downloadName": download,
             "transcript": {
                 "status": status, "paused": paused and status in (None, "QUEUED", "RATE_LIMITED", "FAILED"),
-                "text": r.get("transcriptText") if status in ("COMPLETED", "SKIPPED_DUPLICATE") else None, "language": None,
+                "text": shown.get(str(r["mediaFileId"])), "language": None,
                 "preview": preview_by.get(str(r["mediaFileId"])),
             },
             "consent": consents.get(str(r["mediaFileId"])) or {"verdict": consent_gate.ALLOW, "source": None},
@@ -1231,7 +1239,8 @@ async def verify_sha(media_id: str, *, client: Any = None, hasher: Any = None) -
         await tx.execute_raw('UPDATE "MediaFile" SET "contentSha256" = $2, "shaVerifiedAt" = now() WHERE "id" = $1', media_id, sha)
         rows = await tx.query_raw(
             'SELECT m."id", m."questionnaireInterviewId" AS sid, m."createdAt", r."id" AS rid, m."transcriptStatus", m."transcriptText", '
-            'm."transcriptSummary" FROM "MediaFile" m JOIN "QuestionnaireRecording" r ON r."mediaFileId" = m."id" '
+            'm."transcriptSummary", (m."transcriptEditedAt" IS NOT NULL OR m."transcriptEditedById" IS NOT NULL) AS edited '
+            'FROM "MediaFile" m JOIN "QuestionnaireRecording" r ON r."mediaFileId" = m."id" '
             'WHERE m."contentSha256" = $1 AND m."shaVerifiedAt" IS NOT NULL AND m."removedAt" IS NULL AND r."removedAt" IS NULL '
             'ORDER BY m."createdAt", m."id"',
             sha,
@@ -1282,7 +1291,7 @@ async def verify_sha(media_id: str, *, client: Any = None, hasher: Any = None) -
                 str(flagged["id"]), json.dumps({"questionnaireV2": {"twinRecordingId": str(keeper["rid"]), "twinMediaId": str(keeper["id"])}}),
             )
             await sessions.bump_recording(tx, str(flagged["rid"]))
-            if keeper.get("transcriptStatus") == "COMPLETED":
+            if keeper.get("transcriptStatus") == "COMPLETED" and not keeper.get("edited"):
                 await _close_transcription(tx, str(flagged["id"]), "Verified copy of another recording")
                 await tx.execute_raw(
                     'UPDATE "MediaFile" SET "transcriptStatus" = \'SKIPPED_DUPLICATE\', "transcriptText" = $2, "transcriptSummary" = $3 WHERE "id" = $1',
