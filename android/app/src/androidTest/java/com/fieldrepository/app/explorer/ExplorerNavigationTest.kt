@@ -57,6 +57,7 @@ import org.junit.runner.RunWith
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.util.Collections
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
@@ -72,6 +73,7 @@ class ExplorerNavigationTest {
     private val seen = Collections.synchronizedList(mutableListOf<String>())
     private val opened = Collections.synchronizedList(mutableListOf<String>())
     private var backs = 0
+    @Volatile private var nextPage = CountDownLatch(0)
 
     private val taxonomies = listOf(
         ExplorerTaxonomy("workshop", "Workshop", "by-workshop", "Workshop › artisan › record.", isDefault = true),
@@ -107,6 +109,7 @@ class ExplorerNavigationTest {
                 return when (url.encodedPath) {
                     "/data/tree" -> {
                         trees.incrementAndGet()
+                        if (url.queryParameter("cursor") != null) nextPage.await(15, TimeUnit.SECONDS)
                         json(ExplorerJson.encodeToString(ExplorerTree.serializer(), treeFor(url.queryParameter("path").orEmpty(), url.queryParameter("cursor"))))
                     }
                     "/data/transcripts/languages" -> json("{\"languages\":[]}")
@@ -131,6 +134,7 @@ class ExplorerNavigationTest {
     }
 
     @After fun stop() {
+        nextPage.countDown()
         ExplorerEnvironment.apiOverride = null
         ExplorerMoreApi.override = null
         ExplorerViewLinks.requests.value?.let { ExplorerViewLinks.consume(it) }
@@ -231,9 +235,12 @@ class ExplorerNavigationTest {
 
     @QFeature("X1")
     @Test fun theShowingRowLoadsUpToTheLastRecord() {
+        nextPage = CountDownLatch(1)
         screen()
         appears("explorer.showing")
+        compose.onNodeWithTag("explorer.showing").assertExists()
         compose.onNodeWithTag("explorer.showing.more").performClick()
+        nextPage.countDown()
         reach("explorer.file.p3")
         gone("explorer.showing")
         assertTrue(seen.any { it.startsWith("/data/tree?") && it.contains("cursor=2") })
