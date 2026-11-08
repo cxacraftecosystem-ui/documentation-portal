@@ -1006,6 +1006,8 @@ test.describe("@qf:X1 keyboard", () => {
       await expect(sheet.getByTestId("shortcuts-sheet")).toContainText("Quick jump");
       await page.keyboard.press("Escape");
       await expect(sheet).toHaveCount(0);
+      const heading = page.getByRole("heading", { name: "Bagru 2026", exact: true }).first();
+      await heading.click();
       await page.keyboard.press("/");
       const box = page.locator("[data-explorer-search] input").first();
       await expect(box).toBeFocused();

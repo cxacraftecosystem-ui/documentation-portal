@@ -21,7 +21,7 @@ import retrofit2.Response
 import java.util.concurrent.atomic.AtomicInteger
 
 open class FakeExplorerApi : ExplorerApi {
-    val calls = mutableListOf<String>()
+    val calls: MutableList<String> = java.util.concurrent.CopyOnWriteArrayList()
     val transcriptCalls = AtomicInteger(0)
     var trees: suspend (path: String, status: String?, cursor: String?) -> ExplorerTree = { path, _, _ -> ExplorerTree(path = path) }
     var sortedTrees: (suspend (path: String, status: String?, cursor: String?, sort: String?) -> ExplorerTree)? = null

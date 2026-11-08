@@ -320,7 +320,7 @@ class ExplorerStateTest {
 
     @Test fun `the place is written only when the folder changes`() = runBlocking {
         val api = FakeExplorerApi()
-        val places = mutableListOf<String>()
+        val places: MutableList<String> = java.util.concurrent.CopyOnWriteArrayList()
         val s = placed(api, places)
         s.open("w")
         until { s.tree != null }
