@@ -17,6 +17,7 @@ BACKEND = pathlib.Path(__file__).resolve().parents[1]
 ROOT = BACKEND.parent
 DATA = BACKEND / "app" / "data"
 MIGRATION = BACKEND / "prisma" / "migrations" / "20261021090000_cross_portal_codes" / "migration.sql"
+SEEDED_BY_MIGRATION = ("CTW2", "CTW3")
 IS_DESIGNER_PORTAL = any(ROOT.glob("android/app/src/main/java/com/designprototype"))
 
 
@@ -67,6 +68,7 @@ def test_question_codes_are_unique_and_one_per_section_and_wording():
         "craft_toolkit_workshop_2_questions.json",
         "craft_toolkit_workshop_3_questions.json",
         "questionnaire_questions_w3.json",
+        "questionnaire_questions_w4.json",
     ],
 )
 def test_every_question_this_portal_seeds_from_has_a_code(corpus):
@@ -117,7 +119,7 @@ def test_the_migration_seeds_exactly_what_the_file_holds():
         assert f"({_sql_literal(craft.code)}, {_sql_literal(craft.name)}, CURRENT_TIMESTAMP)" in sql
         for spelling in (craft.name, *craft.spellings):
             assert f"({_sql_literal(cpc.normalise(spelling))}, " in sql, spelling
-    for q in shared.questions:
+    for q in (q for q in shared.questions if q.instrument in SEEDED_BY_MIGRATION):
         row = f"({_sql_literal(q.section)}, {_sql_literal(cpc.normalise(q.prompt))}, {_sql_literal(q.code)})"
         assert row in sql, q.code
     assert cpc.SQL_ACCENTS_FROM in sql and cpc.SQL_ACCENTS_TO in sql
@@ -239,6 +241,26 @@ async def test_reconcile_sets_clears_and_leaves_alone():
     assert await cpc.reconcile_question_codes(client) == 2
     codes = {r["id"]: r["questionCode"] for r in client.questionnairequestion.rows}
     assert codes == {"q1": "CTW2.RESP.01", "q2": None, "q3": "CTW2.RESP.02"}
+    assert await cpc.reconcile_question_codes(client) == 0
+
+
+async def test_every_fourth_workshop_question_has_a_code_after_reconcile():
+    path = DATA / "questionnaire_questions_w4.json"
+    if not path.is_file():
+        pytest.skip("the fourth workshop instrument is the Field Repository's")
+    sections = json.loads(path.read_text(encoding="utf-8-sig"))
+    rows = [
+        {"id": f"{s['code']}{q['sortOrder']}", "sectionCode": s["code"], "prompt": q["prompt"], "questionCode": None}
+        for s in sections
+        for q in s["questions"]
+    ]
+    client = _client(questionnairequestion=_Table("id", rows))
+    assert await cpc.reconcile_question_codes(client) == len(rows)
+    codes = {r["id"]: r["questionCode"] for r in client.questionnairequestion.rows}
+    assert all(codes.values()), [k for k, v in codes.items() if not v]
+    assert len(set(codes.values())) == len(codes)
+    assert codes["D6"] == "CTW4.D.06" and codes["W5"] == "CTW4.W.05"
+    assert sum(code.startswith("CTW4.") for code in codes.values()) == 32
     assert await cpc.reconcile_question_codes(client) == 0
 
 

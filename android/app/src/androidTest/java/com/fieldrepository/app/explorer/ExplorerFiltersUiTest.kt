@@ -277,7 +277,7 @@ class ExplorerFiltersUiTest {
         assertTrue(compose.onAllNodesWithTag("explorer.folder.$ROOT/c2").fetchSemanticsNodes().isEmpty())
         assertTrue(compose.onAllNodesWithTag("explorer.file.v1").fetchSemanticsNodes().isEmpty())
         compose.waitUntil(10_000) { tree.calls.any { it == "stats:$ROOT:craftIds" } }
-        compose.waitUntil(10_000) { more.sheets.any { it["craftIds"] == "c1" } }
+        assertTrue(more.sheets.isEmpty())
     }
 
     @QFeature("X13")

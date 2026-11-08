@@ -171,8 +171,8 @@ def test_the_xlsx_follows_the_options_and_reuses_one_build(monkeypatch):
                 await _report(format="json"),
                 await _report(format="json"),
                 await _report(),
-                await _report(sheets="Tools", answers="original", links="0", name="Kamla dyes"),
-                await _report(sheets="Tools", rows="filtered", q="tool 1"),
+                await _report(sheets="Tools", answers="original", links="0", name="Kamla dyes", extras="none"),
+                await _report(sheets="Tools", rows="filtered", q="tool 1", extras="none"),
                 await _report(),
             ]
 
@@ -209,7 +209,7 @@ def test_unknown_options_are_a_422_and_an_empty_pick_is_a_404(monkeypatch):
 
     async def missing_sheet() -> Any:
         async with running_worker({ADMIN.id: ADMIN}):
-            return await _report(sheets="Nope")
+            return await _report(sheets="Nope", extras="none")
 
     with pytest.raises(HTTPException) as missing:
         asyncio.run(missing_sheet())

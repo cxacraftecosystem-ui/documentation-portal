@@ -65,8 +65,18 @@ def _list(**kwargs: Any) -> Any:
     return asyncio.run(media_routes.list_media(**params))
 
 
-def _names(where: dict[str, Any]) -> dict[str, Any]:
-    return {key: clause for branch in where.get("OR", []) for key, clause in branch.items()}
+def _names(where: Any) -> dict[str, Any]:
+    found: dict[str, Any] = {}
+    if isinstance(where, dict):
+        for key, value in where.items():
+            if key in ("originalFilename", "caption"):
+                found[key] = value
+            else:
+                found.update(_names(value))
+    elif isinstance(where, list):
+        for item in where:
+            found.update(_names(item))
+    return found
 
 
 def test_q_searches_names_and_captions_without_case(files: _Files) -> None:
@@ -87,7 +97,7 @@ def test_q_is_paged_like_every_other_list(files: _Files) -> None:
 
 def test_without_q_nothing_is_narrowed_and_search_still_works(files: _Files) -> None:
     _list()
-    assert "OR" not in files.found[-1]["where"]
+    assert _names(files.found[-1]["where"]) == {}
     _list(search="dye")
     assert _names(files.found[-1]["where"])["originalFilename"]["contains"] == "dye"
     _list(q="   ", search="dye")

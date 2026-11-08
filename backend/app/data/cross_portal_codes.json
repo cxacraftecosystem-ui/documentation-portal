@@ -2319,6 +2319,172 @@
           "prompt": "Institutional connections: List government departments, NGOs, GI bodies, training institutions, universities/research organisations and other institutions with which you have a working relationship."
         }
       ]
+    },
+    {
+      "code": "CTW4",
+      "title": "4th Craft Toolkit Workshop - stone craft artisan interview",
+      "questions": [
+        {
+          "code": "CTW4.D.06",
+          "section": "D",
+          "prompt": "What types of stone do you use (such as sandstone, marble, granite, soapstone or other locally available stones), and why is a particular type preferred for your craft?"
+        },
+        {
+          "code": "CTW4.D.07",
+          "section": "D",
+          "prompt": "How do you identify the quality and suitability of a stone before starting work? What characteristics, such as hardness, grain, natural cracks, colour, texture or internal layers, influence your selection?"
+        },
+        {
+          "code": "CTW4.D.08",
+          "section": "D",
+          "prompt": "Where does the stone come from, and how does it reach your workshop? Do you purchase directly from quarries, through suppliers or through other artisans? What difficulties arise in transportation, cost or availability?"
+        },
+        {
+          "code": "CTW4.D.09",
+          "section": "D",
+          "prompt": "Do you face restrictions or difficulties in obtaining stone because of quarry regulations, environmental rules, depletion of local resources or changing supply conditions? How have these affected your craft?"
+        },
+        {
+          "code": "CTW4.E.07",
+          "section": "E",
+          "prompt": "How do you decide the direction in which a stone should be cut or carved? Are there particular natural lines, layers or weak points that must be considered to prevent breakage?"
+        },
+        {
+          "code": "CTW4.E.08",
+          "section": "E",
+          "prompt": "How is a design transferred onto the stone before carving? Do you use freehand drawing, measurements, grids, templates, reference objects or digital designs?"
+        },
+        {
+          "code": "CTW4.E.09",
+          "section": "E",
+          "prompt": "What are the different stages of rough cutting, shaping, detailed carving, smoothing and polishing? Which stages are most difficult to correct if a mistake occurs?"
+        },
+        {
+          "code": "CTW4.E.10",
+          "section": "E",
+          "prompt": "If a stone cracks, chips or breaks during production, how do you decide whether it can be repaired, redesigned or reused? What traditional repair methods are used?"
+        },
+        {
+          "code": "CTW4.F.04",
+          "section": "F",
+          "prompt": "What differences do you observe between traditional hand tools and electric or machine-operated tools in terms of precision, finishing, speed, cost and preservation of traditional craftsmanship?"
+        },
+        {
+          "code": "CTW4.F.05",
+          "section": "F",
+          "prompt": "How do you lift, position, rotate and secure heavy stone pieces during carving? What tools or equipment would make handling large or heavy stones easier and safer?"
+        },
+        {
+          "code": "CTW4.G.02",
+          "section": "G",
+          "prompt": "How do you judge stone properties such as hardness, grain, porosity, strength, natural cracks, texture and suitability, and what signs do you look for?"
+        },
+        {
+          "code": "CTW4.G.04",
+          "section": "G",
+          "prompt": "How do temperature, rain, water exposure, weather and seasons affect stone preparation, carving, outdoor storage and finished products?"
+        },
+        {
+          "code": "CTW4.G.06",
+          "section": "G",
+          "prompt": "How do artisans judge the hardness, density, strength or internal quality of stone without scientific instruments? What traditional methods, such as observing, tapping, touching or testing small portions, are used?"
+        },
+        {
+          "code": "CTW4.G.07",
+          "section": "G",
+          "prompt": "How do you determine the thickness, depth, weight distribution and support required to ensure that a carved stone object remains stable and does not break?"
+        },
+        {
+          "code": "CTW4.G.08",
+          "section": "G",
+          "prompt": "How do you select methods of polishing, surface treatment or protection for different types of stone? How do these affect the appearance, durability and maintenance of the finished product?"
+        },
+        {
+          "code": "CTW4.H.07",
+          "section": "H",
+          "prompt": "How do the weight, size, fragility and transportation costs of stone products affect their pricing, market access and sale to distant customers? Have these factors encouraged you to produce smaller or different products?"
+        },
+        {
+          "code": "CTW4.K.03",
+          "section": "K",
+          "prompt": "What happens to stone chips, broken pieces, powder and slurry generated during cutting, carving and polishing? Are these reused in smaller products or supplied to other industries or artisans?"
+        },
+        {
+          "code": "CTW4.K.04",
+          "section": "K",
+          "prompt": "How do you manage dust and wastewater during stone cutting, grinding and polishing? What environmental challenges arise in your workshop or surrounding community?"
+        },
+        {
+          "code": "CTW4.K.05",
+          "section": "K",
+          "prompt": "How do stone extraction, cutting, carving and polishing affect the local environment, particularly through dust, noise, water use and waste generation? Have you noticed any environmental changes over time?"
+        },
+        {
+          "code": "CTW4.K.06",
+          "section": "K",
+          "prompt": "What traditional or innovative practices do you follow to reduce pollution, conserve natural resources or reuse stone waste? Do you believe artisans have a responsibility towards protecting the environment?"
+        },
+        {
+          "code": "CTW4.M.03",
+          "section": "M",
+          "prompt": "How are artisans affected by fine stone dust, vibration, noise, flying stone fragments and prolonged use of heavy tools? What measures are used to protect breathing, hearing, eyesight, hands and the body?"
+        },
+        {
+          "code": "CTW4.P.05",
+          "section": "P",
+          "prompt": "How are traditional proportions, iconographic rules, religious requirements or architectural measurements followed when making stone sculptures, temple objects, decorative carvings or architectural elements? Who decides whether the finished work is correct?"
+        },
+        {
+          "code": "CTW4.P.06",
+          "section": "P",
+          "prompt": "What does art and craftsmanship mean to you personally, beyond being a source of income? What emotional, cultural or spiritual value does your work hold for you?"
+        },
+        {
+          "code": "CTW4.P.07",
+          "section": "P",
+          "prompt": "What makes a stone-crafted object a piece of art rather than just a product? How do you express your own creativity, identity or personal feelings through your work?"
+        },
+        {
+          "code": "CTW4.S.01",
+          "section": "S",
+          "prompt": "How do you determine whether a stone block is suitable for cutting or carving, including checking for hidden cracks, weak layers, defects or poor quality?"
+        },
+        {
+          "code": "CTW4.S.03",
+          "section": "S",
+          "prompt": "What makes a finished stone piece strong, durable, smooth or long-lasting, and what causes cracking, chipping, surface deterioration, joint failure, breakage or structural instability?"
+        },
+        {
+          "code": "CTW4.V.02",
+          "section": "V",
+          "prompt": "Material and tool suppliers: List the stone quarries, stone merchants, cutting units, toolmakers, polishing-material suppliers, transporters and other regular suppliers, including their location and the nature of your relationship."
+        },
+        {
+          "code": "CTW4.W.01",
+          "section": "W",
+          "prompt": "Do you usually work on stone products at your own workshop, or do you sometimes travel to the customer’s location for carving or installation? What determines this decision?"
+        },
+        {
+          "code": "CTW4.W.02",
+          "section": "W",
+          "prompt": "For large stone products, how are the pieces transported, assembled and installed? What difficulties occur during transportation or installation?"
+        },
+        {
+          "code": "CTW4.W.03",
+          "section": "W",
+          "prompt": "Do you collaborate with architects, engineers, temple authorities, contractors, designers or other specialists? At which stages are they involved?"
+        },
+        {
+          "code": "CTW4.W.04",
+          "section": "W",
+          "prompt": "How do you protect finished stone products from damage during packaging, transportation, installation and long-term use?"
+        },
+        {
+          "code": "CTW4.W.05",
+          "section": "W",
+          "prompt": "When a customer requests a large sculpture or architectural stone product, how do you estimate the material required, production time, labour, cost and risk of breakage?"
+        }
+      ]
     }
   ]
 }
