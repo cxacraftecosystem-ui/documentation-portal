@@ -81,7 +81,7 @@ test("the shell renders from the cached account and never waits on /me forever",
   expect(auth).toContain("withinTimeout((signal) => apiFetch<User>(\"/me\", { signal }");
   expect(auth).toContain("readCachedMe(getSessionMarker())");
   expect(auth).toContain("forgetCachedMe();");
-  expect(shell).toContain('if (!loading && !user && reach === "ok") router.replace("/login");');
+  expect(shell).toContain('if (!loading && !user && reach === "ok") router.replace(signInHref(`${window.location.pathname}${window.location.search}`));');
   expect(shell).toContain('if (!user && reach === "retrying") return <Unreachable onRetry={retryMe} />;');
   expect(shell).toContain('data-testid="reconnecting"');
 });
