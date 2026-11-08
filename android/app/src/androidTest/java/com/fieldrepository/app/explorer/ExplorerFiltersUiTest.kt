@@ -368,19 +368,27 @@ class ExplorerFiltersUiTest {
         val nested = SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange).and(hasAnyAncestor(hasTestTag("explorer.tables.grid")))
         assertEquals(0, compose.onAllNodes(nested, useUnmergedTree = true).fetchSemanticsNodes().size)
         listOf(0, 1).forEach { row ->
-            val cells = (0..2).map { compose.onNodeWithTag("explorer.tables.cell.Schemes.$row.$it", useUnmergedTree = true).getBoundsInRoot() }
-            cells.forEach { c ->
-                val w = (c.right - c.left).value
-                assertTrue("a cell is $w dp wide", w >= ExplorerTableWidths.MIN - 1 && w <= ExplorerTableWidths.MAX + 1)
-            }
-            cells.zipWithNext().forEach { (a, b) -> assertTrue("cells overlap: ${a.right} > ${b.left}", a.right.value <= b.left.value + 0.5f) }
-            val heights = cells.map { (it.bottom - it.top).value }
+            val cells = (0..2).map { box("explorer.tables.cell.Schemes.$row.$it") }
+            cells.forEach { c -> assertTrue("a cell is ${c.width} dp wide", c.width >= ExplorerTableWidths.MIN - 1 && c.width <= ExplorerTableWidths.MAX + 1) }
+            cells.zipWithNext().forEach { (a, b) -> assertTrue("cells overlap: ${a.right} > ${b.left}", a.right <= b.left + 0.5f) }
+            val heights = cells.map { it.height }
             assertTrue("cells of one row share a height: $heights", heights.max() - heights.min() < 1f)
         }
-        val first = compose.onNodeWithTag("explorer.tables.row.Schemes.0", useUnmergedTree = true).getBoundsInRoot()
-        val second = compose.onNodeWithTag("explorer.tables.row.Schemes.1", useUnmergedTree = true).getBoundsInRoot()
-        assertTrue("rows overlap: ${first.bottom} > ${second.top}", first.bottom.value <= second.top.value + 0.5f)
-        assertTrue("the long Bengali row grew: ${second.bottom - second.top}", (second.bottom - second.top).value > 80f)
+        val first = box("explorer.tables.row.Schemes.0")
+        val second = box("explorer.tables.row.Schemes.1")
+        assertTrue("rows overlap: ${first.bottom} > ${second.top}", first.bottom <= second.top + 0.5f)
+        assertTrue("the long Bengali row grew: ${second.height}", second.height > 80f)
+    }
+
+    private class Bounds(val left: Float, val top: Float, val width: Float, val height: Float) {
+        val right: Float get() = left + width
+        val bottom: Float get() = top + height
+    }
+
+    private fun box(tag: String): Bounds {
+        val node = compose.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode()
+        val d = compose.density.density
+        return Bounds(node.positionInRoot.x / d, node.positionInRoot.y / d, node.size.width / d, node.size.height / d)
     }
 
     @QFeature("X1")
