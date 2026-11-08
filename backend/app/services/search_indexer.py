@@ -295,6 +295,9 @@ async def reindex_all(entity_type: str | None = None) -> int:
     for name, select in sources.items():
         if entity_type is None or name == entity_type:
             total += await db.execute_raw(
-                f'INSERT INTO "SearchIndexQueue" ("entityType", "entityId") {select}'
+                f'INSERT INTO "SearchIndexQueue" ("entityType", "entityId") '
+                f"SELECT s.t, s.i FROM ({select}) AS s(t, i) "
+                'WHERE NOT EXISTS (SELECT 1 FROM "SearchIndexQueue" q '
+                'WHERE q."entityType" = s.t AND q."entityId" = s.i)'
             )
     return total

@@ -153,10 +153,14 @@ async def test_a_failed_build_goes_back_on_the_queue(world, monkeypatch):
 
 
 async def test_reindex_all_queues_one_type(world):
+    from app.core.db import db
+
     await _clear_queue()
     queued = await search_indexer.reindex_all("crafts")
     assert queued >= 2
     assert {t for t, _ in await _queued()} == {"crafts"}
+    assert await search_indexer.reindex_all("crafts") == 0
+    assert (await db.query_raw('SELECT count(*)::int AS n FROM "SearchIndexQueue"'))[0]["n"] == queued
     with pytest.raises(ValueError):
         await search_indexer.reindex_all("designWorkshops")
     await _clear_queue()
