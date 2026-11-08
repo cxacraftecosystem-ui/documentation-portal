@@ -1,7 +1,7 @@
 # Deploying the Field Repository backend + media storage on AWS (free tier)
 
 > **Where the box stands on 4 Nov 2026.** The 26.04 rebuild this runbook plans in §10 is done: the
-> API runs on a **t3.small** (2 GiB, encrypted gp3) on **Ubuntu 26.04**, instance
+> API runs on a **t3.medium** (4 GiB since 8 Nov 2026, encrypted gp3) on **Ubuntu 26.04**, instance
 > `i-012eae3e379fbbeac`, reached with `aws ssm start-session` (no standing SSH; the deploy opens port
 > 22 for its own runner and closes it). The interpreter is **upstream CPython 3.15.2** from the pinned
 > python-build-standalone build `20261026` (since 0.0.7), releases are **blue/green** on ports 8000 and
@@ -26,8 +26,8 @@ without data loss.
 
 ## 1. Which EC2 instance
 
-- **This project: `t3.small`** (2 vCPU burstable, 2 GiB RAM, *not* free tier), approved on
-  2026-10-09 with the rebuild onto 26.04 (§10). The box running that day is a **`t3.micro`** (1 GiB,
+- **This project: `t3.medium`** (2 vCPU burstable, 4 GiB RAM, *not* free tier), approved by the
+  owner on 2026-11-08; a `t3.small` (2 GiB) from the rebuild onto 26.04 approved on 2026-10-09 (§10). The box running that day is a **`t3.micro`** (1 GiB,
   free-tier eligible): it runs the FastAPI/uvicorn API and the queue (DB + storage are off-box), but
   with 122 MB available and 215 MB in swap on 2026-10-09, and a deploy building a venv beside the
   live one needs more room than that.

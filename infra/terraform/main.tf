@@ -1,7 +1,7 @@
 ###############################################################################
 # Field Repository infrastructure: S3 (media) + IAM (programmatic media access)
 # + EC2 (FastAPI behind nginx; a t3.micro until the 26.04 rebuild approved on
-# 2026-10-09, a t3.small from it). Database stays on Supabase, so the box
+# 2026-10-09, a t3.small from it, a t3.medium (4 GiB) from 2026-11-08). Database stays on Supabase, so the box
 # is stateless and can be rebuilt anytime without data loss.
 #
 # Usage:
@@ -383,8 +383,8 @@ resource "aws_security_group" "cloudfront_origin" {
   }
 }
 
-# t3.small (2 GiB) and an ENCRYPTED root volume: what the owner approved on 2026-10-09 for the 26.04
-# rebuild. The t3.micro this replaces had 909 MB, ran the API and the queue with 122 MB available and
+# t3.medium (4 GiB), approved by the owner on 2026-11-08, and an ENCRYPTED root volume: the 26.04
+# rebuild the owner approved on 2026-10-09 was a t3.small (2 GiB). The t3.micro this replaces had 909 MB, ran the API and the queue with 122 MB available and
 # 215 MB in swap that day, and its root volume was never encrypted (nor is EBS encryption on by
 # default in this account). Both change the instance on an `apply`, as the AMI filter above does. The
 # rebuild itself was planned with the AWS CLI, from before this module had state (it has since
@@ -392,7 +392,7 @@ resource "aws_security_group" "cloudfront_origin" {
 # this resource.
 resource "aws_instance" "api" {
   ami                    = data.aws_ami.ubuntu.id
-  instance_type          = "t3.small"
+  instance_type          = "t3.medium"
   key_name               = var.ssh_key_name
   vpc_security_group_ids = [aws_security_group.api.id, aws_security_group.cloudfront_origin.id]
   user_data              = file("${path.module}/user_data.sh")

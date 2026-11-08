@@ -336,7 +336,7 @@ flowchart TD
 
 | Server | Value |
 |---|---|
-| Box | one EC2 `t3.small` (2 vCPU, 2 GiB) on Ubuntu 26.04, encrypted gp3 root |
+| Box | one EC2 `t3.medium` (2 vCPU, 4 GiB) on Ubuntu 26.04, encrypted gp3 root |
 | Interpreter | upstream CPython 3.15.2 from a checksum-pinned python-build-standalone build, the release CI tests |
 | Releases | blue/green on ports 8000 and 8001 behind nginx; `backend/deploy/blue_green.sh rollback` goes back |
 | Release venv | built on the GitHub runner and named after the interpreter, the lock and the schema; a code-only release ships none |

@@ -49,7 +49,7 @@ and there is no Let's Encrypt renewal to keep alive.
 
 | Thing | Id |
 |---|---|
-| Instance | `i-012eae3e379fbbeac` (`fieldrepo-api`, t3.small, Elastic IP `15.207.145.174`) |
+| Instance | `i-012eae3e379fbbeac` (`fieldrepo-api`, t3.medium, Elastic IP `15.207.145.174`) |
 | Old group (kept, still attached) | `sg-0a3ffc8a00c9246f1` (`fieldrepo-api`) |
 | New group | `sg-06f188c79829d38d7` (`cloudfront-origin-only-documentation`) |
 | Prefix list | `pl-9aa247f3` |
