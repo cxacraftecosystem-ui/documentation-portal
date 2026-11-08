@@ -27,8 +27,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up JDK 25
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
@@ -96,7 +94,7 @@ jobs:
       - name: Upload the debug APK
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: app-debug-${{ github.event.workflow_run.head_sha || github.sha }}
+          name: app-debug-${{ github.sha }}
           path: android/app/build/outputs/apk/debug/FieldRepository_Android-App_Debug-Build_v*.apk
           if-no-files-found: error
           retention-days: 14

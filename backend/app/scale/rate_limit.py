@@ -136,6 +136,7 @@ def _forwarded_entries(scope: Scope) -> list[str]:
 
 def _networks(raw: str) -> tuple[Any, ...]:
     found = []
+    ignored = 0
     for part in (raw or "").split(","):
         text = part.strip()
         if not text:
@@ -143,7 +144,9 @@ def _networks(raw: str) -> tuple[Any, ...]:
         try:
             found.append(ipaddress.ip_network(text, strict=False))
         except ValueError:
-            logger.warning("rate limits: TRUSTED_PROXY_CIDRS entry %r is not a network; ignored", text)
+            ignored += 1
+    if ignored:
+        logger.warning("rate limits: %d TRUSTED_PROXY_CIDRS entries are not networks; ignored", ignored)
     return tuple(found)
 
 

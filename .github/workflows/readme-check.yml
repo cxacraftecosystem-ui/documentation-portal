@@ -43,6 +43,9 @@ jobs:
         with:
           node-version: "26"
 
+      - name: Kit tool tests
+        run: node --test docs/readme-kit/tools/markdown.test.mjs
+
       - name: Kit assets match kit.json
         run: |
           node docs/readme-kit/tools/build.mjs

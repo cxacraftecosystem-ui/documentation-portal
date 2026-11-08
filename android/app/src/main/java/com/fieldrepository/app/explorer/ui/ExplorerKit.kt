@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -240,6 +241,7 @@ enum class ExplorerMarkKind(val icon: ImageVector, val tag: String) {
     SAVED(Icons.Filled.Check, "saved"),
     FAILED(Icons.Filled.PriorityHigh, "failed"),
     RUNNING(Icons.Filled.ArrowDownward, "running"),
+    REDO(Icons.Filled.Close, "redo"),
 }
 
 @Composable

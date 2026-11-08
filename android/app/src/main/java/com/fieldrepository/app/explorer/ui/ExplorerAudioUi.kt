@@ -176,7 +176,7 @@ internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, star
     }
     val wave by produceState(initialValue = ExplorerPeaks(), entry.mediaId) {
         val id = entry.mediaId ?: return@produceState
-        value = runCatching { ExplorerMoreApi.of(context).peaks(id) }.getOrDefault(ExplorerPeaks())
+        value = loadPeaks { ExplorerMoreApi.of(context).peaks(id) }
     }
     var clear by rememberSaveable(entry.key) { mutableStateOf(wave.isolated) }
     LaunchedEffect(wave.isolated) { if (wave.isolated) clear = true }
@@ -543,3 +543,12 @@ internal fun MiniPlayer(onOpen: () -> Unit) {
         }
     }
 }
+
+internal suspend fun loadPeaks(fetch: suspend () -> ExplorerPeaks): ExplorerPeaks =
+    try {
+        fetch()
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (failed: Exception) {
+        ExplorerPeaks()
+    }

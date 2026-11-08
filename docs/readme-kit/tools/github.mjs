@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tableCell } from "./markdown.mjs";
 
 const KIT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO = resolve(KIT, "..", "..");
@@ -357,8 +358,8 @@ await browser.close();
 writeFileSync(join(out, "report.tsv"), results.map((r) => `${r.state}\t${r.file}:${r.line}\t${(r.detail || "").replace(/\s+/g, " ")}`).join("\n") + "\n");
 writeFileSync(join(out, "clipped.tsv"), clipped.map((c) => [`${c.file}:${c.line}`, c.kind, c.text, c.tw, c.bw, c.box, Math.max(c.dx, c.dy)].join("\t")).join("\n") + (clipped.length ? "\n" : ""));
 if (process.env.GITHUB_STEP_SUMMARY) {
-  const rows = results.map((r) => `| ${r.state === "ok" ? "ok" : "**fail**"} | \`${r.file}:${r.line}\` | ${(r.detail || "").replace(/\s+/g, " ").replace(/\|/g, "\\|").slice(0, 300)} |`);
-  const clipRows = clipped.map((c) => `| \`${c.file}:${c.line}\` | ${c.kind} | ${c.text.replace(/\|/g, "\\|")} | ${c.tw} | ${c.bw} |`);
+  const rows = results.map((r) => `| ${r.state === "ok" ? "ok" : "**fail**"} | \`${r.file}:${r.line}\` | ${tableCell(r.detail, 300)} |`);
+  const clipRows = clipped.map((c) => `| \`${c.file}:${c.line}\` | ${tableCell(c.kind)} | ${tableCell(c.text)} | ${c.tw} | ${c.bw} |`);
   const clipTable = clipped.length ? `#### Clipped labels\n\n| Block | Kind | Label | Text px | Box px |\n|---|---|---|---|---|\n${clipRows.join("\n")}\n\n` : "";
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Mermaid on github.com at ${sha.slice(0, 7)}\n\n| | Block | Result |\n|---|---|---|\n${rows.join("\n")}\n\n${clipTable}`);
 }

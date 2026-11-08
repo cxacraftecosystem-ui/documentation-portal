@@ -150,7 +150,7 @@ def vtt(doc: RenderDoc, track: str = ORIGINAL) -> str:
     return "\n\n".join(["WEBVTT", *cues])
 
 
-_XML_INVALID = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_XML_INVALID = dict.fromkeys([*range(0x00, 0x09), 0x0B, 0x0C, *range(0x0E, 0x20)])
 
 _CONTENT_TYPES = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -172,7 +172,7 @@ _RELS = (
 
 
 def _x(text: str) -> str:
-    return escape(_XML_INVALID.sub("", str(text or "")))
+    return escape(str(text or "").translate(_XML_INVALID))
 
 
 def _run(text: str, *, bold: bool = False, italic: bool = False, size: int | None = None, mono: bool = False) -> str:

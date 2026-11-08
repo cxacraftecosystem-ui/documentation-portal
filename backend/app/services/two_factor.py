@@ -319,6 +319,11 @@ def _user_field(user: Any, name: str) -> Any:
     return user.get(name) if isinstance(user, dict) else getattr(user, name, None)
 
 
+def _user_id(user: Any) -> str:
+    raw = user.get("id") if isinstance(user, dict) else getattr(user, "id", None)
+    return str(raw) if raw is not None else "-"
+
+
 async def consume_totp(user: Any, code: str, at: float | None = None) -> bool:
     secret = decrypt_secret(_user_field(user, "twoFactorSecret"))
     if not secret:
@@ -335,7 +340,7 @@ async def consume_totp(user: Any, code: str, at: float | None = None) -> bool:
         data={"twoFactorLastStep": step},
     )
     if not won:
-        logger.info("two-factor: replayed code refused for user %s", _user_field(user, "id"))
+        logger.info("two-factor: replayed code refused for user %s", _user_id(user))
     invalidate_cached_user(_user_field(user, "id"))
     if won:
         await reencrypt_if_stale(_user_field(user, "id"), "twoFactorSecret", _user_field(user, "twoFactorSecret"), secret)
@@ -558,7 +563,7 @@ async def notify_second_factor_locked(user: Any, until: datetime, budget: Attemp
             email_params=params,
         )
     except Exception:
-        logger.exception("mail: could not queue a second-factor lock notice for %s", _user_field(user, "id"))
+        logger.exception("mail: could not queue a second-factor lock notice for %s", _user_id(user))
 
 
 FIRST_PASSWORD_CODE_ATTEMPTS = 5

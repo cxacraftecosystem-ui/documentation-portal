@@ -95,6 +95,13 @@
         <receiver
             android:name=".explorer.data.ExplorerCancelReceiver"
             android:exported="false" />
+        <activity
+            android:name=".explorer.data.ExplorerOpenActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <service
             android:name=".explorer.data.ExplorerAudioService"
             android:exported="true"

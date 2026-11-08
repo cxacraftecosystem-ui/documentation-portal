@@ -30,6 +30,14 @@ object ExplorerNotifications {
         )
     }
 
+    private fun fileAction(context: Context, requestCode: Int, jobId: String, action: ExplorerOpenAction): PendingIntent =
+        PendingIntent.getActivity(
+            context,
+            requestCode,
+            ExplorerOpenActivity.intent(context, jobId, action),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
     private fun launch(context: Context): PendingIntent? {
         val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -122,12 +130,11 @@ object ExplorerNotifications {
             .setContentText(finishedText(job))
             .setAutoCancel(true)
         val uri = job.result?.let { ExplorerSaver.shareUri(context, it.location, it.uri) }
-        val mime = job.result?.mimeType ?: job.request.mimeType
         if (done && uri != null) {
-            val view = ExplorerOpen.viewIntent(uri, mime)
-            builder.setContentIntent(PendingIntent.getActivity(context, idFor(job.id), view, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-            builder.addAction(0, ExplorerText.open, PendingIntent.getActivity(context, idFor(job.id) + 1, view, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-            builder.addAction(0, ExplorerText.share, PendingIntent.getActivity(context, idFor(job.id) + 2, ExplorerOpen.shareIntent(uri, mime), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            val view = fileAction(context, idFor(job.id), job.id, ExplorerOpenAction.VIEW)
+            builder.setContentIntent(view)
+            builder.addAction(0, ExplorerText.open, fileAction(context, idFor(job.id) + 1, job.id, ExplorerOpenAction.VIEW))
+            builder.addAction(0, ExplorerText.share, fileAction(context, idFor(job.id) + 2, job.id, ExplorerOpenAction.SHARE))
         } else {
             val open = launch(context)
             open?.let { builder.setContentIntent(it) }

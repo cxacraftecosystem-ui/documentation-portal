@@ -59,7 +59,7 @@ THUMB_PX = 48
 TOP = 4
 IST = timezone(timedelta(hours=5, minutes=30))
 
-_ILLEGAL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]|[\ud800-\udfff]")
+_ILLEGAL = dict.fromkeys([*range(0x00, 0x09), 0x0B, 0x0C, *range(0x0E, 0x20), *range(0xD800, 0xE000), 0xFFFE, 0xFFFF])
 _SHEET_BAD = re.compile(r"[\[\]:*?/\\]")
 _TABLE_BAD = re.compile(r"[^A-Za-z0-9_]")
 
@@ -203,7 +203,7 @@ def human_size(value: float | None) -> str:
 
 
 def clean(text: Any) -> str:
-    out = _ILLEGAL.sub("", str(text))
+    out = str(text).translate(_ILLEGAL)
     if len(out) > CELL_MAX:
         out = out[: CELL_MAX - 1] + "…"
     return out

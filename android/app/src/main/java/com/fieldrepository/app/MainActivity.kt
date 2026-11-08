@@ -10229,6 +10229,17 @@ private val CompletionAmber = Color(0xFFE2A400)
 private val CompletionRed = Color(0xFFD25141)
 private val CompletionEmpty: Color get() = com.fieldrepository.app.ui.Hairline
 
+@Composable
+internal fun CompletionCellMark(status: String?, derived: Boolean) {
+    val mark = when {
+        status == "COMPLETED" || (status == null && derived) -> Triple(com.fieldrepository.app.explorer.ui.ExplorerMarkKind.SAVED, Color.White, CompletionGreen)
+        status == "NEEDS_REVIEW" -> Triple(com.fieldrepository.app.explorer.ui.ExplorerMarkKind.FAILED, Color(0xFF3B2300), CompletionAmber)
+        status == "NEEDS_REDO" -> Triple(com.fieldrepository.app.explorer.ui.ExplorerMarkKind.REDO, Color.White, CompletionRed)
+        else -> null
+    } ?: return
+    com.fieldrepository.app.explorer.ui.ExplorerMarkBadge(mark.first, background = mark.second, tint = mark.third, size = 22.dp, icon = 14.dp)
+}
+
 private fun completionColor(status: String?, derived: Boolean): Color = when (status) {
     "COMPLETED" -> CompletionGreen
     "NEEDS_REVIEW" -> CompletionAmber
@@ -10426,13 +10437,7 @@ private fun CompletionMatrixCard(
                                                 .semantics(mergeDescendants = true) { contentDescription = cellWords },
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            if (status == "COMPLETED" || (status == null && derived)) {
-                                                Text("✓", color = Color.White, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                                            } else if (status == "NEEDS_REVIEW") {
-                                                Text("!", color = Color(0xFF3B2300), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                                            } else if (status == "NEEDS_REDO") {
-                                                Text("✗", color = Color.White, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                                            }
+                                            CompletionCellMark(status, derived)
                                         }
                                     }
                                 }
