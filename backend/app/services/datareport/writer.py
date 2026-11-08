@@ -59,7 +59,7 @@ THUMB_PX = 48
 TOP = 4
 IST = timezone(timedelta(hours=5, minutes=30))
 
-_ILLEGAL = dict.fromkeys([*range(0x00, 0x09), 0x0B, 0x0C, *range(0x0E, 0x20), *range(0xD800, 0xE000), 0xFFFE, 0xFFFF])
+_ILLEGAL = dict.fromkeys([*range(0x09), 0x0B, 0x0C, *range(0x0E, 0x20), *range(0xD800, 0xE000), 0xFFFE, 0xFFFF])
 _SHEET_BAD = re.compile(r"[\[\]:*?/\\]")
 _TABLE_BAD = re.compile(r"[^A-Za-z0-9_]")
 

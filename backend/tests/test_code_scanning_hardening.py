@@ -8,7 +8,7 @@ from app.services import two_factor
 from app.services.datareport import writer
 from app.transcription.transcript import render
 
-CONTROL = "".join(chr(c) for c in (*range(0x00, 0x09), 0x0B, 0x0C, *range(0x0E, 0x20)))
+CONTROL = "".join(chr(c) for c in (*range(0x09), 0x0B, 0x0C, *range(0x0E, 0x20)))
 
 
 def test_a_bad_proxy_entry_is_counted_not_echoed(caplog) -> None:

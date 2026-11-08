@@ -747,7 +747,7 @@ def _refuse_code(detail: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail, headers={TWO_FACTOR_REQUIRED_HEADER: "1"})
 
 
-async def _first_password_code_allowance(account: Any, code: str) -> Any:
+async def _first_sign_in_code_allowance(account: Any, code: str) -> Any:
     if not code:
         raise _refuse_code(TWO_FACTOR_CODE_NEEDED_DETAIL)
     fresh = await db.user.find_unique(where={"id": account.id}) or account
@@ -766,7 +766,7 @@ async def _set_first_password(
 ) -> dict[str, bool]:
     two_step = bool(getattr(current_user, "twoFactorEnabled", False))
     code = (payload.twoFactorCode or "").strip()
-    fresh = await _first_password_code_allowance(current_user, code) if two_step else current_user
+    fresh = await _first_sign_in_code_allowance(current_user, code) if two_step else current_user
     try:
         provider, proof_expires_at = await _provider_proof(payload, current_user)
     except HTTPException:

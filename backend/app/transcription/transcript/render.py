@@ -150,7 +150,7 @@ def vtt(doc: RenderDoc, track: str = ORIGINAL) -> str:
     return "\n\n".join(["WEBVTT", *cues])
 
 
-_XML_INVALID = dict.fromkeys([*range(0x00, 0x09), 0x0B, 0x0C, *range(0x0E, 0x20)])
+_XML_INVALID = dict.fromkeys([*range(0x09), 0x0B, 0x0C, *range(0x0E, 0x20)])
 
 _CONTENT_TYPES = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
