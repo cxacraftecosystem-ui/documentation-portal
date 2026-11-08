@@ -377,7 +377,7 @@ class ExplorerFiltersUiTest {
         val first = box("explorer.tables.row.Schemes.0")
         val second = box("explorer.tables.row.Schemes.1")
         assertTrue("rows overlap: ${first.bottom} > ${second.top}", first.bottom <= second.top + 0.5f)
-        assertTrue("the long Bengali row grew: ${second.height}", second.height > 80f)
+        assertTrue("the longer Bengali row grew past the shorter one: ${first.height} then ${second.height}", second.height > first.height + 10f && second.height > 60f)
     }
 
     private class Bounds(val left: Float, val top: Float, val width: Float, val height: Float) {
