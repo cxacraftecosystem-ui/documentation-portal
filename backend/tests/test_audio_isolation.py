@@ -98,9 +98,14 @@ def world(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
         state.updates.append(data)
         return SimpleNamespace(**data)
 
+    async def delete_many(*, where: dict[str, Any]) -> int:
+        return 0
+
     db = SimpleNamespace(
         mediafile=SimpleNamespace(find_unique=find_unique, update=update),
-        mediaprocessingjob=SimpleNamespace(find_first=find_first, create=create),
+        mediaprocessingjob=SimpleNamespace(
+            find_first=find_first, create=create, delete_many=delete_many
+        ),
     )
 
     async def enabled() -> bool:
