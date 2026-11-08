@@ -237,6 +237,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build the release venv and its Prisma client on the runner
+        env:
+          GH_API_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           eval "$(sed -nE 's/^[[:space:]]*(cpython|pbs_release|pbs_url|pbs_sha256)=([^[:space:]]+)[[:space:]]*$/\1=\2/p' .github/workflows/deploy-backend.yml)"
@@ -244,8 +246,10 @@ jobs:
           [ -n "${cpython:-}" ] && [ -n "${pbs_sha256:-}" ] && [ -n "$node_pin" ] || { echo "::error::could not read the interpreter or Node pin"; exit 1; }
           prefix="/opt/cpython/${cpython}+${pbs_release}"
           py="$prefix/bin/python${cpython%.*}"
-          curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 5 --retry-all-errors \
-            --connect-timeout 20 --max-time 900 -o "$RUNNER_TEMP/cpython.tar.gz" "$pbs_url"
+          curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 2 --retry-all-errors \
+            --connect-timeout 20 --max-time 900 -o "$RUNNER_TEMP/cpython.tar.gz" "$pbs_url" \
+            || curl -fsSL --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors --connect-timeout 20 --max-time 900 \
+              -H "Accept: application/octet-stream" -H "Authorization: Bearer ${GH_API_TOKEN}" -o "$RUNNER_TEMP/cpython.tar.gz" "https://api.github.com/repos/astral-sh/python-build-standalone/releases/assets/678585943"
           got="$(sha256sum "$RUNNER_TEMP/cpython.tar.gz" | cut -d' ' -f1)"
           if [ "$got" != "$pbs_sha256" ]; then
             echo "::error::REFUSED on the runner: ${pbs_url} hashed to ${got}, and the pin says ${pbs_sha256}. Nothing was unpacked and nothing reached the box."
@@ -358,8 +362,10 @@ jobs:
             dl="$(mktemp -d "$app/.cpython-download.XXXXXX")"
             stage=""
             trap 'rm -rf "$dl"; if [ -n "$stage" ]; then sudo rm -rf "$stage"; fi' EXIT
-            curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 5 --retry-all-errors \
-              --connect-timeout 20 --max-time 900 -o "$dl/cpython.tar.gz" "$pbs_url"
+            curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 2 --retry-all-errors \
+              --connect-timeout 20 --max-time 900 -o "$dl/cpython.tar.gz" "$pbs_url" \
+              || curl -fsSL --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors --connect-timeout 20 --max-time 900 \
+                -H "Accept: application/octet-stream" -o "$dl/cpython.tar.gz" "https://api.github.com/repos/astral-sh/python-build-standalone/releases/assets/678585943"
             sudo install -d -m 0755 -o root -g root /opt/cpython
             sudo rm -rf /opt/cpython/.stage-*
             stage="$(sudo mktemp -d /opt/cpython/.stage-XXXXXX)"
