@@ -298,7 +298,7 @@ class ExplorerFiltersUiTest {
 
     @QFeature("X13")
     @Test fun filtersReachTheTablesAndTheTranscripts() {
-        show(width = 1200)
+        show(1200)
         pick("craft", "c1", "c2")
         compose.waitUntil(10_000) { tree.calls.contains("tree:$ROOT:craftIds=c1,c2") }
         scrollTo("explorer.tables.toggle")
