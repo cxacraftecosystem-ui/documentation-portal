@@ -91,7 +91,7 @@ internal fun PeerResults(
         val ready = load as? PeerLoad.Ready
         Text(
             ready?.last?.portalLabel?.takeIf { it.isNotBlank() }?.let { "From $it" } ?: FilterText.otherPortal,
-            style = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.semantics { heading() },
