@@ -363,3 +363,44 @@ def rich_raw(sql: str, *args: Any) -> list[dict[str, Any]]:
         ids = list(args[0]) if args else []
         return [{"id": f"gs-{m}", "mediaFileId": m, "startMs": 1000, "termId": "g1", "term": "dabu", "gloss": "mud resist paste", "occurrences": len(ids), "craft": "Block printing", "namesCraft": None} for m in ids]
     return turns_raw(sql, *args)
+
+
+_SI = re.compile(r"<si>(.*?)</si>", re.DOTALL)
+_IS = re.compile(r"<is>(.*?)</is>", re.DOTALL)
+_RUN = re.compile(r"<r>(.*?)</r>", re.DOTALL)
+_TEXT = re.compile(r"<t(?:\s[^>]*)?>(.*?)</t>|<t(?:\s[^>]*)?/>", re.DOTALL)
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]|_x00(?:0[0-8]|0[bBcC]|0[eEfF]|1[0-9a-fA-F])_")
+
+
+def _unescape(text: str) -> str:
+    return text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&apos;", "'").replace("&amp;", "&")
+
+
+def string_problems(payload: bytes) -> list[str]:
+    problems: list[str] = []
+    with zipfile.ZipFile(io.BytesIO(payload)) as z:
+        parts = [(n, z.read(n).decode("utf-8")) for n in z.namelist() if n == "xl/sharedStrings.xml" or (n.startswith("xl/worksheets/sheet") and n.endswith(".xml"))]
+    for name, xml in parts:
+        items = _SI.findall(xml) if name.endswith("sharedStrings.xml") else _IS.findall(xml)
+        for index, item in enumerate(items):
+            where = f"{name}#{index}"
+            runs = _RUN.findall(item)
+            if runs:
+                if len(runs) < 2:
+                    problems.append(f"{where}: a rich string with {len(runs)} run")
+                texts = []
+                for run in runs:
+                    found = _TEXT.search(run)
+                    if found is None or not found.group(1):
+                        problems.append(f"{where}: a run without text")
+                        continue
+                    texts.append(_unescape(found.group(1)))
+                text = "".join(texts)
+            else:
+                found = _TEXT.search(item)
+                text = _unescape(found.group(1) or "") if found else ""
+            if _CONTROL.search(text):
+                problems.append(f"{where}: control characters")
+            if len(text) > 32767:
+                problems.append(f"{where}: {len(text)} characters")
+    return problems

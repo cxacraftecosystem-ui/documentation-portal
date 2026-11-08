@@ -190,6 +190,8 @@ class SharedStringSheet(Worksheet):
             self.table[row][col] = cell._replace(string=self.str_table._get_shared_string_index(cell.string))
 
     def _write_string(self, row: int, col: int, string: str, cell_format: Any = None) -> Any:
+        if string == "":
+            return self._write_blank(row, col, None, cell_format)
         result = super()._write_string(row, col, string, cell_format)
         if result in (0, -2):
             self._share(row, col)
@@ -280,6 +282,8 @@ def run_xml(runs: list[tuple[str, Any]], italic: bool, brand: str = BRAND) -> st
     link = f"<rPr>{slant}<u/><sz val=\"10\"/><color rgb=\"FF{brand}\"/><rFont val=\"{FONT}\"/><family val=\"{FONT_FAMILY}\"/></rPr>"
     out = []
     for text, style in runs:
+        if not text:
+            continue
         space = ' xml:space="preserve"' if text != text.strip() or "\n" in text else ""
         head = link if style == "link" else bold if style else ""
         out.append(f"<r>{head}<t{space}>{_escape(text)}</t></r>")
@@ -572,11 +576,10 @@ class ReportWriter:
         def entry(sheet_name: str, label: str, kind: str, about: str, where: str) -> None:
             nonlocal row
             row += 1
-            ws.write_string(row, 0, clean(sheet_name)[:CELL_LIMIT], body)
-            ws.write_string(row, 1, clean(label)[:CELL_LIMIT], body)
-            ws.write_string(row, 2, clean(self.text(f"dict.kind.{kind}"))[:CELL_LIMIT], body)
-            ws.write_string(row, 3, clean(about)[:CELL_LIMIT], body)
-            ws.write_string(row, 4, clean(where)[:CELL_LIMIT], source)
+            for col, value, style in ((0, sheet_name, body), (1, label, body), (2, self.text(f"dict.kind.{kind}"), body), (3, about, body), (4, where, source)):
+                text = clean(value)[:CELL_LIMIT]
+                if text:
+                    ws.write_string(row, col, text, style)
 
         for summary in self.summaries:
             for column in summary.columns:
@@ -1039,12 +1042,26 @@ class _SheetState:
         if kept:
             kept[-1] = (kept[-1][0].rstrip(), kept[-1][1])
         kept.append((suffix, "link" if link else False))
-        raw = "".join(text for text, _style in kept)
         if link:
             self.urls += 1
             self.w.url(self.ws, self.row, col, link, fmt, string=suffix)
+        self._put_runs(col, kept, row_kind, fmt)
+
+    def _put_runs(self, col: int, runs: list[tuple[str, Any]], row_kind: str, fmt: Any) -> None:
+        merged: list[tuple[str, Any]] = []
+        for text, style in runs:
+            if not text:
+                continue
+            if merged and merged[-1][1] == style:
+                merged[-1] = (merged[-1][0] + text, style)
+            else:
+                merged.append((text, style))
+        raw = "".join(text for text, _style in merged)
+        if len(merged) < 2 or not any(style for _text, style in merged):
+            self.ws.write_string(self.row, col, raw, fmt)
+            return
         italic = row_kind in ("translation", "summary_translation")
-        self.ws.write_runs(self.row, col, run_xml(kept, italic, self.w.brand), raw, fmt)
+        self.ws.write_runs(self.row, col, run_xml(merged, italic, self.w.brand), raw, fmt)
 
     def _rich(self, col: int, value: Rich, row_kind: str, fmt: Any) -> None:
         runs: list[tuple[str, bool]] = []
@@ -1063,11 +1080,7 @@ class _SheetState:
         if used > CELL_LIMIT:
             self._long(col, list(runs), row_kind, fmt)
             return
-        if len(runs) == 1 or not any(bold for _part, bold in runs):
-            self.ws.write_string(self.row, col, "".join(part for part, _bold in runs), fmt)
-            return
-        italic = row_kind in ("translation", "summary_translation")
-        self.ws.write_runs(self.row, col, run_xml(runs, italic, self.w.brand), "".join(part for part, _bold in runs), fmt)
+        self._put_runs(col, list(runs), row_kind, fmt)
 
     def finish(self) -> SheetSummary:
         w, ws, sheet, p = self.w, self.ws, self.sheet, self.p

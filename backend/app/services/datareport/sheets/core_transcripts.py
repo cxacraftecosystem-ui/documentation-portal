@@ -181,6 +181,8 @@ def clock(ms: Any) -> str:
 def turn_runs(speaker: str, words: str) -> Rich | str:
     if not speaker:
         return words
+    if not (words or "").strip():
+        return speaker
     return Rich(((speaker, True), (f"  {words}", False)))
 
 

@@ -1129,6 +1129,14 @@ jobs:
           REPORT_OUT: ${{ runner.temp }}/after
         run: python -m pytest tests/test_report_budget.py -k production -s -rf -p no:cacheprovider
 
+      - name: Validate every string in the production-sized workbook
+        run: |
+          set -euo pipefail
+          python -c "import sys; from pathlib import Path; from tests import report_fixtures as rf; found = rf.string_problems(Path(sys.argv[1]).read_bytes()); print(f'string problems: {len(found)}'); print(chr(10).join(found[:40])); sys.exit(1 if found else 0)" "$RUNNER_TEMP/after/after-main.xlsx"
+
+      - name: Every report option round-trips, with valid strings in every workbook
+        run: python -m pytest tests/test_report_options_matrix.py -rf -p no:cacheprovider
+
       - name: Build the same fixture with the builder on main
         run: |
           set -euo pipefail

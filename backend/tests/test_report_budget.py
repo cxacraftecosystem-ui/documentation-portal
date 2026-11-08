@@ -95,6 +95,7 @@ def _row_number(attrs: str) -> int:
 
 def assert_contract(payload: bytes) -> dict[str, Any]:
     assert payload[:4] == b"PK\x03\x04"
+    assert rf.string_problems(payload) == []
     sheets = sheet_parts(payload)
     wrapped = wrapped_styles(payload)
     report: dict[str, Any] = {"sheets": {}, "tables": 0}
@@ -250,6 +251,21 @@ def test_transcript_links_are_one_set_per_recording() -> None:
     assert sum(1 for _r, url in links if "t=" in url) == 2
     starts = [ws.cell(row=r, column=header.index("Start") + 1).value for r in range(HEADER_ROW + 1, ws.max_row + 1) if ws.cell(row=r, column=header.index("Row") + 1).value == "Original"]
     assert starts and all(isinstance(v, str) and re.fullmatch(r"\d+:\d{2}", v) for v in starts)
+
+
+def test_rich_strings_never_carry_an_empty_or_lone_run() -> None:
+    rows = [
+        {"name": "a", "text": contract.Rich((("Speaker 1", True), ("  ", False))), ROW_FULL: None},
+        {"name": "b", "text": contract.Rich((("Speaker 1", True), ("", False), ("words", False))), ROW_FULL: None},
+        {"name": "c", "text": contract.Rich((("Speaker 1", True), (" " * 1500, False))), ROW_FULL: "https://portal.example.org/data/go/transcript/m0/docx"},
+        {"name": "d", "text": contract.Rich((("", True), ("x" * 1500, False))), ROW_FULL: "https://portal.example.org/data/go/transcript/m0/docx"},
+        {"name": "e", "text": contract.Rich((("Speaker 1", True),)), ROW_FULL: None},
+    ]
+    sheet = Sheet("edge", "Edge", [Column("name", "Name", "text"), Column("text", "Text", "longtext")], rows, count=len(rows))
+    payload = _write([sheet])
+    assert rf.string_problems(payload) == []
+    assert "<t></t>" not in parts_of(payload)["xl/sharedStrings.xml"]
+    assert core_transcripts.turn_runs("Speaker 1", "  ") == "Speaker 1"
 
 
 def _long_sheet(text: str, *, full: str | None, rich: bool = False) -> Sheet:

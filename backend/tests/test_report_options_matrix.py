@@ -48,6 +48,7 @@ def make(monkeypatch: pytest.MonkeyPatch) -> Any:
 def _render(ctx: contract.ReportContext) -> tuple[Any, bytes, list[str]]:
     failed: list[str] = []
     payload = asyncio.run(build.render_parts(ctx, failed)).main
+    assert rf.string_problems(payload) == []
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         book = openpyxl.load_workbook(io.BytesIO(payload))
