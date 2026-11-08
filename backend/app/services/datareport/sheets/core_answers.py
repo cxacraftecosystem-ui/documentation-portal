@@ -26,7 +26,7 @@ COLUMNS = [
     Column("language", "Language", "text", "Language of the answer text.", width=10, source="QuestionnaireAnswerRevision.languageCode"),
     Column("answer", "Answer", "longtext", "The answer as recorded, or its English translation on translation rows.", width=60, wrap=True, source="QuestionnaireResponse.answerText,QuestionnaireAnswerRevision.text,TranscriptDraftCitation.english"),
     Column("status", "Status", "status", "Answer status; on translation rows: Translated, Already English or Not requested.", width=18, source="QuestionnaireAnswerRevision.status"),
-    Column("origin", "Origin", "text", "How the answer was made: typed, dictated, drafted from a recording.", width=16, source="QuestionnaireResponse.answerOrigin,QuestionnaireAnswerRevision.origin"),
+    Column("origin", "Origin", "text", "How the answer was made: typed, dictated, drafted from a recording.", width=16, tech=False, source="QuestionnaireResponse.answerOrigin,QuestionnaireAnswerRevision.origin"),
     Column("notes", "Notes", "longtext", "Notes on the answer.", width=30, wrap=True, source="QuestionnaireResponse.notes,QuestionnaireAnswerRevision.note"),
     Column("answeredBy", "Answered by", "text", "Who recorded the answer.", width=18, source="QuestionnaireResponse.answeredById,QuestionnaireAnswerRevision.actorId"),
     Column("answeredOn", "Answered on", "datetime", "When the answer was recorded (IST).", source="QuestionnaireResponse.updatedAt,QuestionnaireAnswerRevision.createdAt"),
@@ -87,6 +87,7 @@ class AnswersPlugin:
                 description="Every questionnaire answer, by sitting and question; answers recorded as audio carry their English translation underneath.",
                 row_pairs=True,
                 count=len(rows),
+                record_key="answerId",
             )
         ]
 

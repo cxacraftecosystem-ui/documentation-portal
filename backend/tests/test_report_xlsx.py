@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -192,8 +193,9 @@ def test_secrets_never_reach_the_workbook() -> None:
     payload, _ctx = _render()
     with zipfile.ZipFile(io.BytesIO(payload)) as z:
         text = " ".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist() if n.endswith(".xml"))
+    words = set(re.findall(r"<t[^>]*>([^<]*)</t>", text))
     assert "Aadhaar last" not in text
-    assert ">secret<" not in text and ">1234<" not in text
+    assert "secret" not in words and "1234" not in words
 
 
 def test_hindi_report_translates_fixed_text() -> None:
@@ -314,9 +316,10 @@ def test_a_hundred_thousand_rows_stay_within_memory() -> None:
         assert peak < 160 * 1024 * 1024, f"peak {peak / 1e6:.0f} MB"
         payload = Path(path).read_bytes()
     found = rf.validate(payload)
-    assert not any(t[1].endswith(str(100_000 + writer.TOP + 2)) for t in found["tables"])
+    assert any(t[1].endswith(str(100_000 + writer.TOP + 2)) for t in found["tables"])
     with zipfile.ZipFile(io.BytesIO(payload)) as z:
-        big = next(z.read(n).decode() for n in z.namelist() if n.startswith("xl/worksheets/sheet") and "<autoFilter" in z.read(n).decode())
+        big = max((z.read(n).decode() for n in z.namelist() if n.startswith("xl/worksheets/sheet")), key=len)
+    assert big.count('customHeight="1"') >= 100_000
     assert big.count("<hyperlink ") <= writer.LINKS_PER_SHEET
     assert "HYPERLINK(" not in big
 

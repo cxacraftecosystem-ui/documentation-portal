@@ -247,7 +247,8 @@ def production_material(recordings: int = 420, images: int = 540, artisans: int 
                 recordedAt=now, createdAt=now, updatedAt=now, uploadedById="u1", hasTranscript=audio, transcriptWithheld=False,
                 transcriptStatus="COMPLETED" if audio else None, mimeType="audio/aac" if audio else "image/jpeg", status="APPROVED",
                 contentSha256=f"{i:064x}", caption=f"Caption {i}", durationMs=600000 if audio else None,
-                title=f"Take {i}", device=("Phone", "Recorder")[i % 2], place=f"Village {i % 40}", season=("Summer", "Monsoon", "Winter")[i % 3], notes=ENGLISH[i % 4],
+                title=f"Take {i}", device=("Phone", "Recorder")[i % 2], place=f"Village {i % 40}", season=("Summer", "Monsoon", "Winter")[i % 3], notes=ENGLISH[i % 4] * (60 if i % 50 == 0 else 1),
+                extraMetadata={"device": {"model": f"Phone {i % 7}", "app": "0.0.15"}, "fieldProvenance": {"caption": {"at": "2026-11-05T10:30:00Z", "by": "u1", "byName": "Asha Rao"}}},
             )
         )
     products = [SimpleNamespace(id=f"p{i}", productName=f"Indigo stole {i}", artisanId=f"a{i}", workshopId=f"w{i % 8}", status="APPROVED", createdAt=now, updatedAt=now, createdById="u1", locationId=None, material="Cotton", price=1200 + i, description=ENGLISH[i % 4]) for i in range(120)]
@@ -274,8 +275,8 @@ def production_turns(version: str, segments_each: int) -> list[dict[str, Any]]:
             {
                 "id": f"t{p}-{mid}", "versionId": version, "mediaFileId": mid, "position": p, "speakerKey": f"s{speaker}",
                 "startMs": p * 6000, "endMs": p * 6000 + 5500, "language": "hi",
-                "machineText": f"{HINDI[(p + seed) % 4]}, {HINDI[(p + 1) % 4][: 20 + (seed + p) % 25]} {mid}.{p}", "editedText": None,
-                "machineEnglish": f"{ENGLISH[(p + seed) % 4]}, {ENGLISH[(p + 1) % 4][: 20 + (seed + p) % 25]} {mid}.{p}", "editedEnglish": None,
+                "machineText": f"{HINDI[(p + seed) % 4]}, {HINDI[(p + 1) % 4][: 20 + (seed + p) % 25]} {mid}.{p}" * (40 if p % 97 == 0 else 1), "editedText": None,
+                "machineEnglish": f"{ENGLISH[(p + seed) % 4]}, {ENGLISH[(p + 1) % 4][: 20 + (seed + p) % 25]} {mid}.{p}" * (40 if p % 97 == 0 else 1), "editedEnglish": None,
                 "translationStatus": "TRANSLATED", "translationModel": "claude", "editedAt": None, "editedById": None, "revision": 1,
                 "createdAt": None, "updatedAt": None,
             }
@@ -290,13 +291,6 @@ def production_raw(recordings: int = 420, segments_each: int = 49) -> Any:
         ids = list(args[0]) if args else []
         if '"TranscriptVersion"' in sql and "DISTINCT ON" in sql:
             return [{"id": f"v-{m}", "mediaFileId": m, "version": 1, "languages": ["hi"], "durationMs": segments_each * 6000, "translationStatus": "COMPLETED", "turnCount": segments_each} for m in ids if m in audio]
-        if "octet_length" in sql:
-            mine = [m for m in ids if m in audio]
-            if not mine:
-                return [{"turns": 0, "bytes": 0}]
-            sample = production_turns(f"v-{mine[0]}", segments_each)
-            per = sum(len(t["machineText"].encode()) + len(t["machineEnglish"].encode()) for t in sample)
-            return [{"turns": len(mine) * segments_each, "bytes": len(mine) * per}]
         if 'FROM "TranscriptTurn"' in sql and "GROUP BY" in sql:
             return [{"id": v, "done": segments_each, "total": segments_each} for v in ids]
         if 'FROM "TranscriptTurn"' in sql:

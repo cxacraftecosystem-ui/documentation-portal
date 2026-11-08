@@ -1141,7 +1141,8 @@ jobs:
       - name: Compare before and after
         run: |
           set -euo pipefail
-          python "$GITHUB_WORKSPACE/scripts/ci/report_probe.py" stats "$RUNNER_TEMP/before/main.xlsx" "$RUNNER_TEMP/after/after-main.xlsx" "$RUNNER_TEMP/after/after-companion.xlsx" | tee "$RUNNER_TEMP/compare.txt"
+          python "$GITHUB_WORKSPACE/scripts/ci/report_probe.py" stats "$RUNNER_TEMP/before/main.xlsx" "$RUNNER_TEMP/before/companion.xlsx" "$RUNNER_TEMP/after/after-main.xlsx" | tee "$RUNNER_TEMP/compare.txt"
+          test ! -e "$RUNNER_TEMP/after/after-companion.xlsx"
           sed -n '/^| file/,$p' "$RUNNER_TEMP/compare.txt" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Render sample sheets to PNG
@@ -1149,14 +1150,14 @@ jobs:
           set -euo pipefail
           shots="$RUNNER_TEMP/shots"
           probe="$GITHUB_WORKSPACE/scripts/ci/report_probe.py"
-          tcols="File,Row,Segment,Turn,Start,End,Speaker,Text,Status,Play from,Open"
+          tcols="File,Row,Turn,Start,End,Speaker,Text,Status,Open,Record ID"
           python "$probe" shot "$RUNNER_TEMP/before/main.xlsx" Transcripts "$shots/before-transcripts.png" --rows 30 --cols "$tcols" --lines 6
-          python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Transcripts "$shots/after-transcripts-main.png" --rows 12 --cols "$tcols" --lines 6
-          python "$probe" shot "$RUNNER_TEMP/after/after-companion.xlsx" Transcripts "$shots/after-transcripts-companion.png" --rows 30 --cols "$tcols"
+          python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Transcripts "$shots/after-transcripts.png" --rows 40 --cols "$tcols"
           python "$probe" shot "$RUNNER_TEMP/before/main.xlsx" Artisans "$shots/before-artisans.png" --rows 25
           python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Artisans "$shots/after-artisans.png" --rows 25
           python "$probe" shot "$RUNNER_TEMP/before/main.xlsx" Everything "$shots/before-everything.png" --rows 30
           python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Everything "$shots/after-everything.png" --rows 30
+          python "$probe" shot "$RUNNER_TEMP/after/after-main.xlsx" Provenance "$shots/after-provenance.png" --rows 30
           ls -la "$shots" || true
 
       - name: Upload the comparison and screenshots

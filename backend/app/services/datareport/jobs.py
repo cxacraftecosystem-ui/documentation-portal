@@ -187,14 +187,12 @@ def report_params(
     *,
     name: str | None = None,
     sheet: str | None = None,
-    parts: bool = False,
 ) -> dict[str, Any]:
     return {
         "path": path or "",
         "options": options_params(options),
         "name": name,
         "sheet": (sheet or "").strip() or None,
-        "parts": bool(parts),
     }
 
 
@@ -351,7 +349,7 @@ async def _build_report_file(record: dict[str, Any], user: Any, into: Path) -> t
     built = await build.build_report(user, str(params.get("path") or ""), chosen, status=record.get("status"))
     for hook in built.ctx.delivered:
         await hook()
-    payload, name, mime = build.deliverable(built, parts=bool(params.get("parts")))
+    payload, name, mime = build.deliverable(built)
     del built
     await asyncio.to_thread(into.write_bytes, payload)
     return name, mime, {}

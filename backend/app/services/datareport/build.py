@@ -3,12 +3,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import importlib
-import io
 import logging
 import os
 import pickle
 import tempfile
-import zipfile
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -27,9 +25,8 @@ from app.services.datareport import (
     writer,
 )
 from app.services.datareport.contract import (
-    ROW_DETAIL,
+    ROW_FULL,
     ROW_KIND,
-    Banner,
     Column,
     Link,
     ReportContext,
@@ -40,8 +37,6 @@ logger = logging.getLogger(__name__)
 
 WRITE_CHUNK = 2000
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-ZIP_MIME = "application/zip"
-DETAIL_INLINE_MAX = 8 * 1024 * 1024
 ENGLISH_ROWS = ("translation", "summary_translation")
 ORIGINAL_ROWS = ("original", "summary")
 CHANGES_EXTRA = "changes"
@@ -56,14 +51,11 @@ class BuiltReport:
     ctx: ReportContext
     cached: bool = False
     failed: list[str] = field(default_factory=list)
-    companion: bytes | None = None
-    companion_name: str | None = None
 
 
 @dataclass
 class Parts:
     main: bytes
-    companion: bytes | None = None
     stats: dict[str, Any] = field(default_factory=dict)
 
 
@@ -350,7 +342,7 @@ def shape(sheet: Sheet, options: contract.ReportOptions) -> Sheet:
         async for row in _iterate(sheet.rows):
             if skip and row.get(ROW_KIND) in skip:
                 continue
-            yield {k: (v.text if isinstance(v, Link) else v) for k, v in row.items()} if strip_links else row
+            yield {k: (v.text if isinstance(v, Link) else v) for k, v in row.items() if k != ROW_FULL} if strip_links else row
 
     return replace(sheet, columns=columns, rows=rows(), banners=[b for b in sheet.banners if options.links or not b.url], media_ids=sheet.media_ids if options.links else [])
 
@@ -430,10 +422,6 @@ async def core_kpis(ctx: ReportContext) -> list[tuple[str, str, str]]:
     return out
 
 
-def split_needed(chosen: list[tuple[Any, Sheet]]) -> bool:
-    return any(sheet.detail_bytes > DETAIL_INLINE_MAX for _plugin, sheet in chosen)
-
-
 def _level(ctx: ReportContext) -> str:
     return str(ctx.material.get("level") or "Repository")
 
@@ -471,17 +459,10 @@ async def render_parts(ctx: ReportContext, failed: list[str] | None = None) -> P
         with contextlib.suppress(Exception):
             ctx.thumbnails.update(await thumbnails.collect(list(store.rows.get("MediaFile", ()))))
     kpis = await core_kpis(ctx)
-    split = split_needed(chosen)
-    paths: list[str] = []
-    for _ in range(2 if split else 1):
-        handle, path = tempfile.mkstemp(suffix=".xlsx", prefix="report-")
-        os.close(handle)
-        paths.append(path)
+    handle, path = tempfile.mkstemp(suffix=".xlsx", prefix="report-")
+    os.close(handle)
     try:
-        brand = portals.current().brand
-        book = writer.ReportWriter(paths[0], ctx, brand=brand)
-        extra = writer.ReportWriter(paths[1], ctx, brand=brand) if split else None
-        companion_name = _companion_name(ctx.options, _level(ctx)) if split else ""
+        book = writer.ReportWriter(path, ctx, brand=portals.current().brand)
         everything: dict[str, int] = {}
         sizes = {str(_v(m, "id")): int(_v(m, "sizeBytes") or 0) for m in (ctx.material.get("records") or {}).get("media") or []}
         explicit = ctx.options.sheets is not None
@@ -497,38 +478,17 @@ async def render_parts(ctx: ReportContext, failed: list[str] | None = None) -> P
                     logger.exception("report bundle failed")
                 for mid in sheet.media_ids:
                     everything[mid] = sizes.get(mid, everything.get(mid, 0))
-            detail = extra is not None and sheet.detail_bytes > DETAIL_INLINE_MAX
-            if detail:
-                note = ctx.t("banner.companion", "Turn-by-turn rows are in the companion workbook {name}, which comes with this download and with the report pack.").format(name=companion_name)
-                state = book.begin(replace(sheet, banners=[*sheet.banners, Banner(note)][:3]), bundle_url=bundle_url)
-                about = ctx.t("note.transcriptTurns", "Each speaker turn of every recording, in the original followed by its English translation. The whole transcripts and their links are in the main workbook.")
-                twin = extra.begin(replace(sheet, description=about, note=about, banners=[], media_ids=[], link_bound=0), bundle_url=None)
-            else:
-                state = book.begin(sheet, bundle_url=bundle_url)
-                twin = None
+            state = book.begin(sheet, bundle_url=bundle_url)
             batch: list[dict[str, Any]] = []
-            full: list[dict[str, Any]] = []
             async for row in _iterate(sheet.rows):
-                if twin is not None:
-                    if row.get(ROW_DETAIL):
-                        full.append(row)
-                    else:
-                        batch.append(row)
-                else:
-                    batch.append(row)
+                batch.append(row)
                 if len(batch) >= WRITE_CHUNK:
                     await asyncio.to_thread(state.write_rows, batch)
                     batch = []
-                if len(full) >= WRITE_CHUNK:
-                    await asyncio.to_thread(twin.write_rows, full)
-                    full = []
             if batch:
                 await asyncio.to_thread(state.write_rows, batch)
-            if full and twin is not None:
-                await asyncio.to_thread(twin.write_rows, full)
             await asyncio.to_thread(book.end, state)
-            if twin is not None:
-                await asyncio.to_thread(extra.end, twin)
+        await asyncio.to_thread(book.write_provenance)
         everything_url = None
         if ctx.options.links and everything:
             with contextlib.suppress(Exception):
@@ -546,50 +506,21 @@ async def render_parts(ctx: ReportContext, failed: list[str] | None = None) -> P
         await asyncio.to_thread(book.write_dictionary)
         stats = {"main": _stats(book)}
         await asyncio.to_thread(writer.close, book)
-        main = _read(paths[0])
-        companion = None
-        if extra is not None:
-            await asyncio.to_thread(extra.write_cover, everything_url=None, everything_files=0, everything_bytes=0, kpis=list(kpis), charts=[])
-            await asyncio.to_thread(extra.write_dictionary)
-            stats["companion"] = _stats(extra)
-            await asyncio.to_thread(writer.close, extra)
-            companion = _read(paths[1])
+        main = _read(path)
     finally:
-        for path in paths:
-            with contextlib.suppress(OSError):
-                os.remove(path)
-    for payload in (main, companion):
-        if payload is not None and not payload.startswith(b"PK\x03\x04"):
-            raise HTTPException(status_code=500, detail="The report could not be written. Try again.")
-    return Parts(main, companion, stats)
+        with contextlib.suppress(OSError):
+            os.remove(path)
+    if not main.startswith(b"PK\x03\x04"):
+        raise HTTPException(status_code=500, detail="The report could not be written. Try again.")
+    return Parts(main, stats)
 
 
 async def render(ctx: ReportContext, failed: list[str] | None = None) -> bytes:
     return (await render_parts(ctx, failed)).main
 
 
-def _companion_name(options: contract.ReportOptions, level: str) -> str:
-    from app.services import naming
-
-    if options.name:
-        stem = options.name[: -len(".xlsx")] if options.name.lower().endswith(".xlsx") else options.name
-        return f"{stem}_Transcripts.xlsx"
-    return naming.export_filename("Dataset", "Report-Transcripts", "xlsx", subject="All Records" if level == "Repository" else level)
-
-
-def zip_name(built: BuiltReport) -> str:
-    stem = built.file_name[: -len(".xlsx")] if built.file_name.lower().endswith(".xlsx") else built.file_name
-    return f"{stem}.zip"
-
-
-def deliverable(built: BuiltReport, *, parts: bool) -> tuple[bytes, str, str]:
-    if not parts or not built.companion:
-        return built.payload, built.file_name, XLSX_MIME
-    out = io.BytesIO()
-    with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_STORED) as archive:
-        archive.writestr(built.file_name, built.payload)
-        archive.writestr(built.companion_name or "Transcripts.xlsx", built.companion)
-    return out.getvalue(), zip_name(built), ZIP_MIME
+def deliverable(built: BuiltReport) -> tuple[bytes, str, str]:
+    return built.payload, built.file_name, XLSX_MIME
 
 
 def _file_name(options: contract.ReportOptions, level: str) -> str:
@@ -635,16 +566,16 @@ async def build_report(user: Any, path: str, options: contract.ReportOptions, *,
     key, material, _cached = await browser._material(norm, scope, sees_spend)
     version = await report_cache.data_version(db)
     sig = signature(options, str(_v(user, "id") or ""))
-    file_key = f"xlsx3:{sig}"
+    file_key = f"xlsx4:{sig}"
     level = str(material.get("level") or "Repository")
     stored = report_cache.CACHE.file(key, file_key)
     if stored is not None:
-        payload, kpis, charts, companion = pickle.loads(stored)
+        payload, kpis, charts = pickle.loads(stored)
         ctx = await context(user, path, options, status_filter=status, db=db, material=material, scope=scope, data_version=version, cache_base=key)
         ctx.cover_kpis.extend(kpis)
         ctx.cover_charts.extend(charts)
         _stamp_hooks(ctx, user, path)
-        return BuiltReport(payload, _file_name(options, level), ctx, cached=True, companion=companion, companion_name=_companion_name(options, level) if companion else None)
+        return BuiltReport(payload, _file_name(options, level), ctx, cached=True)
 
     async def work() -> tuple[Parts, ReportContext, list[str]]:
         async with report_cache.QUEUE.slot():
@@ -663,9 +594,9 @@ async def build_report(user: Any, path: str, options: contract.ReportOptions, *,
     parts, ctx, failed = await work()
     if not failed:
         with contextlib.suppress(Exception):
-            report_cache.CACHE.put_file(key, file_key, pickle.dumps((parts.main, list(ctx.cover_kpis), list(ctx.cover_charts), parts.companion), protocol=pickle.HIGHEST_PROTOCOL))
+            report_cache.CACHE.put_file(key, file_key, pickle.dumps((parts.main, list(ctx.cover_kpis), list(ctx.cover_charts)), protocol=pickle.HIGHEST_PROTOCOL))
     _stamp_hooks(ctx, user, path)
-    return BuiltReport(parts.main, _file_name(options, level), ctx, failed=failed, companion=parts.companion, companion_name=_companion_name(options, level) if parts.companion else None)
+    return BuiltReport(parts.main, _file_name(options, level), ctx, failed=failed)
 
 
 async def build_xlsx(user: Any, path: str, options: contract.ReportOptions, *, status: str | None = None) -> tuple[bytes, str]:

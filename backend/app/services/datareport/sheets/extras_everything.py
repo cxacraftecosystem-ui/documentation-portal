@@ -5,7 +5,15 @@ from datetime import datetime
 from typing import Any
 
 from app.services.datareport import exclusions
-from app.services.datareport.contract import Banner, Column, ReportContext, Sheet, register
+from app.services.datareport.contract import (
+    ROW_FULL,
+    Banner,
+    Column,
+    Link,
+    ReportContext,
+    Sheet,
+    register,
+)
 from app.services.datareport.sheets.extras_common import (
     KIND_LABELS,
     KINDS,
@@ -17,12 +25,12 @@ from app.services.datareport.sheets.extras_common import (
     is_secret,
     json_text,
     label,
+    open_record,
     records,
     redact,
     say,
     scalar,
 )
-from app.services.datareport.writer import technical_key
 
 ROWS_MAX = 1_000_000
 _SKIP = frozenset({"id"})
@@ -60,8 +68,9 @@ def cell(value: Any) -> tuple[bool, Any]:
     return True, str(value)
 
 
-def _row(kind: str, rec: Any, model: str, field: str, value: Any, section: str | None = None) -> dict[str, Any]:
+def _row(kind: str, rec: Any, model: str, field: str, value: Any, section: str | None = None, full: str | None = None) -> dict[str, Any]:
     out: dict[str, Any] = {
+        ROW_FULL: full,
         "type": KIND_LABELS.get(kind, kind),
         "recordId": ident(rec),
         "recordName": label(kind, rec),
@@ -85,7 +94,7 @@ def _row(kind: str, rec: Any, model: str, field: str, value: Any, section: str |
     return out
 
 
-def _responses(kind: str, rec: Any) -> Iterator[dict[str, Any]]:
+def _responses(kind: str, rec: Any, full: str | None) -> Iterator[dict[str, Any]]:
     for response in g(rec, "responses") or []:
         question = g(response, "question")
         prompt = str(g(question, "prompt") or g(response, "questionId") or "")
@@ -93,17 +102,17 @@ def _responses(kind: str, rec: Any) -> Iterator[dict[str, Any]]:
         answer = g(response, "answerText")
         if answer is None or not str(answer).strip():
             continue
-        row = _row(kind, rec, "QuestionnaireResponse", "answerText", str(answer), section=section)
+        row = _row(kind, rec, "QuestionnaireResponse", "answerText", str(answer), section=section, full=full)
         row["field"] = prompt
         yield row
 
 
-def _steps(kind: str, rec: Any) -> Iterator[dict[str, Any]]:
+def _steps(kind: str, rec: Any, full: str | None) -> Iterator[dict[str, Any]]:
     for step in g(rec, "steps") or []:
         position = g(step, "sortOrder")
         name = g(step, "name")
         if name:
-            yield _row(kind, rec, "ProcessStep", "name", str(name), section=f"Step {position}")
+            yield _row(kind, rec, "ProcessStep", "name", str(name), section=f"Step {position}", full=full)
 
 
 def flatten(ctx: ReportContext) -> Iterator[dict[str, Any]]:
@@ -111,19 +120,22 @@ def flatten(ctx: ReportContext) -> Iterator[dict[str, Any]]:
     for kind in KINDS:
         model = MODELS.get(kind, "")
         for rec in records(ctx, kind):
+            opened = open_record(ctx, kind, rec)
+            full = opened.url if isinstance(opened, Link) else None
+            transcript = ctx.links.transcript_file(ident(rec), "docx") if kind == "media" and full and ident(rec) else None
             for name in field_names(rec):
-                if name in _SKIP or is_secret(name) or technical_key(name) or (model and exclusions.excluded(model, name)):
+                if name in _SKIP or is_secret(name) or (model and exclusions.excluded(model, name)):
                     continue
                 keep, value = cell(exclusions.identity_view(ctx.user, rec, name, g(rec, name)))
                 if not keep or value is None or value == "":
                     continue
-                yield _row(kind, rec, model, name, value)
+                yield _row(kind, rec, model, name, value, full=transcript if transcript and name.startswith("transcript") else full)
                 count += 1
                 if count >= ROWS_MAX:
                     return
             if kind == "media" and ctx.options.links and ident(rec):
-                yield _row(kind, rec, model, "download", ctx.links.download(ident(rec)))
-            extra = _responses(kind, rec) if kind == "interviews" else _steps(kind, rec) if kind == "processes" else ()
+                yield _row(kind, rec, model, "download", ctx.links.download(ident(rec)), full=full)
+            extra = _responses(kind, rec, full) if kind == "interviews" else _steps(kind, rec, full) if kind == "processes" else ()
             for row in extra:
                 yield row
                 count += 1
@@ -137,7 +149,7 @@ COLUMNS = [
     Column("recordName", "Record", "text", "The record's name or title.", width=26),
     Column("section", "Section", "text", "Questionnaire section or process step, where it applies.", width=18),
     Column("field", "Field", "text", "The field, or the question for an answer.", width=26),
-    Column("source", "Source", "text", "Where the value is stored, as Model.field.", width=26, hidden=True, group="meta"),
+    Column("source", "Source", "text", "Where the value is stored, as Model.field.", width=26, tech=False),
     Column("value", "Value", "longtext", "The value as text.", width=40),
     Column("number", "Number", "number", "The value when it is a number, for sums and averages."),
     Column("date", "Date", "datetime", "The value when it is a date."),
@@ -152,7 +164,7 @@ async def build(ctx: ReportContext) -> list[Sheet]:
             columns=COLUMNS,
             rows=flatten(ctx),
             banners=[Banner(say(ctx, "banner.pivot", "One flat table of all the data, ready for PivotTables."))],
-            note=say(ctx, "note.everythingTechnical", "Identifiers, checksums and created or updated stamps are left out here; each record's own sheet keeps them in its collapsed technical columns."),
+            note=say(ctx, "note.everythingAll", "Every field of every record, one row each, including identifiers and stamps. Long values end with a link to the full text."),
         )
     ]
 

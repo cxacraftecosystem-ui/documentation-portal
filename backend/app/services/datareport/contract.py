@@ -26,7 +26,7 @@ RowKind = Literal["original", "translation", "summary", "summary_translation", "
 
 ROW_KIND = "_row"
 ROW_PAIR = "_pair"
-ROW_DETAIL = "_detail"
+ROW_FULL = "_full"
 
 Language = Literal["original", "english", "both"]
 Locale = Literal["en", "hi"]
@@ -113,7 +113,7 @@ class Sheet:
     totals: bool = False
     count: int | None = None
     link_bound: int | None = None
-    detail_bytes: int = 0
+    record_key: str | None = None
 
 
 @dataclass
