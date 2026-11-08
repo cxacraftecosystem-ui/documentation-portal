@@ -106,6 +106,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.fieldrepository.app.data.Naming
 import com.fieldrepository.app.explorer.data.ExplorerFilters
+import com.fieldrepository.app.explorer.data.ExplorerFilterKey
 import androidx.compose.runtime.compositionLocalOf
 import com.fieldrepository.app.explorer.data.ExplorerFacetKeys
 import com.fieldrepository.app.explorer.data.ExplorerFacets
@@ -1118,7 +1119,9 @@ fun ExplorerScreen(
                         onReport = { reportOpen = true },
                     )
                 }
-                ExplorerTab.TRANSCRIPTS -> if (!state.showsLocal) block("transcripts") { FilteredEmptyCard("", localOff = true) { state.changeFilters(state.filters.cleared()) } } else block("transcripts") {
+                ExplorerTab.TRANSCRIPTS -> if (!state.showsLocal) block("transcripts") { FilteredEmptyCard("", localOff = true) { state.changeFilters(state.filters.cleared()) } } else if (ExplorerFilters.TRANSCRIPT_NO in state.filters[ExplorerFilterKey.HAS_TRANSCRIPT]) block("transcripts") {
+                    FilteredEmptyCard(ExplorerFacetKeys.summary(state.appliedFilters, state.filters), localOff = false) { state.changeFilters(state.filters.cleared()) }
+                } else block("transcripts") {
                     ExplorerTranscriptsTab(
                         path = state.path,
                         filterQuery = filterQuery,

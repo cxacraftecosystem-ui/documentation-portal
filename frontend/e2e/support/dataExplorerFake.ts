@@ -49,12 +49,14 @@ export const FAKE_FACETS = {
   ]
 } as const;
 
-export type FakeFilter = { mediaTypes: string[]; craftIds: string[]; workshopIds: string[]; designWorkshopIds: string[]; statuses: string[] };
+export type FakeFilter = { mediaTypes: string[]; craftIds: string[]; workshopIds: string[]; designWorkshopIds: string[]; statuses: string[]; recordTypes: string[]; hasTranscript: string[] };
 
 export function fakeFilterOf(query: URLSearchParams): FakeFilter {
   const list = (name: string) => (query.get(name) ?? "").split(",").map((value) => value.trim()).filter(Boolean);
-  return { mediaTypes: list("mediaTypes"), craftIds: list("craftIds"), workshopIds: list("workshopIds"), designWorkshopIds: list("designWorkshopIds"), statuses: list("statuses") };
+  return { mediaTypes: list("mediaTypes"), craftIds: list("craftIds"), workshopIds: list("workshopIds"), designWorkshopIds: list("designWorkshopIds"), statuses: list("statuses"), recordTypes: list("recordTypes"), hasTranscript: list("hasTranscript") };
 }
+
+export const RECORD_TYPE_NAMES: Record<string, string> = { artisans: "Artisans", workshops: "Workshops", products: "Products", tools: "Tools", media: "Media", designWorkshops: "Design workshops" };
 
 export function fakeFilterActive(filter: FakeFilter): boolean {
   return Object.values(filter).some((values) => values.length > 0);
@@ -442,6 +444,12 @@ export class DataExplorerFake {
     if (filter.workshopIds.length && !filter.workshopIds.includes(this.workshopOf(file.path) ?? "")) return false;
     if (filter.designWorkshopIds.length && !(filter.designWorkshopIds.includes("dw-bolpur") && file.path.startsWith(BENGAL_FOLDER))) return false;
     if (filter.statuses.length && !filter.statuses.includes(file.mediaType === "VIDEO" ? "PENDING" : "APPROVED")) return false;
+    if (filter.hasTranscript.includes("yes") && !file.transcript) return false;
+    if (filter.hasTranscript.includes("no") && file.transcript) return false;
+    if (filter.recordTypes.length && !filter.recordTypes.includes("media")) {
+      const owner = this.folders.get(file.path.slice(0, file.path.lastIndexOf("/")))?.recordType ?? "";
+      if (!filter.recordTypes.includes(`${owner}s`)) return false;
+    }
     return true;
   }
 
@@ -456,6 +464,8 @@ export class DataExplorerFake {
     named("craftIds", "Craft", filter.craftIds, label(FAKE_FACETS.craft));
     named("mediaTypes", "Media type", filter.mediaTypes, { IMAGE: "Images", VIDEO: "Videos", AUDIO: "Audio", PDF: "PDFs", DOCUMENT: "Documents", OTHER: "Other" });
     named("statuses", "Review status", filter.statuses, { APPROVED: "Approved", PENDING: "Pending" });
+    named("recordTypes", "Record type", filter.recordTypes, RECORD_TYPE_NAMES);
+    named("hasTranscript", "Has transcript", filter.hasTranscript, { yes: "Yes", no: "No" });
     return { active, count: active.length };
   }
 
@@ -475,9 +485,11 @@ export class DataExplorerFake {
     const workshops = counted(without("workshopIds"), (file) => this.workshopOf(file.path));
     const types = counted(without("mediaTypes"), (file) => String(file.mediaType));
     const statuses = counted(without("statuses"), (file) => (file.mediaType === "VIDEO" ? "PENDING" : "APPROVED"));
+    const said = counted(without("hasTranscript"), (file) => (file.transcript ? "yes" : "no"));
     const option = (entry: { value: string; label: string; hint: string | null }, count: number) => ({ ...entry, count });
     return {
       facets: [
+        { facet: "recordType", param: "recordTypes", label: "Record type", options: Object.entries(RECORD_TYPE_NAMES).map(([value, label]) => ({ value, label, hint: null, count: value === "media" ? every.length : 0 })), truncated: false, selected: filter.recordTypes },
         { facet: "workshop", param: "workshopIds", label: "Workshop", options: FAKE_FACETS.workshop.map((entry) => option(entry, workshops[entry.value] ?? 0)), truncated: false, selected: filter.workshopIds },
         { facet: "designWorkshop", param: "designWorkshopIds", label: "Design workshop", options: FAKE_FACETS.designWorkshop.map((entry) => option(entry, entry.value === "dw-bolpur" ? 2 : 0)), truncated: false, selected: filter.designWorkshopIds },
         { facet: "craft", param: "craftIds", label: "Craft", options: FAKE_FACETS.craft.map((entry) => option(entry, crafts[entry.value] ?? 0)), truncated: false, selected: filter.craftIds },
@@ -485,7 +497,8 @@ export class DataExplorerFake {
         { facet: "mediaType", param: "mediaTypes", label: "Media type", options: ["IMAGE", "VIDEO", "AUDIO", "PDF", "DOCUMENT", "OTHER"].map((value) => ({ value, label: ({ IMAGE: "Images", VIDEO: "Videos", AUDIO: "Audio", PDF: "PDFs", DOCUMENT: "Documents", OTHER: "Other" } as Record<string, string>)[value], hint: null, count: types[value] ?? 0 })), truncated: false, selected: filter.mediaTypes },
         { facet: "status", param: "statuses", label: "Review status", options: [{ value: "APPROVED", label: "Approved", hint: null, count: statuses.APPROVED ?? 0 }, { value: "PENDING", label: "Pending", hint: null, count: statuses.PENDING ?? 0 }], truncated: false, selected: filter.statuses },
         { facet: "recordedBy", param: "recordedByIds", label: "Recorded by", options: [{ value: "u-lead", label: "Nandini Rao", hint: null, count: every.length }], truncated: false, selected: [] },
-        { facet: "language", param: "languages", label: "Language", options: [{ value: "ben", label: "Bengali", hint: null, count: 1 }, { value: "hin", label: "Hindi", hint: null, count: 1 }], truncated: false, selected: [] }
+        { facet: "language", param: "languages", label: "Language", options: [{ value: "ben", label: "Bengali", hint: null, count: 1 }, { value: "hin", label: "Hindi", hint: null, count: 1 }], truncated: false, selected: [] },
+        { facet: "hasTranscript", param: "hasTranscript", label: "Has transcript", options: [{ value: "yes", label: "Yes", hint: null, count: said.yes ?? 0 }, { value: "no", label: "No", hint: null, count: said.no ?? 0 }], truncated: false, selected: filter.hasTranscript }
       ],
       dateBounds: { min: "2026-01-05", max: "2026-11-05" },
       portal: { options: [{ value: "this", label: "This portal", available: true, status: "ok" }, { value: "other", label: "Field Repository", available: true, status: "ok" }] }
@@ -841,6 +854,7 @@ export class DataExplorerFake {
     if (path === "/data/transcripts/languages") return { status: 200, json: { languages: [{ code: "hi", label: "Hindi", count: 3 }, { code: "raj", label: "Rajasthani", count: 1 }] } };
     if (path === "/data/transcripts") return { status: 200, json: { items: [], nextCursor: null } };
     if (path === "/data/transcripts/list") {
+      if (query.get("hasTranscript") === "no") return { status: 200, json: { items: [], total: 0, truncated: false, query: null, offset: 0, nextOffset: null } };
       const q = (query.get("q") ?? "").toLowerCase();
       const items = [
         { mediaId: "aud1", name: "interview.m4a", path: "interview.m4a", mediaType: "AUDIO", hasText: true, capturedAt: "2026-09-22T10:00:00Z", text: "Namaste, this is the block." },

@@ -673,6 +673,26 @@
     "summary": "One filter model, applied by the server to the folder tree (entries and counts), folder contents, Browse by type, Transcripts and Tables, and to the size and download of what is shown. Web and Android send the same parameters and draw the same facets in the same order.",
     "encoding": "Every multi-value parameter is comma-separated (workshopIds=a,b), the encoding the codebase already uses for workshopIds (buildQuery has no arrays). The server also accepts the parameter repeated (workshopIds=a&workshopIds=b) and joins the two. Absent or empty means no filter on that dimension. Values are trimmed; an unknown enum value answers 422.",
     "params": {
+      "recordTypes": {
+        "facet": "recordType",
+        "label": "Record type",
+        "values": [
+          "artisans",
+          "workshops",
+          "products",
+          "tools",
+          "media",
+          "designWorkshops"
+        ],
+        "labels": {
+          "artisans": "Artisans",
+          "workshops": "Workshops",
+          "products": "Products",
+          "tools": "Tools",
+          "media": "Media",
+          "designWorkshops": "Design workshops"
+        }
+      },
       "workshopIds": {
         "facet": "workshop",
         "label": "Workshop",
@@ -726,6 +746,20 @@
         "label": "Language",
         "values": "Transcript language codes as stored (hin, ben, eng, multi, ...)"
       },
+      "hasTranscript": {
+        "facet": "hasTranscript",
+        "label": "Has transcript",
+        "values": [
+          "yes",
+          "no"
+        ],
+        "labels": {
+          "yes": "Yes",
+          "no": "No"
+        },
+        "single": true,
+        "control": "Any / Yes / No: a segmented control on web, its Android equivalent. Any sends nothing; any is also accepted and ignored."
+      },
       "dateFrom": {
         "facet": "date",
         "label": "From",
@@ -750,6 +784,7 @@
     },
     "facetOrder": [
       "portal",
+      "recordType",
       "workshop",
       "designWorkshop",
       "craft",
@@ -758,6 +793,7 @@
       "status",
       "recordedBy",
       "language",
+      "hasTranscript",
       "date"
     ],
     "legacy": "FR's single status=<STATUS|ALL> on tree, report and stats still works. When both status and statuses are given, statuses wins.",
@@ -775,6 +811,7 @@
     "portalsOnLocalRoutes": "Local routes accept portals and ignore it. Clients use it: without 'this' the local tree, contents, tables and transcripts are not shown (the empty state names the Portal filter); with 'other' the client also asks GET /data/peer and lists those rows under the local ones.",
     "semantics": {
       "match": "A file matches when it passes every active dimension (AND across dimensions, OR within one).",
+      "recordType": "Lists only the chosen kinds (search, Browse by type, report record sheets; a process follows products). Crafts and interviews are not a record type and stay. For files (tree, counts, folder contents, Transcripts, media sheets) a file matches when it belongs to a chosen kind: an artisan's own files, a product's, a tool's, a workshop's loose files, a design workshop's. Media keeps every file. designWorkshops is offered only where design workshops exist and this user may see them.",
       "workshop": "The file belongs to a selected workshop: filed under it (workshopId), or attached to an artisan, product, tool or interview of that workshop.",
       "designWorkshop": "The file belongs to a selected design workshop: filed under it (designWorkshopId) or uploaded against it (linkedRecordType designWorkshop).",
       "craft": "The file is filed under the craft, or attached to an artisan of that craft.",
@@ -784,7 +821,8 @@
       "recordedBy": "MediaFile.uploadedById.",
       "language": "MediaFile.transcriptLanguage.",
       "date": "MediaFile.recordedAt within [dateFrom 00:00, dateTo 23:59:59.999] Asia/Kolkata.",
-      "folders": "With any filter active a folder appears only when it holds a matching file (count > 0), or it is a record folder whose own record matches a record dimension (workshop, designWorkshop, craft, artisan, status) and no media-only dimension (mediaType, recordedBy, language, date) is active. Record folders of a filtered dimension that are not selected never appear. count and bytes are the matching files only.",
+      "hasTranscript": "yes: the file has a transcript (MediaFile.transcriptText not empty); no: it has none (images and documents included). Records in Browse by type and record sheets keep those owning a matching file. The Transcripts tab is empty with no. Search: yes alone searches transcribed recordings only (as the old Has transcript toggle did); with record types it narrows media to transcribed ones; no leaves out recordings that have a transcript.",
+      "folders": "With any filter active a folder appears only when it holds a matching file (count > 0), or it is a record folder whose own record matches a record dimension (workshop, designWorkshop, craft, artisan, status) and no media-only dimension (mediaType, recordedBy, language, hasTranscript, date) and no recordType is active. Record folders of a filtered dimension that are not selected never appear. count and bytes are the matching files only.",
       "textFiles": "A record's own text files (details.txt, answers) stay while their record folder is shown, unless mediaTypes is active and leaves out DOCUMENT.",
       "tables": "Media sheets keep only matching files; record sheets keep only records whose folder would be shown.",
       "transcripts": "Only matching recordings."
@@ -795,7 +833,8 @@
     },
     "facetsRoute": "filters",
     "peerRoute": "peer",
-    "emptyState": "Name every active filter by label and value, and offer 'Clear filters' (which drops every filter but keeps portals=this).",
-    "control": "Every facet is a searchable multi-select (web SearchableMultiSelect, Android SearchableMultiSelectField); the date is two CalendarFields (From, To). The filter set lives in the URL (web) and the saved explorer state (Android) under the same parameter names."
+    "emptyState": "Name every active filter by label and value, and offer 'Clear filters' (which drops every filter but keeps portals=this). Record type and Has transcript are named like every other filter.",
+    "control": "Every facet but Has transcript is a searchable multi-select; Has transcript is Any / Yes / No (web SearchableMultiSelect, Android SearchableMultiSelectField); the date is two CalendarFields (From, To). The filter set lives in the URL (web) and the saved explorer state (Android) under the same parameter names.",
+    "peerNotApplied": "hasTranscript is never applied by the peer; recordTypes is applied when one type is chosen or a browse type is asked, and listed in notApplied when several are chosen with no type."
   }
 }

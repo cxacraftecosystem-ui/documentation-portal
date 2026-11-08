@@ -183,6 +183,7 @@ async def unified_search(
     workshopIds: list[str] | None = Query(None),
     artisanIds: list[str] | None = Query(None),
     sort: str | None = Query(None, max_length=40),
+    hasTranscript: str | None = Query(None, pattern="^(yes|no|any)$"),
 ) -> dict[str, Any]:
     settings = _unified_settings_or_404()
     text = _clean_query(q)
@@ -209,6 +210,7 @@ async def unified_search(
     local_scope.date_to = dateTo
     local_scope.workshop_ids = workshops
     local_scope.artisan_ids = _split(artisanIds)
+    local_scope.media_transcript = hasTranscript if hasTranscript in ("yes", "no") else None
     offset = (page - 1) * limit
 
     peer_available = cross_portal.search_active(settings) and us.may_search_across(current_user)

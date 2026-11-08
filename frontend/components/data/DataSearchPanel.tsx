@@ -10,6 +10,7 @@ import { LoadFailed } from "@/components/dataExplorer/explorerUi";
 import { ActionGroup } from "@/components/ui/ActionGroup";
 import { SearchableMultiSelect, SearchableSelect, type SelectOption } from "@/components/ui/SearchableSelect";
 import { apiFetch, buildQuery, listResource } from "@/lib/api";
+import { outerSearchTypes } from "@/lib/dataExplorer/filters";
 import type { Artisan, Craft, Workshop } from "@/lib/types";
 import {
   PORTAL_LABELS,
@@ -229,7 +230,7 @@ function suggestionCount(total: number | undefined): string {
   return total === 1 ? " 1 result." : ` ${total.toLocaleString("en-IN")} results.`;
 }
 
-export type OuterFilters = { workshopIds?: string; artisanIds?: string; craftIds?: string; dateFrom?: string; dateTo?: string };
+export type OuterFilters = { workshopIds?: string; artisanIds?: string; craftIds?: string; dateFrom?: string; dateTo?: string; recordTypes?: string; hasTranscript?: string };
 
 export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope = null, outer = null }: { onReveal: (path: string) => void; onPreview: (target: PreviewTarget) => void; ask?: SearchAsk | null; portalScope?: Scope | null; outer?: OuterFilters | null }) {
   const outerText = JSON.stringify(outer ?? {});
@@ -333,12 +334,19 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
   }, [embedded, ownFilterCount]);
 
   const q = state.q.trim();
-  const types = useMemo(() => (state.transcriptOnly ? (["transcripts"] as UnifiedType[]) : state.types), [state.transcriptOnly, state.types]);
-  const key = JSON.stringify([q, state.scope, state.workshopIds, state.artisanId, state.craftId, types, state.range, focus, sortText ?? "", attempt]);
+  const outerTypes = useMemo(() => (embedded ? outerSearchTypes((narrowing.recordTypes ?? "").split(",").filter(Boolean), narrowing.hasTranscript ?? "", offered) : []), [embedded, narrowing.recordTypes, narrowing.hasTranscript, offered]);
+  const blocked = outerTypes === null;
+  const types = useMemo(() => (embedded ? ((outerTypes ?? []) as UnifiedType[]) : state.transcriptOnly ? (["transcripts"] as UnifiedType[]) : state.types), [embedded, outerTypes, state.transcriptOnly, state.types]);
+  const key = JSON.stringify([q, state.scope, state.workshopIds, state.artisanId, state.craftId, types, blocked, state.range, focus, sortText ?? "", attempt]);
 
   useEffect(() => {
     if (q.length < 2) {
       setAnswer(null);
+      setLoading(false);
+      return;
+    }
+    if (blocked) {
+      setAnswer({ key, data: null, groups: [], rows: [], legacy: false, error: null, page: 1, more: false });
       setLoading(false);
       return;
     }
@@ -367,6 +375,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
       artisanIds: state.artisanId || narrowing.artisanIds,
       dateFrom: query.dateFrom ?? outerFrom,
       dateTo: outerTo,
+      hasTranscript: narrowing.hasTranscript,
       sort: sortText
     })}`;
     fetchUnified({ q }, () => apiFetch<UnifiedResponse>(path))
@@ -393,7 +402,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
     return () => {
       cancelled = true;
     };
-  }, [key, q, state.scope, state.workshopIds, state.artisanId, state.craftId, state.range, types, focus, sortText, narrowing, outerCraft, outerFrom, outerTo]);
+  }, [key, q, blocked, state.scope, state.workshopIds, state.artisanId, state.craftId, state.range, types, focus, sortText, narrowing, outerCraft, outerFrom, outerTo]);
 
   const more = useCallback(async () => {
     if (!answer || answer.error || !answer.more) return;
@@ -405,7 +414,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
         const legacy = await apiFetch<LegacyResult>(`/search${buildQuery({ q, page: next, pageSize: LEGACY_PAGE, types: focus ?? undefined, craftId: state.craftId || undefined, artisanId: state.artisanId || undefined, ...rangeBounds(state.range), ...narrowing })}`);
         fresh = legacyRows(legacy);
       } else {
-        const path = `/search/unified${buildQuery({ q, type: focus ?? undefined, types: !focus && types.length ? types.join(",") : undefined, page: next, limit: focus ? TYPE_LIMIT : ALL_LIMIT, scope: state.scope === "local" ? "local" : undefined, craftId: state.craftId || outerCraft, workshopIds: state.workshopIds.join(",") || narrowing.workshopIds, artisanIds: state.artisanId || narrowing.artisanIds, dateFrom: outerFrom, dateTo: outerTo, ...rangeBounds(state.range), sort: sortText })}`;
+        const path = `/search/unified${buildQuery({ q, type: focus ?? undefined, types: !focus && types.length ? types.join(",") : undefined, page: next, limit: focus ? TYPE_LIMIT : ALL_LIMIT, scope: state.scope === "local" ? "local" : undefined, craftId: state.craftId || outerCraft, workshopIds: state.workshopIds.join(",") || narrowing.workshopIds, artisanIds: state.artisanId || narrowing.artisanIds, dateFrom: outerFrom, dateTo: outerTo, ...rangeBounds(state.range), hasTranscript: narrowing.hasTranscript, sort: sortText })}`;
         const data = await apiFetch<UnifiedResponse>(path);
         fresh = flattenGroups(data, focus);
       }

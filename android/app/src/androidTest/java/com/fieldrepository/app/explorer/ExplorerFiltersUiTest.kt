@@ -97,7 +97,7 @@ class ExplorerFiltersUiTest {
         override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int, sort: String?, filters: Map<String, String>): ExplorerTree {
             calls += "tree:$path:" + filters.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }
             val crafts = filters["craftIds"]?.split(',').orEmpty()
-            val nothing = filters["mediaTypes"] == "PDF"
+            val nothing = filters["mediaTypes"] == "PDF" || filters["recordTypes"] == "products"
             val shown = when {
                 nothing -> emptyList()
                 crafts.isEmpty() -> folders + details + video
@@ -105,7 +105,9 @@ class ExplorerFiltersUiTest {
             }
             val active = buildList {
                 if (crafts.isNotEmpty()) add(ExplorerActiveFilter("craftIds", "craft", "Craft", crafts.map { ExplorerActiveValue(it, if (it == "c1") "Bamboo" else "Clay") }))
-                if (nothing) add(ExplorerActiveFilter("mediaTypes", "mediaType", "Media type", listOf(ExplorerActiveValue("PDF", "PDF"))))
+                if (filters["mediaTypes"] == "PDF") add(ExplorerActiveFilter("mediaTypes", "mediaType", "Media type", listOf(ExplorerActiveValue("PDF", "PDF"))))
+                if (filters["recordTypes"] == "products") add(ExplorerActiveFilter("recordTypes", "recordType", "Record type", listOf(ExplorerActiveValue("products", "Products"))))
+                filters["hasTranscript"]?.let { add(ExplorerActiveFilter("hasTranscript", "hasTranscript", "Has transcript", listOf(ExplorerActiveValue(it, if (it == "yes") "Yes" else "No")))) }
             }
             return ExplorerTree(
                 path = path,
@@ -332,6 +334,41 @@ class ExplorerFiltersUiTest {
         assertTrue(facets.peers.isNotEmpty())
     }
 
+    @QFeature("X13")
+    @Test fun theRecordTypeFilterIsASearchableMultiSelectAndItsEmptyStateNamesIt() {
+        show()
+        pick("recordType", "products")
+        compose.waitUntil(10_000) { tree.calls.contains("tree:$ROOT:recordTypes=products") }
+        appears("explorer.filters.chip.RECORD_TYPE.products")
+        scrollTo("explorer.filtered.empty")
+        compose.onNodeWithText("Nothing here matches Record type: Products.").assertExists()
+        compose.onNodeWithTag("explorer.filtered.clear").performClick()
+        compose.waitUntil(10_000) { tree.calls.count { it == "tree:$ROOT:" } >= 2 }
+    }
+
+    @QFeature("X13")
+    @Test fun hasTranscriptIsAnyYesNoAndNoEmptiesTheTranscriptsTab() {
+        show(1200)
+        scrollTo("explorer.filters.open")
+        compose.onNodeWithTag("explorer.filters.open").performClick()
+        appears("explorer.filters.sheet")
+        compose.onNodeWithTag("explorer.filter.hasTranscript").performScrollTo()
+        compose.onNodeWithTag("explorer.seg.hasTranscript.yes").performClick()
+        compose.waitUntil(10_000) { tree.calls.contains("tree:$ROOT:hasTranscript=yes") }
+        compose.onNodeWithTag("explorer.seg.hasTranscript.no").performScrollTo().performClick()
+        compose.waitUntil(10_000) { tree.calls.contains("tree:$ROOT:hasTranscript=no") }
+        compose.onNodeWithTag("explorer.filters.done").performScrollTo().performClick()
+        compose.waitForIdle()
+        appears("explorer.filters.chip.HAS_TRANSCRIPT.no")
+        scrollTo("data.transcripts.toggle")
+        compose.onNodeWithTag("data.transcripts.toggle").performClick()
+        scrollTo("explorer.filtered.empty")
+        compose.onNodeWithText("Nothing here matches Has transcript: No.").assertExists()
+        assertTrue(more.transcripts.none { it["hasTranscript"] == "no" })
+        compose.onNodeWithTag("explorer.filtered.clear").performClick()
+        compose.waitUntil(10_000) { more.transcripts.any { it["hasTranscript"] == null } }
+    }
+
     @QFeature("X1")
     @Test fun theTabletPaneNeverOverlapsTheContentAtAnyDragPosition() {
         show(840)
@@ -408,6 +445,7 @@ class ExplorerFiltersUiTest {
 
         val FACETS = ExplorerFacets(
             facets = listOf(
+                ExplorerFacet("recordType", "recordTypes", "Record type", listOf(ExplorerFacetOption("artisans", "Artisans", count = 5), ExplorerFacetOption("products", "Products", count = 0), ExplorerFacetOption("media", "Media", count = 6))),
                 ExplorerFacet("workshop", "workshopIds", "Workshop", listOf(ExplorerFacetOption("w1", "Bagru", count = 6))),
                 ExplorerFacet("designWorkshop", "designWorkshopIds", "Design workshop", listOf(ExplorerFacetOption("d1", "Kutch design week", count = 3), ExplorerFacetOption("d2", "Bagru studio", count = 2))),
                 ExplorerFacet("craft", "craftIds", "Craft", listOf(ExplorerFacetOption("c1", "Bamboo", count = 4), ExplorerFacetOption("c2", "Clay", count = 2))),
@@ -415,6 +453,7 @@ class ExplorerFiltersUiTest {
                 ExplorerFacet("mediaType", "mediaTypes", "Media type", listOf(ExplorerFacetOption("VIDEO", "Video", count = 1), ExplorerFacetOption("PDF", "PDF", count = 0))),
                 ExplorerFacet("recordedBy", "recordedByIds", "Recorded by", listOf(ExplorerFacetOption("u1", "Asha", count = 6))),
                 ExplorerFacet("language", "languages", "Language", listOf(ExplorerFacetOption("ben", "Bengali", count = 1))),
+                ExplorerFacet("hasTranscript", "hasTranscript", "Has transcript", listOf(ExplorerFacetOption("yes", "Yes", count = 1), ExplorerFacetOption("no", "No", count = 5))),
             ),
             portal = ExplorerPortalChoices(listOf(ExplorerPortalOption("this", "This portal", true, "ok"), ExplorerPortalOption("other", "Field Repository", true, "ok"))),
         )

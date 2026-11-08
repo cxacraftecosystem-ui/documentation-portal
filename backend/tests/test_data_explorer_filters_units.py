@@ -196,6 +196,107 @@ def test_facet_order_and_params_match_the_contract():
     assert contract["limits"]["peerPageSizeMax"] == peer.PAGE_SIZE_MAX
     route = next(r for r in contract["routes"] if r["id"] == "peer")
     assert route["browseTypeToPeerType"] == peer.BROWSE_TO_PEER
+    assert section["params"]["recordTypes"]["values"] == list(filters.RECORD_TYPES)
+    assert section["params"]["hasTranscript"]["values"] == list(filters.TRANSCRIPT_CHOICES)
+    from app.api.routes.search import SEARCH_TYPES
+
+    assert set(SEARCH_TYPES) <= set(filters.RECORD_TYPES)
+
+
+def test_record_types_and_has_transcript_parse_and_answer_422_when_unknown():
+    flt = _parse("recordTypes=Artisans,MEDIA,artisans&hasTranscript=YES")
+    assert flt.record_types == ("artisans", "media")
+    assert flt.has_transcript == ("yes",) and flt.transcript == "yes"
+    assert flt.active and flt.media_only
+    assert _parse("hasTranscript=any").has_transcript == ()
+    assert not _parse("hasTranscript=any&recordTypes=").active
+    for text in ("recordTypes=clusters", "hasTranscript=maybe", "hasTranscript=yes,no"):
+        with pytest.raises(HTTPException) as refused:
+            _parse(text)
+        assert refused.value.status_code == 422
+
+
+def test_record_types_pick_whose_files_and_has_transcript_splits_them():
+    assert filters.media_where(_parse("recordTypes=media")) is None
+    assert filters.media_where(_parse("recordTypes=media,products")) is None
+    products = repr(filters.media_where(_parse("recordTypes=products")))
+    assert "productId" in products and "toolId" not in products
+    both = filters.media_where(_parse("recordTypes=products,tools"))
+    assert both is not None and len(both["OR"]) == 2
+    assert filters.media_where(_parse("hasTranscript=yes")) == filters.TRANSCRIBED
+    assert filters.media_where(_parse("hasTranscript=no")) == filters.UNTRANSCRIBED
+    where = filters.media_where(_parse("recordTypes=artisans&hasTranscript=no&mediaTypes=AUDIO"))
+    assert where is not None and len(where["AND"]) == 3
+
+
+def test_record_types_limit_which_kinds_are_listed():
+    flt = _parse("recordTypes=artisans")
+    assert filters.browse_where("product", flt) == filters.NOTHING
+    assert filters.browse_where("process", flt) == filters.NOTHING
+    assert filters.browse_where("media", flt) == filters.NOTHING
+    assert filters.browse_where("artisan", flt) is None
+    assert filters.browse_where("craft", flt) is None
+    assert filters.browse_where("media", _parse("recordTypes=media")) is None
+    transcribed = repr(filters.browse_where("artisan", _parse("recordTypes=artisans&hasTranscript=yes")))
+    assert "'media': {'some'" in transcribed and "transcriptText" in transcribed
+    assert "productId" not in transcribed
+
+
+def test_record_types_hide_empty_folders_and_trim_the_report():
+    entries = [_folder("by-workshop/w1", "workshop", 0), _folder("by-workshop/w2", "workshop", 2)]
+    kept, hidden = filters.drop_empty(entries, _parse("workshopIds=w1,w2&recordTypes=products"))
+    assert [e["path"] for e in kept] == ["by-workshop/w2"] and hidden == 1
+    artisans = [SimpleNamespace(id="a1", craftId="c1", workshopId="w1", workshops=[], status="APPROVED", designWorkshopId=None)]
+    products = [SimpleNamespace(id="p1", artisanId="a1", craftId="c1", workshopId="w1", status="APPROVED", designWorkshopId=None)]
+    processes = [SimpleNamespace(id="r1", productId="p1")]
+    data = {"artisans": list(artisans), "products": list(products), "processes": list(processes), "dwEntries": [SimpleNamespace(designWorkshopId="d1")], "media": []}
+    out = filters.filter_report(data, _parse("recordTypes=artisans"))
+    assert [a.id for a in out["artisans"]] == ["a1"]
+    assert out["products"] == [] and out["processes"] == [] and out["dwEntries"] == []
+    kept_products = filters.filter_report({"products": list(products), "processes": list(processes)}, _parse("recordTypes=products"))
+    assert [p.id for p in kept_products["processes"]] == ["r1"]
+
+
+def test_search_wheres_follow_record_types_and_has_transcript():
+    wheres = {"artisans": {}, "workshops": {}, "products": {}, "tools": {}, "media": {"uploadedById": "me"}, "designWorkshops": {}}
+    typed = filters.search_wheres(wheres, _parse("recordTypes=artisans"))
+    assert typed["artisans"] == {} and typed["media"] == filters.NOTHING
+    assert typed["products"] == filters.NOTHING and typed["designWorkshops"] == filters.NOTHING
+    only = filters.search_wheres(wheres, _parse("hasTranscript=yes"))
+    assert all(only[k] == filters.NOTHING for k in ("artisans", "workshops", "products", "tools", "designWorkshops"))
+    assert only["media"] == {"AND": [{"uploadedById": "me"}, filters.TRANSCRIBED]}
+    without = filters.search_wheres(wheres, _parse("hasTranscript=no"))
+    assert without["artisans"] == {} and without["designWorkshops"] == {}
+    assert without["media"] == {"AND": [{"uploadedById": "me"}, filters.UNTRANSCRIBED]}
+    mixed = filters.search_wheres(wheres, _parse("hasTranscript=yes&recordTypes=artisans,media"))
+    assert mixed["artisans"] == {} and mixed["tools"] == filters.NOTHING
+    assert mixed["media"] == {"AND": [{"uploadedById": "me"}, filters.TRANSCRIBED]}
+
+
+def test_new_filters_round_trip_and_are_named():
+    flt = _parse("recordTypes=artisans,products&hasTranscript=no&craftIds=c1")
+    assert filters.as_query(flt) == {"recordTypes": "artisans,products", "craftIds": "c1", "hasTranscript": "no"}
+    assert filters.parse(QueryParams(filters.as_query(flt))) == flt
+    assert flt.without("hasTranscript").has_transcript == ()
+    assert flt.without("recordType").record_types == ()
+
+    async def named() -> dict[str, Any]:
+        return await filters.describe(_parse("recordTypes=designWorkshops&hasTranscript=yes"))
+
+    described = _run(named())
+    assert [a["label"] for a in described["active"]] == ["Record type", "Has transcript"]
+    assert described["active"][0]["values"] == [{"value": "designWorkshops", "label": "Design workshops"}]
+    assert described["active"][1]["values"] == [{"value": "yes", "label": "Yes"}]
+
+
+def test_peer_skips_what_it_cannot_apply_and_honours_one_record_type():
+    assert peer.not_applied(_parse("hasTranscript=yes")) == ["hasTranscript"]
+    assert peer.not_applied(_parse("recordTypes=artisans,tools")) == ["recordTypes"]
+    assert peer.not_applied(_parse("recordTypes=artisans,tools"), "artisan") == []
+    assert peer.peer_kind(_parse("recordTypes=tools"), None) == ("tools", True)
+    assert peer.peer_kind(_parse("recordTypes=tools"), "artisan") == ("artisans", False)
+    assert peer.peer_kind(_parse("recordTypes=tools"), "craft") == ("crafts", True)
+    assert peer.peer_kind(filters.NONE, "media") == ("media", True)
 
 
 def test_peer_rows_carry_the_portal_chip_and_the_remote_link():

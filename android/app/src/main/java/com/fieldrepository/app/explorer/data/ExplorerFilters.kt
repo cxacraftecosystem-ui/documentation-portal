@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 
 enum class ExplorerFilterKey(val param: String, val facet: String, val label: String) {
     PORTAL("portals", "portal", "Portal"),
+    RECORD_TYPE("recordTypes", "recordType", "Record type"),
     WORKSHOP("workshopIds", "workshop", "Workshop"),
     DESIGN_WORKSHOP("designWorkshopIds", "designWorkshop", "Design workshop"),
     CRAFT("craftIds", "craft", "Craft"),
@@ -12,6 +13,7 @@ enum class ExplorerFilterKey(val param: String, val facet: String, val label: St
     STATUS("statuses", "status", "Review status"),
     RECORDED_BY("recordedByIds", "recordedBy", "Recorded by"),
     LANGUAGE("languages", "language", "Language"),
+    HAS_TRANSCRIPT("hasTranscript", "hasTranscript", "Has transcript"),
 }
 
 @Serializable
@@ -31,7 +33,12 @@ data class ExplorerFilters(
 
     fun with(key: ExplorerFilterKey, picked: Collection<String>, names: Map<String, String> = emptyMap()): ExplorerFilters {
         val next = values.toMutableMap()
-        val ordered = (if (key == ExplorerFilterKey.PORTAL) ExplorerFacetKeys.portalSelection(picked.toSet()) else picked).distinct()
+        val ordered = when (key) {
+            ExplorerFilterKey.PORTAL -> ExplorerFacetKeys.portalSelection(picked.toSet()).toList()
+            ExplorerFilterKey.HAS_TRANSCRIPT -> picked.filter { it in TRANSCRIPT_CHOICES }.takeLast(1)
+            ExplorerFilterKey.RECORD_TYPE -> RECORD_TYPES.filter { it in picked }
+            else -> picked.distinct()
+        }
         if (ordered.isEmpty()) next.remove(key.name) else next[key.name] = ordered
         return copy(values = next).withLabels(names)
     }
@@ -73,6 +80,8 @@ data class ExplorerFilters(
     fun labelOf(key: ExplorerFilterKey, value: String): String = when (key) {
         ExplorerFilterKey.PORTAL -> portalLabel(value)
         ExplorerFilterKey.MEDIA_TYPE -> labels[value] ?: mediaLabel(value)
+        ExplorerFilterKey.RECORD_TYPE -> recordTypeLabel(value)
+        ExplorerFilterKey.HAS_TRANSCRIPT -> transcriptLabel(value)
         else -> labels[value] ?: value
     }
 
@@ -114,6 +123,26 @@ data class ExplorerFilters(
         const val DATE_TO = "dateTo"
         const val THIS_PORTAL = "this"
         const val OTHER_PORTAL = "other"
+        const val TRANSCRIPT_YES = "yes"
+        const val TRANSCRIPT_NO = "no"
+        val TRANSCRIPT_CHOICES: List<String> = listOf(TRANSCRIPT_YES, TRANSCRIPT_NO)
+        val RECORD_TYPES: List<String> = listOf("artisans", "workshops", "products", "tools", "media", "designWorkshops")
+
+        fun recordTypeLabel(value: String): String = when (value) {
+            "artisans" -> "Artisans"
+            "workshops" -> "Workshops"
+            "products" -> "Products"
+            "tools" -> "Tools"
+            "media" -> "Media"
+            "designWorkshops" -> "Design workshops"
+            else -> value
+        }
+
+        fun transcriptLabel(value: String): String = when (value) {
+            TRANSCRIPT_YES -> "Yes"
+            TRANSCRIPT_NO -> "No"
+            else -> value
+        }
 
         fun portalLabel(value: String): String = if (value == OTHER_PORTAL) "Other portal" else "This portal"
 

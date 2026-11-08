@@ -10,9 +10,12 @@ import {
   FILTER_PARAMS,
   MEDIA_TYPE_LABELS,
   optionLabel,
+  RECORD_TYPE_LABELS,
   STATUS_LABELS,
+  TRANSCRIPT_LABELS,
   withDates,
   withPortals,
+  withTranscript,
   withValues,
   type ExplorerFilters,
   type Facet,
@@ -21,7 +24,7 @@ import {
 } from "@/lib/dataExplorer/filters";
 
 function fallbackOptions(param: FilterParam, selected: string[]): { value: string; label: string }[] {
-  const names = param === "mediaTypes" ? MEDIA_TYPE_LABELS : param === "statuses" ? STATUS_LABELS : {};
+  const names = param === "mediaTypes" ? MEDIA_TYPE_LABELS : param === "statuses" ? STATUS_LABELS : param === "recordTypes" ? RECORD_TYPE_LABELS : {};
   const base = Object.entries(names).map(([value, label]) => ({ value, label }));
   const extra = selected.filter((value) => !base.some((option) => option.value === value)).map((value) => ({ value, label: value }));
   return [...base, ...extra];
@@ -32,6 +35,33 @@ function optionsOf(facet: Facet | undefined, param: FilterParam, selected: strin
   const listed = facet.options.map((option) => ({ value: option.value, label: optionLabel(option) }));
   const missing = selected.filter((value) => !listed.some((option) => option.value === value)).map((value) => ({ value, label: value }));
   return [...listed, ...missing];
+}
+
+const TRANSCRIPT_CHOICES: { value: string; label: string }[] = [{ value: "", label: "Any" }, ...Object.entries(TRANSCRIPT_LABELS).map(([value, label]) => ({ value, label }))];
+
+function TranscriptChoice({ value, facet, onChange }: { value: string; facet: Facet | undefined; onChange: (value: string) => void }) {
+  return (
+    <div role="group" aria-label="Has transcript" className="flex w-full overflow-hidden rounded-md border border-line-200 bg-card" data-testid="has-transcript">
+      {TRANSCRIPT_CHOICES.map((choice) => {
+        const on = choice.value === value;
+        const count = facet?.options.find((option) => option.value === choice.value)?.count;
+        return (
+          <button
+            key={choice.value || "any"}
+            type="button"
+            aria-pressed={on}
+            onClick={() => {
+              if (!on) onChange(choice.value);
+            }}
+            className={`min-h-11 flex-1 px-3 text-sm font-medium transition-colors ${on ? "bg-purple-700 text-white" : "text-ink-700 hover:bg-purple-50 hover:text-purple-700"}`}
+          >
+            {choice.label}
+            {count !== undefined ? <span className={`ml-1 text-xs ${on ? "text-white/80" : "text-ink-500"}`}>{count.toLocaleString("en-IN")}</span> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export function FilterBar({
@@ -110,6 +140,13 @@ export function FilterBar({
         </div>
         {shown.map(({ param, facet, label }) => {
           const entry = facets?.facets.find((candidate) => candidate.facet === facet);
+          if (param === "hasTranscript")
+            return (
+              <div key={param} className="grid min-w-0 content-start gap-1" data-facet={facet}>
+                <span className="field-label">{label}</span>
+                <TranscriptChoice value={filters.values.hasTranscript[0] ?? ""} facet={entry} onChange={(choice) => onChange(withTranscript(filters, choice))} />
+              </div>
+            );
           const options = optionsOf(entry, param, filters.values[param]);
           return (
             <div key={param} className="grid min-w-0 content-start gap-1" data-facet={facet}>
