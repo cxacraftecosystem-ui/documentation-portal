@@ -738,7 +738,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
 
   return (
     <>
-      <div className="grid gap-4 max-lg:gap-3.5 max-sm:gap-3">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 max-lg:gap-3.5 max-sm:gap-3">
         {config.title ? (
           <div className="max-sm:sr-only">
             <ExplorerHeader
@@ -792,7 +792,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
         <div
           ref={columnsRef}
           style={{ ["--explorer-tree-width" as string]: `${clampTreeWidth(treeWidth, widthBounds)}px` }}
-          className={`relative grid grid-cols-[minmax(0,1fr)] items-start gap-4 max-lg:gap-3.5 max-sm:gap-3 ${wide && !showTree ? "" : "lg:grid-cols-[var(--explorer-tree-width)_minmax(0,1fr)]"}`}
+          className={`relative grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-4 max-lg:gap-3.5 max-sm:gap-3 ${wide && !showTree ? "" : "lg:grid-cols-[var(--explorer-tree-width)_minmax(0,1fr)]"}`}
         >
           {sidePanel}
           {wide && !showTree ? null : <PanelDivider width={clampTreeWidth(treeWidth, widthBounds)} bounds={widthBounds} controls={panelId} onWidth={setTreeWidth} onCommit={commitWidth} />}

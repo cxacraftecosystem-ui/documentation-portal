@@ -439,12 +439,11 @@ async def transcript_list(
         sort if isinstance(sort, str) else None, sorting.TRANSCRIPT_KEYS, sorting.TRANSCRIPT_DEFAULT
     )
     scope = await download_scope(current_user)
-    seen, by_id, truncated = await _folder_transcripts(
-        scope,
-        _browser()._norm(path),
-        offset,
-        None if chosen == sorting.TRANSCRIPT_DEFAULT else chosen,
-    )
+    norm = _browser()._norm(path)
+    if chosen == sorting.TRANSCRIPT_DEFAULT:
+        seen, by_id, truncated = await _folder_transcripts(scope, norm, offset)
+    else:
+        seen, by_id, truncated = await _folder_transcripts(scope, norm, offset, sort=chosen)
     window = len(seen)
     words = [w for w in (q or "").lower().split() if w]
     withheld = await transcript_export.withheld_ids(list(by_id))

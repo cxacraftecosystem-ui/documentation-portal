@@ -58,6 +58,7 @@ async function withinViewport(page: Page, target: Locator) {
 
 async function onTop(panel: Locator) {
   const order = panel.getByRole("radiogroup", { name: "Order" });
+  await order.scrollIntoViewIfNeeded();
   const hit = await order.evaluate((node) => {
     const rect = node.getBoundingClientRect();
     const points = [
