@@ -21,7 +21,12 @@ def db(monkeypatch: pytest.MonkeyPatch) -> FakeDb:
     return install(monkeypatch, FakeDb())
 
 
-def _seed(questionnaire_id: str, title: str, corpus: Path = W4_CORPUS, created_by_id: str | None = None):
+def _seed(
+    questionnaire_id: str,
+    title: str,
+    corpus: Path = W4_CORPUS,
+    created_by_id: str | None = None,
+):
     return asyncio.run(
         seed_instrument(
             questionnaire_id=questionnaire_id,
@@ -70,15 +75,16 @@ def test_the_fourth_corpus_keeps_every_third_section_and_appends_its_stone_quest
     assert reworded == ["G2", "G4", "S1", "S3", "V2"]
 
 
-def test_the_fourth_instrument_seeds_108_questions_with_the_ctw3_codes_it_shares(db: FakeDb) -> None:
+def test_the_fourth_instrument_seeds_108_questions_keeping_shared_ctw3_codes(db: FakeDb) -> None:
     _seed(W3_ID, W3_TITLE, W3_CORPUS)
     _, counts = _seed(W4_ID, W4_TITLE, created_by_id=OWNER_ID)
 
     assert (counts["sections_created"], counts["questions_created"]) == (23, 108)
-    w3 = {key: row.questionCode for key, row in _rows(db, W3_ID).items()}
+    w3 = {key: getattr(row, "questionCode", None) for key, row in _rows(db, W3_ID).items()}
     w4 = _rows(db, W4_ID)
     assert len(w4) == 108
-    shared = {key: row.questionCode for key, row in w4.items() if row.questionCode}
+    codes = {key: getattr(row, "questionCode", None) for key, row in w4.items()}
+    shared = {key: code for key, code in codes.items() if code}
     assert len(shared) == 76
     assert all(w3[key] == code and code.startswith("CTW3.") for key, code in shared.items())
 
@@ -86,13 +92,13 @@ def test_the_fourth_instrument_seeds_108_questions_with_the_ctw3_codes_it_shares
 def test_reseeding_the_fourth_instrument_changes_nothing(db: FakeDb) -> None:
     _seed(W4_ID, W4_TITLE, created_by_id=OWNER_ID)
     before = sorted(
-        (q.id, q.sectionCode, q.sortOrder, q.prompt, q.questionCode, q.isActive)
+        (q.id, q.sectionCode, q.sortOrder, q.prompt, getattr(q, "questionCode", None), q.isActive)
         for q in db.questionnairequestion.rows
     )
     _, again = _seed(W4_ID, W4_TITLE, created_by_id=OWNER_ID)
 
     after = sorted(
-        (q.id, q.sectionCode, q.sortOrder, q.prompt, q.questionCode, q.isActive)
+        (q.id, q.sectionCode, q.sortOrder, q.prompt, getattr(q, "questionCode", None), q.isActive)
         for q in db.questionnairequestion.rows
     )
     assert after == before
@@ -101,7 +107,10 @@ def test_reseeding_the_fourth_instrument_changes_nothing(db: FakeDb) -> None:
 
 def test_moving_the_fourth_from_the_third_corpus_updates_rows_in_place(db: FakeDb) -> None:
     _seed(W4_ID, W4_TITLE, W3_CORPUS, OWNER_ID)
-    old = {key: (row.id, row.prompt, row.questionCode) for key, row in _rows(db, W4_ID).items()}
+    old = {
+        key: (row.id, row.prompt, getattr(row, "questionCode", None))
+        for key, row in _rows(db, W4_ID).items()
+    }
 
     _, counts = _seed(W4_ID, W4_TITLE, created_by_id=OWNER_ID)
 
@@ -113,7 +122,7 @@ def test_moving_the_fourth_from_the_third_corpus_updates_rows_in_place(db: FakeD
     for key, (row_id, prompt, code) in old.items():
         assert new[key].id == row_id
         if new[key].prompt == prompt:
-            assert new[key].questionCode == code
+            assert getattr(new[key], "questionCode", None) == code
 
 
 def test_the_fourth_instrument_is_owned_by_the_named_master_admin(db: FakeDb) -> None:
@@ -128,7 +137,7 @@ def test_the_fourth_instrument_is_owned_by_the_named_master_admin(db: FakeDb) ->
 def test_seeding_the_fourth_leaves_the_third_untouched(db: FakeDb) -> None:
     _seed(W3_ID, W3_TITLE, W3_CORPUS)
     before = sorted(
-        (q.id, q.prompt, q.questionCode, q.questionnaireId)
+        (q.id, q.prompt, getattr(q, "questionCode", None), q.questionnaireId)
         for q in db.questionnairequestion.rows
         if q.questionnaireId == W3_ID
     )
@@ -136,7 +145,7 @@ def test_seeding_the_fourth_leaves_the_third_untouched(db: FakeDb) -> None:
     _, again = _seed(W4_ID, W4_TITLE, created_by_id=OWNER_ID)
 
     after = sorted(
-        (q.id, q.prompt, q.questionCode, q.questionnaireId)
+        (q.id, q.prompt, getattr(q, "questionCode", None), q.questionnaireId)
         for q in db.questionnairequestion.rows
         if q.questionnaireId == W3_ID
     )
