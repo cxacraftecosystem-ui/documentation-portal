@@ -37,6 +37,7 @@ import {
   recordTitle
 } from "@/components/records/recordFields";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ApiErrorState } from "@/components/DeadEnd";
 import { apiFetch } from "@/lib/api";
 import { craftIndex, loadCraftCatalogue } from "@/lib/craftCatalogue";
 import { formatDateTime } from "@/lib/format";
@@ -80,7 +81,7 @@ async function withCraftPath(record: LoadedRecord): Promise<LoadedRecord> {
 export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
   const { user } = useAuth();
   const [record, setRecord] = useState<LoadedRecord | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<unknown>(null);
   const [reloads, setReloads] = useState(0);
   const [decided, setDecided] = useState<string | null>(null);
   const [mediaReview, setMediaReview] = useState<RecordMediaReview | null>(null);
@@ -108,14 +109,14 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
   useEffect(() => {
     let cancelled = false;
     if (reloads === 0) setRecord(null);
-    setError(null);
+    setFailure(null);
     apiFetch<LoadedRecord>(`${RECORD_VIEW_ENDPOINT[type]}/${encodeURIComponent(id)}`)
       .then((loaded) => (type === "craft" ? withCraftPath(loaded) : loaded))
       .then((loaded) => {
         if (!cancelled) setRecord(loaded);
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : `Couldn't load this ${noun}.`);
+        if (!cancelled) setFailure(err ?? new Error("load failed"));
       });
     return () => {
       cancelled = true;
@@ -129,6 +130,17 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
   const completenessKind = type === "questionnaire" ? "interview" : type;
   const completeness =
     record && isCompletenessKind(completenessKind) ? ((record as { completeness?: CompletenessBlock | null }).completeness ?? null) : null;
+
+  if (failure && !record) {
+    return (
+      <ApiErrorState
+        error={failure}
+        noun={noun}
+        requestHref={type === "workshop" ? "/workshop-access/request" : null}
+        onRetry={() => setReloads((value) => value + 1)}
+      />
+    );
+  }
 
   return (
     <>
@@ -158,10 +170,9 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
           ) : null
         }
       />
-      {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {type === "artisan" && record && isAdmin(user) ? <ArtisanDuplicateBanner artisanId={record.id} /> : null}
       {!record ? (
-        error ? null : <div className="panel p-4 text-sm text-ink-muted">Loading this {noun}…</div>
+        <div className="panel p-4 text-sm text-ink-muted">Loading this {noun}…</div>
       ) : (
         <div className="grid gap-5">
           {decided ? (

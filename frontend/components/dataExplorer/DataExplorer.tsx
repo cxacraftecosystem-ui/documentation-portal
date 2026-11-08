@@ -738,7 +738,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
 
   return (
     <>
-      <div className="grid gap-4 max-lg:gap-3.5 max-sm:gap-3">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 overflow-x-clip max-lg:gap-3.5 max-sm:gap-3">
         {config.title ? (
           <div className="max-sm:sr-only">
             <ExplorerHeader
@@ -792,11 +792,11 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
         <div
           ref={columnsRef}
           style={{ ["--explorer-tree-width" as string]: `${clampTreeWidth(treeWidth, widthBounds)}px` }}
-          className={`relative grid items-start gap-4 max-lg:gap-3.5 max-sm:gap-3 ${wide && !showTree ? "" : "lg:grid-cols-[var(--explorer-tree-width)_minmax(0,1fr)]"}`}
+          className={`relative grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-4 max-lg:gap-3.5 max-sm:gap-3 ${wide && !showTree ? "" : "lg:grid-cols-[var(--explorer-tree-width)_minmax(0,1fr)]"}`}
         >
           {sidePanel}
           {wide && !showTree ? null : <PanelDivider width={clampTreeWidth(treeWidth, widthBounds)} bounds={widthBounds} controls={panelId} onWidth={setTreeWidth} onCommit={commitWidth} />}
-          <div className="grid min-w-0 gap-4 max-lg:gap-3.5 max-sm:gap-3">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 max-lg:gap-3.5 max-sm:gap-3">
             {headerBlock}
             <section className="panel overflow-hidden max-sm:grid max-sm:gap-3 max-sm:overflow-visible max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:shadow-none" aria-label="Contents">
               <ViewTabs view={url.view} counts={{ files: folderSize.sized ? `${folderSize.sized.files.toLocaleString("en-IN")}${folderSize.sized.truncated ? "+" : ""}` : filesCount, tables: tableCount && tableCount.path === url.path && tableCount.count > 0 ? tableCount.count.toLocaleString("en-IN") : null, transcripts: transcriptsKnown !== null ? transcriptsKnown.toLocaleString("en-IN") : null }} onView={showView} trailing={tabTrailing} />

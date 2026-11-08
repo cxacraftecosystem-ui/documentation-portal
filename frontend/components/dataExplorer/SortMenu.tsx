@@ -36,6 +36,8 @@ export function placeFor(rect: { left: number; right: number; bottom: number }, 
   return { left: left + scroll.x, top: rect.bottom + GAP + scroll.y };
 }
 
+const SHEET_QUERY = "(max-width: 639px)";
+
 const ROW = "flex min-h-10 w-full items-center gap-2 rounded-sm px-3 text-left text-sm transition pointer-coarse:min-h-11";
 
 export function SortMenu({
@@ -57,6 +59,7 @@ export function SortMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [place, setPlace] = useState<Place | null>(null);
+  const [sheet, setSheet] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -106,24 +109,29 @@ export function SortMenu({
         aria-expanded={open}
         aria-label={`${label}: ${words}`}
         title={`${label}: ${words}`}
-        onClick={() => setOpen((shown) => !shown)}
+        onClick={() => {
+          setSheet(typeof window !== "undefined" && window.matchMedia(SHEET_QUERY).matches);
+          setOpen((shown) => !shown);
+        }}
         className={`inline-flex items-center justify-center gap-1.5 border text-[13px] transition ${variant === "pill" ? "min-h-10 rounded-full px-3.5 pointer-coarse:min-h-11" : "h-9 min-w-9 rounded-sm px-2.5 pointer-coarse:h-11 pointer-coarse:min-w-11"} ${open ? "border-purple-300 bg-purple-100 text-purple-800 dark:border-purple-700 dark:bg-purple-950/60 dark:text-purple-200" : `border-line-200 bg-card hover:border-purple-300 ${variant === "pill" ? "text-ink-900" : "text-ink-700"}`}`}
         data-testid="sort-button"
       >
         <ArrowDownUp className="h-4 w-4 shrink-0" aria-hidden />
         <span className={`max-w-[11rem] truncate ${variant === "pill" ? "" : "max-md:hidden"}`}>{words}</span>
       </button>
-      {open && place && typeof document !== "undefined"
+      {open && typeof document !== "undefined" && (sheet || place)
         ? createPortal(
-        <div
-          ref={panel}
-          role="dialog"
-          aria-label={label}
-          style={{ left: place.left, top: place.top }}
-          className="absolute z-50 grid w-60 content-start gap-1 rounded-md border border-line-200 bg-card p-1 shadow-md"
-          data-testid="sort-panel"
-        >
-          <p className="px-3 pt-2 pb-1 text-xs font-semibold tracking-[0.04em] text-ink-500 uppercase">Sort by</p>
+            sheet ? (
+              <div ref={panel} className="fixed inset-0 z-80 flex items-end" data-testid="sort-sheet">
+                <button type="button" aria-label="Close" tabIndex={-1} className="absolute inset-0 bg-ink-900/45 backdrop-blur-[2px]" onClick={() => setOpen(false)} />
+                <div role="dialog" aria-modal="true" aria-label={label} className="relative grid max-h-[85dvh] w-full content-start gap-1 overflow-y-auto rounded-t-xl border border-b-0 border-line-200 bg-card p-2 pb-[max(env(safe-area-inset-bottom),12px)] shadow-lg" data-testid="sort-panel">
+                  <span className="mx-auto mt-1 mb-1 block h-1 w-10 rounded-full bg-line-200" aria-hidden />
+                  <div className="flex items-center justify-between px-3 pt-1 pb-1">
+                    <p className="font-display text-base font-bold text-ink-900">Sort by</p>
+                    <button type="button" className="min-h-11 px-2 text-sm font-semibold text-purple-700 dark:text-purple-300" onClick={() => setOpen(false)}>
+                      Done
+                    </button>
+                  </div>
           <div role="radiogroup" aria-label="Sort by" className="grid gap-0.5">
             {keys.map((key) => {
               const on = key === value.key;
@@ -161,7 +169,57 @@ export function SortMenu({
               })}
             </div>
           ) : null}
-        </div>,
+                </div>
+              </div>
+            ) : (
+              <div
+                ref={panel}
+                role="dialog"
+                aria-label={label}
+                style={{ left: place!.left, top: place!.top }}
+                className="absolute z-60 grid w-60 content-start gap-1 rounded-md border border-line-200 bg-card p-1 shadow-md"
+                data-testid="sort-panel"
+              >
+                <p className="px-3 pt-2 pb-1 text-xs font-semibold tracking-[0.04em] text-ink-500 uppercase">Sort by</p>
+          <div role="radiogroup" aria-label="Sort by" className="grid gap-0.5">
+            {keys.map((key) => {
+              const on = key === value.key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => onChange(withKey(value, key))}
+                  className={`${ROW} ${on ? "bg-purple-100 font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-200" : "text-ink-900 hover:bg-purple-50 dark:hover:bg-purple-950/40"}`}
+                >
+                  <span className="min-w-0 flex-1 truncate">{SORT_LABEL[key]}</span>
+                  {on ? <Check className="h-4 w-4 shrink-0" aria-hidden /> : null}
+                </button>
+              );
+            })}
+          </div>
+          {directionsOf(value.key).length > 1 ? (
+            <div role="radiogroup" aria-label="Order" className="grid grid-cols-2 gap-1 border-t border-line-200 p-1 pt-2">
+              {directionsOf(value.key).map((dir) => {
+                const on = dir === value.dir;
+                return (
+                  <button
+                    key={dir}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => onChange({ key: value.key, dir })}
+                    className={`min-h-9 rounded-sm px-2 text-[13px] transition pointer-coarse:min-h-11 ${on ? "bg-purple-700 font-semibold text-white dark:bg-purple-300 dark:text-purple-950" : "border border-line-200 bg-card text-ink-700 hover:border-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40"}`}
+                  >
+                    {SORT_DIRECTIONS[value.key][dir]}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+              </div>
+            ),
             document.body
           )
         : null}

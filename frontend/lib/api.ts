@@ -1,3 +1,4 @@
+import { SESSION_ENDED_PATH, sessionEndedHref } from "@/lib/sessionReturn";
 import type { PageResult } from "@/lib/types";
 
 import { endSession, getSessionMarker } from "@/lib/session";
@@ -25,7 +26,7 @@ export class ApiError extends Error {
   }
 }
 
-export const SIGNED_OUT_PAGES = new Set(["/login", "/set-password", "/forgot-password"]);
+export const SIGNED_OUT_PAGES = new Set(["/login", "/set-password", "/forgot-password", SESSION_ENDED_PATH]);
 
 let passwordChangeListener: (() => void) | null = null;
 let passwordChangeOwed = false;
@@ -200,8 +201,9 @@ export async function apiFetchWithHeaders<T>(
     }
     if (response.status === 401 && token && typeof window !== "undefined" && options.redirectOn401 !== false) {
       endSession();
-      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-      if (!SIGNED_OUT_PAGES.has(window.location.pathname)) window.location.assign("/login");
+      if (!SIGNED_OUT_PAGES.has(window.location.pathname)) {
+        window.location.replace(sessionEndedHref(`${window.location.pathname}${window.location.search ?? ""}`));
+      }
     }
     throw error;
   }

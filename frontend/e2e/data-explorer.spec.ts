@@ -1006,6 +1006,8 @@ test.describe("@qf:X1 keyboard", () => {
       await expect(sheet.getByTestId("shortcuts-sheet")).toContainText("Quick jump");
       await page.keyboard.press("Escape");
       await expect(sheet).toHaveCount(0);
+      const heading = page.getByRole("heading", { name: "Bagru 2026", exact: true }).first();
+      await heading.click();
       await page.keyboard.press("/");
       const box = page.locator("[data-explorer-search] input").first();
       await expect(box).toBeFocused();
@@ -1912,7 +1914,7 @@ test.describe("search sort", () => {
       const pick = async (label: string) => {
         await results.getByTestId("sort-button").click();
         await page.getByTestId("sort-panel").getByRole("radio", { name: label, exact: true }).click();
-        await results.getByTestId("sort-button").click();
+        await page.keyboard.press("Escape");
         await expect(page.getByTestId("sort-panel")).toHaveCount(0);
       };
       const asked = (pageNumber: string, type: string | null) =>

@@ -67,7 +67,10 @@ def encode_base32(data: bytes) -> str:
 
 
 def new_code() -> str:
-    return "".join(secrets.choice(ALPHABET) for _ in range(CODE_LENGTH))
+    while True:
+        code = "".join(secrets.choice(ALPHABET) for _ in range(CODE_LENGTH))
+        if not code.isdigit():
+            return code
 
 
 def fnv1a32(text: str) -> int:

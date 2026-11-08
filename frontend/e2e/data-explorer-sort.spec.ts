@@ -56,15 +56,46 @@ async function withinViewport(page: Page, target: Locator) {
   expect(box!.x + box!.width).toBeLessThanOrEqual(width + 0.5);
 }
 
-async function noSidewaysScroll(page: Page) {
-  const found = await page.evaluate(() => {
-    const limit = document.documentElement.clientWidth;
-    const offenders = [...document.querySelectorAll<HTMLElement>("body *")]
-      .filter((node) => node.getBoundingClientRect().right + window.scrollX > limit + 1 && getComputedStyle(node).position !== "fixed")
-      .slice(-5)
-      .map((node) => `${node.tagName.toLowerCase()}.${String(node.className).slice(0, 80)} → ${Math.round(node.getBoundingClientRect().right + window.scrollX)}`);
-    return { wide: document.documentElement.scrollWidth - limit, offenders };
+async function onTop(panel: Locator) {
+  const order = panel.getByRole("radiogroup", { name: "Order" });
+  await order.scrollIntoViewIfNeeded();
+  const hit = await order.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    const points = [
+      [rect.left + 8, rect.bottom - 4],
+      [rect.left + rect.width / 2, rect.bottom - 4],
+      [rect.right - 8, rect.bottom - 4]
+    ];
+    return points.every(([x, y]) => {
+      const found = document.elementFromPoint(x, y);
+      return Boolean(found && node.contains(found));
+    });
   });
+  expect(hit, "nothing, not even the bottom navigation, covers the sort panel").toBe(true);
+}
+
+async function noSidewaysScroll(page: Page) {
+  const width = page.viewportSize()?.width ?? 0;
+  const found = await page.evaluate((limit) => {
+    const right = (node: Element) => node.getBoundingClientRect().right + window.scrollX;
+    const pinned = (node: Element | null): boolean => {
+      for (let up = node; up && up !== document.body; up = up.parentElement) if (getComputedStyle(up).position === "fixed") return true;
+      return false;
+    };
+    const clipped = (node: Element): boolean => {
+      for (let up = node.parentElement; up && up !== document.body; up = up.parentElement) {
+        if (getComputedStyle(up).overflowX !== "visible" && right(up) <= limit + 1) return true;
+      }
+      return false;
+    };
+    const label = (node: Element) => `${node.tagName.toLowerCase()}.${String(node.className).slice(0, 100)} → ${Math.round(right(node))}${pinned(node) ? " pinned" : ""}${clipped(node) ? " clipped" : ""} min ${(node as HTMLElement).scrollWidth}`;
+    const loose = [...document.querySelectorAll<HTMLElement>("body *")].filter((node) => right(node) > limit + 1 && !pinned(node) && !clipped(node));
+    const starts = [...document.querySelectorAll<HTMLElement>("body *")]
+      .filter((node) => right(node) > limit + 1)
+      .filter((node) => !node.parentElement || node.parentElement === document.body || right(node.parentElement) <= limit + 1);
+    const offenders = [...loose.slice(0, 3), ...starts.slice(0, 6)].map(label);
+    return { wide: document.documentElement.scrollWidth - limit, offenders };
+  }, width);
   expect(found.wide, found.offenders.join(" | ")).toBeLessThanOrEqual(1);
 }
 
@@ -81,6 +112,7 @@ for (const size of SIZES) {
         const panel = page.getByRole("dialog", { name: "Sort folder" });
         await expect(panel).toBeVisible();
         await withinViewport(page, panel);
+        await onTop(panel);
         await expect(panel.getByRole("radio", { name: "Name" })).toHaveAttribute("aria-checked", "true");
         await expect(panel.getByRole("radio", { name: "Duration" })).toHaveCount(0);
         await page.screenshot({ path: join(SHOTS, `sort-open-${size.name}.png`) });
@@ -134,8 +166,8 @@ for (const size of SIZES) {
       }
     });
 
-    test(`the Transcripts tab asks the server for the chosen order · ${size.width}`, async ({ browser }) => {
-      const { context, page, fake } = await openWith(browser, size, { path: "workshops/bagru/kamla", view: "transcripts" }, (made) => {
+    for (const [level, folder] of [["workshop", "workshops/bagru"], ["artisan", "workshops/bagru/kamla"]] as const) test(`the ${level} Transcripts tab asks the server for the chosen order and fits · ${size.width}`, async ({ browser }) => {
+      const { context, page, fake } = await openWith(browser, size, { path: folder, view: "transcripts" }, (made) => {
         made.transcriptSorting = true;
       });
       try {
@@ -146,6 +178,8 @@ for (const size of SIZES) {
         await tab.getByRole("button", { name: /^Sort transcripts: Folder · A–Z$/ }).click();
         const panel = page.getByRole("dialog", { name: "Sort transcripts" });
         await withinViewport(page, panel);
+        await onTop(panel);
+        await page.screenshot({ path: join(SHOTS, `sort-transcripts-${level}-${size.name}.png`) });
         await panel.getByRole("radio", { name: "Name" }).click();
         await panel.getByRole("radio", { name: "Z–A" }).click();
         await expect(rows.first()).toContainText("loom");
