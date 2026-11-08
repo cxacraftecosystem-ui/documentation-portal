@@ -90,3 +90,9 @@ test("@qf:X13 the folders pane always leaves the content its minimum width", () 
     expect(container - bounds.max - DIVIDER_WIDTH).toBeGreaterThanOrEqual(Math.min(CONTENT_MIN_WIDTH, container - 240 - DIVIDER_WIDTH));
   }
 });
+
+test("@qf:X13 a text file is a Text pill, the same word as its tile", async () => {
+  const { filterOf, TYPE_FILTERS } = await import("@/lib/dataExplorer/explorerView");
+  expect(filterOf({ name: "details.txt", path: "a/details.txt", kind: "file", content: "Scheme: x" })).toBe("text");
+  expect(TYPE_FILTERS.find((option) => option.value === "text")?.label).toBe("Text");
+});

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type Keyboard
 
 import { Spinner } from "@/components/dataExplorer/explorerUi";
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
+import { TextBody } from "@/components/dataExplorer/TextBody";
 import { TranscriptMarkdown } from "@/components/transcript/TranscriptMarkdown";
 import { fetchTranscriptText, mediaDownloadUrl, mediaPreviewUrl } from "@/lib/dataExplorer/api";
 import { sizeOf, type TreeEntry } from "@/lib/dataExplorer/contract";
@@ -185,6 +186,37 @@ function useTranscript(entry: TreeEntry): Loaded | null {
   }, [mediaId, timed]);
   if (!timed || !mediaId) return { transcript: null, text: null, error: null };
   return answer && answer.id === mediaId ? answer.loaded : null;
+}
+
+const SPEAKER_LINE = /^\s*\*\*[^*]{1,60}\*\*\s*:?/m;
+
+function TextPreview({ entry }: { entry: TreeEntry }) {
+  const inline = typeof entry.content === "string" ? entry.content : null;
+  const mediaId = inline === null ? (entry.mediaId ?? "") : "";
+  const [fetched, setFetched] = useState<{ id: string; text: string | null; failed: boolean } | null>(null);
+  useEffect(() => {
+    if (!mediaId) return;
+    let cancelled = false;
+    fetchTranscriptText(mediaId, async () => null)
+      .then((answer) => {
+        if (!cancelled) setFetched({ id: mediaId, text: answer.content ?? null, failed: false });
+      })
+      .catch(() => {
+        if (!cancelled) setFetched({ id: mediaId, text: null, failed: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mediaId]);
+  const current = fetched && fetched.id === mediaId ? fetched : null;
+  const text = inline ?? current?.text ?? null;
+  if (inline === null && mediaId && !current) return <p className="p-6 text-sm text-ink-500">Loading…</p>;
+  if (!text || !text.trim()) return <p className="p-6 text-sm text-ink-500">No preview for this file.</p>;
+  return (
+    <div className="h-full w-full overflow-auto rounded-md bg-card p-5 text-left" data-testid="preview-text">
+      {SPEAKER_LINE.test(text) ? <TranscriptMarkdown text={text} /> : <TextBody text={text} label={entry.name} />}
+    </div>
+  );
 }
 
 function usePeaks(mediaId: string | undefined, wanted: boolean, round: number): Peaks | null | undefined {
@@ -1262,7 +1294,7 @@ function PreviewBody({
         <p className="p-6 text-sm text-ink-500">This browser can&apos;t show the PDF here. Save it instead.</p>
       </object>
     ) : (
-      <p className="p-6 text-sm text-ink-500">No preview for this file.</p>
+      <TextPreview entry={entry} />
     );
 
   return (

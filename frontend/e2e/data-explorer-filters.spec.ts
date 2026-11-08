@@ -167,7 +167,7 @@ for (const size of SIZES) {
         const peer = page.getByTestId("peer-results").first();
         await expect(peer).toBeVisible();
         await expect(peer.getByTestId("portal-chip").first()).toHaveText("Field Repository");
-        await expect(peer.getByRole("link", { name: "Rina Das" })).toHaveAttribute("href", "/remote/artisans/fr-a1");
+        await expect(peer.getByRole("link", { name: "Rina Das", exact: true })).toHaveAttribute("href", "/remote/artisans/fr-a1");
         expect(fake.calls.some((call) => call.path === "/data/peer")).toBe(true);
         expect(fake.calls.filter((call) => call.path === "/data/tree").every((call) => !call.query.has("portals"))).toBe(true);
         await peer.scrollIntoViewIfNeeded();
@@ -176,7 +176,7 @@ for (const size of SIZES) {
         await expect(page.getByTestId("filtered-empty").first()).toContainText("This portal is filtered out");
         const browse = page.getByRole("region", { name: "Records by type" });
         await expect(browse.getByTestId("peer-results")).toBeVisible();
-        await expect(browse.getByRole("link", { name: "kantha-stitch.mp4" })).toHaveAttribute("href", "/remote/media/fr-m1");
+        await expect(browse.getByRole("link", { name: "kantha-stitch.mp4", exact: true })).toHaveAttribute("href", "/remote/media/fr-m1");
         await expect.poll(() => fake.calls.some((call) => call.path === "/data/peer" && call.query.get("type") === "media")).toBe(true);
         await browse.scrollIntoViewIfNeeded();
         await shot(page, `other-portal-browse-${size.name}`);

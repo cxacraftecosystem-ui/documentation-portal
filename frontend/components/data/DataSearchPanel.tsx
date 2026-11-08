@@ -229,7 +229,13 @@ function suggestionCount(total: number | undefined): string {
   return total === 1 ? " 1 result." : ` ${total.toLocaleString("en-IN")} results.`;
 }
 
-export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope = null }: { onReveal: (path: string) => void; onPreview: (target: PreviewTarget) => void; ask?: SearchAsk | null; portalScope?: Scope | null }) {
+export type OuterFilters = { workshopIds?: string; artisanIds?: string; craftIds?: string; dateFrom?: string; dateTo?: string };
+
+export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope = null, outer = null }: { onReveal: (path: string) => void; onPreview: (target: PreviewTarget) => void; ask?: SearchAsk | null; portalScope?: Scope | null; outer?: OuterFilters | null }) {
+  const outerText = JSON.stringify(outer ?? {});
+  const narrowing = useMemo<OuterFilters>(() => JSON.parse(outerText) as OuterFilters, [outerText]);
+  const outerCraft = narrowing.craftIds && !narrowing.craftIds.includes(",") ? narrowing.craftIds : undefined;
+  const outerFrom = narrowing.dateFrom ? new Date(`${narrowing.dateFrom}T00:00:00`).toISOString() : undefined;
   const { user } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -338,8 +344,8 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
       type: focus ?? undefined,
       page: 1,
       limit: focus ? TYPE_LIMIT : ALL_LIMIT,
-      craftId: state.craftId || undefined,
-      workshopIds: state.workshopIds.length ? state.workshopIds.join(",") : undefined,
+      craftId: state.craftId || outerCraft,
+      workshopIds: state.workshopIds.length ? state.workshopIds.join(",") : narrowing.workshopIds,
       ...rangeBounds(state.range)
     };
     const path = `/search/unified${buildQuery({
@@ -351,8 +357,8 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
       page: query.page,
       craftId: query.craftId,
       workshopIds: query.workshopIds,
-      artisanIds: state.artisanId || undefined,
-      dateFrom: query.dateFrom,
+      artisanIds: state.artisanId || narrowing.artisanIds,
+      dateFrom: query.dateFrom ?? outerFrom,
       sort: sortText
     })}`;
     fetchUnified({ q }, () => apiFetch<UnifiedResponse>(path))
@@ -379,7 +385,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
     return () => {
       cancelled = true;
     };
-  }, [key, q, state.scope, state.workshopIds, state.artisanId, state.craftId, state.range, types, focus, sortText]);
+  }, [key, q, state.scope, state.workshopIds, state.artisanId, state.craftId, state.range, types, focus, sortText, narrowing, outerCraft, outerFrom]);
 
   const more = useCallback(async () => {
     if (!answer || answer.error || !answer.more) return;
@@ -391,7 +397,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
         const legacy = await apiFetch<LegacyResult>(`/search${buildQuery({ q, page: next, pageSize: LEGACY_PAGE, types: focus ?? undefined, craftId: state.craftId || undefined, artisanId: state.artisanId || undefined, ...rangeBounds(state.range) })}`);
         fresh = legacyRows(legacy);
       } else {
-        const path = `/search/unified${buildQuery({ q, type: focus ?? undefined, types: !focus && types.length ? types.join(",") : undefined, page: next, limit: focus ? TYPE_LIMIT : ALL_LIMIT, scope: state.scope === "local" ? "local" : undefined, craftId: state.craftId || undefined, workshopIds: state.workshopIds.join(",") || undefined, artisanIds: state.artisanId || undefined, ...rangeBounds(state.range), sort: sortText })}`;
+        const path = `/search/unified${buildQuery({ q, type: focus ?? undefined, types: !focus && types.length ? types.join(",") : undefined, page: next, limit: focus ? TYPE_LIMIT : ALL_LIMIT, scope: state.scope === "local" ? "local" : undefined, craftId: state.craftId || outerCraft, workshopIds: state.workshopIds.join(",") || narrowing.workshopIds, artisanIds: state.artisanId || narrowing.artisanIds, dateFrom: outerFrom, ...rangeBounds(state.range), sort: sortText })}`;
         const data = await apiFetch<UnifiedResponse>(path);
         fresh = flattenGroups(data, focus);
       }
@@ -405,7 +411,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
     } finally {
       setLoading(false);
     }
-  }, [focus, answer, q, state, types, sortText]);
+  }, [focus, answer, q, state, types, sortText, narrowing, outerCraft, outerFrom]);
 
   const reveal = async (row: Row) => {
     const type = LOCATE_TYPE[row.type];

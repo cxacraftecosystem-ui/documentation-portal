@@ -294,7 +294,7 @@ export function FolderContents({
   const folders = entries.filter((entry) => entry.kind === "folder");
   const files = useMemo(() => entries.filter((entry) => entry.kind === "file"), [entries]);
   const counts = useMemo(() => {
-    const out: Record<TypeFilter, number> = { all: files.length, images: 0, videos: 0, audios: 0, documents: 0, other: 0 };
+    const out: Record<TypeFilter, number> = { all: files.length, images: 0, videos: 0, audios: 0, documents: 0, text: 0, other: 0 };
     for (const file of files) out[filterOf(file)] += 1;
     return out;
   }, [files]);

@@ -38,12 +38,14 @@ export function FilterBar({
   filters,
   facets,
   loading,
+  summary = [],
   onChange,
   onClear
 }: {
   filters: ExplorerFilters;
   facets: FacetsResponse | null;
   loading: boolean;
+  summary?: string[];
   onChange: (next: ExplorerFilters) => void;
   onClear: () => void;
 }) {
@@ -61,16 +63,11 @@ export function FilterBar({
   const bounds = facets?.dateBounds ?? { min: null, max: null };
 
   return (
-    <section aria-label="Filters" className="panel grid gap-3 p-3 sm:p-4" data-testid="explorer-filters">
+    <section aria-label="Filters" className="panel grid gap-3 p-3" data-testid="explorer-filters">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-ink-900 max-lg:hidden">
-          <SlidersHorizontal className="h-4 w-4 text-purple-700 dark:text-purple-300" aria-hidden />
-          Filters
-          {count ? <span className="rounded-full bg-purple-100 px-2 text-xs text-purple-800 dark:bg-purple-950/60 dark:text-purple-200">{count}</span> : null}
-        </h2>
         <button
           type="button"
-          className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line-200 bg-card px-3.5 text-sm font-semibold text-ink-900 hover:border-purple-300 lg:hidden"
+          className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line-200 bg-card px-3.5 text-sm font-semibold text-ink-900 hover:border-purple-300"
           aria-expanded={open}
           aria-controls="explorer-filter-controls"
           onClick={() => setOpen((value) => !value)}
@@ -80,6 +77,15 @@ export function FilterBar({
           Filters
           {count ? <span className="rounded-full bg-purple-100 px-2 text-xs text-purple-800 dark:bg-purple-950/60 dark:text-purple-200">{count}</span> : null}
         </button>
+        {!open && summary.length ? (
+          <ul className="flex min-w-0 flex-wrap gap-1.5" aria-label="Active filters">
+            {summary.map((line) => (
+              <li key={line} className="max-w-full truncate rounded-full border border-line-200 bg-surface-50 px-2.5 py-1 text-xs text-ink-700">
+                {line}
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {loading ? <span className="text-xs text-ink-500">Updating…</span> : null}
         <span className="flex-1" />
         {count ? (
@@ -89,7 +95,7 @@ export function FilterBar({
           </button>
         ) : null}
       </div>
-      <div id="explorer-filter-controls" className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid lg:grid-cols-4 xl:grid-cols-5 ${open ? "" : "max-lg:hidden"}`}>
+      <div id="explorer-filter-controls" className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 ${open ? "" : "hidden"}`}>
         <div className="grid min-w-0 gap-1" data-facet="portal">
           <span className="field-label">Portal</span>
           <SearchableMultiSelect

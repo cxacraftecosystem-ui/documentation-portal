@@ -6,7 +6,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Hashable
 from typing import Any
 
-EXPIRES_IN_SECONDS = 3600
+EXPIRES_IN_SECONDS = 900
 REUSE_SECONDS = 1800
 CACHE_ENTRIES = 4096
 

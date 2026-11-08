@@ -49,7 +49,7 @@ export type ExplorerConfig = {
   viewer: string;
   fileHref: (mediaId: string) => string | null;
   recordHref?: (kind: string, id: string) => string | null;
-  renderSearch: (reveal: (path: string) => void, openPreview: (target: PreviewTarget) => void, ask: SearchAsk | null, portalScope: "local" | "all") => ReactNode;
+  renderSearch: (reveal: (path: string) => void, openPreview: (target: PreviewTarget) => void, ask: SearchAsk | null, portalScope: "local" | "all", outer: Record<string, string>) => ReactNode;
   title?: string;
   description?: string;
   headerExtra?: ReactNode;
@@ -275,8 +275,8 @@ function PanelDivider({ width, bounds, controls, onWidth, onCommit }: { width: n
   );
 }
 
-function SearchSlot({ render, reveal, openPreview, ask, portalScope }: { render: ExplorerConfig["renderSearch"]; reveal: (path: string) => void; openPreview: (target: PreviewTarget) => void; ask: SearchAsk | null; portalScope: "local" | "all" }) {
-  return <>{render(reveal, openPreview, ask, portalScope)}</>;
+function SearchSlot({ render, reveal, openPreview, ask, portalScope, outer }: { render: ExplorerConfig["renderSearch"]; reveal: (path: string) => void; openPreview: (target: PreviewTarget) => void; ask: SearchAsk | null; portalScope: "local" | "all"; outer: Record<string, string> }) {
+  return <>{render(reveal, openPreview, ask, portalScope, outer)}</>;
 }
 
 export function DataExplorer({ config }: { config: ExplorerConfig }) {
@@ -824,9 +824,9 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
         ) : null}
         {config.headerExtra ? <div className={`flex flex-wrap items-center justify-end gap-2 ${config.title ? "sm:hidden" : ""}`}>{config.headerExtra}</div> : null}
         <div data-explorer-search="">
-          <SearchSlot render={config.renderSearch} reveal={reveal} openPreview={openPreview} ask={searchAsk} portalScope={showsOther(filters) ? "all" : "local"} />
+          <SearchSlot render={config.renderSearch} reveal={reveal} openPreview={openPreview} ask={searchAsk} portalScope={showsOther(filters) ? "all" : "local"} outer={JSON.parse(filterText) as Record<string, string>} />
         </div>
-        <FilterBar filters={filters} facets={facets} loading={facetsLoading} onChange={changeFilters} onClear={clearFilters} />
+        <FilterBar filters={filters} facets={facets} loading={facetsLoading} summary={[...(local ? [] : ["Portal: other portal only"]), ...(showsOther(filters) && local ? ["Portal: both"] : []), ...filterLines]} onChange={changeFilters} onClear={clearFilters} />
         {!online.online ? <OfflineNote loadedAt={loadedAt} /> : null}
         {viewError ? <Problem onRetry={() => setViewError(null)} retryLabel="Dismiss">{viewError}</Problem> : null}
         {bundle && bundle.id === bundleId ? (

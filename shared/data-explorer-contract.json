@@ -42,7 +42,7 @@
       256,
       512
     ],
-    "signedUrlExpiresInSeconds": 3600,
+    "signedUrlExpiresInSeconds": 900,
     "signedUrlReuseSeconds": 1800,
     "convertConcurrency": 1,
     "suggestedParallelFetches": 4,
