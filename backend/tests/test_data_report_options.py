@@ -181,7 +181,7 @@ def test_the_xlsx_follows_the_options_and_reuses_one_build(monkeypatch):
     assert names[0] == "Overview" and names[-1] == "Data dictionary"
     assert "Tools" in names and "Transcripts" in names
     book = _workbook(body(slim_book))
-    assert book.sheetnames == ["Overview", "Tools", "Data dictionary"]
+    assert book.sheetnames == ["Overview", "Tools", "Provenance", "Data dictionary"]
     header = [c.value for c in book["Tools"][writer.TOP + 1] if c.value is not None]
     assert "Open" not in header and "Toolkit name" in header
     assert 'filename="Kamla-dyes.xlsx"' in slim_book.headers["content-disposition"]
@@ -192,7 +192,7 @@ def test_the_xlsx_follows_the_options_and_reuses_one_build(monkeypatch):
     assert body(again) == body(full)
     cache = data_browser.REPORT_CACHE
     key = next(iter(cache._entries))
-    assert all(name.startswith("xlsx3:") for name in cache._entries[key].files)
+    assert all(name.startswith("xlsx4:") for name in cache._entries[key].files)
 
 
 def test_unknown_options_are_a_422_and_an_empty_pick_is_a_404(monkeypatch):

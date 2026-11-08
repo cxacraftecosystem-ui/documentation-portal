@@ -5,7 +5,7 @@ Eight optional parts of the data report (.xlsx), in both portals. Each is a shee
 | Extra | Option | Plugin | Sheets |
 |---|---|---|---|
 | 1 Cover charts | `charts` | `extras_charts` | none (four charts on the cover) |
-| 2 Coverage grid | `coverage` | `extras_coverage` | `coverage` |
+| 2 Coverage | `coverage` | `extras_coverage` | `coverage` |
 | 3 Sparklines and data bars | `sparklines` | `extras_sparklines` | `completeness` |
 | 4 Map | `map` | `extras_map` | `mapDistricts`, `map` |
 | 8 What changed | `changes` | `extras_changes` | `changes` |

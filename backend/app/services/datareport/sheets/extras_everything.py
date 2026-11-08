@@ -172,7 +172,7 @@ async def build(ctx: ReportContext) -> list[Sheet]:
 register(
     Plugin(
         "extras_everything",
-        "Everything (pivot-ready)",
+        "Everything",
         160,
         "everything",
         build,

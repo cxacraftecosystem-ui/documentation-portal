@@ -33,6 +33,12 @@ class FakeDelegate:
         found = await self.find_many(where)
         return found[0] if found else None
 
+    async def find_unique(self, where: Any = None, **_: Any) -> Any:
+        return await self.find_first(where)
+
+    async def count(self, where: Any = None, **_: Any) -> int:
+        return len(await self.find_many(where))
+
     async def create(self, data: dict[str, Any]) -> Any:
         row = SimpleNamespace(id=f"b{len(self.rows) + 1}", **data)
         self.rows.append(row)
@@ -309,3 +315,51 @@ def production_context(options: contract.ReportOptions | None = None, *, recordi
     ctx.material = {"records": production_material(recordings=recordings), "sheets": [], "level": "Repository"}
     ctx.shared["db"] = FakeDB(raw=production_raw(recordings, segments_each))
     return ctx
+
+
+def rich_context(options: contract.ReportOptions | None = None, *, portal_key: str = "designer") -> contract.ReportContext:
+    now = datetime(2026, 11, 5, 10, 30, tzinfo=UTC)
+    n = SimpleNamespace
+    statuses = ("APPROVED", "PENDING", "NEEDS_REVISION", "REJECTED")
+    ctx = context(options or contract.ReportOptions())
+    ctx.portal = portal_key
+    ctx.path = ""
+    records = ctx.material["records"]
+    for i, artisan in enumerate(records["artisans"]):
+        artisan.status = statuses[i % len(statuses)]
+        artisan.updatedAt = now
+    records["workshops"].append(n(id="w2", title="Sanganer dabu", status="REJECTED", createdAt=now, createdById="u1", locationId=None, place="Sanganer"))
+    records["products"] = [n(id=f"p{i}", productName=f"Indigo stole {i}", artisanId=f"a{i}", workshopId="w1", status=statuses[i], createdAt=now, createdById="u1", locationId=None) for i in range(3)]
+    records["processes"] = [n(id="pr1", name="Dabu resist", productId="p0", status="PENDING", createdAt=now, createdById="u1")]
+    records["tools"] = [n(id=f"t{i}", toolkitName=f"Block {i}", artisanId=f"a{i}", status=statuses[i + 1], createdAt=now, createdById="u1", locationId=None) for i in range(2)]
+    records["interviews"] = [
+        n(id=f"i{i}", title=f"Sitting {i}", workshopId="w1", status=statuses[i], createdAt=now, createdById="u1", locationId=None, questionnaireId="q1",
+          responses=[n(questionId="qq1", answerText="Indigo", question=n(prompt="Which dye do you use?", sectionTitle="Dyes", sectionCode="A"))])
+        for i in range(2)
+    ]
+    records["media"][1].linkedRecordType = "product"
+    records["media"][1].linkedRecordId = "p0"
+    records["media"][3].questionnaireInterviewId = "i0"
+    ctx.shared["db"] = FakeDB(
+        {
+            "ProcessStep": [n(id="s1", processId="pr1", sortOrder=1, name="Mud paste", createdAt=now)],
+            "WorkshopArtisan": [n(workshopId="w1", artisanId=f"a{i}", createdAt=now) for i in range(3)],
+            "QuestionnaireInterviewArtisan": [n(interviewId="i0", artisanId="a0", createdAt=now, sortOrder=0), n(interviewId="i1", artisanId="a1", createdAt=now, sortOrder=0)],
+            "Questionnaire": [n(id="q1", title="Craft questionnaire", createdAt=now)],
+            "QuestionnaireQuestion": [n(id="qq1", questionnaireId="q1", prompt="Which dye do you use?", sectionCode="A", isActive=True, lineageId="qq1", createdAt=now)],
+            "QuestionnaireResponse": [n(id="r1", interviewId="i0", questionId="qq1", answerText="Indigo", createdAt=now, updatedAt=now, answeredById="u1")],
+            "QuestionnaireRecording": [n(id="rec1", mediaFileId="m0", capturedAt=now, createdAt=now, recordedById="u1", removedAt=None)],
+            "QuestionnaireRecordingTarget": [n(recordingId="rec1", targetKey="Q:qq1", questionLineageId="qq1", sectionId=None)],
+            "QuestionnaireRecordingSubject": [n(recordingId="rec1", artisanId="a0")],
+            "ReviewLog": [n(id="rl1", recordId="a0", recordType="ARTISAN", status="APPROVED", reviewerId="u1", note="Checked", createdAt=now)],
+        },
+        raw=rich_raw,
+    )
+    return ctx
+
+
+def rich_raw(sql: str, *args: Any) -> list[dict[str, Any]]:
+    if '"TranscriptGlossarySighting"' in sql:
+        ids = list(args[0]) if args else []
+        return [{"id": f"gs-{m}", "mediaFileId": m, "startMs": 1000, "termId": "g1", "term": "dabu", "gloss": "mud resist paste", "occurrences": len(ids), "craft": "Block printing", "namesCraft": None} for m in ids]
+    return turns_raw(sql, *args)

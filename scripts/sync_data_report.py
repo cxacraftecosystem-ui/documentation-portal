@@ -32,6 +32,7 @@ SHARED_EXTRA = (
     "backend/tests/report_fixtures.py",
     "backend/tests/test_report_xlsx.py",
     "backend/tests/test_report_budget.py",
+    "backend/tests/test_report_options_matrix.py",
     "backend/tests/test_report_coverage.py",
     "backend/tests/test_report_i18n.py",
     "backend/tests/test_report_pack_hindi.py",

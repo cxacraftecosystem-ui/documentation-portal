@@ -360,9 +360,29 @@ async def collect_sheets(ctx: ReportContext, failed: list[str]) -> list[tuple[An
             failed.append(str(plugin.title))
             continue
         for sheet in made or []:
-            if _picked(wanted, plugin, sheet):
+            if plugin.option or _picked(wanted, plugin, sheet):
                 out.append((plugin, sheet))
     return out
+
+
+def offered(plugin: Any, sheet: Sheet) -> bool:
+    return bool(plugin.option) or sheet.count != 0 or sheet.key in ALWAYS
+
+
+async def catalog_sheets(ctx: ReportContext) -> list[dict[str, Any]]:
+    sheets: list[dict[str, Any]] = []
+    for plugin in contract.plugins(ctx.portal):
+        if plugin.option:
+            continue
+        try:
+            made = await plugin.build(ctx)
+        except Exception:
+            logger.exception("report sheet %s failed", plugin.key)
+            continue
+        for sheet in made or []:
+            if offered(plugin, sheet):
+                sheets.append({"key": sheet.key, "name": sheet.name, "plugin": plugin.key, "count": _count(sheet), "files": len(sheet.media_ids), "group": sheet.group, "description": sheet.description, "record": sheet.key in RECORD_SHEETS})
+    return sheets
 
 
 async def coverage_percent(ctx: ReportContext) -> tuple[int, int] | None:
@@ -466,8 +486,8 @@ async def render_parts(ctx: ReportContext, failed: list[str] | None = None) -> P
         everything: dict[str, int] = {}
         sizes = {str(_v(m, "id")): int(_v(m, "sizeBytes") or 0) for m in (ctx.material.get("records") or {}).get("media") or []}
         explicit = ctx.options.sheets is not None
-        for _plugin, raw in chosen:
-            if raw.count == 0 and not explicit and raw.key not in ALWAYS:
+        for plugin, raw in chosen:
+            if not explicit and not offered(plugin, raw):
                 continue
             sheet = await _materialise(shape(raw, ctx.options))
             bundle_url = None
@@ -634,17 +654,7 @@ async def catalog(user: Any, path: str, *, status: str | None = None, q: str | N
         await enrich_media(db, list(records.get("media") or []), withheld)
         ctx = await context(user, path, options, status_filter=status, db=db, material=material, scope=scope, records=records, withheld=withheld, cache_base=key)
         ctx.links = links.PortalLinks(portals.web_base(), config)
-        sheets: list[dict[str, Any]] = []
-        for plugin in contract.plugins(config.key):
-            if plugin.option:
-                continue
-            try:
-                made = await plugin.build(ctx)
-            except Exception:
-                logger.exception("report sheet %s failed", plugin.key)
-                continue
-            for sheet in made or []:
-                sheets.append({"key": sheet.key, "name": sheet.name, "plugin": plugin.key, "count": _count(sheet), "files": len(sheet.media_ids), "group": sheet.group, "description": sheet.description, "record": sheet.key in RECORD_SHEETS})
+        sheets = await catalog_sheets(ctx)
     extras = [{"key": option, "title": title} for option, title in contract.optional_keys(config.key)]
     total = sum(int(s["count"] or 0) for s in sheets if s["record"])
     normalise = getattr(browser, "data_status", None)
