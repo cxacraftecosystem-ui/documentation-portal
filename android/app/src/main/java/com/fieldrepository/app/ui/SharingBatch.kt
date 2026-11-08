@@ -12,7 +12,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -382,7 +381,7 @@ private fun ScopeChoice(
             )
             .padding(end = 8.dp)
     ) {
-        RadioButton(selected = selected, onClick = null, enabled = enabled)
+        FieldRadioButton(selected = selected, onClick = null, enabled = enabled)
         Text(
             label,
             color = Body,

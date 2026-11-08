@@ -58,6 +58,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -301,7 +303,16 @@ private fun ColumnScope.MediaPane(
         Box(Modifier.fillMaxWidth().height(frameHeight.dp))
         if (source != null) TranscriptVideoSurface(playback, Modifier.align(Alignment.Center).size(frameWidth.dp, frameHeight.dp).testTag("explorer.preview.frame"))
         if (!started) Box(Modifier.matchParentSize().background(Brush.linearGradient(listOf(Color(0xFF4B3A2E), Color(0xFF1A1520)))))
-        if (!playback.playing) {
+        val failure = playback.error
+        if (failure != null) {
+            VideoPlaybackError(
+                message = failure,
+                onRetry = playback::retry,
+                onOpenElsewhere = source?.let { link -> { openVideoElsewhere(context, link) } },
+                onDownload = onSave,
+                modifier = Modifier.matchParentSize(),
+            )
+        } else if (!playback.playing) {
             Box(
                 Modifier.align(Alignment.Center).size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f))
                     .clickable(enabled = playback.available, role = Role.Button, onClick = playback::toggle)
@@ -394,6 +405,50 @@ private fun ColumnScope.MediaPane(
         }
     }
     bottomBar()
+}
+
+internal fun openVideoElsewhere(context: android.content.Context, link: String) {
+    val view = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(link), "video/*").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(Intent.createChooser(view, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        .onFailure { android.widget.Toast.makeText(context, ExplorerUiText.noPlayerApp, android.widget.Toast.LENGTH_LONG).show() }
+}
+
+@Composable
+internal fun VideoPlaybackError(
+    message: String,
+    onRetry: () -> Unit,
+    onOpenElsewhere: (() -> Unit)?,
+    onDownload: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier.background(Color(0xE612101C)).padding(16.dp).semantics { liveRegion = LiveRegionMode.Polite }.testTag("explorer.preview.error"),
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(message, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFF2F0F9), textAlign = TextAlign.Center)
+        Box(
+            Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp)).background(Color.White)
+                .clickable(role = Role.Button, onClick = onRetry).padding(horizontal = 18.dp).testTag("explorer.preview.error.retry"),
+            contentAlignment = Alignment.Center,
+        ) { Text(ExplorerUiText.retry, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Color(0xFF12101C)) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            onOpenElsewhere?.let { open ->
+                Box(
+                    Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, Color(0x99FFFFFF), RoundedCornerShape(12.dp))
+                        .clickable(role = Role.Button, onClick = open).padding(horizontal = 14.dp).testTag("explorer.preview.error.open"),
+                    contentAlignment = Alignment.Center,
+                ) { Text(ExplorerUiText.openElsewhere, style = MaterialTheme.typography.labelLarge, color = Color.White) }
+            }
+            onDownload?.let { download ->
+                Box(
+                    Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, Color(0x99FFFFFF), RoundedCornerShape(12.dp))
+                        .clickable(role = Role.Button, onClick = download).padding(horizontal = 14.dp).testTag("explorer.preview.error.download"),
+                    contentAlignment = Alignment.Center,
+                ) { Text(ExplorerUiText.download, style = MaterialTheme.typography.labelLarge, color = Color.White) }
+            }
+        }
+    }
 }
 
 @Composable

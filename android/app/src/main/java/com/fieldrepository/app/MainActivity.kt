@@ -1,6 +1,7 @@
 package com.fieldrepository.app
 
 import com.fieldrepository.app.transcript.data.TranscribeChoices
+import com.fieldrepository.app.ui.FieldRadioButton
 import com.fieldrepository.app.transcript.data.UploadTranscribe
 import com.fieldrepository.app.transcript.ui.TranscribeChoiceItem
 import com.fieldrepository.app.transcript.ui.TranscribeChoiceRows
@@ -100,8 +101,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
 import com.fieldrepository.app.ui.FieldCheckbox
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Timeline
 import com.fieldrepository.app.ui.trace.TracePanel
@@ -2836,7 +2835,7 @@ private fun SettingsRadioRow(title: String, subtitle: String, selected: Boolean,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        RadioButton(selected = selected, onClick = onSelect)
+        FieldRadioButton(selected = selected, onClick = onSelect)
         Column(modifier = Modifier.weight(1f)) {
             Text(title, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium)
             Text(subtitle, color = Muted, style = MaterialTheme.typography.bodySmall)
