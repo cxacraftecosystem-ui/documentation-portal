@@ -24,6 +24,7 @@ data class ExplorerLinkRequest(
     val q: String? = null,
     val hit: String? = null,
     val kind: String? = null,
+    val filters: Map<String, String> = emptyMap(),
 )
 
 object ExplorerViewLinks {
@@ -56,6 +57,7 @@ object ExplorerViewLinks {
             q = query["q"]?.takeIf { it.isNotBlank() },
             hit = query["hit"]?.takeIf { it.isNotBlank() },
             kind = query["kind"]?.trim()?.uppercase()?.takeIf { it.isNotBlank() },
+            filters = query.filter { (k, v) -> v.isNotBlank() && k in FILTER_PARAMS },
         )
     }
 
@@ -103,6 +105,9 @@ object ExplorerViewLinks {
     }
 
     private val MISSING_CODES = setOf(403, 404, 410)
+
+    private val FILTER_PARAMS: Set<String> = com.fieldrepository.app.explorer.data.ExplorerFilterKey.entries.map { it.param }.toSet() +
+        setOf(com.fieldrepository.app.explorer.data.ExplorerFilters.DATE_FROM, com.fieldrepository.app.explorer.data.ExplorerFilters.DATE_TO)
 
     fun mediaType(served: String?, name: String): String? {
         val said = served?.trim()?.uppercase()?.takeIf { it.isNotEmpty() }

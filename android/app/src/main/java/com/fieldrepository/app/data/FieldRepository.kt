@@ -789,7 +789,8 @@ class FieldRepository(
         dateTo: String? = null,
         workshopIds: List<String>? = null,
         page: Int = 1,
-        pageSize: Int = 10
+        pageSize: Int = 10,
+        filters: Map<String, String> = emptyMap()
     ): SearchResultsDto =
         api.search(
             q = q?.blankToNull(),
@@ -806,7 +807,8 @@ class FieldRepository(
             dateTo = dateTo?.blankToNull(),
             workshopIds = workshopIds.toQueryCsv(),
             page = page,
-            pageSize = pageSize.coerceIn(1, 50)
+            pageSize = pageSize.coerceIn(1, 50),
+            filters = filters.filterKeys { key -> !(key == "dateFrom" && dateFrom != null) && !(key == "dateTo" && dateTo != null) }
         )
 
     suspend fun mapPoints(

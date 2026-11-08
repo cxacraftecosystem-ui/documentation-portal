@@ -91,7 +91,8 @@ object ExplorerTablesMemory {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ExplorerReport>?): Boolean = size > KEEP
     }
 
-    fun key(owner: String?, path: String, query: String) = "${owner.orEmpty()}|$path|${query.trim().lowercase()}"
+    fun key(owner: String?, path: String, query: String, filters: Map<String, String> = emptyMap()) =
+        "${owner.orEmpty()}|$path|${query.trim().lowercase()}" + filters.entries.sortedBy { it.key }.joinToString("") { "|${it.key}=${it.value}" }
 
     fun get(key: String): ExplorerReport? = synchronized(held) { held[key] }
 
@@ -138,6 +139,8 @@ class ExplorerTablesState(
         private set
     var rowsFailed by mutableStateOf(false)
         private set
+    var filters by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
 
     var requests = 0
         private set
@@ -166,6 +169,15 @@ class ExplorerTablesState(
         fetch(immediate = true)
     }
 
+    fun filter(next: Map<String, String>) {
+        if (next == filters) return
+        filters = next
+        rewind()
+        if (path == null) return
+        load = TablesLoad.Loading
+        fetch(immediate = true)
+    }
+
     fun search(text: String) {
         if (text == query) return
         query = text
@@ -191,18 +203,19 @@ class ExplorerTablesState(
         val at = now.path
         val words = now.query
         val name = sheet.name
+        val chosen = filters
         rowsFailed = false
         loadingRows = true
         rowsJob = scope.launch {
             try {
-                val page = withBusyRetry { api.reportJson(at, words.trim().ifBlank { null }, sheet = name, offset = loaded) }
+                val page = withBusyRetry { api.reportJson(at, words.trim().ifBlank { null }, sheet = name, offset = loaded, filters = chosen) }
                 val fresh = page.sheets.firstOrNull { it.name == name }
                 val current = ready
                 if (fresh == null || fresh.offset != loaded) {
                     rowsFailed = true
-                } else if (current != null && current.path == at && current.query == words) {
+                } else if (current != null && current.path == at && current.query == words && filters == chosen) {
                     val merged = current.report.copy(sheets = current.report.sheets.map { if (it.name == name) joined(it, fresh) else it })
-                    ExplorerTablesMemory.put(ExplorerTablesMemory.key(owner, at, words), merged)
+                    ExplorerTablesMemory.put(ExplorerTablesMemory.key(owner, at, words, chosen), merged)
                     load = TablesLoad.Ready(merged, at, words)
                     shown = next
                 }
@@ -242,7 +255,8 @@ class ExplorerTablesState(
     private fun fetch(immediate: Boolean) {
         val at = path ?: return
         val words = query
-        val key = ExplorerTablesMemory.key(owner, at, words)
+        val chosen = filters
+        val key = ExplorerTablesMemory.key(owner, at, words, chosen)
         job?.cancel()
         refreshFailed = false
         busySeconds = null
@@ -261,9 +275,9 @@ class ExplorerTablesState(
         job = scope.launch {
             if (!immediate && words.isNotBlank()) delay(debounceMs)
             try {
-                val report = withBusyRetry { api.reportJson(at, words.trim().ifBlank { null }) }
+                val report = withBusyRetry { api.reportJson(at, words.trim().ifBlank { null }, filters = chosen) }
                 ExplorerTablesMemory.put(key, report)
-                if (path == at && query == words) load = TablesLoad.Ready(report, at, words)
+                if (path == at && query == words && filters == chosen) load = TablesLoad.Ready(report, at, words)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
@@ -355,6 +369,9 @@ internal fun TablesScreen(
     onCsv: (sheet: String) -> Unit,
     onReport: () -> Unit,
     modifier: Modifier = Modifier,
+    filterBar: (@Composable () -> Unit)? = null,
+    localOff: Boolean = false,
+    onClearFilters: () -> Unit = {},
 ) {
     val large = LocalDensity.current.fontScale >= 1.5f
     val ready = tables.ready
@@ -375,9 +392,10 @@ internal fun TablesScreen(
             Modifier.weight(1f).fillMaxWidth().testTag("explorer.tree"),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
         ) {
-            item("tables") { ExplorerTables(tables, online, onCsv, onReport, buttons = false) }
+            if (filterBar != null) item("filters") { Box(Modifier.fillMaxWidth().padding(bottom = 12.dp)) { filterBar() } }
+            if (localOff) item("tables") { FilteredEmptyCard("", localOff = true, onClear = onClearFilters) } else item("tables") { ExplorerTables(tables, online, onCsv, onReport, buttons = false) }
         }
-        if (sheet != null) {
+        if (sheet != null && !localOff) {
             val csv: @Composable (Modifier) -> Unit = { m -> ExplorerSecondaryButton(ExplorerUiText.thisTable, onClick = { onCsv(sheet.name) }, enabled = online, modifier = m.testTag("explorer.csv.${sheet.name}")) }
             val full: @Composable (Modifier) -> Unit = { m -> ExplorerPrimaryButton(ExplorerUiText.fullReport, onClick = onReport, enabled = online, modifier = m.testTag("explorer.tables.report")) }
             if (large) {
@@ -440,10 +458,13 @@ internal fun ExplorerTables(
                     val searchingRows = words.isNotBlank()
                     val rows = ExplorerTablesState.window(sheet, searchingRows, state.shown)
                     if (rows.isEmpty()) HintLine(if (searchingRows) ExplorerText.matches(0, sheet.totalRows ?: 0) else ExplorerText.noRows)
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        rows.forEachIndexed { index, (row, number) ->
-                            RowCard(sheet.headers, row, words, number ?: if (words.isBlank()) index + 1 else null, "${sheet.name}.$index", startOpen = index == 0)
-                        }
+                    if (rows.isNotEmpty()) {
+                        ExplorerTableGrid(
+                            headers = sheet.headers,
+                            rows = rows.mapIndexed { index, (row, number) -> row.map { ExplorerCells.text(it) } to (number ?: if (words.isBlank()) index + 1 else null) },
+                            query = words,
+                            keyPrefix = sheet.name,
+                        )
                     }
                     val shown = rows.count { it.second != 0 }
                     val total = ExplorerTablesState.count(sheet, searchingRows)
@@ -557,59 +578,6 @@ private fun SheetPicker(sheets: List<ExplorerSheet>, current: ExplorerSheet, sea
                 role = Role.RadioButton,
                 modifier = Modifier.testTag("explorer.tables.pill.${s.name}"),
             )
-        }
-    }
-}
-
-@Composable
-private fun RowCard(headers: List<String>, row: List<kotlinx.serialization.json.JsonElement>, query: String, number: Int?, key: String, startOpen: Boolean) {
-    var open by remember(key) { mutableStateOf(startOpen) }
-    var every by remember(key) { mutableStateOf(false) }
-    val cells = row.map { ExplorerCells.text(it) }
-    val (markBg, markFg) = explorerMark()
-    val large = LocalDensity.current.fontScale >= 1.5f
-    val rest = headers.drop(1).mapIndexedNotNull { i, label -> cells.getOrNull(i + 1)?.takeIf { it.isNotBlank() }?.let { label to it } }
-    Column(
-        Modifier.fillMaxWidth()
-            .clip(ExplorerShapes.card)
-            .explorerCard()
-            .clickable(role = Role.Button) { open = !open; if (!open) every = false }
-            .padding(14.dp)
-            .testTag("explorer.tables.row.$key"),
-        verticalArrangement = Arrangement.spacedBy(if (open) 8.dp else 6.dp),
-    ) {
-        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                markWords(cells.firstOrNull().orEmpty().ifBlank { "—" }, query, markBg, markFg),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
-            number?.let { Text(ExplorerUiText.row(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
-        if (open) {
-            val shown = if (every) rest else rest.take(4)
-            val perRow = if (large) 1 else 2
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                shown.chunked(perRow).forEach { pair ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        pair.forEach { (label, value) ->
-                            Column(Modifier.weight(1f)) {
-                                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(markWords(value, query, markBg, markFg), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                            }
-                        }
-                        repeat(perRow - pair.size) { Spacer(Modifier.weight(1f)) }
-                    }
-                }
-            }
-            if (rest.size > 4 || every) {
-                ExplorerLinkButton(if (every) ExplorerUiText.showFewer else ExplorerUiText.allColumns(headers.size), onClick = { every = !every })
-            }
-        } else {
-            val summary = rest.map { it.second }.take(4).joinToString(" · ")
-            if (summary.isNotBlank()) Text(markWords(summary, query, markBg, markFg), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.body, maxLines = if (large) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

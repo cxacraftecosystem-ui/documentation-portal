@@ -11,6 +11,7 @@ import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.QueryMap
 import retrofit2.http.Streaming
 import retrofit2.http.Url
 
@@ -22,6 +23,7 @@ interface ExplorerApi {
         @Query("cursor") cursor: String? = null,
         @Query("slim") slim: Int = 1,
         @Query("sort") sort: String? = null,
+        @QueryMap filters: Map<String, String> = emptyMap(),
     ): ExplorerTree
 
     @GET("data/locate")
@@ -31,7 +33,7 @@ interface ExplorerApi {
     suspend fun transcript(@Path("id") id: String): ExplorerTranscript
 
     @GET("data/stats")
-    suspend fun stats(@Query("path") path: String, @Query("include") include: String? = null): ExplorerStats
+    suspend fun stats(@Query("path") path: String, @Query("include") include: String? = null, @QueryMap filters: Map<String, String> = emptyMap()): ExplorerStats
 
     @POST("data/stats")
     suspend fun selectionStats(@Body body: ExplorerStatsBody): ExplorerStats
@@ -43,6 +45,7 @@ interface ExplorerApi {
         @Query("format") format: String = "json",
         @Query("sheet") sheet: String? = null,
         @Query("offset") offset: Int? = null,
+        @QueryMap filters: Map<String, String> = emptyMap(),
     ): ExplorerReport
 
     @GET("data/transcripts/languages")
@@ -90,6 +93,8 @@ object ExplorerPaths {
         return root.resolve(api(path))?.toString() ?: path
     }
 
+    fun withQueries(path: String, values: Map<String, String>): String = values.entries.fold(path) { url, (key, value) -> withQuery(url, key, value) }
+
     fun withQuery(path: String, key: String, value: String): String {
         val joiner = if ('?' in path) '&' else '?'
         return "$path$joiner$key=${java.net.URLEncoder.encode(value, "UTF-8")}"
@@ -105,6 +110,12 @@ object ExplorerPaths {
 
     fun reportCsv(path: String, sheet: String): String =
         withQuery(withQuery(withQuery("/api/data/report", "format", "csv"), "sheet", sheet), "path", path)
+
+    fun manifest(path: String, include: String?, filters: Map<String, String>): String {
+        var url = withQuery("/api/data/manifest?stream=1", "path", path)
+        include?.takeIf { it.isNotBlank() }?.let { url = withQuery(url, "include", it) }
+        return withQueries(url, filters)
+    }
 
     fun transcriptZip(mediaId: String): String = "/api/transcripts/$mediaId/download?format=zip&track=both"
 

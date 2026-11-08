@@ -8,6 +8,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import com.fieldrepository.app.explorer.data.ExplorerApi
+import com.fieldrepository.app.explorer.data.ExplorerAppliedFilters
+import com.fieldrepository.app.explorer.data.ExplorerFilters
 import com.fieldrepository.app.explorer.data.ExplorerBusy
 import com.fieldrepository.app.explorer.data.ExplorerCache
 import com.fieldrepository.app.explorer.data.ExplorerCrumb
@@ -51,16 +53,20 @@ sealed interface TranscriptLoad {
 
 enum class ExplorerTab { FILES, TABLES, TRANSCRIPTS }
 
-data class ExplorerResume(val path: String, val tab: ExplorerTab, val status: String?) {
+data class ExplorerResume(val path: String, val tab: ExplorerTab, val status: String?, val filters: ExplorerFilters = ExplorerFilters()) {
     companion object {
         private const val NONE = "\u0000"
 
+        fun encode(filters: ExplorerFilters): String = runCatching { ExplorerJson.encodeToString(ExplorerFilters.serializer(), filters) }.getOrDefault("")
+
+        fun decode(text: String?): ExplorerFilters = text?.takeIf { it.isNotBlank() }?.let { runCatching { ExplorerJson.decodeFromString(ExplorerFilters.serializer(), it) }.getOrNull() } ?: ExplorerFilters()
+
         val saver: Saver<ExplorerResume?, Any> = Saver(
-            save = { r -> r?.let { arrayListOf(it.path, it.tab.name, it.status ?: NONE) } },
+            save = { r -> r?.let { arrayListOf(it.path, it.tab.name, it.status ?: NONE, encode(it.filters)) } },
             restore = { saved ->
                 (saved as? List<*>)?.let { parts ->
                     val tab = runCatching { ExplorerTab.valueOf(parts[1] as String) }.getOrDefault(ExplorerTab.FILES)
-                    ExplorerResume(parts[0] as String, tab, (parts[2] as String).takeIf { it != NONE })
+                    ExplorerResume(parts[0] as String, tab, (parts[2] as String).takeIf { it != NONE }, decode(parts.getOrNull(3) as? String))
                 }
             },
         )
@@ -106,6 +112,8 @@ class ExplorerState(
     var restricted by mutableStateOf(false)
         private set
     var status by mutableStateOf(defaultStatus)
+        private set
+    var filters by mutableStateOf(ExplorerFilters())
         private set
     var locating by mutableStateOf<String?>(null)
         private set
@@ -199,7 +207,13 @@ class ExplorerState(
 
     override fun onAbandoned() = close()
 
-    private fun key(target: String) = ExplorerCache.key(target, statusParam)
+    val filterQuery: Map<String, String> get() = filters.query()
+
+    val showsLocal: Boolean get() = filters.includesThis
+
+    val appliedFilters: ExplorerAppliedFilters? get() = tree?.filters?.takeIf { it.active.isNotEmpty() }
+
+    private fun key(target: String) = ExplorerCache.key(target, listOfNotNull(statusParam, filters.key().takeIf { filters.narrowing }).joinToString("|").ifEmpty { null })
 
     fun dismissError() {
         error = null
@@ -210,6 +224,7 @@ class ExplorerState(
         started = true
         if (resume != null) {
             status = resume.status
+            filters = resume.filters
             landed = resume.path.isNotEmpty()
             open(resume.path)
             tab = resume.tab
@@ -229,6 +244,19 @@ class ExplorerState(
         transcripts.clear()
         openTranscripts = emptySet()
         open(path)
+    }
+
+    fun changeFilters(next: ExplorerFilters) {
+        if (next == filters) return
+        val reload = next.query() != filters.query()
+        filters = next
+        if (!reload) return
+        levels.clear()
+        transcripts.clear()
+        openTranscripts = emptySet()
+        loadJob?.cancel()
+        loadingTarget = null
+        open(path, remember = false)
     }
 
     fun open(requested: String) = open(requested, remember = true)
@@ -301,7 +329,7 @@ class ExplorerState(
                 try {
                     Result.success(
                         ExplorerSorts.fetch(remembered(ExplorerSorts.treeLevel(target)), ExplorerSorts.TREE, { t: ExplorerTree -> t.sorts }) { sort ->
-                            api.tree(target, statusParam, null, sort = sort)
+                            api.tree(target, statusParam, null, sort = sort, filters = filterQuery)
                         },
                     )
                 } catch (cancelled: CancellationException) {
@@ -396,7 +424,7 @@ class ExplorerState(
         work.launch {
             loadingMore = true
             try {
-                val next = api.tree(target, statusParam, at, sort = sent)
+                val next = api.tree(target, statusParam, at, sort = sent, filters = filterQuery)
                 if (path == target && generation == pageGeneration) {
                     val seen = entries.map { it.key }.toHashSet()
                     entries = entries + next.entries.filter { it.key !in seen }

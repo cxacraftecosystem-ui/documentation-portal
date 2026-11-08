@@ -88,6 +88,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -104,6 +105,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.fieldrepository.app.data.Naming
+import com.fieldrepository.app.explorer.data.ExplorerFilters
+import androidx.compose.runtime.compositionLocalOf
+import com.fieldrepository.app.explorer.data.ExplorerFacetKeys
+import com.fieldrepository.app.explorer.data.ExplorerFacets
+import com.fieldrepository.app.explorer.data.ExplorerFilterApi
+import com.fieldrepository.app.explorer.data.ExplorerFilterApis
+import com.fieldrepository.app.explorer.data.ExplorerViewFilters
+import androidx.compose.runtime.rememberUpdatedState
 import com.fieldrepository.app.explorer.data.ExplorerApi
 import com.fieldrepository.app.explorer.data.ExplorerBytes
 import com.fieldrepository.app.explorer.data.ExplorerCache
@@ -152,6 +161,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 val LocalExplorerSearchAll = staticCompositionLocalOf<((String) -> Unit)?> { null }
+
+val LocalExplorerFilters = compositionLocalOf { ExplorerFilters() }
+
+val LocalExplorerPeerSearch = compositionLocalOf<(@Composable (q: String) -> Unit)?> { null }
 
 private sealed interface DownloadTarget {
     data class Folder(val path: String, val name: String) : DownloadTarget
@@ -245,11 +258,14 @@ fun ExplorerScreen(
     more: ExplorerMore? = null,
     held: ExplorerState? = null,
     onPathChange: (String) -> Unit = {},
+    onOpenRemote: ((type: String, id: String) -> Unit)? = null,
+    filterApi: ExplorerFilterApi? = null,
 ) {
     val context = LocalContext.current
     val app = context.applicationContext
     val explorerApi = remember(ExplorerIdentity(api), ExplorerIdentity(held)) { held?.api ?: api ?: ExplorerEnvironment.api(app) }
     val extras = remember(ExplorerIdentity(more)) { more ?: ExplorerMoreApi.of(app) }
+    val filtersApi = remember(ExplorerIdentity(filterApi), ExplorerIdentity(api)) { filterApi ?: ExplorerFilterApis.override ?: if (api != null) ExplorerFilterApis.NONE else ExplorerFilterApis.of(app) }
     val state = held ?: rememberExplorerState(explorerApi)
     val scope = rememberCoroutineScope()
     val owner = remember { ExplorerPortal.userId(app) }
@@ -295,6 +311,38 @@ fun ExplorerScreen(
         value = attemptOrNull { explorerApi.languages().languages.map { it.code to it.label.ifBlank { it.code } } }.orEmpty()
     }
 
+    var facets by remember { mutableStateOf<ExplorerFacets?>(null) }
+    val filterQuery = state.filterQuery
+    LaunchedEffect(ExplorerIdentity(filtersApi), filterQuery) {
+        attemptOrNull { filtersApi.filters(null, filterQuery) }?.let { got ->
+            facets = got
+            val names = got.facets.flatMap { f -> f.options.map { it.value to it.label } }.toMap()
+            if (names.isNotEmpty()) state.changeFilters(state.filters.withLabels(names))
+        }
+    }
+    LaunchedEffect(filterQuery) { tables.filter(filterQuery) }
+    LaunchedEffect(state.appliedFilters) {
+        val names = ExplorerFacetKeys.labels(state.appliedFilters)
+        if (names.isNotEmpty()) state.changeFilters(state.filters.withLabels(names))
+    }
+    val currentFacets by rememberUpdatedState(facets)
+    val optionSource: ExplorerOptionSource = remember(ExplorerIdentity(filtersApi)) {
+        val source: ExplorerOptionSource = { key, _ ->
+            val have = currentFacets ?: filtersApi.filters(null, state.filterQuery).also { facets = it }
+            ExplorerFacetKeys.options(have, key)
+        }
+        source
+    }
+    val filterBar: @Composable () -> Unit = {
+        ExplorerFilterBar(
+            filters = state.filters,
+            keys = ExplorerFacetKeys.keys(facets, state.filters),
+            source = optionSource,
+            onChange = { state.changeFilters(it) },
+        )
+    }
+    val statsKey: (String) -> String = { at -> at + "|" + state.filters.key() }
+
     LaunchedEffect(state.recordToOpen) {
         val record = state.recordToOpen ?: return@LaunchedEffect
         val open = onOpenRecord
@@ -318,9 +366,9 @@ fun ExplorerScreen(
             delay(1_000)
         }
     }
-    LaunchedEffect(state.path, state.tab, state.status) {
+    LaunchedEffect(state.path, state.tab, state.status, state.filters) {
         if (state.started && state.path.isNotEmpty()) {
-            resume = ExplorerResume(state.path, state.tab, state.status)
+            resume = ExplorerResume(state.path, state.tab, state.status, state.filters)
             onPathChange(state.path)
         }
     }
@@ -342,23 +390,24 @@ fun ExplorerScreen(
     LaunchedEffect(loaded) {
         if (loaded && entryScroll != null) listState.scrollToItem(entryScroll.first, entryScroll.second)
     }
-    LaunchedEffect(state.path, loaded) {
+    LaunchedEffect(state.path, loaded, filterQuery) {
         if (!loaded) return@LaunchedEffect
         val at = state.path
-        if (stats[at] !is SizeLoad.Known && (state.crumbs.size >= 3 || state.info != null)) {
-            stats[at] = SizeLoad.Loading
-            stats[at] = try {
-                SizeLoad.Known(ExplorerSize.of(explorerApi.stats(at)))
+        val sk = statsKey(at)
+        if (stats[sk] !is SizeLoad.Known && (state.crumbs.size >= 3 || state.info != null)) {
+            stats[sk] = SizeLoad.Loading
+            stats[sk] = try {
+                SizeLoad.Known(ExplorerSize.of(explorerApi.stats(at, filters = filterQuery)))
             } catch (cancelled: CancellationException) {
-                stats.remove(at)
+                stats.remove(sk)
                 throw cancelled
             } catch (failure: Throwable) {
                 SizeLoad.Unknown
             }
         }
-        attemptOrNull { extras.visit(ExplorerVisitBody(at)) }?.let { visits[at] = it }
-        if (sheetCounts[at] == null) {
-            attemptOrNull { extras.reportSheets(at, state.statusParam) }?.let { got -> sheetCounts[at] = got.sheets.count { (it.count ?: 0) > 0 } }
+        if (visits[at] == null) attemptOrNull { extras.visit(ExplorerVisitBody(at)) }?.let { visits[at] = it }
+        if (sheetCounts[sk] == null) {
+            attemptOrNull { extras.reportSheets(at, state.statusParam, filters = filterQuery) }?.let { got -> sheetCounts[sk] = got.sheets.count { (it.count ?: 0) > 0 } }
         }
         if (isWorkshopFolder(at) && overviews[at] == null) {
             attemptOrNull { extras.overview(at, state.statusParam) }?.let { overviews[at] = it }
@@ -500,7 +549,7 @@ fun ExplorerScreen(
                 kind = ExplorerJobKind.TRANSCRIPTS,
                 single = true,
                 mimeType = "application/zip",
-                items = listOf(ExplorerItem(path = "", url = ExplorerPaths.transcriptBundle(state.path))),
+                items = listOf(ExplorerItem(path = "", url = ExplorerPaths.withQueries(ExplorerPaths.transcriptBundle(state.path), filterQuery))),
             ),
         )
     }
@@ -513,15 +562,17 @@ fun ExplorerScreen(
         val path = state.path
         val name = state.folderName
         val fileName = Naming.exportFilename("Dataset", "Export", "zip", withTime = true, subject = name)
-        val known = (stats[path] as? SizeLoad.Known)?.size?.let { includedSize(it, include) }
+        val known = (stats[statsKey(path)] as? SizeLoad.Known)?.size?.let { includedSize(it, include) }
         val chosen = includeParam(include)
+        val narrowed = state.filters.narrowing
+        val filterParams = filterQuery
         preflightOr(name, known, fileName) { wifiOnly, smaller ->
             begin(
                 ExplorerRequest(
                     title = name,
                     fileName = fileName,
                     kind = ExplorerJobKind.FOLDER,
-                    sources = listOf(ExplorerSource(path, include = smaller ?: chosen)),
+                    sources = listOf(ExplorerSource(path, include = smaller ?: chosen, manifestUrl = if (narrowed) ExplorerPaths.manifest(path, smaller ?: chosen, filterParams) else null)),
                     wifiOnly = wifiOnly,
                     expectedBytes = known?.bytes,
                 ),
@@ -564,7 +615,7 @@ fun ExplorerScreen(
                 kind = ExplorerJobKind.REPORT,
                 single = true,
                 mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                items = listOf(ExplorerItem(path = "", url = ExplorerMoreApi.reportUrl(state.path, options, tables.query.ifBlank { null }, file, status))),
+                items = listOf(ExplorerItem(path = "", url = ExplorerMoreApi.reportUrl(state.path, options, tables.query.ifBlank { null }, file, status, filters = filterQuery))),
             ),
         )
         reportOpen = false
@@ -580,7 +631,7 @@ fun ExplorerScreen(
                 kind = ExplorerJobKind.REPORT,
                 single = true,
                 mimeType = "application/zip",
-                items = listOf(ExplorerItem(path = "", url = ExplorerMoreApi.reportUrl(state.path, options, tables.query.ifBlank { null }, file, status, pack = true))),
+                items = listOf(ExplorerItem(path = "", url = ExplorerMoreApi.reportUrl(state.path, options, tables.query.ifBlank { null }, file, status, pack = true, filters = filterQuery))),
             ),
         )
         reportOpen = false
@@ -670,7 +721,7 @@ fun ExplorerScreen(
 
     fun openView(view: ExplorerView) {
         reportOpen = false
-        view.state.filters["status"]?.takeIf { it != state.status && ExplorerPortal.statusOptions.any { o -> o.first == it } }?.let { state.changeStatus(it) }
+        state.changeFilters(ExplorerViewFilters.of(view.state.filters, state.filters))
         state.open(view.path)
         showView(view.path, view.state.view, view.state.sheet, view.state.q)
     }
@@ -722,6 +773,7 @@ fun ExplorerScreen(
                     if (view != null) openView(view) else r.path?.let { state.open(it) }
                 }
                 r.path != null -> {
+                    if (r.filters.isNotEmpty()) state.changeFilters(ExplorerViewFilters.of(r.filters, state.filters))
                     state.open(r.path)
                     if (r.view != null || r.sheet != null || r.q != null) showView(r.path, r.view, r.sheet, r.q)
                 }
@@ -736,7 +788,7 @@ fun ExplorerScreen(
                 kind = ExplorerJobKind.REPORT,
                 single = true,
                 mimeType = "text/csv",
-                items = listOf(ExplorerItem(path = "", url = ExplorerPaths.reportCsv(state.path, sheet))),
+                items = listOf(ExplorerItem(path = "", url = ExplorerPaths.withQueries(ExplorerPaths.reportCsv(state.path, sheet), filterQuery))),
             ),
         )
     }
@@ -775,7 +827,7 @@ fun ExplorerScreen(
             job.request.items.firstOrNull()?.url?.substringAfter("/transcripts/", "")?.substringBefore('/')?.takeIf { it.isNotBlank() }
         }.toSet()
     }
-    val size = stats[state.path]
+    val size = stats[statsKey(state.path)]
     val large = LocalDensity.current.fontScale >= 1.5f
     val network = if (link.metered) ExplorerUiText.mobileData else ExplorerUiText.wifi
     fun fileQueryNow(): String? = viewQuery?.takeIf { it.first == state.path && state.tab == ExplorerTab.FILES }?.second
@@ -949,8 +1001,16 @@ fun ExplorerScreen(
             }
             when (state.tab) {
                 ExplorerTab.FILES -> {
-                    if (state.entries.isEmpty()) {
-                        block("empty") { EmptyFolderCard(state.folderName, onRecordNow?.let { record -> { record(state.path, state.folderName) } }) }
+                    val localOff = !state.showsLocal
+                    when {
+                        localOff -> block("empty") { FilteredEmptyCard("", localOff = true) { state.changeFilters(state.filters.cleared()) } }
+                        state.entries.isEmpty() && state.filters.narrowing -> block("empty") {
+                            FilteredEmptyCard(ExplorerFacetKeys.summary(state.appliedFilters, state.filters), localOff = false) { state.changeFilters(state.filters.cleared()) }
+                        }
+                        state.entries.isEmpty() -> block("empty") { EmptyFolderCard(state.folderName, onRecordNow?.let { record -> { record(state.path, state.folderName) } }) }
+                    }
+                    if (state.filters.includesOther) {
+                        block("peer") { PeerResults(filtersApi, state.path, state.filters, onOpenRemote) }
                     }
                     val fileQuery = fileQueryNow()
                     if (fileQuery != null) {
@@ -969,9 +1029,9 @@ fun ExplorerScreen(
                     if (state.sortKeys.isNotEmpty() && state.entries.isNotEmpty()) {
                         block("sort") { ExplorerSortLine(state.sort, state.sortKeys, onClick = { sortOpen = true }) }
                     }
-                    val folders = state.folders
-                    val listed = visibleFiles()
-                    val more = state.cursor != null
+                    val folders = if (localOff) emptyList() else state.folders
+                    val listed = if (localOff) emptyList() else visibleFiles()
+                    val more = !localOff && state.cursor != null
                     if (!wide) {
                         val total = folders.size + listed.size
                         itemsIndexed(folders, key = { _, f -> f.key }) { index, folder ->
@@ -1022,7 +1082,7 @@ fun ExplorerScreen(
                             }
                         }
                     }
-                    val total = state.total
+                    val total = state.total.takeIf { !localOff }
                     if (total != null && total > state.entries.size) {
                         block("shown") {
                             Text(
@@ -1048,7 +1108,7 @@ fun ExplorerScreen(
                         }
                     }
                 }
-                ExplorerTab.TABLES -> block("tables") {
+                ExplorerTab.TABLES -> if (!state.showsLocal) block("tables") { FilteredEmptyCard("", localOff = true) { state.changeFilters(state.filters.cleared()) } } else block("tables") {
                     ExplorerTables(
                         state = tables,
                         online = link.online,
@@ -1056,9 +1116,10 @@ fun ExplorerScreen(
                         onReport = { reportOpen = true },
                     )
                 }
-                ExplorerTab.TRANSCRIPTS -> block("transcripts") {
+                ExplorerTab.TRANSCRIPTS -> if (!state.showsLocal) block("transcripts") { FilteredEmptyCard("", localOff = true) { state.changeFilters(state.filters.cleared()) } } else block("transcripts") {
                     ExplorerTranscriptsTab(
                         path = state.path,
+                        filterQuery = filterQuery,
                         initialQuery = viewQuery?.takeIf { it.first == state.path }?.second.orEmpty(),
                         status = state.statusParam,
                         online = link.online,
@@ -1080,7 +1141,12 @@ fun ExplorerScreen(
     val searchSlot: @Composable () -> Unit = { search { type, id, title -> state.locate(type, id, title) } }
     val refresh: () -> Unit = { state.reload(); tables.reload() }
 
-    CompositionLocalProvider(LocalExplorerSearchAll provides searchScreen?.let { { q: String -> searchQuery = q } }) {
+    val peerSearch: @Composable (String) -> Unit = { q -> PeerResults(filtersApi, state.path, state.filters, onOpenRemote, q = q) }
+    CompositionLocalProvider(
+        LocalExplorerSearchAll provides searchScreen?.let { { q: String -> searchQuery = q } },
+        LocalExplorerFilters provides state.filters,
+        LocalExplorerPeerSearch provides peerSearch,
+    ) {
         BoxWithConstraints(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).testTag("explorer.screen")) {
             val wide = maxWidth >= 840.dp
             val screenDp = maxWidth.value
@@ -1099,6 +1165,9 @@ fun ExplorerScreen(
                         onBack = { state.tab = ExplorerTab.FILES },
                         onCsv = ::tableCsv,
                         onReport = { reportOpen = true },
+                        filterBar = filterBar,
+                        localOff = !state.showsLocal,
+                        onClearFilters = { state.changeFilters(state.filters.cleared()) },
                         modifier = Modifier.weight(1f),
                     )
                 } else if (!wide) {
@@ -1116,6 +1185,7 @@ fun ExplorerScreen(
                     val phoneRows = ExplorerRowPlan.build {
                         if (!state.selecting) {
                             block("toolbar") { Toolbar(search = searchSlot) }
+                            block("filters") { filterBar() }
                             if (hasOrganise(state)) block("organise") { OrganiseCard(state) }
                         }
                         content(false)
@@ -1138,9 +1208,16 @@ fun ExplorerScreen(
                                 onDownloads = { showDownloads = true },
                                 onBack = { if (!state.canGoUp || !state.goUp()) onBack() },
                                 search = searchSlot,
-                                modifier = Modifier.width(pane.dp).fillMaxHeight(),
+                                filterBar = filterBar,
+                                modifier = Modifier.width(pane.dp).fillMaxHeight().clipToBounds(),
                             )
-                            Column(Modifier.weight(1f).fillMaxHeight()) {
+                            PaneDivider(
+                                width = pane,
+                                screen = screenDp,
+                                onWidth = { paneWidth = it },
+                                onSettled = { ExplorerPaneWidth.write(app, paneWidth) },
+                            )
+                            Column(Modifier.weight(1f).widthIn(min = 0.dp).fillMaxHeight().clipToBounds().testTag("explorer.content")) {
                                 if (state.selecting) {
                                     TopBar(
                                         selecting = true,
@@ -1164,13 +1241,6 @@ fun ExplorerScreen(
                                 }
                             }
                         }
-                        PaneDivider(
-                            width = pane,
-                            screen = screenDp,
-                            onWidth = { paneWidth = it },
-                            onSettled = { ExplorerPaneWidth.write(app, paneWidth) },
-                            modifier = Modifier.offset(x = pane.dp - 24.dp),
-                        )
                     }
                 }
                 if (media == null && !state.selecting && !tablesScreen) {
@@ -1235,6 +1305,7 @@ fun ExplorerScreen(
             onMake = ::makeReport,
             onMakePack = ::makePack,
             status = state.statusParam,
+            filters = state.filters,
             onOpenView = ::openView,
             onMessage = onMessage,
             onDismiss = { reportOpen = false },
@@ -1390,7 +1461,7 @@ private fun Toolbar(search: @Composable () -> Unit) {
     }
 }
 
-private fun hasOrganise(state: ExplorerState): Boolean = state.taxonomies.size > 1 || ExplorerPortal.statusOptions.isNotEmpty()
+private fun hasOrganise(state: ExplorerState): Boolean = state.taxonomies.size > 1
 
 @Composable
 private fun Eyebrow(text: String) {
@@ -1401,7 +1472,6 @@ private fun Eyebrow(text: String) {
 @Composable
 private fun OrganiseCard(state: ExplorerState) {
     val taxonomies = state.taxonomies
-    val statuses = ExplorerPortal.statusOptions
     Column(
         Modifier.fillMaxWidth().explorerCard().padding(14.dp).testTag("explorer.organise"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1425,20 +1495,6 @@ private fun OrganiseCard(state: ExplorerState) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("explorer.organise.about"),
             )
-        }
-        if (statuses.isNotEmpty()) {
-            Eyebrow(ExplorerUiText.reviewStatus)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                statuses.forEach { (value, label) ->
-                    ExplorerPill(
-                        text = label,
-                        selected = value == state.status,
-                        onClick = { state.changeStatus(value) },
-                        role = Role.RadioButton,
-                        modifier = Modifier.testTag("explorer.status.$value"),
-                    )
-                }
-            }
         }
     }
 }
@@ -1705,15 +1761,18 @@ private fun TreePane(
     onDownloads: () -> Unit,
     onBack: () -> Unit,
     search: @Composable () -> Unit,
+    filterBar: @Composable () -> Unit,
     modifier: Modifier,
 ) {
     val outline = remember(ExplorerIdentity(api)) { mutableStateMapOf<String, List<ExplorerEntry>>() }
     val chain = state.crumbs.map { it.path }.filter { it.isNotEmpty() }
     val status = state.statusParam
-    LaunchedEffect(chain, status) {
+    val narrowing = state.filterQuery
+    LaunchedEffect(narrowing) { outline.clear() }
+    LaunchedEffect(chain, status, narrowing) {
         chain.dropLast(1).forEach { at ->
             if (outline[at] == null) {
-                attemptOrNull { api.tree(at, status, null) }?.let { t -> outline[at] = t.entries.filter { it.isFolder } }
+                attemptOrNull { api.tree(at, status, null, filters = narrowing) }?.let { t -> outline[at] = t.entries.filter { it.isFolder } }
             }
         }
     }
@@ -1738,6 +1797,7 @@ private fun TreePane(
         }
         LazyColumn(Modifier.fillMaxSize().testTag("explorer.pane.tree"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
             item("search") { Box(Modifier.fillMaxWidth().padding(bottom = 12.dp)) { search() } }
+            item("filters") { Box(Modifier.fillMaxWidth().padding(bottom = 12.dp)) { filterBar() } }
             if (state.taxonomies.size > 1) {
                 item("segments") {
                     Row(
@@ -1761,17 +1821,8 @@ private fun TreePane(
                     }
                 }
             }
-            if (ExplorerPortal.statusOptions.isNotEmpty()) {
-                item("statuses") {
-                    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        ExplorerPortal.statusOptions.forEach { (value, label) ->
-                            ExplorerPill(label, selected = value == state.status, onClick = { state.changeStatus(value) }, role = Role.RadioButton, minHeight = 32.dp, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("explorer.status.$value"))
-                        }
-                    }
-                }
-            }
             fun LazyListScope.level(index: Int) {
-                val list = levelOf(index) ?: return
+                val list = (if (state.showsLocal) levelOf(index) else emptyList()) ?: return
                 list.forEach { folder ->
                     val open = chain.getOrNull(index + 1) == folder.path
                     val here = folder.path == state.path

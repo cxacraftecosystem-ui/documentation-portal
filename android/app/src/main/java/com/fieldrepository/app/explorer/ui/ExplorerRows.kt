@@ -93,6 +93,7 @@ import coil3.request.ImageRequest
 import com.fieldrepository.app.explorer.data.ExplorerBytes
 import com.fieldrepository.app.explorer.data.ExplorerEntry
 import com.fieldrepository.app.explorer.data.ExplorerInfo
+import com.fieldrepository.app.explorer.data.ExplorerKeyValues
 import com.fieldrepository.app.explorer.data.ExplorerJob
 import com.fieldrepository.app.explorer.data.ExplorerPaths
 import com.fieldrepository.app.explorer.data.ExplorerText
@@ -393,7 +394,7 @@ internal fun FileRow(
             if (textOpen && textual) {
                 val body = entry.content ?: (transcript as? TranscriptLoad.Loaded)?.text
                 when {
-                    body != null -> TextPanel { PlainTextBody(body) }
+                    body != null -> TextBody(body)
                     transcript is TranscriptLoad.Loading -> LoadingLine(ExplorerText.preparing)
                     else -> HintLine(ExplorerText.transcriptFailed)
                 }
@@ -534,8 +535,27 @@ internal fun TextPanel(content: @Composable () -> Unit) {
 }
 
 @Composable
-internal fun PlainTextBody(text: String) {
-    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body)
+internal fun TextBody(text: String) {
+    val parsed = remember(text) { ExplorerKeyValues.parse(text) }
+    if (!parsed.tabular) {
+        TextPanel { Paragraphs(parsed.paragraphs) }
+        return
+    }
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 12.dp).testTag("explorer.text.table"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        parsed.title?.let { Text(it, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface) }
+        RecordInfoTable(ExplorerInfo(title = parsed.title.orEmpty(), fields = parsed.fields))
+        if (parsed.paragraphs.isNotEmpty()) SelectionContainer { Paragraphs(parsed.paragraphs) }
+    }
+}
+
+@Composable
+internal fun Paragraphs(paragraphs: List<String>) {
+    Column(Modifier.testTag("explorer.text.paragraphs"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        paragraphs.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body) }
+    }
 }
 
 @Composable

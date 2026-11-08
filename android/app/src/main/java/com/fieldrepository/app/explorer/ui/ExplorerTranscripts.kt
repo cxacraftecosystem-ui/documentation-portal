@@ -155,6 +155,7 @@ internal fun ExplorerTranscriptsTab(
     path: String,
     initialQuery: String = "",
     status: String? = null,
+    filterQuery: Map<String, String> = emptyMap(),
     online: Boolean,
     offeredLanguages: List<Pair<String, String>>,
     onRead: (TranscriptRowModel) -> Unit,
@@ -187,14 +188,14 @@ internal fun ExplorerTranscriptsTab(
         return rows.filter { r -> language.isBlank() || summaries[r.mediaId]?.languages?.any { it.code == language } == true }
     }
 
-    LaunchedEffect(path, status, filters, attempt, chosen) {
+    LaunchedEffect(path, status, filters, attempt, chosen, filterQuery) {
         if (q.isNotBlank()) delay(350)
         loading = true
         failed = false
         try {
             page = try {
                 val sorted = ExplorerSorts.fetch(chosen, ExplorerSorts.TRANSCRIPTS, { l: ExplorerTranscriptList -> l.sorts }) { sort ->
-                    extras.transcripts(path, q.trim().ifBlank { null }, status, sort = sort)
+                    extras.transcripts(path, q.trim().ifBlank { null }, status, sort = sort, filters = filterQuery)
                 }
                 val list = sorted.value
                 TranscriptPage(folderRows(list), null, true, list.nextOffset, ExplorerSorts.offered(list.sorts), sorted.sent)
@@ -314,7 +315,7 @@ internal fun ExplorerTranscriptsTab(
                 onClick = {
                     scope.launch {
                         val sent = page?.sent
-                        runCatching { extras.transcripts(path, q.trim().ifBlank { null }, status, after, sort = sent) }
+                        runCatching { extras.transcripts(path, q.trim().ifBlank { null }, status, after, sort = sent, filters = filterQuery) }
                             .onSuccess { got ->
                                 if (page?.sent != sent) return@onSuccess
                                 val have = rows.map { it.mediaId }.toSet()

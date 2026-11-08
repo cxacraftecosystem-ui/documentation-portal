@@ -27,6 +27,16 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.fieldrepository.app.explorer.ExplorerFiltersUiTest
+import com.fieldrepository.app.explorer.data.ExplorerFacetKeys
+import com.fieldrepository.app.explorer.data.ExplorerFilterKey
+import com.fieldrepository.app.explorer.data.ExplorerFilters
+import com.fieldrepository.app.explorer.ui.ExplorerMultiSelectPanel
+import com.fieldrepository.app.explorer.ui.ExplorerPaneWidth
+import com.fieldrepository.app.explorer.ui.ExplorerState
+import com.fieldrepository.app.explorer.ui.ExplorerTab
+import com.fieldrepository.app.explorer.ui.ExplorerTablesMemory
+import com.fieldrepository.app.explorer.ui.rememberExplorerState
 import com.fieldrepository.app.explorer.data.ExplorerAudio
 import com.fieldrepository.app.explorer.data.ExplorerAudioState
 import com.fieldrepository.app.explorer.data.ExplorerEntry
@@ -232,4 +242,112 @@ class DesignShotsTest {
             MiniPlayer(onOpen = {})
         }
     }
+
+    private fun filtered(variant: String, tablet: Boolean, pane: Float? = null, setUp: (ExplorerState) -> Unit = {}, ready: () -> Unit = {}) {
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        ExplorerNetwork.override = ExplorerLink(online = true, metered = false)
+        ExplorerCache(File(app.filesDir, ExplorerCache.DIR), ExplorerPortal.userId(app)).clear()
+        ExplorerTablesMemory.clear()
+        ExplorerPaneWidth.write(app, pane ?: ExplorerPaneWidth.DEFAULT)
+        val api = ExplorerFiltersUiTest.Tree()
+        val facets = ExplorerFiltersUiTest.Facets()
+        var held: ExplorerState? = null
+        shoot(
+            "AndroidFilters", variant,
+            widthDp = if (tablet) 1280 else 390, heightDp = if (tablet) 800 else 844, density = if (tablet) 1f else 2f,
+            prepare = {
+                compose.waitUntil(10_000) { api.calls.any { it.startsWith("tree:${ExplorerFiltersUiTest.ROOT}:") } }
+                compose.waitForIdle()
+                held?.let(setUp)
+                compose.waitForIdle()
+                Thread.sleep(400)
+                compose.waitForIdle()
+                ready()
+            },
+        ) {
+            val state = rememberExplorerState(api)
+            held = state
+            ExplorerScreen(onBack = {}, api = api, more = more, filterApi = facets, startPath = ExplorerFiltersUiTest.ROOT, held = state, onOpenRemote = { _, _ -> })
+        }
+        ExplorerPaneWidth.write(app, ExplorerPaneWidth.DEFAULT)
+    }
+
+    private val craftFilter = ExplorerFilters().with(ExplorerFilterKey.CRAFT, listOf("c1"), mapOf("c1" to "Bamboo")).with(ExplorerFilterKey.MEDIA_TYPE, listOf("VIDEO", "IMAGE"), mapOf("VIDEO" to "Video", "IMAGE" to "Image"))
+
+    private val designFilter = ExplorerFilters().with(ExplorerFilterKey.DESIGN_WORKSHOP, listOf("d1", "d2"), mapOf("d1" to "Kutch design week", "d2" to "Bagru studio"))
+
+    private val otherPortal = ExplorerFilters().with(ExplorerFilterKey.PORTAL, listOf("this", "other"))
+
+    private fun reach(tag: String) {
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("explorer.tree").performScrollToNode(hasTestTag(tag)) }.isSuccess }
+    }
+
+    @Test fun androidFiltersFolder() = filtered("folder", tablet = false, setUp = { it.changeFilters(craftFilter) })
+
+    @Test fun androidFiltersFolderTablet() = filtered("folder-tablet", tablet = true, setUp = { it.changeFilters(craftFilter) })
+
+    @Test fun androidFiltersDesignWorkshop() = filtered("design-workshop", tablet = false, setUp = { it.changeFilters(designFilter) })
+
+    @Test fun androidFiltersDesignWorkshopTablet() = filtered("design-workshop-tablet", tablet = true, setUp = { it.changeFilters(designFilter) })
+
+    @Test fun androidFiltersOtherPortal() = filtered("other-portal", tablet = false, setUp = { it.changeFilters(otherPortal) }, ready = { reach("explorer.peer") })
+
+    @Test fun androidFiltersOtherPortalTablet() = filtered("other-portal-tablet", tablet = true, setUp = { it.changeFilters(otherPortal) }, ready = { reach("explorer.peer") })
+
+    @Test fun androidFiltersPaneMin() = filtered("pane-min-tablet", tablet = true, pane = 0f, setUp = { it.changeFilters(craftFilter) })
+
+    @Test fun androidFiltersPaneMax() = filtered("pane-max-tablet", tablet = true, pane = 5_000f, setUp = { it.changeFilters(craftFilter) })
+
+    @Test fun androidFiltersPaneMaxSmallTablet() {
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        ExplorerNetwork.override = ExplorerLink(online = true, metered = false)
+        ExplorerPaneWidth.write(app, 5_000f)
+        val api = ExplorerFiltersUiTest.Tree()
+        shoot("AndroidFilters", "pane-max-840", widthDp = 840, heightDp = 1180, density = 1f, prepare = {
+            compose.waitUntil(10_000) { api.calls.any { it.startsWith("tree:") } }
+        }) {
+            ExplorerScreen(onBack = {}, api = api, more = more, filterApi = ExplorerFiltersUiTest.Facets(), startPath = ExplorerFiltersUiTest.ROOT)
+        }
+        ExplorerPaneWidth.write(app, ExplorerPaneWidth.DEFAULT)
+    }
+
+    @Test fun androidFiltersTables() = filtered("tables-bengali", tablet = false, setUp = { it.tab = ExplorerTab.TABLES }, ready = {
+        compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag("explorer.tables.grid")).fetchSemanticsNodes().isNotEmpty() }
+    })
+
+    @Test fun androidFiltersTablesTablet() = filtered("tables-bengali-tablet", tablet = true, setUp = { it.tab = ExplorerTab.TABLES }, ready = { reach("explorer.tables.grid") })
+
+    private val openDetails: (ExplorerState) -> Unit = { state -> state.files.firstOrNull { it.name == "details.txt" }?.let { state.toggleText(it) } }
+
+    @Test fun androidFiltersDetails() = filtered("details-table", tablet = false, setUp = openDetails, ready = { reach("explorer.text.table") })
+
+    @Test fun androidFiltersDetailsTablet() = filtered("details-table-tablet", tablet = true, setUp = openDetails, ready = { reach("explorer.text.table") })
+
+    @Composable
+    private fun multiSelect(tablet: Boolean) {
+        Box(Modifier.fillMaxSize().background(Color(0x801E1B2E)), contentAlignment = Alignment.BottomCenter) {
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = ExplorerShapes.sheet,
+                modifier = Modifier.let { if (tablet) it.widthIn(max = 640.dp) else it }.fillMaxWidth(),
+            ) {
+                Column(Modifier.fillMaxWidth()) {
+                    ExplorerSheetHandle()
+                    ExplorerMultiSelectPanel(
+                        key = ExplorerFilterKey.DESIGN_WORKSHOP,
+                        filters = ExplorerFilters().with(ExplorerFilterKey.DESIGN_WORKSHOP, listOf("d1"), mapOf("d1" to "Kutch design week")),
+                        source = { key, _ -> ExplorerFacetKeys.options(ExplorerFiltersUiTest.FACETS, key) },
+                        onBack = {},
+                        onApply = { _, _ -> },
+                    )
+                }
+            }
+        }
+    }
+
+    @Test fun androidFiltersMultiSelect() = shoot("AndroidFilters", "multiselect") { multiSelect(tablet = false) }
+
+    @Test fun androidFiltersMultiSelectTablet() = shoot("AndroidFilters", "multiselect-tablet", widthDp = 1280, heightDp = 800, density = 1f) { multiSelect(tablet = true) }
+
+    @Test fun androidFiltersMultiSelectDark() = shoot("AndroidFilters", "multiselect-dark", dark = true) { multiSelect(tablet = false) }
 }

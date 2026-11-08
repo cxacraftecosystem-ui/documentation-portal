@@ -47,6 +47,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.fieldrepository.app.explorer.data.ExplorerFilterKey
+import com.fieldrepository.app.explorer.data.ExplorerFilters
+import com.fieldrepository.app.explorer.data.ExplorerViewFilters
 import com.fieldrepository.app.explorer.data.ExplorerMore
 import com.fieldrepository.app.explorer.data.ExplorerPaths
 import com.fieldrepository.app.explorer.portal.ExplorerPortal
@@ -161,7 +164,9 @@ internal fun ReportOptionsSheet(
     onDismiss: () -> Unit,
     status: String? = null,
     onMakePack: ((options: ExplorerReportOptions, name: String, status: String?) -> Unit)? = null,
+    filters: ExplorerFilters = ExplorerFilters(),
 ) {
+    val filterParams = filters.query()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -186,11 +191,11 @@ internal fun ReportOptionsSheet(
     var saved by remember { mutableStateOf<ExplorerReportOptions?>(null) }
     val chosenStatus = if (allStatuses) null else status
     val search = if (rows == "filtered") query.trim() else ""
-    val chips = ReportFilters.chips(statusLabel, allStatuses, search)
+    val chips = filters.chips().filter { it.key != ExplorerFilterKey.PORTAL.name }.map { c -> c.label.substringBefore(": ") to c.label.substringAfter(": ") } + ReportFilters.chips(statusLabel, allStatuses, search)
     val empty = ReportFilters.leavesNothing(listed, chips.isNotEmpty())
 
-    LaunchedEffect(path, chosenStatus, search) {
-        listed = try { more.reportSheets(path, chosenStatus, search.ifBlank { null }) } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Throwable) { null }
+    LaunchedEffect(path, chosenStatus, search, filterParams) {
+        listed = try { more.reportSheets(path, chosenStatus, search.ifBlank { null }, filters = filterParams) } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Throwable) { null }
     }
     LaunchedEffect(path, empty) {
         if (!empty || unfiltered != null) return@LaunchedEffect
@@ -383,7 +388,7 @@ internal fun ReportOptionsSheet(
             Button(
                 onClick = {
                     scope.launch {
-                        runCatching { more.createShare(ExplorerShareBody(path = path, options = options(), filters = chosenStatus?.let { mapOf("status" to it) }, expiresInDays = expiry.toInt())) }
+                        runCatching { more.createShare(ExplorerShareBody(path = path, options = options(), filters = (ExplorerViewFilters.toSaved(filters) + listOfNotNull(chosenStatus?.let { "status" to it })).takeIf { it.isNotEmpty() }, expiresInDays = expiry.toInt())) }
                             .onSuccess { made -> shares = listOf(made) + shares.orEmpty(); copy(context, made.url); copied = made.url }
                             .onFailure { if (it is CancellationException) throw it; onMessage(ReportText.linkFailed) }
                     }
@@ -412,7 +417,7 @@ internal fun ReportOptionsSheet(
                 OutlinedButton(
                     onClick = {
                         scope.launch {
-                            val state = ExplorerViewState(view = tab.name.lowercase(), q = query.ifBlank { null })
+                            val state = ExplorerViewState(view = tab.name.lowercase(), q = query.ifBlank { null }, filters = ExplorerViewFilters.toSaved(filters))
                             runCatching { more.saveView(ExplorerViewBody(name = folderTitle, path = path, state = state, shared = true)) }
                                 .onSuccess { made ->
                                     views = (views ?: ExplorerViews()).let { it.copy(mine = listOf(made) + it.mine) }

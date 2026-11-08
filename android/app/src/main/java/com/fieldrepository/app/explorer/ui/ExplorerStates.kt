@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.FilterListOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -178,5 +179,22 @@ internal fun FolderSkeleton() {
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun FilteredEmptyCard(summary: String, localOff: Boolean, onClear: () -> Unit) {
+    StateCard(
+        icon = Icons.Filled.FilterListOff,
+        title = if (localOff) FilterText.localOffTitle else FilterText.emptyTitle,
+        body = if (localOff) FilterText.localOffBody else FilterText.nothingMatches(summary),
+        container = MaterialTheme.colorScheme.surface,
+        border = MaterialTheme.field.hairline,
+        content = MaterialTheme.colorScheme.onSurface,
+        iconTint = MaterialTheme.colorScheme.primary,
+        tag = if (localOff) "explorer.filtered.local" else "explorer.filtered.empty",
+        tile = MaterialTheme.colorScheme.primaryContainer,
+    ) {
+        ExplorerPrimaryButton(FilterText.clearFilters, onClick = onClear, minHeight = 44.dp, modifier = Modifier.padding(top = 4.dp).testTag("explorer.filtered.clear"))
     }
 }

@@ -35,6 +35,8 @@ import com.fieldrepository.app.explorer.data.ExplorerText
 import com.fieldrepository.app.explorer.ui.ExplorerScreen
 import com.fieldrepository.app.explorer.ui.ExplorerState
 import com.fieldrepository.app.explorer.ui.ExplorerUiText
+import com.fieldrepository.app.explorer.ui.LocalExplorerFilters
+import com.fieldrepository.app.explorer.ui.LocalExplorerPeerSearch
 import com.fieldrepository.app.explorer.ui.LocalExplorerSearchAll
 
 @Composable
@@ -63,6 +65,7 @@ fun DataBrowserScreen(
         onPathChange = onPathChange,
         held = state,
         search = { onOpen -> DataRecordSearch(repository, onOpen) },
+        onOpenRemote = onOpenRemote,
         searchScreen = { query, onOpenInData, onPlay, onClose ->
             DataUnifiedSearch(
                 repository = repository,
@@ -96,23 +99,28 @@ internal fun quickSearchFetch(repository: FieldRepository, filters: SearchFilter
             dateTo = dateTo,
             page = page,
             pageSize = pageSize,
+            filters = filters.explorer,
         )
     }
 }
 
 @Composable
 internal fun DataRecordSearch(repository: FieldRepository, onOpen: (recordType: String, recordId: String, title: String) -> Unit) {
-    var filters by remember { mutableStateOf(SearchFilters()) }
+    var typed by remember { mutableStateOf(SearchFilters()) }
     var browsing by remember { mutableStateOf(false) }
     var showAll by remember { mutableStateOf<SearchFilters?>(null) }
-    val search = rememberQuickSearch(repository, filters, browse = browsing)
+    val shared = LocalExplorerFilters.current
+    val peerSearch = LocalExplorerPeerSearch.current
+    val filters = typed.copy(explorer = shared.query())
+    val local = shared.includesThis
+    val search = rememberQuickSearch(repository, if (local) filters else filters.copy(query = ""), browse = browsing && local)
     val searchAll = LocalExplorerSearchAll.current
-    val active = quickSearchRuns(filters, browsing)
+    val active = local && quickSearchRuns(filters, browsing)
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val runSearchAll: () -> Unit = {
         val q = filters.query
-        filters = SearchFilters()
+        typed = SearchFilters()
         browsing = false
         focusManager.clearFocus()
         keyboard?.hide()
@@ -121,7 +129,7 @@ internal fun DataRecordSearch(repository: FieldRepository, onOpen: (recordType: 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(
             value = filters.query,
-            onValueChange = { filters = filters.copy(query = it) },
+            onValueChange = { typed = typed.copy(query = it) },
             placeholder = { Text(ExplorerUiText.jumpHint, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.field.placeholder) },
             singleLine = true,
             textStyle = MaterialTheme.typography.bodyLarge,
@@ -135,7 +143,7 @@ internal fun DataRecordSearch(repository: FieldRepository, onOpen: (recordType: 
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(18.dp)) },
             trailingIcon = {
                 if (filters.query.isNotBlank()) {
-                    IconButton(onClick = { filters = filters.copy(query = "") }) {
+                    IconButton(onClick = { typed = typed.copy(query = "") }) {
                         Icon(Icons.Filled.Close, contentDescription = ExplorerText.clear, modifier = Modifier.size(18.dp))
                     }
                 }
@@ -144,7 +152,7 @@ internal fun DataRecordSearch(repository: FieldRepository, onOpen: (recordType: 
             keyboardActions = KeyboardActions(onSearch = { runSearchAll() }),
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("explorer.search")
         )
-        SearchFilterBar(value = filters, onChange = { filters = it; browsing = true })
+        SearchFilterBar(value = typed, onChange = { typed = it.copy(explorer = emptyMap()); browsing = true }, showSheet = false)
         search.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
         if (active && search.searched && !search.loading && search.hits.isEmpty() && search.error == null) {
             Text(DataSearchText.noMatches(filters.query.trim()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -171,10 +179,13 @@ internal fun DataRecordSearch(repository: FieldRepository, onOpen: (recordType: 
                     focusManager.clearFocus()
                     keyboard?.hide()
                     onOpen(hit.recordType, hit.id, hit.title)
-                    filters = SearchFilters()
+                    typed = SearchFilters()
                     browsing = false
                 })
             }
+        }
+        if (shared.includesOther && peerSearch != null && filters.query.trim().length >= 2) {
+            peerSearch(filters.query.trim())
         }
         if (searchAll != null && filters.query.trim().length >= 2) {
             TextButton(onClick = runSearchAll, modifier = Modifier.heightIn(min = 44.dp).testTag("explorer.search.everything")) {
@@ -190,7 +201,7 @@ internal fun DataRecordSearch(repository: FieldRepository, onOpen: (recordType: 
                 focusManager.clearFocus()
                 keyboard?.hide()
                 onOpen(type, id, title)
-                filters = SearchFilters()
+                typed = SearchFilters()
                 browsing = false
             },
             onClose = { showAll = null },
