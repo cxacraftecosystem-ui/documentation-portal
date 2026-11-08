@@ -327,6 +327,11 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
     setDraft((previous) => (previous.trim() === wanted.state.q.trim() ? previous : wanted.state.q));
   }, [paramsText]);
 
+  const ownFilterCount = activeFilters(state);
+  useEffect(() => {
+    if (embedded && ownFilterCount) setState((previous) => ({ ...EMPTY_STATE, q: previous.q, scope: previous.scope, sort: previous.sort }));
+  }, [embedded, ownFilterCount]);
+
   const q = state.q.trim();
   const types = useMemo(() => (state.transcriptOnly ? (["transcripts"] as UnifiedType[]) : state.types), [state.transcriptOnly, state.types]);
   const key = JSON.stringify([q, state.scope, state.workshopIds, state.artisanId, state.craftId, types, state.range, focus, sortText ?? "", attempt]);
@@ -445,9 +450,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
   const total = groups.length ? (focus ? (groups.find((group) => group.type === focus)?.total ?? rows.length) : groups.reduce((sum, group) => sum + group.total, 0)) : rows.length;
   const remote = data?.remote;
   const canBoth = peerSearchOffered(remote);
-  const ownFilters = activeFilters(state);
-  if (embedded && ownFilters) setState({ ...EMPTY_STATE, q: state.q, scope: state.scope, sort: state.sort });
-  const filters = embedded ? 0 : ownFilters;
+  const filters = embedded ? 0 : activeFilters(state);
   const counts = data && state.scope === "all" ? portalCounts(data) : null;
   const showMore = Boolean(shown && !shown.error && shown.more);
   const grouped = focus ? [{ group: null as GroupTotal | null, rows }] : sections(groups, rows);

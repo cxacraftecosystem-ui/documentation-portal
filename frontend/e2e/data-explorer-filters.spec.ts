@@ -352,7 +352,9 @@ test("@qf:X13 a saved view brings its filters back, from the dialog and from its
     await expect(page).not.toHaveURL(/craftIds=/);
     await page.getByRole("button", { name: "Saved views" }).click();
     const again = page.getByRole("dialog", { name: "Saved views" });
-    await again.getByRole("listitem").filter({ hasText: "Block printing videos" }).getByRole("button", { name: "Open" }).click();
+    const saved = again.getByRole("listitem").filter({ hasText: "Block printing videos" });
+    await saved.getByRole("button", { name: /^Block printing videos/ }).click();
+    await saved.getByRole("button", { name: "Open", exact: true }).click();
     await expect(page).toHaveURL(/craftIds=c-block/);
     await expect(page).toHaveURL(/mediaTypes=VIDEO/);
     await expect(page).toHaveURL(/portals=this%2Cother/);
