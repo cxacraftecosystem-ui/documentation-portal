@@ -96,7 +96,7 @@ export function FilterBar({
         ) : null}
       </div>
       <div id="explorer-filter-controls" className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 ${open ? "" : "hidden"}`}>
-        <div className="grid min-w-0 gap-1" data-facet="portal">
+        <div className="grid min-w-0 content-start gap-1" data-facet="portal">
           <span className="field-label">Portal</span>
           <SearchableMultiSelect
             values={filters.portals}
@@ -112,7 +112,7 @@ export function FilterBar({
           const entry = facets?.facets.find((candidate) => candidate.facet === facet);
           const options = optionsOf(entry, param, filters.values[param]);
           return (
-            <div key={param} className="grid min-w-0 gap-1" data-facet={facet}>
+            <div key={param} className="grid min-w-0 content-start gap-1" data-facet={facet}>
               <span className="field-label">{label}</span>
               <SearchableMultiSelect
                 values={filters.values[param]}
@@ -128,7 +128,7 @@ export function FilterBar({
             </div>
           );
         })}
-        <div className="grid min-w-0 gap-1" data-facet="date">
+        <div className="grid min-w-0 content-start gap-1" data-facet="date">
           <CalendarField
             label="From"
             value={filters.dateFrom}
@@ -137,7 +137,7 @@ export function FilterBar({
             onChange={(iso) => onChange(withDates(filters, iso, filters.dateTo))}
           />
         </div>
-        <div className="grid min-w-0 gap-1" data-facet="date-to">
+        <div className="grid min-w-0 content-start gap-1" data-facet="date-to">
           <CalendarField
             label="To"
             value={filters.dateTo}
