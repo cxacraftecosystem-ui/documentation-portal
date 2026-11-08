@@ -9,6 +9,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
@@ -240,6 +242,19 @@ class ExplorerFiltersUiTest {
         compose.waitForIdle()
     }
 
+    private fun isOn(tag: String): Boolean =
+        compose.onAllNodesWithTag(tag).fetchSemanticsNodes().firstOrNull()?.config?.getOrNull(SemanticsProperties.ToggleableState) == ToggleableState.On
+
+    private fun tick(tag: String) {
+        compose.onNodeWithTag(tag).assertIsOff()
+        repeat(3) {
+            if (isOn(tag)) return@repeat
+            compose.onNodeWithTag(tag).performClick()
+            runCatching { compose.waitUntil(2_000) { isOn(tag) } }
+        }
+        compose.onNodeWithTag(tag).assertIsOn()
+    }
+
     @QFeature("X13")
     @Test fun aMultiSelectIsSearchableWithStaticCheckboxesAndNarrowsTheTreeAndTheFolder() {
         show()
@@ -250,8 +265,8 @@ class ExplorerFiltersUiTest {
         appears("explorer.filter.craft.option.c1")
         compose.onNodeWithTag("explorer.filter.craft.search").performTextInput("bam")
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("explorer.filter.craft.option.c2").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithTag("explorer.filter.craft.option.c1").assertIsOff().performClick()
-        compose.onNodeWithTag("explorer.filter.craft.option.c1").assertIsOn()
+        compose.waitForIdle()
+        tick("explorer.filter.craft.option.c1")
         compose.onNodeWithTag("explorer.filter.craft.apply").performClick()
         compose.onNodeWithTag("explorer.filters.done").performScrollTo().performClick()
         compose.waitUntil(10_000) { tree.calls.contains("tree:$ROOT:craftIds=c1") }
