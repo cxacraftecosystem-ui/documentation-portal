@@ -164,6 +164,8 @@ val LocalExplorerSearchAll = staticCompositionLocalOf<((String) -> Unit)?> { nul
 
 val LocalExplorerFilters = compositionLocalOf { ExplorerFilters() }
 
+private const val ROOMY_CONTENT_DP = 640f
+
 val LocalExplorerPeerSearch = compositionLocalOf<(@Composable (q: String) -> Unit)?> { null }
 
 private sealed interface DownloadTarget {
@@ -958,7 +960,7 @@ fun ExplorerScreen(
         item(key) { Box(Modifier.fillMaxWidth().padding(bottom = 12.dp)) { content() } }
     }
 
-    val content: ExplorerRowPlan.(Boolean) -> Unit = { wide ->
+    val content: ExplorerRowPlan.(Boolean, Boolean) -> Unit = { wide, roomy ->
         if (state.locating != null) block("locating") { LoadingLine(ExplorerText.preparing) }
         state.unfiled?.let { text -> block("unfiled") { Notice(text, warn = true, tag = "explorer.unfiled") } }
         if (!link.online && state.tree != null) {
@@ -976,7 +978,7 @@ fun ExplorerScreen(
         }
         if (state.tree != null) {
             if (!state.selecting) {
-                if (!wide) {
+                if (!roomy) {
                     block("folder") { folderCard(Modifier.fillMaxWidth()) }
                     block("download") { downloadCard(Modifier.fillMaxWidth()) }
                 } else {
@@ -1070,14 +1072,14 @@ fun ExplorerScreen(
                                 )
                             }
                         }
-                        val pairs = listed.chunked(2)
+                        val pairs = listed.chunked(if (roomy) 2 else 1)
                         itemsIndexed(pairs, key = { _, pair -> pair.joinToString("|") { it.key } }) { index, pair ->
                             val first = index == 0
                             val last = index == pairs.lastIndex
                             Box(Modifier.fillMaxWidth().padding(bottom = if (last) 12.dp else 0.dp)) {
                                 Row(Modifier.fillMaxWidth().explorerCell(first, last), verticalAlignment = Alignment.CenterVertically) {
                                     pair.forEach { file -> Box(Modifier.weight(1f)) { fileRow(file, first, last, false) } }
-                                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                                    if (pair.size == 1 && roomy) Spacer(Modifier.weight(1f))
                                 }
                             }
                         }
@@ -1188,7 +1190,7 @@ fun ExplorerScreen(
                             block("filters") { filterBar() }
                             if (hasOrganise(state)) block("organise") { OrganiseCard(state) }
                         }
-                        content(false)
+                        content(false, false)
                     }
                     PullToRefreshBox(isRefreshing = state.loading && state.tree != null, onRefresh = refresh, modifier = Modifier.weight(1f).fillMaxWidth()) {
                         LazyColumn(
@@ -1231,7 +1233,7 @@ fun ExplorerScreen(
                                         onSelectAll = { state.selectAll(if (kindFilter == null) state.entries else shownFiles) },
                                     )
                                 }
-                                val wideRows = ExplorerRowPlan.build { content(true) }
+                                val wideRows = ExplorerRowPlan.build { content(true, ExplorerPaneWidth.content(paneWidth, screenDp) >= ROOMY_CONTENT_DP) }
                                 PullToRefreshBox(isRefreshing = state.loading && state.tree != null, onRefresh = refresh, modifier = Modifier.weight(1f).fillMaxWidth()) {
                                     LazyColumn(
                                         state = listState,
