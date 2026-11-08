@@ -210,7 +210,7 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
         </div>
       </div>
 
-      <div className="mt-4 max-w-xl">
+      <div className="mt-4 min-w-0 max-w-xl">
         <Field label="Workshop">
           <ComboBox
             onChange={(next: string) => {
@@ -344,9 +344,9 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
       )}
 
       {workshopId ? (
-        <form className="mt-5 rounded-md border border-line-200 bg-surface-50 p-4" onSubmit={grant}>
+        <form className="mt-5 min-w-0 rounded-md border border-line-200 bg-surface-50 p-4" onSubmit={grant}>
           <h3 className="font-display text-sm font-bold text-ink-900">Grant access to somebody new</h3>
-          <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,1.2fr)]">
+          <div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,1.2fr)]">
             <Field label="Person">
               <MultiSelectDropdown
                 onChange={setGrantUserIds}
