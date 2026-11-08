@@ -13,8 +13,8 @@ internal class ExplorerRowPlan {
     val rowKeys: List<Any> get() = keys.toList()
 
     fun item(key: Any, content: @Composable LazyItemScope.() -> Unit) {
-        keys += key
-        ops += { item(key = key) { content() } }
+        keys.add(key)
+        ops.add { item(key = key) { content() } }
     }
 
     fun <T> itemsIndexed(
@@ -24,8 +24,8 @@ internal class ExplorerRowPlan {
     ) {
         val frozen = items.toList()
         val frozenKeys = frozen.mapIndexed { index, value -> key(index, value) }
-        keys += frozenKeys
-        ops += { items(frozen.size, key = { frozenKeys[it] }) { itemContent(it, frozen[it]) } }
+        keys.addAll(frozenKeys)
+        ops.add { items(frozen.size, key = { frozenKeys[it] }) { itemContent(it, frozen[it]) } }
     }
 
     fun replay(scope: LazyListScope) {
