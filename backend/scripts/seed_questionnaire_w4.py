@@ -6,13 +6,13 @@ from app.services.questionnaire_seeding import DATA_DIR, print_counts, seed_inst
 
 OWNER_ID = "cmqg22xf6000018qdavy2jvel"
 
-CORPUS = DATA_DIR / "questionnaire_questions_w3.json"
+CORPUS = DATA_DIR / "questionnaire_questions_w4.json"
 
 DESCRIPTION = (
-    "The instrument used at the 4th Craft Toolkit Workshop (stone crafts): 22 sections (A-V), "
-    "81 questions. Section V's questions ask for lists — designers, suppliers, buyers, digital, "
+    "The instrument used at the 4th Craft Toolkit Workshop (stone crafts): 23 sections (A-W), "
+    "108 questions. Section V's questions ask for lists — designers, suppliers, buyers, digital, "
     "financial and institutional connections — and are answered as prose, like every other "
-    "question here."
+    "question here. Section W covers stone production, transportation and installation."
 )
 
 

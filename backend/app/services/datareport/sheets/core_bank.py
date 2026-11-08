@@ -15,6 +15,7 @@ DEFINITIONS: dict[str, str] = {
     "craft_toolkit_workshop_2_questions.json": "Craft toolkit questionnaire (workshop 2)",
     "craft_toolkit_workshop_3_questions.json": "Craft toolkit questionnaire (workshop 3)",
     "questionnaire_questions_w3.json": "Craft questionnaire (workshop 3)",
+    "questionnaire_questions_w4.json": "Craft questionnaire (workshop 4)",
 }
 
 COLUMNS = [

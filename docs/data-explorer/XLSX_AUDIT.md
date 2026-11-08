@@ -2243,6 +2243,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 
 - Craft questionnaire (first workshop) (`questionnaire_questions.json`): 284 questions in 24 sections: RESP (11), A (10), B (14), C (10), D (10), E (15), F (16), G (15), H (18), I (15), J (16), K (10), L (10), M (10), N (7), O (13), P (14), Q (12), R (11), S (12), T (8), U (8), V (8), W (11)
 - Craft questionnaire (workshop 3) (`questionnaire_questions_w3.json`): 81 questions in 22 sections: A (5), B (4), C (1), D (5), E (6), F (3), G (5), H (6), I (4), J (4), K (2), L (2), M (2), N (4), O (2), P (4), Q (5), R (1), S (5), T (3), U (2), V (6)
+- Craft questionnaire (workshop 4) (`questionnaire_questions_w4.json`): 108 questions in 23 sections: A (5), B (4), C (1), D (9), E (10), F (5), G (8), H (7), I (4), J (4), K (6), L (2), M (3), N (4), O (2), P (7), Q (5), R (1), S (5), T (3), U (2), V (6), W (5)
 - Questionnaires built in the portal (every version, including the field repository's v2 forms): the Questionnaires, Questionnaire sections and Questions sheets, one row per section and per question version.
 
 ### Derived values

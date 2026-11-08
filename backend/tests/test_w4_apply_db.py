@@ -176,9 +176,9 @@ async def test_dry_run_plans_everything_and_writes_nothing_then_apply_is_idempot
     assert questionnaire.createdById == w4.MASTER_ADMIN_ID
     assert not questionnaire.isDefault
     questions = await db.questionnairequestion.find_many(where={"questionnaireId": W4_ID})
-    assert len(questions) == 81
-    assert all((q.questionCode or "").startswith("CTW3.") for q in questions)
-    assert await db.questionnairesection.count(where={"questionnaireId": W4_ID}) == 22
+    assert len(questions) == 108
+    assert sum((q.questionCode or "").startswith("CTW3.") for q in questions) == 76
+    assert await db.questionnairesection.count(where={"questionnaireId": W4_ID}) == 23
 
     crafts = await db.craft.find_many(where={"name": {"in": [w4.MEGHALAYA, w4.MYSURU]}})
     assert {c.name: (c.stateOfOrigin, c.stateOfPractice, getattr(c.giStatus, "value", c.giStatus)) for c in crafts} == {
