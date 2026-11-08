@@ -16,9 +16,11 @@ from app.services import naming, transcript_export, transcript_pipeline
 from app.services.data_explorer import (
     browse,
     downloads,
+    filters,
     isolate,
     overview,
     peaks,
+    peer,
     report_options,
     saved,
     signing,
@@ -59,10 +61,11 @@ def _browser() -> Any:
     return data_browser
 
 
-async def download_scope(user: Any) -> Any:
+async def download_scope(user: Any, flt: filters.Filter | None = None) -> Any:
     scope = await _browser()._scope_for(user)
     narrowed = getattr(scope, "for_download", None)
-    return narrowed() if callable(narrowed) else scope
+    scope = narrowed() if callable(narrowed) else scope
+    return filters.narrow(scope, flt)
 
 
 def _sort_or_422(raw: str | None, allowed: tuple[str, ...], default: sorting.Sort) -> sorting.Sort:
@@ -207,10 +210,11 @@ async def manifest_response(files: list[dict[str, Any]], truncated: bool, *, str
 async def folder_stats(
     path: str = "",
     include: str | None = None,
+    flt: filters.Filter = Depends(filters.from_request),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
     browser = _browser()
-    scope = await download_scope(current_user)
+    scope = await download_scope(current_user, flt)
     files, truncated = await walk.manifest_files(
         browser._list_level, scope, [(browser._norm(path), "")], _include(include), fill=False
     )
@@ -324,10 +328,12 @@ async def _load_doc(media_id: str) -> Any:
 
 @router.get("/transcript-bundle")
 async def transcript_bundle(
-    path: str = "", current_user: Any = Depends(require_dataset_downloader)
+    path: str = "",
+    flt: filters.Filter = Depends(filters.from_request),
+    current_user: Any = Depends(require_dataset_downloader),
 ) -> StreamingResponse:
     browser = _browser()
-    scope = await download_scope(current_user)
+    scope = await download_scope(current_user, flt)
     norm = browser._norm(path)
     files, _truncated = await walk.manifest_files(
         browser._list_level, scope, [(norm, "")], {"transcripts"}, fill=False
@@ -432,13 +438,14 @@ async def transcript_list(
     q: str | None = Query(None, max_length=200),
     offset: int = Query(0, ge=0, le=walk.MAX_MANIFEST_FILES),
     sort: str | None = Query(None, max_length=40),
+    flt: filters.Filter = Depends(filters.from_request),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
     offset = offset if isinstance(offset, int) else 0
     chosen = _sort_or_422(
         sort if isinstance(sort, str) else None, sorting.TRANSCRIPT_KEYS, sorting.TRANSCRIPT_DEFAULT
     )
-    scope = await download_scope(current_user)
+    scope = await download_scope(current_user, flt)
     norm = _browser()._norm(path)
     if chosen == sorting.TRANSCRIPT_DEFAULT:
         seen, by_id, truncated = await _folder_transcripts(scope, norm, offset)
@@ -510,12 +517,13 @@ async def transcript_export_docx(
     path: str = "",
     format: str = Query("docx", pattern="^docx$"),
     track: str = Query("both", pattern="^(original|english|both)$"),
+    flt: filters.Filter = Depends(filters.from_request),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
     from app.services.data_explorer import report_cache
 
     browser = _browser()
-    scope = await download_scope(current_user)
+    scope = await download_scope(current_user, flt)
     norm = browser._norm(path)
     try:
         async with report_cache.QUEUE.slot():
@@ -593,23 +601,26 @@ async def browse_page(
     q: str | None = Query(None, max_length=200),
     workshopIds: str | None = None,
     sort: str | None = Query(None, max_length=40),
+    flt: filters.Filter = Depends(filters.from_request),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
     chosen = _sort_or_422(
         sort if isinstance(sort, str) else None, sorting.BROWSE_KEYS, sorting.BROWSE_DEFAULT
     )
-    scope = await download_scope(current_user)
+    scope = await download_scope(current_user, flt)
     page_number, size = browse.page_args(page, pageSize)
-    workshops = [w.strip() for w in (workshopIds or "").split(",") if w.strip()] or None
-    return await browse.page(
+    answer = await browse.page(
         _kind(type),
         scope,
         page_number=page_number,
         page_size=size,
         q=q,
-        workshop_ids=workshops,
+        workshop_ids=None,
         sort=chosen,
+        flt=flt,
     )
+    answer["filters"] = await filters.describe(flt)
+    return answer
 
 
 @router.get("/browse/{type}/{record_id}/media")
@@ -619,6 +630,7 @@ async def browse_record_media(
     page: int = Query(1, ge=1),
     pageSize: int = Query(browse.PAGE_SIZE_DEFAULT, ge=1, le=browse.PAGE_SIZE_MAX),
     sort: str | None = Query(None, max_length=40),
+    flt: filters.Filter = Depends(filters.from_request),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
     chosen = _sort_or_422(
@@ -628,7 +640,7 @@ async def browse_record_media(
     linked = browse.record_media_where(kind, record_id)
     if linked is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown record type")
-    scope = await download_scope(current_user)
+    scope = await download_scope(current_user, flt)
     parts: list[dict[str, Any]] = [linked, {"removedAt": None}]
     if getattr(scope, "media", None):
         parts.append(scope.media)
@@ -653,6 +665,62 @@ async def browse_record_media(
         "sort": chosen.public(),
         "sorts": list(sorting.BROWSE_MEDIA_KEYS),
     }
+
+
+@router.get("/filters")
+async def explorer_filters(
+    path: str = "",
+    flt: filters.Filter = Depends(filters.from_request),
+    current_user: Any = Depends(require_dataset_downloader),
+) -> dict[str, Any]:
+    from app.core.config import get_settings
+    from app.services import cross_portal, unified_search as us
+
+    scope = await download_scope(current_user)
+    settings = get_settings()
+    active = cross_portal.search_active(settings)
+    allowed = us.may_search_across(current_user)
+    other = peer.STATUS_OFF if not active else (peer.STATUS_OK if allowed else peer.STATUS_NOT_PERMITTED)
+    return {
+        "facets": await filters.facets(scope, flt),
+        "dateBounds": await filters.date_bounds(scope),
+        "portal": {
+            "options": [
+                {"value": "this", "label": "This portal", "available": True, "status": peer.STATUS_OK},
+                {"value": "other", "label": us.PEER_LABEL, "available": active and allowed, "status": other},
+            ]
+        },
+    }
+
+
+@router.get("/peer")
+async def explorer_peer(
+    type: str | None = Query(None, max_length=40),
+    q: str | None = Query(None, max_length=200),
+    page: int = Query(1, ge=1, le=1000),
+    pageSize: int = Query(peer.PAGE_SIZE_MAX, ge=1, le=peer.PAGE_SIZE_MAX),
+    flt: filters.Filter = Depends(filters.from_request),
+    current_user: Any = Depends(require_dataset_downloader),
+) -> dict[str, Any]:
+    from app.core.config import get_settings
+    from app.services import cross_portal, unified_search as us
+
+    if type and peer.peer_type(type) is None:
+        raise HTTPException(status_code=422, detail=f"type takes {', '.join(peer.BROWSE_TO_PEER)}")
+    settings = get_settings()
+    return await peer.explore(
+        settings,
+        current_user,
+        flt,
+        kind=type,
+        q=q,
+        page=page,
+        page_size=pageSize,
+        allowed=us.may_search_across(current_user),
+        active=cross_portal.search_active(settings),
+        portal=us.PEER_PORTAL,
+        portal_label=us.PEER_LABEL,
+    )
 
 
 @router.get("/report-options")

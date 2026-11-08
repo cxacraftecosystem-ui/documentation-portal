@@ -7,9 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import get_current_user, get_value, role_value
+from app.questionnaire.live import live_media_where
 from app.services import cross_portal, search_embeddings, search_query
 from app.services import unified_search as us
-from app.questionnaire.live import live_media_where
 from app.services.concurrency import gather_reads
 from app.services.cross_portal_client import (
     RECORD_TIMEOUT_SECONDS,
@@ -17,6 +17,7 @@ from app.services.cross_portal_client import (
     peer_call,
     unavailable_sentence,
 )
+from app.services.data_explorer import filters as explorer_filters
 from app.services.pagination import normalize_pagination
 from app.services.record_filters import RECORD_TYPES, build_record_wheres, resolve_types
 from app.services.records import media_url_owners, plain, public_encode
@@ -46,6 +47,7 @@ async def global_search(
     workshopIds: list[str] | None = Query(None),
     page: int = Query(1, ge=1),
     pageSize: int = Query(10, ge=1, le=50),
+    flt: explorer_filters.Filter = Depends(explorer_filters.from_request),
 ) -> dict[str, Any]:
     page, page_size, skip = normalize_pagination(page, pageSize)
     selected = _resolve_types(types)
@@ -61,6 +63,7 @@ async def global_search(
         date_to=dateTo,
         workshop_ids=workshopIds,
     )
+    wheres = explorer_filters.search_wheres(wheres, flt)
     artisan_where = wheres["artisans"]
     workshop_where = wheres["workshops"]
     product_where = wheres["products"]

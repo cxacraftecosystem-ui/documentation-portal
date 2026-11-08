@@ -24,7 +24,8 @@
     "X9": "Transcript language filter is filled (W8)",
     "X10": "Streaming download with progress in bytes, Cancel, failed-file list and resume (W1, W2, W4, D1, D10)",
     "X11": "Audio to mp4 with a visible fallback to the original under its real name (A10, D2)",
-    "X12": "Open a single transcript on demand instead of from the folder listing (A3)"
+    "X12": "Open a single transcript on demand instead of from the folder listing (A3)",
+    "X13": "Explorer filters: one multi-select filter model for tree, folder, Browse by type, Transcripts and Tables, plus Other portal results (F1-F4)"
   },
   "limits": {
     "treeTake": 500,
@@ -46,7 +47,9 @@
     "convertConcurrency": 1,
     "suggestedParallelFetches": 4,
     "suggestedParallelConversions": 1,
-    "browsePageSizeDefault": 50
+    "browsePageSizeDefault": 50,
+    "facetOptionsMax": 500,
+    "peerPageSizeMax": 20
   },
   "types": {
     "typeToken": "images | videos | audios | documents | other | transcripts | text",
@@ -433,6 +436,46 @@
       "body": "{token}",
       "response": "{viewName, label, paused}",
       "notes": "No sign-in. Pauses the schedule the token names; the owner can resume it in Saved views."
+    },
+    {
+      "id": "filters",
+      "method": "GET",
+      "path": "/data/filters",
+      "query": {
+        "path": "folder path | absent: whole repository. Options are what this user can see under it",
+        "...filters": "every filters.params entry: the active selection, so each facet's counts reflect the other facets"
+      },
+      "response": "{facets: [{facet, param, label, options: [{value, label, hint: string | null, count: int}], truncated: bool, selected: [string]}], dateBounds: {min: yyyy-mm-dd | null, max: yyyy-mm-dd | null}, portal: {options: [{value: 'this' | 'other', label, available: bool, status: 'ok' | 'off' | 'notPermitted' | 'unavailable'}]}}",
+      "notes": "Facets in filters.facetOrder (date and portal are not in facets; they have dateBounds and portal). count is the files this user can see that carry the option, with every OTHER active facet applied (its own selection ignored). Options are ordered by label, at most facetOptionsMax per facet (truncated true when cut); a selected option is always present even at count 0. A facet with no options and no selection is omitted (FR has no designWorkshop facet). The portal 'other' option is available only when cross-portal search is on and this user may search across; label is the peer portal's name."
+    },
+    {
+      "id": "peer",
+      "method": "GET",
+      "path": "/data/peer",
+      "query": {
+        "type": "a browse kind (artisan | product | tool | workshop | craft | interview | process | media) or absent: every type",
+        "q": "string | absent: listing without text",
+        "page": "int >= 1, default 1",
+        "pageSize": "int 1..20, default 20",
+        "dateFrom": "yyyy-mm-dd | absent",
+        "dateTo": "yyyy-mm-dd | absent",
+        "craftIds": "comma-separated local craft ids, sent to the peer as their shared craft codes",
+        "artisanIds": "comma-separated local artisan ids, sent to the peer as their linked artisans",
+        "...filters": "the other filters.params are accepted; the ones the peer cannot apply are listed in notApplied"
+      },
+      "response": "{portal: 'fieldRepository' | 'designer', portalLabel, status: 'ok' | 'off' | 'notPermitted' | 'unavailable' | 'filteredOut', items: [PeerRow], total, page, pageSize, pages, notApplied: [param]}",
+      "peerRow": "{portal: 'fieldRepository' | 'designer', portalLabel, local: false, type: unified type (artisans, crafts, workshops, designWorkshops, interviews, transcripts, products, tools, processes, media), id, title, subtitle: string | null, place: string | null, recordDate: string | null, craftCodes: [string], href: '/remote/<type>/<id>', openUrl: string | null}",
+      "notes": "Results from the other portal through the signed cross-portal API (POST /cross-portal/peer/explore on the peer), scoped to what this user may see there (matched by e-mail, shareable records only, the same rule as unified search). Draw a portal chip with portalLabel on every row. Open a row with href, the existing cross-portal record page (web /remote/<type>/<id>; Android the same remote record screen); openUrl is the peer's own page. status filteredOut: a craft has no shared code or an artisan has no link, so nothing in the peer can match. status off/notPermitted/unavailable: say so in one line; never a blank list.",
+      "browseTypeToPeerType": {
+        "artisan": "artisans",
+        "product": "products",
+        "tool": "tools",
+        "workshop": "workshops",
+        "craft": "crafts",
+        "interview": "interviews",
+        "process": "processes",
+        "media": "media"
+      }
     }
   ],
   "clientRules": [
@@ -623,5 +666,136 @@
     "availability": "name always; recorded, added and modified when an entry carries that date; size when an entry has a size; duration when the list holds audio or video; type when more than one type is listed; workshop, artisan, craft and status only in mixed lists, when the files span more than one of them.",
     "memory": "Remembered per viewer per list level, on the device: web localStorage dataExplorer.sort.<viewer>.<level>, Android the explorer preferences under the same name. Levels: tree:<first path segment or root>:<depth>, transcripts, browse:<type>, browse-media:<type>, search:<type or all>.",
     "peer": "Cross-portal search forwards sort in the POST /search body; each portal sorts its own page and the merge interleaves by the same key, ties local first."
+  },
+  "filters": {
+    "release": "0.0.16",
+    "featureId": "X13",
+    "summary": "One filter model, applied by the server to the folder tree (entries and counts), folder contents, Browse by type, Transcripts and Tables, and to the size and download of what is shown. Web and Android send the same parameters and draw the same facets in the same order.",
+    "encoding": "Every multi-value parameter is comma-separated (workshopIds=a,b), the encoding the codebase already uses for workshopIds (buildQuery has no arrays). The server also accepts the parameter repeated (workshopIds=a&workshopIds=b) and joins the two. Absent or empty means no filter on that dimension. Values are trimmed; an unknown enum value answers 422.",
+    "params": {
+      "workshopIds": {
+        "facet": "workshop",
+        "label": "Workshop",
+        "values": "Workshop ids"
+      },
+      "designWorkshopIds": {
+        "facet": "designWorkshop",
+        "label": "Design workshop",
+        "values": "DesignWorkshop ids. A portal with no design workshops answers no options, and the facet is not drawn"
+      },
+      "craftIds": {
+        "facet": "craft",
+        "label": "Craft",
+        "values": "Craft ids"
+      },
+      "artisanIds": {
+        "facet": "artisan",
+        "label": "Artisan",
+        "values": "Artisan ids"
+      },
+      "mediaTypes": {
+        "facet": "mediaType",
+        "label": "Media type",
+        "values": [
+          "IMAGE",
+          "VIDEO",
+          "AUDIO",
+          "PDF",
+          "DOCUMENT",
+          "OTHER"
+        ]
+      },
+      "statuses": {
+        "facet": "status",
+        "label": "Review status",
+        "values": [
+          "DRAFT",
+          "PENDING",
+          "APPROVED",
+          "REJECTED",
+          "NEEDS_REVISION"
+        ]
+      },
+      "recordedByIds": {
+        "facet": "recordedBy",
+        "label": "Recorded by",
+        "values": "User ids (the uploader)"
+      },
+      "languages": {
+        "facet": "language",
+        "label": "Language",
+        "values": "Transcript language codes as stored (hin, ben, eng, multi, ...)"
+      },
+      "dateFrom": {
+        "facet": "date",
+        "label": "From",
+        "values": "yyyy-mm-dd, a local (Asia/Kolkata) day, inclusive"
+      },
+      "dateTo": {
+        "facet": "date",
+        "label": "To",
+        "values": "yyyy-mm-dd, a local (Asia/Kolkata) day, inclusive (the whole day)"
+      },
+      "portals": {
+        "facet": "portal",
+        "label": "Portal",
+        "values": [
+          "this",
+          "other"
+        ],
+        "default": [
+          "this"
+        ]
+      }
+    },
+    "facetOrder": [
+      "portal",
+      "workshop",
+      "designWorkshop",
+      "craft",
+      "artisan",
+      "mediaType",
+      "status",
+      "recordedBy",
+      "language",
+      "date"
+    ],
+    "legacy": "FR's single status=<STATUS|ALL> on tree, report and stats still works. When both status and statuses are given, statuses wins.",
+    "appliesTo": [
+      "tree",
+      "browse",
+      "browse-media",
+      "transcripts-list",
+      "report",
+      "stats",
+      "manifest",
+      "transcript-bundle",
+      "transcripts-export"
+    ],
+    "portalsOnLocalRoutes": "Local routes accept portals and ignore it. Clients use it: without 'this' the local tree, contents, tables and transcripts are not shown (the empty state names the Portal filter); with 'other' the client also asks GET /data/peer and lists those rows under the local ones.",
+    "semantics": {
+      "match": "A file matches when it passes every active dimension (AND across dimensions, OR within one).",
+      "workshop": "The file belongs to a selected workshop: filed under it (workshopId), or attached to an artisan, product, tool or interview of that workshop.",
+      "designWorkshop": "The file belongs to a selected design workshop: filed under it (designWorkshopId) or uploaded against it (linkedRecordType designWorkshop).",
+      "craft": "The file is filed under the craft, or attached to an artisan of that craft.",
+      "artisan": "The file is attached to the artisan, or to a product, tool or interview of that artisan.",
+      "mediaType": "MediaFile.mediaType.",
+      "status": "MediaFile.status, and the record's own status for record folders and table rows.",
+      "recordedBy": "MediaFile.uploadedById.",
+      "language": "MediaFile.transcriptLanguage.",
+      "date": "MediaFile.recordedAt within [dateFrom 00:00, dateTo 23:59:59.999] Asia/Kolkata.",
+      "folders": "With any filter active a folder appears only when it holds a matching file (count > 0), or it is a record folder whose own record matches a record dimension (workshop, designWorkshop, craft, artisan, status) and no media-only dimension (mediaType, recordedBy, language, date) is active. Record folders of a filtered dimension that are not selected never appear. count and bytes are the matching files only.",
+      "textFiles": "A record's own text files (details.txt, answers) stay while their record folder is shown, unless mediaTypes is active and leaves out DOCUMENT.",
+      "tables": "Media sheets keep only matching files; record sheets keep only records whose folder would be shown.",
+      "transcripts": "Only matching recordings."
+    },
+    "treeResponse": {
+      "filters": "{active: [{param, facet, label, values: [{value, label}]}], count: int} — what the server applied, with labels, for the empty state ('No files match Craft: Bamboo, Media type: Video') and chips",
+      "hidden": "int: folders of this level left out by the filter (0 without a filter)"
+    },
+    "facetsRoute": "filters",
+    "peerRoute": "peer",
+    "emptyState": "Name every active filter by label and value, and offer 'Clear filters' (which drops every filter but keeps portals=this).",
+    "control": "Every facet is a searchable multi-select (web SearchableMultiSelect, Android SearchableMultiSelectField); the date is two CalendarFields (From, To). The filter set lives in the URL (web) and the saved explorer state (Android) under the same parameter names."
   }
 }

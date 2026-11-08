@@ -28,6 +28,9 @@ from app.services.data_explorer import (
     counts as explorer_counts,
 )
 from app.services.data_explorer import (
+    filters as explorer_filters,
+)
+from app.services.data_explorer import (
     report_cache,
     report_options,
     report_tools,
@@ -288,6 +291,7 @@ class Scope:
     records: dict[str, Any]
     media: dict[str, Any]
     visible: dict[str, Any] | None = None
+    explorer_filter: Any = None
 
     @property
     def readable(self) -> dict[str, Any]:
@@ -299,6 +303,12 @@ class Scope:
 
 
 DATA_STATUSES = ("APPROVED", "PENDING", "NEEDS_REVISION", "REJECTED")
+
+
+def legacy_status(value: str | None, flt: explorer_filters.Filter | None) -> str | None:
+    if flt is not None and flt.statuses:
+        return None
+    return data_status(value)
 
 
 def data_status(value: str | None) -> str | None:
@@ -1568,14 +1578,19 @@ async def data_tree(
     cursor: str | None = None,
     limit: int | None = Query(None, ge=1, le=explorer_tree.TREE_PAGE_MAX),
     sort: str | None = Query(None, max_length=40),
+    flt: explorer_filters.Filter = Depends(explorer_filters.from_request),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
     chosen = sort_or_422(sort, explorer_sorting.TREE_KEYS, explorer_sorting.TREE_DEFAULT)
-    scope = await _scope_for(current_user, data_status(status_value))
+    scope = explorer_filters.narrow(
+        await _scope_for(current_user, legacy_status(status_value, flt)), flt
+    )
     norm = _norm(path)
     entries, info = await _list_level(norm, scope)
+    entries = explorer_filters.prune(entries, flt)
     entries = await transcript_export.settle_tree(entries, pipeline_on=transcript_pipeline.enabled())
     await explorer_counts.fill(norm, entries, scope)
+    entries, hidden = explorer_filters.drop_empty(entries, flt)
     crumbs = await _resolve_crumbs(norm)
     public, total, next_cursor = await explorer_tree.shape(
         entries, lean=lean is True, cursor=cursor, limit=limit, sort=chosen
@@ -1592,6 +1607,8 @@ async def data_tree(
         "sorts": explorer_sorting.available(entries, explorer_sorting.TREE_KEYS, sort=chosen),
         "taxonomies": TAXONOMIES,
         "taxonomy": _taxonomy_of(norm),
+        "filters": await explorer_filters.describe(flt),
+        "hidden": hidden,
     }
 
 
@@ -1655,6 +1672,7 @@ async def data_manifest(
     include: str | None = None,
     stream: bool = False,
     status_value: str | None = Query(None, alias="status"),
+    flt: explorer_filters.Filter = Depends(explorer_filters.from_request),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
     from app.api.routes import data_explorer
@@ -1662,7 +1680,9 @@ async def data_manifest(
     include_set: set[str] | None = None
     if include is not None and include.strip():
         include_set = {t.strip().lower() for t in include.split(",") if t.strip()}
-    scope = await _scope_for(current_user, data_status(status_value))
+    scope = explorer_filters.narrow(
+        await _scope_for(current_user, legacy_status(status_value, flt)), flt
+    )
     files, truncated = await explorer_walk.manifest_files(
         _list_level, scope, [(_norm(path), "")], include_set, fill=not stream
     )
@@ -2609,6 +2629,7 @@ async def data_report(
     extras: str | None = None,
     parts: str | None = None,
     offset: int = Query(0, ge=0, le=REPORT_TAKE),
+    flt: explorer_filters.Filter = Depends(explorer_filters.from_request),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
     offset = offset if isinstance(offset, int) else 0
@@ -2617,7 +2638,7 @@ async def data_report(
         raise HTTPException(status_code=422, detail="format must be 'json', 'xlsx' or 'csv'")
     if fmt == "csv" and not (sheet or "").strip():
         raise HTTPException(status_code=422, detail="Name the sheet to download as CSV.")
-    status_filter = data_status(status_value)
+    status_filter = legacy_status(status_value, flt)
     try:
         options = report_options.parse(
             sheets=sheets, answers=answers, rows=rows, links=links, q=q,
@@ -2629,7 +2650,7 @@ async def data_report(
         return await _build_report(
             path, fmt, status_filter, current_user, q=q, sheet=sheet, options=options,
             file_name=report_options.file_name(name), offset=offset,
-            parts=(parts or "").strip().lower() == "zip",
+            parts=(parts or "").strip().lower() == "zip", flt=flt,
         )
     except report_cache.ReportBusy as busy:
         raise HTTPException(
@@ -2697,7 +2718,7 @@ def _trim_heap() -> None:
 
 async def _report_material(norm: str, scope: Scope, sees_spend: bool) -> dict[str, Any]:
     segs = [s for s in norm.split("/") if s]
-    records = await _report_records(segs, scope)
+    records = explorer_filters.filter_report(await _report_records(segs, scope), scope.explorer_filter)
     await hide_unseen(records["tools"], scope.readable)
     await transcript_export.withhold_refused(records["media"])
     transcribed = [str(m.id) for m in records["media"] if transcript_export.has_text(m)]
@@ -2755,6 +2776,7 @@ async def _build_report(
     file_name: str | None = None,
     offset: int = 0,
     parts: bool = False,
+    flt: explorer_filters.Filter | None = None,
 ) -> Response:
     options = options or report_options.ReportOptions()
     if fmt == "xlsx":
@@ -2764,7 +2786,7 @@ async def _build_report(
             report_jobs.report_params(path, options, name=file_name, sheet=sheet, parts=parts),
             status_filter=status_filter,
         )
-    scope = await _scope_for(current_user, status_filter)
+    scope = explorer_filters.narrow(await _scope_for(current_user, status_filter), flt)
     searching = fmt == "json" and bool(report_tools.words(q))
     norm = _norm(path)
     sees_spend = transcript_portal.may_see_spend(current_user)
