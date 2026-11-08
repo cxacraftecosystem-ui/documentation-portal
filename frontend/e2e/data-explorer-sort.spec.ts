@@ -75,20 +75,26 @@ async function onTop(panel: Locator) {
 }
 
 async function noSidewaysScroll(page: Page) {
-  const found = await page.evaluate(() => {
-    const limit = document.documentElement.clientWidth;
+  const width = page.viewportSize()?.width ?? 0;
+  const found = await page.evaluate((limit) => {
+    const right = (node: Element) => node.getBoundingClientRect().right + window.scrollX;
+    const pinned = (node: Element | null): boolean => {
+      for (let up = node; up && up !== document.body; up = up.parentElement) if (getComputedStyle(up).position === "fixed") return true;
+      return false;
+    };
+    const clipped = (node: Element): boolean => {
+      for (let up = node.parentElement; up && up !== document.body; up = up.parentElement) {
+        if (getComputedStyle(up).overflowX !== "visible" && right(up) <= limit + 1) return true;
+      }
+      return false;
+    };
     const offenders = [...document.querySelectorAll<HTMLElement>("body *")]
-      .filter((node) => node.getBoundingClientRect().right + window.scrollX > limit + 1 && getComputedStyle(node).position !== "fixed")
-      .filter((node) => {
-        for (let up = node.parentElement; up && up !== document.body; up = up.parentElement) {
-          if (getComputedStyle(up).overflowX !== "visible" && up.getBoundingClientRect().right + window.scrollX <= limit + 1) return false;
-        }
-        return true;
-      })
+      .filter((node) => right(node) > limit + 1 && !pinned(node) && !clipped(node))
+      .filter((node) => !node.parentElement || node.parentElement === document.body || right(node.parentElement) <= limit + 1)
       .slice(0, 5)
-      .map((node) => `${node.tagName.toLowerCase()}.${String(node.className).slice(0, 80)} → ${Math.round(node.getBoundingClientRect().right + window.scrollX)}`);
+      .map((node) => `${node.tagName.toLowerCase()}.${String(node.className).slice(0, 120)} → ${Math.round(right(node))}`);
     return { wide: document.documentElement.scrollWidth - limit, offenders };
-  });
+  }, width);
   expect(found.wide, found.offenders.join(" | ")).toBeLessThanOrEqual(1);
 }
 
