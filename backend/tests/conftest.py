@@ -55,3 +55,14 @@ def _questionnaire_v2_off_unless_a_test_turns_it_on(monkeypatch: pytest.MonkeyPa
         return
     monkeypatch.setattr(settings, "questionnaire_v2", False)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _uploads_reach_storage_unless_a_test_says_otherwise(monkeypatch: pytest.MonkeyPatch):
+    try:
+        from app.api.routes import media
+    except Exception:  # noqa: BLE001
+        yield
+        return
+    monkeypatch.setattr(media, "object_exists", lambda _key: True, raising=False)
+    yield

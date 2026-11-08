@@ -85,6 +85,7 @@ from app.services.s3 import (
     create_multipart_upload,
     delete_object,
     make_object_key,
+    object_exists,
     presign_put_url,
     presign_upload_part,
     public_url_for_key,
@@ -97,6 +98,8 @@ from app.services.workshop_access import (
 )
 
 MULTIPART_PART_SIZE = 16 * 1024 * 1024
+UPLOAD_LANDING_WAITS: tuple[float, ...] = (0.0, 0.5, 1.0, 2.0)
+UPLOAD_MISSING_HEADER = "X-Upload-Missing"
 
 MEASUREMENT_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 DICTATION_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -269,6 +272,35 @@ async def _assert_stored_object_within_ceiling(object_key: str, settings: Any) -
     except Exception:
         logger.warning("Could not delete an over-limit upload %s", object_key)
     raise _too_large(settings)
+
+
+def _probe_upload(object_key: str) -> bool | None:
+    try:
+        return object_exists(object_key)
+    except Exception:
+        logger.warning("Could not check that upload %s reached storage", object_key)
+        return None
+
+
+async def _assert_upload_landed(object_key: str) -> None:
+    answered = False
+    for wait in UPLOAD_LANDING_WAITS:
+        if wait:
+            await asyncio.sleep(wait)
+        found = await asyncio.to_thread(_probe_upload, object_key)
+        if found:
+            return
+        answered = answered or found is False
+    if not answered:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Storage couldn't confirm the file arrived. Try the upload again.",
+        )
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="The file didn't reach storage. Upload it again.",
+        headers={UPLOAD_MISSING_HEADER: "1"},
+    )
 
 
 def _assert_owns_object(object_key: str, current_user: Any) -> None:
@@ -457,6 +489,7 @@ async def _complete_old(payload: MediaCompleteRequest, current_user: Any) -> dic
         return await _finish_pending_media(existing, processing_requests, current_user.id, settings)
 
     _assert_owns_object(payload.objectKey, current_user)
+    await _assert_upload_landed(payload.objectKey)
 
     await redirect_merged_artisans(payload)
     data = clean_data(payload.model_dump(exclude={"processingRequests"}))

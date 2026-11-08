@@ -174,6 +174,8 @@ class StorageError extends Error {
   }
 }
 
+const UPLOAD_MISSING_STATUS = 409;
+
 class EtagUnavailableError extends Error {}
 
 function isRetriableApiFailure(error: unknown): boolean {
@@ -911,18 +913,31 @@ async function linkOrUpload({
       }
     }
   }
-  if (!staged) {
-    staged = await uploadObject({
+  const send = () =>
+    uploadObject({
       file,
       linkedRecordType: params.linkedRecordType,
       linkedRecordId: params.linkedRecordId,
       onProgress,
       onObjectKey: rememberStagedObject
     });
+  if (!staged) staged = await send();
+  try {
+    const media = await completeUpload(file, staged, params);
+    forgetStagedObject(staged.objectKey);
+    return media;
+  } catch (error) {
+    if (!uploadNeverLanded(error)) throw error;
+    forgetStagedObject(staged.objectKey);
   }
-  const media = await completeUpload(file, staged, params);
-  forgetStagedObject(staged.objectKey);
+  const again = await send();
+  const media = await completeUpload(file, again, params);
+  forgetStagedObject(again.objectKey);
   return media;
+}
+
+export function uploadNeverLanded(error: unknown): boolean {
+  return error instanceof ApiError && error.status === UPLOAD_MISSING_STATUS;
 }
 
 export async function uploadMediaFile({
