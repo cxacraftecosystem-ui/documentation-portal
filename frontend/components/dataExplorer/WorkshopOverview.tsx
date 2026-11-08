@@ -139,7 +139,7 @@ export function WorkshopOverview({ path, extra, visit, onOpen, onShowNew }: { pa
   const sectionsLabel = overview.sections.length > 1 ? `Sections ${overview.sections[0].label.charAt(0)}–${overview.sections[overview.sections.length - 1].label.charAt(0)}` : "Sections";
   const lettered = overview.sections.every((section) => /^[A-Z]$/.test(section.label.charAt(0))) && overview.sections.length <= 26;
   return (
-    <section aria-label="Workshop overview" className="grid gap-[18px]" data-testid="workshop-overview">
+    <section aria-label="Workshop overview" className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-[18px]" data-testid="workshop-overview">
       <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-5">
         <Card label="Files" big={totals.files.toLocaleString("en-IN")} small={formatBytes(totals.bytes)} />
         <Card label="Recorded fields" big={percentLabel(totals.fields)} small={`${totals.fields.filled.toLocaleString("en-IN")} of ${totals.fields.total.toLocaleString("en-IN")}`} />
@@ -170,7 +170,7 @@ export function WorkshopOverview({ path, extra, visit, onOpen, onShowNew }: { pa
       </div>
       {overview.artisans.length ? (
         <>
-          <div className="panel overflow-hidden shadow-none">
+          <div className="panel min-w-0 overflow-hidden shadow-none">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line-200 px-4 py-3.5">
               <h3 className="text-base font-bold text-ink-900">Artisans · what&apos;s been captured</h3>
               <div className="flex flex-wrap items-center gap-3 text-xs text-ink-500">

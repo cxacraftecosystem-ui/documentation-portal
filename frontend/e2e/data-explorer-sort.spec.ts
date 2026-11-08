@@ -56,6 +56,23 @@ async function withinViewport(page: Page, target: Locator) {
   expect(box!.x + box!.width).toBeLessThanOrEqual(width + 0.5);
 }
 
+async function onTop(panel: Locator) {
+  const order = panel.getByRole("radiogroup", { name: "Order" });
+  const hit = await order.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    const points = [
+      [rect.left + 8, rect.bottom - 4],
+      [rect.left + rect.width / 2, rect.bottom - 4],
+      [rect.right - 8, rect.bottom - 4]
+    ];
+    return points.every(([x, y]) => {
+      const found = document.elementFromPoint(x, y);
+      return Boolean(found && node.contains(found));
+    });
+  });
+  expect(hit, "nothing, not even the bottom navigation, covers the sort panel").toBe(true);
+}
+
 async function noSidewaysScroll(page: Page) {
   const found = await page.evaluate(() => {
     const limit = document.documentElement.clientWidth;
@@ -81,6 +98,7 @@ for (const size of SIZES) {
         const panel = page.getByRole("dialog", { name: "Sort folder" });
         await expect(panel).toBeVisible();
         await withinViewport(page, panel);
+        await onTop(panel);
         await expect(panel.getByRole("radio", { name: "Name" })).toHaveAttribute("aria-checked", "true");
         await expect(panel.getByRole("radio", { name: "Duration" })).toHaveCount(0);
         await page.screenshot({ path: join(SHOTS, `sort-open-${size.name}.png`) });
@@ -134,8 +152,8 @@ for (const size of SIZES) {
       }
     });
 
-    test(`the Transcripts tab asks the server for the chosen order · ${size.width}`, async ({ browser }) => {
-      const { context, page, fake } = await openWith(browser, size, { path: "workshops/bagru/kamla", view: "transcripts" }, (made) => {
+    for (const [level, folder] of [["workshop", "workshops/bagru"], ["artisan", "workshops/bagru/kamla"]] as const) test(`the ${level} Transcripts tab asks the server for the chosen order and fits · ${size.width}`, async ({ browser }) => {
+      const { context, page, fake } = await openWith(browser, size, { path: folder, view: "transcripts" }, (made) => {
         made.transcriptSorting = true;
       });
       try {
@@ -146,6 +164,8 @@ for (const size of SIZES) {
         await tab.getByRole("button", { name: /^Sort transcripts: Folder · A–Z$/ }).click();
         const panel = page.getByRole("dialog", { name: "Sort transcripts" });
         await withinViewport(page, panel);
+        await onTop(panel);
+        await page.screenshot({ path: join(SHOTS, `sort-transcripts-${level}-${size.name}.png`) });
         await panel.getByRole("radio", { name: "Name" }).click();
         await panel.getByRole("radio", { name: "Z–A" }).click();
         await expect(rows.first()).toContainText("loom");

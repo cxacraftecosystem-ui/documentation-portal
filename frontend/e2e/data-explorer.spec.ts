@@ -1900,7 +1900,7 @@ test.describe("search sort", () => {
       const pick = async (label: string) => {
         await results.getByTestId("sort-button").click();
         await page.getByTestId("sort-panel").getByRole("radio", { name: label, exact: true }).click();
-        await results.getByTestId("sort-button").click();
+        await page.keyboard.press("Escape");
         await expect(page.getByTestId("sort-panel")).toHaveCount(0);
       };
       const asked = (pageNumber: string, type: string | null) =>

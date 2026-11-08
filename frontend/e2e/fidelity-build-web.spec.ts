@@ -487,7 +487,8 @@ for (const theme of ["light", "dark"] as const) {
         const panel = page.getByRole("dialog", { name: "Sort folder" });
         await panel.getByRole("radio", { name: "Date recorded" }).click();
         await expect(panel.getByRole("radio", { name: "Newest" })).toHaveAttribute("aria-checked", "true");
-        await shootAround(page, "WebSort", `${label}${theme === "dark" ? "-dark" : ""}`, [page.getByRole("tablist", { name: "Contents" }), panel], { x: 24, top: 24, bottom: 24 });
+        if (label === "phone") await shoot(page, "WebSort", `${label}${theme === "dark" ? "-dark" : ""}`);
+        else await shootAround(page, "WebSort", `${label}${theme === "dark" ? "-dark" : ""}`, [page.getByRole("tablist", { name: "Contents" }), panel], { x: 24, top: 24, bottom: 24 });
       } finally {
         await context.close();
       }
