@@ -219,7 +219,7 @@ internal fun selectionBreakdown(entries: Collection<ExplorerEntry>): String {
 @Composable
 fun rememberExplorerState(api: ExplorerApi): ExplorerState {
     val context = LocalContext.current.applicationContext
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { Dispatchers.Main.immediate }
     val owner = remember { ExplorerPortal.userId(context) }
     return remember(ExplorerIdentity(api)) {
         ExplorerState(

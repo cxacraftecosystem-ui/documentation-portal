@@ -1,5 +1,6 @@
 package com.fieldrepository.app.forms
 
+import com.fieldrepository.app.explorer.MainThreadCalls
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -137,7 +138,7 @@ class DataSearchReachUiTest {
                 .body(body.toResponseBody("application/json".toMediaType()))
                 .build()
         }.build()
-        val api = ApiClient.retrofit(store).newBuilder().client(client).build().create(FieldRepositoryApi::class.java)
+        val api = ApiClient.retrofit(store).newBuilder().callFactory(MainThreadCalls.factory(client)).build().create(FieldRepositoryApi::class.java)
         return FieldRepository(api, store)
     }
 
