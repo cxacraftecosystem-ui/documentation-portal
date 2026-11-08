@@ -49,7 +49,7 @@ export type ExplorerConfig = {
   viewer: string;
   fileHref: (mediaId: string) => string | null;
   recordHref?: (kind: string, id: string) => string | null;
-  renderSearch: (reveal: (path: string) => void, openPreview: (target: PreviewTarget) => void, ask: SearchAsk | null) => ReactNode;
+  renderSearch: (reveal: (path: string) => void, openPreview: (target: PreviewTarget) => void, ask: SearchAsk | null, portalScope: "local" | "all") => ReactNode;
   title?: string;
   description?: string;
   headerExtra?: ReactNode;
@@ -275,8 +275,8 @@ function PanelDivider({ width, bounds, controls, onWidth, onCommit }: { width: n
   );
 }
 
-function SearchSlot({ render, reveal, openPreview, ask }: { render: ExplorerConfig["renderSearch"]; reveal: (path: string) => void; openPreview: (target: PreviewTarget) => void; ask: SearchAsk | null }) {
-  return <>{render(reveal, openPreview, ask)}</>;
+function SearchSlot({ render, reveal, openPreview, ask, portalScope }: { render: ExplorerConfig["renderSearch"]; reveal: (path: string) => void; openPreview: (target: PreviewTarget) => void; ask: SearchAsk | null; portalScope: "local" | "all" }) {
+  return <>{render(reveal, openPreview, ask, portalScope)}</>;
 }
 
 export function DataExplorer({ config }: { config: ExplorerConfig }) {
@@ -824,7 +824,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
         ) : null}
         {config.headerExtra ? <div className={`flex flex-wrap items-center justify-end gap-2 ${config.title ? "sm:hidden" : ""}`}>{config.headerExtra}</div> : null}
         <div data-explorer-search="">
-          <SearchSlot render={config.renderSearch} reveal={reveal} openPreview={openPreview} ask={searchAsk} />
+          <SearchSlot render={config.renderSearch} reveal={reveal} openPreview={openPreview} ask={searchAsk} portalScope={showsOther(filters) ? "all" : "local"} />
         </div>
         <FilterBar filters={filters} facets={facets} loading={facetsLoading} onChange={changeFilters} onClear={clearFilters} />
         {!online.online ? <OfflineNote loadedAt={loadedAt} /> : null}

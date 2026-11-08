@@ -177,7 +177,7 @@ function Explorer({ user }: { user: User }) {
     viewer: user.id,
     fileHref: mediaHref,
     recordHref: (kind, id) => recordViewHref(kind, id),
-    renderSearch: (reveal, openPreview, ask) => <DataSearchPanel onReveal={reveal} onPreview={openPreview} ask={ask} />,
+    renderSearch: (reveal, openPreview, ask, portalScope) => <DataSearchPanel onReveal={reveal} onPreview={openPreview} ask={ask} portalScope={portalScope} />,
     emptyBody: (folder) => (reviewStatus === "ALL" ? `Files appear as soon as someone records for ${folder}.` : `Nothing ${dataStatusLabel(reviewStatus).toLowerCase()} here.`),
     emptyAction: (
       <>

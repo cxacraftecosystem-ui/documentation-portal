@@ -229,7 +229,7 @@ function suggestionCount(total: number | undefined): string {
   return total === 1 ? " 1 result." : ` ${total.toLocaleString("en-IN")} results.`;
 }
 
-export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal: (path: string) => void; onPreview: (target: PreviewTarget) => void; ask?: SearchAsk | null }) {
+export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope = null }: { onReveal: (path: string) => void; onPreview: (target: PreviewTarget) => void; ask?: SearchAsk | null; portalScope?: Scope | null }) {
   const { user } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -237,6 +237,11 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
   const [fromUrl] = useState(() => searchFromParams(params));
   const [draft, setDraft] = useState(fromUrl.state.q);
   const [state, setState] = useState<SearchState>(fromUrl.state);
+  const [seenPortalScope, setSeenPortalScope] = useState<Scope | null>(portalScope);
+  if (portalScope !== seenPortalScope) {
+    setSeenPortalScope(portalScope);
+    if (portalScope && portalScope !== state.scope) setState((previous) => ({ ...previous, scope: portalScope }));
+  }
   const [focus, setFocus] = useState<UnifiedType | null>(fromUrl.focus);
   const lastSearch = useRef(searchToParams(fromUrl.state, fromUrl.focus, ""));
   const [answer, setAnswer] = useState<Answer | null>(null);
