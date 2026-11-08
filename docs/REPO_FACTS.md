@@ -128,7 +128,7 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 266 | 3010 `def test_` | `python -m pytest -q` from `backend/` |
+| Backend unit (`backend/tests/`) | 266 | 3011 `def test_` | `python -m pytest -q` from `backend/` |
 | Web end-to-end (`frontend/e2e/`) | 171 | 1763 `test(` | Playwright, `frontend/playwright.config.ts` |
 | Android unit (`android/app/src/test/`) | 217 | 1661 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | 49 | 250 `@Test` | not run in CI |

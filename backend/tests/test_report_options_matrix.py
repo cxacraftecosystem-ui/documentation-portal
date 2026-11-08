@@ -248,3 +248,19 @@ def test_the_worker_path_keeps_every_ticked_option(portal: str) -> None:
     assert back.sheets == ["Workshops", "artisans", "Transcripts"]
     assert set(back.extras) == {option for option, _label in contract.optional_keys(portal)}
     assert (back.answers, back.rows, back.links, back.thumbnails, back.locale, back.q) == ("english", "filtered", False, True, "hi", "indigo")
+
+
+@pytest.mark.parametrize("portal", PORTALS)
+def test_a_filtered_report_keeps_every_ticked_option_and_its_filters(portal: str) -> None:
+    from app.services.data_explorer import filters as explorer_filters, report_options
+
+    extras = ",".join(option for option, _label in contract.optional_keys(portal))
+    picked = report_options.parse(sheets="Workshops,artisans,Transcripts", answers="english", rows="filtered", links="1", q="", thumbnails="0", locale="en", extras=extras)
+    flt = explorer_filters.parse({"craftIds": "craft-a,craft-b", "mediaTypes": "AUDIO,VIDEO", "statuses": "APPROVED", "dateFrom": "2026-01-01", "dateTo": "2026-11-08"})
+    assert explorer_filters.real(flt) is not None
+    params = jobs.report_params("by-workshop", picked, name="Filtered", sheet=None, filters=explorer_filters.as_query(flt))
+    assert build.from_parsed(jobs._picked(params["options"]), name=params.get("name")) == build.from_parsed(picked, name="Filtered")
+    assert jobs._explorer_filter(params) == flt
+    unfiltered = jobs.report_params("by-workshop", picked, name="Filtered", sheet=None)
+    assert "filters" not in unfiltered
+    assert jobs._explorer_filter(unfiltered) is None
