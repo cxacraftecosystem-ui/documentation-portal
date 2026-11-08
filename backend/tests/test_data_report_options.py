@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from app.api.routes import data_browser
 from app.services.data_explorer import report_options
 from tests import report_fixtures
+from tests.report_worker import body, running_worker
 
 ADMIN = SimpleNamespace(id="admin-1", role="MASTER_ADMIN", canDownloadDataset=True)
 
@@ -159,14 +160,15 @@ def test_the_xlsx_follows_the_options_and_reuses_one_build(monkeypatch):
     _stub(monkeypatch, builds)
 
     async def story() -> list[Any]:
-        return [
-            await _report(format="json"),
-            await _report(format="json"),
-            await _report(),
-            await _report(sheets="Tools", answers="original", links="0", name="Kamla dyes"),
-            await _report(sheets="Tools", rows="filtered", q="tool 1"),
-            await _report(),
-        ]
+        async with running_worker({ADMIN.id: ADMIN}):
+            return [
+                await _report(format="json"),
+                await _report(format="json"),
+                await _report(),
+                await _report(sheets="Tools", answers="original", links="0", name="Kamla dyes"),
+                await _report(sheets="Tools", rows="filtered", q="tool 1"),
+                await _report(),
+            ]
 
     first, second, full, slim_book, filtered, again = asyncio.run(story())
     assert builds == ["p"]
@@ -175,19 +177,19 @@ def test_the_xlsx_follows_the_options_and_reuses_one_build(monkeypatch):
 
     assert json.loads(first.body)["cached"] is False
     assert json.loads(second.body)["cached"] is True
-    names = _workbook(full.body).sheetnames
+    names = _workbook(body(full)).sheetnames
     assert names[0] == "Overview" and names[-1] == "Data dictionary"
     assert "Tools" in names and "Transcripts" in names
-    book = _workbook(slim_book.body)
+    book = _workbook(body(slim_book))
     assert book.sheetnames == ["Overview", "Tools", "Data dictionary"]
     header = [c.value for c in book["Tools"][writer.TOP + 1] if c.value is not None]
     assert "Open" not in header and "Toolkit name" in header
     assert 'filename="Kamla-dyes.xlsx"' in slim_book.headers["content-disposition"]
-    tools = _workbook(filtered.body)["Tools"]
+    tools = _workbook(body(filtered))["Tools"]
     header = [c.value for c in tools[writer.TOP + 1]]
     picked = [row[header.index("Toolkit name")] for row in _data_rows(tools)]
     assert picked == ["tool 1"]
-    assert again.body == full.body
+    assert body(again) == body(full)
     cache = data_browser.REPORT_CACHE
     key = next(iter(cache._entries))
     assert all(name.startswith("xlsx3:") for name in cache._entries[key].files)
@@ -198,6 +200,11 @@ def test_unknown_options_are_a_422_and_an_empty_pick_is_a_404(monkeypatch):
     with pytest.raises(HTTPException) as bad:
         asyncio.run(_report(answers="klingon"))
     assert bad.value.status_code == 422
+
+    async def missing_sheet() -> Any:
+        async with running_worker({ADMIN.id: ADMIN}):
+            return await _report(sheets="Nope")
+
     with pytest.raises(HTTPException) as missing:
-        asyncio.run(_report(sheets="Nope"))
+        asyncio.run(missing_sheet())
     assert missing.value.status_code == 404

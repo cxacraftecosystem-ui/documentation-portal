@@ -5,8 +5,11 @@ import tracemalloc
 import uuid
 from typing import Any
 
-from qv2_fixtures import connect, needs_db, patch_db, run
 from query_counter import counting
+from qv2_fixtures import connect, needs_db, patch_db, run
+
+from tests.report_worker import body as file_body
+from tests.report_worker import running_worker
 
 pytestmark = needs_db
 
@@ -108,8 +111,9 @@ async def _preview_and_download(monkeypatch: Any) -> dict[str, Any]:
     seed = await _seed(client)
     try:
         shown = await data_browser.data_report(path="", format="json", status_value=None, current_user=seed["admin"])
-        download = await data_browser.data_report(path="", format="xlsx", status_value=None, current_user=seed["admin"])
-        body = bytes(download.body)
+        async with running_worker():
+            download = await data_browser.data_report(path="", format="xlsx", status_value=None, current_user=seed["admin"])
+        body = file_body(download)
         return {"json": json.loads(shown.body), "xlsx": body, "sheets": handed}
     finally:
         await _cleanup(client, seed)

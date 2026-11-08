@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from app.api.routes import data_browser
 from app.services.data_explorer import report_cache
 from tests import report_fixtures
+from tests.report_worker import body, running_worker
 
 ADMIN = SimpleNamespace(id="admin-1", role="MASTER_ADMIN", canDownloadDataset=True)
 
@@ -169,18 +170,22 @@ def test_a_second_report_for_another_folder_waits_its_turn_instead_of_failing(mo
             return _built()
 
         _material_stub(monkeypatch, slow)
-        first = asyncio.create_task(_report(path="by-workshop/a"))
-        await started.wait()
-        second = asyncio.create_task(_report(path="by-workshop/b", format="xlsx"))
-        await asyncio.sleep(0.05)
-        assert not second.done()
-        assert data_browser.REPORT_QUEUE.waiting == 1
-        release.set()
-        return await first, await second
+        async with running_worker({ADMIN.id: ADMIN}):
+            first = asyncio.create_task(_report(path="by-workshop/a"))
+            await started.wait()
+            second = asyncio.create_task(_report(path="by-workshop/b", format="xlsx"))
+            for _ in range(500):
+                if data_browser.REPORT_QUEUE.waiting == 1:
+                    break
+                await asyncio.sleep(0.01)
+            assert not second.done()
+            assert data_browser.REPORT_QUEUE.waiting == 1
+            release.set()
+            return await first, await second
 
     done, queued = asyncio.run(story())
     assert done.status_code == 200 and queued.status_code == 200
-    assert queued.body[:2] == b"PK"
+    assert body(queued)[:2] == b"PK"
     assert calls == ["by-workshop/a", "by-workshop/b"]
     assert not data_browser.REPORT_QUEUE.locked()
 
@@ -222,20 +227,21 @@ def test_one_build_serves_the_preview_every_search_the_csv_and_the_xlsx(monkeypa
     _material_stub(monkeypatch, build)
 
     async def story() -> list[Any]:
-        return [
-            await _report(path="by-workshop/a"),
-            await _report(path="by-workshop/a", q="tool 24"),
-            await _report(path="by-workshop/a", q="tool 7", sheet="Tools"),
-            await _report(path="by-workshop/a", format="csv", sheet="Tools"),
-            await _report(path="by-workshop/a", format="xlsx"),
-            await _report(path="by-workshop/a", format="xlsx"),
-        ]
+        async with running_worker({ADMIN.id: ADMIN}):
+            return [
+                await _report(path="by-workshop/a"),
+                await _report(path="by-workshop/a", q="tool 24"),
+                await _report(path="by-workshop/a", q="tool 7", sheet="Tools"),
+                await _report(path="by-workshop/a", format="csv", sheet="Tools"),
+                await _report(path="by-workshop/a", format="xlsx"),
+                await _report(path="by-workshop/a", format="xlsx"),
+            ]
 
     preview, searched, picked, as_csv, xlsx, again = asyncio.run(story())
     assert builds == ["by-workshop/a"]
     assert preview.status_code == 200 and searched.status_code == 200 and picked.status_code == 200
     assert as_csv.status_code == 200
-    assert xlsx.body == again.body and xlsx.body[:2] == b"PK"
+    assert body(xlsx) == body(again) and body(xlsx)[:2] == b"PK"
 
 
 def test_concurrent_asks_for_one_folder_share_one_build(monkeypatch):

@@ -49,6 +49,19 @@ async def run_search_index_pass(settings) -> None:
     await embed_search_documents(batch=SEARCH_EMBED_BATCH, settings=settings)
 
 
+async def run_scheduled_reports(settings) -> None:
+    try:
+        await run_report_schedules(settings=settings)
+    except Exception:
+        logger.exception("Scheduled report pass failed")
+
+
+async def run_reports_lane(stop: asyncio.Event, settings) -> None:
+    from app.services.datareport import jobs as report_jobs
+
+    await report_jobs.run_lane(stop, between=lambda: run_scheduled_reports(settings))
+
+
 async def _run() -> None:
     settings = get_settings()
     interval = max(settings.media_queue_interval_seconds, 1.0)
@@ -66,6 +79,7 @@ async def _run() -> None:
     with suppress(Exception):
         await asyncio.to_thread(workdir.on_worker_start)
     lane = asyncio.create_task(run_insights_lane(stop, settings))
+    reports = asyncio.create_task(run_reports_lane(stop, settings))
     last_search_pass = 0.0
     try:
         while not stop.is_set():
@@ -95,10 +109,6 @@ async def _run() -> None:
                 await run_weekly_digests(settings=settings)
             except Exception:
                 logger.exception("Weekly digest pass failed")
-            try:
-                await run_report_schedules(settings=settings)
-            except Exception:
-                logger.exception("Scheduled report pass failed")
             if time.monotonic() - last_search_pass >= SEARCH_INDEX_INTERVAL_SECONDS:
                 last_search_pass = time.monotonic()
                 try:
@@ -122,8 +132,11 @@ async def _run() -> None:
     finally:
         stop.set()
         lane.cancel()
+        reports.cancel()
         with suppress(asyncio.CancelledError, Exception):
             await lane
+        with suppress(asyncio.CancelledError, Exception):
+            await reports
         await disconnect_db()
         logger.info("Media queue worker stopped")
 

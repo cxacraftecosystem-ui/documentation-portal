@@ -53,6 +53,8 @@ Environment=MEDIA_QUEUE_WORKER_ENABLED=false
 # Two malloc arenas, not glibc's eight per core: backend/deploy/blue_green.sh says why.
 Environment=MALLOC_ARENA_MAX=2
 ExecStart=/home/ubuntu/app/slots/%i/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port %i --workers 1 --no-proxy-headers
+MemoryAccounting=yes
+MemoryMax=2400M
 Restart=always
 RestartSec=10
 KillMode=control-group
@@ -74,6 +76,9 @@ EnvironmentFile=/home/ubuntu/app/backend/.env
 # Two malloc arenas, not glibc's eight per core: backend/deploy/blue_green.sh says why.
 Environment=MALLOC_ARENA_MAX=2
 ExecStart=/home/ubuntu/app/backend/.venv/bin/python -m app.worker
+MemoryAccounting=yes
+MemoryHigh=1000M
+MemoryMax=1200M
 Restart=always
 RestartSec=10
 KillMode=control-group
