@@ -468,6 +468,52 @@ def wait_for_rotation(name, quarter_turns, seconds=20):
         settle(2)
 
 
+def pids():
+    return [x for x in sh(f"pidof {PKG}", check=False).split() if x.isdigit()]
+
+
+def kill_for_real(before):
+    for pid in before:
+        sh(f"run-as {PKG} kill -9 {pid}", check=False)
+    settle(3)
+    if any(pid in pids() for pid in before):
+        sh(f"am kill {PKG}", check=False)
+        settle(3)
+    return not any(pid in pids() for pid in before)
+
+
+def process_death_phase():
+    launch()
+    settle(4)
+    root = ui_dump("06-death-before")
+    fields = text_fields(root) if root is not None else []
+    typed = bool(fields)
+    if typed:
+        tap(fields[0])
+        settle(1.5)
+        sh("input text 'restore@example.test'")
+        sh("input keyevent KEYCODE_BACK")
+        settle(1.5)
+    screenshot("06-death-before")
+    before = pids()
+    sh("input keyevent KEYCODE_HOME")
+    settle(4)
+    killed = bool(before) and kill_for_real(before)
+    record("process death: the process is really killed in the background", "PASS" if killed else "FAIL",
+           f"pids before {before}, after {pids()}")
+    sh(f"monkey -p {PKG} -c android.intent.category.LAUNCHER 1", check=False)
+    settle(8)
+    root = ui_dump("06-death-restored")
+    screenshot("06-death-restored")
+    after = pids()
+    record("process death: the app comes back in a new process", "PASS" if after and not set(after) & set(before) else "FAIL",
+           f"pids before {before}, after {after}")
+    check_alive("alive after process death")
+    kept = typed and root is not None and find(root, r"restore@example\.test", PKG) is not None
+    record("process death: the sign-in screen keeps the typed e-mail", "PASS" if kept else "FAIL",
+           "" if kept else ("no text field to type into" if not typed else "the restored screen lost the e-mail; see 06-death-restored.xml"))
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     facts = {k: sh(f"getprop {k}", check=False).strip() for k in
@@ -547,6 +593,8 @@ def main():
     settle(4)
     check_alive("resume after home")
     check_insets("05-after-resume")
+
+    process_death_phase()
 
     if LAN_APK:
         local_network_phase(int(facts["ro.build.version.sdk"] or "0"))

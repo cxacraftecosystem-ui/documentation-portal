@@ -38,6 +38,8 @@ object ExplorerPaneWidth {
     const val MIN = 280f
     const val MAX_SHARE = 0.6f
     const val STEP = 40f
+    const val DIVIDER = 24f
+    const val CONTENT_MIN = 400f
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -47,7 +49,11 @@ object ExplorerPaneWidth {
         runCatching { prefs(context).edit().putFloat(KEY, dp).apply() }
     }
 
-    fun clamp(dp: Float, screen: Float): Float = dp.coerceIn(MIN, maxOf(MIN, screen * MAX_SHARE))
+    fun max(screen: Float): Float = maxOf(MIN, minOf(screen * MAX_SHARE, screen - DIVIDER - CONTENT_MIN))
+
+    fun clamp(dp: Float, screen: Float): Float = dp.coerceIn(MIN, max(screen))
+
+    fun content(dp: Float, screen: Float): Float = screen - clamp(dp, screen) - DIVIDER
 }
 
 internal object ExplorerPaneText {
@@ -60,7 +66,7 @@ internal object ExplorerPaneText {
 @Composable
 internal fun PaneDivider(width: Float, screen: Float, onWidth: (Float) -> Unit, onSettled: () -> Unit, modifier: Modifier = Modifier) {
     val density = LocalDensity.current
-    val max = maxOf(ExplorerPaneWidth.MIN, screen * ExplorerPaneWidth.MAX_SHARE)
+    val max = ExplorerPaneWidth.max(screen)
     var dragging by remember { mutableStateOf(false) }
     var live by remember { mutableStateOf(width) }
     val drag = rememberDraggableState { delta ->
@@ -78,7 +84,7 @@ internal fun PaneDivider(width: Float, screen: Float, onWidth: (Float) -> Unit, 
     }
     Box(
         modifier
-            .width(48.dp)
+            .width(ExplorerPaneWidth.DIVIDER.dp)
             .fillMaxHeight()
             .draggable(
                 state = drag,

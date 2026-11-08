@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsSelected
@@ -93,8 +94,14 @@ class ExplorerNavigationTest {
         } else {
             ExplorerTree(path = path, crumbs = bagruCrumbs, entries = listOf(late), total = 3, taxonomies = taxonomies, taxonomy = "workshop")
         }
+        "by-craft" -> ExplorerTree(path = path, crumbs = listOf(ExplorerCrumb("Craft", "by-craft")), entries = listOf(bamboo), total = 1, taxonomies = taxonomies, taxonomy = "craft")
+        "c/bamboo" -> ExplorerTree(path = path, crumbs = listOf(ExplorerCrumb("Craft", "by-craft"), ExplorerCrumb("Bamboo", "c/bamboo")), entries = listOf(meena), total = 1, taxonomies = taxonomies, taxonomy = "craft")
+        "c/bamboo/meena" -> ExplorerTree(path = path, crumbs = listOf(ExplorerCrumb("Craft", "by-craft"), ExplorerCrumb("Bamboo", "c/bamboo"), ExplorerCrumb("Meena", "c/bamboo/meena")), entries = listOf(late), total = 1, taxonomies = taxonomies, taxonomy = "craft")
         else -> ExplorerTree(path = path, taxonomies = taxonomies, taxonomy = "workshop")
     }
+
+    private val bamboo = ExplorerEntry(name = "Bamboo", path = "c/bamboo", kind = "folder", recordType = "craft", count = 1)
+    private val meena = ExplorerEntry(name = "Meena", path = "c/bamboo/meena", kind = "folder", recordType = "artisan", count = 1)
 
     private fun json(body: String) = MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json").setBody(body)
 
@@ -303,5 +310,29 @@ class ExplorerNavigationTest {
         appears("explorer.preview.media")
         compose.waitUntil(20_000) { ExplorerViewLinks.requests.value == null }
         assertNull(ExplorerViewLinks.requests.value)
+    }
+
+    @QFeature("X1")
+    @Test fun backFromTwoFoldersDeepReturnsToTheScreenBeforeData() {
+        ExplorerPlace.write(app, ExplorerPortal.userId(app), "by-craft")
+        var inData by mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme {
+                if (inData) ExplorerScreen(onBack = { backs++; inData = false }) else Text("before data", modifier = Modifier.testTag("before.data"))
+            }
+        }
+        reach("explorer.folder.c/bamboo")
+        compose.onNodeWithTag("explorer.folder.c/bamboo").performClick()
+        reach("explorer.folder.c/bamboo/meena")
+        compose.onNodeWithTag("explorer.folder.c/bamboo/meena").performClick()
+        reach("explorer.file.p3")
+        Espresso.pressBack()
+        reach("explorer.folder.c/bamboo/meena")
+        Espresso.pressBack()
+        reach("explorer.folder.c/bamboo")
+        assertEquals(0, backs)
+        Espresso.pressBack()
+        appears("before.data")
+        assertEquals(1, backs)
     }
 }

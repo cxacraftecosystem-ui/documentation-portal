@@ -182,6 +182,10 @@ jobs:
             test -s "$SHOTS/AndroidAudio/impl-android-expand.png"
             test -s "$SHOTS/AndroidAudio/impl-android-expand-tablet.png"
             test -s "$SHOTS/AndroidPreview/impl-android-tablet.png"
+            test -s "$SHOTS/AndroidFilters/impl-android-folder.png"
+            test -s "$SHOTS/AndroidFilters/impl-android-pane-max-tablet.png"
+            test -s "$SHOTS/AndroidFilters/impl-android-tables-bengali.png"
+            test -s "$SHOTS/AndroidFilters/impl-android-details-table-tablet.png"
             grep -q "^OK (" "$RUNNER_TEMP/shots.txt"
 
       - name: Keep the Android screens

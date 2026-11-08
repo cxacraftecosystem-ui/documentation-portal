@@ -23,6 +23,7 @@ import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.QueryMap
 
 @Serializable
 data class ExplorerReportOptions(
@@ -248,7 +249,7 @@ data class ExplorerTranscriptList(
 
 interface ExplorerMore {
     @GET("data/report/sheets")
-    suspend fun reportSheets(@Query("path") path: String, @Query("status") status: String? = null, @Query("q") q: String? = null): ExplorerReportSheets
+    suspend fun reportSheets(@Query("path") path: String, @Query("status") status: String? = null, @Query("q") q: String? = null, @QueryMap filters: Map<String, String> = emptyMap()): ExplorerReportSheets
 
     @POST("data/report/shares")
     suspend fun createShare(@Body body: ExplorerShareBody): ExplorerShare
@@ -272,7 +273,7 @@ interface ExplorerMore {
     suspend fun bundle(@Path("id") id: String): ExplorerBundle
 
     @GET("data/transcripts/list")
-    suspend fun transcripts(@Query("path") path: String, @Query("q") q: String? = null, @Query("status") status: String? = null, @Query("offset") offset: Int? = null, @Query("sort") sort: String? = null): ExplorerTranscriptList
+    suspend fun transcripts(@Query("path") path: String, @Query("q") q: String? = null, @Query("status") status: String? = null, @Query("offset") offset: Int? = null, @Query("sort") sort: String? = null, @QueryMap filters: Map<String, String> = emptyMap()): ExplorerTranscriptList
 
     @GET("data/report-options")
     suspend fun reportOptions(): ExplorerReportOptionsBody
@@ -318,9 +319,10 @@ object ExplorerMoreApi {
         made = null
     }
 
-    fun reportUrl(path: String, options: ExplorerReportOptions, query: String?, name: String?, status: String? = null, pack: Boolean = false): String {
+    fun reportUrl(path: String, options: ExplorerReportOptions, query: String?, name: String?, status: String? = null, pack: Boolean = false, filters: Map<String, String> = emptyMap()): String {
         var url = if (pack) ExplorerPaths.withQuery("/api/data/report/pack", "path", path) else ExplorerPaths.report(path)
         status?.let { url = ExplorerPaths.withQuery(url, "status", it) }
+        url = ExplorerPaths.withQueries(url, filters)
         options.sheets?.takeIf { it.isNotEmpty() }?.let { url = ExplorerPaths.withQuery(url, "sheets", it.joinToString(",")) }
         url = ExplorerPaths.withQuery(url, "answers", options.answers)
         url = ExplorerPaths.withQuery(url, "rows", options.rows)

@@ -73,7 +73,7 @@ class ExplorerSortUiTest {
             return if (applied.dir == ExplorerSort.DESC) by.reversed() else by
         }
 
-        override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int, sort: String?): ExplorerTree {
+        override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int, sort: String?, filters: Map<String, String>): ExplorerTree {
             calls += "tree:$path:${cursor.orEmpty()}:${sort.orEmpty()}"
             val all = ordered(sort)
             val from = cursor?.toIntOrNull() ?: 0
@@ -92,9 +92,9 @@ class ExplorerSortUiTest {
 
         override suspend fun locate(type: String, id: String): JsonElement = JsonObject(mapOf("path" to JsonPrimitive(PATH)))
         override suspend fun transcript(id: String) = ExplorerTranscript(mediaId = id)
-        override suspend fun stats(path: String, include: String?) = ExplorerStats()
+        override suspend fun stats(path: String, include: String?, filters: Map<String, String>) = ExplorerStats()
         override suspend fun selectionStats(body: ExplorerStatsBody) = ExplorerStats()
-        override suspend fun reportJson(path: String, q: String?, format: String, sheet: String?, offset: Int?) = ExplorerReport()
+        override suspend fun reportJson(path: String, q: String?, format: String, sheet: String?, offset: Int?, filters: Map<String, String>) = ExplorerReport()
         override suspend fun languages() = ExplorerLanguages()
         override suspend fun manifestStream(path: String, include: String?, stream: Int): Response<ResponseBody> = Response.success("".toResponseBody(null))
         override suspend fun selectionManifestStream(body: ExplorerSelectionBody): Response<ResponseBody> = Response.success("".toResponseBody(null))

@@ -84,6 +84,8 @@ data class ExplorerTree(
     val taxonomy: String? = null,
     val sort: ExplorerSortApplied? = null,
     val sorts: List<String> = emptyList(),
+    val filters: ExplorerAppliedFilters? = null,
+    val hidden: Int = 0,
 )
 
 @Serializable

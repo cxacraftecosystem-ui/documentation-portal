@@ -779,7 +779,8 @@ interface FieldRepositoryApi {
         @Query("dateTo") dateTo: String? = null,
         @Query("workshopIds") workshopIds: String? = null,
         @Query("page") page: Int = 1,
-        @Query("pageSize") pageSize: Int = 10
+        @Query("pageSize") pageSize: Int = 10,
+        @QueryMap filters: Map<String, String> = emptyMap()
     ): SearchResultsDto
 
     @GET("map/points")

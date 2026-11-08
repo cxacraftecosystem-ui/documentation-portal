@@ -1301,7 +1301,7 @@ private fun LoginScreen(
     onForgotPassword: () -> Unit = {},
     onOpenSetPasswordLink: () -> Unit = {}
 ) {
-    var email by remember { mutableStateOf("") }
+    var email by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
     Column(

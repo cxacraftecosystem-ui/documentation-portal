@@ -32,7 +32,7 @@ open class FakeExplorerApi : ExplorerApi {
     var stats: ExplorerStats = ExplorerStats()
     var transcripts: suspend (String) -> ExplorerTranscript = { ExplorerTranscript(mediaId = it, content = "# Transcript $it") }
 
-    override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int, sort: String?): ExplorerTree {
+    override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int, sort: String?, filters: Map<String, String>): ExplorerTree {
         calls += "tree:$path:${status.orEmpty()}:${cursor.orEmpty()}" + (sort?.let { ":sort=$it" } ?: "")
         sortedTrees?.let { return it(path, status, cursor, sort) }
         return trees(path, status, cursor)
@@ -51,7 +51,7 @@ open class FakeExplorerApi : ExplorerApi {
         return transcripts(id)
     }
 
-    override suspend fun stats(path: String, include: String?): ExplorerStats {
+    override suspend fun stats(path: String, include: String?, filters: Map<String, String>): ExplorerStats {
         calls += "stats:$path"
         return stats
     }
@@ -65,7 +65,7 @@ open class FakeExplorerApi : ExplorerApi {
 
     var reportPage: (suspend (path: String, q: String?, sheet: String, offset: Int) -> ExplorerReport)? = null
 
-    override suspend fun reportJson(path: String, q: String?, format: String, sheet: String?, offset: Int?): ExplorerReport {
+    override suspend fun reportJson(path: String, q: String?, format: String, sheet: String?, offset: Int?, filters: Map<String, String>): ExplorerReport {
         if (sheet != null && offset != null) {
             calls += "report:$path:${q.orEmpty()}:$format:$sheet:$offset"
             return reportPage?.invoke(path, q, sheet, offset) ?: ExplorerReport()

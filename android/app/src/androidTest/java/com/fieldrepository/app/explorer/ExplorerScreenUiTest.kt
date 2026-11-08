@@ -100,8 +100,8 @@ class ExplorerScreenUiTest {
         override suspend fun peaks(id: String) = peaks
         override suspend fun views() = ExplorerViews()
         override suspend fun saveView(body: ExplorerViewBody) = ExplorerView(id = "v1", name = body.name, path = body.path)
-        override suspend fun transcripts(path: String, q: String?, status: String?, offset: Int?, sort: String?) = ExplorerTranscriptList()
-        override suspend fun reportSheets(path: String, status: String?, q: String?) = com.fieldrepository.app.explorer.data.ExplorerReportSheets(
+        override suspend fun transcripts(path: String, q: String?, status: String?, offset: Int?, sort: String?, filters: Map<String, String>) = ExplorerTranscriptList()
+        override suspend fun reportSheets(path: String, status: String?, q: String?, filters: Map<String, String>) = com.fieldrepository.app.explorer.data.ExplorerReportSheets(
             path = path,
             sheets = listOf(com.fieldrepository.app.explorer.data.ExplorerReportSheetInfo(key = "tools", name = "Tools", count = 120, group = "Records", description = "Every tool")),
             extras = listOf(com.fieldrepository.app.explorer.data.ExplorerReportExtra("quotes", "Quotes")),
@@ -169,7 +169,7 @@ class ExplorerScreenUiTest {
             return ExplorerReport(listOf(ExplorerSheet(name = "Artisans", columns = listOf(JsonPrimitive("Name")), rows = numbers.map { listOf(JsonPrimitive("Artisan $it")) }, totalRows = total, rowNumbers = numbers, preview = offset + 200 < total, offset = offset)))
         }
 
-        override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int, sort: String?): ExplorerTree {
+        override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int, sort: String?, filters: Map<String, String>): ExplorerTree {
             calls += "tree:$path:${cursor.orEmpty()}:$slim"
             long?.let { return longPage(path, cursor, it, sort) }
             return if (cursor == null) {
@@ -184,7 +184,7 @@ class ExplorerScreenUiTest {
             transcriptCalls.incrementAndGet()
             return ExplorerTranscript(mediaId = id, content = "**Giriraj** Clay and gum.")
         }
-        override suspend fun stats(path: String, include: String?): ExplorerStats {
+        override suspend fun stats(path: String, include: String?, filters: Map<String, String>): ExplorerStats {
             calls += "stats:$path"
             return ExplorerStats(files = 926, bytes = 7_150_000_000, byType = mapOf("videos" to ExplorerTypeStats(57, 3_650_000_000), "images" to ExplorerTypeStats(869, 3_500_000_000)))
         }
@@ -193,7 +193,7 @@ class ExplorerScreenUiTest {
             return ExplorerStats(files = 12, bytes = 40_000_000)
         }
         val reportQueries = mutableListOf<String?>()
-        override suspend fun reportJson(path: String, q: String?, format: String, sheet: String?, offset: Int?): ExplorerReport {
+        override suspend fun reportJson(path: String, q: String?, format: String, sheet: String?, offset: Int?, filters: Map<String, String>): ExplorerReport {
             tableTotal?.let { total ->
                 calls += "report:${offset ?: 0}"
                 return tablePage(total, offset ?: 0)
