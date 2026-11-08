@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -903,11 +902,11 @@ fun ExplorerScreen(
         }
     }
 
-    fun LazyListScope.block(key: String, content: @Composable () -> Unit) {
+    fun ExplorerRows.block(key: String, content: @Composable () -> Unit) {
         item(key) { Box(Modifier.fillMaxWidth().padding(bottom = 12.dp)) { content() } }
     }
 
-    val content: LazyListScope.(Boolean) -> Unit = { wide ->
+    val content: ExplorerRows.(Boolean) -> Unit = { wide ->
         if (state.locating != null) block("locating") { LoadingLine(ExplorerText.preparing) }
         state.unfiled?.let { text -> block("unfiled") { Notice(text, warn = true, tag = "explorer.unfiled") } }
         if (!link.online && state.tree != null) {
@@ -1114,18 +1113,19 @@ fun ExplorerScreen(
                         onDownloads = { showDownloads = true },
                         onSelectAll = { state.selectAll(if (kindFilter == null) state.entries else shownFiles) },
                     )
+                    val phoneRows = ExplorerRows.build {
+                        if (!state.selecting) {
+                            block("toolbar") { Toolbar(search = searchSlot) }
+                            if (hasOrganise(state)) block("organise") { OrganiseCard(state) }
+                        }
+                        content(false)
+                    }
                     PullToRefreshBox(isRefreshing = state.loading && state.tree != null, onRefresh = refresh, modifier = Modifier.weight(1f).fillMaxWidth()) {
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxSize().testTag("explorer.tree"),
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = if (state.selecting) 10.dp else 0.dp, bottom = 24.dp),
-                        ) {
-                            if (!state.selecting) {
-                                block("toolbar") { Toolbar(search = searchSlot) }
-                                if (hasOrganise(state)) block("organise") { OrganiseCard(state) }
-                            }
-                            content(false)
-                        }
+                        ) { phoneRows.replay(this) }
                     }
                 } else {
                     val pane = ExplorerPaneWidth.clamp(paneWidth, screenDp)
@@ -1154,12 +1154,13 @@ fun ExplorerScreen(
                                         onSelectAll = { state.selectAll(if (kindFilter == null) state.entries else shownFiles) },
                                     )
                                 }
+                                val wideRows = ExplorerRows.build { content(true) }
                                 PullToRefreshBox(isRefreshing = state.loading && state.tree != null, onRefresh = refresh, modifier = Modifier.weight(1f).fillMaxWidth()) {
                                     LazyColumn(
                                         state = listState,
                                         modifier = Modifier.fillMaxSize().testTag("explorer.tree"),
                                         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 24.dp),
-                                    ) { content(true) }
+                                    ) { wideRows.replay(this) }
                                 }
                             }
                         }

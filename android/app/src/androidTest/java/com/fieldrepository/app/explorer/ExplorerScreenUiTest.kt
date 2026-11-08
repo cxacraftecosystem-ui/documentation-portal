@@ -658,8 +658,8 @@ class ExplorerScreenUiTest {
             }
         }
         compose.waitUntil(5_000) { fake.calls.any { it.startsWith("tree:w") } }
-        compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("explorer.sort")).fetchSemanticsNodes().isNotEmpty() }
         val state = held!!
+        compose.waitUntil(10_000) { compose.runOnUiThread { state.sortKeys.isNotEmpty() && state.entries.isNotEmpty() } }
         val sorts = listOf(
             com.fieldrepository.app.explorer.data.ExplorerSort("size", "desc"),
             com.fieldrepository.app.explorer.data.ExplorerSort("name", "asc"),
