@@ -25,7 +25,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.RadioButton
+import com.fieldrepository.app.ui.FieldRadioButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -137,7 +137,7 @@ fun ExplorerSortSheetBody(current: ExplorerSort, keys: List<String>, onPick: (Ex
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    RadioButton(selected = on, onClick = null)
+                    FieldRadioButton(selected = on, onClick = null)
                     Text(
                         ExplorerSorts.label(key),
                         style = MaterialTheme.typography.bodyLarge,
