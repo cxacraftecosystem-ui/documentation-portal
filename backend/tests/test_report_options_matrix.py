@@ -28,6 +28,7 @@ def make(monkeypatch: pytest.MonkeyPatch) -> Any:
     import importlib
 
     from app.core import db as core_db
+    from prisma import Prisma
 
     for name in DB_MODULES:
         importlib.import_module(f"app.services.datareport.sheets.{name}")
@@ -38,7 +39,8 @@ def make(monkeypatch: pytest.MonkeyPatch) -> Any:
         fake = ctx.shared["db"]
         monkeypatch.setattr(core_db, "db", fake)
         for module in list(sys.modules.values()):
-            if (getattr(module, "__name__", "") or "").startswith("app.") and getattr(module, "db", None) is real:
+            current = getattr(module, "db", None)
+            if (getattr(module, "__name__", "") or "").startswith("app.") and (current is real or isinstance(current, Prisma)):
                 monkeypatch.setattr(module, "db", fake)
         return ctx
 

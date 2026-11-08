@@ -455,18 +455,11 @@ for (const theme of ["light", "dark"] as const) {
   test(`impl SearchBoth${theme === "dark" ? " · dark" : ""}`, async ({ browser }) => {
     const { context, page } = await open(browser, PHONE, theme);
     try {
-      await page.goto(folderUrl(GIRIRAJ));
+      await page.goto(folderUrl(GIRIRAJ, { portals: "this,other" }));
       await folderReady(page);
       await page.getByRole("searchbox", { name: "Search all data" }).fill("indigo vat");
       const results = page.getByTestId("search-results");
       await expect(results).toBeVisible();
-      const both = page.getByRole("radio", { name: "Both portals" });
-      if (await both.isVisible().catch(() => false)) await both.click();
-      else {
-        const filters = page.getByRole("button", { name: /Filters/ }).first();
-        if (await filters.isVisible().catch(() => false)) await filters.click();
-        await page.getByRole("radio", { name: "Both portals" }).click();
-      }
       await expect(results.getByText(/Bagru dyers/)).toBeVisible();
       await page.locator("[data-explorer-search]").evaluate((node) => window.scrollTo(0, node.getBoundingClientRect().top + window.scrollY - 16));
       await shoot(page, "SearchBoth", theme === "dark" ? "phone-web-dark" : "phone-web");

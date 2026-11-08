@@ -294,6 +294,7 @@ export class DesignFidelityWebFake extends DesignFidelityFake {
       return { status: 200, json: { path: body?.path, visitedAt: "2026-11-05T10:00:00Z", previousVisitAt: "2026-11-01T10:00:00Z", newFiles: 38, newTranscripts: 4 } };
     }
     if (path === "/search/unified") return { status: 200, json: unifiedFor(query.get("q") ?? "", query.get("scope")) };
+    if (path === "/data/peer") return { status: 200, json: { portal: "fieldRepository", portalLabel: "Field Repository", status: "ok", items: [], total: 0, page: 1, pageSize: 20, pages: 1, notApplied: [] } };
     if (path === "/data/tree" && at === `${WORKSHOP}/deepak`) {
       return {
         status: 200,
