@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.services import transcript_export, transcript_pipeline
-from app.services.data_explorer import slim, stats, tree
+from app.services.data_explorer import filters, slim, stats, tree
 from app.services.media_naming import unique_name
 
 MAX_MANIFEST_FILES = 20000
@@ -180,6 +180,7 @@ class Walk:
             return
         if len(entries) >= 500:
             self.truncated = True
+        entries = filters.prune(entries, getattr(self.scope, "explorer_filter", None))
         used: set[str] = set()
         self.emit_entries(entries, rel, used)
         children = [

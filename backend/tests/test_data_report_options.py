@@ -49,10 +49,16 @@ def test_parse_reads_every_option_and_refuses_nonsense():
 
 def test_stored_options_keep_only_the_known_choices():
     stored = report_options.stored_options({"sheets": ["Tools"], "answers": "original", "rows": "all", "links": True, "x": 1})
-    assert stored == {"sheets": ["Tools"], "answers": "original", "rows": "all", "links": True, "thumbnails": False, "locale": "en", "extras": {}}
+    assert stored == {"sheets": ["Tools"], "answers": "original", "rows": "all", "links": True, "thumbnails": False, "locale": "en", "extras": None}
     richer = report_options.stored_options({"thumbnails": True, "locale": "hi", "extras": {"quotes": True, "map": False}})
-    assert richer["thumbnails"] is True and richer["locale"] == "hi" and richer["extras"] == {"quotes": True}
+    assert richer["thumbnails"] is True and richer["locale"] == "hi" and richer["extras"]["quotes"] is True
+    assert not any(on for key, on in richer["extras"].items() if key != "quotes")
+    assert report_options.stored_options(richer)["extras"] == richer["extras"]
     assert report_options.parse(extras="map,quotes,map").extras == ("map", "quotes")
+    assert report_options.parse().extras is None and report_options.parse(extras={}).extras is None
+    assert report_options.parse(extras="none").extras == () and report_options.parse(extras="").extras == ()
+    assert report_options.parse(extras={"quotes": False}).extras == ()
+    assert not report_options.parse(extras="none").default
     assert not report_options.parse(locale="hi").default
     with pytest.raises(report_options.OptionsInvalid):
         report_options.parse(locale="fr")

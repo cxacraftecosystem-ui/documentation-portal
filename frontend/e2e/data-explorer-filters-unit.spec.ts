@@ -3,11 +3,12 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { CONTENT_MIN_WIDTH, DIVIDER_WIDTH, treeWidthBounds } from "@/lib/dataExplorer/explorerView";
+import { CONTENT_MIN_WIDTH, DIVIDER_WIDTH, filesLabel, folderKindLabel, treeWidthBounds } from "@/lib/dataExplorer/explorerView";
 import { activeCount, cleared, describeFilters, FACET_ORDER, FILTER_PARAMS, filterQuery, outerSearchTypes, readFilters, RECORD_TYPE_VALUES, searchTypes, showsOther, showsThis, TRANSCRIPT_VALUES, urlFilterQuery, withPortals, withTranscript, withValues, writeFilters } from "@/lib/dataExplorer/filters";
 import { UNIFIED_TYPES } from "@/lib/unifiedSearch";
 import { columnWidth, columnWidths, TABLE_COLUMN } from "@/lib/dataExplorer/tableLayout";
 import { parseTextBody } from "@/lib/dataExplorer/textBody";
+import { emptySummary, recordsOf } from "@/lib/dataExplorer/plan";
 
 const CONTRACT = JSON.parse(readFileSync(join(__dirname, "..", "..", "shared", "data-explorer-contract.json"), "utf8"));
 
@@ -125,4 +126,41 @@ test("@qf:X13 search narrows its types by record type and treats Has transcript 
   expect(pick("hasTranscript=no&recordTypes=media")).toEqual(["media"]);
   expect(outerSearchTypes(["designWorkshops"], "", ["artisans", "media"])).toBeNull();
   for (const type of RECORD_TYPE_VALUES) expect(offered).toContain(type);
+});
+
+test("@qf:X13 a title line above key: value lines is the table's title, not a row keyed -", () => {
+  const body = parseTextBody("Test at IITKGP\nWorkshop id: dw-1\nScheme: PM Vishwakarma\nDistrict: Almora\n");
+  expect(body).toEqual({
+    kind: "fields",
+    title: "Test at IITKGP",
+    rows: [
+      { field: "Workshop id", value: "dw-1" },
+      { field: "Scheme", value: "PM Vishwakarma" },
+      { field: "District", value: "Almora" }
+    ]
+  });
+  const ruled = parseTextBody("— Background —\nCluster: Almora\nCraft: Tamta\n");
+  expect(ruled.kind === "fields" ? ruled.title : null).toBe("Background");
+  const bare = parseTextBody("Cluster: Almora\nCraft: Tamta\n");
+  expect(bare.kind === "fields" && bare.title === undefined && bare.rows.every((row) => row.field !== "")).toBe(true);
+});
+
+test("folder kinds read as words, never as model names, and one file is not files", () => {
+  expect(folderKindLabel("designWorkshopStage")).toBe("Design workshop stage");
+  expect(folderKindLabel("designWorkshop")).toBe("Design workshop");
+  expect(folderKindLabel("processStep")).toBe("Process step");
+  expect(folderKindLabel("category")).toBe("Category");
+  expect(folderKindLabel("someNewKind")).toBe("Some new kind");
+  expect(folderKindLabel(null)).toBeNull();
+  expect(filesLabel(1)).toBe("1 file");
+  expect(filesLabel(1234)).toBe("1,234 files");
+});
+
+test("the header and the Files tab count files without their transcripts", () => {
+  expect(recordsOf({ files: 12, byType: { images: { files: 9 }, transcripts: { files: 3 } } })).toBe(9);
+  expect(recordsOf({ files: 12, records: 10, byType: {} })).toBe(10);
+  const summary = emptySummary();
+  summary.files = 4;
+  summary.byType.transcripts.files = 1;
+  expect(recordsOf(summary)).toBe(3);
 });

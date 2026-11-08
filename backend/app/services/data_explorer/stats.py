@@ -62,8 +62,10 @@ def totals(files: list[dict[str, Any]], *, truncated: bool) -> dict[str, Any]:
             continue
         bucket["bytes"] += size
         total_bytes += size
+    files = sum(b["files"] for b in by_type.values())
     return {
-        "files": sum(b["files"] for b in by_type.values()),
+        "files": files,
+        "records": files - by_type["transcripts"]["files"],
         "bytes": total_bytes,
         "unknownSizeFiles": unknown,
         "byType": by_type,

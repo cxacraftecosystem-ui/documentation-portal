@@ -7,23 +7,24 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Skeleton } from "@/components/dataExplorer/explorerUi";
 import { fetchSelectionStats, fetchStats, unsupported } from "@/lib/dataExplorer/api";
 import { INCLUDE_KEYS, INCLUDE_LABELS, type Crumb, type FolderInfo, type IncludeKey, type InfoField, type Stats } from "@/lib/dataExplorer/contract";
-import { formatBytes, type ManifestSummary } from "@/lib/dataExplorer/plan";
+import { folderKindLabel } from "@/lib/dataExplorer/explorerView";
+import { formatBytes, recordsOf, type ManifestSummary } from "@/lib/dataExplorer/plan";
 import type { JobSource } from "@/lib/dataExplorer/protocol";
 import { selectionPayload, selectionSource, type Selection } from "@/lib/dataExplorer/selection";
 import type { QueryParams } from "@/lib/dataExplorer/wire";
 
-export type Sized = { files: number; bytes: number; unknown: number; byType: Partial<Record<IncludeKey, { files: number; bytes: number }>>; truncated: boolean };
+export type Sized = { files: number; records: number; bytes: number; unknown: number; byType: Partial<Record<IncludeKey, { files: number; bytes: number }>>; truncated: boolean };
 
 export type Measure = (source: JobSource, include: IncludeKey[] | null) => Promise<{ manifest: { summary: ManifestSummary; truncated: boolean } } | { error: string }>;
 
 export function fromStats(stats: Stats): Sized {
-  return { files: stats.files, bytes: stats.bytes, unknown: stats.unknownSizeFiles, byType: stats.byType ?? {}, truncated: stats.truncated };
+  return { files: stats.files, records: recordsOf(stats), bytes: stats.bytes, unknown: stats.unknownSizeFiles, byType: stats.byType ?? {}, truncated: stats.truncated };
 }
 
 export function fromSummary(summary: ManifestSummary, truncated: boolean): Sized {
   const byType: Sized["byType"] = {};
   for (const key of INCLUDE_KEYS) byType[key] = { files: summary.byType[key].files, bytes: summary.byType[key].bytes };
-  return { files: summary.files, bytes: summary.bytes, unknown: summary.unknown, byType, truncated };
+  return { files: summary.files, records: recordsOf(summary), bytes: summary.bytes, unknown: summary.unknown, byType, truncated };
 }
 
 export function sizedFor(sized: Sized, include: readonly IncludeKey[]): { files: number; bytes: number; unknown: number } {
@@ -100,9 +101,7 @@ export function useSelectionSize(selection: Selection, extra: QueryParams, downl
 const TYPE_TILE_KEYS: IncludeKey[] = ["images", "videos", "audios", "documents", "text", "other"];
 
 export function recordTypeLabel(recordType: string | null | undefined): string | null {
-  if (!recordType) return null;
-  const spaced = recordType.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  return folderKindLabel(recordType);
 }
 
 export function Breadcrumbs({ crumbs, onOpen }: { crumbs: Crumb[]; onOpen: (path: string) => void }) {
@@ -276,7 +275,7 @@ export function FolderHeader({
   const nothingToDownload = Boolean(chosen && sized && !sized.truncated && chosen.files === 0 && chosen.unknown === 0);
   const facts = sized
     ? [
-        `${sized.files.toLocaleString("en-IN")} ${sized.files === 1 ? "file" : "files"}${sized.truncated ? "+" : ""}`,
+        `${sized.records.toLocaleString("en-IN")} ${sized.records === 1 ? "file" : "files"}${sized.truncated ? "+" : ""}`,
         formatBytes(sized.bytes),
         transcripts !== null && transcripts > 0 ? `${transcripts.toLocaleString("en-IN")} ${transcripts === 1 ? "transcript" : "transcripts"}` : null,
         typeof info?.counts?.tools === "number" && info.counts.tools > 0 ? `${info.counts.tools.toLocaleString("en-IN")} ${info.counts.tools === 1 ? "tool" : "tools"}` : null

@@ -213,7 +213,9 @@ class ExplorerFiltersTest {
         val all = ExplorerPeerRows.merge(merged, second)
         assertEquals(listOf("a9", "a10"), all.map { it.id })
         assertFalse(ExplorerPeerRows.hasMore(PeerLoad.Ready(all, second)))
-        assertEquals("media", ExplorerPeerTypes.browseKindOf("by-type/videos"))
+        assertNull(ExplorerPeerTypes.browseKindOf("by-type"))
+        assertNull(ExplorerPeerTypes.browseKindOf("by-type/videos"))
+        assertNull(ExplorerPeerTypes.browseKindOf("media-types"))
         assertNull(ExplorerPeerTypes.browseKindOf("by-workshop/w1"))
         assertEquals("Nothing in Field Repository can match these filters.", ExplorerPeerTypes.statusLine(ExplorerPeerPage(portalLabel = "Field Repository", status = "filteredOut")))
     }

@@ -12,6 +12,7 @@ ROWS = ("all", "filtered")
 LOCALES = ("en", "hi")
 EXTRAS_MAX = 40
 EXTRA_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
+NO_EXTRAS = "none"
 SHEETS_MAX = 60
 SHEET_NAME_MAX = 120
 NAME_MAX = 120
@@ -38,7 +39,7 @@ class ReportOptions:
     q: str | None = None
     thumbnails: bool = False
     locale: str = "en"
-    extras: tuple[str, ...] = ()
+    extras: tuple[str, ...] | None = None
 
     @property
     def filters_rows(self) -> bool:
@@ -53,7 +54,7 @@ class ReportOptions:
             and self.links
             and not self.thumbnails
             and self.locale == "en"
-            and not self.extras
+            and self.extras is None
         )
 
     def signature(self) -> str:
@@ -66,7 +67,7 @@ class ReportOptions:
                 "1" if self.links else "0",
                 "1" if self.thumbnails else "0",
                 self.locale,
-                ",".join(sorted(self.extras)),
+                "*" if self.extras is None else ",".join(sorted(self.extras)) or NO_EXTRAS,
             )
         )
 
@@ -78,7 +79,7 @@ class ReportOptions:
             "links": self.links,
             "thumbnails": self.thumbnails,
             "locale": self.locale,
-            "extras": dict.fromkeys(self.extras, True),
+            "extras": None if self.extras is None else {key: key in self.extras for key in every_extra(self.extras)},
         }
 
 
@@ -124,15 +125,29 @@ def _choice(value: Any, allowed: tuple[str, ...], label: str, default: str) -> s
     return text
 
 
-def _extras(value: Any) -> tuple[str, ...]:
-    if value is None or value == "":
-        return ()
+def every_extra(picked: tuple[str, ...] = ()) -> list[str]:
+    try:
+        from app.services.datareport import contract, portal
+
+        known = [option for option, _title in contract.optional_keys(portal.current().key)]
+    except Exception:  # noqa: BLE001
+        known = []
+    return sorted(set(known) | set(picked))
+
+
+def _extras(value: Any) -> tuple[str, ...] | None:
+    if value is None:
+        return None
     if isinstance(value, dict):
+        if not value:
+            return None
         items = [str(k) for k, v in value.items() if v is True or str(v).strip().lower() in ("1", "true", "yes", "on")]
     elif isinstance(value, (list, tuple)):
         items = [str(v) for v in value]
     else:
         items = str(value).split(",")
+    if [item.strip().lower() for item in items if item.strip()] == [NO_EXTRAS]:
+        return ()
     picked: list[str] = []
     for item in items:
         key = item.strip()

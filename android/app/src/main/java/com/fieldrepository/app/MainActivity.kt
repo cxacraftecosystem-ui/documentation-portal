@@ -1440,7 +1440,7 @@ private fun HomeScreen(
     var sections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
     var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
     var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
-    var screen by rememberSaveable(stateSaver = ScreenSaver) { mutableStateOf<Screen>(Screen.Dashboard) }
+    var screen by rememberSaveable(stateSaver = ScreenSaver, key = "home.screen") { mutableStateOf<Screen>(Screen.Dashboard) }
     val dataExplorer = key(user.id) { com.fieldrepository.app.explorer.ui.rememberDataExplorerState() }
     val dataHolder = rememberSaveableStateHolder()
     val notificationOpenRequest by NotificationState.openRequests.collectAsState()
@@ -3374,7 +3374,7 @@ private fun RecentSubmissionRow(
     onOpenRecord: (EntryMode, String) -> Unit
 ) {
     val mode = remember(item.type) { recentSubmissionEntryMode(item.type) }
-    val typeLabel = item.type.replaceFirstChar { it.uppercase() }
+    val typeLabel = com.fieldrepository.app.explorer.ui.folderKind(item.type) ?: item.type
     val title = item.title?.takeIf { it.isNotBlank() }
         ?: "Untitled ${item.type.ifBlank { "record" }}"
     Column(
@@ -9178,7 +9178,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
                             .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        val typeLabel = m.linkedRecordType?.replaceFirstChar { it.uppercase() } ?: "Record"
+                        val typeLabel = com.fieldrepository.app.explorer.ui.folderKind(m.linkedRecordType) ?: "Record"
                         Text("From a deleted $typeLabel", color = Muted, style = MaterialTheme.typography.bodySmall)
                         m.uploadedBy?.name?.let { Text("Recorded by $it", color = Muted, style = MaterialTheme.typography.bodySmall) }
                         MediaWithTranscript(context, m, repository)
@@ -9950,7 +9950,7 @@ private fun PendingReviewRow(
                 Text(item.label, color = Body, fontWeight = FontWeight.SemiBold)
                 Text(
                     listOfNotNull(
-                        item.recordType.replaceFirstChar { it.uppercase() },
+                        com.fieldrepository.app.explorer.ui.folderKind(item.recordType) ?: item.recordType,
                         item.place?.takeIf { it.isNotBlank() },
                         item.createdBy?.name?.takeIf { it.isNotBlank() }?.let { "by $it" },
                         formatIsoDate(item.submittedAt ?: item.createdAt)

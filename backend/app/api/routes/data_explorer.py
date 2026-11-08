@@ -677,6 +677,11 @@ async def browse_record_media(
     }
 
 
+async def _record_files(scope: Any) -> list[filters.RecordFiles]:
+    listed = getattr(_browser(), "record_files", None)
+    return list(await listed(scope)) if callable(listed) else []
+
+
 @router.get("/filters")
 async def explorer_filters(
     path: str = "",
@@ -692,7 +697,7 @@ async def explorer_filters(
     allowed = us.may_search_across(current_user)
     other = peer.STATUS_OFF if not active else (peer.STATUS_OK if allowed else peer.STATUS_NOT_PERMITTED)
     return {
-        "facets": await filters.facets(scope, flt),
+        "facets": await filters.facets(scope, flt, await _record_files(scope)),
         "dateBounds": await filters.date_bounds(scope),
         "portal": {
             "options": [

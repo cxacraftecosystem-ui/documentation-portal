@@ -94,6 +94,7 @@ export type TypeTally = { files: number; bytes: number };
 
 export type Stats = {
   files: number;
+  records?: number;
   bytes: number;
   unknownSizeFiles: number;
   byType: Partial<Record<IncludeKey, TypeTally>>;

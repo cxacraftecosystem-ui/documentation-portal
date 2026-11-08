@@ -172,8 +172,13 @@ def test_report_choices_are_remembered_per_user_and_checked(monkeypatch):
 
     seen = _private(monkeypatch, work)
     assert seen["empty"] == {"options": None}
-    assert seen["saved"] == {"options": seen["chosen"]}
-    assert seen["again"] == {"options": seen["chosen"]}
+    plain = {key: value for key, value in seen["chosen"].items() if key != "extras"}
+    for answer in (seen["saved"], seen["again"]):
+        kept = answer["options"]
+        assert {key: value for key, value in kept.items() if key != "extras"} == plain
+        assert kept["extras"]["quotes"] is True
+        assert not any(on for key, on in kept["extras"].items() if key != "quotes")
+    assert seen["saved"] == seen["again"]
     assert seen["bad"] == 422
 
 

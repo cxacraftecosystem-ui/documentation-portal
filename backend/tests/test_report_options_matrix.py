@@ -185,6 +185,29 @@ def test_ticking_everything_yields_every_sheet_and_extra(make: Any, portal: str)
 
 
 @pytest.mark.parametrize("portal", PORTALS)
+def test_the_default_report_ticks_every_sheet_and_every_extra(make: Any, portal: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import naming_portal
+    from app.services.data_explorer import report_options
+
+    monkeypatch.setattr(naming_portal, "PORTAL", "FieldRepository" if portal == "fieldRepository" else "DesignWorkshop")
+    everything = {option: True for option, _label in contract.optional_keys(portal)}
+    default = build.from_parsed(report_options.parse())
+    assert default.sheets is None and default.extras == everything
+    assert build.options_from({}).extras == everything
+    assert build.options_from({"extras": "none"}).extras == {}
+    kept = report_options.stored_options(report_options.parse(extras="none").stored())
+    assert kept["extras"] == dict.fromkeys(everything, False)
+    assert build.from_parsed(report_options.parse(extras=kept["extras"])).extras == {}
+    assert report_options.stored_options(report_options.parse().stored())["extras"] is None
+    book, _payload, failed = _render(make(portal, default))
+    full, _full_payload, _full_failed = _render(make(portal, ReportOptions(extras=everything)))
+    assert failed == []
+    assert book.sheetnames == full.sheetnames
+    bare, _bare_payload, _bare_failed = _render(make(portal, build.options_from({"extras": "none"})))
+    assert len(bare.sheetnames) < len(book.sheetnames)
+
+
+@pytest.mark.parametrize("portal", PORTALS)
 def test_dialog_labels_are_the_names_in_the_workbook(make: Any, portal: str) -> None:
     catalog = asyncio.run(build.catalog_sheets(make(portal)))
     for entry in catalog:

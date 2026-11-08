@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { legacyHits, locatedOf, recordPageHref, unifiedHits } from "@/components/dataExplorer/paletteSearch";
-import { reportOptionParams } from "@/lib/dataExplorer/api";
+import { extraOn, reportOptionParams, withExtra } from "@/lib/dataExplorer/api";
 import { DEFAULT_REPORT_OPTIONS, withReportDefaults, type ReportResponse, type TreeEntry } from "@/lib/dataExplorer/contract";
 import { fileNameFrom, looksLikeZip, nextToStart, OUTCOME_CARD, outcomeOf, retryDelaySeconds, ROW_TONE_CLASS, TONE_CLASS, toneOf, trayHeadline, type DownloadItem } from "@/lib/dataExplorer/downloads";
 import { builtAgo, clampTreeWidth, estimateLine, filterOf, followingCursor, highlightParts, mergeNavigation, pageOf, percentLabel, readTreeWidth, sortArtisans, thumbnailEdge, TREE_WIDTH, treeWidthBounds, treeWidthForKey, viewLink, viewSummary } from "@/lib/dataExplorer/explorerView";
@@ -191,6 +191,21 @@ test.describe("@qf:X15 tables, report options and saved views", () => {
     expect(withReportDefaults({ sheets: ["Tools"], answers: "both", rows: "all", links: true } as never)).toEqual({ ...DEFAULT_REPORT_OPTIONS, sheets: ["Tools"] });
     expect(withReportDefaults({ locale: "fr" } as never).locale).toBe("en");
     expect(reportOptionParams({ ...DEFAULT_REPORT_OPTIONS, rows: "filtered" }, "", "").rows).toBeUndefined();
+  });
+
+  test("the default report ticks every sheet and every extra, and an untick is sent", () => {
+    const offered = [{ key: "charts" }, { key: "everything" }, { key: "quotes" }];
+    expect(DEFAULT_REPORT_OPTIONS.sheets).toBeNull();
+    expect(offered.every((item) => extraOn(DEFAULT_REPORT_OPTIONS, item.key))).toBe(true);
+    expect(reportOptionParams(DEFAULT_REPORT_OPTIONS, "", "").extras).toBeUndefined();
+    expect(reportOptionParams({ ...DEFAULT_REPORT_OPTIONS, extras: { quotes: true } }, "", "").extras).toBeUndefined();
+    const noQuotes = withExtra(DEFAULT_REPORT_OPTIONS, offered, "quotes", false);
+    expect(noQuotes.extras).toEqual({ charts: true, everything: true, quotes: false });
+    expect(reportOptionParams(noQuotes, "", "").extras).toBe("charts,everything");
+    const none = offered.reduce((options, item) => withExtra(options, offered, item.key, false), DEFAULT_REPORT_OPTIONS);
+    expect(reportOptionParams(none, "", "").extras).toBe("none");
+    expect(reportOptionParams(withExtra(none, offered, "charts", true), "", "").extras).toBe("charts");
+    expect(withReportDefaults(null).extras).toEqual({});
   });
 
   test("the estimate says how many sheets and that the file is checked", () => {

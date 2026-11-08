@@ -36,6 +36,20 @@ data class ExplorerReportOptions(
     val extras: Map<String, Boolean> = emptyMap(),
 )
 
+object ExplorerReportExtras {
+    const val NONE = "none"
+
+    fun on(extras: Map<String, Boolean>, key: String): Boolean = extras[key] != false
+
+    fun param(extras: Map<String, Boolean>): String? {
+        if (extras.values.none { !it }) return null
+        return extras.filterValues { it }.keys.sorted().joinToString(",").ifEmpty { NONE }
+    }
+
+    fun with(extras: Map<String, Boolean>, offered: List<String>, key: String, ticked: Boolean): Map<String, Boolean> =
+        extras + offered.associateWith { on(extras, it) } + (key to ticked)
+}
+
 @Serializable
 data class ExplorerReportSheetInfo(
     val key: String = "",
@@ -329,7 +343,7 @@ object ExplorerMoreApi {
         url = ExplorerPaths.withQuery(url, "links", if (options.links) "1" else "0")
         url = ExplorerPaths.withQuery(url, "thumbnails", if (options.thumbnails) "1" else "0")
         url = ExplorerPaths.withQuery(url, "locale", options.locale)
-        options.extras.filterValues { it }.keys.sorted().takeIf { it.isNotEmpty() }?.let { url = ExplorerPaths.withQuery(url, "extras", it.joinToString(",")) }
+        ExplorerReportExtras.param(options.extras)?.let { url = ExplorerPaths.withQuery(url, "extras", it) }
         if (options.rows == "filtered" && !query.isNullOrBlank()) url = ExplorerPaths.withQuery(url, "q", query)
         name?.trim()?.removeSuffix(".xlsx")?.removeSuffix(".zip")?.takeIf { it.isNotBlank() }?.let { url = ExplorerPaths.withQuery(url, "name", it) }
         return url

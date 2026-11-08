@@ -252,6 +252,7 @@ export function DataTables({
   initialSheet,
   initialQuery,
   onState,
+  onCount,
   notice,
   reportItem,
   onReport,
@@ -268,6 +269,7 @@ export function DataTables({
   initialSheet: string;
   initialQuery: string;
   onState: (sheet: string, q: string) => void;
+  onCount?: (path: string, count: number) => void;
   notice?: (report: ReportResponse) => string | null;
   reportItem: DownloadItem | null;
   onReport: () => void;
@@ -336,6 +338,9 @@ export function DataTables({
   }, [current, wanted, path, extraKey, memoryFor, attempt]);
 
   const sheets = useMemo(() => (shown?.sheets ?? []).filter((sheet) => sheet.rows.length > 0 || (sheet.totalRows ?? 0) > 0), [shown]);
+  useEffect(() => {
+    if (current && onCount) onCount(path, sheets.length);
+  }, [current, onCount, path, sheets.length]);
   const index = Math.max(0, sheets.findIndex((sheet) => sheet.name === active));
   const sheet = sheets[index];
   const needle = filter.trim();
@@ -494,7 +499,7 @@ export function DataTables({
       ) : (
         <div className="sm:flex sm:min-h-[560px] max-sm:contents">
           <nav aria-label="Tables" className="w-60 shrink-0 border-r border-line-200 p-3 max-lg:hidden">
-            <div role="tablist" aria-orientation="vertical" aria-label="Sheets" className="grid gap-1">
+            <div role="tablist" aria-orientation="vertical" aria-label="Sheets" className="grid grid-cols-[minmax(0,1fr)] gap-1">
               {sheets.map((entry, position) => {
                 const selected = position === index;
                 const hits = needle ? matchOf(entry.name) : null;
@@ -513,7 +518,9 @@ export function DataTables({
                       selected ? "bg-purple-100 font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-200" : "text-ink-700 hover:bg-surface-50"
                     }`}
                   >
-                    <span className="truncate">{entry.name}</span>
+                    <span className="min-w-0 flex-1 truncate" title={entry.name}>
+                      {entry.name}
+                    </span>
                     <span className={`shrink-0 text-xs tabular-nums ${selected ? "" : "text-ink-500"}`}>{hits !== null ? `${hits} of ${sheetCount(entry)}` : sheetCount(entry)}</span>
                   </button>
                 );

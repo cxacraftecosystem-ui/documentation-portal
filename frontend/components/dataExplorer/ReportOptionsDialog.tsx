@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Skeleton } from "@/components/dataExplorer/explorerUi";
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import { Toggle } from "@/components/ui/Toggle";
-import { fetchReport, fetchReportOptions, fetchReportSheets, saveReportOptions } from "@/lib/dataExplorer/api";
+import { extraOn, fetchReport, fetchReportOptions, fetchReportSheets, saveReportOptions, withExtra } from "@/lib/dataExplorer/api";
 import { DEFAULT_REPORT_OPTIONS, withReportDefaults, type ReportLocale, type ReportOptions, type ReportResponse, type ReportSheetList, type ReportStatusFilter } from "@/lib/dataExplorer/contract";
 import { exportFilename } from "@/lib/naming";
 import { estimateLine } from "@/lib/dataExplorer/explorerView";
@@ -292,8 +292,8 @@ export function ReportOptionsDialog({
                 <Toggle
                   key={item.key}
                   label={item.title}
-                  checked={Boolean(options.extras[item.key])}
-                  onChange={(on) => setOptions({ ...options, extras: { ...options.extras, [item.key]: on } })}
+                  checked={extraOn(options, item.key)}
+                  onChange={(on) => setOptions(withExtra(options, extras, item.key, on))}
                 />
               ))}
             </div>

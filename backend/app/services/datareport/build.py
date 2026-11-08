@@ -78,6 +78,12 @@ def _report_options() -> Any:
     return report_options
 
 
+def expand_extras(picked: Any) -> dict[str, bool]:
+    if picked is None:
+        return {option: True for option, _title in contract.optional_keys(portals.current().key)}
+    return dict.fromkeys(picked, True)
+
+
 def from_parsed(picked: Any, *, name: str | None = None) -> contract.ReportOptions:
     return contract.ReportOptions(
         sheets=list(picked.sheets) if picked.sheets is not None else None,
@@ -86,7 +92,7 @@ def from_parsed(picked: Any, *, name: str | None = None) -> contract.ReportOptio
         links=bool(picked.links),
         thumbnails=bool(getattr(picked, "thumbnails", False)),
         locale=getattr(picked, "locale", "en") or "en",
-        extras=dict.fromkeys(getattr(picked, "extras", ()) or (), True),
+        extras=expand_extras(getattr(picked, "extras", None)),
         q=picked.q,
         name=name,
     )

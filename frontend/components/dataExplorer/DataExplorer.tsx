@@ -25,7 +25,7 @@ import { TranscriptsTab } from "@/components/dataExplorer/TranscriptsTab";
 import { useDownloads } from "@/components/dataExplorer/useDownloads";
 import { useExplorerTree } from "@/components/dataExplorer/useExplorerTree";
 import { WorkshopOverview } from "@/components/dataExplorer/WorkshopOverview";
-import { bundleManifestEndpoint, fetchBundle, fetchReportSheets, fetchSavedView, includeParam, recordVisit, reportFileUrl, reportOptionParams, reportPackUrl, transcriptBundleUrl } from "@/lib/dataExplorer/api";
+import { bundleManifestEndpoint, fetchBundle, fetchSavedView, includeParam, recordVisit, reportFileUrl, reportOptionParams, reportPackUrl, transcriptBundleUrl } from "@/lib/dataExplorer/api";
 import { INCLUDE_KEYS, type Crumb, type FolderVisit, type IncludeKey, type ReportBundle, type ReportOptions, type ReportResponse, type ReportStatusFilter, type SavedView, type Taxonomy, type TreeEntry } from "@/lib/dataExplorer/contract";
 import { formatBytes, limitSentence, overLimit } from "@/lib/dataExplorer/plan";
 import { cleared, describeFilters, fetchFacets, filterQuery, hasFilters, readFilters, showsOther, showsThis, urlFilterQuery, writeFilters, type ExplorerFilters, type FacetsResponse } from "@/lib/dataExplorer/filters";
@@ -323,7 +323,6 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const visited = useRef(new Set<string>());
   const dismissedPreview = useRef<string | null>(null);
   const pushedPreview = useRef(false);
-  const fetchedTables = useRef(new Set<string>());
   const panelId = useId();
   const columnsRef = useRef<HTMLDivElement | null>(null);
   const [treeWidth, setTreeWidth] = useState<number>(TREE_WIDTH.initial);
@@ -540,23 +539,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const clearFilters = useCallback(() => changeFilters(cleared()), [changeFilters]);
   const filterLines = useMemo(() => describeFilters(filters, facets?.facets ?? null), [filters, facets]);
 
-  const extraText = JSON.stringify(extra);
-  const tablesOpen = url.view === "tables";
-  useEffect(() => {
-    if (!url.path || !tablesOpen) return;
-    const path = url.path;
-    const key = JSON.stringify([path, extraText]);
-    if (fetchedTables.current.has(key)) return;
-    const abort = new AbortController();
-    fetchReportSheets(path, JSON.parse(extraText) as QueryParams, abort.signal)
-      .then((list) => {
-        if (abort.signal.aborted || !list) return;
-        fetchedTables.current.add(key);
-        setTableCount({ path, count: list.sheets.filter((sheet) => (sheet.count ?? 0) > 0).length });
-      })
-      .catch(() => undefined);
-    return () => abort.abort();
-  }, [url.path, extraText, tablesOpen]);
+  const onTableCount = useCallback((path: string, count: number) => setTableCount((was) => (was && was.path === path && was.count === count ? was : { path, count })), []);
 
   const crumbs = useMemo<Crumb[]>(() => {
     const fromServer = current?.crumbs ?? [];
@@ -884,7 +867,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 overflow-x-clip max-lg:gap-3.5 max-sm:gap-3" data-testid="explorer-content">
             {headerBlock}
             <section className="panel overflow-hidden max-sm:grid max-sm:gap-3 max-sm:overflow-visible max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:shadow-none" aria-label="Contents">
-              <ViewTabs view={url.view} counts={{ files: folderSize.sized ? `${folderSize.sized.files.toLocaleString("en-IN")}${folderSize.sized.truncated ? "+" : ""}` : filesCount, tables: tableCount && tableCount.path === url.path && tableCount.count > 0 ? tableCount.count.toLocaleString("en-IN") : null, transcripts: transcriptsKnown !== null ? transcriptsKnown.toLocaleString("en-IN") : null }} onView={showView} trailing={tabTrailing} />
+              <ViewTabs view={url.view} counts={{ files: folderSize.sized ? `${folderSize.sized.records.toLocaleString("en-IN")}${folderSize.sized.truncated ? "+" : ""}` : filesCount, tables: tableCount && tableCount.path === url.path && tableCount.count > 0 ? tableCount.count.toLocaleString("en-IN") : null, transcripts: transcriptsKnown !== null ? transcriptsKnown.toLocaleString("en-IN") : null }} onView={showView} trailing={tabTrailing} />
               <div id="explorer-view" role="tabpanel" aria-label={VIEW_TABS.find((tab) => tab.value === url.view)?.label} className="min-w-0">
                 <div hidden={url.view !== "files"} className="grid gap-4">
                   {!local ? <FilteredEmpty lines={["Portal: other portal only"]} onClear={clearFilters} what="This portal is filtered out" /> : (
@@ -928,6 +911,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
                       initialSheet={url.sheet}
                       initialQuery={url.q}
                       onState={onTables}
+                      onCount={onTableCount}
                       notice={config.tablesNotice}
                       reportItem={reportItem}
                       onReport={() => setReportOpen(true)}

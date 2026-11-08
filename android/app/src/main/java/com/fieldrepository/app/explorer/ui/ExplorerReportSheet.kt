@@ -53,6 +53,7 @@ import com.fieldrepository.app.explorer.data.ExplorerViewFilters
 import com.fieldrepository.app.explorer.data.ExplorerMore
 import com.fieldrepository.app.explorer.data.ExplorerPaths
 import com.fieldrepository.app.explorer.portal.ExplorerPortal
+import com.fieldrepository.app.explorer.data.ExplorerReportExtras
 import com.fieldrepository.app.explorer.data.ExplorerReportOptions
 import com.fieldrepository.app.explorer.data.ExplorerReportOptionsBody
 import com.fieldrepository.app.explorer.data.ExplorerSheet
@@ -224,7 +225,7 @@ internal fun ReportOptionsSheet(
         links = links,
         thumbnails = thumbnails,
         locale = locale,
-        extras = extras.filterValues { it },
+        extras = extras,
     )
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
@@ -321,8 +322,8 @@ internal fun ReportOptionsSheet(
                 offered.forEach { x ->
                     com.fieldrepository.app.ui.AppToggle(
                         label = x.title,
-                        checked = extras[x.key] == true,
-                        onCheckedChange = { on -> extras = extras + (x.key to on) },
+                        checked = ExplorerReportExtras.on(extras, x.key),
+                        onCheckedChange = { on -> extras = ExplorerReportExtras.with(extras, offered.map { it.key }, x.key, on) },
                         modifier = Modifier.fillMaxWidth().testTag("explorer.report.extra.${x.key}"),
                     )
                 }

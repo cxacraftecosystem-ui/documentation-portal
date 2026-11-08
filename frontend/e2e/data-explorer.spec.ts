@@ -1330,14 +1330,15 @@ test.describe("@qf:X6 report options overhaul", () => {
       const dialog = await openReportDialog(page);
       await expect(dialog.getByRole("list", { name: "Sheets" })).toContainText("201");
       const extras = dialog.getByRole("group", { name: "Extras" });
-      await expect(extras.getByRole("switch", { name: "Quotes sheet" })).toHaveAttribute("aria-checked", "false");
-      await expect(extras.getByRole("switch", { name: "Glossary sheet" })).toBeVisible();
-      await extras.getByRole("switch", { name: "Quotes sheet" }).click();
+      await expect(extras.getByRole("switch", { name: "Quotes sheet" })).toHaveAttribute("aria-checked", "true");
+      await expect(extras.getByRole("switch", { name: "Glossary sheet" })).toHaveAttribute("aria-checked", "true");
+      await extras.getByRole("switch", { name: "Glossary sheet" }).click();
+      await expect(extras.getByRole("switch", { name: "Glossary sheet" })).toHaveAttribute("aria-checked", "false");
       await dialog.getByRole("radiogroup", { name: "Language" }).getByRole("radio", { name: "हिन्दी" }).click();
       await dialog.getByRole("switch", { name: "Small image thumbnails" }).click();
       await dialog.getByRole("button", { name: "Remember these choices" }).click();
       await expect(dialog.getByRole("button", { name: "Remembered" })).toBeVisible();
-      expect(fake.reportOptions).toMatchObject({ locale: "hi", thumbnails: true, extras: { quotes: true } });
+      expect(fake.reportOptions).toMatchObject({ locale: "hi", thumbnails: true, extras: { quotes: true, glossary: false } });
       await dialog.getByRole("button", { name: "Make report" }).click();
       await expect(trayItem(page, "Report (.xlsx) · Bagru 2026")).toHaveAttribute("data-status", "saved");
       const asked = fake.calls.filter((call) => call.path === "/data/report" && call.query.get("format") === "xlsx")[0];
@@ -1769,18 +1770,24 @@ test.describe("@qf:X1 navigation keeps its place", () => {
     }
   });
 
-  test("the Tables count is asked for only when Tables opens, and once per folder", async ({ browser }) => {
+  test("the Tables badge counts the sheets the Tables panel lists, from the same answer", async ({ browser }) => {
     const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
     try {
       await expect(fileRow(page, "photo.jpg")).toBeVisible();
-      await page.waitForTimeout(1500);
-      expect(fake.calledWith("GET", "/data/report/sheets")).toHaveLength(0);
       await page.getByRole("tab", { name: /Tables/ }).click();
-      await expect.poll(() => fake.calledWith("GET", "/data/report/sheets").length).toBe(1);
+      const panel = page.getByRole("region", { name: "Data tables" });
+      const sheets = panel.getByRole("tablist", { name: "Sheets" }).getByRole("tab");
+      await expect(sheets.first()).toBeVisible();
+      const listed = await sheets.count();
+      await expect(page.getByRole("tab", { name: new RegExp(`^Tables\\s+${listed}$`) })).toBeVisible();
+      await expect(panel).toContainText(`${listed} ${listed === 1 ? "table" : "tables"}`);
       await page.getByRole("tab", { name: /Files/ }).click();
       await page.getByRole("tab", { name: /Tables/ }).click();
-      await page.waitForTimeout(800);
-      expect(fake.calledWith("GET", "/data/report/sheets")).toHaveLength(1);
+      await expect(page.getByRole("tab", { name: new RegExp(`^Tables\\s+${listed}$`) })).toBeVisible();
+      expect(fake.calledWith("GET", "/data/report/sheets")).toHaveLength(0);
+      const box = await sheets.first().boundingBox();
+      const count = await sheets.first().locator("span").last().boundingBox();
+      expect(box && count && count.x + count.width <= box.x + box.width + 0.5).toBe(true);
     } finally {
       await context.close();
     }

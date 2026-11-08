@@ -179,3 +179,22 @@ export function capturedLabel(value: string | null | undefined): string {
   if (Number.isNaN(date.getTime())) return "-";
   return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
 }
+
+const KIND_LABELS: Record<string, string> = {
+  designWorkshop: "Design workshop",
+  designWorkshopStage: "Design workshop stage",
+  processStep: "Process step",
+  questionnaireInterview: "Interview"
+};
+
+export function folderKindLabel(recordType: string | null | undefined): string | null {
+  const raw = (recordType ?? "").trim();
+  if (!raw) return null;
+  if (KIND_LABELS[raw]) return KIND_LABELS[raw];
+  const spaced = raw.replace(/[_-]+/g, " ").replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+export function filesLabel(count: number): string {
+  return `${count.toLocaleString("en-IN")} ${count === 1 ? "file" : "files"}`;
+}

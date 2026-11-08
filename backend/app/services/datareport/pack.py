@@ -156,7 +156,11 @@ async def core_xlsx(user: Any, params: PackParams) -> tuple[bytes, str, Any]:
     from app.services.datareport import build, contract
 
     legacy = params.options()
-    extras = {key.strip(): True for key in str(params.extra.get("extras") or "").split(",") if key.strip()}
+    try:
+        picked = report_options.parse(extras=params.extra.get("extras"))
+    except report_options.OptionsInvalid as bad:
+        raise HTTPException(status_code=422, detail=str(bad)) from None
+    extras = build.expand_extras(picked.extras)
     locale = locale_of(params)
     options = contract.ReportOptions(
         sheets=list(legacy.sheets) if legacy.sheets is not None else None,

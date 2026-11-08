@@ -128,10 +128,7 @@ object ExplorerFilterApis {
 }
 
 object ExplorerPeerTypes {
-    fun browseKindOf(path: String): String? {
-        val head = path.split('/').firstOrNull { it.isNotBlank() }
-        return if (head == "by-type" || head == "media-types") "media" else null
-    }
+    fun browseKindOf(path: String): String? = null
 
     fun statusLine(page: ExplorerPeerPage): String? = when (page.status) {
         "off" -> "${page.portalLabel.ifBlank { "The other portal" }} search is turned off."

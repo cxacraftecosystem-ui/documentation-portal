@@ -846,7 +846,7 @@ optional. **Rollback** is safe: older code ignores the new tables and column.
 
 ## 13. Zero-downtime releases (2026-10-19)
 
-Until 0.0.16 every backend deploy stopped the API, migrated, restarted it and waited for `/health`.
+Until 0.0.15 every backend deploy stopped the API, migrated, restarted it and waited for `/health`.
 On this swap-bound t3.small the start alone takes three to eight minutes, and CloudFront answered 502
 for all of it. Since this change the old release keeps serving until the new one answers `/health`.
 The box side is `backend/deploy/blue_green.sh`, piped over ssh by `deploy-backend.yml` so the box

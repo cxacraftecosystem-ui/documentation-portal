@@ -622,6 +622,71 @@ def drop_empty(
     return kept, hidden
 
 
+@dataclass(frozen=True)
+class RecordFiles:
+    record_type: str
+    record_id: str
+    files: int
+    workshop_ids: tuple[str, ...] = ()
+    craft_ids: tuple[str, ...] = ()
+    artisan_ids: tuple[str, ...] = ()
+    status: str | None = None
+
+
+def record_files_pass(flt: Filter | None, owner: RecordFiles) -> bool:
+    flt = real(flt)
+    if flt is None or not flt.active:
+        return True
+    if not flt.allows(owner.record_type):
+        return False
+    if flt.recorded_by or flt.languages or flt.has_transcript or flt.date_from or flt.date_to:
+        return False
+    if not _documents_wanted(flt):
+        return False
+    if flt.design_workshops and (
+        owner.record_type != "designWorkshops" or owner.record_id not in flt.design_workshops
+    ):
+        return False
+    if flt.workshops and not set(owner.workshop_ids) & set(flt.workshops):
+        return False
+    if flt.crafts and not set(owner.craft_ids) & set(flt.crafts):
+        return False
+    if flt.artisans and not set(owner.artisan_ids) & set(flt.artisans):
+        return False
+    return not (flt.statuses and str(owner.status or "") not in flt.statuses)
+
+
+def _record_file_options(owner: RecordFiles, facet: str) -> tuple[str, ...]:
+    if facet == "recordType":
+        return (owner.record_type,)
+    if facet == "workshop":
+        return owner.workshop_ids
+    if facet == "designWorkshop":
+        return (owner.record_id,) if owner.record_type == "designWorkshops" else ()
+    if facet == "craft":
+        return owner.craft_ids
+    if facet == "artisan":
+        return owner.artisan_ids
+    if facet == "mediaType":
+        return ("DOCUMENT",)
+    if facet == "status":
+        return (owner.status,) if owner.status else ()
+    return ()
+
+
+def record_file_counts(owners: list[RecordFiles], flt: Filter, facet: str) -> dict[str, int]:
+    out: dict[str, int] = {}
+    others = flt.without(facet)
+    for owner in owners:
+        if owner.files <= 0:
+            continue
+        for value in _record_file_options(owner, facet):
+            picked = dataclasses.replace(others, **{FIELD_OF_FACET[facet]: (value,)})
+            if record_files_pass(picked, owner):
+                out[value] = out.get(value, 0) + owner.files
+    return out
+
+
 def keep_records(
     rows: list[Any], kind: str, flt: Filter | None, media: list[Any] | None = None
 ) -> list[Any]:
@@ -659,6 +724,7 @@ def keep_records(
                 ("interview", "questionnaireInterviewId"),
                 ("workshop", "workshopId"),
                 ("craft", "craftId"),
+                ("designworkshop", "designWorkshopId"),
             ):
                 value = attr(m, fk)
                 if value:
@@ -716,8 +782,15 @@ def keep_records(
                 and str(attr(row, "designWorkshopId") or "") not in flt.design_workshops
             ):
                 return False
-        elif kind == "designWorkshop" and flt.design_workshops and rid not in flt.design_workshops:
-            return False
+        elif kind == "designWorkshop":
+            if flt.design_workshops and rid not in flt.design_workshops:
+                return False
+            if flt.workshops and str(attr(row, "workshopId") or "") not in flt.workshops:
+                return False
+            if flt.crafts and str(attr(row, "craftId") or "") not in flt.crafts:
+                return False
+            if flt.statuses and str(status_value or "") not in flt.statuses:
+                return False
         if flt.media_only and media is not None and kind in owned_keys:
             return rid in owned.get(owned_keys[kind], set())
         return True
@@ -727,6 +800,7 @@ def keep_records(
         "product": "product",
         "tool": "tool",
         "interview": "interview",
+        "designWorkshop": "designworkshop",
     }
     return [row for row in rows if passes(row)]
 
@@ -757,11 +831,10 @@ def filter_report(data: dict[str, list[Any]], flt: Filter | None) -> dict[str, l
         ]
     if data.get("dwEntries") and not flt.allows("designWorkshops"):
         data["dwEntries"] = []
-    if data.get("dwEntries") and flt.design_workshops:
+    if data.get("dwEntries") and "designWorkshops" in data:
+        kept = {str(getattr(r, "id", "") or "") for r in data.get("designWorkshops") or []}
         data["dwEntries"] = [
-            e
-            for e in data["dwEntries"]
-            if str(getattr(e, "designWorkshopId", "") or "") in flt.design_workshops
+            e for e in data["dwEntries"] if str(getattr(e, "designWorkshopId", "") or "") in kept
         ]
     return data
 
@@ -927,10 +1000,23 @@ def _hint(*parts: Any) -> str | None:
     return text or None
 
 
-async def facets(scope: Any, flt: Filter) -> list[dict[str, Any]]:
+def _plus(counts: dict[str, int], extra: dict[str, int]) -> dict[str, int]:
+    out = dict(counts)
+    for key, value in extra.items():
+        out[key] = out.get(key, 0) + value
+    return out
+
+
+async def facets(
+    scope: Any, flt: Filter, owners: list[RecordFiles] | None = None
+) -> list[dict[str, Any]]:
     flt = real(flt) or NONE
     records = getattr(scope, "records", None) or None
+    owned = list(owners or [])
     out: list[dict[str, Any]] = []
+
+    def files(facet: str) -> dict[str, int]:
+        return record_file_counts(owned, flt, facet) if owned else {}
 
     async def counts(column: str, facet: str, extra: dict[str, Any] | None = None) -> dict[str, int]:
         where = _base(scope, flt, facet)
@@ -949,8 +1035,13 @@ async def facets(scope: Any, flt: Filter) -> list[dict[str, Any]]:
         for t in RECORD_TYPES
         if t != "designWorkshops" or (has_design_workshops() and getattr(scope, "design_workshops", False))
     ]
+    typed_files = files("recordType")
     options = [
-        _option(t, RECORD_TYPE_LABELS[t], await counted("recordType", owner_clause(t)))
+        _option(
+            t,
+            RECORD_TYPE_LABELS[t],
+            await counted("recordType", owner_clause(t)) + typed_files.get(t, 0),
+        )
         for t in offered
     ]
     options += [_option(t, RECORD_TYPE_LABELS[t], 0) for t in flt.record_types if t not in offered]
@@ -973,7 +1064,7 @@ async def facets(scope: Any, flt: Filter) -> list[dict[str, Any]]:
         str(a.id): str(a.workshopId) for a in artisan_rows if getattr(a, "workshopId", None)
     }
     artisan_craft = {str(a.id): str(a.craftId) for a in artisan_rows if getattr(a, "craftId", None)}
-    workshop_counts = dict(workshop_direct)
+    workshop_counts = _plus(workshop_direct, files("workshop"))
     for aid, count in by_artisan_for_workshop.items():
         wid = artisan_workshop.get(aid)
         if wid:
@@ -1005,6 +1096,7 @@ async def facets(scope: Any, flt: Filter) -> list[dict[str, Any]]:
         tagged_where = {"AND": [tagged_where, {"linkedRecordType": {"in": DESIGN_WORKSHOP_TAGS}}]}
         tagged = await _grouped("linkedRecordId", tagged_where)
         rows = await _records("designworkshop", {"deletedAt": None})
+        direct = _plus(direct, files("designWorkshop"))
         options = [
             _option(
                 str(r.id),
@@ -1029,7 +1121,7 @@ async def facets(scope: Any, flt: Filter) -> list[dict[str, Any]]:
 
     craft_direct = await counts("craftId", "craft")
     by_artisan_for_craft = await counts("artisanId", "craft", {"craftId": None})
-    craft_counts = dict(craft_direct)
+    craft_counts = _plus(craft_direct, files("craft"))
     for aid, count in by_artisan_for_craft.items():
         cid = artisan_craft.get(aid)
         if cid:
@@ -1056,7 +1148,7 @@ async def facets(scope: Any, flt: Filter) -> list[dict[str, Any]]:
         }
     )
 
-    artisan_counts = await counts("artisanId", "artisan")
+    artisan_counts = _plus(await counts("artisanId", "artisan"), files("artisan"))
     options = [
         _option(
             str(a.id),
@@ -1078,7 +1170,7 @@ async def facets(scope: Any, flt: Filter) -> list[dict[str, Any]]:
         }
     )
 
-    type_counts = await counts("mediaType", "mediaType")
+    type_counts = _plus(await counts("mediaType", "mediaType"), files("mediaType"))
     options = [_option(t, MEDIA_TYPE_LABELS[t], type_counts.get(t, 0)) for t in MEDIA_TYPES]
     out.append(
         {
@@ -1091,7 +1183,7 @@ async def facets(scope: Any, flt: Filter) -> list[dict[str, Any]]:
         }
     )
 
-    status_counts = await counts("status", "status")
+    status_counts = _plus(await counts("status", "status"), files("status"))
     options = [_option(s, STATUS_LABELS[s], status_counts.get(s, 0)) for s in STATUSES]
     out.append(
         {

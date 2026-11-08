@@ -53,6 +53,11 @@ export function filterFiles(files: ManifestFile[], include: readonly IncludeKey[
   return files.filter((file) => wanted.has(includeKeyOf(file)));
 }
 
+export function recordsOf(tally: { files: number; records?: number; byType?: Partial<Record<string, { files: number }>> }): number {
+  if (typeof tally.records === "number") return tally.records;
+  return tally.files - (tally.byType?.transcripts?.files ?? 0);
+}
+
 export function formatBytes(value: number): string {
   if (!Number.isFinite(value) || value < 0) return "0 B";
   if (value < 1024) return `${value} B`;

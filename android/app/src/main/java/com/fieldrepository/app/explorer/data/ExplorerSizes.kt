@@ -41,6 +41,8 @@ data class ExplorerSize(
     val largest: Long = 0,
     val truncated: Boolean = false,
 ) {
+    val records: Int get() = files - (byKind[ExplorerKind.TRANSCRIPTS]?.files ?: 0)
+
     companion object {
         fun of(stats: ExplorerStats): ExplorerSize = ExplorerSize(
             files = stats.files,

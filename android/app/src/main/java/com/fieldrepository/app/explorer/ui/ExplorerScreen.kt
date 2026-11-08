@@ -291,7 +291,6 @@ fun ExplorerScreen(
     val stats = remember { mutableStateMapOf<String, SizeLoad>() }
     val visits = remember { mutableStateMapOf<String, ExplorerVisit>() }
     val overviews = remember { mutableStateMapOf<String, ExplorerOverview>() }
-    val sheetCounts = remember { mutableStateMapOf<String, Int>() }
     var selectionSize by remember { mutableStateOf<Long?>(null) }
     var shareIds by rememberSaveable { mutableStateOf(setOf<String>()) }
     var hidden by rememberSaveable { mutableStateOf(setOf<String>()) }
@@ -409,9 +408,6 @@ fun ExplorerScreen(
             }
         }
         if (visits[at] == null) attemptOrNull { extras.visit(ExplorerVisitBody(at)) }?.let { visits[at] = it }
-        if (sheetCounts[sk] == null) {
-            attemptOrNull { extras.reportSheets(at, state.statusParam, filters = filterQuery) }?.let { got -> sheetCounts[sk] = got.sheets.count { (it.count ?: 0) > 0 } }
-        }
         if (isWorkshopFolder(at) && overviews[at] == null) {
             attemptOrNull { extras.overview(at, state.statusParam) }?.let { overviews[at] = it }
         }
@@ -995,8 +991,8 @@ fun ExplorerScreen(
                 block("tabs") {
                     Tabs(
                         tab = state.tab,
-                        files = state.total ?: state.entries.size,
-                        tables = sheetCounts[state.path]?.takeIf { it > 0 } ?: tables.ready?.takeIf { it.path == state.path }?.report?.sheets?.count { (it.totalRows ?: it.rows.size) > 0 }?.takeIf { it > 0 },
+                        files = known?.records ?: state.total ?: state.entries.size,
+                        tables = tables.ready?.takeIf { it.path == state.path }?.report?.let { report -> ExplorerTableColumns.visibleSheets(report.sheets, null, false).size }?.takeIf { it > 0 },
                         transcripts = known?.byKind?.get(ExplorerKind.TRANSCRIPTS)?.files,
                         onTab = { state.tab = it },
                     )

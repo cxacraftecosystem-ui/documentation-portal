@@ -152,8 +152,22 @@ internal fun capturedDay(raw: String?): String? = raw?.takeIf { it.isNotBlank() 
     }.getOrNull()
 }
 
+internal fun folderKind(recordType: String?): String? {
+    val raw = recordType?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    FOLDER_KINDS[raw]?.let { return it }
+    val spaced = raw.replace(Regex("[_-]+"), " ").replace(Regex("([a-z0-9])([A-Z])"), "$1 $2").lowercase().trim()
+    return spaced.replaceFirstChar { it.uppercase() }
+}
+
+private val FOLDER_KINDS = mapOf(
+    "designWorkshop" to "Design workshop",
+    "designWorkshopStage" to "Design workshop stage",
+    "processStep" to "Process step",
+    "questionnaireInterview" to "Interview",
+)
+
 internal fun folderMeta(folder: ExplorerEntry): String? {
-    val kind = folder.recordType?.takeIf { it.isNotBlank() }?.replaceFirstChar { it.uppercase() }
+    val kind = folderKind(folder.recordType)
     val n = folder.count
     val size = listOfNotNull(
         n?.let { ExplorerBytes.count(it, "file") },

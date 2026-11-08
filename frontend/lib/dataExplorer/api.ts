@@ -82,7 +82,7 @@ export function reportOptionParams(options: ReportOptions, q: string, name: stri
     links: options.links ? undefined : 0,
     thumbnails: options.thumbnails ? 1 : undefined,
     locale: options.locale === "hi" ? "hi" : undefined,
-    extras: chosenExtras(options).join(",") || undefined,
+    extras: extrasParam(options),
     name: name.trim() || undefined
   };
 }
@@ -92,6 +92,20 @@ export function chosenExtras(options: Pick<ReportOptions, "extras">): string[] {
     .filter(([, on]) => on)
     .map(([key]) => key)
     .sort();
+}
+
+export function extraOn(options: Pick<ReportOptions, "extras">, key: string): boolean {
+  return options.extras?.[key] !== false;
+}
+
+export function extrasParam(options: Pick<ReportOptions, "extras">): string | undefined {
+  if (!Object.values(options.extras ?? {}).some((on) => on === false)) return undefined;
+  return chosenExtras(options).join(",") || "none";
+}
+
+export function withExtra(options: ReportOptions, offered: readonly { key: string }[], key: string, on: boolean): ReportOptions {
+  const every = Object.fromEntries(offered.map((item) => [item.key, extraOn(options, item.key)]));
+  return { ...options, extras: { ...options.extras, ...every, [key]: on } };
 }
 
 export function reportPackUrl(path: string, extra: QueryParams = {}): string {

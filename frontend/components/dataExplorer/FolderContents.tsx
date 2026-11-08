@@ -14,7 +14,7 @@ import { apiFetch, buildQuery } from "@/lib/api";
 import { fetchTranscriptText, mediaDownloadUrl, mediaThumbnailUrl, transcriptZipUrl } from "@/lib/dataExplorer/api";
 import { fetchTranscriptSummaries, languagesLine, rowState, shortClock, translatingLabel, type TranscriptSummary } from "@/lib/dataExplorer/preview";
 import { sizeOf, type Manifest, type TreeEntry, type TreeResponse } from "@/lib/dataExplorer/contract";
-import { capturedLabel, filterOf, pageOf, thumbnailEdge, TYPE_FILTERS, type TypeFilter } from "@/lib/dataExplorer/explorerView";
+import { capturedLabel, filesLabel, filterOf, folderKindLabel, pageOf, thumbnailEdge, TYPE_FILTERS, type TypeFilter } from "@/lib/dataExplorer/explorerView";
 import { ROW_TONE_CLASS, toneOf, type DownloadRequest, type DownloadStatus } from "@/lib/dataExplorer/downloads";
 import { formatBytes } from "@/lib/dataExplorer/plan";
 import { selectionKey, type Selection } from "@/lib/dataExplorer/selection";
@@ -484,7 +484,7 @@ export function FolderContents({
                     {folder.name}
                   </span>
                   <span className="block text-xs text-ink-500">
-                    {[folder.recordType ? folder.recordType.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (first) => first.toUpperCase()) : null, typeof folder.count === "number" ? `${folder.count.toLocaleString("en-IN")} files` : null]
+                    {[folderKindLabel(folder.recordType), typeof folder.count === "number" ? filesLabel(folder.count) : null]
                       .filter(Boolean)
                       .join(" · ")}
                   </span>

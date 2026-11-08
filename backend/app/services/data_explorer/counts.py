@@ -77,8 +77,8 @@ async def walked_totals(
         files, _cut = await walk.manifest_files(
             browser._list_level, scope, [(target, "")], None, fill=False
         )
-        sizes = [stats.size_of(entry) for entry in files if entry is not None]
-        out[key] = (len(sizes), sum(size or 0 for size in sizes))
+        shown = [e for e in files if e is not None and (e.get("typeToken") or stats.token_of(e)) != "transcripts"]
+        out[key] = (len(shown), sum(stats.size_of(e) or 0 for e in shown))
     return out
 
 

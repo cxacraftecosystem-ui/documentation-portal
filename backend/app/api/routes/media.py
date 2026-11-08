@@ -534,6 +534,7 @@ async def list_media(
     current_user: Any = Depends(get_current_user),
     request: Request = None,  # type: ignore[assignment]
     search: str | None = None,
+    q: str | None = Query(None, max_length=200),
     mediaType: str | None = None,
     linkedRecordType: str | None = None,
     linkedRecordId: str | None = None,
@@ -544,6 +545,8 @@ async def list_media(
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
+    search = (q if q is not None and q.strip() else search) or None
+    search = search.strip() if search and search.strip() else None
     page, page_size, skip = normalize_pagination(page, pageSize)
     where: dict[str, Any] = {}
     vis = await viewable_where(current_user, owner_field="uploadedById")

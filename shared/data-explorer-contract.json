@@ -72,6 +72,7 @@
     },
     "Stats": {
       "files": "int",
+      "records": "int (files without the transcript files; the folder counts, the header and the Files tab show this)",
       "bytes": "int (bytes of media whose size is known; text and transcripts count their UTF-8 length)",
       "unknownSizeFiles": "int",
       "byType": "{typeToken: {files: int, bytes: int}}",
@@ -668,7 +669,7 @@
     "peer": "Cross-portal search forwards sort in the POST /search body; each portal sorts its own page and the merge interleaves by the same key, ties local first."
   },
   "filters": {
-    "release": "0.0.16",
+    "release": "0.0.15",
     "featureId": "X13",
     "summary": "One filter model, applied by the server to the folder tree (entries and counts), folder contents, Browse by type, Transcripts and Tables, and to the size and download of what is shown. Web and Android send the same parameters and draw the same facets in the same order.",
     "encoding": "Every multi-value parameter is comma-separated (workshopIds=a,b), the encoding the codebase already uses for workshopIds (buildQuery has no arrays). The server also accepts the parameter repeated (workshopIds=a&workshopIds=b) and joins the two. Absent or empty means no filter on that dimension. Values are trimmed; an unknown enum value answers 422.",

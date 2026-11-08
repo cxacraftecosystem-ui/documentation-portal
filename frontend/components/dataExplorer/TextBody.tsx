@@ -2,10 +2,15 @@
 
 import { parseTextBody, type FieldRow } from "@/lib/dataExplorer/textBody";
 
-export function FieldTable({ rows, label = "Fields" }: { rows: FieldRow[]; label?: string }) {
+export function FieldTable({ rows, label = "Fields", title }: { rows: FieldRow[]; label?: string; title?: string }) {
   return (
     <div className="overflow-x-auto rounded-md border border-line-200" data-testid="field-table">
       <table className="w-full min-w-0 table-fixed border-collapse text-left text-sm" aria-label={label}>
+        {title ? (
+          <caption className="border-b border-line-200 px-3 py-2.5 text-left font-semibold [overflow-wrap:anywhere] text-ink-900" data-testid="field-table-title">
+            {title}
+          </caption>
+        ) : null}
         <colgroup>
           <col className="w-[34%] max-w-[260px]" />
           <col />
@@ -38,7 +43,7 @@ export function FieldTable({ rows, label = "Fields" }: { rows: FieldRow[]; label
 export function TextBody({ text, label }: { text: string | null | undefined; label?: string }) {
   const body = parseTextBody(text);
   if (body.kind === "empty") return <p className="text-sm text-ink-500">Empty.</p>;
-  if (body.kind === "fields") return <FieldTable rows={body.rows} label={label} />;
+  if (body.kind === "fields") return <FieldTable rows={body.rows} label={label} title={body.title} />;
   return (
     <div className="grid gap-3 text-sm leading-6 text-ink-700" data-testid="text-paragraphs">
       {body.paragraphs.map((paragraph, index) => (

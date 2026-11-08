@@ -94,7 +94,7 @@ object SearchRecordTypes {
         PRODUCT -> "Products"
         TOOL -> "Tools"
         MEDIA -> "Media"
-        else -> recordType.replaceFirstChar { it.uppercase() }
+        else -> com.fieldrepository.app.explorer.ui.folderKind(recordType) ?: recordType
     }
 
     fun bucket(recordType: String): String = when (recordType) {
