@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 
 import { lookUpCard } from "@/components/artisans/CardCodeLookup";
 import { CARD_ALPHABET, CARD_CHECK_MESSAGE, cardShortCode, looksLikeArtisanCard, parseArtisanCard } from "@/lib/artisanCard";
-import { maskedLast4, qrImageSrc, sheetRequestBody, type CardResolution } from "@/lib/artisanCardApi";
+import { maskedLast4, qrImageSrc, sheetRequestBody, standaloneSvg, type CardResolution } from "@/lib/artisanCardApi";
 
 type Vectors = {
   alphabet: string;
@@ -81,7 +81,9 @@ test("the face masks Aadhaar to the last four, and the QR is shown as an image",
   expect(maskedLast4("9012")).toBe("XXXX XXXX 9012");
   expect(maskedLast4(null)).toBeNull();
   expect(maskedLast4("123456789012")).toBeNull();
-  expect(qrImageSrc("<svg/>")).toBe("data:image/svg+xml;charset=utf-8,%3Csvg%2F%3E");
+  expect(qrImageSrc('<svg xmlns="http://www.w3.org/2000/svg"/>')).toBe(
+    "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E"
+  );
 });
 
 test("a sheet names exactly one source, the workshop on this portal", () => {
@@ -112,4 +114,12 @@ test("the card is mounted where the design puts it, and only behind the server's
 test("the web never scans or holds a key: typing is the way in on this portal", () => {
   const lib = source("lib/artisanCardApi.ts") + source("components/artisans/CardCodeLookup.tsx");
   expect(lib).not.toMatch(/getUserMedia|BarcodeDetector|ARTISAN_CARD_KEY/);
+});
+
+test("an already-issued card's svg gains the namespace an image needs, and a whole one is left alone", () => {
+  expect(standaloneSvg('<svg width="116" height="116" class="segno"><path d="M2 2h1"/></svg>')).toBe(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="116" height="116" class="segno"><path d="M2 2h1"/></svg>'
+  );
+  const whole = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 29 29"/>';
+  expect(standaloneSvg(whole)).toBe(whole);
 });

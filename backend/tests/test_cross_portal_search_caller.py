@@ -130,8 +130,9 @@ def world(monkeypatch):
             raise answer
         return answer
 
-    async def fake_run(q, scope, *, limit, offset=0, qvec=None):
+    async def fake_run(q, scope, *, limit, offset=0, qvec=None, sort=None):
         world.scope = scope
+        world.sort = sort
         return search_query.Result(
             mode="text", items={"artisans": [dict(LOCAL_ITEM)]}, totals={"artisans": 1}
         )
@@ -146,7 +147,7 @@ def world(monkeypatch):
         ),
     )
     world = SimpleNamespace(
-        settings=settings, peer_calls=peer_calls, answers=answers, db=fake_db, scope=None
+        settings=settings, peer_calls=peer_calls, answers=answers, db=fake_db, scope=None, sort=None
     )
     monkeypatch.setattr(routes, "get_settings", lambda: world.settings)
     monkeypatch.setattr(routes, "db", fake_db)
@@ -398,3 +399,30 @@ def test_the_shared_vocabulary_matches_the_contract():
         "type", "id", "title", "subtitle", "snippet", "highlights", "place", "craftCodes",
         "recordDate", "openUrl", "startMs", "mediaType",
     )
+
+
+async def test_the_default_sort_is_relevance_and_is_not_sent_to_the_peer(world):
+    result = await _search()
+    assert result["sort"] == {"key": "relevance", "dir": "desc"}
+    assert result["sorts"] == ["relevance", "name", "recorded"]
+    assert world.sort == ("relevance", "desc")
+    assert "sort" not in world.peer_calls[0]["body"]
+
+
+async def test_a_chosen_sort_reaches_the_local_query_and_the_peer(world):
+    result = await _search(sort="name:asc")
+    assert result["sort"] == {"key": "name", "dir": "asc"}
+    assert world.sort == ("name", "asc")
+    assert world.peer_calls[0]["body"]["sort"] == "name:asc"
+    titles = [i["title"] for i in result["groups"][0]["items"]]
+    assert titles == sorted(titles, key=str.lower)
+
+
+@pytest.mark.parametrize(
+    "bad", ["relevance:asc", "size:desc", "name", "name:up", "name:asc;drop", "", "NAME:ASC"]
+)
+async def test_an_unknown_sort_is_422_and_nothing_is_asked(world, bad):
+    with pytest.raises(HTTPException) as refused:
+        await _search(sort=bad)
+    assert refused.value.status_code == 422
+    assert world.peer_calls == [] and world.scope is None

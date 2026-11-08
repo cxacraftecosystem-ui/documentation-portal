@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { TAG_TONE } from "@/components/dataExplorer/FolderContents";
 import { LoadFailed, PillMenu, Skeleton } from "@/components/dataExplorer/explorerUi";
+import { SortMenu } from "@/components/dataExplorer/SortMenu";
 import { EmptyState } from "@/components/EmptyState";
 import type { DownloadRequest } from "@/lib/dataExplorer/downloads";
 import {
@@ -25,6 +26,7 @@ import {
   type StateFilter,
   type TranscriptSummary
 } from "@/lib/dataExplorer/preview";
+import { availableKeys, LIST_DEFAULT, parseSort, readSort, sortParam, writeSort, type SortChoice } from "@/lib/dataExplorer/sorting";
 import { apiUrl, type QueryParams } from "@/lib/dataExplorer/wire";
 import { TRANSCRIPT_ROUTES, retryTranscript } from "@/lib/transcript/api";
 
@@ -36,7 +38,9 @@ export type ReadTarget = { mediaId: string; name: string; mediaType: string | nu
 
 type Row = FolderTranscript & { summary: TranscriptSummary | null; state: RowState };
 
-type Loaded = { key: string; items: FolderTranscript[]; total: number; truncated: boolean; nextOffset: number | null };
+type Loaded = { key: string; items: FolderTranscript[]; total: number; truncated: boolean; nextOffset: number | null; sort: SortChoice | null; sorts: string[] | null };
+
+const SORT_LEVEL = "transcripts";
 
 const BUTTON =
   "min-h-10 rounded-md border border-line-200 bg-card px-3.5 text-[13px] text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 disabled:opacity-60 dark:hover:bg-purple-950/40 pointer-coarse:min-h-11";
@@ -102,7 +106,8 @@ export function TranscriptsTab({
   onDownload,
   zipUrl,
   onCount,
-  trail
+  trail,
+  viewer = ""
 }: {
   path: string;
   folderName: string;
@@ -112,6 +117,7 @@ export function TranscriptsTab({
   zipUrl: string;
   onCount?: (count: number) => void;
   trail?: string;
+  viewer?: string;
 }) {
   const extraKey = JSON.stringify(extra);
   const [typed, setTyped] = useState("");
@@ -136,7 +142,9 @@ export function TranscriptsTab({
     return () => window.clearTimeout(timer);
   }, [typed]);
 
-  const key = `${path}\u0000${extraKey}\u0000${needle}`;
+  const [sort, setSort] = useState<SortChoice | null>(() => readSort(viewer, SORT_LEVEL));
+  const sortText = sortParam(sort, "transcripts-list");
+  const key = `${path}\u0000${extraKey}\u0000${needle}\u0000${sortText ?? ""}`;
 
   useEffect(() => {
     const abort = new AbortController();
@@ -144,10 +152,10 @@ export function TranscriptsTab({
     setError(null);
     (async () => {
       try {
-        const answer = await fetchFolderTranscripts(path, needle, JSON.parse(extraKey) as QueryParams, abort.signal);
+        const answer = await fetchFolderTranscripts(path, needle, JSON.parse(extraKey) as QueryParams, abort.signal, 0, sortText);
         if (abort.signal.aborted) return;
         const items = answer?.items ?? [];
-        setLoaded({ key, items, total: answer?.total ?? 0, truncated: answer?.truncated ?? false, nextOffset: answer?.truncated ? (answer.nextOffset ?? null) : null });
+        setLoaded({ key, items, total: answer?.total ?? 0, truncated: answer?.truncated ?? false, nextOffset: answer?.truncated ? (answer.nextOffset ?? null) : null, sort: parseSort(answer?.sort), sorts: answer?.sorts ?? null });
         if (!needle && !answer?.truncated) countRef.current?.(answer?.total ?? 0);
         const found = items.length ? await fetchTranscriptSummaries(items.map((item) => item.mediaId), abort.signal).catch(() => null) : new Map<string, TranscriptSummary>();
         if (!abort.signal.aborted) setSummaries((previous) => (found ? new Map([...(previous ?? []), ...found]) : previous));
@@ -158,7 +166,7 @@ export function TranscriptsTab({
       }
     })();
     return () => abort.abort();
-  }, [path, extraKey, needle, key, attempt]);
+  }, [path, extraKey, needle, key, attempt, sortText]);
 
   const rows = useMemo<Row[]>(
     () =>
@@ -189,7 +197,7 @@ export function TranscriptsTab({
     if (!current || current.nextOffset === null) return;
     setLoadingMore(true);
     try {
-      const answer = await fetchFolderTranscripts(path, needle, JSON.parse(extraKey) as QueryParams, undefined, current.nextOffset);
+      const answer = await fetchFolderTranscripts(path, needle, JSON.parse(extraKey) as QueryParams, undefined, current.nextOffset, sortText);
       const fresh = (answer?.items ?? []).filter((item) => !current.items.some((have) => have.mediaId === item.mediaId));
       setLoaded((previous) =>
         previous && previous.key === current.key
@@ -204,7 +212,14 @@ export function TranscriptsTab({
     } finally {
       setLoadingMore(false);
     }
-  }, [loaded, path, needle, extraKey]);
+  }, [loaded, path, needle, extraKey, sortText]);
+
+  const shownSort = sort ?? loaded?.sort ?? LIST_DEFAULT["transcripts-list"];
+  const changeSort = (choice: SortChoice) => {
+    writeSort(viewer, SORT_LEVEL, choice, "transcripts-list");
+    setSort(choice);
+    setShowAll(false);
+  };
 
   const counts = stateCounts(rows);
   const languages = useMemo(() => languageOptions(rows), [rows]);
@@ -311,6 +326,7 @@ export function TranscriptsTab({
           onChange={setLanguage}
           className="min-h-10 rounded-full border border-line-200 bg-card px-3.5 text-[13px] text-ink-900 hover:border-purple-300 pointer-coarse:min-h-11"
         />
+        <SortMenu value={shownSort} keys={availableKeys(loaded?.sorts)} onChange={changeSort} label="Sort transcripts" variant="pill" align="left" />
       </div>
 
       {error && !loaded ? (

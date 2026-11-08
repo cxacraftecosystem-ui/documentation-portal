@@ -409,3 +409,21 @@ test("@qf:E5 the media list carries a take's chips and takes the questionnaire f
   await expect.poll(() => fake.calledWith("GET", "/media").some((c) => c.query.get("artisanId") === "a1" && c.query.get("sectionId") === "s1")).toBe(true);
   await expect(page).toHaveURL(/artisanId=a1/);
 });
+
+test("an old interview link opens the session's read view when the interview is a session", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaire/interviews/s-1");
+  await expect(page).toHaveURL(/\/questionnaire\/sessions\/s-1\/view$/);
+  await expect(page.getByText("Couldn't load the session.")).toHaveCount(0);
+});
+
+test("an old interview link the session API does not know renders the interview itself", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  const id = "cmw6ggrwk02liyjdfetu9gfk1";
+  fake.interviews[id] = { id, title: "Interview_2026-06-20_Bankura_Dokra", status: "PENDING", responses: [], media: [], artisans: [], createdAt: "2026-06-20T09:00:00Z", updatedAt: "2026-06-20T09:00:00Z" };
+  await open(page, fake, `/questionnaire/interviews/${id}`);
+  await expect(page.getByRole("heading", { name: "Interview_2026-06-20_Bankura_Dokra" })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/questionnaire/interviews/${id}$`));
+  await expect(page.getByText("Couldn't load the session.")).toHaveCount(0);
+  expect(fake.calledWith("GET", `/questionnaire/sessions/${id}`)).toHaveLength(1);
+});

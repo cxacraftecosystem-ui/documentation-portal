@@ -12,6 +12,7 @@ from app.core.db import db
 from app.core.fastapi_lazy import jsonable_encoder
 from app.services import (
     audio_isolation,
+    job_supersede,
     paid_ai_allowance,
     recording_consent,
     transcribe_choice,
@@ -202,8 +203,8 @@ async def enqueue_media_processing_jobs(
 
 
 async def _create_open_job(data: dict[str, Any]) -> Any:
-    return await db.mediaprocessingjob.create(
-        data={**data, "openKey": open_key(str(data["mediaFileId"]), str(data["jobType"]))}
+    return await job_supersede.open_job(
+        {**data, "openKey": open_key(str(data["mediaFileId"]), str(data["jobType"]))}, client=db
     )
 
 
@@ -438,9 +439,11 @@ async def transcribe_media_now(media: Any, settings: Settings | None = None) -> 
     write = _transcript_write(result, status)
     await db.mediafile.update(where={"id": media_id}, data=write)
     if status == COMPLETED and write.get("transcriptText"):
-        await db.mediaprocessingjob.update_many(
-            where={"mediaFileId": media_id, "jobType": TRANSCRIPTION, "status": QUEUED},
-            data={"status": COMPLETED, "completedAt": datetime.now(UTC), "openKey": None, "error": None},
+        await job_supersede.complete_open_jobs(
+            media_id,
+            TRANSCRIPTION,
+            {"status": COMPLETED, "completedAt": datetime.now(UTC), "openKey": None, "error": None},
+            client=db,
         )
         await transcript_insights.enqueue_after_transcript(media_id)
         await audio_isolation.enqueue_if_enabled(media_id)
@@ -838,9 +841,9 @@ def _decimal_or_none(value: Any) -> Decimal | None:
 
 
 async def _complete_job(job_id: str, result: dict[str, Any]) -> None:
-    await db.mediaprocessingjob.update(
-        where={"id": job_id},
-        data={
+    await job_supersede.complete_job(
+        job_id,
+        {
             "status": COMPLETED,
             "lockedAt": None,
             "lockedBy": None,
@@ -849,6 +852,7 @@ async def _complete_job(job_id: str, result: dict[str, Any]) -> None:
             "result": Json(jsonable_encoder(result)),
             "error": None,
         },
+        client=db,
     )
 
 

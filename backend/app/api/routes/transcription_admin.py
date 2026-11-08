@@ -13,6 +13,7 @@ from app.services import (
     ai,
     app_settings,
     audio_isolation,
+    job_supersede,
     managed_secrets,
     transcribe_choice,
     transcript_backfill,
@@ -173,7 +174,9 @@ async def retry_failed_transcriptions(
     payload: RetryFailedIn, current_user: Any = Depends(require_master_admin)
 ) -> dict[str, Any]:
     jobs = await db.mediaprocessingjob.find_many(
-        where={"jobType": "TRANSCRIPTION", "status": "FAILED"},
+        where=await job_supersede.without_superseded(
+            {"jobType": "TRANSCRIPTION", "status": "FAILED"}, client=db
+        ),
         order={"createdAt": "asc"},
         take=payload.limit,
     )
@@ -204,17 +207,21 @@ async def retry_failed_transcriptions(
         if job.mediaFileId in seen:
             continue
         seen.add(job.mediaFileId)
-        await db.mediaprocessingjob.update(
-            where={"id": job.id},
-            data={
-                "status": "QUEUED",
-                "attempts": 0,
-                "runAfter": now,
-                "completedAt": None,
-                "error": None,
-                "openKey": transcription_store.open_key(job.mediaFileId, "TRANSCRIPTION"),
-            },
-        )
+        async with job_supersede.atomic(db) as tx:
+            await tx.mediaprocessingjob.update(
+                where={"id": job.id},
+                data={
+                    "status": "QUEUED",
+                    "attempts": 0,
+                    "runAfter": now,
+                    "completedAt": None,
+                    "error": None,
+                    "openKey": transcription_store.open_key(job.mediaFileId, "TRANSCRIPTION"),
+                },
+            )
+            await job_supersede.clear_failed(
+                tx, job.mediaFileId, "TRANSCRIPTION", keep_id=job.id
+            )
         answer["requeued"] += 1
     logger.warning(
         "AUDIT transcription-retry-failed: requeued=%s by=%s",

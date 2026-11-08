@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from app.core.config import get_settings
 from app.core.db import db
-from app.services import app_settings, managed_secrets, transcript_portal
+from app.services import app_settings, job_supersede, managed_secrets, transcript_portal
 from app.transcription import isolation, workdir
 
 logger = logging.getLogger(__name__)
@@ -59,14 +59,15 @@ async def enqueue_if_enabled(media_id: str) -> Any | None:
         )
         if open_job is not None:
             return None
-        return await db.mediaprocessingjob.create(
-            data={
+        return await job_supersede.open_job(
+            {
                 "jobType": JOB_TYPE,
                 "status": "QUEUED",
                 "priority": PRIORITY,
                 "maxAttempts": max(get_settings().media_queue_job_max_attempts, 1),
                 "mediaFileId": media_id,
-            }
+            },
+            client=db,
         )
     except Exception as exc:  # noqa: BLE001 - never let the clean-up fail a transcription
         logger.warning("audio isolation: could not queue media %s (%s)", media_id, type(exc).__name__)

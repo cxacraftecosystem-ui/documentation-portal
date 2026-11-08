@@ -1,4 +1,4 @@
-import { CONVERSION_HEADER, expectedBytes, mediaPath, type ManifestFile } from "@/lib/dataExplorer/contract";
+import { CONVERSION_HEADER, expectedBytes, mediaPath, textFileBody, type ManifestFile } from "@/lib/dataExplorer/contract";
 import {
   CONVERSION_CONCURRENCY,
   FAILED_LIST_NAME,
@@ -350,7 +350,7 @@ export async function writeZip(files: ManifestFile[], sink: ByteSink, hooks: Eng
       progress.current = file.path;
       report();
       if (file.content != null) {
-        const data = encoder.encode(file.content);
+        const data = encoder.encode(textFileBody(file.path, file.content));
         await zip.addBytes(file.path, data);
         progress.bytesDone += data.length;
         credit(file, data.length);
@@ -471,8 +471,9 @@ export async function writeFolder(files: ManifestFile[], folder: FolderSink, hoo
       progress.current = file.path;
       report();
       if (file.content != null) {
-        await folder.writeText(file.path, file.content);
-        const size = encoder.encode(file.content).length;
+        const body = textFileBody(file.path, file.content);
+        await folder.writeText(file.path, body);
+        const size = encoder.encode(body).length;
         progress.bytesDone += size;
         await folder.markDone(file.path, size);
         saved += 1;

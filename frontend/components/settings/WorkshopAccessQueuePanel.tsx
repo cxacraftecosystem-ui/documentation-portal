@@ -92,7 +92,7 @@ export function WorkshopAccessQueuePanel({ refreshToken, onChanged }: { refreshT
   const pendingCount = rows?.filter((row) => row.status === "PENDING").length ?? 0;
 
   return (
-    <section className="panel p-5">
+    <section className="panel min-w-0 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <span className="grid h-8 w-8 place-items-center rounded-md bg-purple-950 text-purple-100">
@@ -135,14 +135,14 @@ export function WorkshopAccessQueuePanel({ refreshToken, onChanged }: { refreshT
           />
         </div>
       ) : (
-        <ul className="mt-4 grid gap-3">
+        <ul className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
           {rows.map((row) => {
             const draft = draftFor(row);
             const decidable = row.status === "PENDING";
             return (
-              <li className="rounded-md border border-line-200 bg-surface-50 p-4" key={row.id}>
+              <li className="min-w-0 rounded-md border border-line-200 bg-surface-50 p-4" key={row.id}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  <div className="min-w-0 [overflow-wrap:anywhere]">
                     <div className="font-medium text-ink-900">{personName(row.user)}</div>
                     <div className="text-xs text-ink-500">
                       {row.user?.email}

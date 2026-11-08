@@ -34,6 +34,9 @@ from app.services.data_explorer import (
     slim,
 )
 from app.services.data_explorer import (
+    sorting as explorer_sorting,
+)
+from app.services.data_explorer import (
     tree as explorer_tree,
 )
 from app.services.data_explorer import (
@@ -367,8 +370,12 @@ def _split_leaf(name: str) -> tuple[str, str]:
     return (stem, f".{ext}") if dot and stem else (name, "")
 
 
-def _folder(name: str, path: str, record_type: str = "category") -> dict[str, Any]:
-    return {"name": name, "path": path, "kind": "folder", "recordType": record_type}
+def _folder(
+    name: str, path: str, record_type: str = "category", *, record: Any = None
+) -> dict[str, Any]:
+    entry = {"name": name, "path": path, "kind": "folder", "recordType": record_type}
+    entry.update(explorer_sorting.record_dates(record))
+    return entry
 
 
 def _text(parent: str, name: str, content: str | None) -> dict[str, Any] | None:
@@ -796,7 +803,7 @@ def _craft_folder_entries(ws: Any, base: str, artisans: list[Any]) -> list[dict[
             no_craft = True
     used: set[str] = set()
     entries = [
-        _folder(_uniq(_seg(c.name, "Craft"), used), f"{base}/{c.id}", "craft")
+        _folder(_uniq(_seg(c.name, "Craft"), used), f"{base}/{c.id}", "craft", record=c)
         for c in crafts.values()
     ]
     if no_craft:
@@ -828,7 +835,7 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
         )
         used: set[str] = set()
         return [
-            _folder(_uniq(_seg(ws.title, "Workshop"), used), _join(parent, ws.id), "workshop")
+            _folder(_uniq(_seg(ws.title, "Workshop"), used), _join(parent, ws.id), "workshop", record=ws)
             for ws in workshops
         ], None
 
@@ -870,7 +877,7 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
             artisans = await _workshop_craft_artisans(wid, cid, scope)
             used = set()
             entries = [
-                _folder(_uniq(_seg(a.name, "Artisan"), used), f"{parent}/artisans/{a.id}", "artisan")
+                _folder(_uniq(_seg(a.name, "Artisan"), used), f"{parent}/artisans/{a.id}", "artisan", record=a)
                 for a in artisans
             ]
             details = _text(parent, "details.txt", _info_text(info))
@@ -891,7 +898,7 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
             artisans = await _workshop_craft_artisans(wid, cid, scope)
             used = set()
             return [
-                _folder(_uniq(_seg(a.name, "Artisan"), used), f"{parent}/{a.id}", "artisan")
+                _folder(_uniq(_seg(a.name, "Artisan"), used), f"{parent}/{a.id}", "artisan", record=a)
                 for a in artisans
             ], None
 
@@ -916,7 +923,7 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
         used = set()
         for artisan in await _linked_artisans(ws, scope):
             name = _uniq(_seg(artisan.name, "Artisan"), used)
-            entries.append(_folder(name, f"{parent}/{artisan.id}", "artisan"))
+            entries.append(_folder(name, f"{parent}/{artisan.id}", "artisan", record=artisan))
         return entries, None
 
     if len(segs) >= 4 and segs[2] == "artisans":
@@ -973,7 +980,7 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
             )
             used: set[str] = set()
             return [
-                _folder(_uniq(_seg(t.toolkitName, "Tool"), used), f"{parent}/{t.id}", "tool")
+                _folder(_uniq(_seg(t.toolkitName, "Tool"), used), f"{parent}/{t.id}", "tool", record=t)
                 for t in tools
             ], None
         if len(segs) == 6:
@@ -1011,7 +1018,7 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
                 _folder(
                     _uniq(_seg(_interview_label(i), "Interview"), used),
                     f"{parent}/{i.id}",
-                    "interview",
+                    "interview", record=i,
                 )
                 for i in interviews
             ], None
@@ -1077,7 +1084,7 @@ async def _list_products_level(
         )
         used: set[str] = set()
         return [
-            _folder(_uniq(_seg(p.productName, "Product"), used), f"{parent}/{p.id}", "product")
+            _folder(_uniq(_seg(p.productName, "Product"), used), f"{parent}/{p.id}", "product", record=p)
             for p in products
         ], None
 
@@ -1109,7 +1116,7 @@ async def _list_products_level(
         )
         used = set()
         return [
-            _folder(_uniq(_seg(pr.name, "Process"), used), f"{parent}/{pr.id}", "process")
+            _folder(_uniq(_seg(pr.name, "Process"), used), f"{parent}/{pr.id}", "process", record=pr)
             for pr in processes
         ], None
 
@@ -1131,7 +1138,7 @@ async def _list_products_level(
         used = set()
         for step in sorted(process.steps or [], key=lambda s: s.sortOrder):
             entries.append(
-                _folder(_uniq(_seg(step.name, "Step"), used), f"{parent}/{step.id}", "process")
+                _folder(_uniq(_seg(step.name, "Step"), used), f"{parent}/{step.id}", "process", record=step)
             )
         return entries, info
 
@@ -1177,7 +1184,7 @@ async def _list_users_level(segs: list[str], parent: str, scope: Scope) -> Level
         )
         used: set[str] = set()
         return [
-            _folder(_uniq(_seg(u.name, "User"), used), _join(parent, u.id), "user")
+            _folder(_uniq(_seg(u.name, "User"), used), _join(parent, u.id), "user", record=u)
             for u in uploaders
         ], None
 
@@ -1306,7 +1313,7 @@ async def _list_uploader_level(segs: list[str], parent: str, scope: Scope) -> Le
         )
         used: set[str] = set()
         return [
-            _folder(_uniq(_seg(ws.title, "Workshop"), used), _join(parent, ws.id), "workshop")
+            _folder(_uniq(_seg(ws.title, "Workshop"), used), _join(parent, ws.id), "workshop", record=ws)
             for ws in workshops
         ], None
 
@@ -1336,7 +1343,7 @@ async def _list_uploader_level(segs: list[str], parent: str, scope: Scope) -> Le
             seen.setdefault(u.id, u)
         used: set[str] = set()
         entries = [
-            _folder(_uniq(_seg(u.name, "User"), used), _join(parent, u.id), "user")
+            _folder(_uniq(_seg(u.name, "User"), used), _join(parent, u.id), "user", record=u)
             for u in sorted(seen.values(), key=lambda u: (u.name or "").lower())
         ]
         return entries, _workshop_info(ws)
@@ -1541,6 +1548,17 @@ async def data_locate(
     return {"path": path, "locatable": path is not None, "record": record}
 
 
+def sort_or_422(
+    raw: str | None, allowed: tuple[str, ...], default: explorer_sorting.Sort
+) -> explorer_sorting.Sort:
+    try:
+        return explorer_sorting.parse(raw, allowed, default)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from None
+
+
 @router.get("/tree")
 async def data_tree(
     path: str = "",
@@ -1548,8 +1566,10 @@ async def data_tree(
     lean: bool = Query(False, alias="slim"),
     cursor: str | None = None,
     limit: int | None = Query(None, ge=1, le=explorer_tree.TREE_PAGE_MAX),
+    sort: str | None = Query(None, max_length=40),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
+    chosen = sort_or_422(sort, explorer_sorting.TREE_KEYS, explorer_sorting.TREE_DEFAULT)
     scope = await _scope_for(current_user, data_status(status_value))
     norm = _norm(path)
     entries, info = await _list_level(norm, scope)
@@ -1557,7 +1577,7 @@ async def data_tree(
     await explorer_counts.fill(norm, entries, scope)
     crumbs = await _resolve_crumbs(norm)
     public, total, next_cursor = await explorer_tree.shape(
-        entries, lean=lean is True, cursor=cursor, limit=limit
+        entries, lean=lean is True, cursor=cursor, limit=limit, sort=chosen
     )
     return {
         "path": norm,
@@ -1567,6 +1587,8 @@ async def data_tree(
         "truncated": False,
         "total": total,
         "nextCursor": next_cursor,
+        "sort": chosen.public(),
+        "sorts": explorer_sorting.available(entries, explorer_sorting.TREE_KEYS, sort=chosen),
         "taxonomies": TAXONOMIES,
         "taxonomy": _taxonomy_of(norm),
     }
@@ -1590,7 +1612,7 @@ async def _walk(
         state["truncated"] = True
 
 
-MANIFEST_NDJSON_MEDIA_TYPE = "application/x-ndjson"
+MANIFEST_NDJSON_MEDIA_TYPE = "application/x-ndjson; charset=utf-8"
 MANIFEST_TOTAL_HEADER = "X-Dataset-Total"
 MANIFEST_MEDIA_HEADER = "X-Dataset-Media"
 MANIFEST_TRUNCATED_HEADER = "X-Dataset-Truncated"

@@ -118,6 +118,14 @@ export function maskedLast4(last4: string | null | undefined): string | null {
   return last4 && /^\d{4}$/.test(last4) ? `XXXX XXXX ${last4}` : null;
 }
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+export function standaloneSvg(svg: string): string {
+  const trimmed = svg.trim();
+  if (!/^<svg[\s>]/i.test(trimmed) || /^<svg[^>]*\sxmlns=/i.test(trimmed)) return trimmed;
+  return trimmed.replace(/^<svg/i, `<svg xmlns="${SVG_NS}"`);
+}
+
 export function qrImageSrc(svg: string): string {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(standaloneSvg(svg))}`;
 }

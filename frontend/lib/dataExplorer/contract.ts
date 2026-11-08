@@ -46,6 +46,8 @@ export type TreeResponse = {
   taxonomy?: string | null;
   designWorkshopsVisible?: boolean;
   designWorkshopsDownloadable?: boolean;
+  sort?: { key: string; dir: string } | null;
+  sorts?: string[] | null;
 };
 
 export type ManifestFile = {
@@ -246,6 +248,8 @@ export type BrowsePage = {
   pageSize: number;
   pages: number;
   truncated: boolean;
+  sort?: { key: string; dir: string } | null;
+  sorts?: string[] | null;
 };
 
 export const MANIFEST_TOTAL_HEADER = "x-dataset-total";
@@ -299,8 +303,15 @@ export function includeKeyOf(file: Pick<ManifestFile, "content" | "mediaType" | 
 
 const encoder = new TextEncoder();
 
+const UTF8_BOM = "\uFEFF";
+const MARKED_TEXT = /\.(txt|csv|tsv)$/i;
+
+export function textFileBody(path: string, content: string): string {
+  return MARKED_TEXT.test(path) && !content.startsWith(UTF8_BOM) ? `${UTF8_BOM}${content}` : content;
+}
+
 export function expectedBytes(file: ManifestFile): number | null {
-  if (file.content != null) return encoder.encode(file.content).length;
+  if (file.content != null) return encoder.encode(textFileBody(file.path, file.content)).length;
   return sizeOf(file.sizeBytes);
 }
 

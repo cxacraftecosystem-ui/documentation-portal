@@ -18,6 +18,7 @@ import { canPreview, PreviewDialog } from "@/components/dataExplorer/PreviewDial
 import { ReportOptionsDialog } from "@/components/dataExplorer/ReportOptionsDialog";
 import { SavedViewsDialog } from "@/components/dataExplorer/SavedViewsDialog";
 import { SelectionBar } from "@/components/dataExplorer/SelectionBar";
+import { SortMenu } from "@/components/dataExplorer/SortMenu";
 import { TranscriptsTab } from "@/components/dataExplorer/TranscriptsTab";
 import { useDownloads } from "@/components/dataExplorer/useDownloads";
 import { useExplorerTree } from "@/components/dataExplorer/useExplorerTree";
@@ -28,6 +29,7 @@ import { formatBytes, limitSentence, overLimit } from "@/lib/dataExplorer/plan";
 import { ActionGroup } from "@/components/ui/ActionGroup";
 import type { JobSource } from "@/lib/dataExplorer/protocol";
 import { EMPTY_SELECTION, selectionLabel, selectionSource, toggled, withAll, type Selection } from "@/lib/dataExplorer/selection";
+import { availableKeys, LIST_DEFAULT, readSort, sortParam, treeLevel, writeSort, type SortChoice } from "@/lib/dataExplorer/sorting";
 import { ancestorsOf, readUrlState, recallScroll, rememberScroll, writeUrlState, type ExplorerUrlState, type ExplorerView } from "@/lib/dataExplorer/urlState";
 import { clampTreeWidth, mergeNavigation, readTreeWidth, TREE_WIDTH, TREE_WIDTH_KEY, treeWidthBounds, treeWidthForKey, type WidthBounds } from "@/lib/dataExplorer/explorerView";
 import type { QueryParams } from "@/lib/dataExplorer/wire";
@@ -261,7 +263,8 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const params = useSearchParams();
   const url = useMemo(() => readUrlState(params), [params]);
   const search = params.toString();
-  const tree = useExplorerTree(config.extra, true);
+  const sortOfPath = useCallback((path: string) => sortParam(readSort(config.viewer, treeLevel(path)), "tree"), [config.viewer]);
+  const tree = useExplorerTree(config.extra, true, sortOfPath);
   const downloads = useDownloads();
   const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
   const [include, setInclude] = useState<IncludeKey[]>([...INCLUDE_KEYS]);
@@ -672,8 +675,16 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const iconToggle = (on: boolean) =>
     `grid h-9 w-9 place-items-center rounded-sm border transition ${on ? "border-purple-300 bg-purple-100 text-purple-800 dark:border-purple-700 dark:bg-purple-950/60 dark:text-purple-200" : "border-line-200 bg-card text-ink-700 hover:border-purple-300"}`;
 
+  const treeSort = readSort(config.viewer, treeLevel(url.path)) ?? LIST_DEFAULT.tree;
+  const changeTreeSort = (choice: SortChoice) => {
+    const level = treeLevel(url.path);
+    writeSort(config.viewer, level, choice, "tree");
+    tree.resort(Object.keys(tree.trees).filter((path) => treeLevel(path) === level));
+  };
+
   const tabTrailing = (
     <>
+      {url.view === "files" && current ? <SortMenu value={treeSort} keys={availableKeys(current.sorts)} onChange={changeTreeSort} label="Sort folder" /> : null}
       {url.view === "files" ? (
         <div className="flex gap-1.5" role="group" aria-label="Layout">
           <button type="button" aria-pressed={layout === "list"} aria-label="List view" onClick={() => setLayout("list")} className={iconToggle(layout === "list")}>
@@ -843,6 +854,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
                     onDownload={(request) => downloads.enqueue(request)}
                     zipUrl={transcriptBundleUrl(url.path, config.extra)}
                     onCount={(count) => setTranscriptCount({ path: url.path, count })}
+                    viewer={config.viewer}
                     trail={shownCrumbs.filter((crumb) => !taxonomyRow || crumb.path !== taxonomyRow.path).map((crumb) => crumb.name).join(" › ")}
                   />
                 ) : null}
@@ -870,6 +882,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
           q={url.browseQ}
           workshopIds={config.browseScope?.workshopIds}
           scopeControl={config.browseScope?.control}
+          viewer={config.viewer}
           onChange={onBrowse}
         />
         {config.secondary}

@@ -40,20 +40,21 @@ export function WorkshopCoverage() {
         setQuestionnaireId((v) => v || q.find((i) => i.isDefault)?.id || q[0]?.id || "");
         setWorkshopId((v) => v || w[0]?.id || "");
       })
-      .catch(() => setError(qs("listLoadError")));
+      .catch(() => setError(qs("coverageLoadError")));
   }, []);
 
   useEffect(() => {
     if (!questionnaireId || !workshopId) return;
     let cancelled = false;
     setGrid(null);
+    setError(null);
     void coverageScope(workshopId)
       .then((scope) => questionnaireApi.coverage({ questionnaireId, ...scope }))
       .then((g) => {
         if (!cancelled) setGrid(g);
       })
       .catch(() => {
-        if (!cancelled) setError(qs("listLoadError"));
+        if (!cancelled) setError(qs("coverageLoadError"));
       });
     return () => {
       cancelled = true;
@@ -100,7 +101,12 @@ export function WorkshopCoverage() {
       </div>
       {error ? <p className="text-sm text-error-600" role="alert">{error}</p> : null}
       {grid ? (
-        <div className="panel overflow-x-auto p-4">
+        <div className="panel overflow-x-auto p-4" data-coverage-artisans={grid.artisans?.length ?? 0}>
+          {(grid.artisans ?? []).length === 0 ? (
+            <p className="mb-3 text-sm text-ink-500" data-coverage-empty>
+              {qs("coverageNoArtisans")}
+            </p>
+          ) : null}
           <CoverageGrid
             grid={view ?? toGridView(grid)}
             artisans={(grid.artisans ?? []).map((a) => ({ id: a.artisanId, name: a.name }))}

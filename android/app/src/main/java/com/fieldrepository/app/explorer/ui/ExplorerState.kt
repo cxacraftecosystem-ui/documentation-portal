@@ -16,6 +16,9 @@ import com.fieldrepository.app.explorer.data.ExplorerInfo
 import com.fieldrepository.app.explorer.data.ExplorerJson
 import com.fieldrepository.app.explorer.data.ExplorerPaths
 import com.fieldrepository.app.explorer.data.ExplorerSelectionBody
+import com.fieldrepository.app.explorer.data.ExplorerSort
+import com.fieldrepository.app.explorer.data.ExplorerSortStore
+import com.fieldrepository.app.explorer.data.ExplorerSorts
 import com.fieldrepository.app.explorer.data.ExplorerStatsBody
 import com.fieldrepository.app.explorer.data.ExplorerTaxonomy
 import com.fieldrepository.app.explorer.data.ExplorerText
@@ -64,7 +67,7 @@ data class ExplorerResume(val path: String, val tab: ExplorerTab, val status: St
     }
 }
 
-private class Level(val tree: ExplorerTree, val entries: List<ExplorerEntry>, val cursor: String?, val cachedAt: Long?)
+private class Level(val tree: ExplorerTree, val entries: List<ExplorerEntry>, val cursor: String?, val cachedAt: Long?, val wanted: String? = null, val sent: String? = null)
 
 @Stable
 class ExplorerState(
@@ -77,6 +80,7 @@ class ExplorerState(
     private val online: () -> Boolean = { true },
     private val onPlace: (String) -> Unit = {},
     private val fallbackMs: Long = FALLBACK_MS,
+    private val sortStore: ExplorerSortStore? = null,
 ) : RememberObserver {
     private val lifetime = SupervisorJob(scope.coroutineContext[Job])
     private val work = CoroutineScope(scope.coroutineContext + lifetime)
@@ -127,6 +131,22 @@ class ExplorerState(
         private set
 
     val transcripts = mutableStateMapOf<String, TranscriptLoad>()
+
+    private val sortChosen = mutableStateMapOf<String, ExplorerSort>()
+    private val sortSaved = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private var pageSort: String? = null
+    private var pageGeneration = 0
+
+    val sortLevel: String get() = ExplorerSorts.treeLevel(path)
+
+    val sortKeys: List<String> get() = ExplorerSorts.offered(tree?.sorts.orEmpty())
+
+    val sort: ExplorerSort get() = ExplorerSorts.resolve(remembered(sortLevel), sortKeys, ExplorerSorts.TREE)
+
+    private fun remembered(level: String): ExplorerSort? =
+        sortChosen[level] ?: ExplorerSort.parse(sortSaved.getOrPut(level) { runCatching { sortStore?.read(level)?.param }.getOrNull().orEmpty() })
+
+    fun sortParamFor(target: String): String? = ExplorerSorts.param(remembered(ExplorerSorts.treeLevel(target)), ExplorerSorts.TREE)
 
     private val levels = HashMap<String, Level>()
     private val history = ArrayDeque<String>()
@@ -235,7 +255,7 @@ class ExplorerState(
         visited += target
         path = target
         if (moved) onPlace(target)
-        val memory = levels[key(target)]
+        val memory = levels[key(target)]?.takeIf { it.wanted == sortParamFor(target) }
         if (memory != null) show(memory) else {
             tree = null
             entries = emptyList()
@@ -259,12 +279,15 @@ class ExplorerState(
         cursor = level.cursor
         tree = level.tree
         entries = level.entries
+        pageSort = level.sent
     }
 
     private suspend fun load(target: String, haveMemory: Boolean) {
         loading = true
         val k = key(target)
+        val wanted = sortParamFor(target)
         val disk = if (haveMemory) null else withContext(Dispatchers.IO) { runCatching { cache?.read(k) }.getOrNull() }
+            ?.takeIf { !online() || (it.tree.sort?.toSort()?.let { s -> ExplorerSorts.param(s, ExplorerSorts.TREE) }) == wanted }
         if (disk != null && !online()) {
             val level = Level(disk.tree, disk.tree.entries, null, disk.fetchedAt)
             levels[k] = level
@@ -276,7 +299,11 @@ class ExplorerState(
             loads++
             val fetch = async {
                 try {
-                    Result.success(api.tree(target, statusParam, null))
+                    Result.success(
+                        ExplorerSorts.fetch(remembered(ExplorerSorts.treeLevel(target)), ExplorerSorts.TREE, { t: ExplorerTree -> t.sorts }) { sort ->
+                            api.tree(target, statusParam, null, sort = sort)
+                        },
+                    )
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
@@ -287,8 +314,9 @@ class ExplorerState(
             if (early == null && disk != null && path == target) show(Level(disk.tree, disk.tree.entries, null, disk.fetchedAt))
             early ?: fetch.await()
         }
-        got.onSuccess { fresh ->
-            val level = Level(fresh, fresh.entries, fresh.nextCursor, null)
+        got.onSuccess { sorted ->
+            val fresh = sorted.value
+            val level = Level(fresh, fresh.entries, fresh.nextCursor, null, wanted, sorted.sent)
             levels[k] = level
             withContext(Dispatchers.IO) { runCatching { cache?.write(k, fresh) } }
             if (path == target) {
@@ -317,6 +345,33 @@ class ExplorerState(
         loading = false
     }
 
+    fun changeSort(next: ExplorerSort) {
+        if (closed) return
+        val level = sortLevel
+        if (next == sort && sortChosen[level] == next) return
+        sortChosen[level] = next
+        runCatching { sortStore?.write(level, next) }
+        resort()
+    }
+
+    private fun resort() {
+        val target = path
+        levels.remove(key(target))
+        loadJob?.cancel()
+        pageGeneration++
+        cursor = null
+        loadingMore = false
+        error = null
+        loadingTarget = target
+        loadJob = work.launch {
+            try {
+                load(target, true)
+            } finally {
+                if (loadingTarget == target) loadingTarget = null
+            }
+        }
+    }
+
     fun reload() {
         levels.remove(key(path))
         loadJob?.cancel()
@@ -336,15 +391,17 @@ class ExplorerState(
         val at = cursor ?: return
         if (loadingMore) return
         val target = path
+        val generation = pageGeneration
+        val sent = pageSort
         work.launch {
             loadingMore = true
             try {
-                val next = api.tree(target, statusParam, at)
-                if (path == target) {
+                val next = api.tree(target, statusParam, at, sort = sent)
+                if (path == target && generation == pageGeneration) {
                     val seen = entries.map { it.key }.toHashSet()
                     entries = entries + next.entries.filter { it.key !in seen }
                     cursor = next.nextCursor
-                    levels[key(target)]?.let { levels[key(target)] = Level(it.tree, entries, cursor, it.cachedAt) }
+                    levels[key(target)]?.let { levels[key(target)] = Level(it.tree, entries, cursor, it.cachedAt, it.wanted, it.sent) }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled

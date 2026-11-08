@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { activeFilters, clock, EMPTY_STATE, flattenGroups, hasMore, legacyRows, legacyTotals, mergeRows, moreLabel, offersOpenInData, portalCounts, rangeBounds, sameSearch, searchFromParams, searchToParams, sections, showAllLabel, unifiedTotals } from "@/lib/dataSearch";
+import { activeFilters, clock, EMPTY_STATE, flattenGroups, hasMore, legacyRows, legacyTotals, mergeRows, moreLabel, offersOpenInData, portalCounts, rangeBounds, sameSearch, searchFromParams, searchSort, searchSortKeys, searchSortLevel, searchSortParam, searchToParams, sections, showAllLabel, unifiedTotals } from "@/lib/dataSearch";
 import type { UnifiedResponse } from "@/lib/unifiedSearch";
 
 const DATA: UnifiedResponse = {
@@ -93,4 +93,32 @@ test("Open in Data is offered only where the record can be located", () => {
   expect(offersOpenInData({ ...row, locatable: false }, "craft")).toBe(false);
   expect(offersOpenInData({ ...row, local: false }, "craft")).toBe(false);
   expect(offersOpenInData(row, undefined)).toBe(false);
+});
+
+test("a sort rides in the address only when it is not the default, and only the search keys pass", () => {
+  const state = { ...EMPTY_STATE, q: "indigo", sort: { key: "name" as const, dir: "asc" as const } };
+  const text = searchToParams(state, null, "path=workshops");
+  expect(new URLSearchParams(text).get("ssort")).toBe("name:asc");
+  expect(searchFromParams(new URLSearchParams(text)).state.sort).toEqual({ key: "name", dir: "asc" });
+  expect(new URLSearchParams(searchToParams({ ...state, sort: { key: "relevance", dir: "desc" } }, null, text)).get("ssort")).toBeNull();
+  expect(searchFromParams(new URLSearchParams("sq=x&ssort=recorded:asc")).state.sort).toEqual({ key: "recorded", dir: "asc" });
+  for (const raw of ["size:desc", "relevance:asc", "relevance:desc", "name", "added:desc", "name:sideways"]) {
+    expect(searchFromParams(new URLSearchParams(`sq=x&ssort=${raw}`)).state.sort).toBeNull();
+  }
+  expect(sameSearch({ state: { ...EMPTY_STATE, q: "x" }, focus: null }, { state: { ...EMPTY_STATE, q: "x", sort: { key: "name", dir: "asc" } }, focus: null })).toBe(false);
+});
+
+test("the sort control offers only the keys the server answers, and each list level remembers its own", () => {
+  expect(searchSortKeys({ ...DATA, sorts: ["recorded", "relevance", "size", "name"] } as UnifiedResponse)).toEqual(["relevance", "name", "recorded"]);
+  expect(searchSortKeys(DATA)).toEqual([]);
+  expect(searchSortKeys(null)).toEqual([]);
+  expect(searchSortLevel(null)).toBe("search:all");
+  expect(searchSortLevel("artisans")).toBe("search:artisans");
+  expect(searchSortParam(null)).toBeUndefined();
+  expect(searchSortParam({ key: "relevance", dir: "desc" })).toBeUndefined();
+  expect(searchSortParam({ key: "name", dir: "desc" })).toBe("name:desc");
+  expect(searchSortParam({ key: "recorded", dir: "asc" })).toBe("recorded:asc");
+  expect(searchSortParam({ key: "size", dir: "desc" })).toBeUndefined();
+  expect(searchSort("name:asc")).toEqual({ key: "name", dir: "asc" });
+  expect(searchSort({ key: "relevance", dir: "desc" })).toBeNull();
 });

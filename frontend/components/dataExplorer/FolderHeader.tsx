@@ -273,6 +273,7 @@ export function FolderHeader({
     onInclude(INCLUDE_KEYS.filter((value) => next.includes(value)));
   };
   const sizeText = chosen ? formatBytes(chosen.bytes) : null;
+  const nothingToDownload = Boolean(chosen && sized && !sized.truncated && chosen.files === 0 && chosen.unknown === 0);
   const facts = sized
     ? [
         `${sized.files.toLocaleString("en-IN")} ${sized.files === 1 ? "file" : "files"}${sized.truncated ? "+" : ""}`,
@@ -334,7 +335,9 @@ export function FolderHeader({
             <button
               type="button"
               className="inline-flex min-h-11 items-center justify-center rounded-md bg-purple-700 px-[18px] text-sm font-semibold text-white shadow-cta transition hover:bg-purple-800 disabled:bg-line-200 disabled:text-ink-500 disabled:shadow-none max-lg:px-4 max-lg:shadow-none max-sm:flex-1 dark:bg-purple-300 dark:text-purple-950 dark:hover:bg-purple-200"
-              disabled={include.length === 0}
+              disabled={include.length === 0 || nothingToDownload}
+              title={nothingToDownload ? "Nothing to download here yet." : undefined}
+              data-testid="folder-download"
               onClick={onDownload}
             >
               <span className="sm:hidden">Download</span>

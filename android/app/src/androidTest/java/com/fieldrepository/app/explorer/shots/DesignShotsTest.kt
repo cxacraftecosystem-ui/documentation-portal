@@ -5,6 +5,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.Surface
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -24,11 +30,22 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.fieldrepository.app.explorer.data.ExplorerAudio
 import com.fieldrepository.app.explorer.data.ExplorerAudioState
 import com.fieldrepository.app.explorer.data.ExplorerEntry
+import com.fieldrepository.app.explorer.data.ExplorerCache
+import com.fieldrepository.app.explorer.data.ExplorerLink
 import com.fieldrepository.app.explorer.data.ExplorerMoreApi
+import com.fieldrepository.app.explorer.data.ExplorerNetwork
+import com.fieldrepository.app.explorer.data.ExplorerPlace
+import com.fieldrepository.app.explorer.data.ExplorerSort
+import com.fieldrepository.app.explorer.data.ExplorerSortMemory
 import com.fieldrepository.app.explorer.portal.DesignTheme
+import com.fieldrepository.app.explorer.portal.ExplorerPortal
 import com.fieldrepository.app.explorer.ui.ExplorerAudioExpand
 import com.fieldrepository.app.explorer.ui.ExplorerMediaContent
 import com.fieldrepository.app.explorer.ui.ExplorerMediaLoader
+import com.fieldrepository.app.explorer.ui.ExplorerScreen
+import com.fieldrepository.app.explorer.ui.ExplorerShapes
+import com.fieldrepository.app.explorer.ui.ExplorerSheetHandle
+import com.fieldrepository.app.explorer.ui.ExplorerSortSheetBody
 import com.fieldrepository.app.explorer.ui.MiniPlayer
 import com.fieldrepository.app.explorer.ui.audioItem
 import com.fieldrepository.app.explorer.ui.audioLines
@@ -53,10 +70,12 @@ class DesignShotsTest {
 
     @After fun reset() {
         ExplorerMoreApi.override = null
+        ExplorerNetwork.override = null
         ExplorerAudio.stage(ExplorerAudioState())
+        ExplorerSortMemory.clear(InstrumentationRegistry.getInstrumentation().targetContext)
     }
 
-    private fun shoot(board: String, variant: String? = null, widthDp: Int = 390, heightDp: Int = 844, density: Float = 2f, fontScale: Float = 1f, dark: Boolean = false, content: @Composable () -> Unit) {
+    private fun shoot(board: String, variant: String? = null, widthDp: Int = 390, heightDp: Int = 844, density: Float = 2f, fontScale: Float = 1f, dark: Boolean = false, prepare: () -> Unit = {}, content: @Composable () -> Unit) {
         compose.setContent {
             DesignTheme(dark) {
                 CompositionLocalProvider(LocalDensity provides Density(density, fontScale)) {
@@ -68,6 +87,8 @@ class DesignShotsTest {
                 }
             }
         }
+        compose.waitForIdle()
+        prepare()
         compose.waitForIdle()
         Thread.sleep(600)
         compose.waitForIdle()
@@ -154,6 +175,55 @@ class DesignShotsTest {
         stageAudio()
         shoot("AndroidAudioPlayer") { miniOverList() }
     }
+
+    private fun sortedFolder(variant: String?, tablet: Boolean) {
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        ExplorerNetwork.override = ExplorerLink(online = true, metered = false)
+        ExplorerSortMemory.clear(app)
+        ExplorerCache(File(app.filesDir, ExplorerCache.DIR), ExplorerPortal.userId(app)).clear()
+        ExplorerPlace.write(app, ExplorerPortal.userId(app), ScreenBoards.GIRIRAJ)
+        val api = ScreenBoards.Api(app, sorted = true)
+        val screens = ScreenBoards.More()
+        shoot(
+            "AndroidSort", variant,
+            widthDp = if (tablet) 1280 else 390, heightDp = if (tablet) 800 else 844, density = if (tablet) 1f else 2f,
+            prepare = {
+                compose.waitUntil(10_000) { api.calls.any { it == "tree:${ScreenBoards.GIRIRAJ}" } }
+                compose.waitForIdle()
+                compose.waitUntil(10_000) {
+                    runCatching { compose.onNodeWithTag("explorer.tree").performScrollToNode(hasTestTag("explorer.sort")) }.isSuccess
+                }
+            },
+        ) {
+            ExplorerScreen(onBack = {}, api = api, more = screens, startPath = ScreenBoards.GIRIRAJ, onRecordNow = { _, _ -> }, onOpenSection = { _, _ -> })
+        }
+    }
+
+    @Composable
+    private fun sortSheet(tablet: Boolean) {
+        Box(Modifier.fillMaxSize().background(Color(0x801E1B2E)), contentAlignment = Alignment.BottomCenter) {
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = ExplorerShapes.sheet,
+                modifier = Modifier.let { if (tablet) it.widthIn(max = 640.dp) else it }.fillMaxWidth(),
+            ) {
+                Column(Modifier.fillMaxWidth()) {
+                    ExplorerSheetHandle()
+                    ExplorerSortSheetBody(current = ExplorerSort("recorded", ExplorerSort.ASC), keys = ScreenBoards.SORTS, onPick = {}, onDone = {})
+                }
+            }
+        }
+    }
+
+    @Test fun androidSort() = sortedFolder(null, tablet = false)
+
+    @Test fun androidSortTablet() = sortedFolder("tablet", tablet = true)
+
+    @Test fun androidSortSheet() = shoot("AndroidSort", "sheet") { sortSheet(tablet = false) }
+
+    @Test fun androidSortSheetTablet() = shoot("AndroidSort", "sheet-tablet", widthDp = 1280, heightDp = 800, density = 1f) { sortSheet(tablet = true) }
+
+    @Test fun androidSortSheetDark() = shoot("AndroidSort", "sheet-dark", dark = true) { sortSheet(tablet = false) }
 
     @Composable
     private fun miniOverList() {

@@ -58,6 +58,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -75,6 +76,12 @@ import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.UnifiedSearchGroupDto
 import com.fieldrepository.app.data.UnifiedSearchItemDto
 import com.fieldrepository.app.data.UnifiedSearchResponse
+import com.fieldrepository.app.explorer.data.ExplorerSort
+import com.fieldrepository.app.explorer.data.ExplorerSortMemory
+import com.fieldrepository.app.explorer.data.ExplorerSorts
+import com.fieldrepository.app.explorer.portal.ExplorerPortal
+import com.fieldrepository.app.explorer.ui.ExplorerSortLine
+import com.fieldrepository.app.explorer.ui.ExplorerSortSheet
 import com.fieldrepository.app.explorer.ui.ExplorerStatus
 import com.fieldrepository.app.explorer.ui.explorerMark
 import com.fieldrepository.app.explorer.ui.explorerTone
@@ -220,7 +227,7 @@ internal object DataSearchRules {
 private sealed interface Found {
     data object Idle : Found
     data object Loading : Found
-    data class Ready(val response: UnifiedSearchResponse, val groups: List<UnifiedSearchGroupDto>, val items: List<UnifiedSearchItemDto>, val more: Boolean, val type: String? = null, val page: Int = 1) : Found
+    data class Ready(val response: UnifiedSearchResponse, val groups: List<UnifiedSearchGroupDto>, val items: List<UnifiedSearchItemDto>, val more: Boolean, val type: String? = null, val page: Int = 1, val wanted: String? = null, val sent: String? = null) : Found
     data object Legacy : Found
     data class Failed(val offline: Boolean) : Found
 }
@@ -246,18 +253,32 @@ internal fun DataUnifiedSearch(
     var countdown by remember { mutableStateOf<Int?>(null) }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { if (initial.isBlank()) runCatching { focus.requestFocus() } }
+    val context = LocalContext.current
+    val sortMemory = remember { ExplorerSortMemory(context, ExplorerPortal.userId(context)) }
+    var sortVersion by remember { mutableStateOf(0) }
+    var sortOpen by rememberSaveable { mutableStateOf(false) }
+    val sortLevel = ExplorerSorts.searchLevel(type)
+    val chosen = remember(sortLevel, sortVersion) { sortMemory.read(sortLevel) }
+    val wanted = ExplorerSorts.param(chosen, ExplorerSorts.SEARCH)
 
-    LaunchedEffect(query, scope, type, page, attempt) {
+    LaunchedEffect(query, scope, type, page, attempt, wanted) {
         val q = query.trim()
         if (q.length < 2) {
             found = Found.Idle
             return@LaunchedEffect
         }
         if (page == 1) delay(300)
-        val previous = (found as? Found.Ready)?.takeIf { page > 1 && it.type == type && it.page == page - 1 }
+        val previous = (found as? Found.Ready)?.takeIf { page > 1 && it.type == type && it.page == page - 1 && it.wanted == wanted }
         if (previous == null) found = Found.Loading
         found = try {
-            val r = repository.unifiedSearchIn(q, limit = DataSearchRules.limitFor(type), scope = scope, type = type, page = page)
+            val sorted = if (previous != null) {
+                ExplorerSorts.Sorted(repository.unifiedSearchIn(q, limit = DataSearchRules.limitFor(type), scope = scope, type = type, page = page, sort = previous.sent), previous.sent)
+            } else {
+                ExplorerSorts.fetch(chosen, ExplorerSorts.SEARCH, { x: UnifiedSearchResponse -> x.sorts }) { sort ->
+                    repository.unifiedSearchIn(q, limit = DataSearchRules.limitFor(type), scope = scope, type = type, page = page, sort = sort)
+                }
+            }
+            val r = sorted.value
             last = r
             if (DataSearchRules.crossBlocked(scope, r)) {
                 blocked = true
@@ -266,7 +287,7 @@ internal fun DataUnifiedSearch(
             val groups = previous?.groups ?: r.groups
             val merged = (previous?.items.orEmpty() + DataSearchRules.usable(r, type)).distinctBy(DataSearchRules::key)
             val progressed = previous == null || merged.size > previous.items.size
-            Found.Ready(r, groups, merged, progressed && DataSearchRules.more(type, groups, merged), type, page)
+            Found.Ready(r, groups, merged, progressed && DataSearchRules.more(type, groups, merged), type, page, wanted, sorted.sent)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (e: HttpException) {
@@ -375,6 +396,10 @@ internal fun DataUnifiedSearch(
                         onWiden = { scope = "all"; page = 1 },
                     )
                 } else {
+                    val sortKeys = ExplorerSorts.offered(now.response.sorts)
+                    if (sortKeys.isNotEmpty()) {
+                        ExplorerSortLine(ExplorerSorts.resolve(chosen, sortKeys, ExplorerSorts.SEARCH), sortKeys, onClick = { sortOpen = true }, tag = "data.search.sort")
+                    }
                     val total = now.groups.filter { type == null || it.type == type }.sumOf { it.total }
                     Text(
                         DataSearchText.shownLine(now.items.size, total),
@@ -436,6 +461,19 @@ internal fun DataUnifiedSearch(
                 }
             }
         }
+    }
+    val sortKeys = ExplorerSorts.offered(((found as? Found.Ready)?.response ?: last)?.sorts.orEmpty())
+    if (sortOpen && sortKeys.isNotEmpty()) {
+        ExplorerSortSheet(
+            current = ExplorerSorts.resolve(chosen, sortKeys, ExplorerSorts.SEARCH),
+            keys = sortKeys,
+            onPick = { next: ExplorerSort ->
+                sortMemory.write(sortLevel, next)
+                sortVersion++
+                page = 1
+            },
+            onDismiss = { sortOpen = false },
+        )
     }
 }
 

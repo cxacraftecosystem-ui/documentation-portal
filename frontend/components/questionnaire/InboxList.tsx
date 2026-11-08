@@ -143,13 +143,13 @@ export function InboxList() {
   if (inbox.counts.total === 0) return <EmptyState title={qs("inboxEmpty")} />;
 
   return (
-    <div className="grid gap-4">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
       {INBOX_ORDER.filter((k) => inbox[k].length > 0).map((section) => (
-        <section key={section} className="panel grid gap-2 p-4" data-inbox-section={section}>
+        <section key={section} className="panel grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 p-4" data-inbox-section={section}>
           <h2 className="display-title text-base">
             {qs(INBOX_TITLES[section])} <span className="text-ink-500">({inbox[section].length})</span>
           </h2>
-          <ul className="grid gap-2">
+          <ul className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
             {(inbox[section] as Record<string, unknown>[]).map((row) => {
               const key = inboxRowKey(section, row);
               const sessionId = typeof row.sessionId === "string" ? row.sessionId : null;
@@ -160,7 +160,7 @@ export function InboxList() {
               ) : null;
               if (section === "needsDecision") {
                 return (
-                  <li key={key} className="grid gap-2 rounded-md border border-line-200 p-3" data-inbox-row={key}>
+                  <li key={key} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-md border border-line-200 p-3" data-inbox-row={key}>
                     <DecisionRow row={row as unknown as InboxDecision} busy={busy === key} run={(work) => run(key, work)} />
                     <RecordingChips chips={(row as unknown as InboxDecision).chips} onChip={goChip} />
                     {failure}
@@ -168,14 +168,14 @@ export function InboxList() {
                 );
               }
               return (
-                <li key={key} className="grid gap-2 rounded-md border border-line-200 p-3" data-inbox-row={key}>
+                <li key={key} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-md border border-line-200 p-3" data-inbox-row={key}>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     {sessionId && section !== "toFile" ? (
-                      <Link className="text-sm text-purple-700 underline" href={sessionHref(sessionId)}>
+                      <Link className="min-w-0 text-sm text-purple-700 underline [overflow-wrap:anywhere]" href={sessionHref(sessionId)}>
                         {inboxLabel(section, row)}
                       </Link>
                     ) : (
-                      <span className="text-sm text-ink-900">{inboxLabel(section, row)}</span>
+                      <span className="min-w-0 text-sm text-ink-900 [overflow-wrap:anywhere]">{inboxLabel(section, row)}</span>
                     )}
                     <RowActions
                       section={section}
@@ -269,7 +269,7 @@ function DecisionRow({ row, busy, run }: { row: InboxDecision; busy: boolean; ru
   return (
     <div className="grid gap-2" data-decision-row={row.recordingId}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <span className="text-sm text-ink-900">{label}</span>
+        <span className="min-w-0 text-sm text-ink-900 [overflow-wrap:anywhere]">{label}</span>
         <ButtonRow size="sm" align="end" className="max-sm:w-full">
           <button
             type="button"

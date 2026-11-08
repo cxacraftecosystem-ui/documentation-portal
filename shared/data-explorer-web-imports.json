@@ -9,6 +9,7 @@
   ],
   "packages": [
     "react",
+    "react-dom",
     "next/link",
     "next/navigation",
     "lucide-react"

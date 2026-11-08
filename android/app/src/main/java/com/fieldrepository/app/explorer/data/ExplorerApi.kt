@@ -21,6 +21,7 @@ interface ExplorerApi {
         @Query("status") status: String? = null,
         @Query("cursor") cursor: String? = null,
         @Query("slim") slim: Int = 1,
+        @Query("sort") sort: String? = null,
     ): ExplorerTree
 
     @GET("data/locate")

@@ -242,6 +242,8 @@ data class ExplorerTranscriptList(
     val query: String? = null,
     val offset: Int = 0,
     val nextOffset: Int? = null,
+    val sort: ExplorerSortApplied? = null,
+    val sorts: List<String> = emptyList(),
 )
 
 interface ExplorerMore {
@@ -270,7 +272,7 @@ interface ExplorerMore {
     suspend fun bundle(@Path("id") id: String): ExplorerBundle
 
     @GET("data/transcripts/list")
-    suspend fun transcripts(@Query("path") path: String, @Query("q") q: String? = null, @Query("status") status: String? = null, @Query("offset") offset: Int? = null): ExplorerTranscriptList
+    suspend fun transcripts(@Query("path") path: String, @Query("q") q: String? = null, @Query("status") status: String? = null, @Query("offset") offset: Int? = null, @Query("sort") sort: String? = null): ExplorerTranscriptList
 
     @GET("data/report-options")
     suspend fun reportOptions(): ExplorerReportOptionsBody

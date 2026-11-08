@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 from fastapi import HTTPException
-from search_support import index_world, needs_search_db, new_stamp, seed, user_ns
+from search_support import document, index_world, needs_search_db, new_stamp, seed, user_ns
 
 from app.api.routes import search as routes
 from app.services import cross_portal, search_query
@@ -330,3 +330,78 @@ async def test_a_suggestion_carries_its_own_result_count(world, settings, monkey
     assert result["suggestionTotal"] == sum(g["total"] for g in direct["groups"]) > 0
     plain = await _search(world.professor, world.stamp, scope="local")
     assert plain["suggestion"] is None and plain["suggestionTotal"] == 0
+
+
+def _recorded_order(docs: dict[str, dict[str, Any]], reverse: bool) -> list[str]:
+    def when(i: str) -> Any:
+        return us._when(docs[i]["recordDate"])
+
+    def tie(i: str) -> tuple[str, str]:
+        return (str(docs[i]["title"]).lower(), i)
+
+    dated = sorted((i for i in docs if when(i) is not None), key=tie)
+    dated.sort(key=when, reverse=reverse)
+    return dated + sorted((i for i in docs if when(i) is None), key=tie)
+
+
+@needs_search_db
+async def test_a_name_sort_orders_every_match_and_pages_without_gaps(world, settings):
+    expected = [world.product_body.id, world.product_title.id, world.product_free.id]
+    whole = await _search(world.professor, world.stamp, type="products", limit=20, sort="name:asc")
+    assert whole["sort"] == {"key": "name", "dir": "asc"}
+    assert whole["sorts"] == ["relevance", "name", "recorded"]
+    assert _ids(whole, "products") == expected
+    first = await _search(world.professor, world.stamp, type="products", limit=2, page=1, sort="name:asc")
+    second = await _search(world.professor, world.stamp, type="products", limit=2, page=2, sort="name:asc")
+    assert _ids(first, "products") + _ids(second, "products") == expected
+    assert next(g for g in second["groups"] if g["type"] == "products")["total"] == 3
+    backwards = await _search(world.professor, world.stamp, type="products", limit=20, sort="name:desc")
+    assert _ids(backwards, "products") == expected[::-1]
+
+
+@needs_search_db
+async def test_a_recorded_sort_pages_the_same_order_as_the_index_dates(world, settings):
+    ids = [world.product_title.id, world.product_body.id, world.product_free.id]
+    docs = {i: await document("products", i) for i in ids}
+    for direction in ("desc", "asc"):
+        expected = _recorded_order(docs, reverse=direction == "desc")
+        sort = f"recorded:{direction}"
+        whole = await _search(world.professor, world.stamp, type="products", limit=20, sort=sort)
+        assert _ids(whole, "products") == expected, direction
+        first = await _search(world.professor, world.stamp, type="products", limit=2, page=1, sort=sort)
+        second = await _search(world.professor, world.stamp, type="products", limit=2, page=2, sort=sort)
+        assert _ids(first, "products") + _ids(second, "products") == expected, direction
+
+
+@needs_search_db
+async def test_a_sorted_all_view_keeps_the_relevance_totals(world, settings):
+    ranked = await _search(world.professor, world.stamp, limit=2)
+    named = await _search(world.professor, world.stamp, limit=2, sort="name:asc")
+    assert {g["type"]: g["total"] for g in named["groups"]} == {
+        g["type"]: g["total"] for g in ranked["groups"]
+    }
+    for group in named["groups"]:
+        titles = [i["title"].lower() for i in group["items"]]
+        assert titles == sorted(titles), group["type"]
+
+
+async def test_an_unknown_sort_is_422(settings):
+    for bad in ("relevance:asc", "size:desc", "name", "name:asc,id"):
+        with pytest.raises(HTTPException) as refused:
+            await routes.unified_search(
+                current_user=SimpleNamespace(id="u1", email="u@example.org", role="RESEARCHER"),
+                q="indigo",
+                types=None,
+                scope="local",
+                limit=5,
+                type=None,
+                page=1,
+                craftId=None,
+                place=None,
+                dateFrom=None,
+                dateTo=None,
+                workshopIds=None,
+                artisanIds=None,
+                sort=bad,
+            )
+        assert refused.value.status_code == 422, bad

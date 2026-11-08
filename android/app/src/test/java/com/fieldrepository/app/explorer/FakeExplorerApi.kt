@@ -24,6 +24,7 @@ open class FakeExplorerApi : ExplorerApi {
     val calls = mutableListOf<String>()
     val transcriptCalls = AtomicInteger(0)
     var trees: suspend (path: String, status: String?, cursor: String?) -> ExplorerTree = { path, _, _ -> ExplorerTree(path = path) }
+    var sortedTrees: (suspend (path: String, status: String?, cursor: String?, sort: String?) -> ExplorerTree)? = null
     var manifest: suspend (path: String) -> Response<ResponseBody> = { ndjson(emptyList()) }
     var selection: suspend (ExplorerSelectionBody) -> Response<ResponseBody> = { ndjson(emptyList()) }
     var mediaResponse: suspend (id: String, format: String?, fallback: String?, range: String?) -> Response<ResponseBody> = { _, _, _, _ -> notFound() }
@@ -31,8 +32,9 @@ open class FakeExplorerApi : ExplorerApi {
     var stats: ExplorerStats = ExplorerStats()
     var transcripts: suspend (String) -> ExplorerTranscript = { ExplorerTranscript(mediaId = it, content = "# Transcript $it") }
 
-    override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int): ExplorerTree {
-        calls += "tree:$path:${status.orEmpty()}:${cursor.orEmpty()}"
+    override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int, sort: String?): ExplorerTree {
+        calls += "tree:$path:${status.orEmpty()}:${cursor.orEmpty()}" + (sort?.let { ":sort=$it" } ?: "")
+        sortedTrees?.let { return it(path, status, cursor, sort) }
         return trees(path, status, cursor)
     }
 
