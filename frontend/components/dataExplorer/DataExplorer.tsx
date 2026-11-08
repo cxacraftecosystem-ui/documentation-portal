@@ -28,7 +28,7 @@ import { WorkshopOverview } from "@/components/dataExplorer/WorkshopOverview";
 import { bundleManifestEndpoint, fetchBundle, fetchReportSheets, fetchSavedView, includeParam, recordVisit, reportFileUrl, reportOptionParams, reportPackUrl, transcriptBundleUrl } from "@/lib/dataExplorer/api";
 import { INCLUDE_KEYS, type Crumb, type FolderVisit, type IncludeKey, type ReportBundle, type ReportOptions, type ReportResponse, type ReportStatusFilter, type SavedView, type Taxonomy, type TreeEntry } from "@/lib/dataExplorer/contract";
 import { formatBytes, limitSentence, overLimit } from "@/lib/dataExplorer/plan";
-import { cleared, describeFilters, fetchFacets, filterQuery, hasFilters, readFilters, showsOther, showsThis, writeFilters, type ExplorerFilters, type FacetsResponse } from "@/lib/dataExplorer/filters";
+import { cleared, describeFilters, fetchFacets, filterQuery, hasFilters, readFilters, showsOther, showsThis, urlFilterQuery, writeFilters, type ExplorerFilters, type FacetsResponse } from "@/lib/dataExplorer/filters";
 import { ActionGroup } from "@/components/ui/ActionGroup";
 import type { JobSource } from "@/lib/dataExplorer/protocol";
 import { EMPTY_SELECTION, selectionLabel, selectionSource, toggled, withAll, type Selection } from "@/lib/dataExplorer/selection";
@@ -439,6 +439,24 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
     [downloads, dropBundle]
   );
 
+  const openSaved = useCallback(
+    (view: SavedView, mode: "push" | "replace") => {
+      const merged = mergeNavigation(latest.current, { path: view.path, view: view.state.view, sheet: view.state.sheet, q: view.state.q, preview: "", t: 0, find: "" });
+      latest.current = merged;
+      const base = new URLSearchParams(typeof window !== "undefined" ? window.location.search : params.toString());
+      base.delete("viewId");
+      const withFilters = writeFilters(readFilters(new URLSearchParams(view.state.filters ?? {})), base);
+      const href = `${pathname}${writeUrlState(merged, withFilters)}`;
+      if (mode === "push") router.push(href, { scroll: false });
+      else router.replace(href, { scroll: false });
+    },
+    [params, pathname, router]
+  );
+  const openSavedRef = useRef(openSaved);
+  useEffect(() => {
+    openSavedRef.current = openSaved;
+  }, [openSaved]);
+
   const viewId = params.get("viewId");
   useEffect(() => {
     if (!viewId) return;
@@ -447,7 +465,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
       .then((view) => {
         if (cancelled) return;
         expand(ancestorsOf(view.path));
-        navigate({ path: view.path, view: view.state.view, sheet: view.state.sheet, q: view.state.q }, "replace");
+        openSavedRef.current(view, "replace");
       })
       .catch(() => {
         if (!cancelled) setViewError("That saved view isn't available to you.");
@@ -1009,12 +1027,12 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
       <SavedViewsDialog
         open={viewsOpen}
         onClose={() => setViewsOpen(false)}
-        current={{ path: url.path, state: { view: url.view, sheet: url.sheet, q: url.q, filters: Object.fromEntries(Object.entries(extra).filter(([, value]) => value !== undefined && value !== null && value !== "").map(([key, value]) => [key, String(value)])) } }}
+        current={{ path: url.path, state: { view: url.view, sheet: url.sheet, q: url.q, filters: Object.fromEntries(Object.entries({ ...extra, ...urlFilterQuery(filters) }).filter(([, value]) => value !== undefined && value !== null && value !== "").map(([key, value]) => [key, String(value)])) } }}
         folderName={folderName}
         onOpenView={(view: SavedView) => {
           setViewsOpen(false);
           tree.expand(ancestorsOf(view.path));
-          navigate({ path: view.path, view: view.state.view, sheet: view.state.sheet, q: view.state.q }, "push");
+          openSaved(view, "push");
         }}
       />
       <CommandPalette

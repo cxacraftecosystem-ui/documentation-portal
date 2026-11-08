@@ -250,3 +250,38 @@ def test_peer_explore_states(monkeypatch):
     assert sent["filters"]["craftCodes"] == ["C-01"]
     assert sent["filters"]["dateFrom"].startswith("2026-11-01T00:00:00")
     assert sent["requester"]["email"] == "u1@example.org"
+
+
+def test_stage_folders_are_counted_at_their_own_path_not_a_rebuilt_one(monkeypatch):
+    from fastapi import HTTPException as Refused
+
+    from app.services import transcript_export
+    from app.services.data_explorer import counts
+
+    root = "by-design-workshop/w1"
+    listings = {
+        f"{root}/stages/WORKSHOP_SETUP": [{"kind": "file", "name": "Workshop-Details.txt", "path": f"{root}/stages/WORKSHOP_SETUP/Workshop-Details.txt", "content": "Workshop id: w1"}],
+        f"{root}/stages/WORKSHOP_PLAN": [
+            {"kind": "file", "name": "Plan.txt", "path": f"{root}/stages/WORKSHOP_PLAN/Plan.txt", "content": "Plan: one"},
+            {"kind": "file", "name": "Artisans.txt", "path": f"{root}/stages/WORKSHOP_PLAN/Artisans.txt", "content": "Artisans: two"},
+        ],
+    }
+
+    async def list_level(path: str, _scope: Any) -> tuple[list[dict[str, Any]], None]:
+        if path not in listings:
+            raise Refused(status_code=404, detail="Unknown data path")
+        return [dict(entry) for entry in listings[path]], None
+
+    async def finalize(_files: Any, **_kw: Any) -> None:
+        return None
+
+    monkeypatch.setattr(counts, "_browser", lambda: SimpleNamespace(_list_level=list_level))
+    monkeypatch.setattr(transcript_export, "finalize_manifest", finalize)
+    entries = [
+        {"kind": "folder", "name": "01 Workshop Setup", "path": f"{root}/stages/WORKSHOP_SETUP", "recordType": "designWorkshopStage"},
+        {"kind": "folder", "name": "03 Plan", "path": f"{root}/stages/WORKSHOP_PLAN", "recordType": "designWorkshopStage"},
+        {"kind": "file", "name": "details.txt", "path": f"{root}/details.txt", "content": "Workshop id: w1"},
+    ]
+    _run(counts.fill(root, entries, SimpleNamespace(media=None)))
+    assert [entries[0]["count"], entries[1]["count"]] == [1, 2]
+    assert entries[0]["bytes"] == len("Workshop id: w1")

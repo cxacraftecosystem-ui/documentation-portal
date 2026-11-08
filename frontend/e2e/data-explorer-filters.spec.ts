@@ -333,3 +333,60 @@ for (const size of PANE_SIZES) {
     }
   });
 }
+
+test("@qf:X13 a saved view brings its filters back, from the dialog and from its link", async ({ browser }) => {
+  const { context, page, fake } = await open(browser, WIDE, "path=workshops&craftIds=c-block&mediaTypes=VIDEO&portals=this,other");
+  try {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.getByRole("button", { name: "Saved views" }).click();
+    const dialog = page.getByRole("dialog", { name: "Saved views" });
+    await dialog.getByLabel("Save this screen as").fill("Block printing videos");
+    await dialog.getByRole("button", { name: "Save current view" }).click();
+    await expect.poll(() => fake.calledWith("POST", "/data/views").length).toBe(1);
+    const posted = fake.calledWith("POST", "/data/views")[0].body as { path: string; state: { filters: Record<string, string> } };
+    expect(posted.path).toBe("workshops");
+    expect(posted.state.filters).toMatchObject({ craftIds: "c-block", mediaTypes: "VIDEO", portals: "this,other" });
+    await page.keyboard.press("Escape");
+    await page.goto("/data?path=workshops/sanganer");
+    await expect(page.getByTestId("download-folder")).toBeVisible();
+    await expect(page).not.toHaveURL(/craftIds=/);
+    await page.getByRole("button", { name: "Saved views" }).click();
+    const again = page.getByRole("dialog", { name: "Saved views" });
+    await again.getByRole("listitem").filter({ hasText: "Block printing videos" }).getByRole("button", { name: "Open" }).click();
+    await expect(page).toHaveURL(/craftIds=c-block/);
+    await expect(page).toHaveURL(/mediaTypes=VIDEO/);
+    await expect(page).toHaveURL(/portals=this%2Cother/);
+    await expect(page).toHaveURL(/path=workshops(&|$)/);
+    await expect.poll(() => fake.calls.some((call) => call.path === "/data/tree" && call.query.get("craftIds") === "c-block" && call.query.get("mediaTypes") === "VIDEO")).toBe(true);
+    await expect(page.getByTestId("explorer-filters")).toContainText("Craft: Hand block printing");
+    await page.goto("/data?viewId=v1");
+    await expect(page).toHaveURL(/craftIds=c-block/);
+    await expect(page).toHaveURL(/mediaTypes=VIDEO/);
+    await expect(page).not.toHaveURL(/viewId=/);
+  } finally {
+    await context.close();
+  }
+});
+
+test("@qf:X13 search has no filter row of its own and sends the explorer filters", async ({ browser }) => {
+  const { context, page, fake } = await open(browser, WIDE, "path=workshops&craftIds=c-block&workshopIds=workshops/bagru&dateFrom=2026-10-01&dateTo=2026-10-31");
+  try {
+    await expect(page.locator("#data-search-filters")).toBeHidden();
+    await expect(page.getByRole("radiogroup", { name: "Where" })).toHaveCount(0);
+    const box = page.getByRole("searchbox").first();
+    await box.fill("kamla");
+    await box.press("Enter");
+    await expect
+      .poll(() => fake.calls.some((call) => call.path.startsWith("/search") && call.query.get("q") === "kamla" && (call.query.get("craftId") === "c-block" || call.query.get("craftIds") === "c-block")))
+      .toBe(true);
+    const asked = fake.calls.filter((call) => call.path === "/search/unified" && call.query.get("q") === "kamla");
+    if (asked.length) {
+      expect(asked[0].query.get("craftId")).toBe("c-block");
+      expect(asked[0].query.get("workshopIds")).toBe("workshops/bagru");
+      expect(asked[0].query.get("dateFrom")).toBeTruthy();
+      expect(asked[0].query.get("dateTo")).toBeTruthy();
+    }
+  } finally {
+    await context.close();
+  }
+});

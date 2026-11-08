@@ -113,6 +113,12 @@ const spend = new Map<string, number>();
 
 const inFlight = new Map<string, Promise<string | null>>();
 
+const missing = new Set<string>();
+
+export function mediaFileMissing(mediaId: string | null | undefined): boolean {
+  return Boolean(mediaId) && missing.has(mediaId as string);
+}
+
 export function hasAttempted(key: string): boolean {
   return attempts.has(key);
 }
@@ -130,6 +136,7 @@ export function resetMediaRefreshLedger(): void {
   attempts.clear();
   spend.clear();
   inFlight.clear();
+  missing.clear();
 }
 
 export async function refreshMediaUrl(
@@ -141,8 +148,14 @@ export async function refreshMediaUrl(
   if (pending) return pending;
   spend.set(mediaId, refreshesSpent(mediaId) + 1);
 
-  const request = apiFetch<MediaFile>(`/media/${mediaId}`)
-    .then((row) => row?.url ?? null)
+  const request = apiFetch<MediaFile & { fileMissing?: boolean }>(`/media/${mediaId}?verify=1`)
+    .then((row) => {
+      if (row?.fileMissing) {
+        missing.add(mediaId);
+        return null;
+      }
+      return row?.url ?? null;
+    })
     .catch(() => null)
     .finally(() => {
       inFlight.delete(mediaId);
