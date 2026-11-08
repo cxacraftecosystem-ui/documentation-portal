@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
 
+import { SORTED_FOLDER } from "./support/dataExplorerFake";
 import { GIRIRAJ, WORKSHOP } from "./support/designFidelityFake";
 import { DesignFidelityWebFake, KILN_ID, KILN_NAME } from "./support/designFidelityWebFake";
 
@@ -473,4 +474,23 @@ for (const theme of ["light", "dark"] as const) {
       await context.close();
     }
   });
+}
+
+for (const theme of ["light", "dark"] as const) {
+  for (const [label, size] of [["desktop", DESKTOP], ["tablet", TABLET], ["phone", PHONE]] as const) {
+    test(`impl WebSort ${label}${theme === "dark" ? " · dark" : ""}`, async ({ browser }) => {
+      const { context, page } = await open(browser, size, theme);
+      try {
+        await page.goto(folderUrl(SORTED_FOLDER));
+        await expect(page.getByTestId("download-folder")).toBeVisible();
+        await page.getByRole("button", { name: /^Sort folder:/ }).click();
+        const panel = page.getByRole("dialog", { name: "Sort folder" });
+        await panel.getByRole("radio", { name: "Date recorded" }).click();
+        await expect(panel.getByRole("radio", { name: "Newest" })).toHaveAttribute("aria-checked", "true");
+        await shootAround(page, "WebSort", `${label}${theme === "dark" ? "-dark" : ""}`, [page.getByRole("tablist", { name: "Contents" }), panel], { x: 24, top: 24, bottom: 24 });
+      } finally {
+        await context.close();
+      }
+    });
+  }
 }

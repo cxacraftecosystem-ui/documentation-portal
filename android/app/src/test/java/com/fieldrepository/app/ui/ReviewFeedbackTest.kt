@@ -128,7 +128,7 @@ class ReviewFeedbackTest {
         assertNull(com.fieldrepository.app.explorer.portal.ExplorerPortal.statusParam(DataStatusChoice.DEFAULT))
         assertEquals("REJECTED", com.fieldrepository.app.explorer.portal.ExplorerPortal.statusParam("REJECTED"))
         val state = source("android/app/src/main/java/com/fieldrepository/app/explorer/ui/ExplorerState.kt")
-        assertTrue(state.contains("api.tree(target, statusParam, null)"))
+        assertTrue(state.contains("api.tree(target, statusParam, null, sort = sort)"))
         val api = source("android/app/src/main/java/com/fieldrepository/app/explorer/data/ExplorerApi.kt")
         val manifest = api.substringAfter("suspend fun manifestStream(").substringBefore("): Response")
         assertFalse(manifest.contains("status"))

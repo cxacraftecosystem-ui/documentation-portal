@@ -52,6 +52,8 @@ data class UnifiedSearchResponse(
     val suggestionTotal: Int = 0,
     val type: String? = null,
     val page: Int? = null,
+    val sort: com.fieldrepository.app.explorer.data.ExplorerSortApplied? = null,
+    val sorts: List<String> = emptyList(),
 )
 
 @Serializable

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.db import db
@@ -11,7 +12,7 @@ from app.services.cross_portal_client import (
     PeerUnavailable,
     peer_call,
 )
-from app.services.search_query import RRF_K, Scope
+from app.services.search_query import DEFAULT_SORT, RRF_K, Scope
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ async def ask_peer(
     one_type: str | None,
     page: int,
     filters: dict[str, Any],
+    sort: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     body = {
         "q": q,
@@ -88,6 +90,7 @@ async def ask_peer(
             "email": str(get_value(user, "email") or ""),
             "role": role_value(user),
         },
+        **({"sort": sort} if sort else {}),
     }
     try:
         code, payload = await peer_call(
@@ -181,6 +184,41 @@ def _remote_item(item: dict[str, Any], kind: str) -> dict[str, Any] | None:
     return out
 
 
+def _when(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            moment = datetime.fromisoformat(value.strip())
+        except ValueError:
+            return None
+    else:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+def _sort_value(entry: dict[str, Any], key: str) -> Any:
+    if key == "name":
+        return str(entry.get("title") or "").lower()
+    return _when(entry.get("recordDate"))
+
+
+def order_items(
+    ranked: list[tuple[float, int, int, dict[str, Any]]], sort: tuple[str, str]
+) -> list[tuple[float, int, int, dict[str, Any]]]:
+    key, direction = sort
+
+    def tie(row: tuple[float, int, int, dict[str, Any]]) -> tuple[int, str, str]:
+        return (row[1], str(row[3].get("title") or "").lower(), str(row[3].get("id") or ""))
+
+    present = [r for r in ranked if _sort_value(r[3], key) is not None]
+    missing = [r for r in ranked if _sort_value(r[3], key) is None]
+    present.sort(key=tie)
+    present.sort(key=lambda r: _sort_value(r[3], key), reverse=direction == "desc")
+    missing.sort(key=tie)
+    return present + missing
+
+
 def merge(
     local: dict[str, list[dict[str, Any]]],
     local_totals: dict[str, int],
@@ -188,6 +226,7 @@ def merge(
     *,
     limit: int,
     links: dict[str, str] | None = None,
+    sort: tuple[str, str] = DEFAULT_SORT,
 ) -> list[dict[str, Any]]:
     linked = {remote: local for local, remote in (links or {}).items()}
     remote_by_type: dict[str, dict[str, Any]] = {}
@@ -225,7 +264,10 @@ def merge(
         remote_total = max(0, int(remote.get("total") or 0) - merged)
         if not ranked and not local_total + remote_total:
             continue
-        ranked.sort(key=lambda r: (r[0], r[1], r[2]))
+        if sort[0] == DEFAULT_SORT[0]:
+            ranked.sort(key=lambda r: (r[0], r[1], r[2]))
+        else:
+            ranked = order_items(ranked, sort)
         groups.append(
             {
                 "type": kind,

@@ -134,6 +134,7 @@ import com.fieldrepository.app.explorer.data.ExplorerRequest
 import com.fieldrepository.app.explorer.data.ExplorerSaver
 import com.fieldrepository.app.explorer.data.ExplorerSelectionBody
 import com.fieldrepository.app.explorer.data.ExplorerSize
+import com.fieldrepository.app.explorer.data.ExplorerSortMemory
 import com.fieldrepository.app.explorer.data.ExplorerSource
 import com.fieldrepository.app.explorer.data.ExplorerSpeedMemory
 import com.fieldrepository.app.explorer.data.ExplorerText
@@ -215,6 +216,7 @@ fun rememberExplorerState(api: ExplorerApi): ExplorerState {
             statusParamOf = ExplorerPortal::statusParam,
             online = { ExplorerNetwork.now(context).online },
             onPlace = { ExplorerPlace.write(context, owner, it) },
+            sortStore = ExplorerSortMemory(context, owner),
         )
     }
 }
@@ -261,6 +263,7 @@ fun ExplorerScreen(
     var media by remember { mutableStateOf<Viewing?>(null) }
     var pending by remember { mutableStateOf<Pending?>(null) }
     var reportOpen by rememberSaveable { mutableStateOf(false) }
+    var sortOpen by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf<String?>(null) }
     var include by rememberSaveable { mutableStateOf(INCLUDE_ORDER.map { it.token }.toSet()) }
     var kindFilter by rememberSaveable { mutableStateOf<String?>(null) }
@@ -958,6 +961,9 @@ fun ExplorerScreen(
                     if (state.selecting) {
                         block("kinds") { KindPills(state.files, kindFilter) { kindFilter = it } }
                     }
+                    if (state.sortKeys.isNotEmpty() && state.entries.isNotEmpty()) {
+                        block("sort") { ExplorerSortLine(state.sort, state.sortKeys, onClick = { sortOpen = true }) }
+                    }
                     val folders = state.folders
                     val more = state.cursor != null
                     if (!wide) {
@@ -1203,6 +1209,10 @@ fun ExplorerScreen(
                 pending = Pending(p.title, p.replan(), p.start, p.replan)
             }) else null,
         )
+    }
+
+    if (sortOpen && state.sortKeys.isNotEmpty()) {
+        ExplorerSortSheet(current = state.sort, keys = state.sortKeys, onPick = { state.changeSort(it) }, onDismiss = { sortOpen = false })
     }
 
     if (reportOpen) {

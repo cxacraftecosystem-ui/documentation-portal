@@ -42,6 +42,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.data.Naming
+import com.fieldrepository.app.explorer.data.ExplorerSort
+import com.fieldrepository.app.explorer.data.ExplorerSortMemory
+import com.fieldrepository.app.explorer.data.ExplorerSortStore
+import com.fieldrepository.app.explorer.data.ExplorerSorts
+import com.fieldrepository.app.explorer.portal.ExplorerPortal
 import com.fieldrepository.app.transcript.data.CopyTrack
 import com.fieldrepository.app.transcript.data.DataRecording
 import com.fieldrepository.app.transcript.data.DataTranscriptFilters
@@ -142,7 +147,7 @@ object ExplorerTranscriptStatus {
     )
 }
 
-private class TranscriptPage(val rows: List<TranscriptRowModel>, val cursor: String?, val folder: Boolean, val nextOffset: Int? = null)
+private class TranscriptPage(val rows: List<TranscriptRowModel>, val cursor: String?, val folder: Boolean, val nextOffset: Int? = null, val sorts: List<String> = emptyList(), val sent: String? = null)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -157,9 +162,13 @@ internal fun ExplorerTranscriptsTab(
     onMessage: (String) -> Unit,
     backend: TranscriptBackend? = null,
     more: ExplorerMore? = null,
+    sortStore: ExplorerSortStore? = null,
 ) {
     val context = LocalContext.current
     val server = remember(backend) { backend ?: TranscriptPortal.backend(context) }
+    val sorts = remember(ExplorerIdentity(sortStore)) { sortStore ?: ExplorerSortMemory(context, ExplorerPortal.userId(context)) }
+    var chosen by remember(sorts) { mutableStateOf(runCatching { sorts.read(ExplorerSorts.TRANSCRIPTS_LEVEL) }.getOrNull()) }
+    var sortOpen by rememberSaveable { mutableStateOf(false) }
     val extras = remember(ExplorerIdentity(more)) { more ?: ExplorerMoreApi.of(context) }
     val scope = rememberCoroutineScope()
     var q by rememberSaveable(path, initialQuery) { mutableStateOf(initialQuery) }
@@ -178,14 +187,17 @@ internal fun ExplorerTranscriptsTab(
         return rows.filter { r -> language.isBlank() || summaries[r.mediaId]?.languages?.any { it.code == language } == true }
     }
 
-    LaunchedEffect(path, status, filters, attempt) {
+    LaunchedEffect(path, status, filters, attempt, chosen) {
         if (q.isNotBlank()) delay(350)
         loading = true
         failed = false
         try {
             page = try {
-                val list = extras.transcripts(path, q.trim().ifBlank { null }, status)
-                TranscriptPage(folderRows(list), null, true, list.nextOffset)
+                val sorted = ExplorerSorts.fetch(chosen, ExplorerSorts.TRANSCRIPTS, { l: ExplorerTranscriptList -> l.sorts }) { sort ->
+                    extras.transcripts(path, q.trim().ifBlank { null }, status, sort = sort)
+                }
+                val list = sorted.value
+                TranscriptPage(folderRows(list), null, true, list.nextOffset, ExplorerSorts.offered(list.sorts), sorted.sent)
             } catch (missing: retrofit2.HttpException) {
                 if (missing.code() != 404) throw missing
                 val data = server.dataPage(filters, null)
@@ -239,6 +251,8 @@ internal fun ExplorerTranscriptsTab(
     }
 
     val rows = page?.rows.orEmpty()
+    val sortKeys = page?.sorts.orEmpty()
+    val sort = ExplorerSorts.resolve(chosen, sortKeys, ExplorerSorts.TRANSCRIPTS)
     val counts = TranscriptStatus.entries.associateWith { s -> rows.count { it.status == s } }
     val countsKnown = !loading && page != null
     val moreToLoad = page?.folder == true && page?.nextOffset != null
@@ -289,6 +303,7 @@ internal fun ExplorerTranscriptsTab(
                 }
             }
         }
+        if (sortKeys.isNotEmpty() && rows.isNotEmpty()) ExplorerSortLine(sort, sortKeys, onClick = { sortOpen = true }, tag = "explorer.transcripts.sort")
         if (loading) FieldLinearProgressIndicator(Modifier.fillMaxWidth())
         if (failed) StatusCard(ExplorerStatus.FAILED, ExplorerUiText.transcriptsFailed, action = ExplorerUiText.tryNow, tag = "explorer.transcripts.failed") { attempt++ }
         if (!loading && !failed && shown.isEmpty()) HintLine(ExplorerUiText.noTranscripts)
@@ -298,10 +313,12 @@ internal fun ExplorerTranscriptsTab(
             OutlinedButton(
                 onClick = {
                     scope.launch {
-                        runCatching { extras.transcripts(path, q.trim().ifBlank { null }, status, after) }
+                        val sent = page?.sent
+                        runCatching { extras.transcripts(path, q.trim().ifBlank { null }, status, after, sort = sent) }
                             .onSuccess { got ->
+                                if (page?.sent != sent) return@onSuccess
                                 val have = rows.map { it.mediaId }.toSet()
-                                page = TranscriptPage(rows + folderRows(got).filter { it.mediaId !in have }, null, true, got.nextOffset)
+                                page = TranscriptPage(rows + folderRows(got).filter { it.mediaId !in have }, null, true, got.nextOffset, sortKeys, sent)
                             }
                             .onFailure { if (it is CancellationException) throw it; onMessage(ExplorerUiText.transcriptsFailed) }
                     }
@@ -325,6 +342,17 @@ internal fun ExplorerTranscriptsTab(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).testTag("transcript.data.more"),
             ) { Text(ExplorerUiText.moreTranscripts) }
         }
+    }
+    if (sortOpen && sortKeys.isNotEmpty()) {
+        ExplorerSortSheet(
+            current = sort,
+            keys = sortKeys,
+            onPick = { next: ExplorerSort ->
+                chosen = next
+                runCatching { sorts.write(ExplorerSorts.TRANSCRIPTS_LEVEL, next) }
+            },
+            onDismiss = { sortOpen = false },
+        )
     }
 }
 

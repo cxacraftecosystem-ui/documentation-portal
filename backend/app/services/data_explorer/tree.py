@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.data_explorer import downloads, facts, slim
+from app.services.data_explorer import downloads, facts, slim, sorting
 
 TREE_PAGE_MAX = 500
 
@@ -62,6 +62,8 @@ async def shape(
     lean: bool,
     cursor: str | None = None,
     limit: int | None = None,
+    sort: sorting.Sort | None = None,
+    keep_order: bool = False,
 ) -> tuple[list[dict[str, Any]], int, str | None]:
     for entry in entries:
         _links(entry)
@@ -73,12 +75,15 @@ async def shape(
             for entry in entries:
                 if entry.get("_txMedia") and not entry.get("content"):
                     entry["content"] = texts.get(str(entry["_txMedia"]), "")
+    if not keep_order:
+        chosen = sort or sorting.TREE_DEFAULT
+        await sorting.prepare(entries, chosen)
+        entries = sorting.order(entries, chosen)
     public = [{k: v for k, v in e.items() if not k.startswith("_")} for e in entries]
     if lean:
         for entry in public:
             if entry.get("transcriptPath") and "content" in entry:
                 entry.pop("content", None)
-    public.sort(key=lambda e: (0 if e["kind"] == "folder" else 1, e["name"].lower()))
     total = len(public)
     start = _cursor(cursor)
     size = _limit(limit)
