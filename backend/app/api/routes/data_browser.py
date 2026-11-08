@@ -306,7 +306,8 @@ DATA_STATUSES = ("APPROVED", "PENDING", "NEEDS_REVISION", "REJECTED")
 
 
 def legacy_status(value: str | None, flt: explorer_filters.Filter | None) -> str | None:
-    if flt is not None and flt.statuses:
+    chosen = explorer_filters.real(flt)
+    if chosen is not None and chosen.statuses:
         return None
     return data_status(value)
 
