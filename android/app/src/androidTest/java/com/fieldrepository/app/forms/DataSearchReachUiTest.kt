@@ -46,6 +46,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -56,6 +57,19 @@ class DataSearchReachUiTest {
     val compose = createComposeRule()
 
     private val asked: MutableList<String> = Collections.synchronizedList(mutableListOf())
+
+    @After
+    fun quiesce() {
+        var seen = -1
+        compose.waitUntil(15_000) {
+            compose.waitForIdle()
+            val now = asked.size
+            val settled = now == seen
+            seen = now
+            if (!settled) Thread.sleep(500)
+            settled
+        }
+    }
 
     private val artisans = 31
 

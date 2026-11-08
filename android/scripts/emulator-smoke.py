@@ -358,13 +358,21 @@ def launch_clean(tag):
 
 def answer_prompt(tag, answer):
     state, root = launch_clean(tag)
-    if state == "prompt":
-        hit = find(root, answer, None)
-        if hit:
-            tap(hit[1])
-            settle(2)
-        else:
-            log(f"{tag}: the prompt has no button matching {answer!r}")
+    if state != "prompt":
+        return state
+    for attempt in range(1, 4):
+        hit = find(root, answer, None) if root is not None else None
+        if not hit:
+            if attempt == 1:
+                log(f"{tag}: the prompt has no button matching {answer!r}")
+            return state
+        settle(1.0)
+        tap(hit[1])
+        settle(2)
+        root = ui_dump(f"{tag}-after-tap-{attempt}")
+        if root is None or not any((node.get("package") or "") in PERMISSION_UI for node in root.iter("node")):
+            return state
+        log(f"{tag}: the prompt is still up after tap {attempt}; tapping again")
     return state
 
 

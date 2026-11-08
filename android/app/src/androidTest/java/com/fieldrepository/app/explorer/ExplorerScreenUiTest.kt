@@ -252,20 +252,26 @@ class ExplorerScreenUiTest {
         compose.waitForIdle()
     }
 
-    private fun scrollTo(tag: String) {
-        compose.onNodeWithTag("explorer.tree").performScrollToNode(hasTestTag(tag))
+    private fun tryScroll(tag: String): Boolean {
+        compose.waitForIdle()
+        return runCatching { compose.onNodeWithTag("explorer.tree").performScrollToNode(hasTestTag(tag)) }.isSuccess
+    }
+
+    private fun scrollTo(tag: String, timeoutMillis: Long = 10_000) {
+        compose.waitUntil(timeoutMillis) { tryScroll(tag) }
+        compose.waitForIdle()
     }
 
     private fun reach(tag: String, timeoutMillis: Long = 60_000) {
         compose.waitUntil(timeoutMillis) {
-            if (runCatching { scrollTo(tag) }.isSuccess) {
+            if (tryScroll(tag)) {
                 true
             } else {
-                runCatching { scrollTo("explorer.more") }
-                compose.waitForIdle()
+                tryScroll("explorer.more")
                 false
             }
         }
+        compose.waitForIdle()
     }
 
     private fun fromMenu(id: String, item: String) {

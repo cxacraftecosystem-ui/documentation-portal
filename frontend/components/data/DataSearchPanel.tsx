@@ -245,7 +245,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
   const params = useSearchParams();
   const [fromUrl] = useState(() => searchFromParams(params));
   const [draft, setDraft] = useState(fromUrl.state.q);
-  const [state, setState] = useState<SearchState>(fromUrl.state);
+  const [state, setState] = useState<SearchState>(() => (portalScope ? { ...fromUrl.state, scope: portalScope } : fromUrl.state));
   const [seenPortalScope, setSeenPortalScope] = useState<Scope | null>(portalScope);
   if (portalScope !== seenPortalScope) {
     setSeenPortalScope(portalScope);
