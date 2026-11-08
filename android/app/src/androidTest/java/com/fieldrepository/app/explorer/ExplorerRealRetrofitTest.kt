@@ -117,7 +117,7 @@ class ExplorerRealRetrofitTest {
         val client = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
         val retrofit = Retrofit.Builder()
             .baseUrl(server.url("/"))
-            .client(client)
+            .callFactory(MainThreadCalls.factory(client))
             .addConverterFactory(ExplorerJson.asConverterFactory("application/json".toMediaType()))
             .build()
         api = retrofit.create(ExplorerApi::class.java)

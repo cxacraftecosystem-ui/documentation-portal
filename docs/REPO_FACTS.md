@@ -131,7 +131,7 @@ no key is skipped wherever it sits.
 | Backend unit (`backend/tests/`) | 268 | 3030 `def test_` | `python -m pytest -q` from `backend/` |
 | Web end-to-end (`frontend/e2e/`) | 171 | 1772 `test(` | Playwright, `frontend/playwright.config.ts` |
 | Android unit (`android/app/src/test/`) | 218 | 1667 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
-| Android instrumented | 49 | 252 `@Test` | not run in CI |
+| Android instrumented | 50 | 252 `@Test` | not run in CI |
 
 The backend case count is `def test_` occurrences; pytest reports a larger number because
 parametrised cases expand. Neither the backend suite nor the e2e suite is a CI gate today — see
