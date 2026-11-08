@@ -27,6 +27,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -119,7 +122,7 @@ class ExplorerScreenUiTest {
 
     private class Fake : ExplorerApi {
         val transcriptCalls = AtomicInteger(0)
-        val calls = mutableListOf<String>()
+        val calls: MutableList<String> = java.util.concurrent.CopyOnWriteArrayList()
         val folder = ExplorerEntry(name = "Bagru workshop", path = "w/bagru", kind = "folder", recordType = "workshop")
         val video = ExplorerEntry(name = "Dabu.mp4", path = "w/v1", mediaId = "v1", mediaType = "VIDEO", sizeBytes = 701L * 1024 * 1024, previewPath = "/data/media/v1/preview", transcriptAvailable = false)
         val photo = ExplorerEntry(name = "Block.jpg", path = "w/p1", mediaId = "p1", mediaType = "IMAGE", sizeBytes = 2_700_000, thumbnailPath = "/data/media/p1/thumbnail")
@@ -144,12 +147,21 @@ class ExplorerScreenUiTest {
         var pageSize = 10
         var tableTotal: Int? = null
         var unfiled = false
+        var sortable = false
 
-        private fun longPage(path: String, cursor: String?, n: Int): ExplorerTree {
+        private fun longPage(path: String, cursor: String?, n: Int, sort: String? = null): ExplorerTree {
             val from = cursor?.toInt() ?: 0
             val until = minOf(from + pageSize, n)
-            val entries = ((from + 1)..until).map { ExplorerEntry(name = "Photo $it.jpg", path = "w/q$it", mediaId = "q$it", mediaType = "IMAGE") }
-            return ExplorerTree(path = path, crumbs = crumbs, info = info, entries = entries, nextCursor = if (until < n) "$until" else null, total = n, taxonomies = taxonomies, taxonomy = "workshop")
+            val bySize = sortable && sort?.startsWith("size") == true
+            val order = if (bySize) (n downTo 1).toList() else (1..n).toList()
+            val entries = order.subList(from, until).map {
+                ExplorerEntry(name = "Photo $it.jpg", path = "w/q$it", mediaId = "q$it", mediaType = "IMAGE", sizeBytes = if (sortable) it * 1_000L else null)
+            }
+            val applied = if (sortable) com.fieldrepository.app.explorer.data.ExplorerSortApplied(if (bySize) "size" else "name", if (bySize) "desc" else "asc") else null
+            return ExplorerTree(
+                path = path, crumbs = crumbs, info = info, entries = entries, nextCursor = if (until < n) "$until" else null, total = n,
+                taxonomies = taxonomies, taxonomy = "workshop", sort = applied, sorts = if (sortable) listOf("name", "size") else emptyList(),
+            )
         }
 
         private fun tablePage(total: Int, offset: Int): ExplorerReport {
@@ -159,7 +171,7 @@ class ExplorerScreenUiTest {
 
         override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int, sort: String?): ExplorerTree {
             calls += "tree:$path:${cursor.orEmpty()}:$slim"
-            long?.let { return longPage(path, cursor, it) }
+            long?.let { return longPage(path, cursor, it, sort) }
             return if (cursor == null) {
                 ExplorerTree(path = path, crumbs = crumbs, info = info, entries = listOf(folder, video, photo, audio), nextCursor = "next", total = 5, taxonomies = taxonomies, taxonomy = "workshop")
             } else {
@@ -628,6 +640,42 @@ class ExplorerScreenUiTest {
         compose.waitUntil(5_000) { more.shared.isNotEmpty() }
         assertEquals("w", more.shared.first().path)
         assertEquals(7, more.shared.first().expiresInDays)
+    }
+
+    @Test fun changingTheSortWhileScrollingNeverBreaksTheList() {
+        val fake = Fake().apply { long = 120; pageSize = 40; sortable = true }
+        var held: com.fieldrepository.app.explorer.ui.ExplorerState? = null
+        compose.setContent {
+            MaterialTheme {
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                val state = androidx.compose.runtime.remember {
+                    com.fieldrepository.app.explorer.ui.ExplorerState(
+                        api = fake, scope = scope, cache = null, rootName = "Repository", defaultStatus = null, statusParamOf = { it },
+                    )
+                }
+                held = state
+                ExplorerScreen(onBack = {}, api = fake, more = more, startPath = "w", held = state, search = { Text("search-slot") })
+            }
+        }
+        compose.waitUntil(5_000) { fake.calls.any { it.startsWith("tree:w") } }
+        compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("explorer.sort")).fetchSemanticsNodes().isNotEmpty() }
+        val state = held!!
+        val sorts = listOf(
+            com.fieldrepository.app.explorer.data.ExplorerSort("size", "desc"),
+            com.fieldrepository.app.explorer.data.ExplorerSort("name", "asc"),
+        )
+        repeat(30) { round ->
+            compose.runOnUiThread { state.changeSort(sorts[round % 2]) }
+            compose.onNodeWithTag("explorer.tree").performTouchInput { swipeUp() }
+            if (round % 3 == 2) compose.onNodeWithTag("explorer.tree").performTouchInput { swipeDown() }
+            if (round % 5 == 4) compose.runOnUiThread { state.loadMore() }
+        }
+        compose.runOnUiThread { state.changeSort(sorts[1]) }
+        compose.waitUntil(10_000) { compose.runOnUiThread { !state.loading && state.entries.firstOrNull()?.name == "Photo 1.jpg" } }
+        val names = compose.runOnUiThread { state.entries.map { it.name } }
+        assertEquals(names.distinct(), names)
+        compose.onNodeWithTag("explorer.tree").performScrollToIndex(0)
+        compose.onNodeWithTag("explorer.tree").assertExists()
     }
 
     @QFeature("X10")

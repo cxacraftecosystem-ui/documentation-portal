@@ -779,11 +779,16 @@ fun ExplorerScreen(
     val size = stats[state.path]
     val large = LocalDensity.current.fontScale >= 1.5f
     val network = if (link.metered) ExplorerUiText.mobileData else ExplorerUiText.wifi
-    val fileQuery = viewQuery?.takeIf { it.first == state.path && state.tab == ExplorerTab.FILES }?.second
-    val shownFiles = state.files.filter { f ->
-        (kindFilter == null || ExplorerKind.ofMediaType(f.mediaType).token == kindFilter) &&
-            (fileQuery == null || f.name.contains(fileQuery, ignoreCase = true))
+    fun fileQueryNow(): String? = viewQuery?.takeIf { it.first == state.path && state.tab == ExplorerTab.FILES }?.second
+    fun visibleFiles(): List<ExplorerEntry> {
+        val query = fileQueryNow()
+        val kind = kindFilter
+        return state.files.filter { f ->
+            (kind == null || ExplorerKind.ofMediaType(f.mediaType).token == kind) &&
+                (query == null || f.name.contains(query, ignoreCase = true))
+        }
     }
+    val shownFiles = visibleFiles()
 
     val audio by com.fieldrepository.app.explorer.data.ExplorerAudio.state.collectAsState()
     val playingLine: (ExplorerEntry) -> String? = { file ->
@@ -948,6 +953,7 @@ fun ExplorerScreen(
                     if (state.entries.isEmpty()) {
                         block("empty") { EmptyFolderCard(state.folderName, onRecordNow?.let { record -> { record(state.path, state.folderName) } }) }
                     }
+                    val fileQuery = fileQueryNow()
                     if (fileQuery != null) {
                         block("filequery") {
                             ExplorerPill(
@@ -965,9 +971,10 @@ fun ExplorerScreen(
                         block("sort") { ExplorerSortLine(state.sort, state.sortKeys, onClick = { sortOpen = true }) }
                     }
                     val folders = state.folders
+                    val listed = visibleFiles()
                     val more = state.cursor != null
                     if (!wide) {
-                        val total = folders.size + shownFiles.size
+                        val total = folders.size + listed.size
                         itemsIndexed(folders, key = { _, f -> f.key }) { index, folder ->
                             Box(Modifier.fillMaxWidth().padding(bottom = if (index == total - 1) 12.dp else 0.dp)) {
                                 FolderRow(
@@ -982,7 +989,7 @@ fun ExplorerScreen(
                                 )
                             }
                         }
-                        itemsIndexed(shownFiles, key = { _, f -> f.key }) { index, file ->
+                        itemsIndexed(listed, key = { _, f -> f.key }) { index, file ->
                             val at = folders.size + index
                             Box(Modifier.fillMaxWidth().padding(bottom = if (at == total - 1) 12.dp else 0.dp)) {
                                 fileRow(file, at == 0, at == total - 1, true)
@@ -1004,7 +1011,7 @@ fun ExplorerScreen(
                                 )
                             }
                         }
-                        val pairs = shownFiles.chunked(2)
+                        val pairs = listed.chunked(2)
                         itemsIndexed(pairs, key = { _, pair -> pair.joinToString("|") { it.key } }) { index, pair ->
                             val first = index == 0
                             val last = index == pairs.lastIndex

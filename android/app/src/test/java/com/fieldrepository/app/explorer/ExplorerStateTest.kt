@@ -34,7 +34,7 @@ import java.io.IOException
 class ExplorerStateTest {
     @get:Rule val temp = TemporaryFolder()
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
 
     @After fun stop() = scope.cancel()
 
