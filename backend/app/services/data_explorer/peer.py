@@ -7,7 +7,7 @@ from app.core.db import db
 from app.core.deps import get_value, role_value
 from app.services import cross_portal
 from app.services.cross_portal_client import SEARCH_TIMEOUT_SECONDS, PeerUnavailable, peer_call
-from app.services.data_explorer.filters import Filter, day_bounds
+from app.services.data_explorer.filters import NONE, Filter, day_bounds, real
 
 PAGE_SIZE_MAX = 20
 STATUS_OK = "ok"
@@ -126,6 +126,7 @@ async def explore(
     portal: str,
     portal_label: str,
 ) -> dict[str, Any]:
+    flt = real(flt) or NONE
     size = max(1, min(PAGE_SIZE_MAX, int(page_size)))
     skipped = not_applied(flt)
     if not active:

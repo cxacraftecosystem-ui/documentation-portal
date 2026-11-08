@@ -124,6 +124,10 @@ class Filter:
 NONE = Filter()
 
 
+def real(flt: Any) -> Filter | None:
+    return flt if isinstance(flt, Filter) else None
+
+
 def has_design_workshops() -> bool:
     return hasattr(db, "designworkshop")
 
@@ -290,6 +294,7 @@ def _language_clause(codes: list[str]) -> dict[str, Any]:
 
 
 def media_where(flt: Filter | None) -> dict[str, Any] | None:
+    flt = real(flt)
     if flt is None or not flt.active:
         return None
     parts: list[dict[str, Any]] = []
@@ -323,6 +328,7 @@ def media_where(flt: Filter | None) -> dict[str, Any] | None:
 
 
 def record_status_where(flt: Filter | None) -> dict[str, Any] | None:
+    flt = real(flt)
     if flt is None or not flt.statuses:
         return None
     return {"status": {"in": list(flt.statuses)}}
@@ -337,6 +343,7 @@ def _and(base: dict[str, Any] | None, extra: dict[str, Any] | None) -> dict[str,
 
 
 def narrow(scope: Any, flt: Filter | None) -> Any:
+    flt = real(flt)
     if flt is None or not flt.active or not dataclasses.is_dataclass(scope):
         return scope
     changes: dict[str, Any] = {"media": _and(getattr(scope, "media", None), media_where(flt))}
@@ -351,6 +358,7 @@ STATUS_KINDS = frozenset({"artisan", "product", "tool", "workshop", "interview",
 
 
 def browse_where(kind: str, flt: Filter | None) -> dict[str, Any] | None:
+    flt = real(flt)
     from app.services.record_filters import artisan_workshop_clause, tool_workshop_clause
 
     if flt is None or not flt.active or kind == "media":
@@ -448,6 +456,7 @@ def _documents_wanted(flt: Filter) -> bool:
 
 
 def prune(entries: list[dict[str, Any]], flt: Filter | None) -> list[dict[str, Any]]:
+    flt = real(flt)
     if flt is None or not flt.active:
         return entries
     kept: list[dict[str, Any]] = []
@@ -470,6 +479,7 @@ def prune(entries: list[dict[str, Any]], flt: Filter | None) -> list[dict[str, A
 def drop_empty(
     entries: list[dict[str, Any]], flt: Filter | None
 ) -> tuple[list[dict[str, Any]], int]:
+    flt = real(flt)
     if flt is None or not flt.active:
         return entries, 0
     kept: list[dict[str, Any]] = []
@@ -488,6 +498,7 @@ def drop_empty(
 def keep_records(
     rows: list[Any], kind: str, flt: Filter | None, media: list[Any] | None = None
 ) -> list[Any]:
+    flt = real(flt)
     if flt is None or not flt.active or not rows:
         return rows
 
@@ -602,6 +613,7 @@ REPORT_KINDS = {
 
 
 def filter_report(data: dict[str, list[Any]], flt: Filter | None) -> dict[str, list[Any]]:
+    flt = real(flt)
     if flt is None or not flt.active:
         return data
     media = data.get("media")
@@ -623,6 +635,7 @@ def filter_report(data: dict[str, list[Any]], flt: Filter | None) -> dict[str, l
 
 
 def as_query(flt: Filter | None) -> dict[str, str]:
+    flt = real(flt)
     if flt is None:
         return {}
     out: dict[str, str] = {}
@@ -676,6 +689,7 @@ async def labels(flt: Filter) -> dict[str, dict[str, str]]:
 
 
 async def describe(flt: Filter | None) -> dict[str, Any]:
+    flt = real(flt)
     if flt is None or not flt.active:
         return {"active": [], "count": 0}
     names = await labels(flt)
@@ -780,6 +794,7 @@ def _hint(*parts: Any) -> str | None:
 
 
 async def facets(scope: Any, flt: Filter) -> list[dict[str, Any]]:
+    flt = real(flt) or NONE
     records = getattr(scope, "records", None) or None
     out: list[dict[str, Any]] = []
 
@@ -995,6 +1010,7 @@ SEARCH_KINDS = {"artisans": "artisan", "workshops": "workshop", "products": "pro
 
 
 def search_wheres(wheres: dict[str, Any], flt: Filter | None) -> dict[str, Any]:
+    flt = real(flt)
     if flt is None or not flt.active:
         return wheres
     out = dict(wheres)

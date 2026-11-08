@@ -61,11 +61,10 @@ def _browser() -> Any:
     return data_browser
 
 
-async def download_scope(user: Any, flt: filters.Filter | None = None) -> Any:
+async def download_scope(user: Any) -> Any:
     scope = await _browser()._scope_for(user)
     narrowed = getattr(scope, "for_download", None)
-    scope = narrowed() if callable(narrowed) else scope
-    return filters.narrow(scope, flt)
+    return narrowed() if callable(narrowed) else scope
 
 
 def _sort_or_422(raw: str | None, allowed: tuple[str, ...], default: sorting.Sort) -> sorting.Sort:
@@ -214,7 +213,7 @@ async def folder_stats(
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
     browser = _browser()
-    scope = await download_scope(current_user, flt)
+    scope = filters.narrow(await download_scope(current_user), flt)
     files, truncated = await walk.manifest_files(
         browser._list_level, scope, [(browser._norm(path), "")], _include(include), fill=False
     )
@@ -333,7 +332,7 @@ async def transcript_bundle(
     current_user: Any = Depends(require_dataset_downloader),
 ) -> StreamingResponse:
     browser = _browser()
-    scope = await download_scope(current_user, flt)
+    scope = filters.narrow(await download_scope(current_user), flt)
     norm = browser._norm(path)
     files, _truncated = await walk.manifest_files(
         browser._list_level, scope, [(norm, "")], {"transcripts"}, fill=False
@@ -445,7 +444,7 @@ async def transcript_list(
     chosen = _sort_or_422(
         sort if isinstance(sort, str) else None, sorting.TRANSCRIPT_KEYS, sorting.TRANSCRIPT_DEFAULT
     )
-    scope = await download_scope(current_user, flt)
+    scope = filters.narrow(await download_scope(current_user), flt)
     norm = _browser()._norm(path)
     if chosen == sorting.TRANSCRIPT_DEFAULT:
         seen, by_id, truncated = await _folder_transcripts(scope, norm, offset)
@@ -523,7 +522,7 @@ async def transcript_export_docx(
     from app.services.data_explorer import report_cache
 
     browser = _browser()
-    scope = await download_scope(current_user, flt)
+    scope = filters.narrow(await download_scope(current_user), flt)
     norm = browser._norm(path)
     try:
         async with report_cache.QUEUE.slot():
@@ -607,7 +606,7 @@ async def browse_page(
     chosen = _sort_or_422(
         sort if isinstance(sort, str) else None, sorting.BROWSE_KEYS, sorting.BROWSE_DEFAULT
     )
-    scope = await download_scope(current_user, flt)
+    scope = filters.narrow(await download_scope(current_user), flt)
     page_number, size = browse.page_args(page, pageSize)
     answer = await browse.page(
         _kind(type),
@@ -640,7 +639,7 @@ async def browse_record_media(
     linked = browse.record_media_where(kind, record_id)
     if linked is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown record type")
-    scope = await download_scope(current_user, flt)
+    scope = filters.narrow(await download_scope(current_user), flt)
     parts: list[dict[str, Any]] = [linked, {"removedAt": None}]
     if getattr(scope, "media", None):
         parts.append(scope.media)
