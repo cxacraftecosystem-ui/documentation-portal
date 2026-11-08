@@ -1,9 +1,9 @@
 import { apiFetch, buildQuery } from "@/lib/api";
 import type { QueryParams } from "@/lib/dataExplorer/wire";
 
-export type FacetKey = "workshop" | "designWorkshop" | "craft" | "artisan" | "mediaType" | "status" | "recordedBy" | "language";
+export type FacetKey = "recordType" | "workshop" | "designWorkshop" | "craft" | "artisan" | "mediaType" | "status" | "recordedBy" | "language" | "hasTranscript";
 
-export type FilterParam = "workshopIds" | "designWorkshopIds" | "craftIds" | "artisanIds" | "mediaTypes" | "statuses" | "recordedByIds" | "languages";
+export type FilterParam = "recordTypes" | "workshopIds" | "designWorkshopIds" | "craftIds" | "artisanIds" | "mediaTypes" | "statuses" | "recordedByIds" | "languages" | "hasTranscript";
 
 export type Portal = "this" | "other";
 
@@ -15,6 +15,7 @@ export type ExplorerFilters = {
 };
 
 export const FILTER_PARAMS: readonly { param: FilterParam; facet: FacetKey; label: string }[] = [
+  { param: "recordTypes", facet: "recordType", label: "Record type" },
   { param: "workshopIds", facet: "workshop", label: "Workshop" },
   { param: "designWorkshopIds", facet: "designWorkshop", label: "Design workshop" },
   { param: "craftIds", facet: "craft", label: "Craft" },
@@ -22,18 +23,27 @@ export const FILTER_PARAMS: readonly { param: FilterParam; facet: FacetKey; labe
   { param: "mediaTypes", facet: "mediaType", label: "Media type" },
   { param: "statuses", facet: "status", label: "Review status" },
   { param: "recordedByIds", facet: "recordedBy", label: "Recorded by" },
-  { param: "languages", facet: "language", label: "Language" }
+  { param: "languages", facet: "language", label: "Language" },
+  { param: "hasTranscript", facet: "hasTranscript", label: "Has transcript" }
 ];
 
 export const PORTAL_VALUES: readonly Portal[] = ["this", "other"];
 
 export const DEFAULT_PORTALS: Portal[] = ["this"];
 
-export const FACET_ORDER: readonly string[] = ["portal", "workshop", "designWorkshop", "craft", "artisan", "mediaType", "status", "recordedBy", "language", "date"];
+export const FACET_ORDER: readonly string[] = ["portal", "recordType", "workshop", "designWorkshop", "craft", "artisan", "mediaType", "status", "recordedBy", "language", "hasTranscript", "date"];
 
 export const MEDIA_TYPE_LABELS: Record<string, string> = { IMAGE: "Images", VIDEO: "Videos", AUDIO: "Audio", PDF: "PDFs", DOCUMENT: "Documents", OTHER: "Other" };
 
 export const STATUS_LABELS: Record<string, string> = { DRAFT: "Draft", PENDING: "Pending", APPROVED: "Approved", REJECTED: "Rejected", NEEDS_REVISION: "Needs revision" };
+
+export const RECORD_TYPE_VALUES = ["artisans", "workshops", "products", "tools", "media", "designWorkshops"] as const;
+
+export const RECORD_TYPE_LABELS: Record<string, string> = { artisans: "Artisans", workshops: "Workshops", products: "Products", tools: "Tools", media: "Media", designWorkshops: "Design workshops" };
+
+export const TRANSCRIPT_VALUES = ["yes", "no"] as const;
+
+export const TRANSCRIPT_LABELS: Record<string, string> = { yes: "Yes", no: "No" };
 
 export type FacetOption = { value: string; label: string; hint: string | null; count: number };
 
@@ -81,7 +91,7 @@ export type PeerPage = {
 };
 
 export const EMPTY_FILTERS: ExplorerFilters = {
-  values: { workshopIds: [], designWorkshopIds: [], craftIds: [], artisanIds: [], mediaTypes: [], statuses: [], recordedByIds: [], languages: [] },
+  values: { recordTypes: [], workshopIds: [], designWorkshopIds: [], craftIds: [], artisanIds: [], mediaTypes: [], statuses: [], recordedByIds: [], languages: [], hasTranscript: [] },
   dateFrom: "",
   dateTo: "",
   portals: [...DEFAULT_PORTALS]
@@ -106,6 +116,8 @@ export function readFilters(params: ParamsLike | null | undefined): ExplorerFilt
   if (!params) return cloneFilters(EMPTY_FILTERS);
   const values = { ...EMPTY_FILTERS.values };
   for (const { param } of FILTER_PARAMS) values[param] = listOf(params, param);
+  values.recordTypes = RECORD_TYPE_VALUES.filter((value) => values.recordTypes.some((picked) => picked.toLowerCase() === value.toLowerCase()));
+  values.hasTranscript = values.hasTranscript.map((value) => value.toLowerCase()).filter((value) => (TRANSCRIPT_VALUES as readonly string[]).includes(value)).slice(-1);
   const portals = listOf(params, "portals").filter((value): value is Portal => (PORTAL_VALUES as readonly string[]).includes(value));
   const from = (params.get("dateFrom") ?? "").trim();
   const to = (params.get("dateTo") ?? "").trim();
@@ -177,6 +189,23 @@ export function withValues(filters: ExplorerFilters, param: FilterParam, values:
   return { ...cloneFilters(filters), values: { ...filters.values, [param]: values } };
 }
 
+export function withTranscript(filters: ExplorerFilters, choice: string): ExplorerFilters {
+  const value = (TRANSCRIPT_VALUES as readonly string[]).includes(choice) ? [choice] : [];
+  return withValues(filters, "hasTranscript", value);
+}
+
+export function searchTypes(filters: ExplorerFilters, offered: readonly string[]): string[] | null {
+  return outerSearchTypes(filters.values.recordTypes, filters.values.hasTranscript[0] ?? "", offered);
+}
+
+export function outerSearchTypes(picked: readonly string[], choice: string, offered: readonly string[]): string[] | null {
+  const base = picked.length ? picked.flatMap((type) => (type === "media" ? ["media", "transcripts"] : [type])).filter((type) => offered.includes(type)) : [];
+  if (picked.length && !base.length) return null;
+  if (choice === "yes") return base.length ? base.filter((type) => type !== "media") : ["transcripts"];
+  if (choice === "no") return base.filter((type) => type !== "transcripts");
+  return base;
+}
+
 export function withDates(filters: ExplorerFilters, dateFrom: string, dateTo: string): ExplorerFilters {
   return { ...cloneFilters(filters), dateFrom, dateTo };
 }
@@ -204,6 +233,8 @@ export function describeFilters(filters: ExplorerFilters, facets: readonly Facet
       if (known) return known;
       if (param === "mediaTypes") return MEDIA_TYPE_LABELS[value] ?? value;
       if (param === "statuses") return STATUS_LABELS[value] ?? value;
+      if (param === "recordTypes") return RECORD_TYPE_LABELS[value] ?? value;
+      if (param === "hasTranscript") return TRANSCRIPT_LABELS[value] ?? value;
       return value;
     });
     out.push(`${label}: ${names.join(", ")}`);

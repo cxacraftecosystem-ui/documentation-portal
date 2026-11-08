@@ -32,6 +32,7 @@ class Scope:
     date_to: datetime | None = None
     workshop_ids: list[str] = field(default_factory=list)
     artisan_ids: list[str] = field(default_factory=list)
+    media_transcript: str | None = None
 
 
 @dataclass
@@ -95,6 +96,13 @@ def _where(scope: Scope, p: _Params) -> str:
         if "none" in scope.workshop_ids:
             parts.append('cardinality(d."workshopIds") = 0')
         clauses.append("(" + " OR ".join(parts) + ")")
+    if scope.media_transcript in ("yes", "no"):
+        found = "EXISTS" if scope.media_transcript == "yes" else "NOT EXISTS"
+        clauses.append(
+            "(d.\"entityType\" NOT IN ('media', 'transcripts') OR "
+            f"{found} (SELECT 1 FROM \"MediaFile\" hm WHERE hm.\"id\" = d.\"entityId\" "
+            "AND hm.\"transcriptText\" IS NOT NULL AND hm.\"transcriptText\" <> ''))"
+        )
     return " AND ".join(clauses)
 
 

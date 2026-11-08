@@ -950,6 +950,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
                     onCount={(count) => setTranscriptCount({ path: url.path, count })}
                     viewer={config.viewer}
                     trail={shownCrumbs.filter((crumb) => !taxonomyRow || crumb.path !== taxonomyRow.path).map((crumb) => crumb.name).join(" › ")}
+                    filteredEmpty={filtered ? <FilteredEmpty lines={filterLines} onClear={clearFilters} /> : null}
                   />
                 ) : null}
               </div>

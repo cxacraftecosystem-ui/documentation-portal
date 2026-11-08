@@ -236,3 +236,89 @@ def test_filters_narrow_the_tree_counts_contents_browse_tables_and_transcripts(m
     assert found == [seed["a2"].id]
 
     assert seen["bad"] == 422
+
+
+def test_record_type_and_has_transcript_reach_the_tree_browse_transcripts_tables_and_search(monkeypatch):
+    async def work() -> dict[str, Any]:
+        seed = await _seed()
+        try:
+            headers = _auth(seed["admin"])
+            wid = seed["workshop"].id
+            c1 = seed["c1"].id
+            out: dict[str, Any] = {"seed": seed}
+            async with asgi_client() as client:
+
+                async def get(url: str, **params: Any) -> Any:
+                    answer = await client.get(url, params=params, headers=headers)
+                    assert answer.status_code == 200, (url, params, answer.text)
+                    return answer.json()
+
+                folder = f"by-workshop/{wid}"
+                out["artisans"] = await get("/api/data/tree", path=folder, recordTypes="artisans")
+                out["products"] = await get("/api/data/tree", path=folder, recordTypes="products")
+                out["transcribed"] = await get("/api/data/tree", path=folder, hasTranscript="yes")
+                out["plain_files"] = await get(
+                    "/api/data/tree",
+                    path=f"{folder}/crafts/{c1}/artisans/{seed['a1'].id}",
+                    hasTranscript="no",
+                )
+                out["facets"] = await get("/api/data/filters", craftIds=c1)
+                out["browse_products"] = await get("/api/data/browse", type="artisan", q=STAMP, recordTypes="products")
+                out["browse_artisans"] = await get("/api/data/browse", type="artisan", q=STAMP, recordTypes="artisans")
+                out["browse_media"] = await get("/api/data/browse", type="media", q=STAMP, hasTranscript="yes")
+                out["browse_media_off"] = await get("/api/data/browse", type="media", q=STAMP, recordTypes="artisans")
+                out["transcripts_yes"] = await get("/api/data/transcripts/list", path=folder, hasTranscript="yes")
+                out["transcripts_no"] = await get("/api/data/transcripts/list", path=folder, hasTranscript="no")
+                out["report"] = await get("/api/data/report", path=folder, format="json", recordTypes="products")
+                out["search_typed"] = await get("/api/search", q=STAMP, types="artisans,media", recordTypes="artisans")
+                out["search_transcribed"] = await get("/api/search", q=STAMP, types="artisans,media", hasTranscript="yes")
+                out["search_plain"] = await get("/api/search", q=STAMP, types="media", hasTranscript="no")
+                out["bad"] = (
+                    await client.get("/api/data/tree", params={"recordTypes": "clusters"}, headers=headers)
+                ).status_code
+            return out
+        finally:
+            await _cleanup(seed)
+
+    seen = _private(monkeypatch, work)
+    seed = seen["seed"]
+    c1, c2 = seed["c1"].id, seed["c2"].id
+    media = seed["media"]
+    a1, a2 = seed["a1"].id, seed["a2"].id
+
+    artisans = _folders(seen["artisans"])
+    assert artisans[c1]["count"] == 2 and artisans[c2]["count"] == 2
+    assert _folders(seen["products"]) == {} and seen["products"]["hidden"] == 2
+    labels = [a["label"] for a in seen["products"]["filters"]["active"]]
+    assert labels == ["Record type"]
+
+    transcribed = _folders(seen["transcribed"])
+    assert transcribed[c1]["count"] == 1 and transcribed[c2]["count"] == 1
+    assert _files(seen["plain_files"]) == {media["loom.jpg"]}
+
+    kinds = _facet(seen["facets"], "recordType")
+    assert kinds["artisans"] == 2 and kinds["products"] == 0 and kinds["workshops"] == 0 and kinds["media"] == 2
+    said = _facet(seen["facets"], "hasTranscript")
+    assert said == {"yes": 1, "no": 1}
+
+    assert seen["browse_products"]["items"] == []
+    assert {i["id"] for i in seen["browse_artisans"]["items"]} == {a1, a2}
+    assert {i["id"] for i in seen["browse_media"]["items"]} == {media["weaving.mp4"], media["song.m4a"]}
+    assert seen["browse_media_off"]["items"] == [] and seen["browse_media_off"]["total"] == 0
+
+    assert {i["mediaId"] for i in seen["transcripts_yes"]["items"]} == {media["weaving.mp4"], media["song.m4a"]}
+    assert seen["transcripts_no"]["items"] == [] and seen["transcripts_no"]["nextOffset"] is None
+
+    rows = "".join(
+        repr(s.get("rows")) for s in seen["report"]["sheets"] if str(s["name"]).lower().startswith("artisan")
+    )
+    assert f"A1 {STAMP}" not in rows and f"A2 {STAMP}" not in rows
+
+    typed = seen["search_typed"]
+    assert {r["id"] for r in typed["artisans"]} == {a1, a2} and typed["media"] == []
+    only = seen["search_transcribed"]
+    assert only["artisans"] == []
+    assert {r["id"] for r in only["media"]} == {media["weaving.mp4"], media["song.m4a"]}
+    assert {r["id"] for r in seen["search_plain"]["media"]} == {media["loom.jpg"], media["block.jpg"]}
+
+    assert seen["bad"] == 422

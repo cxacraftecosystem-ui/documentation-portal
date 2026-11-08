@@ -23,6 +23,10 @@ import com.fieldrepository.app.explorer.ui.ExplorerResume
 import com.fieldrepository.app.explorer.ui.ExplorerTab
 import com.fieldrepository.app.explorer.ui.ExplorerViewLinks
 import com.fieldrepository.app.explorer.ui.PeerLoad
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -212,5 +216,53 @@ class ExplorerFiltersTest {
         assertEquals("media", ExplorerPeerTypes.browseKindOf("by-type/videos"))
         assertNull(ExplorerPeerTypes.browseKindOf("by-workshop/w1"))
         assertEquals("Nothing in Field Repository can match these filters.", ExplorerPeerTypes.statusLine(ExplorerPeerPage(portalLabel = "Field Repository", status = "filteredOut")))
+    }
+
+    @QFeature("X13")
+    @Test fun `record type and has transcript are parameters the server reads and chips the empty state names`() {
+        val f = ExplorerFilters()
+            .with(ExplorerFilterKey.RECORD_TYPE, listOf("media", "artisans", "clusters", "artisans"))
+            .with(ExplorerFilterKey.HAS_TRANSCRIPT, listOf("yes"))
+        assertEquals(mapOf("recordTypes" to "artisans,media", "hasTranscript" to "yes"), f.query())
+        assertTrue(f.narrowing)
+        assertEquals(listOf("Record type: Artisans", "Record type: Media", "Has transcript: Yes"), f.chips().map { it.label })
+        val flipped = f.with(ExplorerFilterKey.HAS_TRANSCRIPT, listOf("yes", "no"))
+        assertEquals(setOf("no"), flipped[ExplorerFilterKey.HAS_TRANSCRIPT])
+        assertTrue(f.with(ExplorerFilterKey.HAS_TRANSCRIPT, listOf("maybe"))[ExplorerFilterKey.HAS_TRANSCRIPT].isEmpty())
+        val chip = f.chips().last()
+        assertTrue(f.without(chip)[ExplorerFilterKey.HAS_TRANSCRIPT].isEmpty())
+        assertEquals(ExplorerFilters(), f.cleared())
+        assertEquals("Design workshops", ExplorerFilters.recordTypeLabel("designWorkshops"))
+    }
+
+    @QFeature("X13")
+    @Test fun `the record types are the contract's and every key sits in the contract's facet order`() {
+        val root = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }.first { java.io.File(it, "shared/data-explorer-contract.json").isFile }
+        val section = Json.parseToJsonElement(java.io.File(root, "shared/data-explorer-contract.json").readText()).jsonObject["filters"]!!.jsonObject
+        val params = section["params"]!!.jsonObject
+        assertEquals(ExplorerFilters.RECORD_TYPES, params["recordTypes"]!!.jsonObject["values"]!!.jsonArray.map { it.jsonPrimitive.content })
+        assertEquals(ExplorerFilters.TRANSCRIPT_CHOICES, params["hasTranscript"]!!.jsonObject["values"]!!.jsonArray.map { it.jsonPrimitive.content })
+        ExplorerFilterKey.entries.forEach { key ->
+            assertEquals(key.facet, params[key.param]!!.jsonObject["facet"]!!.jsonPrimitive.content)
+            assertEquals(key.label, params[key.param]!!.jsonObject["label"]!!.jsonPrimitive.content)
+        }
+        val order = section["facetOrder"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(order.filter { facet -> ExplorerFilterKey.entries.any { it.facet == facet } }, ExplorerFilterKey.entries.map { it.facet })
+    }
+
+    @QFeature("X13")
+    @Test fun `record type and has transcript are always offered, with choices before the server answers`() {
+        assertTrue(ExplorerFilterKey.RECORD_TYPE in ExplorerFacetKeys.keys(null, ExplorerFilters()))
+        assertTrue(ExplorerFilterKey.HAS_TRANSCRIPT in ExplorerFacetKeys.keys(null, ExplorerFilters()))
+        assertEquals(listOf("artisans", "workshops", "products", "tools", "media"), ExplorerFacetKeys.options(null, ExplorerFilterKey.RECORD_TYPE).map { it.id })
+        assertEquals(listOf("yes", "no"), ExplorerFacetKeys.options(null, ExplorerFilterKey.HAS_TRANSCRIPT).map { it.id })
+        val served = ExplorerFacets(facets = listOf(ExplorerFacet(facet = "recordType", param = "recordTypes", label = "Record type", options = listOf(ExplorerFacetOption("designWorkshops", "Design workshops", count = 4)))))
+        assertEquals(listOf(ExplorerFilterOption("designWorkshops", "Design workshops", 4)), ExplorerFacetKeys.options(served, ExplorerFilterKey.RECORD_TYPE))
+        val saved = ExplorerViewFilters.toSaved(ExplorerFilters().with(ExplorerFilterKey.RECORD_TYPE, listOf("tools")).with(ExplorerFilterKey.HAS_TRANSCRIPT, listOf("no")))
+        assertEquals(mapOf("recordTypes" to "tools", "hasTranscript" to "no"), saved)
+        val back = ExplorerViewFilters.of(saved, ExplorerFilters())
+        assertEquals(setOf("tools"), back[ExplorerFilterKey.RECORD_TYPE])
+        assertEquals(setOf("no"), back[ExplorerFilterKey.HAS_TRANSCRIPT])
+        assertEquals(back, ExplorerResume.decode(ExplorerResume.encode(back)))
     }
 }

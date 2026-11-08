@@ -73,6 +73,7 @@ import java.time.ZoneOffset
 internal object FilterText {
     const val filters = "Filters"
     const val any = "Any"
+    const val anyValue = "any"
     const val anyDate = "Any date"
     const val date = "Date"
     const val clear = "Clear"
@@ -187,6 +188,10 @@ internal fun ExplorerFilterSheet(
                 Text(FilterText.filters, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semantics { heading() })
                 keys.forEach { k ->
                     val picked = filters.picked(k)
+                    if (k == ExplorerFilterKey.HAS_TRANSCRIPT) {
+                        TranscriptChoice(filters) { onChange(it) }
+                        return@forEach
+                    }
                     FilterTrigger(
                         label = k.label,
                         value = if (picked.isEmpty()) FilterText.any else picked.joinToString(", ") { filters.labelOf(k, it) },
@@ -221,6 +226,20 @@ internal fun ExplorerFilterSheet(
             onChange(filters.dates(from, to))
             dates = false
         }
+    }
+}
+
+@Composable
+private fun TranscriptChoice(filters: ExplorerFilters, onChange: (ExplorerFilters) -> Unit) {
+    val key = ExplorerFilterKey.HAS_TRANSCRIPT
+    val current = filters.picked(key).firstOrNull() ?: FilterText.anyValue
+    Column(Modifier.testTag("explorer.filter.${key.facet}"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(key.label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+        Segmented(
+            listOf(FilterText.anyValue to FilterText.any) + ExplorerFilters.TRANSCRIPT_CHOICES.map { it to ExplorerFilters.transcriptLabel(it) },
+            current,
+            key.facet,
+        ) { picked -> onChange(filters.with(key, if (picked == FilterText.anyValue) emptyList() else listOf(picked))) }
     }
 }
 

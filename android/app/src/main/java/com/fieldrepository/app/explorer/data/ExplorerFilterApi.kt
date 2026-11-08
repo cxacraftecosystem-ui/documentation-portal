@@ -144,12 +144,14 @@ object ExplorerPeerTypes {
 
 object ExplorerFacetKeys {
     private val FALLBACK = listOf(
+        ExplorerFilterKey.RECORD_TYPE,
         ExplorerFilterKey.WORKSHOP,
         ExplorerFilterKey.CRAFT,
         ExplorerFilterKey.ARTISAN,
         ExplorerFilterKey.MEDIA_TYPE,
         ExplorerFilterKey.RECORDED_BY,
         ExplorerFilterKey.LANGUAGE,
+        ExplorerFilterKey.HAS_TRANSCRIPT,
     )
 
     fun otherAvailable(facets: ExplorerFacets?): Boolean =
@@ -173,7 +175,13 @@ object ExplorerFacetKeys {
                 other?.let { ExplorerFilterOption(ExplorerFilters.OTHER_PORTAL, it.label.ifBlank { ExplorerFilters.portalLabel(ExplorerFilters.OTHER_PORTAL) }) },
             )
         }
-        return facets?.facets.orEmpty().firstOrNull { it.facet == key.facet }?.options.orEmpty().map { ExplorerFilterOption(it.value, it.label.ifBlank { it.value }, it.count) }
+        val served = facets?.facets.orEmpty().firstOrNull { it.facet == key.facet }?.options.orEmpty().map { ExplorerFilterOption(it.value, it.label.ifBlank { it.value }, it.count) }
+        if (served.isNotEmpty()) return served
+        return when (key) {
+            ExplorerFilterKey.RECORD_TYPE -> ExplorerFilters.RECORD_TYPES.filter { it != "designWorkshops" }.map { ExplorerFilterOption(it, ExplorerFilters.recordTypeLabel(it)) }
+            ExplorerFilterKey.HAS_TRANSCRIPT -> ExplorerFilters.TRANSCRIPT_CHOICES.map { ExplorerFilterOption(it, ExplorerFilters.transcriptLabel(it)) }
+            else -> served
+        }
     }
 
     fun portalSelection(picked: Set<String>): Set<String> =

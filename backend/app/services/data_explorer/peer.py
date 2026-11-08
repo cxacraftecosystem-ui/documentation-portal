@@ -7,7 +7,7 @@ from app.core.db import db
 from app.core.deps import get_value, role_value
 from app.services import cross_portal
 from app.services.cross_portal_client import SEARCH_TIMEOUT_SECONDS, PeerUnavailable, peer_call
-from app.services.data_explorer.filters import NONE, Filter, day_bounds, real
+from app.services.data_explorer.filters import NONE, RECORD_TYPES, Filter, day_bounds, real
 
 PAGE_SIZE_MAX = 20
 STATUS_OK = "ok"
@@ -33,6 +33,7 @@ LOCAL_ONLY_PARAMS: tuple[tuple[str, str], ...] = (
     ("statuses", "statuses"),
     ("recordedByIds", "recorded_by"),
     ("languages", "languages"),
+    ("hasTranscript", "has_transcript"),
 )
 
 
@@ -45,8 +46,22 @@ def peer_type(kind: str | None) -> str | None:
     return key if key in cross_portal.SEARCH_TYPES else None
 
 
-def not_applied(flt: Filter) -> list[str]:
-    return [param for param, field in LOCAL_ONLY_PARAMS if getattr(flt, field)]
+def not_applied(flt: Filter, kind: str | None = None) -> list[str]:
+    skipped = [param for param, field in LOCAL_ONLY_PARAMS if getattr(flt, field)]
+    if len(flt.record_types) > 1 and not kind:
+        skipped.insert(0, "recordTypes")
+    return skipped
+
+
+def peer_kind(flt: Filter, kind: str | None) -> tuple[str | None, bool]:
+    one = peer_type(kind)
+    if not flt.record_types:
+        return one, True
+    if one is not None:
+        return one, one not in RECORD_TYPES or one in flt.record_types
+    if len(flt.record_types) == 1:
+        return flt.record_types[0], True
+    return None, True
 
 
 async def craft_codes(ids: tuple[str, ...]) -> list[str] | None:
@@ -128,17 +143,19 @@ async def explore(
 ) -> dict[str, Any]:
     flt = real(flt) or NONE
     size = max(1, min(PAGE_SIZE_MAX, int(page_size)))
-    skipped = not_applied(flt)
+    skipped = not_applied(flt, kind)
     if not active:
         return envelope(portal, portal_label, STATUS_OFF, [], 0, page, size, skipped)
     if not allowed:
         return envelope(portal, portal_label, STATUS_NOT_PERMITTED, [], 0, page, size, skipped)
+    one, wanted = peer_kind(flt, kind)
+    if not wanted:
+        return envelope(portal, portal_label, STATUS_OK, [], 0, page, size, skipped)
     codes = await craft_codes(flt.crafts)
     remote = await remote_artisans(flt.artisans)
     if codes is None or remote is None:
         return envelope(portal, portal_label, STATUS_FILTERED_OUT, [], 0, page, size, skipped)
     low, high = day_bounds(flt.date_from, flt.date_to)
-    one = peer_type(kind)
     body = {
         "q": (q or "").strip()[:200],
         "type": one,

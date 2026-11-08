@@ -14,6 +14,8 @@ LOCAL_ZONE = ZoneInfo("Asia/Kolkata")
 MEDIA_TYPES: tuple[str, ...] = ("IMAGE", "VIDEO", "AUDIO", "PDF", "DOCUMENT", "OTHER")
 STATUSES: tuple[str, ...] = ("DRAFT", "PENDING", "APPROVED", "REJECTED", "NEEDS_REVISION")
 PORTALS: tuple[str, ...] = ("this", "other")
+RECORD_TYPES: tuple[str, ...] = ("artisans", "workshops", "products", "tools", "media", "designWorkshops")
+TRANSCRIPT_CHOICES: tuple[str, ...] = ("yes", "no")
 DESIGN_WORKSHOP_TAGS: list[str] = ["designWorkshop", "designworkshop"]
 FACET_OPTIONS_MAX = 500
 VALUES_MAX = 200
@@ -21,6 +23,7 @@ VALUE_CHARS_MAX = 64
 GROUP_TAKE = 20000
 
 PARAMS: dict[str, tuple[str, str]] = {
+    "recordTypes": ("recordType", "Record type"),
     "workshopIds": ("workshop", "Workshop"),
     "designWorkshopIds": ("designWorkshop", "Design workshop"),
     "craftIds": ("craft", "Craft"),
@@ -29,9 +32,11 @@ PARAMS: dict[str, tuple[str, str]] = {
     "statuses": ("status", "Review status"),
     "recordedByIds": ("recordedBy", "Recorded by"),
     "languages": ("language", "Language"),
+    "hasTranscript": ("hasTranscript", "Has transcript"),
 }
 FACET_ORDER: tuple[str, ...] = (
     "portal",
+    "recordType",
     "workshop",
     "designWorkshop",
     "craft",
@@ -40,6 +45,7 @@ FACET_ORDER: tuple[str, ...] = (
     "status",
     "recordedBy",
     "language",
+    "hasTranscript",
     "date",
 )
 MEDIA_TYPE_LABELS = {
@@ -57,7 +63,26 @@ STATUS_LABELS = {
     "REJECTED": "Rejected",
     "NEEDS_REVISION": "Needs revision",
 }
+RECORD_TYPE_LABELS = {
+    "artisans": "Artisans",
+    "workshops": "Workshops",
+    "products": "Products",
+    "tools": "Tools",
+    "media": "Media",
+    "designWorkshops": "Design workshops",
+}
+TRANSCRIPT_LABELS = {"yes": "Yes", "no": "No"}
+RECORD_TYPE_OF_KIND = {
+    "artisan": "artisans",
+    "workshop": "workshops",
+    "product": "products",
+    "tool": "tools",
+    "process": "products",
+    "media": "media",
+    "designWorkshop": "designWorkshops",
+}
 FIELD_OF_FACET = {
+    "recordType": "record_types",
     "workshop": "workshops",
     "designWorkshop": "design_workshops",
     "craft": "crafts",
@@ -66,6 +91,7 @@ FIELD_OF_FACET = {
     "status": "statuses",
     "recordedBy": "recorded_by",
     "language": "languages",
+    "hasTranscript": "has_transcript",
 }
 FOLDER_FACET = {
     "workshop": "workshop",
@@ -90,11 +116,15 @@ class Filter:
     date_from: date | None = None
     date_to: date | None = None
     portals: tuple[str, ...] = ("this",)
+    record_types: tuple[str, ...] = ()
+    has_transcript: tuple[str, ...] = ()
 
     @property
     def active(self) -> bool:
         return bool(
-            self.workshops
+            self.record_types
+            or self.has_transcript
+            or self.workshops
             or self.design_workshops
             or self.crafts
             or self.artisans
@@ -109,8 +139,23 @@ class Filter:
     @property
     def media_only(self) -> bool:
         return bool(
-            self.media_types or self.recorded_by or self.languages or self.date_from or self.date_to
+            self.media_types
+            or self.recorded_by
+            or self.languages
+            or self.has_transcript
+            or self.date_from
+            or self.date_to
         )
+
+    @property
+    def transcript(self) -> str | None:
+        return self.has_transcript[0] if self.has_transcript else None
+
+    def allows(self, record_type: str | None) -> bool:
+        return not self.record_types or record_type is None or record_type in self.record_types
+
+    def allows_kind(self, kind: str) -> bool:
+        return self.allows(RECORD_TYPE_OF_KIND.get(kind))
 
     def values(self, facet: str) -> tuple[str, ...]:
         return getattr(self, FIELD_OF_FACET[facet], ())
@@ -175,6 +220,22 @@ def _day(name: str, raw: str | None) -> date | None:
         raise _refuse(f"{name} must be a date written yyyy-mm-dd") from None
 
 
+def _record_types(raw: list[str]) -> tuple[str, ...]:
+    canonical = {t.lower(): t for t in RECORD_TYPES}
+    values = _split(raw)
+    if any(v.lower() not in canonical for v in values):
+        raise _refuse(f"recordTypes takes {', '.join(RECORD_TYPES)}")
+    return tuple(dict.fromkeys(canonical[v.lower()] for v in values))
+
+
+def _transcript_choice(raw: list[str]) -> tuple[str, ...]:
+    picked = _enum("hasTranscript", raw, (*TRANSCRIPT_CHOICES, "any"), upper=False)
+    values = [v for v in picked if v != "any"]
+    if len(values) > 1:
+        raise _refuse("hasTranscript takes one of yes, no")
+    return tuple(values)
+
+
 def parse(query: Any) -> Filter:
     def every(name: str) -> list[str]:
         getter = getattr(query, "getlist", None)
@@ -206,6 +267,8 @@ def parse(query: Any) -> Filter:
         date_from=date_from,
         date_to=date_to,
         portals=portals,
+        record_types=_record_types(every("recordTypes")),
+        has_transcript=_transcript_choice(every("hasTranscript")),
     )
 
 
@@ -293,11 +356,71 @@ def _language_clause(codes: list[str]) -> dict[str, Any]:
     }
 
 
+TRANSCRIBED: dict[str, Any] = {
+    "AND": [{"transcriptText": {"not": None}}, {"transcriptText": {"not": ""}}]
+}
+UNTRANSCRIBED: dict[str, Any] = {"OR": [{"transcriptText": None}, {"transcriptText": ""}]}
+NOTHING: dict[str, Any] = {"id": {"in": []}}
+
+
+def transcript_clause(choice: str | None) -> dict[str, Any] | None:
+    if choice == "yes":
+        return TRANSCRIBED
+    if choice == "no":
+        return UNTRANSCRIBED
+    return None
+
+
+def owner_clause(record_type: str) -> dict[str, Any] | None:
+    if record_type == "artisans":
+        return {
+            "OR": [
+                {"linkedRecordType": "artisan"},
+                {"AND": [{"artisanId": {"not": None}}, {"linkedRecordType": None}]},
+            ]
+        }
+    if record_type == "products":
+        return {"OR": [{"productId": {"not": None}}, {"linkedRecordType": "product"}]}
+    if record_type == "tools":
+        return {"OR": [{"toolId": {"not": None}}, {"linkedRecordType": "tool"}]}
+    if record_type == "workshops":
+        return {
+            "AND": [
+                {"artisanId": None},
+                {"productId": None},
+                {"toolId": None},
+                {"questionnaireInterviewId": None},
+                {"OR": [{"workshopId": {"not": None}}, {"linkedRecordType": "workshop"}]},
+            ]
+        }
+    if record_type == "designWorkshops":
+        branches: list[dict[str, Any]] = [{"linkedRecordType": {"in": DESIGN_WORKSHOP_TAGS}}]
+        if has_design_workshops():
+            branches.append({"designWorkshopId": {"not": None}})
+        return {"OR": branches}
+    return None
+
+
+def record_type_clause(types: tuple[str, ...]) -> dict[str, Any] | None:
+    if not types or "media" in types:
+        return None
+    branches = [c for c in (owner_clause(t) for t in types) if c]
+    if not branches:
+        return NOTHING
+    return branches[0] if len(branches) == 1 else {"OR": branches}
+
+
 def media_where(flt: Filter | None) -> dict[str, Any] | None:
     flt = real(flt)
     if flt is None or not flt.active:
         return None
     parts: list[dict[str, Any]] = []
+    owned = record_type_clause(flt.record_types)
+    if owned:
+        parts.append(owned)
+    transcribed = transcript_clause(flt.transcript)
+    if transcribed:
+        parts.append(transcribed)
     if flt.workshops:
         parts.append(_workshop_clause(list(flt.workshops)))
     if flt.design_workshops:
@@ -361,7 +484,11 @@ def browse_where(kind: str, flt: Filter | None) -> dict[str, Any] | None:
     flt = real(flt)
     from app.services.record_filters import artisan_workshop_clause, tool_workshop_clause
 
-    if flt is None or not flt.active or kind == "media":
+    if flt is None or not flt.active:
+        return None
+    if not flt.allows_kind(kind):
+        return NOTHING
+    if kind == "media":
         return None
     parts: list[dict[str, Any]] = []
     if flt.workshops:
@@ -427,7 +554,7 @@ def browse_where(kind: str, flt: Filter | None) -> dict[str, Any] | None:
     if flt.recorded_by and kind != "craft":
         parts.append({"createdById": {"in": list(flt.recorded_by)}})
     if flt.media_only and kind in MEDIA_RELATION_KINDS:
-        matching = media_where(flt)
+        matching = media_where(dataclasses.replace(flt, record_types=()))
         if matching:
             parts.append({"media": {"some": {"AND": [{"removedAt": None}, matching]}}})
     if not parts:
@@ -486,7 +613,7 @@ def drop_empty(
     hidden = 0
     for entry in entries:
         if entry.get("kind") == "folder" and entry.get("count") == 0:
-            if _selected_by(entry, flt) and not flt.media_only:
+            if _selected_by(entry, flt) and not flt.media_only and not flt.record_types:
                 kept.append(entry)
                 continue
             hidden += 1
@@ -539,6 +666,9 @@ def keep_records(
             tag, tagged = attr(m, "linkedRecordType"), attr(m, "linkedRecordId")
             if tag and tagged:
                 owned.setdefault(str(tag).lower(), set()).add(str(tagged))
+
+    if not flt.allows_kind(kind):
+        return []
 
     def passes(row: Any) -> bool:
         rid = str(attr(row, "id") or "")
@@ -625,6 +755,8 @@ def filter_report(data: dict[str, list[Any]], flt: Filter | None) -> dict[str, l
         data["processes"] = [
             p for p in data["processes"] if str(getattr(p, "productId", "") or "") in products
         ]
+    if data.get("dwEntries") and not flt.allows("designWorkshops"):
+        data["dwEntries"] = []
     if data.get("dwEntries") and flt.design_workshops:
         data["dwEntries"] = [
             e
@@ -685,6 +817,8 @@ async def labels(flt: Filter) -> dict[str, dict[str, str]]:
         "mediaType": MEDIA_TYPE_LABELS,
         "status": STATUS_LABELS,
         "language": {code: language_label(code) for code in flt.languages},
+        "recordType": RECORD_TYPE_LABELS,
+        "hasTranscript": TRANSCRIPT_LABELS,
     }
 
 
@@ -803,6 +937,33 @@ async def facets(scope: Any, flt: Filter) -> list[dict[str, Any]]:
         if extra:
             where = {"AND": [where, extra]}
         return await _grouped(column, where)
+
+    async def counted(facet: str, extra: dict[str, Any] | None) -> int:
+        where = _base(scope, flt, facet)
+        if extra:
+            where = {"AND": [where, extra]}
+        return _number(await db.mediafile.count(where=where))
+
+    offered = [
+        t
+        for t in RECORD_TYPES
+        if t != "designWorkshops" or (has_design_workshops() and getattr(scope, "design_workshops", False))
+    ]
+    options = [
+        _option(t, RECORD_TYPE_LABELS[t], await counted("recordType", owner_clause(t)))
+        for t in offered
+    ]
+    options += [_option(t, RECORD_TYPE_LABELS[t], 0) for t in flt.record_types if t not in offered]
+    out.append(
+        {
+            "facet": "recordType",
+            "param": "recordTypes",
+            "label": "Record type",
+            "options": options,
+            "truncated": False,
+            "selected": list(flt.record_types),
+        }
+    )
 
     workshop_direct = await counts("workshopId", "workshop")
     by_artisan_for_workshop = await counts("artisanId", "workshop", {"workshopId": None})
@@ -981,6 +1142,21 @@ async def facets(scope: Any, flt: Filter) -> list[dict[str, Any]]:
             }
         )
 
+    options = [
+        _option(c, TRANSCRIPT_LABELS[c], await counted("hasTranscript", transcript_clause(c)))
+        for c in TRANSCRIPT_CHOICES
+    ]
+    out.append(
+        {
+            "facet": "hasTranscript",
+            "param": "hasTranscript",
+            "label": "Has transcript",
+            "options": options,
+            "truncated": False,
+            "selected": list(flt.has_transcript),
+        }
+    )
+
     return [f for f in out if f["options"] or f["selected"]]
 
 
@@ -1014,11 +1190,16 @@ def search_wheres(wheres: dict[str, Any], flt: Filter | None) -> dict[str, Any]:
     if flt is None or not flt.active:
         return wheres
     out = dict(wheres)
+    records = dataclasses.replace(flt, has_transcript=())
+    transcripts_only = flt.transcript == "yes" and not flt.record_types
     for key, kind in SEARCH_KINDS.items():
         if key in out:
-            out[key] = _and(out[key], browse_where(kind, flt))
+            out[key] = NOTHING if transcripts_only else _and(out[key], browse_where(kind, records))
     if "media" in out:
-        out["media"] = _and(out["media"], media_where(flt))
-    if "designWorkshops" in out and flt.design_workshops:
-        out["designWorkshops"] = _and(out["designWorkshops"], {"id": {"in": list(flt.design_workshops)}})
+        out["media"] = NOTHING if not flt.allows("media") else _and(out["media"], media_where(flt))
+    if "designWorkshops" in out:
+        if transcripts_only or not flt.allows("designWorkshops"):
+            out["designWorkshops"] = NOTHING
+        elif flt.design_workshops:
+            out["designWorkshops"] = _and(out["designWorkshops"], {"id": {"in": list(flt.design_workshops)}})
     return out

@@ -444,6 +444,17 @@ async def transcript_list(
     chosen = _sort_or_422(
         sort if isinstance(sort, str) else None, sorting.TRANSCRIPT_KEYS, sorting.TRANSCRIPT_DEFAULT
     )
+    if (filters.real(flt) or filters.NONE).transcript == "no":
+        return {
+            "items": [],
+            "total": 0,
+            "truncated": False,
+            "query": q or None,
+            "offset": offset,
+            "nextOffset": None,
+            "sort": chosen.public(),
+            "sorts": [chosen.key],
+        }
     scope = filters.narrow(await download_scope(current_user), flt)
     norm = _browser()._norm(path)
     if chosen == sorting.TRANSCRIPT_DEFAULT:

@@ -1,7 +1,7 @@
 "use client";
 
 import { Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { TAG_TONE } from "@/components/dataExplorer/FolderContents";
 import { LoadFailed, PillMenu, Skeleton } from "@/components/dataExplorer/explorerUi";
@@ -107,7 +107,8 @@ export function TranscriptsTab({
   zipUrl,
   onCount,
   trail,
-  viewer = ""
+  viewer = "",
+  filteredEmpty = null
 }: {
   path: string;
   folderName: string;
@@ -118,6 +119,7 @@ export function TranscriptsTab({
   onCount?: (count: number) => void;
   trail?: string;
   viewer?: string;
+  filteredEmpty?: ReactNode;
 }) {
   const extraKey = JSON.stringify(extra);
   const [typed, setTyped] = useState("");
@@ -348,6 +350,8 @@ export function TranscriptsTab({
             </div>
           ))}
         </div>
+      ) : rows.length === 0 && filteredEmpty && !needle && filter === "all" && !language ? (
+        <>{filteredEmpty}</>
       ) : rows.length === 0 ? (
         <div className="px-4 pb-4">
           <EmptyState title={needle ? `Nothing matches “${needle}”` : "No transcripts here yet"} body={needle ? "Try other words." : "Recordings in this folder appear here once they're transcribed."} />

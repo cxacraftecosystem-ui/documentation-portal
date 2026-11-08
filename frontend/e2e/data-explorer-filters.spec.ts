@@ -129,9 +129,12 @@ for (const size of SIZES) {
       const { context, page } = await open(browser, size, "path=workshops");
       try {
         await showFilters(page);
-        for (const label of ["Portal", "Workshop", "Design workshop", "Craft", "Artisan", "Media type", "Review status", "Recorded by", "Language"]) {
+        for (const label of ["Portal", "Record type", "Workshop", "Design workshop", "Craft", "Artisan", "Media type", "Review status", "Recorded by", "Language"]) {
           await expect(facetTrigger(page, label)).toBeVisible();
         }
+        const transcript = page.getByRole("group", { name: "Has transcript" });
+        await expect(transcript).toBeVisible();
+        await expect(transcript.getByRole("button", { name: /^Any/ })).toHaveAttribute("aria-pressed", "true");
         await expect(page.locator("#explorer-filter-controls select")).toHaveCount(0);
         await expect(page.locator('#explorer-filter-controls input[type="date"]')).toHaveCount(0);
         await expect(page.locator('[data-facet="date"]')).toContainText("From");
@@ -142,6 +145,58 @@ for (const size of SIZES) {
         await box.fill("meera");
         await expect(page.getByRole("listbox", { name: "Artisan" }).getByRole("option")).toHaveCount(1);
         await shot(page, `multiselect-search-${size.name}`);
+      } finally {
+        await context.close();
+      }
+    });
+
+    test(`F1 F2 record type is a searchable multi-select that narrows the folder and is named in the empty state (${size.name})`, async ({ browser }) => {
+      const { context, page, fake } = await open(browser, size, "path=workshops/sanganer");
+      try {
+        await expect(page.getByTestId("folder-contents")).toContainText("a.jpg");
+        await pick(page, "Record type", /Products/, `record-type-open-${size.name}`);
+        await expect(page).toHaveURL(/recordTypes=products/);
+        await expect.poll(() => fake.calls.some((call) => call.path === "/data/tree" && call.query.get("recordTypes") === "products")).toBe(true);
+        await expect.poll(() => fake.calls.some((call) => call.path === "/data/filters" && call.query.get("recordTypes") === "products")).toBe(true);
+        await page.keyboard.press("Escape");
+        const empty = page.getByTestId("filtered-empty").first();
+        await expect(empty).toBeVisible();
+        await expect(empty).toContainText("Record type: Products");
+        await shot(page, `filter-record-type-${size.name}`);
+        await empty.getByRole("button", { name: "Clear filters" }).click();
+        await expect(page).not.toHaveURL(/recordTypes=/);
+        await expect(page.getByTestId("folder-contents")).toContainText("a.jpg");
+        await page.goto("/data?path=workshops/bagru&recordTypes=artisans&view=tables");
+        await expect.poll(() => fake.calls.some((call) => (call.path === "/data/report" || call.path === "/data/report/sheets") && call.query.get("recordTypes") === "artisans")).toBe(true);
+        await page.goto("/data?path=workshops&recordTypes=artisans&browse=artisan");
+        await expect.poll(() => fake.calls.some((call) => call.path === "/data/browse" && call.query.get("recordTypes") === "artisans")).toBe(true);
+      } finally {
+        await context.close();
+      }
+    });
+
+    test(`F1 Has transcript is Any / Yes / No, reaches the folder, and No empties the Transcripts tab with the named filters (${size.name})`, async ({ browser }) => {
+      const { context, page, fake } = await open(browser, size, "path=workshops/bagru");
+      try {
+        await showFilters(page);
+        const choice = page.getByRole("group", { name: "Has transcript" });
+        await choice.getByRole("button", { name: /^Yes/ }).click();
+        await expect(page).toHaveURL(/hasTranscript=yes/);
+        await expect(choice.getByRole("button", { name: /^Yes/ })).toHaveAttribute("aria-pressed", "true");
+        await expect.poll(() => fake.calls.some((call) => call.path === "/data/tree" && call.query.get("hasTranscript") === "yes" && call.query.get("path") === "workshops/bagru")).toBe(true);
+        await expect(page.getByTestId("folder-contents")).toContainText("interview.m4a");
+        await expect(page.getByTestId("folder-contents")).not.toContainText("loom.mp4");
+        await shot(page, `filter-has-transcript-${size.name}`);
+        await choice.getByRole("button", { name: /^Any/ }).click();
+        await expect(page).not.toHaveURL(/hasTranscript=/);
+        await page.goto("/data?path=workshops/bagru&hasTranscript=no&view=transcripts");
+        await expect.poll(() => fake.calls.some((call) => call.path === "/data/transcripts/list" && call.query.get("hasTranscript") === "no")).toBe(true);
+        const empty = page.getByTestId("filtered-empty").last();
+        await expect(empty).toBeVisible();
+        await expect(empty).toContainText("Has transcript: No");
+        await shot(page, `filter-transcripts-empty-${size.name}`);
+        await empty.getByRole("button", { name: "Clear filters" }).click();
+        await expect(page).not.toHaveURL(/hasTranscript=/);
       } finally {
         await context.close();
       }
@@ -365,6 +420,28 @@ test("@qf:X13 a saved view brings its filters back, from the dialog and from its
     await expect(page).toHaveURL(/craftIds=c-block/);
     await expect(page).toHaveURL(/mediaTypes=VIDEO/);
     await expect(page).not.toHaveURL(/viewId=/);
+  } finally {
+    await context.close();
+  }
+});
+
+test("@qf:X13 embedded search narrows its record types and keeps the Has transcript filter search used to have", async ({ browser }) => {
+  const { context, page, fake } = await open(browser, WIDE, "path=workshops&recordTypes=artisans,media&hasTranscript=yes");
+  try {
+    const box = page.getByRole("searchbox").first();
+    await box.fill("kamla");
+    await box.press("Enter");
+    await expect.poll(() => fake.calls.some((call) => call.path.startsWith("/search") && call.query.get("q") === "kamla")).toBe(true);
+    const unified = fake.calls.filter((call) => call.path === "/search/unified" && call.query.get("q") === "kamla");
+    if (unified.length) {
+      expect(unified[0].query.get("types")).toBe("artisans,transcripts");
+      expect(unified[0].query.get("hasTranscript")).toBe("yes");
+    }
+    const legacy = fake.calls.filter((call) => call.path === "/search" && call.query.get("q") === "kamla");
+    if (legacy.length) {
+      expect(legacy[0].query.get("recordTypes")).toBe("artisans,media");
+      expect(legacy[0].query.get("hasTranscript")).toBe("yes");
+    }
   } finally {
     await context.close();
   }
