@@ -186,7 +186,10 @@ class ExplorerRealRetrofitTest {
         appears("explorer.content.folder.w/bagru")
         val landed = settled()
         assertTrue("landing asked for the tree $landed times: $seen", landed <= 3)
-        compose.onNodeWithTag("explorer.pane.tree").performScrollToNode(hasTestTag("explorer.folder.w/bagru"))
+        compose.waitUntil(20_000) {
+            runCatching { compose.onNodeWithTag("explorer.pane.tree").performScrollToNode(hasTestTag("explorer.folder.w/bagru")) }.isSuccess
+        }
+        compose.onNodeWithTag("explorer.folder.w/bagru").assertExists()
     }
 
     @Test fun backReturnsToTheFolderViewedBeforeNotTheParent() {
