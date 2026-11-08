@@ -426,7 +426,7 @@ internal fun ExplorerTables(
     val sheet = ready?.let { ExplorerTablesState.picked(it.report, state.sheetName, it.query.isNotBlank()) }
     Column(Modifier.fillMaxWidth().testTag("explorer.tables"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (ready != null && ready.report.sheets.isNotEmpty() && sheet != null) {
-            SheetPicker(ready.report.sheets, sheet, ready.query.isNotBlank(), onPick = state::pick)
+            SheetPicker(ExplorerTableColumns.visibleSheets(ready.report.sheets, sheet.name, ready.query.isNotBlank()), sheet, ready.query.isNotBlank(), onPick = state::pick)
         }
         TableSearch(state, sheet, searching && sheet != null && ready?.query?.isNotBlank() == true)
         state.busySeconds?.let { seconds ->
@@ -460,8 +460,8 @@ internal fun ExplorerTables(
                     if (rows.isEmpty()) HintLine(if (searchingRows) ExplorerText.matches(0, sheet.totalRows ?: 0) else ExplorerText.noRows)
                     if (rows.isNotEmpty()) {
                         ExplorerTableGrid(
-                            headers = sheet.headers,
-                            rows = rows.mapIndexed { index, (row, number) -> row.map { ExplorerCells.text(it) } to (number ?: if (words.isBlank()) index + 1 else null) },
+                            rawHeaders = sheet.headers,
+                            rawRows = rows.mapIndexed { index, (row, number) -> row.map { ExplorerCells.text(it) } to (number ?: if (words.isBlank()) index + 1 else null) },
                             query = words,
                             keyPrefix = sheet.name,
                         )

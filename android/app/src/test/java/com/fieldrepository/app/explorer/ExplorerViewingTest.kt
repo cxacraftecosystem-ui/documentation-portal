@@ -4,6 +4,8 @@ import com.fieldrepository.app.explorer.data.ExplorerInfoField
 import com.fieldrepository.app.explorer.data.ExplorerKeyValues
 import com.fieldrepository.app.explorer.ui.ExplorerPaneWidth
 import com.fieldrepository.app.explorer.ui.ExplorerTableWidths
+import com.fieldrepository.app.explorer.ui.ExplorerTableColumns
+import com.fieldrepository.app.explorer.data.ExplorerSheet
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -66,6 +68,27 @@ class ExplorerViewingTest {
         assertEquals(ExplorerTableWidths.MIN, widths[0])
         assertEquals(ExplorerTableWidths.MAX, widths[1])
         assertTrue(ExplorerTableWidths.columns(listOf("A"), listOf(listOf("short")), scale = 2f).single() <= ExplorerTableWidths.MAX)
+    }
+
+    @QFeature("X6")
+    @Test fun `a row is titled by its display name, never by a raw id`() {
+        val headers = listOf("Design workshop", "Workshop title", "Scheme")
+        val rows = listOf(listOf("cmtf3o5ac001477il85a62277", "Test at IITKGP", "DCH test"), listOf("cmsxcdc2y0004jrt1958z6qt6", "Test", "হ্যালো"))
+        assertEquals(listOf(1, 2, 0), ExplorerTableColumns.order(headers, rows))
+        val crafts = listOf("Code", "Name", "Workshop id")
+        assertEquals(listOf(1, 0, 2), ExplorerTableColumns.order(crafts, listOf(listOf("", "Bamboo", "w1"), listOf("", "Clay", "w1"))))
+        assertEquals(listOf(0, 1), ExplorerTableColumns.order(listOf("Name", "Place"), listOf(listOf("Giriraj", "Bagru"))))
+    }
+
+    @QFeature("X6")
+    @Test fun `sheet chips leave out empty sheets but keep the open one`() {
+        val sheets = listOf(
+            ExplorerSheet(name = "All records", totalRows = 0),
+            ExplorerSheet(name = "Design workshops", totalRows = 2),
+            ExplorerSheet(name = "Crafts", totalRows = 0),
+        )
+        assertEquals(listOf("Design workshops"), ExplorerTableColumns.visibleSheets(sheets, "Design workshops", false).map { it.name })
+        assertEquals(listOf("Design workshops", "Crafts"), ExplorerTableColumns.visibleSheets(sheets, "Crafts", false).map { it.name })
     }
 
     @QFeature("X1")

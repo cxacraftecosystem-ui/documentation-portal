@@ -459,11 +459,17 @@ fun QuestionnaireHome(
         QuestionnairePrompt(
             title = QuestionnaireCopy.s("battery.title"),
             body = QuestionnaireCopy.s("battery.reason"),
-            buttons = listOf(PromptButton(QuestionnaireCopy.s("p5.ok"), primary = true) {
-                batteryAsk = false
-                markBatteryAsked(context)
-                requestBatteryExemption(context)
-            }),
+            buttons = listOf(
+                PromptButton(QuestionnaireCopy.t("notNow")) {
+                    batteryAsk = false
+                    markBatteryAsked(context)
+                },
+                PromptButton(QuestionnaireCopy.s("p5.ok"), primary = true) {
+                    batteryAsk = false
+                    markBatteryAsked(context)
+                    requestBatteryExemption(context)
+                },
+            ),
             onDismiss = { batteryAsk = false; markBatteryAsked(context) }
         )
     }
@@ -495,7 +501,8 @@ private fun markBatteryAsked(context: Context) {
 @SuppressLint("BatteryLife")
 private fun requestBatteryExemption(context: Context) {
     runCatching {
-        context.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        val ask = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}"))
+        context.startActivity(if (context is android.app.Activity) ask else ask.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 }
 

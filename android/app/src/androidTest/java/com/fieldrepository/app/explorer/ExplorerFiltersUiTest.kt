@@ -20,6 +20,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
@@ -226,14 +227,14 @@ class ExplorerFiltersUiTest {
         scrollTo("explorer.filters.open")
         compose.onNodeWithTag("explorer.filters.open").performClick()
         appears("explorer.filters.sheet")
-        compose.onNodeWithTag("explorer.filter.$facet").performClick()
+        compose.onNodeWithTag("explorer.filter.$facet").performScrollTo().performClick()
         appears("explorer.filter.$facet.panel")
         ids.forEach { id ->
             appears("explorer.filter.$facet.option.$id")
             compose.onNodeWithTag("explorer.filter.$facet.option.$id").performClick()
         }
         compose.onNodeWithTag("explorer.filter.$facet.apply").performClick()
-        compose.onNodeWithTag("explorer.filters.done").performClick()
+        compose.onNodeWithTag("explorer.filters.done").performScrollTo().performClick()
         compose.waitForIdle()
     }
 
@@ -243,14 +244,14 @@ class ExplorerFiltersUiTest {
         scrollTo("explorer.filters.open")
         compose.onNodeWithTag("explorer.filters.open").performClick()
         appears("explorer.filters.sheet")
-        compose.onNodeWithTag("explorer.filter.craft").performClick()
+        compose.onNodeWithTag("explorer.filter.craft").performScrollTo().performClick()
         appears("explorer.filter.craft.option.c1")
         compose.onNodeWithTag("explorer.filter.craft.search").performTextInput("bam")
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("explorer.filter.craft.option.c2").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("explorer.filter.craft.option.c1").assertIsOff().performClick()
         compose.onNodeWithTag("explorer.filter.craft.option.c1").assertIsOn()
         compose.onNodeWithTag("explorer.filter.craft.apply").performClick()
-        compose.onNodeWithTag("explorer.filters.done").performClick()
+        compose.onNodeWithTag("explorer.filters.done").performScrollTo().performClick()
         compose.waitUntil(10_000) { tree.calls.contains("tree:$ROOT:craftIds=c1") }
         compose.waitForIdle()
         appears("explorer.filters.chip.CRAFT.c1")
@@ -289,7 +290,7 @@ class ExplorerFiltersUiTest {
         scrollTo("explorer.filters.open")
         compose.onNodeWithTag("explorer.filters.open").performClick()
         appears("explorer.filters.sheet")
-        compose.onNodeWithTag("explorer.filter.dates").performClick()
+        compose.onNodeWithTag("explorer.filter.dates").performScrollTo().performClick()
         appears("explorer.filter.dates.dialog")
         compose.onNodeWithTag("explorer.filter.dates.clear").performClick()
         compose.waitForIdle()
@@ -313,7 +314,7 @@ class ExplorerFiltersUiTest {
     @Test fun otherPortalResultsCarryAChipAndOpenThroughTheCrossPortalLink() {
         show()
         pick("portal", "other", "this")
-        appears("explorer.filtered.local")
+        scrollTo("explorer.filtered.local")
         scrollTo("explorer.peer.row.artisans.a9")
         compose.onNodeWithTag("explorer.peer.chip.a9", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("Field Repository").assertExists()

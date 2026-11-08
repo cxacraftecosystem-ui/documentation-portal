@@ -53,15 +53,44 @@ object ExplorerTableWidths {
         }
 }
 
+object ExplorerTableColumns {
+    private val ID_VALUE = Regex("^c[a-z0-9]{20,}$")
+    private val TITLE = Regex("(^|\\s)(name|title)$")
+
+    fun idLike(header: String, values: List<String>): Boolean {
+        val h = header.trim().lowercase()
+        if (h == "id" || h.endsWith(" id") || h == "record id" || h == "uuid") return true
+        val filled = values.filter { it.isNotBlank() }
+        return filled.isNotEmpty() && filled.all { ID_VALUE.matches(it.trim()) }
+    }
+
+    fun order(headers: List<String>, rows: List<List<String>>): List<Int> {
+        if (headers.isEmpty()) return emptyList()
+        val values = headers.indices.map { c -> rows.map { it.getOrNull(c).orEmpty() } }
+        val ids = headers.indices.filter { idLike(headers[it], values[it]) }.toSet()
+        val filled = headers.indices.filter { c -> values[c].any { it.isNotBlank() } }
+        val title = filled.firstOrNull { it !in ids && TITLE.containsMatchIn(headers[it].trim().lowercase()) }
+            ?: filled.firstOrNull { it !in ids }
+            ?: 0
+        return listOf(title) + headers.indices.filter { it != title && it !in ids } + headers.indices.filter { it != title && it in ids }
+    }
+
+    fun visibleSheets(sheets: List<com.fieldrepository.app.explorer.data.ExplorerSheet>, current: String?, searching: Boolean): List<com.fieldrepository.app.explorer.data.ExplorerSheet> =
+        sheets.filter { it.name == current || ExplorerTablesState.count(it, searching) > 0 }
+}
+
 @Composable
 internal fun ExplorerTableGrid(
-    headers: List<String>,
-    rows: List<Pair<List<String>, Int?>>,
+    rawHeaders: List<String>,
+    rawRows: List<Pair<List<String>, Int?>>,
     query: String,
     keyPrefix: String,
     modifier: Modifier = Modifier,
 ) {
     val scale = LocalDensity.current.fontScale.coerceIn(1f, 1.6f)
+    val order = remember(rawHeaders, rawRows) { ExplorerTableColumns.order(rawHeaders, rawRows.map { it.first }) }
+    val headers = remember(order, rawHeaders) { order.map { rawHeaders.getOrElse(it) { "" } } }
+    val rows = remember(order, rawRows) { rawRows.map { (cells, n) -> order.map { cells.getOrElse(it) { "" } } to n } }
     val widths = remember(headers, rows, scale) { ExplorerTableWidths.columns(headers, rows.map { it.first }, scale) }
     val (markBg, markFg) = explorerMark()
     val line = MaterialTheme.field.hairline
@@ -92,8 +121,8 @@ internal fun ExplorerTableGrid(
                             Box(
                                 Modifier.width(widths[column].dp).fillMaxHeight()
                                     .then(if (column < headers.lastIndex) Modifier.gridDivider(line) else Modifier)
-                                    .padding(horizontal = 12.dp, vertical = 10.dp)
-                                    .testTag("explorer.tables.cell.$key.$column"),
+                                    .testTag("explorer.tables.cell.$key.$column")
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
                             ) {
                                 Text(
                                     markWords(value, query, markBg, markFg),
@@ -118,9 +147,9 @@ private fun GridCell(width: Int, text: String, header: Boolean, divider: Boolean
     Box(
         Modifier.width(width.dp).fillMaxHeight()
             .then(if (divider) Modifier.gridDivider(line) else Modifier)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag(tag)
             .then(if (header) Modifier.semantics { heading() } else Modifier)
-            .testTag(tag),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
         Text(
             text,
