@@ -79,7 +79,13 @@ async function noSidewaysScroll(page: Page) {
     const limit = document.documentElement.clientWidth;
     const offenders = [...document.querySelectorAll<HTMLElement>("body *")]
       .filter((node) => node.getBoundingClientRect().right + window.scrollX > limit + 1 && getComputedStyle(node).position !== "fixed")
-      .slice(-5)
+      .filter((node) => {
+        for (let up = node.parentElement; up && up !== document.body; up = up.parentElement) {
+          if (getComputedStyle(up).overflowX !== "visible" && up.getBoundingClientRect().right + window.scrollX <= limit + 1) return false;
+        }
+        return true;
+      })
+      .slice(0, 5)
       .map((node) => `${node.tagName.toLowerCase()}.${String(node.className).slice(0, 80)} → ${Math.round(node.getBoundingClientRect().right + window.scrollX)}`);
     return { wide: document.documentElement.scrollWidth - limit, offenders };
   });

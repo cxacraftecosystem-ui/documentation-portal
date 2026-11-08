@@ -189,7 +189,7 @@ export function WorkshopOverview({ path, extra, visit, onOpen, onShowNew }: { pa
                 <SortMenu value={sort} onChange={setSort} />
               </div>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto [contain:inline-size]">
               <table className="w-full text-left text-[13px]">
                 <thead className="text-xs text-ink-500">
                   <tr className="border-b border-line-200">
