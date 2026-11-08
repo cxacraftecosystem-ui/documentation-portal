@@ -4,7 +4,7 @@ The Download data > Report workbook is built by `backend/app/services/datareport
 
 ## How a report is made
 
-1. `GET /api/data/report?format=xlsx` (and the pack, schedules and live link) call `datareport.build.build_report(user, path, options, status=None)`.
+1. The API never builds. `GET /api/data/report?format=xlsx` and `GET /api/data/report/pack` call `datareport.jobs.fetch`, which writes a job record keyed by kind, user, `_report_key` (folder, scope, data version) and every option into the report store, then waits up to 55 s (non-blocking polls) for the queue worker to finish it and streams the stored file. If it is not ready the answer is the existing 503 with `Retry-After`, and the retry joins the same job. The worker's report lane (`jobs.run_lane`, one build at a time, beside the media drain) calls `datareport.build.build_report(user, path, options, status=None)` or `pack.response_parts`, writes the file, runs gc and `malloc_trim`, and sends due scheduled reports when no download waits. Details under "Report worker" below.
 2. The cached report material (`data_browser._material`, one build per folder and data version) supplies the folder name and the legacy design-workshop stage sheets. Inside one report-queue slot the builder loads the folder's records (`data_browser._report_records`), withholds consent-refused transcripts, and adds file facts to every media row.
 3. Every registered sheet plugin builds its `Sheet`s from a `ReportContext` (`contract.py`). Core plugins: one generic sheet per record type (`tables.py`: every column of the Prisma model, linked ids shown as names with the id grouped and hidden), Answers, Transcripts, Media, Question bank and the design-workshop stage sheets. Extras are plugins turned on by Report options.
 4. `writer.py` streams each sheet with XlsxWriter in constant-memory mode (rows are written in chunks of 2,000 off the event loop; strings go to the shared string table, so repeated values are stored once), then writes the Overview cover (portal, folder, filters, who and when, data version, KPI tiles, contents, bulk link, native charts) and the Data dictionary.
@@ -56,3 +56,10 @@ Bundles (`DataBundle`) are saved once per owner and file set; any dataset downlo
 ## Keeping it complete
 
 After a schema change run `python scripts/sync_data_report.py --schema` (designer-portal: `--to ../documentation-portal`). New fields of exported models appear automatically; a new model must be added to `tables.py` or to `exclusions.MODELS` with a reason, and secret-looking fields must be excluded or reviewed into `SENSITIVE_ALLOWED`.
+
+## Report worker
+
+- Store: `REPORT_STORE_DIR`, else `~/.cache/data-report-store` of the `ubuntu` user that runs both the API and `fieldrepo-queue`, so they share it on one box. Per job: `<id>.json` (state), `<id>.bin` (file), `<id>.seen` (last poll). The id is a SHA-256 over kind, user id, `_report_key` and options, so a user can only reach their own jobs, and `wait_for` also checks the stored user id.
+- Identical requests share one job. A finished file is reused for 15 minutes (the report cache TTL); the key already changes with the data version. Files older than 24 hours are swept.
+- Limits: at most 8 queued or running jobs (503 with `Retry-After` past that), a queued job nobody polled for 5 minutes is dropped, a build past 15 minutes fails with 504, and a build cut off by a worker restart fails. A failed job is reported to every request already waiting on it and cleared by the next new request, which starts a fresh one.
+- Why the client contract stayed: CloudFront's origin response timeout is 120 s on both distributions, Android's report client reads for 150 s and the web proxy for 300 s; real builds take 23 to 34 s. A 55 s wait fits under all of them, and both clients already retry the 503 with its `Retry-After`.

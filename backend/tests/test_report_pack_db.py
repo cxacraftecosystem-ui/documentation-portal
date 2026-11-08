@@ -14,6 +14,7 @@ from qv2_fixtures import connect, needs_db, patch_db
 
 from app.core.security import create_access_token
 from prisma import Json
+from tests.report_worker import running_worker
 
 pytestmark = needs_db
 
@@ -160,7 +161,7 @@ def test_the_report_pack_holds_the_workbook_summary_transcripts_and_readme(monke
         seed = await _seed()
         try:
             path = f"by-workshop/{seed['workshop'].id}"
-            async with asgi_client() as client:
+            async with running_worker(), asgi_client() as client:
                 packed = await client.get("/api/data/report/pack", params={"path": path}, headers=_auth(seed["admin"]))
                 bad = await client.get(
                     "/api/data/report/pack", params={"path": path, "answers": "klingon"}, headers=_auth(seed["admin"])
@@ -207,7 +208,7 @@ def test_the_report_pack_is_permission_checked(monkeypatch):
             granted = await _user("RESEARCHER", canDownloadDataset=True)
             seed["users"] += [plain.id, granted.id]
             path = f"by-workshop/{seed['workshop'].id}"
-            async with asgi_client() as client:
+            async with running_worker(), asgi_client() as client:
                 refused = await client.get("/api/data/report/pack", params={"path": path}, headers=_auth(plain))
                 other = await client.get("/api/data/report/pack", params={"path": path}, headers=_auth(granted))
                 anonymous = await client.get("/api/data/report/pack", params={"path": path})

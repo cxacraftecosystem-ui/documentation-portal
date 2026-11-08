@@ -3,12 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
 
 from app.core.deps import require_dataset_downloader
-from app.services import naming
-from app.services.data_explorer import report_cache
-from app.services.datareport import pack
+from app.services.data_explorer import report_cache, report_options
+from app.services.datareport import jobs
 
 router = APIRouter(
     prefix="/data",
@@ -31,32 +30,27 @@ async def data_report_pack(
     extras: str | None = None,
     status_value: str | None = Query(None, alias="status"),
     current_user: Any = Depends(require_dataset_downloader),
-) -> StreamingResponse:
-    params = pack.PackParams(
-        path=path,
-        q=q,
-        sheets=sheets,
-        answers=answers,
-        rows=rows,
-        links=links,
-        name=name,
-        status=status_value,
-        extra={k: v for k, v in (("thumbnails", thumbnails), ("locale", locale), ("extras", extras)) if v is not None},
-    )
+) -> Response:
     try:
-        prepared, body = await pack.response_parts(current_user, params)
+        report_options.parse(sheets=sheets, answers=answers, rows=rows, links=links, q=q)
+    except report_options.OptionsInvalid as bad:
+        raise HTTPException(status_code=422, detail=str(bad)) from None
+    params = {
+        "path": path,
+        "q": q,
+        "sheets": sheets,
+        "answers": answers,
+        "rows": rows,
+        "links": links,
+        "name": name,
+        "status": status_value,
+        "extra": {k: v for k, v in (("thumbnails", thumbnails), ("locale", locale), ("extras", extras)) if v is not None},
+    }
+    try:
+        return await jobs.fetch(current_user, jobs.PACK, params, status_filter=status_value)
     except report_cache.ReportBusy as busy:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=report_cache.REPORT_BUSY,
             headers={"Retry-After": str(busy.retry_after)},
         ) from None
-    return StreamingResponse(
-        body,
-        media_type=pack.ZIP_MIME,
-        headers={
-            "Content-Disposition": naming.content_disposition(prepared.zip_name),
-            "Cache-Control": "no-store",
-            "X-Report-Transcripts": str(len(prepared.transcripts)),
-        },
-    )
