@@ -1,6 +1,7 @@
 package com.fieldrepository.app
 
 import com.fieldrepository.app.transcript.data.TranscribeChoices
+import com.fieldrepository.app.ui.FieldRadioButton
 import com.fieldrepository.app.transcript.data.UploadTranscribe
 import com.fieldrepository.app.transcript.ui.TranscribeChoiceItem
 import com.fieldrepository.app.transcript.ui.TranscribeChoiceRows
@@ -100,8 +101,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
 import com.fieldrepository.app.ui.FieldCheckbox
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Timeline
 import com.fieldrepository.app.ui.trace.TracePanel
@@ -156,9 +155,12 @@ import com.fieldrepository.app.ui.rememberQuickReturnHeader
 import com.fieldrepository.app.ui.rememberIslandImeVisible
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.layout.onSizeChanged
 import com.fieldrepository.app.ui.AppSearchItem
 import com.fieldrepository.app.ui.AppSearchPanel
+import com.fieldrepository.app.ui.AppSearchSession
+import com.fieldrepository.app.ui.AppSearchReturn
 import com.fieldrepository.app.ui.AppSearchSettingTarget
 import com.fieldrepository.app.ui.FieldRepoLogo
 import com.fieldrepository.app.ui.appMenuBleed
@@ -710,9 +712,66 @@ private enum class EntryMode(
 }
 
 private val ScreenSaver = Saver<Screen, String>(
-    save = { s -> if (s is Screen.DataBrowser || (s is Screen.View && s.back is Screen.DataBrowser)) "data" else "home" },
-    restore = { if (it == "data") Screen.DataBrowser else Screen.Dashboard },
+    save = { s -> encodeScreen(s) },
+    restore = { decodeScreen(it) },
 )
+
+private val restorableObjects: Map<String, Screen> = listOf(
+    Screen.MyActivity, Screen.ToolAssign, Screen.Feedback, Screen.Notifications, Screen.Settings,
+    Screen.Appearance, Screen.MyAiKeys, Screen.TwoStepVerification, Screen.DataBrowser
+).associateBy { it.toString() }
+
+private fun encodeScreen(screen: Screen): String = when (screen) {
+    Screen.Dashboard -> "home"
+    is Screen.View -> if (screen.back is Screen.DataBrowser) {
+        "data"
+    } else {
+        screenTokens("view", screen.mode.name, screen.recordId, screen.section, encodeScreen(screen.back))
+    }
+    is Screen.Edit -> screenTokens("view", screen.mode.name, screen.recordId, null, screen.back?.let(::encodeScreen))
+    is Screen.Create -> screenTokens("create", screen.mode.name)
+    is Screen.Browse -> screenTokens("browse", screen.mode.name)
+    is Screen.AdminHub -> screenTokens("admin", screen.section?.name)
+    is Screen.RemoteRecord -> screenTokens("remote", screen.type, screen.id, screen.from?.let(::encodeScreen))
+    else -> restorableObjects.entries.firstOrNull { it.value == screen }?.let { screenTokens("object", it.key) } ?: "home"
+}
+
+private fun screenTokens(vararg tokens: String?): String = packScreenTokens(tokens.toList())
+
+private fun decodeScreen(raw: String): Screen = when (raw) {
+    "home" -> Screen.Dashboard
+    "data" -> Screen.DataBrowser
+    else -> runCatching { decodeScreenTokens(unpackScreenTokens(raw)) }.getOrNull() ?: Screen.Dashboard
+}
+
+private fun decodeScreenTokens(t: List<String?>): Screen? {
+    fun arg(i: Int): String? = t.getOrNull(i)
+    fun id(i: Int): String = requireNotNull(arg(i))
+    fun from(i: Int): Screen? = arg(i)?.let(::decodeScreen)
+    fun mode(i: Int): EntryMode = EntryMode.valueOf(id(i))
+    return when (arg(0)) {
+        "view" -> Screen.View(mode(1), id(2), back = from(4) ?: Screen.Dashboard, section = arg(3))
+        "create" -> Screen.Create(mode(1))
+        "browse" -> Screen.Browse(mode(1))
+        "admin" -> Screen.AdminHub(arg(1)?.let { AdminHubEntry.valueOf(it) })
+        "remote" -> Screen.RemoteRecord(id(1), id(2), from = from(3))
+        "object" -> restorableObjects[id(1)]
+        else -> null
+    }
+}
+
+internal fun restoredScreenToken(raw: String): String = encodeScreen(decodeScreen(raw))
+
+internal fun restorableScreenSamples(): List<String> = listOf(
+    Screen.Dashboard,
+    Screen.Browse(EntryMode.ARTISAN),
+    Screen.View(EntryMode.ARTISAN, "a1", back = Screen.Browse(EntryMode.ARTISAN), section = "media"),
+    Screen.View(EntryMode.PRODUCT, "p1"),
+    Screen.Create(EntryMode.TOOL),
+    Screen.AdminHub(),
+    Screen.AdminHub(AdminHubEntry.entries.first()),
+    Screen.RemoteRecord("craft", "c1", from = Screen.Dashboard),
+).plus(restorableObjects.values).map(::encodeScreen)
 
 private sealed interface Screen {
     data object Dashboard : Screen
@@ -983,6 +1042,7 @@ private fun RepositoryApp(
         val cm = appContext.getSystemService(android.net.ConnectivityManager::class.java)
         val callback = object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: android.net.Network) {
+                com.fieldrepository.app.data.RequestGate.shared.networkReturned()
                 scope.launch {
                     online = repository.isOnline(appContext)
                     val preferencesStore = AppPreferencesStore(appContext)
@@ -1405,6 +1465,9 @@ private fun HomeScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val reducedMotion = preferences.reducedMotion
     var searchOpen by remember { mutableStateOf(false) }
+    val searchSession = remember { AppSearchSession() }
+    val searchReturn = remember { AppSearchReturn<Screen>() }
+    LaunchedEffect(screen, searchSession.openedResult) { searchReturn.observe(screen, searchSession) }
     var scanOpen by remember { mutableStateOf(false) }
     val scanContext = LocalContext.current
     val appMessage = remember { AppMessageState() }
@@ -1768,7 +1831,18 @@ private fun HomeScreen(
         scope.launch { drawerState.closeAppMenu(reducedMotion) }
     }
     BackHandler(enabled = !drawerState.appMenuShowing && screen !is Screen.Dashboard) {
-        attemptExit { goBack() }
+        attemptExit {
+            val origin = searchReturn.backTo(screen)
+            if (origin != null) {
+                message = null
+                searchReturn.returned()
+                screen = origin
+                searchSession.restore()
+                searchOpen = true
+            } else {
+                goBack()
+            }
+        }
     }
     AppMenuFocusEffect(drawerState)
 
@@ -2393,7 +2467,7 @@ private fun HomeScreen(
                     AppSearchHeader(
                         appName = APP_SEARCH_NAME,
                         logo = { m -> FieldRepoLogo(modifier = m, cornerRadius = 10.dp) },
-                        onOpenSearch = { searchOpen = true },
+                        onOpenSearch = { searchSession.start(); searchReturn.begin(screen); searchOpen = true },
                         elevated = elevated,
                         onScan = { scanOpen = true }
                     )
@@ -2427,19 +2501,20 @@ private fun HomeScreen(
                         remoteSearch = { q -> searchRemote(q) },
                         onClose = { searchOpen = false },
                         onError = { showMessage(it) },
+                        session = searchSession,
                         fullSearch = { q, back ->
                             DataUnifiedSearch(
                                 repository = repository,
                                 initial = q,
                             onOpenInData = { kind, id, _ ->
-                                searchOpen = false
+                                searchSession.markOpened(); searchOpen = false
                                 attemptExit {
                                     val mode = searchRecordEntryMode(kind) ?: recentSubmissionEntryMode(kind)
                                     if (mode == null) showMessage(unroutableRecordLine(kind)) else openRecordView(mode, id)
                                 }
                             },
-                                onPlay = { mediaId, _, _, _ -> searchOpen = false; attemptExit { openSearchRecord(SearchRecordTypes.MEDIA, mediaId) } },
-                                onOpenRemote = { type, id -> searchOpen = false; attemptExit { message = null; screen = Screen.RemoteRecord(type, id, from = screen) } },
+                                onPlay = { mediaId, _, _, _ -> searchSession.markOpened(); searchOpen = false; attemptExit { openSearchRecord(SearchRecordTypes.MEDIA, mediaId) } },
+                                onOpenRemote = { type, id -> searchSession.markOpened(); searchOpen = false; attemptExit { message = null; screen = Screen.RemoteRecord(type, id, from = screen) } },
                                 onClose = back,
                             )
                         }
@@ -2760,7 +2835,7 @@ private fun SettingsRadioRow(title: String, subtitle: String, selected: Boolean,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        RadioButton(selected = selected, onClick = onSelect)
+        FieldRadioButton(selected = selected, onClick = onSelect)
         Column(modifier = Modifier.weight(1f)) {
             Text(title, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium)
             Text(subtitle, color = Muted, style = MaterialTheme.typography.bodySmall)
@@ -10169,7 +10244,13 @@ private fun CompletionMatrixCard(
     onError: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    val workshopScope = rememberWorkshopScope(repository = repository, onError = onError)
+    var sectionError by remember(artisanId) { mutableStateOf<String?>(null) }
+    var reloadKey by remember(artisanId) { mutableStateOf(0) }
+    val workshopScope = rememberWorkshopScope(
+        repository = repository,
+        defaultToMostRecent = artisanId == null,
+        onError = { message -> if (artisanId == null) onError(message) else sectionError = message }
+    )
     var matrix by remember(artisanId) { mutableStateOf<CompletionMatrixDto?>(null) }
     var loading by remember(artisanId) { mutableStateOf(true) }
     var cellOverrides by remember(artisanId) { mutableStateOf<Map<Pair<String, String>, String?>>(emptyMap()) }
@@ -10177,18 +10258,20 @@ private fun CompletionMatrixCard(
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
 
-    LaunchedEffect(artisanId, workshopScope.settled, workshopScope.requestKey) {
+    LaunchedEffect(artisanId, workshopScope.settled, workshopScope.requestKey, reloadKey) {
         if (!workshopScope.settled) return@LaunchedEffect
         loading = true
         runCatching { repository.completionMatrix(artisanId, workshopScope.workshopIds) }
             .onSuccess {
                 matrix = it
                 cellOverrides = emptyMap()
+                sectionError = null
                 loading = false
             }
             .onFailure {
                 if (it is kotlinx.coroutines.CancellationException) throw it
-                onError(it.apiErrorMessage("Unable to load completion"))
+                val message = it.apiErrorMessage("Unable to load completion")
+                if (artisanId == null) onError(message) else sectionError = "Completion couldn't load. $message"
                 loading = false
             }
     }
@@ -10247,8 +10330,16 @@ private fun CompletionMatrixCard(
         }
 
         val data = matrix
+        val failure = sectionError
         when {
             loading -> Text("Loading completion…", color = Muted, style = MaterialTheme.typography.bodySmall)
+            failure != null && data == null -> Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth().testTag("completion-section-error")
+            ) {
+                Text(failure, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = { sectionError = null; reloadKey++ }) { Text("Retry") }
+            }
             data == null || data.sections.isEmpty() -> Text("No questionnaire sections defined yet.", color = Muted, style = MaterialTheme.typography.bodySmall)
             data.artisans.isEmpty() -> Text(
                 if (!workshopScope.isAllRecords) {

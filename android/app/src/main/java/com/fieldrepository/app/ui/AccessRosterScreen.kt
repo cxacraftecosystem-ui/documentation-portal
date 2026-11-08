@@ -22,7 +22,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Button
-import androidx.compose.material3.RadioButton
 import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
@@ -328,7 +327,7 @@ fun AccessRosterScreen(
                         modifier = Modifier.fillMaxWidth()
                             .selectable(selected = signIn == option, role = Role.RadioButton, onClick = { signIn = option })
                     ) {
-                        RadioButton(selected = signIn == option, onClick = null)
+                        FieldRadioButton(selected = signIn == option, onClick = null)
                         Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
                     }
                 }

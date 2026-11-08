@@ -27,6 +27,8 @@ object ExplorerUiText {
     const val open = "Open"
     const val share = "Share"
     const val retry = "Retry"
+    const val openElsewhere = "Open in another app"
+    const val noPlayerApp = "No app on this phone can open this video."
     const val dismiss = "Dismiss"
     const val wifi = "Wi-Fi"
     const val mobileData = "mobile data"

@@ -236,6 +236,34 @@ def test_an_artisan_outside_the_selected_workshops_gets_the_matrix_without_artis
     assert asked and "AND" in asked[0], asked
 
 
+def test_completion_scoped_to_one_workshop_reads_the_instrument_that_workshop_is_bound_to(
+    db: _Db,
+) -> None:
+    db.workshop.rows.append(
+        db.workshop._materialise({"id": "ws-new", "title": "New workshop", "questionnaireId": W3})
+    )
+
+    response = _call("GET", "/questionnaire/completion?workshopIds=ws-new")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["questionnaireId"] == W3
+    assert [s["code"] for s in payload["sections"]] == ["A"]
+
+
+def test_completion_for_a_workshop_bound_to_a_missing_instrument_falls_back_to_the_default(
+    db: _Db,
+) -> None:
+    db.workshop.rows.append(
+        db.workshop._materialise({"id": "ws-dangling", "title": "Odd", "questionnaireId": "qnr_gone"})
+    )
+
+    response = _call("GET", "/questionnaire/completion?workshopIds=ws-dangling")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["questionnaireId"] == W2
+
+
 def test_an_artisan_that_does_not_exist_is_still_not_found(db: _Db) -> None:
     response = _call("GET", f"/questionnaire/completion?questionnaireId={W3}&artisanId=art-missing")
 
