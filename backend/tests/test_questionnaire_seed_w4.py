@@ -84,9 +84,13 @@ def test_the_fourth_instrument_seeds_108_questions_keeping_shared_ctw3_codes(db:
     w4 = _rows(db, W4_ID)
     assert len(w4) == 108
     codes = {key: getattr(row, "questionCode", None) for key, row in w4.items()}
-    shared = {key: code for key, code in codes.items() if code}
+    assert all(codes.values())
+    shared = {key: code for key, code in codes.items() if code.startswith("CTW3.")}
     assert len(shared) == 76
-    assert all(w3[key] == code and code.startswith("CTW3.") for key, code in shared.items())
+    assert all(w3[key] == code for key, code in shared.items())
+    fourth = {key: code for key, code in codes.items() if code.startswith("CTW4.")}
+    assert len(fourth) == 32
+    assert all(code == f"CTW4.{key[0]}.{key[1]:02d}" for key, code in fourth.items())
 
 
 def test_reseeding_the_fourth_instrument_changes_nothing(db: FakeDb) -> None:
