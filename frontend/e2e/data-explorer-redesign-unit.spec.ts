@@ -274,7 +274,7 @@ test("report filters: chips name what narrows the report, and an empty result is
 test("the folders panel width stays between its floor and half the explorer, and steps by key", () => {
   expect(treeWidthBounds(null)).toEqual({ min: TREE_WIDTH.min, max: TREE_WIDTH.max });
   expect(treeWidthBounds(1300)).toEqual({ min: 240, max: 560 });
-  expect(treeWidthBounds(900)).toEqual({ min: 240, max: 450 });
+  expect(treeWidthBounds(900)).toEqual({ min: 240, max: 404 });
   expect(treeWidthBounds(300)).toEqual({ min: 240, max: 240 });
   const bounds = treeWidthBounds(1300);
   expect(clampTreeWidth(100, bounds)).toBe(240);

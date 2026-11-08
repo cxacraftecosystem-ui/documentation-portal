@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEven
 
 import { FileTypeIcon, FolderSkeleton, LoadFailed, Problem, RecordIcon, Spinner } from "@/components/dataExplorer/explorerUi";
 import { canPreview } from "@/components/dataExplorer/PreviewDialog";
+import { TextBody } from "@/components/dataExplorer/TextBody";
 import { TranscriptMarkdown } from "@/components/transcript/TranscriptMarkdown";
 import { ActionGroup } from "@/components/ui/ActionGroup";
 import { apiFetch, buildQuery } from "@/lib/api";
@@ -225,7 +226,8 @@ export function FolderContents({
   onMore,
   onRetry,
   layout = "list",
-  playing = null
+  playing = null,
+  filteredEmpty = null
 }: {
   path: string;
   tree: TreeResponse | undefined;
@@ -246,6 +248,7 @@ export function FolderContents({
   onRetry: () => void;
   layout?: "list" | "grid";
   playing?: PlayingRow | null;
+  filteredEmpty?: ReactNode;
 }) {
   const router = useRouter();
   const [openText, setOpenText] = useState<ReadonlySet<string>>(new Set());
@@ -406,9 +409,9 @@ export function FolderContents({
         </p>
       ) : null}
       {openText.has(file.path) && file.content != null ? (
-        <pre data-row-ignore="" tabIndex={0} className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-line-200 bg-surface-50 p-4 font-sans text-sm leading-6 text-ink-700">
-          {file.content}
-        </pre>
+        <div data-row-ignore="" className="mt-2" data-testid="text-body">
+          <TextBody text={file.content} label={file.name} />
+        </div>
       ) : null}
       {openTranscripts.has(file.path) ? (
         <div data-row-ignore="" className="mt-2 grid gap-2">
@@ -435,6 +438,7 @@ export function FolderContents({
     );
   }
   if (!tree) return loading ? <FolderSkeleton /> : <p className="p-4 text-sm text-ink-500">Choose a folder.</p>;
+  if (entries.length === 0 && filteredEmpty) return <>{filteredEmpty}</>;
   if (entries.length === 0) {
     return (
       <div className="grid justify-items-center gap-2 px-4 py-10 text-center max-sm:panel">

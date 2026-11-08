@@ -48,6 +48,8 @@ export type TreeResponse = {
   designWorkshopsDownloadable?: boolean;
   sort?: { key: string; dir: string } | null;
   sorts?: string[] | null;
+  filters?: { active: { param: string; facet: string; label: string; values: { value: string; label: string }[] }[]; count: number } | null;
+  hidden?: number | null;
 };
 
 export type ManifestFile = {

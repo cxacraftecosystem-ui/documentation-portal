@@ -188,14 +188,25 @@ def report_params(
     name: str | None = None,
     sheet: str | None = None,
     parts: bool = False,
+    filters: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    return {
+    out = {
         "path": path or "",
         "options": options_params(options),
         "name": name,
         "sheet": (sheet or "").strip() or None,
         "parts": bool(parts),
     }
+    if filters:
+        out["filters"] = dict(filters)
+    return out
+
+
+def _explorer_filter(params: dict[str, Any] | None) -> Any:
+    from app.services.data_explorer import filters as explorer_filters
+
+    raw = (params or {}).get("filters")
+    return explorer_filters.parse(raw) if isinstance(raw, dict) and raw else None
 
 
 def _browser() -> Any:
@@ -221,11 +232,12 @@ async def _scope(browser: Any, user: Any, status_filter: str | None) -> Any:
     return await browser._scope_for(user)
 
 
-async def scope_key(user: Any, path: str, status_filter: str | None) -> str:
+async def scope_key(user: Any, path: str, status_filter: str | None, flt: Any = None) -> str:
     from app.services import transcript_portal
+    from app.services.data_explorer import filters as explorer_filters
 
     browser = _browser()
-    scope = await _scope(browser, user, status_filter)
+    scope = explorer_filters.narrow(await _scope(browser, user, status_filter), flt)
     norm = browser._norm(path)
     sees_spend = bool(transcript_portal.may_see_spend(user))
     version = await report_cache.data_version(_db(browser))
@@ -255,7 +267,7 @@ async def enqueue(user: Any, kind: str, params: dict[str, Any], *, status_filter
     if kind not in KINDS:
         raise ValueError(kind)
     user_id = str(_v(user, "id") or "")
-    key = await scope_key(user, str(params.get("path") or ""), status_filter)
+    key = await scope_key(user, str(params.get("path") or ""), status_filter, _explorer_filter(params))
     job = job_id(kind, user_id, key, {**params, "status": status_filter})
     now = _clock()
     found = read(job)
@@ -348,7 +360,9 @@ async def _build_report_file(record: dict[str, Any], user: Any, into: Path) -> t
     sheet = params.get("sheet")
     if sheet and chosen.sheets is None:
         chosen.sheets = [str(sheet)]
-    built = await build.build_report(user, str(params.get("path") or ""), chosen, status=record.get("status"))
+    built = await build.build_report(
+        user, str(params.get("path") or ""), chosen, status=record.get("status"), flt=_explorer_filter(params)
+    )
     for hook in built.ctx.delivered:
         await hook()
     payload, name, mime = build.deliverable(built, parts=bool(params.get("parts")))

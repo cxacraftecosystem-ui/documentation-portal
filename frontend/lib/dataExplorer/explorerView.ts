@@ -125,8 +125,12 @@ export const TREE_WIDTH_KEY = "data-explorer-tree-width";
 
 export type WidthBounds = { min: number; max: number };
 
+export const CONTENT_MIN_WIDTH = 480;
+
+export const DIVIDER_WIDTH = 16;
+
 export function treeWidthBounds(containerWidth: number | null | undefined): WidthBounds {
-  const ceiling = containerWidth && containerWidth > 0 ? Math.floor(containerWidth * 0.5) : TREE_WIDTH.max;
+  const ceiling = containerWidth && containerWidth > 0 ? Math.floor(Math.min(containerWidth * 0.5, containerWidth - DIVIDER_WIDTH - CONTENT_MIN_WIDTH)) : TREE_WIDTH.max;
   return { min: TREE_WIDTH.min, max: Math.max(TREE_WIDTH.min, Math.min(TREE_WIDTH.max, ceiling)) };
 }
 

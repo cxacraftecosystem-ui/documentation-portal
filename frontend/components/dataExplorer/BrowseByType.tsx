@@ -6,11 +6,13 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
 import { LINK_BUTTON, Problem, Spinner } from "@/components/dataExplorer/explorerUi";
+import { PeerResults } from "@/components/dataExplorer/PeerResults";
 import { SortMenu, useRememberedSort } from "@/components/dataExplorer/SortMenu";
 import { EmptyState } from "@/components/EmptyState";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { fetchBrowse, unsupported } from "@/lib/dataExplorer/api";
 import type { BrowsePage } from "@/lib/dataExplorer/contract";
+import { describeFilters, filterQuery, hasFilters, showsOther, showsThis, type ExplorerFilters } from "@/lib/dataExplorer/filters";
 import { availableKeys, LIST_DEFAULT, parseSort, sortParam, type SortChoice, type SortKey } from "@/lib/dataExplorer/sorting";
 
 export type BrowseType = {
@@ -46,6 +48,8 @@ export function BrowseByType({
   workshopIds,
   scopeControl,
   viewer = "",
+  filters = null,
+  onClearFilters,
   onChange
 }: {
   types: BrowseType[];
@@ -55,6 +59,8 @@ export function BrowseByType({
   workshopIds?: string;
   scopeControl?: ReactNode;
   viewer?: string;
+  filters?: ExplorerFilters | null;
+  onClearFilters?: () => void;
   onChange: (next: { type: string; page: number; q: string }) => void;
 }) {
   const router = useRouter();
@@ -70,7 +76,10 @@ export function BrowseByType({
   const [attempt, setAttempt] = useState(0);
   const [remembered, remember] = useRememberedSort(viewer, `browse:${type}`, "browse");
   const sortText = sortParam(remembered, "browse");
-  const key = JSON.stringify([type, page, q, workshopIds ?? "", attempt, sortText ?? ""]);
+  const filterText = JSON.stringify(filters ? filterQuery(filters) : {});
+  const filtered = Boolean(filters && hasFilters(filters));
+  const local = !filters || showsThis(filters);
+  const key = JSON.stringify([type, page, q, workshopIds ?? "", attempt, sortText ?? "", filterText]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -90,9 +99,10 @@ export function BrowseByType({
     if (!typeKnown || !chosen) return;
     let cancelled = false;
     const scopeIds = chosen.scoped ? workshopIds : undefined;
+    const narrowed = JSON.parse(filterText) as Record<string, string>;
     const ask = async () => {
       try {
-        return await fetchBrowse({ type: chosen.value, page, q, workshopIds: scopeIds, sort: sortText });
+        return await fetchBrowse({ type: chosen.value, page, q, workshopIds: narrowed.workshopIds ? undefined : scopeIds, sort: sortText, extra: narrowed });
       } catch (err) {
         if (!unsupported(err)) throw err;
         return chosen.legacy(page, q, scopeIds);
@@ -108,7 +118,7 @@ export function BrowseByType({
     return () => {
       cancelled = true;
     };
-  }, [typeKnown, page, q, workshopIds, key, sortText]);
+  }, [typeKnown, page, q, workshopIds, key, sortText, filterText]);
 
   const current = result?.key === key ? result.page : null;
   const failed = error?.key === key ? error.message : null;
@@ -165,12 +175,28 @@ export function BrowseByType({
         ) : null}
       </div>
       {def?.scoped ? scopeControl : null}
-      {!def ? null : failed ? (
+      {!def ? null : !local ? (
+        <p className="text-sm text-ink-500" role="status">
+          This portal is filtered out. Add it under Portal to list its {noun}.
+        </p>
+      ) : failed ? (
         <Problem onRetry={() => setAttempt((value) => value + 1)}>{failed}</Problem>
       ) : !current ? (
         <Spinner label={`Loading ${noun}…`} />
       ) : current.items.length === 0 ? (
-        <EmptyState title={q ? `No ${noun} match “${q}”` : `No ${noun} yet`} />
+        filtered && filters ? (
+          <div className="grid justify-items-center gap-2 py-6 text-center" data-testid="browse-filtered-empty">
+            <p className="text-sm font-semibold text-ink-900">No {noun} match these filters</p>
+            <p className="max-w-xl text-xs text-ink-500">{describeFilters(filters, null).join(" · ")}</p>
+            {onClearFilters ? (
+              <button type="button" className="field-button-secondary min-h-10" onClick={onClearFilters}>
+                Clear filters
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          <EmptyState title={q ? `No ${noun} match “${q}”` : `No ${noun} yet`} />
+        )
       ) : (
         <>
           <div className="max-h-96 overflow-auto rounded-md border border-line-200" tabIndex={0} role="region" aria-label={`${def.label} list`}>
@@ -249,6 +275,7 @@ export function BrowseByType({
           </div>
         </>
       )}
+      {def && filters && showsOther(filters) ? <PeerResults filters={filters} type={def.value} q={q} /> : null}
     </section>
   );
 }
