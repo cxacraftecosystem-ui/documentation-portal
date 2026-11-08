@@ -16,7 +16,7 @@ export function PageHeader({
 }) {
   return (
     <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-      <div className="flex items-start gap-3">
+      <div className="flex min-w-0 items-start gap-3">
         {back ? (
           <div className="mt-1">
             <BackButton />
@@ -28,7 +28,7 @@ export function PageHeader({
           </div>
         ) : null}
         <div className="min-w-0">
-          <h1 className="display-title text-2xl sm:text-3xl md:text-4xl">{title}</h1>
+          <h1 className="display-title text-2xl [overflow-wrap:anywhere] sm:text-3xl md:text-4xl">{title}</h1>
           {description ? <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-muted">{description}</p> : null}
         </div>
       </div>

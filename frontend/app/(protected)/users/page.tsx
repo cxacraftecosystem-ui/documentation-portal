@@ -434,8 +434,8 @@ export default function UsersPage() {
             Grant admin access and permissions to selected users.
           </p>
           {adminMessage ? <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{adminMessage}</div> : null}
-          <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-            <div className="rounded-md border border-line-200 bg-field-50 p-3">
+          <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+            <div className="min-w-0 rounded-md border border-line-200 bg-field-50 p-3">
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Select users ({adminSelection.size} selected)</div>
               {allUsers.filter((user) => user.role !== "MASTER_ADMIN").length === 0 ? (
                 <p className="px-2 py-1 text-sm text-ink-muted">No eligible users.</p>
@@ -453,7 +453,7 @@ export default function UsersPage() {
                 />
               )}
             </div>
-            <div className="grid content-start gap-2 rounded-md border border-line-200 bg-field-50 p-3">
+            <div className="grid min-w-0 content-start gap-2 rounded-md border border-line-200 bg-field-50 p-3">
               <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Grant</div>
               <Toggle label="Administrator access (role = ADMIN)" checked={grantAdmin} onChange={setGrantAdmin} />
               <Toggle label="Manage questionnaire" checked={grantQuestionnaire} onChange={setGrantQuestionnaire} />

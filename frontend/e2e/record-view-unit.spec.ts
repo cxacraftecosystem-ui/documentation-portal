@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
+import { interviewDestination } from "@/components/questionnaires/InterviewRoute";
 import { NOT_RECORDED, recordFieldRows } from "@/components/records/recordFields";
 import { decodeListReturn, encodeListReturn, LIST_RETURN_MAX_AGE_MS } from "@/lib/listReturn";
 import {
@@ -297,5 +298,31 @@ test.describe("the lists are wired to it", () => {
     expect(card).toMatch(/className="relative flex cursor-pointer/);
     expect(card).toMatch(/field-button-secondary relative z-10/);
     expect(card.indexOf("field-button-secondary")).toBeGreaterThan(card.indexOf("</Link>"));
+  });
+});
+
+test.describe("an old interview link", () => {
+  const id = "cmw6ggrwk02liyjdfetu9gfk1";
+
+  test("goes to the session's read view when the session API knows the id", async () => {
+    const asked: string[] = [];
+    const target = await interviewDestination(id, true, async (sessionId) => {
+      asked.push(sessionId);
+      return { id: sessionId };
+    });
+    expect(asked).toEqual([id]);
+    expect(target).toBe(`/questionnaire/sessions/${id}/view`);
+  });
+
+  test("stays and renders the interview when the session API refuses it or v2 is off", async () => {
+    expect(await interviewDestination(id, true, async () => Promise.reject(new Error("404")))).toBeNull();
+    expect(await interviewDestination(id, false, async () => ({ id }))).toBeNull();
+  });
+
+  test("every record link for a questionnaire goes through the resolving page", () => {
+    expect(recordViewHref("questionnaire", id)).toBe(`/questionnaire/interviews/${id}`);
+    const page = read("app", "(protected)", "questionnaire", "interviews", "[id]", "page.tsx");
+    expect(page).toContain("useInterviewRoute(id)");
+    expect(page).not.toContain("useV2Redirect");
   });
 });

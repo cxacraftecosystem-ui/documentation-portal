@@ -62,7 +62,7 @@ export function ArtisanName({ name }: { name: string }) {
       </span>
       <span
         aria-hidden
-        className="pointer-events-none invisible absolute -left-2 -top-1.5 z-20 whitespace-nowrap rounded-md border border-line-200 bg-card px-2 py-1 text-base font-semibold normal-case tracking-normal text-ink-900 opacity-0 shadow-md transition-opacity group-hover/name:visible group-hover/name:opacity-100 group-focus/name:visible group-focus/name:opacity-100"
+        className="pointer-events-none invisible absolute -right-2 -top-1.5 z-20 whitespace-nowrap rounded-md border border-line-200 bg-card px-2 py-1 text-base font-semibold normal-case tracking-normal text-ink-900 opacity-0 shadow-md transition-opacity group-hover/name:visible group-hover/name:opacity-100 group-focus/name:visible group-focus/name:opacity-100"
         data-artisan-full-name
       >
         {name}

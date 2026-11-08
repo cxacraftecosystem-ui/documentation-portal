@@ -1612,7 +1612,7 @@ async def _walk(
         state["truncated"] = True
 
 
-MANIFEST_NDJSON_MEDIA_TYPE = "application/x-ndjson"
+MANIFEST_NDJSON_MEDIA_TYPE = "application/x-ndjson; charset=utf-8"
 MANIFEST_TOTAL_HEADER = "X-Dataset-Total"
 MANIFEST_MEDIA_HEADER = "X-Dataset-Media"
 MANIFEST_TRUNCATED_HEADER = "X-Dataset-Truncated"

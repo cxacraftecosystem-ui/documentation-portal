@@ -178,7 +178,7 @@ function DashboardView() {
         <SentBackCard sentBack={stats.mine.sentBack ?? 0} rejected={stats.mine.rejected ?? 0} />
       ) : null}
       <div className="relative">
-        <div aria-hidden className="pointer-events-none absolute -inset-x-6 -inset-y-8 overflow-hidden">
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 -inset-y-8 overflow-hidden">
           <div className="absolute -left-12 -top-4 h-72 w-72 rounded-full bg-purple-300/25 blur-3xl" />
           <div className="absolute -right-8 bottom-0 h-80 w-80 rounded-full bg-purple-400/20 blur-3xl" />
         </div>

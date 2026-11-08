@@ -184,6 +184,7 @@ export class QuestionnaireFake {
   calls: Call[] = [];
   v2 = true;
   role = ME.role;
+  interviews: Record<string, Json> = {};
   sessions: Json[] = [session("s-1"), session("s-2", { title: "Interview_2026-10-21_Bagru_Second-Sitting", respondents: [] })];
   deleted: Json[] = [session("s-gone", { title: "Interview_2026-10-20_Bagru_Deleted", deletedAt: "2026-10-21T10:00:00Z" })];
   answers: Json[] = [
@@ -399,6 +400,11 @@ export class QuestionnaireFake {
       this.typeDefaults = this.typeDefaults.filter((d) => d.workshopType !== b.workshopType);
       if (b.questionnaireId) this.typeDefaults.push({ questionnaireId: b.questionnaireId, title: FORM.title, workshopType: b.workshopType, designWorkshopKind: null });
       return { status: 200, json: { questionnaireId: b.questionnaireId } };
+    }
+    m = one(/^\/questionnaire\/interviews\/([^/]+)$/);
+    if (m && method === "GET") {
+      const interview = this.interviews[decodeURIComponent(m[1])];
+      return interview ? { status: 200, json: interview } : { status: 404, json: { detail: "Record not found" } };
     }
     m = one(/^\/questionnaire\/sessions\/([^/]+)$/);
     if (m && method === "GET") {

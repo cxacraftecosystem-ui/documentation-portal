@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { ApiError, apiFetch, clearPasswordChangeOwed, endSession, getSessionMarker, onPasswordChangeRequired } from "@/lib/api";
 import { forgetCachedMe, meFailure, meRetryDelay, readCachedMe, withinTimeout, writeCachedMe, type MeReach } from "@/lib/meProbe";
-import { migrateStoredToken } from "@/lib/session";
+import { hasLegacyToken, mayHoldSession, migrateStoredToken } from "@/lib/session";
 import type { loginBody } from "@/lib/oidcSignIn";
 import { isTwoFactorChallenge, type SignInResult, type TwoFactorChallenge } from "@/lib/twoFactor";
 import type { User } from "@/lib/types";
@@ -95,7 +95,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refreshMe]);
 
   useEffect(() => {
+    const legacyToken = hasLegacyToken();
     void migrateStoredToken().finally(() => {
+      if (!mayHoldSession(window.location.pathname, legacyToken)) {
+        setReach("ok");
+        setLoading(false);
+        return;
+      }
       const cached = readCachedMe(getSessionMarker());
       if (cached) {
         setUserState(cached);
