@@ -88,11 +88,12 @@ async function noSidewaysScroll(page: Page) {
       }
       return false;
     };
-    const offenders = [...document.querySelectorAll<HTMLElement>("body *")]
-      .filter((node) => right(node) > limit + 1 && !pinned(node) && !clipped(node))
-      .filter((node) => !node.parentElement || node.parentElement === document.body || right(node.parentElement) <= limit + 1)
-      .slice(0, 5)
-      .map((node) => `${node.tagName.toLowerCase()}.${String(node.className).slice(0, 120)} → ${Math.round(right(node))}`);
+    const label = (node: Element) => `${node.tagName.toLowerCase()}.${String(node.className).slice(0, 100)} → ${Math.round(right(node))}${pinned(node) ? " pinned" : ""}${clipped(node) ? " clipped" : ""} min ${(node as HTMLElement).scrollWidth}`;
+    const loose = [...document.querySelectorAll<HTMLElement>("body *")].filter((node) => right(node) > limit + 1 && !pinned(node) && !clipped(node));
+    const starts = [...document.querySelectorAll<HTMLElement>("body *")]
+      .filter((node) => right(node) > limit + 1)
+      .filter((node) => !node.parentElement || node.parentElement === document.body || right(node.parentElement) <= limit + 1);
+    const offenders = [...loose.slice(0, 3), ...starts.slice(0, 6)].map(label);
     return { wide: document.documentElement.scrollWidth - limit, offenders };
   }, width);
   expect(found.wide, found.offenders.join(" | ")).toBeLessThanOrEqual(1);
