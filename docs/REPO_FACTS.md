@@ -142,8 +142,8 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 |---|---|---|---|---|
 | `backend/app` | 348 | 89,264 | 348 | 89,264 |
 | `frontend/app` | 95 | 17,295 | 95 | 17,295 |
-| `frontend/components` | 351 | 69,969 | 351 | 69,969 |
-| `frontend/lib` | 201 | 38,929 | 201 | 38,929 |
+| `frontend/components` | 351 | 69,971 | 351 | 69,971 |
+| `frontend/lib` | 202 | 38,929 | 202 | 38,929 |
 | `android/app/src/main/java` | 322 | 101,079 | 322 | 101,079 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is

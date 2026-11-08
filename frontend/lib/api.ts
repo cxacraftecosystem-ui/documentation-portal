@@ -1,4 +1,4 @@
-import { SESSION_ENDED_PATH, sessionEndedHref } from "@/lib/errorKind";
+import { SESSION_ENDED_PATH, sessionEndedHref } from "@/lib/sessionReturn";
 import type { PageResult } from "@/lib/types";
 
 import { endSession, getSessionMarker } from "@/lib/session";

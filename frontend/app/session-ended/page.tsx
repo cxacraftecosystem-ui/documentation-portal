@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { DeadEndFrame, ErrorState } from "@/components/DeadEnd";
-import { nextFromSearch } from "@/lib/errorKind";
+import { nextFromSearch } from "@/lib/sessionReturn";
 
 export default function SessionEndedPage() {
   const [next, setNext] = useState<string | null>(null);

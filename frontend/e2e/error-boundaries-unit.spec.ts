@@ -3,7 +3,8 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { errorCopy, errorKindOf, retryDelaySeconds, safeNext, sessionEndedHref, signInHref, type ErrorScreen } from "../lib/errorKind";
+import { errorCopy, errorKindOf, retryDelaySeconds, type ErrorScreen } from "../lib/errorKind";
+import { safeNext, sessionEndedHref, signInHref } from "../lib/sessionReturn";
 
 const APP = join(__dirname, "..", "app");
 

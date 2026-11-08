@@ -20,7 +20,8 @@ import { ErrorPanel } from "@/components/ErrorPanel";
 import { FirstPasswordGate } from "@/components/FirstPasswordGate";
 import { PageSelvedge } from "@/components/PageSelvedge";
 import { isAdmin, routeGuardFor } from "@/lib/permissions";
-import { browserOffline, signInHref } from "@/lib/errorKind";
+import { browserOffline } from "@/lib/errorKind";
+import { signInHref } from "@/lib/sessionReturn";
 import { mustChangePassword } from "@/lib/signIn";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 

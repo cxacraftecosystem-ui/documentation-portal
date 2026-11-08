@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { GLASS_PANEL, GlassSurface } from "@/components/ui/GlassSurface";
 import { useToast } from "@/components/ui/Toast";
 import { accessRefusalCode } from "@/lib/accessRoster";
-import { rememberSignInReturn, takeSignInReturn } from "@/lib/errorKind";
+import { rememberSignInReturn, takeSignInReturn } from "@/lib/sessionReturn";
 import {
   beginSignIn,
   callbackErrorMessage,

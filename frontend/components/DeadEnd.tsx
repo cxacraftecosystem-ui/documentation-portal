@@ -8,7 +8,8 @@ import { KeyRound, Lock, SearchX, ServerOff, TriangleAlert, WifiOff } from "luci
 import { useAuth } from "@/components/AuthProvider";
 import { DynamicIslandNav } from "@/components/DynamicIslandNav";
 import { ErrorBrand, ErrorPanel, type ErrorTone } from "@/components/ErrorPanel";
-import { errorCopy, errorKindOf, retryDelaySeconds, signInHref, type ErrorKind } from "@/lib/errorKind";
+import { errorCopy, errorKindOf, retryDelaySeconds, type ErrorKind } from "@/lib/errorKind";
+import { signInHref } from "@/lib/sessionReturn";
 
 export function DeadEndFrame({ nav, children }: { nav: boolean; children: ReactNode }) {
   const { user, loading } = useAuth();
