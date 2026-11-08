@@ -111,3 +111,12 @@ def test_payload_never_carries_personal_data():
             assert fingerprint not in text.lower()
             assert pehchan not in text
             assert not re.search(r"\d{12}", text)
+
+
+def test_a_new_code_is_never_all_digits_so_the_short_code_cannot_read_as_an_aadhaar(monkeypatch):
+    draws = iter("0123456789" * 3 + "A123456789")
+    monkeypatch.setattr(card.secrets, "choice", lambda _alphabet: next(draws))
+    code = card.new_code()
+    assert code == "A123456789"
+    for issuer in card.ISSUERS:
+        assert not re.search(r"\d{12}", card.short_code(issuer, code).replace("-", ""))
