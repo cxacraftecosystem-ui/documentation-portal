@@ -50,6 +50,22 @@ internal fun cellOf(cell: QGridCell): GridCell {
     return GridCell(cell.subjectId, mark, count = cell.takes, partial = partial, override = cell.override)
 }
 
+internal class CoverageLoad(val grid: QGrid?, val error: String?)
+
+internal suspend fun loadCoverage(fetch: suspend () -> QGrid, describe: (Throwable) -> String): CoverageLoad =
+    try {
+        CoverageLoad(fetch(), null)
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        CoverageLoad(null, describe(e))
+    }
+
+internal fun coverageQuery(workshopId: String, underDesignWorkshop: Boolean): Pair<String?, String?> {
+    val chosen = workshopId.ifBlank { null }
+    return if (underDesignWorkshop) null to chosen else chosen to null
+}
+
 @Composable
 fun WorkshopCoverageScreen(
     v2: QuestionnaireV2,
@@ -63,6 +79,8 @@ fun WorkshopCoverageScreen(
     var grid by remember { mutableStateOf<QGrid?>(null) }
     var names by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var loading by remember { mutableStateOf(false) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var attempt by remember { mutableStateOf(0) }
     var choosing by remember { mutableStateOf<List<CoverageRecordings.Take>?>(null) }
     var opened by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -82,17 +100,21 @@ fun WorkshopCoverageScreen(
             open(CoverageRecordings.fromList(rows, sectionId, subjectId))
         }
     }
-    LaunchedEffect(formId, workshopId) {
+    LaunchedEffect(formId, workshopId, attempt) {
+        grid = null
+        names = emptyMap()
+        loadError = null
         if (formId.isBlank()) return@LaunchedEffect
         loading = true
-        val fetched = runCatching {
-            if (QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP) v2.api.coverageGrid(formId, designWorkshopId = workshopId.ifBlank { null })
-            else v2.api.coverageGrid(formId, workshopId = workshopId.ifBlank { null })
+        val (plainWorkshop, designWorkshop) = coverageQuery(workshopId, QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP)
+        try {
+            val load = loadCoverage({ v2.api.coverageGrid(formId, workshopId = plainWorkshop, designWorkshopId = designWorkshop) }) { it.userSentence() }
+            grid = load.grid
+            loadError = load.error
+            names = load.grid?.names.orEmpty()
+        } finally {
+            loading = false
         }
-        grid = fetched.getOrNull()
-        fetched.exceptionOrNull()?.let { onError(it.userSentence()) }
-        names = grid?.names.orEmpty()
-        loading = false
     }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(QuestionnaireCopy.s("coverage.title"), style = MaterialTheme.typography.titleLarge)
@@ -107,6 +129,12 @@ fun WorkshopCoverageScreen(
             selectedValue = workshopId, includeNone = true, searchable = true
         ) { workshopId = it }
         if (loading) FieldLinearProgressIndicator(Modifier.fillMaxWidth())
+        loadError?.let { message ->
+            Column(Modifier.fillMaxWidth().testTag("coverage.error"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                androidx.compose.material3.OutlinedButton(onClick = { attempt++ }) { Text(QuestionnaireCopy.s("retry")) }
+            }
+        }
         val g = grid
         val subjects = g?.sections?.flatMap { s -> s.cells.map { it.subjectId } }?.distinct().orEmpty()
         if (!loading && g != null && subjects.isEmpty()) Text(QuestionnaireCopy.s("coverage.empty"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
