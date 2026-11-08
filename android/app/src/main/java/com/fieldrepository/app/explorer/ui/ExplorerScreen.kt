@@ -902,11 +902,11 @@ fun ExplorerScreen(
         }
     }
 
-    fun ExplorerRows.block(key: String, content: @Composable () -> Unit) {
+    fun ExplorerRowPlan.block(key: String, content: @Composable () -> Unit) {
         item(key) { Box(Modifier.fillMaxWidth().padding(bottom = 12.dp)) { content() } }
     }
 
-    val content: ExplorerRows.(Boolean) -> Unit = { wide ->
+    val content: ExplorerRowPlan.(Boolean) -> Unit = { wide ->
         if (state.locating != null) block("locating") { LoadingLine(ExplorerText.preparing) }
         state.unfiled?.let { text -> block("unfiled") { Notice(text, warn = true, tag = "explorer.unfiled") } }
         if (!link.online && state.tree != null) {
@@ -1113,7 +1113,7 @@ fun ExplorerScreen(
                         onDownloads = { showDownloads = true },
                         onSelectAll = { state.selectAll(if (kindFilter == null) state.entries else shownFiles) },
                     )
-                    val phoneRows = ExplorerRows.build {
+                    val phoneRows = ExplorerRowPlan.build {
                         if (!state.selecting) {
                             block("toolbar") { Toolbar(search = searchSlot) }
                             if (hasOrganise(state)) block("organise") { OrganiseCard(state) }
@@ -1154,7 +1154,7 @@ fun ExplorerScreen(
                                         onSelectAll = { state.selectAll(if (kindFilter == null) state.entries else shownFiles) },
                                     )
                                 }
-                                val wideRows = ExplorerRows.build { content(true) }
+                                val wideRows = ExplorerRowPlan.build { content(true) }
                                 PullToRefreshBox(isRefreshing = state.loading && state.tree != null, onRefresh = refresh, modifier = Modifier.weight(1f).fillMaxWidth()) {
                                     LazyColumn(
                                         state = listState,
