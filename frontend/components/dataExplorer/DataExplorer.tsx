@@ -738,7 +738,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
 
   return (
     <>
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 max-lg:gap-3.5 max-sm:gap-3">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 overflow-x-clip max-lg:gap-3.5 max-sm:gap-3">
         {config.title ? (
           <div className="max-sm:sr-only">
             <ExplorerHeader
