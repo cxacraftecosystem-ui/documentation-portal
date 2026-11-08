@@ -26,7 +26,7 @@ def build(out: Path, root: Path) -> None:
     started = time.monotonic()
     if hasattr(report_build, "render_parts"):
         parts = asyncio.run(report_build.render_parts(ctx))
-        books = {"main": parts.main, "companion": parts.companion}
+        books = {"main": parts.main, "companion": getattr(parts, "companion", None)}
     else:
         books = {"main": asyncio.run(report_build.render(ctx)), "companion": None}
     seconds = time.monotonic() - started
@@ -55,6 +55,7 @@ def stats(path: Path) -> dict:
                     "links": xml_sheet.count("<hyperlink "),
                     "formulas": xml_sheet.count("<f>") + xml_sheet.count("<f "),
                     "tables": xml_sheet.count("<tablePart "),
+                    "fixed_rows": xml_sheet.count('customHeight="1"'),
                     "mb": round(len(xml_sheet.encode()) / 1e6, 2),
                 }
             )
@@ -71,6 +72,7 @@ def stats(path: Path) -> dict:
         "rows": sum(s["rows"] for s in sheets),
         "links": sum(s["links"] for s in sheets),
         "formulas": sum(s["formulas"] for s in sheets),
+        "tables": sum(s["tables"] for s in sheets),
         "xml_mb": round(xml / 1e6, 1),
         "zip_mb": round(path.stat().st_size / 1e6, 1),
         "openpyxl_load_s": round(load, 1),
@@ -204,10 +206,10 @@ def main() -> None:
             found["soffice_csv_s"] = convert(path, args.convert_timeout)
             table.append(found)
             print(json.dumps(found, indent=2))
-        print("| file | sheets | rows | links | formulas | XML MB | zip MB | openpyxl load s | soffice csv s |")
-        print("|---|---|---|---|---|---|---|---|---|")
+        print("| file | sheets | tables | rows | links | formulas | XML MB | zip MB | openpyxl load s | soffice csv s |")
+        print("|---|---|---|---|---|---|---|---|---|---|")
         for f in table:
-            print(f"| {f['file']} | {f['sheets']} | {f['rows']:,} | {f['links']:,} | {f['formulas']:,} | {f['xml_mb']} | {f['zip_mb']} | {f['openpyxl_load_s']} | {f['soffice_csv_s']} |")
+            print(f"| {f['file']} | {f['sheets']} | {f['tables']} | {f['rows']:,} | {f['links']:,} | {f['formulas']:,} | {f['xml_mb']} | {f['zip_mb']} | {f['openpyxl_load_s']} | {f['soffice_csv_s']} |")
     else:
         shot(Path(args.file), args.sheet, Path(args.out), args.rows, [c for c in args.cols.split(",") if c], args.lines)
 

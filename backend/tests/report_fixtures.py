@@ -33,6 +33,12 @@ class FakeDelegate:
         found = await self.find_many(where)
         return found[0] if found else None
 
+    async def find_unique(self, where: Any = None, **_: Any) -> Any:
+        return await self.find_first(where)
+
+    async def count(self, where: Any = None, **_: Any) -> int:
+        return len(await self.find_many(where))
+
     async def create(self, data: dict[str, Any]) -> Any:
         row = SimpleNamespace(id=f"b{len(self.rows) + 1}", **data)
         self.rows.append(row)
@@ -247,7 +253,8 @@ def production_material(recordings: int = 420, images: int = 540, artisans: int 
                 recordedAt=now, createdAt=now, updatedAt=now, uploadedById="u1", hasTranscript=audio, transcriptWithheld=False,
                 transcriptStatus="COMPLETED" if audio else None, mimeType="audio/aac" if audio else "image/jpeg", status="APPROVED",
                 contentSha256=f"{i:064x}", caption=f"Caption {i}", durationMs=600000 if audio else None,
-                title=f"Take {i}", device=("Phone", "Recorder")[i % 2], place=f"Village {i % 40}", season=("Summer", "Monsoon", "Winter")[i % 3], notes=ENGLISH[i % 4],
+                title=f"Take {i}", device=("Phone", "Recorder")[i % 2], place=f"Village {i % 40}", season=("Summer", "Monsoon", "Winter")[i % 3], notes=ENGLISH[i % 4] * (60 if i % 50 == 0 else 1),
+                extraMetadata={"device": {"model": f"Phone {i % 7}", "app": "0.0.15"}, "fieldProvenance": {"caption": {"at": "2026-11-05T10:30:00Z", "by": "u1", "byName": "Asha Rao"}}},
             )
         )
     products = [SimpleNamespace(id=f"p{i}", productName=f"Indigo stole {i}", artisanId=f"a{i}", workshopId=f"w{i % 8}", status="APPROVED", createdAt=now, updatedAt=now, createdById="u1", locationId=None, material="Cotton", price=1200 + i, description=ENGLISH[i % 4]) for i in range(120)]
@@ -274,8 +281,8 @@ def production_turns(version: str, segments_each: int) -> list[dict[str, Any]]:
             {
                 "id": f"t{p}-{mid}", "versionId": version, "mediaFileId": mid, "position": p, "speakerKey": f"s{speaker}",
                 "startMs": p * 6000, "endMs": p * 6000 + 5500, "language": "hi",
-                "machineText": f"{HINDI[(p + seed) % 4]}, {HINDI[(p + 1) % 4][: 20 + (seed + p) % 25]} {mid}.{p}", "editedText": None,
-                "machineEnglish": f"{ENGLISH[(p + seed) % 4]}, {ENGLISH[(p + 1) % 4][: 20 + (seed + p) % 25]} {mid}.{p}", "editedEnglish": None,
+                "machineText": f"{HINDI[(p + seed) % 4]}, {HINDI[(p + 1) % 4][: 20 + (seed + p) % 25]} {mid}.{p}" * (40 if p % 97 == 0 else 1), "editedText": None,
+                "machineEnglish": f"{ENGLISH[(p + seed) % 4]}, {ENGLISH[(p + 1) % 4][: 20 + (seed + p) % 25]} {mid}.{p}" * (40 if p % 97 == 0 else 1), "editedEnglish": None,
                 "translationStatus": "TRANSLATED", "translationModel": "claude", "editedAt": None, "editedById": None, "revision": 1,
                 "createdAt": None, "updatedAt": None,
             }
@@ -290,13 +297,6 @@ def production_raw(recordings: int = 420, segments_each: int = 49) -> Any:
         ids = list(args[0]) if args else []
         if '"TranscriptVersion"' in sql and "DISTINCT ON" in sql:
             return [{"id": f"v-{m}", "mediaFileId": m, "version": 1, "languages": ["hi"], "durationMs": segments_each * 6000, "translationStatus": "COMPLETED", "turnCount": segments_each} for m in ids if m in audio]
-        if "octet_length" in sql:
-            mine = [m for m in ids if m in audio]
-            if not mine:
-                return [{"turns": 0, "bytes": 0}]
-            sample = production_turns(f"v-{mine[0]}", segments_each)
-            per = sum(len(t["machineText"].encode()) + len(t["machineEnglish"].encode()) for t in sample)
-            return [{"turns": len(mine) * segments_each, "bytes": len(mine) * per}]
         if 'FROM "TranscriptTurn"' in sql and "GROUP BY" in sql:
             return [{"id": v, "done": segments_each, "total": segments_each} for v in ids]
         if 'FROM "TranscriptTurn"' in sql:
@@ -315,3 +315,92 @@ def production_context(options: contract.ReportOptions | None = None, *, recordi
     ctx.material = {"records": production_material(recordings=recordings), "sheets": [], "level": "Repository"}
     ctx.shared["db"] = FakeDB(raw=production_raw(recordings, segments_each))
     return ctx
+
+
+def rich_context(options: contract.ReportOptions | None = None, *, portal_key: str = "designer") -> contract.ReportContext:
+    now = datetime(2026, 11, 5, 10, 30, tzinfo=UTC)
+    n = SimpleNamespace
+    statuses = ("APPROVED", "PENDING", "NEEDS_REVISION", "REJECTED")
+    ctx = context(options or contract.ReportOptions())
+    ctx.portal = portal_key
+    ctx.path = ""
+    records = ctx.material["records"]
+    for i, artisan in enumerate(records["artisans"]):
+        artisan.status = statuses[i % len(statuses)]
+        artisan.updatedAt = now
+    records["workshops"].append(n(id="w2", title="Sanganer dabu", status="REJECTED", createdAt=now, createdById="u1", locationId=None, place="Sanganer"))
+    records["products"] = [n(id=f"p{i}", productName=f"Indigo stole {i}", artisanId=f"a{i}", workshopId="w1", status=statuses[i], createdAt=now, createdById="u1", locationId=None) for i in range(3)]
+    records["processes"] = [n(id="pr1", name="Dabu resist", productId="p0", status="PENDING", createdAt=now, createdById="u1")]
+    records["tools"] = [n(id=f"t{i}", toolkitName=f"Block {i}", artisanId=f"a{i}", status=statuses[i + 1], createdAt=now, createdById="u1", locationId=None) for i in range(2)]
+    records["interviews"] = [
+        n(id=f"i{i}", title=f"Sitting {i}", workshopId="w1", status=statuses[i], createdAt=now, createdById="u1", locationId=None, questionnaireId="q1",
+          responses=[n(questionId="qq1", answerText="Indigo", question=n(prompt="Which dye do you use?", sectionTitle="Dyes", sectionCode="A"))])
+        for i in range(2)
+    ]
+    records["media"][1].linkedRecordType = "product"
+    records["media"][1].linkedRecordId = "p0"
+    records["media"][3].questionnaireInterviewId = "i0"
+    ctx.shared["db"] = FakeDB(
+        {
+            "ProcessStep": [n(id="s1", processId="pr1", sortOrder=1, name="Mud paste", createdAt=now)],
+            "WorkshopArtisan": [n(workshopId="w1", artisanId=f"a{i}", createdAt=now) for i in range(3)],
+            "QuestionnaireInterviewArtisan": [n(interviewId="i0", artisanId="a0", createdAt=now, sortOrder=0), n(interviewId="i1", artisanId="a1", createdAt=now, sortOrder=0)],
+            "Questionnaire": [n(id="q1", title="Craft questionnaire", createdAt=now)],
+            "QuestionnaireQuestion": [n(id="qq1", questionnaireId="q1", prompt="Which dye do you use?", sectionCode="A", isActive=True, lineageId="qq1", createdAt=now)],
+            "QuestionnaireResponse": [n(id="r1", interviewId="i0", questionId="qq1", answerText="Indigo", createdAt=now, updatedAt=now, answeredById="u1")],
+            "QuestionnaireRecording": [n(id="rec1", mediaFileId="m0", capturedAt=now, createdAt=now, recordedById="u1", removedAt=None)],
+            "QuestionnaireRecordingTarget": [n(recordingId="rec1", targetKey="Q:qq1", questionLineageId="qq1", sectionId=None)],
+            "QuestionnaireRecordingSubject": [n(recordingId="rec1", artisanId="a0")],
+            "ReviewLog": [n(id="rl1", recordId="a0", recordType="ARTISAN", status="APPROVED", reviewerId="u1", note="Checked", createdAt=now)],
+        },
+        raw=rich_raw,
+    )
+    return ctx
+
+
+def rich_raw(sql: str, *args: Any) -> list[dict[str, Any]]:
+    if '"TranscriptGlossarySighting"' in sql:
+        ids = list(args[0]) if args else []
+        return [{"id": f"gs-{m}", "mediaFileId": m, "startMs": 1000, "termId": "g1", "term": "dabu", "gloss": "mud resist paste", "occurrences": len(ids), "craft": "Block printing", "namesCraft": None} for m in ids]
+    return turns_raw(sql, *args)
+
+
+_SI = re.compile(r"<si>(.*?)</si>", re.DOTALL)
+_IS = re.compile(r"<is>(.*?)</is>", re.DOTALL)
+_RUN = re.compile(r"<r>(.*?)</r>", re.DOTALL)
+_TEXT = re.compile(r"<t(?:\s[^>]*)?>(.*?)</t>|<t(?:\s[^>]*)?/>", re.DOTALL)
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]|_x00(?:0[0-8]|0[bBcC]|0[eEfF]|1[0-9a-fA-F])_")
+
+
+def _unescape(text: str) -> str:
+    return text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&apos;", "'").replace("&amp;", "&")
+
+
+def string_problems(payload: bytes) -> list[str]:
+    problems: list[str] = []
+    with zipfile.ZipFile(io.BytesIO(payload)) as z:
+        parts = [(n, z.read(n).decode("utf-8")) for n in z.namelist() if n == "xl/sharedStrings.xml" or (n.startswith("xl/worksheets/sheet") and n.endswith(".xml"))]
+    for name, xml in parts:
+        items = _SI.findall(xml) if name.endswith("sharedStrings.xml") else _IS.findall(xml)
+        for index, item in enumerate(items):
+            where = f"{name}#{index}"
+            runs = _RUN.findall(item)
+            if runs:
+                if len(runs) < 2:
+                    problems.append(f"{where}: a rich string with {len(runs)} run")
+                texts = []
+                for run in runs:
+                    found = _TEXT.search(run)
+                    if found is None or not found.group(1):
+                        problems.append(f"{where}: a run without text")
+                        continue
+                    texts.append(_unescape(found.group(1)))
+                text = "".join(texts)
+            else:
+                found = _TEXT.search(item)
+                text = _unescape(found.group(1) or "") if found else ""
+            if _CONTROL.search(text):
+                problems.append(f"{where}: control characters")
+            if len(text) > 32767:
+                problems.append(f"{where}: {len(text)} characters")
+    return problems

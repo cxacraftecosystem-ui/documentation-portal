@@ -509,7 +509,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `updatedAt`: Locations › Updated on
 - **ManagedSecret**: excluded. Secret or credential material: never leaves the server.
 - **MediaFile**
-  - `id`: Completeness › Files; Media › Media ID; Profile › Download; Profile › Photo; Quotes › Media ID; Quotes › Recording
+  - `id`: Completeness › Files; Media › Media ID; Profile › Download; Profile › Photo; Quotes › Media ID; Quotes › Recording; Transcripts › Record ID
   - `originalFilename`: Glossary › Heard in; Media › File name; Quotes › Recording; Transcripts › File
   - `mediaType`: Media › Media type
   - `mimeType`: Media › File format
@@ -1105,7 +1105,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `outcome`: Transcript spend › Outcome
   - `createdAt`: Transcript spend › Created on
 - **TranscriptTurn**
-  - `id`: Transcripts › Segment ID
+  - `id`: Transcripts › Record ID
   - `versionId`: Transcripts › Version ID
   - `mediaFileId`: Transcripts › Media ID
   - `position`: Transcripts › Turn
@@ -1124,8 +1124,8 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `editedAt`: Transcripts › Edited; Transcripts › Edited on
   - `editedById`: Transcripts › Edited by
   - `revision`: Transcripts › Revision
-  - `createdAt`: Transcripts › Segment created on
-  - `updatedAt`: Transcripts › Segment updated on
+  - `createdAt`: Transcripts › Turn created on
+  - `updatedAt`: Transcripts › Turn updated on
 - **TranscriptTurnEdit**
   - `id`: Transcript edits › Transcript edit ID
   - `turnId`: Transcript edits › Turn ID
@@ -1563,7 +1563,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `updatedAt`: Locations › Updated on
 - **ManagedSecret**: excluded. Secret or credential material: never leaves the server.
 - **MediaFile**
-  - `id`: Completeness › Files; Media › Media ID; Profile › Download; Profile › Photo; Quotes › Media ID; Quotes › Recording
+  - `id`: Completeness › Files; Media › Media ID; Profile › Download; Profile › Photo; Quotes › Media ID; Quotes › Recording; Transcripts › Record ID
   - `originalFilename`: Glossary › Heard in; Media › File name; Quotes › Recording; Transcripts › File
   - `mediaType`: Media › Media type
   - `mimeType`: Media › File format
@@ -2095,7 +2095,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `outcome`: Transcript spend › Outcome
   - `createdAt`: Transcript spend › Created on
 - **TranscriptTurn**
-  - `id`: Transcripts › Segment ID
+  - `id`: Transcripts › Record ID
   - `versionId`: Transcripts › Version ID
   - `mediaFileId`: Transcripts › Media ID
   - `position`: Transcripts › Turn
@@ -2114,8 +2114,8 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `editedAt`: Transcripts › Edited; Transcripts › Edited on
   - `editedById`: Transcripts › Edited by
   - `revision`: Transcripts › Revision
-  - `createdAt`: Transcripts › Segment created on
-  - `updatedAt`: Transcripts › Segment updated on
+  - `createdAt`: Transcripts › Turn created on
+  - `updatedAt`: Transcripts › Turn updated on
 - **TranscriptTurnEdit**
   - `id`: Transcript edits › Transcript edit ID
   - `turnId`: Transcript edits › Turn ID

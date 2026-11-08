@@ -464,7 +464,7 @@ def related_records(ctx: ReportContext, artisan_ids: set[str]) -> dict[str, dict
 
 class ProfileSheets:
     key = "profiles"
-    title = "Artisan profiles"
+    title = "Profiles"
     order = 170
     option = "profiles"
     portals = ("designer", "fieldRepository")

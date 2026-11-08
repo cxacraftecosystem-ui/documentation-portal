@@ -300,7 +300,7 @@ async def build_completeness(ctx: ReportContext) -> list[Sheet]:
 register(
     Plugin(
         "extras_coverage",
-        "Coverage grid",
+        "Coverage",
         110,
         "coverage",
         build_coverage,
@@ -310,7 +310,7 @@ register(
 register(
     Plugin(
         "extras_sparklines",
-        "Completeness bars and sparklines",
+        "Completeness",
         111,
         "sparklines",
         build_completeness,
