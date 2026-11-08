@@ -166,7 +166,7 @@ def _stale(record: dict[str, Any], now: float) -> bool:
     if state == DONE:
         return now - float(record.get("finishedAt") or 0) > REUSE_SECONDS or not _file_path(str(record["id"])).is_file()
     if state == FAILED:
-        return now - float(record.get("finishedAt") or 0) > FAILED_SHOWN_SECONDS
+        return bool(record.get("reported")) or now - float(record.get("finishedAt") or 0) > FAILED_SHOWN_SECONDS
     return False
 
 
@@ -293,7 +293,8 @@ async def wait_for(job: str, user: Any, *, wait: float | None = None, poll: floa
         if state == DONE and _file_path(job).is_file():
             return _serve(record)
         if state == FAILED:
-            clear(job)
+            if not record.get("reported"):
+                _write(job, {**record, "reported": True})
             raise _refusal(record)
         if _running_dead(record, _clock()):
             clear(job)

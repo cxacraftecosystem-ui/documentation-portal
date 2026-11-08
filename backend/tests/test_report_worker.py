@@ -212,20 +212,22 @@ def test_a_failed_job_is_reported_once_then_cleared(monkeypatch: pytest.MonkeyPa
     trims: list[int] = []
     monkeypatch.setattr(jobs, "_trim_heap", lambda: trims.append(1))
 
-    async def story() -> tuple[HTTPException, list[dict[str, Any]], Any]:
+    async def story() -> tuple[HTTPException, list[dict[str, Any]], Any, list[dict[str, Any]]]:
         async with running_worker(USERS):
             params = {"path": "p", "options": {}}
             try:
                 await jobs.fetch(ADMIN, jobs.REPORT, params)
             except HTTPException as failed:
                 left = jobs.records()
-                return failed, left, await jobs.fetch(ADMIN, jobs.REPORT, params)
+                retried = await jobs.fetch(ADMIN, jobs.REPORT, params)
+                return failed, left, retried, jobs.records()
             raise AssertionError("a broken build was served")
 
-    failed, left, retried = asyncio.run(story())
+    failed, left, retried, after = asyncio.run(story())
     assert failed.status_code == 500 and failed.detail == jobs.NOT_BUILT
-    assert left == []
+    assert [(r["state"], r.get("reported")) for r in left] == [(jobs.FAILED, True)]
     assert body(retried) == b"PK\x03\x04ok"
+    assert [r["state"] for r in after] == [jobs.DONE]
     assert len(trims) == 2
 
 
