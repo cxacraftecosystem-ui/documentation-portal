@@ -362,7 +362,10 @@ async def _build_report_file(record: dict[str, Any], user: Any, into: Path) -> t
         user, str(params.get("path") or ""), chosen, status=record.get("status"), flt=_explorer_filter(params)
     )
     for hook in built.ctx.delivered:
-        await hook()
+        try:
+            await hook()
+        except Exception:
+            logger.warning("a report delivery hook failed for job %s", record.get("id"), exc_info=True)
     payload, name, mime = build.deliverable(built)
     del built
     await asyncio.to_thread(into.write_bytes, payload)
