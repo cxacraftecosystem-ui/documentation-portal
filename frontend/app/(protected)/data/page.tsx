@@ -10,13 +10,12 @@ import { DataSearchPanel } from "@/components/data/DataSearchPanel";
 import { DataExplorer, ExplorerHeader, type ExplorerConfig } from "@/components/dataExplorer/DataExplorer";
 import type { BrowseType } from "@/components/dataExplorer/BrowseByType";
 import { TranscriptDataPanel } from "@/components/transcript/TranscriptDataPanel";
-import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { useWorkshopScope, WorkshopScopeSelect } from "@/components/WorkshopScopeSelect";
 import { listResource } from "@/lib/api";
 import type { BrowseKind, BrowsePage } from "@/lib/dataExplorer/contract";
 import { canCreateRecords, canDownloadDataset } from "@/lib/permissions";
 import { canUpdateRecord, recordUpdateHref, recordViewHref } from "@/lib/recordView";
-import { DATA_STATUS_OPTIONS, DEFAULT_DATA_STATUS, dataStatusLabel, statusQuery } from "@/lib/review";
+import { DEFAULT_DATA_STATUS, dataStatusLabel, statusQuery } from "@/lib/review";
 import { toolRowLabel } from "@/lib/toolArtisans";
 import type { Artisan, Craft, MediaFile, PageResult, ProductDocumentation, QuestionnaireInterview, ToolDocumentation, User, Workshop } from "@/lib/types";
 import { workshopDisplayTitle } from "@/lib/workshopTitle";
@@ -178,13 +177,7 @@ function Explorer({ user }: { user: User }) {
     viewer: user.id,
     fileHref: mediaHref,
     recordHref: (kind, id) => recordViewHref(kind, id),
-    renderSearch: (reveal, openPreview, ask) => <DataSearchPanel onReveal={reveal} onPreview={openPreview} ask={ask} />,
-    headerExtra: (
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="field-label">Review status</span>
-        <SegmentedChoice label="Review status" value={reviewStatus} onChange={(value) => changeReviewStatus(value || DEFAULT_DATA_STATUS)} options={DATA_STATUS_OPTIONS} />
-      </div>
-    ),
+    renderSearch: (reveal, openPreview, ask, portalScope, outer) => <DataSearchPanel onReveal={reveal} onPreview={openPreview} ask={ask} portalScope={portalScope} outer={outer} />,
     emptyBody: (folder) => (reviewStatus === "ALL" ? `Files appear as soon as someone records for ${folder}.` : `Nothing ${dataStatusLabel(reviewStatus).toLowerCase()} here.`),
     emptyAction: (
       <>

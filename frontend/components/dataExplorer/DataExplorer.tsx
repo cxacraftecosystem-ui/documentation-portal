@@ -8,12 +8,14 @@ import { BrowseByType, type BrowseType } from "@/components/dataExplorer/BrowseB
 import { CommandPalette, ShortcutsSheet, useExplorerShortcuts } from "@/components/dataExplorer/CommandPalette";
 import { DataTables } from "@/components/dataExplorer/DataTables";
 import { DownloadsTray } from "@/components/dataExplorer/DownloadsTray";
+import { FilterBar } from "@/components/dataExplorer/FilterBar";
 import { Note, OfflineNote, Problem, useOnline } from "@/components/dataExplorer/explorerUi";
 import { FolderContents } from "@/components/dataExplorer/FolderContents";
 import { FolderHeader, RecordDetails, sizedFor, useFolderSize, useSelectionSize } from "@/components/dataExplorer/FolderHeader";
 import { FolderTree } from "@/components/dataExplorer/FolderTree";
 import { MiniPlayer } from "@/components/dataExplorer/MiniPlayer";
 import { fetchLocateHits, locateHit, type PaletteHit } from "@/components/dataExplorer/paletteSearch";
+import { PeerResults } from "@/components/dataExplorer/PeerResults";
 import { canPreview, PreviewDialog } from "@/components/dataExplorer/PreviewDialog";
 import { ReportOptionsDialog } from "@/components/dataExplorer/ReportOptionsDialog";
 import { SavedViewsDialog } from "@/components/dataExplorer/SavedViewsDialog";
@@ -26,6 +28,7 @@ import { WorkshopOverview } from "@/components/dataExplorer/WorkshopOverview";
 import { bundleManifestEndpoint, fetchBundle, fetchReportSheets, fetchSavedView, includeParam, recordVisit, reportFileUrl, reportOptionParams, reportPackUrl, transcriptBundleUrl } from "@/lib/dataExplorer/api";
 import { INCLUDE_KEYS, type Crumb, type FolderVisit, type IncludeKey, type ReportBundle, type ReportOptions, type ReportResponse, type ReportStatusFilter, type SavedView, type Taxonomy, type TreeEntry } from "@/lib/dataExplorer/contract";
 import { formatBytes, limitSentence, overLimit } from "@/lib/dataExplorer/plan";
+import { cleared, describeFilters, fetchFacets, filterQuery, hasFilters, readFilters, showsOther, showsThis, urlFilterQuery, writeFilters, type ExplorerFilters, type FacetsResponse } from "@/lib/dataExplorer/filters";
 import { ActionGroup } from "@/components/ui/ActionGroup";
 import type { JobSource } from "@/lib/dataExplorer/protocol";
 import { EMPTY_SELECTION, selectionLabel, selectionSource, toggled, withAll, type Selection } from "@/lib/dataExplorer/selection";
@@ -46,7 +49,7 @@ export type ExplorerConfig = {
   viewer: string;
   fileHref: (mediaId: string) => string | null;
   recordHref?: (kind: string, id: string) => string | null;
-  renderSearch: (reveal: (path: string) => void, openPreview: (target: PreviewTarget) => void, ask: SearchAsk | null) => ReactNode;
+  renderSearch: (reveal: (path: string) => void, openPreview: (target: PreviewTarget) => void, ask: SearchAsk | null, portalScope: "local" | "all", outer: Record<string, string>) => ReactNode;
   title?: string;
   description?: string;
   headerExtra?: ReactNode;
@@ -173,6 +176,26 @@ function ViewTabs({ view, counts, onView, trailing }: { view: ExplorerView; coun
 
 export type SearchAsk = { q: string; nonce: number };
 
+function FilteredEmpty({ lines, onClear, what = "Nothing here matches these filters" }: { lines: string[]; onClear: () => void; what?: string }) {
+  return (
+    <div className="grid justify-items-center gap-2 px-4 py-10 text-center max-sm:panel" data-testid="filtered-empty" role="status">
+      <h3 className="font-display text-lg leading-6 font-bold text-ink-900">{what}</h3>
+      {lines.length ? (
+        <ul className="flex max-w-xl flex-wrap justify-center gap-1.5">
+          {lines.map((line) => (
+            <li key={line} className="rounded-full border border-line-200 bg-surface-50 px-2.5 py-1 text-xs text-ink-700">
+              {line}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <button type="button" className="field-button-secondary mt-2 min-h-11" onClick={onClear}>
+        Clear filters
+      </button>
+    </div>
+  );
+}
+
 function readStoredWidth(): number | null {
   try {
     return readTreeWidth(window.localStorage.getItem(TREE_WIDTH_KEY));
@@ -245,16 +268,15 @@ function PanelDivider({ width, bounds, controls, onWidth, onCommit }: { width: n
         onWidth(reset);
         onCommit(reset);
       }}
-      style={{ left: `calc(${width}px + 0.5rem - 8px)` }}
-      className="group absolute inset-y-0 z-10 hidden w-4 cursor-col-resize touch-none justify-center rounded-full lg:flex"
+      className="group relative hidden w-4 cursor-col-resize touch-none justify-center self-stretch rounded-full lg:flex"
     >
       <span aria-hidden className={`my-2 w-0.5 rounded-full transition-colors ${dragging ? "bg-purple-700 dark:bg-purple-300" : "bg-transparent group-hover:bg-purple-300 group-focus-visible:bg-purple-700 dark:group-focus-visible:bg-purple-300"}`} />
     </div>
   );
 }
 
-function SearchSlot({ render, reveal, openPreview, ask }: { render: ExplorerConfig["renderSearch"]; reveal: (path: string) => void; openPreview: (target: PreviewTarget) => void; ask: SearchAsk | null }) {
-  return <>{render(reveal, openPreview, ask)}</>;
+function SearchSlot({ render, reveal, openPreview, ask, portalScope, outer }: { render: ExplorerConfig["renderSearch"]; reveal: (path: string) => void; openPreview: (target: PreviewTarget) => void; ask: SearchAsk | null; portalScope: "local" | "all"; outer: Record<string, string> }) {
+  return <>{render(reveal, openPreview, ask, portalScope, outer)}</>;
 }
 
 export function DataExplorer({ config }: { config: ExplorerConfig }) {
@@ -263,8 +285,18 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const params = useSearchParams();
   const url = useMemo(() => readUrlState(params), [params]);
   const search = params.toString();
+  const filters = useMemo<ExplorerFilters>(() => readFilters(new URLSearchParams(search)), [search]);
+  const filterText = JSON.stringify(filterQuery(filters));
+  const configExtraText = JSON.stringify(config.extra);
+  const configDownloadText = JSON.stringify(config.downloadExtra);
+  const extra = useMemo<QueryParams>(() => ({ ...(JSON.parse(configExtraText) as QueryParams), ...(JSON.parse(filterText) as QueryParams) }), [configExtraText, filterText]);
+  const downloadExtra = useMemo<QueryParams>(() => ({ ...(JSON.parse(configDownloadText) as QueryParams), ...(JSON.parse(filterText) as QueryParams) }), [configDownloadText, filterText]);
+  const filtered = hasFilters(filters);
+  const local = showsThis(filters);
   const sortOfPath = useCallback((path: string) => sortParam(readSort(config.viewer, treeLevel(path)), "tree"), [config.viewer]);
-  const tree = useExplorerTree(config.extra, true, sortOfPath);
+  const tree = useExplorerTree(extra, true, sortOfPath);
+  const [facets, setFacets] = useState<FacetsResponse | null>(null);
+  const [facetsLoading, setFacetsLoading] = useState(false);
   const downloads = useDownloads();
   const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
   const [include, setInclude] = useState<IncludeKey[]>([...INCLUDE_KEYS]);
@@ -407,6 +439,24 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
     [downloads, dropBundle]
   );
 
+  const openSaved = useCallback(
+    (view: SavedView, mode: "push" | "replace") => {
+      const merged = mergeNavigation(latest.current, { path: view.path, view: view.state.view, sheet: view.state.sheet, q: view.state.q, preview: "", t: 0, find: "" });
+      latest.current = merged;
+      const base = new URLSearchParams(typeof window !== "undefined" ? window.location.search : params.toString());
+      base.delete("viewId");
+      const withFilters = writeFilters(readFilters(new URLSearchParams(view.state.filters ?? {})), base);
+      const href = `${pathname}${writeUrlState(merged, withFilters)}`;
+      if (mode === "push") router.push(href, { scroll: false });
+      else router.replace(href, { scroll: false });
+    },
+    [params, pathname, router]
+  );
+  const openSavedRef = useRef(openSaved);
+  useEffect(() => {
+    openSavedRef.current = openSaved;
+  }, [openSaved]);
+
   const viewId = params.get("viewId");
   useEffect(() => {
     if (!viewId) return;
@@ -415,7 +465,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
       .then((view) => {
         if (cancelled) return;
         expand(ancestorsOf(view.path));
-        navigate({ path: view.path, view: view.state.view, sheet: view.state.sheet, q: view.state.q }, "replace");
+        openSavedRef.current(view, "replace");
       })
       .catch(() => {
         if (!cancelled) setViewError("That saved view isn't available to you.");
@@ -458,7 +508,39 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
     return () => window.clearTimeout(timer);
   }, [url.path]);
 
-  const extraText = JSON.stringify(config.extra);
+  useEffect(() => {
+    const abort = new AbortController();
+    setFacetsLoading(true);
+    const timer = window.setTimeout(() => {
+      fetchFacets("", readFilters(new URLSearchParams(window.location.search)), abort.signal)
+        .then((answer) => {
+          if (!abort.signal.aborted) setFacets(answer);
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (!abort.signal.aborted) setFacetsLoading(false);
+        });
+    }, 200);
+    return () => {
+      window.clearTimeout(timer);
+      abort.abort();
+    };
+  }, [filterText]);
+
+  const changeFilters = useCallback(
+    (next: ExplorerFilters) => {
+      const base = new URLSearchParams(typeof window !== "undefined" ? window.location.search : params.toString());
+      base.delete("viewId");
+      base.delete("page");
+      const text = writeFilters(next, base).toString();
+      router.replace(`${pathname}${text ? `?${text}` : ""}`, { scroll: false });
+    },
+    [params, pathname, router]
+  );
+  const clearFilters = useCallback(() => changeFilters(cleared()), [changeFilters]);
+  const filterLines = useMemo(() => describeFilters(filters, facets?.facets ?? null), [filters, facets]);
+
+  const extraText = JSON.stringify(extra);
   const tablesOpen = url.view === "tables";
   useEffect(() => {
     if (!url.path || !tablesOpen) return;
@@ -494,8 +576,8 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const isWorkshop = recordType === "workshop";
   const wide = url.view !== "files";
 
-  const folderSize = useFolderSize(url.path, config.extra, config.downloadExtra, downloads.measure);
-  const selectionSize = useSelectionSize(selection, config.extra, config.downloadExtra, downloads.measure);
+  const folderSize = useFolderSize(url.path, extra, downloadExtra, downloads.measure);
+  const selectionSize = useSelectionSize(selection, extra, downloadExtra, downloads.measure);
   const wanted = include.length === INCLUDE_KEYS.length ? null : include;
   const folderBytes = folderSize.sized ? sizedFor(folderSize.sized, include).bytes : null;
   const caps = downloads.capabilities;
@@ -507,10 +589,10 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const folderSource = useCallback(
     (): JobSource => ({
       kind: "manifests",
-      requests: [{ method: "GET", endpoint: "/data/manifest", params: { path: latest.current.path, include: includeParam(wanted), ...config.downloadExtra } }],
+      requests: [{ method: "GET", endpoint: "/data/manifest", params: { path: latest.current.path, include: includeParam(wanted), ...downloadExtra } }],
       extra: []
     }),
-    [wanted, config.downloadExtra]
+    [wanted, downloadExtra]
   );
 
   const downloadFolder = useCallback(
@@ -525,14 +607,14 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
       void downloads.enqueueZip({
         label: `Selected · ${selectionLabel(selection)}`,
         fileName: zipName("Selection"),
-        source: selectionSource(selection, wanted, config.downloadExtra),
+        source: selectionSource(selection, wanted, downloadExtra),
         include: wanted,
         mode,
         bytes: selectionSize.sized?.bytes ?? null,
         files: selectionSize.sized?.files ?? null
       });
     },
-    [downloads, selection, wanted, config.downloadExtra, selectionSize.sized]
+    [downloads, selection, wanted, downloadExtra, selectionSize.sized]
   );
 
   const downloadDataset = useCallback(
@@ -543,18 +625,18 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   );
 
   const makeReport = useCallback(
-    (options: ReportOptions, name: string, extra: QueryParams = config.extra) => {
-      downloads.enqueue({ kind: "report", label: `Report (.xlsx) · ${folderName}`, url: reportFileUrl(url.path, "xlsx", { ...extra, ...reportOptionParams(options, url.q, name) }), fileName: name, path: url.path });
+    (options: ReportOptions, name: string, given: QueryParams = extra) => {
+      downloads.enqueue({ kind: "report", label: `Report (.xlsx) · ${folderName}`, url: reportFileUrl(url.path, "xlsx", { ...given, ...reportOptionParams(options, url.q, name) }), fileName: name, path: url.path });
     },
-    [downloads, folderName, url.path, url.q, config.extra]
+    [downloads, folderName, url.path, url.q, extra]
   );
 
   const makePack = useCallback(
-    (options: ReportOptions, name: string, extra: QueryParams = config.extra) => {
+    (options: ReportOptions, name: string, given: QueryParams = extra) => {
       const packName = name.replace(/\.xlsx$/i, ".zip");
-      downloads.enqueue({ kind: "pack", label: `Report pack · ${folderName}`, url: reportPackUrl(url.path, { ...extra, ...reportOptionParams(options, url.q, name) }), fileName: packName, path: url.path });
+      downloads.enqueue({ kind: "pack", label: `Report pack · ${folderName}`, url: reportPackUrl(url.path, { ...given, ...reportOptionParams(options, url.q, name) }), fileName: packName, path: url.path });
     },
-    [downloads, folderName, url.path, url.q, config.extra]
+    [downloads, folderName, url.path, url.q, extra]
   );
 
   const openPreview = useCallback(
@@ -659,14 +741,15 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
   const sidePanel = (
     <aside
       id={panelId}
-      className={`panel flex flex-col gap-2 p-3 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-y-auto lg:overscroll-contain ${showTree ? "" : wide ? "hidden" : "max-lg:hidden"}`}
+      className={`panel flex min-w-0 flex-col gap-2 overflow-hidden p-3 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-y-auto lg:overflow-x-hidden lg:overscroll-contain ${showTree ? "" : wide ? "hidden" : "max-lg:hidden"}`}
       aria-label="Folders"
       data-testid="explorer-tree-panel"
     >
       <TaxonomyPicker taxonomies={taxonomies} active={activeTaxonomy} onSelect={open} />
       {config.toolbarExtra}
       {rootError ? <Problem onRetry={() => void tree.load("")}>{rootError}</Problem> : null}
-      <div className="max-h-[60vh] overflow-y-auto lg:max-h-none lg:overflow-visible">
+      {filtered && current?.hidden ? <p className="px-1.5 text-xs text-ink-500">{current.hidden.toLocaleString("en-IN")} {current.hidden === 1 ? "folder" : "folders"} hidden by filters</p> : null}
+      <div className="max-h-[60vh] min-w-0 overflow-x-hidden overflow-y-auto lg:max-h-none lg:overflow-y-visible">
         <FolderTree store={tree} selectedPath={url.path} rootName={treeRoot.name} rootPath={treeRoot.path} onSelect={open} />
       </div>
     </aside>
@@ -732,7 +815,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
             {!caps.stream && !caps.saveFile && limitSentence(caps) ? <p className="text-xs text-ink-500">{limitSentence(caps)}</p> : null}
             {config.datasetLine && wholeRepository ? <p className="text-xs text-ink-500">{config.datasetLine}</p> : null}
             {current?.info ? <RecordDetails info={current.info} recordHref={current.info.record && config.recordHref ? config.recordHref(current.info.record.kind, current.info.record.id) : null} /> : null}
-            {isWorkshop ? <WorkshopOverview path={url.path} extra={config.extra} visit={visit && visit.path === url.path ? visit : null} onOpen={open} onShowNew={() => showView("files")} /> : null}
+            {isWorkshop ? <WorkshopOverview path={url.path} extra={extra} visit={visit && visit.path === url.path ? visit : null} onOpen={open} onShowNew={() => showView("files")} /> : null}
     </>
   );
 
@@ -759,8 +842,9 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
         ) : null}
         {config.headerExtra ? <div className={`flex flex-wrap items-center justify-end gap-2 ${config.title ? "sm:hidden" : ""}`}>{config.headerExtra}</div> : null}
         <div data-explorer-search="">
-          <SearchSlot render={config.renderSearch} reveal={reveal} openPreview={openPreview} ask={searchAsk} />
+          <SearchSlot render={config.renderSearch} reveal={reveal} openPreview={openPreview} ask={searchAsk} portalScope={showsOther(filters) ? "all" : "local"} outer={JSON.parse(filterText) as Record<string, string>} />
         </div>
+        <FilterBar filters={filters} facets={facets} loading={facetsLoading} summary={[...(local ? [] : ["Portal: other portal only"]), ...(showsOther(filters) && local ? ["Portal: both"] : []), ...filterLines]} onChange={changeFilters} onClear={clearFilters} />
         {!online.online ? <OfflineNote loadedAt={loadedAt} /> : null}
         {viewError ? <Problem onRetry={() => setViewError(null)} retryLabel="Dismiss">{viewError}</Problem> : null}
         {bundle && bundle.id === bundleId ? (
@@ -792,22 +876,24 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
         <div
           ref={columnsRef}
           style={{ ["--explorer-tree-width" as string]: `${clampTreeWidth(treeWidth, widthBounds)}px` }}
-          className={`relative grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-4 max-lg:gap-3.5 max-sm:gap-3 ${wide && !showTree ? "" : "lg:grid-cols-[var(--explorer-tree-width)_minmax(0,1fr)]"}`}
+          data-testid="explorer-columns"
+          className={`relative grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-4 max-lg:gap-3.5 max-sm:gap-3 ${wide && !showTree ? "" : "lg:grid-cols-[var(--explorer-tree-width)_1rem_minmax(0,1fr)] lg:gap-x-0"}`}
         >
           {sidePanel}
           {wide && !showTree ? null : <PanelDivider width={clampTreeWidth(treeWidth, widthBounds)} bounds={widthBounds} controls={panelId} onWidth={setTreeWidth} onCommit={commitWidth} />}
-          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 max-lg:gap-3.5 max-sm:gap-3">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 overflow-x-clip max-lg:gap-3.5 max-sm:gap-3" data-testid="explorer-content">
             {headerBlock}
             <section className="panel overflow-hidden max-sm:grid max-sm:gap-3 max-sm:overflow-visible max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:shadow-none" aria-label="Contents">
               <ViewTabs view={url.view} counts={{ files: folderSize.sized ? `${folderSize.sized.files.toLocaleString("en-IN")}${folderSize.sized.truncated ? "+" : ""}` : filesCount, tables: tableCount && tableCount.path === url.path && tableCount.count > 0 ? tableCount.count.toLocaleString("en-IN") : null, transcripts: transcriptsKnown !== null ? transcriptsKnown.toLocaleString("en-IN") : null }} onView={showView} trailing={tabTrailing} />
               <div id="explorer-view" role="tabpanel" aria-label={VIEW_TABS.find((tab) => tab.value === url.view)?.label} className="min-w-0">
-                <div hidden={url.view !== "files"}>
+                <div hidden={url.view !== "files"} className="grid gap-4">
+                  {!local ? <FilteredEmpty lines={["Portal: other portal only"]} onClear={clearFilters} what="This portal is filtered out" /> : (
                   <FolderContents
                     path={url.path}
                     tree={current}
                     loading={tree.loading.has(url.path)}
                     error={url.path ? (tree.errors[url.path] ?? null) : null}
-                    extra={config.extra}
+                    extra={extra}
                     selection={selection}
                     fileHref={config.fileHref}
                     emptyBody={config.emptyBody}
@@ -822,14 +908,21 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
                     onRetry={() => void tree.load(url.path)}
                     layout={layout}
                     playing={miniTrack && !previewEntry ? { mediaId: miniTrack.mediaId, ms: miniAt?.ms ?? miniTrack.startMs ?? 0, durationMs: miniAt?.durationMs ?? null } : null}
+                    filteredEmpty={filtered ? <FilteredEmpty lines={filterLines} onClear={clearFilters} /> : null}
                   />
+                  )}
+                  {showsOther(filters) ? (
+                    <div className="border-t border-line-200 px-4 py-4 max-sm:border-0 max-sm:px-0">
+                      <PeerResults filters={filters} />
+                    </div>
+                  ) : null}
                 </div>
-                {url.view === "tables" || reportItem ? (
+                {(url.view === "tables" || reportItem) && local ? (
                   <div hidden={url.view !== "tables"}>
                     <DataTables
                       path={url.path}
                       folderName={folderName}
-                      extra={config.extra}
+                      extra={extra}
                       memoryKey={{ status: config.statusKey, viewer: config.viewer }}
                       autoLoad={!wholeRepository}
                       initialSheet={url.sheet}
@@ -845,14 +938,15 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
                     />
                   </div>
                 ) : null}
-                {url.view === "transcripts" ? (
+                {url.view !== "files" && !local ? <FilteredEmpty lines={["Portal: other portal only"]} onClear={clearFilters} what="This portal is filtered out" /> : null}
+                {url.view === "transcripts" && local ? (
                   <TranscriptsTab
                     path={url.path}
                     folderName={folderName}
-                    extra={config.extra}
+                    extra={extra}
                     onRead={openPreview}
                     onDownload={(request) => downloads.enqueue(request)}
-                    zipUrl={transcriptBundleUrl(url.path, config.extra)}
+                    zipUrl={transcriptBundleUrl(url.path, extra)}
                     onCount={(count) => setTranscriptCount({ path: url.path, count })}
                     viewer={config.viewer}
                     trail={shownCrumbs.filter((crumb) => !taxonomyRow || crumb.path !== taxonomyRow.path).map((crumb) => crumb.name).join(" › ")}
@@ -883,6 +977,8 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
           workshopIds={config.browseScope?.workshopIds}
           scopeControl={config.browseScope?.control}
           viewer={config.viewer}
+          filters={filters}
+          onClearFilters={clearFilters}
           onChange={onBrowse}
         />
         {config.secondary}
@@ -922,7 +1018,7 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
         path={url.path}
         folderName={folderName}
         subtitle={crumbs.slice(1).map((crumb) => crumb.name).join(" · ") || folderName}
-        extra={config.extra}
+        extra={extra}
         statusFilter={config.statusFilter}
         query={url.view === "tables" ? url.q : ""}
         onMake={makeReport}
@@ -931,12 +1027,12 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
       <SavedViewsDialog
         open={viewsOpen}
         onClose={() => setViewsOpen(false)}
-        current={{ path: url.path, state: { view: url.view, sheet: url.sheet, q: url.q, filters: Object.fromEntries(Object.entries(config.extra).filter(([, value]) => value !== undefined && value !== null && value !== "").map(([key, value]) => [key, String(value)])) } }}
+        current={{ path: url.path, state: { view: url.view, sheet: url.sheet, q: url.q, filters: Object.fromEntries(Object.entries({ ...extra, ...urlFilterQuery(filters) }).filter(([, value]) => value !== undefined && value !== null && value !== "").map(([key, value]) => [key, String(value)])) } }}
         folderName={folderName}
         onOpenView={(view: SavedView) => {
           setViewsOpen(false);
           tree.expand(ancestorsOf(view.path));
-          navigate({ path: view.path, view: view.state.view, sheet: view.state.sheet, q: view.state.q }, "push");
+          openSaved(view, "push");
         }}
       />
       <CommandPalette

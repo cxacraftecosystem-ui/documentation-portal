@@ -7,6 +7,7 @@ import {
   hasAttempted,
   isOnline,
   MEDIA_REFRESH_BUDGET,
+  mediaFileMissing,
   presignedUrlExpiresSoon,
   refreshesSpent,
   refreshMediaUrl,
@@ -18,6 +19,7 @@ export function useMediaUrl(media: RefreshableMedia | null | undefined): {
   src: string | null;
   onError: () => void;
   failed: boolean;
+  missing: boolean;
 } {
   const stored = media?.url ?? null;
   const mediaId = media?.id ?? null;
@@ -54,5 +56,5 @@ export function useMediaUrl(media: RefreshableMedia | null | undefined): {
     });
   }, [media, mediaId, src]);
 
-  return { src, onError, failed: src !== null && failedUrl === src };
+  return { src, onError, failed: src !== null && failedUrl === src, missing: src !== null && failedUrl === src && mediaFileMissing(mediaId) };
 }

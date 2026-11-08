@@ -11,6 +11,7 @@ import { percentOf } from "@/lib/dataExplorer/plan";
 import { builtAgo, highlightParts } from "@/lib/dataExplorer/explorerView";
 import { recallTables, rememberTables } from "@/lib/dataExplorer/tableMemory";
 import type { QueryParams } from "@/lib/dataExplorer/wire";
+import { columnWidths } from "@/lib/dataExplorer/tableLayout";
 
 export const BUSY_RETRY_SECONDS = 15;
 const SEARCH_DEBOUNCE_MS = 350;
@@ -122,7 +123,7 @@ function RowCard({ sheet, row, number, needle, compact }: { sheet: ReportSheet; 
           {columns.slice(1).map((column, offset) => (
             <div key={`${column}-${offset}`} className="min-w-0">
               <dt className="text-xs text-ink-500">{column}</dt>
-              <dd className="max-h-24 overflow-y-auto text-sm wrap-break-word text-ink-900">
+              <dd className="text-sm leading-6 whitespace-pre-line [overflow-wrap:anywhere] text-ink-900">
                 <Marked text={cellText(row[offset + 1])} needle={needle} />
               </dd>
             </div>
@@ -407,6 +408,7 @@ export function DataTables({
 
   const blocked = shown && notice ? notice(shown) : null;
   const built = builtAgo(shown?.builtAt, now);
+  const widths = sheet ? columnWidths(sheet.columns, sheet.rows) : [];
   const reviewColumn = sheet ? sheet.columns.findIndex((column) => /^(review|review status|status)$/i.test(column.trim())) : -1;
   const sheetNoun = sheet ? sheet.name.toLowerCase() : "rows";
   const csv = () => {
@@ -575,12 +577,17 @@ export function DataTables({
                 <div className="grid gap-2.5 sm:hidden" aria-label={`${sheet.name} rows`}>
                   {rows.length === 0 ? <p className="py-6 text-center text-sm text-ink-500">No rows match “{needle}”.</p> : rows.map((row, rowIndex) => <RowCard key={`${numbers[rowIndex]}-${rowIndex}`} sheet={sheet} row={row} number={numbers[rowIndex]} needle={needle} compact={rowIndex > 0} />)}
                 </div>
-                <div className="max-h-128 overflow-auto max-sm:hidden" tabIndex={0} role="region" aria-label={`${sheet.name} rows`}>
-                  <table className="w-full text-left text-sm">
+                <div className="max-h-[70vh] overflow-auto max-sm:hidden" tabIndex={0} role="region" aria-label={`${sheet.name} rows`} data-testid="data-table-scroll">
+                  <table className="table-fixed border-collapse text-left text-sm" style={{ width: widths.reduce((sum, width) => sum + width, 0), minWidth: "100%" }} data-testid="data-table">
+                    <colgroup>
+                      {widths.map((width, position) => (
+                        <col key={position} style={{ width }} />
+                      ))}
+                    </colgroup>
                     <thead className="sticky top-0 z-10 bg-surface-50 text-xs tracking-[0.04em] text-ink-500 uppercase">
                       <tr>
                         {sheet.columns.map((column, position) => (
-                          <th key={`${column}-${position}`} scope="col" className={`py-2.5 font-semibold whitespace-nowrap ${position === 0 ? "pr-2 pl-4" : position === sheet.columns.length - 1 ? "pr-4 pl-2" : "px-2"}`} style={{ minWidth: 96 }}>
+                          <th key={`${column}-${position}`} scope="col" className={`py-2.5 align-bottom font-semibold [overflow-wrap:anywhere] ${position === 0 ? "pr-2 pl-4" : position === sheet.columns.length - 1 ? "pr-4 pl-2" : "px-2"}`}>
                             {column}
                           </th>
                         ))}
@@ -597,10 +604,8 @@ export function DataTables({
                         rows.map((row, rowIndex) => (
                           <tr key={rowIndex} className="border-t border-line-200 align-top" data-row-number={rowLabel(numbers[rowIndex])}>
                             {sheet.columns.map((_column, cellIndex) => (
-                              <td key={cellIndex} className={`max-w-md py-3 text-ink-900 ${cellIndex === 0 ? "pr-2 pl-4 font-semibold" : cellIndex === sheet.columns.length - 1 ? "pr-4 pl-2" : "px-2"}`}>
-                                <div className="max-h-32 overflow-y-auto whitespace-pre-line wrap-break-word">
-                                  {cellIndex === reviewColumn ? <ReviewCell text={cellText(row[cellIndex])} needle={needle} /> : <Marked text={cellText(row[cellIndex])} needle={needle} />}
-                                </div>
+                              <td key={cellIndex} className={`py-3 leading-6 whitespace-pre-line [overflow-wrap:anywhere] text-ink-900 ${cellIndex === 0 ? "pr-2 pl-4 font-semibold" : cellIndex === sheet.columns.length - 1 ? "pr-4 pl-2" : "px-2"}`} data-testid="data-cell">
+                                {cellIndex === reviewColumn ? <ReviewCell text={cellText(row[cellIndex])} needle={needle} /> : <Marked text={cellText(row[cellIndex])} needle={needle} />}
                               </td>
                             ))}
                           </tr>

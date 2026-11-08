@@ -20,6 +20,8 @@ EXTRA = (
     "frontend/e2e/data-explorer.spec.ts",
     "frontend/e2e/data-explorer-sort.spec.ts",
     "frontend/e2e/data-explorer-sort-unit.spec.ts",
+    "frontend/e2e/data-explorer-filters.spec.ts",
+    "frontend/e2e/data-explorer-filters-unit.spec.ts",
     "frontend/e2e/support/dataExplorerFake.ts",
     "frontend/e2e/support/designFidelityFake.ts",
     "frontend/e2e/fidelity-boards.spec.ts",

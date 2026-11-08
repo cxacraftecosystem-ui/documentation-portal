@@ -66,13 +66,16 @@ def _browser() -> Any:
     return data_browser
 
 
-async def walked_totals(segs: list[str], keys: list[str], scope: Any) -> Totals:
+async def walked_totals(
+    segs: list[str], keys: list[str], scope: Any, paths: dict[str, str] | None = None
+) -> Totals:
     browser = _browser()
     parent = "/".join(segs)
     out: Totals = {}
     for key in keys:
+        target = (paths or {}).get(key) or f"{parent}/{key}"
         files, _cut = await walk.manifest_files(
-            browser._list_level, scope, [(f"{parent}/{key}", "")], None, fill=False
+            browser._list_level, scope, [(target, "")], None, fill=False
         )
         sizes = [stats.size_of(entry) for entry in files if entry is not None]
         out[key] = (len(sizes), sum(size or 0 for size in sizes))
@@ -80,7 +83,11 @@ async def walked_totals(segs: list[str], keys: list[str], scope: Any) -> Totals:
 
 
 async def level_totals(
-    segs: list[str], keys: list[str], scope_media: dict[str, Any] | None, scope: Any = None
+    segs: list[str],
+    keys: list[str],
+    scope_media: dict[str, Any] | None,
+    scope: Any = None,
+    paths: dict[str, str] | None = None,
 ) -> Totals | None:
     if not segs or not keys:
         return None
@@ -88,7 +95,7 @@ async def level_totals(
     if head in WORKSHOP_HEADS:
         return await reach.workshop_totals(segs, keys, scope, _browser())
     if head in WALKED_HEADS:
-        return await walked_totals(segs, keys, scope)
+        return await walked_totals(segs, keys, scope, paths)
     if head in TYPE_HEADS and len(segs) == 1:
         return _by_type(await grouped("mediaType", {}, scope_media))
     if head != "by-uploader":
@@ -117,7 +124,8 @@ async def fill(norm: str, entries: list[dict[str, Any]], scope: Any) -> None:
     segs = [s for s in norm.split("/") if s]
     keys = [_leaf(e) for e in folders]
     try:
-        totals = await level_totals(segs, keys, getattr(scope, "media", None), scope)
+        paths = {key: str(e.get("path") or "") for key, e in zip(keys, folders, strict=True)}
+        totals = await level_totals(segs, keys, getattr(scope, "media", None), scope, paths)
     except Exception as exc:  # noqa: BLE001
         logger.warning("folder counts failed for %s (%s)", norm, type(exc).__name__)
         totals = None

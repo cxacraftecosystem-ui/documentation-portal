@@ -229,7 +229,15 @@ function suggestionCount(total: number | undefined): string {
   return total === 1 ? " 1 result." : ` ${total.toLocaleString("en-IN")} results.`;
 }
 
-export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal: (path: string) => void; onPreview: (target: PreviewTarget) => void; ask?: SearchAsk | null }) {
+export type OuterFilters = { workshopIds?: string; artisanIds?: string; craftIds?: string; dateFrom?: string; dateTo?: string };
+
+export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope = null, outer = null }: { onReveal: (path: string) => void; onPreview: (target: PreviewTarget) => void; ask?: SearchAsk | null; portalScope?: Scope | null; outer?: OuterFilters | null }) {
+  const outerText = JSON.stringify(outer ?? {});
+  const narrowing = useMemo<OuterFilters>(() => JSON.parse(outerText) as OuterFilters, [outerText]);
+  const outerCraft = narrowing.craftIds && !narrowing.craftIds.includes(",") ? narrowing.craftIds : undefined;
+  const outerFrom = narrowing.dateFrom ? new Date(`${narrowing.dateFrom}T00:00:00`).toISOString() : undefined;
+  const outerTo = narrowing.dateTo ? new Date(`${narrowing.dateTo}T23:59:59.999`).toISOString() : undefined;
+  const embedded = outer !== null;
   const { user } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -237,6 +245,11 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
   const [fromUrl] = useState(() => searchFromParams(params));
   const [draft, setDraft] = useState(fromUrl.state.q);
   const [state, setState] = useState<SearchState>(fromUrl.state);
+  const [seenPortalScope, setSeenPortalScope] = useState<Scope | null>(portalScope);
+  if (portalScope !== seenPortalScope) {
+    setSeenPortalScope(portalScope);
+    if (portalScope && portalScope !== state.scope) setState((previous) => ({ ...previous, scope: portalScope }));
+  }
   const [focus, setFocus] = useState<UnifiedType | null>(fromUrl.focus);
   const lastSearch = useRef(searchToParams(fromUrl.state, fromUrl.focus, ""));
   const [answer, setAnswer] = useState<Answer | null>(null);
@@ -314,6 +327,11 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
     setDraft((previous) => (previous.trim() === wanted.state.q.trim() ? previous : wanted.state.q));
   }, [paramsText]);
 
+  const ownFilterCount = activeFilters(state);
+  useEffect(() => {
+    if (embedded && ownFilterCount) setState((previous) => ({ ...EMPTY_STATE, q: previous.q, scope: previous.scope, sort: previous.sort }));
+  }, [embedded, ownFilterCount]);
+
   const q = state.q.trim();
   const types = useMemo(() => (state.transcriptOnly ? (["transcripts"] as UnifiedType[]) : state.types), [state.transcriptOnly, state.types]);
   const key = JSON.stringify([q, state.scope, state.workshopIds, state.artisanId, state.craftId, types, state.range, focus, sortText ?? "", attempt]);
@@ -333,8 +351,8 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
       type: focus ?? undefined,
       page: 1,
       limit: focus ? TYPE_LIMIT : ALL_LIMIT,
-      craftId: state.craftId || undefined,
-      workshopIds: state.workshopIds.length ? state.workshopIds.join(",") : undefined,
+      craftId: state.craftId || outerCraft,
+      workshopIds: state.workshopIds.length ? state.workshopIds.join(",") : narrowing.workshopIds,
       ...rangeBounds(state.range)
     };
     const path = `/search/unified${buildQuery({
@@ -346,8 +364,9 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
       page: query.page,
       craftId: query.craftId,
       workshopIds: query.workshopIds,
-      artisanIds: state.artisanId || undefined,
-      dateFrom: query.dateFrom,
+      artisanIds: state.artisanId || narrowing.artisanIds,
+      dateFrom: query.dateFrom ?? outerFrom,
+      dateTo: outerTo,
       sort: sortText
     })}`;
     fetchUnified({ q }, () => apiFetch<UnifiedResponse>(path))
@@ -359,7 +378,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
           setAnswer({ key, data: outcome.data, groups, rows, legacy: false, error: null, page: 1, more: hasMore(focus, groups, rows, true) });
           return;
         }
-        const legacy = await apiFetch<LegacyResult>(`/search${buildQuery({ q, page: 1, pageSize: LEGACY_PAGE, types: focus ?? undefined, craftId: state.craftId || undefined, artisanId: state.artisanId || undefined, ...rangeBounds(state.range) })}`);
+        const legacy = await apiFetch<LegacyResult>(`/search${buildQuery({ q, page: 1, pageSize: LEGACY_PAGE, types: focus ?? undefined, craftId: state.craftId || undefined, artisanId: state.artisanId || undefined, ...rangeBounds(state.range), ...narrowing })}`);
         if (cancelled) return;
         const groups = legacyTotals(legacy);
         const rows = mergeRows([], legacyRows(legacy));
@@ -374,7 +393,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
     return () => {
       cancelled = true;
     };
-  }, [key, q, state.scope, state.workshopIds, state.artisanId, state.craftId, state.range, types, focus, sortText]);
+  }, [key, q, state.scope, state.workshopIds, state.artisanId, state.craftId, state.range, types, focus, sortText, narrowing, outerCraft, outerFrom, outerTo]);
 
   const more = useCallback(async () => {
     if (!answer || answer.error || !answer.more) return;
@@ -383,10 +402,10 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
     try {
       let fresh: Row[];
       if (answer.legacy) {
-        const legacy = await apiFetch<LegacyResult>(`/search${buildQuery({ q, page: next, pageSize: LEGACY_PAGE, types: focus ?? undefined, craftId: state.craftId || undefined, artisanId: state.artisanId || undefined, ...rangeBounds(state.range) })}`);
+        const legacy = await apiFetch<LegacyResult>(`/search${buildQuery({ q, page: next, pageSize: LEGACY_PAGE, types: focus ?? undefined, craftId: state.craftId || undefined, artisanId: state.artisanId || undefined, ...rangeBounds(state.range), ...narrowing })}`);
         fresh = legacyRows(legacy);
       } else {
-        const path = `/search/unified${buildQuery({ q, type: focus ?? undefined, types: !focus && types.length ? types.join(",") : undefined, page: next, limit: focus ? TYPE_LIMIT : ALL_LIMIT, scope: state.scope === "local" ? "local" : undefined, craftId: state.craftId || undefined, workshopIds: state.workshopIds.join(",") || undefined, artisanIds: state.artisanId || undefined, ...rangeBounds(state.range), sort: sortText })}`;
+        const path = `/search/unified${buildQuery({ q, type: focus ?? undefined, types: !focus && types.length ? types.join(",") : undefined, page: next, limit: focus ? TYPE_LIMIT : ALL_LIMIT, scope: state.scope === "local" ? "local" : undefined, craftId: state.craftId || outerCraft, workshopIds: state.workshopIds.join(",") || narrowing.workshopIds, artisanIds: state.artisanId || narrowing.artisanIds, dateFrom: outerFrom, dateTo: outerTo, ...rangeBounds(state.range), sort: sortText })}`;
         const data = await apiFetch<UnifiedResponse>(path);
         fresh = flattenGroups(data, focus);
       }
@@ -400,7 +419,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
     } finally {
       setLoading(false);
     }
-  }, [focus, answer, q, state, types, sortText]);
+  }, [focus, answer, q, state, types, sortText, narrowing, outerCraft, outerFrom, outerTo]);
 
   const reveal = async (row: Row) => {
     const type = LOCATE_TYPE[row.type];
@@ -431,7 +450,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
   const total = groups.length ? (focus ? (groups.find((group) => group.type === focus)?.total ?? rows.length) : groups.reduce((sum, group) => sum + group.total, 0)) : rows.length;
   const remote = data?.remote;
   const canBoth = peerSearchOffered(remote);
-  const filters = activeFilters(state);
+  const filters = embedded ? 0 : activeFilters(state);
   const counts = data && state.scope === "all" ? portalCounts(data) : null;
   const showMore = Boolean(shown && !shown.error && shown.more);
   const grouped = focus ? [{ group: null as GroupTotal | null, rows }] : sections(groups, rows);
@@ -469,7 +488,7 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
                 /
               </span>
             )}
-            <button
+            {embedded ? null : (<button
               type="button"
               className="absolute right-1.5 grid h-9 w-9 place-items-center rounded-sm border border-line-200 bg-card text-ink-700 hover:bg-purple-50 sm:hidden dark:hover:bg-purple-950/40"
               aria-label={filters ? `Filters, ${filters} on` : "Filters"}
@@ -478,13 +497,13 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null }: { onReveal:
               onClick={() => setFiltersOpen((value) => !value)}
             >
               <MoreVertical className="h-4 w-4" aria-hidden />
-            </button>
+            </button>)}
           </label>
           <button type="submit" className="field-button min-h-12 px-5 font-semibold max-lg:hidden">
             Search
           </button>
         </div>
-        <div id="data-search-filters" className={`flex-wrap items-center gap-2 ${filtersOpen ? "flex" : "hidden sm:flex"}`}>
+        <div id="data-search-filters" hidden={embedded} className={`flex-wrap items-center gap-2 ${embedded ? "hidden" : filtersOpen ? "flex" : "hidden sm:flex"}`}>
           {canBoth ? (
             <div role="radiogroup" aria-label="Where" className="flex rounded-full border border-line-200 bg-surface-50 p-[3px] max-sm:h-12 max-sm:w-full max-sm:rounded-md max-sm:bg-card max-sm:p-1">
               {(["local", "all"] as Scope[]).map((scope) => (

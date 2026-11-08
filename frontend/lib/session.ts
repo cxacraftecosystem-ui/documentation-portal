@@ -76,8 +76,14 @@ export function isSignedOutRoute(pathname: string): boolean {
   return SIGNED_OUT_ROUTES.some((route) => (route === "/" ? path === "/" : path === route || path.startsWith(`${route}/`)));
 }
 
+let notFoundPage = false;
+
+export function markNotFoundPage(): void {
+  notFoundPage = true;
+}
+
 export function mayHoldSession(pathname: string, legacyToken: boolean): boolean {
-  return Boolean(getSessionMarker()) || legacyToken || !isSignedOutRoute(pathname);
+  return Boolean(getSessionMarker()) || legacyToken || (!notFoundPage && !isSignedOutRoute(pathname));
 }
 
 function dropLegacyToken(): void {

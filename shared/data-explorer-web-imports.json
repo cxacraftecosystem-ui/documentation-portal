@@ -22,6 +22,7 @@
     "@/components/ui/ActionGroup",
     "@/components/ui/AudioPlayer",
     "@/components/ui/ButtonRow",
+    "@/components/ui/CalendarField",
     "@/components/ui/ProgressBar",
     "@/components/ui/SearchableSelect",
     "@/components/ui/Toggle",

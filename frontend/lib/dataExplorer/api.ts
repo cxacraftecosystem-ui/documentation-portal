@@ -221,7 +221,7 @@ export function fetchTranscriptText(mediaId: string, fallback: () => Promise<str
   return asking;
 }
 
-export type BrowseQuery = { type: string; page: number; pageSize?: number; q?: string; workshopIds?: string; sort?: string };
+export type BrowseQuery = { type: string; page: number; pageSize?: number; q?: string; workshopIds?: string; sort?: string; extra?: QueryParams };
 
 export function fetchBrowse(request: BrowseQuery): Promise<BrowsePage> {
   return apiFetch<BrowsePage>(
@@ -231,7 +231,8 @@ export function fetchBrowse(request: BrowseQuery): Promise<BrowsePage> {
       pageSize: request.pageSize ?? LIMITS.browsePageSize,
       q: request.q?.trim() || undefined,
       workshopIds: request.workshopIds,
-      sort: request.sort
+      sort: request.sort,
+      ...(request.extra ?? {})
     })}`
   );
 }

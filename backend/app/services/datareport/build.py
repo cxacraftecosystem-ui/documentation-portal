@@ -191,10 +191,13 @@ async def enrich_media(db: Any, media: list[Any], withheld: set[str]) -> None:
 
 async def _records(browser: Any, norm: str, scope: Any) -> tuple[dict[str, Any], set[str]]:
     from app.services import transcript_export
+    from app.services.data_explorer import filters as explorer_filters
     from app.services.tool_scope import hide_unseen
 
     segs = [s for s in norm.split("/") if s]
-    records = await browser._report_records(segs, scope)
+    records = explorer_filters.filter_report(
+        await browser._report_records(segs, scope), getattr(scope, "explorer_filter", None)
+    )
     await hide_unseen(records.get("tools") or [], getattr(scope, "readable", None) or scope.records)
     media = list(records.get("media") or [])
     withheld = await transcript_export.withheld_ids([str(m.id) for m in media if transcript_export.has_text(m)])
@@ -574,13 +577,15 @@ async def delivered(user: Any, path: str) -> None:
         logger.exception("report delivery stamp failed")
 
 
-async def build_report(user: Any, path: str, options: contract.ReportOptions, *, status: str | None = None) -> BuiltReport:
+async def build_report(
+    user: Any, path: str, options: contract.ReportOptions, *, status: str | None = None, flt: Any = None
+) -> BuiltReport:
     from app.services import transcript_portal
-    from app.services.data_explorer import report_cache
+    from app.services.data_explorer import filters as explorer_filters, report_cache
 
     browser = _browser()
     db = _db(browser)
-    scope = await _scope(browser, user, status)
+    scope = explorer_filters.narrow(await _scope(browser, user, status), flt)
     norm = browser._norm(path)
     sees_spend = bool(transcript_portal.may_see_spend(user))
     key, material, _cached = await browser._material(norm, scope, sees_spend)
@@ -632,13 +637,15 @@ def _count(sheet: Sheet) -> int | None:
     return None
 
 
-async def catalog(user: Any, path: str, *, status: str | None = None, q: str | None = None) -> dict[str, Any]:
+async def catalog(
+    user: Any, path: str, *, status: str | None = None, q: str | None = None, flt: Any = None
+) -> dict[str, Any]:
     from app.services import transcript_portal
-    from app.services.data_explorer import report_cache
+    from app.services.data_explorer import filters as explorer_filters, report_cache
 
     browser = _browser()
     db = _db(browser)
-    scope = await _scope(browser, user, status)
+    scope = explorer_filters.narrow(await _scope(browser, user, status), flt)
     norm = browser._norm(path)
     sees_spend = bool(transcript_portal.may_see_spend(user))
     key, material, _cached = await browser._material(norm, scope, sees_spend)

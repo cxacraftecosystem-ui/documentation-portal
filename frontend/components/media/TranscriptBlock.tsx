@@ -39,7 +39,8 @@ export function TranscriptBlock({ media: stored, readOnly = false }: { media: Me
   const isAudio = media.mediaType === "AUDIO" || (media.mimeType ?? "").toLowerCase().startsWith("audio/");
   const isVideo = media.mediaType === "VIDEO" || (media.mimeType ?? "").toLowerCase().startsWith("video/");
   const refine = <TranscriptRefine media={media} readOnly={readOnly} onUpdated={setUpdated} />;
-  if (!isAudio && !isVideo) {
+  const untranscribed = !(media.transcriptStatus ?? "").trim() && !(media.transcriptText ?? "").trim();
+  if ((!isAudio && !isVideo) || untranscribed) {
     return (
       <>
         <LegacyTranscriptBlock media={media} />

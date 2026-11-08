@@ -442,7 +442,7 @@ jobs:
             sleep 2
           done
           curl -fsS -o /dev/null http://localhost:3000/login || { cat next.log; exit 1; }
-          npx playwright test e2e/data-explorer.spec.ts e2e/data-explorer-sort.spec.ts
+          npx playwright test e2e/data-explorer.spec.ts e2e/data-explorer-sort.spec.ts e2e/data-explorer-filters.spec.ts
 
       - name: Keep the screenshots
         if: always()

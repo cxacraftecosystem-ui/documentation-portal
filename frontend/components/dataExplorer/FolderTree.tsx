@@ -120,7 +120,7 @@ export function FolderTree({
   return (
     <div role="tree" aria-label="Folders" className="flex flex-col gap-0.5 text-sm" data-testid="folder-tree">
       {rows.map((row) => {
-        const indent = { paddingLeft: `${(row.level - 1) * 16 + 8}px` };
+        const indent = { paddingLeft: `${Math.min((row.level - 1) * 16, 112) + 8}px` };
         if (row.kind === "loading") {
           return (
             <div key={row.path} role="none" className="flex min-h-10 items-center gap-2 text-xs text-ink-500" style={indent}>
@@ -152,7 +152,7 @@ export function FolderTree({
             onKeyDown={(event) => onKey(event, row)}
             onClick={() => activate(row)}
             data-path={row.path}
-            className={`group flex min-h-10 cursor-pointer select-none items-center gap-2 rounded-[10px] pr-2 transition-colors pointer-coarse:min-h-11 ${
+            className={`group flex min-h-10 min-w-0 cursor-pointer select-none items-center gap-2 rounded-[10px] pr-2 transition-colors pointer-coarse:min-h-11 ${
               selected ? "bg-purple-100 font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-200" : "text-ink-900 hover:bg-purple-50 dark:hover:bg-purple-950/30"
             }`}
             style={indent}

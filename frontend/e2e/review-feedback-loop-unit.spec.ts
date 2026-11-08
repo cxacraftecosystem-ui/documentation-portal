@@ -105,7 +105,7 @@ test.describe("the queue's filters", () => {
     expect(page).toContain("onSearch={setWorkshopSearch}");
     expect(page).not.toContain('listResource<Workshop>("/workshops", { pageSize: 100 })');
     expect(page).toContain("<SegmentedChoice");
-    expect(read("app/(protected)/data/page.tsx")).toContain("<SegmentedChoice");
+    expect(read("app/(protected)/data/page.tsx")).not.toContain("<SegmentedChoice");
   });
 
   test("the record page asks for its review only with review access", () => {

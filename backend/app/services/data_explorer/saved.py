@@ -7,6 +7,7 @@ NAME_MAX = 120
 PATH_MAX = 1000
 TEXT_MAX = 200
 FILTERS_MAX = 30
+FILTER_VALUE_MAX = 5400
 FILTER_KEY_MAX = 64
 VIEWS_PER_OWNER = 200
 SHARED_LIST_MAX = 50
@@ -71,8 +72,8 @@ def state_of(value: Any) -> dict[str, Any]:
         if isinstance(item, bool) or not isinstance(item, (str, int, float)):
             raise Invalid("A filter value must be text")
         text = str(item)
-        if len(text) > TEXT_MAX:
-            raise Invalid(f"A filter value is at most {TEXT_MAX} characters.")
+        if len(text) > FILTER_VALUE_MAX:
+            raise Invalid(f"A filter value is at most {FILTER_VALUE_MAX} characters.")
         filters[key.strip()] = text
     return {
         "view": view,

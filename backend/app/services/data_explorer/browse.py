@@ -189,9 +189,12 @@ async def page(
     q: str | None,
     workshop_ids: list[str] | None,
     sort: sorting.Sort = sorting.BROWSE_DEFAULT,
+    flt: Any = None,
 ) -> dict[str, Any]:
+    from app.services.data_explorer.filters import browse_where
+
     kind = KINDS[kind_key]
-    where = where_for(kind, scope, q, workshop_ids)
+    where = _and(where_for(kind, scope, q, workshop_ids), browse_where(kind_key, flt))
     is_media = kind.delegate == "mediafile"
     include = {"uploadedBy": True} if is_media else {"createdBy": True}
     kwargs: dict[str, Any] = {

@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse, Response
 
 from app.core.db import db
 from app.core.deps import get_current_user, require_dataset_downloader
+from app.services.data_explorer import filters as explorer_filters
 from app.services.datareport import access, build, bundles
 
 router = APIRouter(
@@ -158,12 +159,13 @@ async def report_sheets(
     path: str = "",
     status_value: str | None = Query(None, alias="status"),
     q: str | None = None,
+    flt: explorer_filters.Filter = Depends(explorer_filters.from_request),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
     from app.services.data_explorer import report_cache
 
     try:
-        return await build.catalog(current_user, path, status=status_value, q=q)
+        return await build.catalog(current_user, path, status=status_value, q=q, flt=flt)
     except report_cache.ReportBusy as busy:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

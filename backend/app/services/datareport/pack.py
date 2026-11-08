@@ -88,6 +88,7 @@ class PackParams:
     name: str | None = None
     status: str | None = None
     extra: dict[str, str] = field(default_factory=dict)
+    filters: dict[str, str] = field(default_factory=dict)
 
     def options(self) -> report_options.ReportOptions:
         try:
@@ -168,7 +169,10 @@ async def core_xlsx(user: Any, params: PackParams) -> tuple[bytes, str, Any]:
         q=params.q,
         name=params.name,
     )
-    built = await build.build_report(user, params.path, options, status=params.status)
+    from app.services.data_explorer import filters as explorer_filters
+
+    flt = explorer_filters.parse(params.filters) if params.filters else None
+    built = await build.build_report(user, params.path, options, status=params.status, flt=flt)
     return built.payload, built.file_name, built.ctx
 
 

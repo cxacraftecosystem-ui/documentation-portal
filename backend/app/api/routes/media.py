@@ -801,11 +801,34 @@ async def delete_staged_object(objectKey: str, current_user: Any = Depends(get_c
     await asyncio.to_thread(delete_object, objectKey)
 
 
+def _object_missing(object_key: str) -> bool:
+    from botocore.exceptions import ClientError
+
+    from app.services import s3 as stored_objects
+
+    try:
+        stored_objects._client().head_object(Bucket=get_settings().aws_s3_bucket, Key=object_key)
+    except ClientError as exc:
+        error = exc.response.get("Error") or {}
+        code = str(error.get("Code") or "")
+        answered = (exc.response.get("ResponseMetadata") or {}).get("HTTPStatusCode")
+        return code in {"403", "404", "NoSuchKey", "NotFound", "AccessDenied"} or answered in (403, 404)
+    except Exception:  # noqa: BLE001
+        return False
+    return False
+
+
 @router.get("/{media_id}")
-async def get_media(media_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
+async def get_media(
+    media_id: str, verify: bool = False, current_user: Any = Depends(get_current_user)
+) -> dict[str, Any]:
     media = await db.mediafile.find_unique(where={"id": media_id}, include=INCLUDE)
     media = await require_record(db.mediafile, media_id) if not media else media
-    return await _with_questionnaire_chips(await _public(media, current_user))
+    out = await _with_questionnaire_chips(await _public(media, current_user))
+    key = getattr(media, "objectKey", None)
+    if verify is True and key and out.get("url"):
+        out["fileMissing"] = await asyncio.to_thread(_object_missing, str(key))
+    return out
 
 
 @router.delete("/{media_id}", status_code=status.HTTP_204_NO_CONTENT)

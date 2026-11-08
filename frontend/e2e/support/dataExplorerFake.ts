@@ -21,6 +21,45 @@ type FakeFile = {
 
 const MANY_FILES = 1234;
 
+export const BENGAL_FOLDER = "workshops/bengal";
+
+export const BENGALI_SCHEME =
+  "প্রধানমন্ত্রী বিশ্বকর্মা প্রকল্পের অধীনে নকশিকাঁথা ও কাঁথা স্টিচ কারিগরদের জন্য নকশা ও প্রোটোটাইপ উন্নয়ন কর্মশালা, পশ্চিমবঙ্গ হস্তশিল্প উন্নয়ন নিগমের সহযোগিতায় বীরভূম জেলার বোলপুরে আয়োজিত, যেখানে প্রতিটি কারিগর নতুন রঙের বিন্যাস, আধুনিক ব্যবহারের পণ্য এবং বাজারের চাহিদা অনুযায়ী মোটিফ তৈরি করেছেন";
+
+export const FOLDER_CRAFT: Record<string, string> = { "workshops/bagru": "c-block", "workshops/sanganer": "c-dabu", [BENGAL_FOLDER]: "c-kantha" };
+
+export const FAKE_FACETS = {
+  workshop: [
+    { value: "workshops/bagru", label: "Bagru 2026", hint: "Jaipur" },
+    { value: "workshops/sanganer", label: "Sanganer", hint: "Jaipur" },
+    { value: BENGAL_FOLDER, label: "Bolpur Kantha", hint: "Birbhum" }
+  ],
+  designWorkshop: [
+    { value: "dw-bolpur", label: "Bolpur design lab", hint: "Kantha" },
+    { value: "dw-bagru", label: "Bagru prototype week", hint: "Block printing" }
+  ],
+  craft: [
+    { value: "c-block", label: "Hand block printing", hint: null },
+    { value: "c-dabu", label: "Dabu", hint: null },
+    { value: "c-kantha", label: "Kantha", hint: null }
+  ],
+  artisan: [
+    { value: "a-kamla", label: "Kamla Devi", hint: "Bagru" },
+    { value: "a-meera", label: "Meera Bai", hint: "Sanganer" }
+  ]
+} as const;
+
+export type FakeFilter = { mediaTypes: string[]; craftIds: string[]; workshopIds: string[]; designWorkshopIds: string[]; statuses: string[] };
+
+export function fakeFilterOf(query: URLSearchParams): FakeFilter {
+  const list = (name: string) => (query.get(name) ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+  return { mediaTypes: list("mediaTypes"), craftIds: list("craftIds"), workshopIds: list("workshopIds"), designWorkshopIds: list("designWorkshopIds"), statuses: list("statuses") };
+}
+
+export function fakeFilterActive(filter: FakeFilter): boolean {
+  return Object.values(filter).some((values) => values.length > 0);
+}
+
 export const SORTED_FOLDER = "workshops/sorted";
 
 export const LONG_PARENT = "workshops/long";
@@ -328,6 +367,18 @@ export class DataExplorerFake {
       folders: [],
       files: ["a", "b", "c"].map((letter) => ({ path: `workshops/sanganer/${letter}.jpg`, name: `${letter}.jpg`, mediaId: `s${letter}`, mediaType: "IMAGE", bytes: 5000 }))
     });
+    this.folder({
+      name: "Bolpur Kantha",
+      path: BENGAL_FOLDER,
+      recordType: "workshop",
+      folders: [],
+      files: [
+        { path: `${BENGAL_FOLDER}/details.txt`, name: "details.txt", content: `Workshop id: dw-bolpur\nScheme: ${BENGALI_SCHEME}\nDistrict: Birbhum\nArtisans: 12\nStarted: 2026-10-01\n` },
+        { path: `${BENGAL_FOLDER}/notes.txt`, name: "notes.txt", content: "The artisans chose softer indigo.\n\nNext visit after the harvest." },
+        { path: `${BENGAL_FOLDER}/kantha.jpg`, name: "kantha.jpg", mediaId: "bn1", mediaType: "IMAGE", bytes: 12_000 },
+        { path: `${BENGAL_FOLDER}/stitch.mp4`, name: "stitch.mp4", mediaId: "bn2", mediaType: "VIDEO", bytes: 30_000 }
+      ]
+    });
     this.folder({ name: "Long names", path: LONG_PARENT, recordType: "workshop", folders: [`${LONG_PARENT}/one`, `${LONG_PARENT}/two`], files: [] });
     this.folder({ name: LONG_NAME, path: `${LONG_PARENT}/one`, recordType: "artisan", folders: [], files: [] });
     this.folder({ name: "Short", path: `${LONG_PARENT}/two`, recordType: "artisan", folders: [], files: [] });
@@ -373,6 +424,78 @@ export class DataExplorerFake {
   calledWith(method: string, path: string): Call[] {
     return this.calls.filter((call) => call.method === method && call.path === path);
   }
+
+  private craftOf(path: string): string | null {
+    for (const [folder, craft] of Object.entries(FOLDER_CRAFT)) if (path === folder || path.startsWith(`${folder}/`)) return craft;
+    return null;
+  }
+
+  private workshopOf(path: string): string | null {
+    for (const folder of Object.keys(FOLDER_CRAFT)) if (path === folder || path.startsWith(`${folder}/`)) return folder;
+    return null;
+  }
+
+  private matches(file: FakeFile, filter: FakeFilter): boolean {
+    if (file.content != null) return !filter.mediaTypes.length || filter.mediaTypes.includes("DOCUMENT");
+    if (filter.mediaTypes.length && !filter.mediaTypes.includes(String(file.mediaType))) return false;
+    if (filter.craftIds.length && !filter.craftIds.includes(this.craftOf(file.path) ?? "")) return false;
+    if (filter.workshopIds.length && !filter.workshopIds.includes(this.workshopOf(file.path) ?? "")) return false;
+    if (filter.designWorkshopIds.length && !(filter.designWorkshopIds.includes("dw-bolpur") && file.path.startsWith(BENGAL_FOLDER))) return false;
+    if (filter.statuses.length && !filter.statuses.includes(file.mediaType === "VIDEO" ? "PENDING" : "APPROVED")) return false;
+    return true;
+  }
+
+  private applied(filter: FakeFilter): Json {
+    const active: Json[] = [];
+    const named = (param: string, label: string, values: string[], names: Record<string, string>) => {
+      if (values.length) active.push({ param, facet: param, label, values: values.map((value) => ({ value, label: names[value] ?? value })) });
+    };
+    const label = (list: readonly { value: string; label: string }[]) => Object.fromEntries(list.map((option) => [option.value, option.label]));
+    named("workshopIds", "Workshop", filter.workshopIds, label(FAKE_FACETS.workshop));
+    named("designWorkshopIds", "Design workshop", filter.designWorkshopIds, label(FAKE_FACETS.designWorkshop));
+    named("craftIds", "Craft", filter.craftIds, label(FAKE_FACETS.craft));
+    named("mediaTypes", "Media type", filter.mediaTypes, { IMAGE: "Images", VIDEO: "Videos", AUDIO: "Audio", PDF: "PDFs", DOCUMENT: "Documents", OTHER: "Other" });
+    named("statuses", "Review status", filter.statuses, { APPROVED: "Approved", PENDING: "Pending" });
+    return { active, count: active.length };
+  }
+
+  private facets(query: URLSearchParams): Json {
+    const filter = fakeFilterOf(query);
+    const every = [...this.folders.values()].filter((folder) => FOLDER_CRAFT[folder.path] || Object.keys(FOLDER_CRAFT).some((root) => folder.path.startsWith(`${root}/`))).flatMap((folder) => folder.files).filter((file) => file.content == null);
+    const without = (key: keyof FakeFilter) => every.filter((file) => this.matches(file, { ...filter, [key]: [] }));
+    const counted = (files: FakeFile[], keyOf: (file: FakeFile) => string | null) => {
+      const out: Record<string, number> = {};
+      for (const file of files) {
+        const key = keyOf(file);
+        if (key) out[key] = (out[key] ?? 0) + 1;
+      }
+      return out;
+    };
+    const crafts = counted(without("craftIds"), (file) => this.craftOf(file.path));
+    const workshops = counted(without("workshopIds"), (file) => this.workshopOf(file.path));
+    const types = counted(without("mediaTypes"), (file) => String(file.mediaType));
+    const statuses = counted(without("statuses"), (file) => (file.mediaType === "VIDEO" ? "PENDING" : "APPROVED"));
+    const option = (entry: { value: string; label: string; hint: string | null }, count: number) => ({ ...entry, count });
+    return {
+      facets: [
+        { facet: "workshop", param: "workshopIds", label: "Workshop", options: FAKE_FACETS.workshop.map((entry) => option(entry, workshops[entry.value] ?? 0)), truncated: false, selected: filter.workshopIds },
+        { facet: "designWorkshop", param: "designWorkshopIds", label: "Design workshop", options: FAKE_FACETS.designWorkshop.map((entry) => option(entry, entry.value === "dw-bolpur" ? 2 : 0)), truncated: false, selected: filter.designWorkshopIds },
+        { facet: "craft", param: "craftIds", label: "Craft", options: FAKE_FACETS.craft.map((entry) => option(entry, crafts[entry.value] ?? 0)), truncated: false, selected: filter.craftIds },
+        { facet: "artisan", param: "artisanIds", label: "Artisan", options: FAKE_FACETS.artisan.map((entry) => option(entry, entry.value === "a-kamla" ? 1 : 0)), truncated: false, selected: [] },
+        { facet: "mediaType", param: "mediaTypes", label: "Media type", options: ["IMAGE", "VIDEO", "AUDIO", "PDF", "DOCUMENT", "OTHER"].map((value) => ({ value, label: ({ IMAGE: "Images", VIDEO: "Videos", AUDIO: "Audio", PDF: "PDFs", DOCUMENT: "Documents", OTHER: "Other" } as Record<string, string>)[value], hint: null, count: types[value] ?? 0 })), truncated: false, selected: filter.mediaTypes },
+        { facet: "status", param: "statuses", label: "Review status", options: [{ value: "APPROVED", label: "Approved", hint: null, count: statuses.APPROVED ?? 0 }, { value: "PENDING", label: "Pending", hint: null, count: statuses.PENDING ?? 0 }], truncated: false, selected: filter.statuses },
+        { facet: "recordedBy", param: "recordedByIds", label: "Recorded by", options: [{ value: "u-lead", label: "Nandini Rao", hint: null, count: every.length }], truncated: false, selected: [] },
+        { facet: "language", param: "languages", label: "Language", options: [{ value: "ben", label: "Bengali", hint: null, count: 1 }, { value: "hin", label: "Hindi", hint: null, count: 1 }], truncated: false, selected: [] }
+      ],
+      dateBounds: { min: "2026-01-05", max: "2026-11-05" },
+      portal: { options: [{ value: "this", label: "This portal", available: true, status: "ok" }, { value: "other", label: "Field Repository", available: true, status: "ok" }] }
+    };
+  }
+
+  peerRows: Json[] = [
+    { portal: "fieldRepository", portalLabel: "Field Repository", local: false, type: "artisans", id: "fr-a1", title: "Rina Das", subtitle: "Kantha", place: "Bolpur", recordDate: "2026-10-02T10:00:00Z", craftCodes: ["KAN"], href: "/remote/artisans/fr-a1", openUrl: "https://field.example/artisans/fr-a1" },
+    { portal: "fieldRepository", portalLabel: "Field Repository", local: false, type: "media", id: "fr-m1", title: "kantha-stitch.mp4", subtitle: "Video", place: "Bolpur", recordDate: "2026-10-03T10:00:00Z", craftCodes: ["KAN"], href: "/remote/media/fr-m1", openUrl: "https://field.example/media/fr-m1" }
+  ];
 
   private walk(path: string): FakeFile[] {
     const folder = this.folders.get(path);
@@ -444,22 +567,28 @@ export class DataExplorerFake {
     };
   }
 
-  private tree(path: string, cursor: string | null, sort: string | null = null): Json | null {
+  private tree(path: string, cursor: string | null, sort: string | null = null, filter: FakeFilter | null = null): Json | null {
     const folder = this.folders.get(path);
     if (!folder) return null;
+    const narrowing = filter && fakeFilterActive(filter) ? filter : null;
     const crumbs: Json[] = [{ name: "Repository", path: "" }];
     const parts = path.split("/").filter(Boolean);
     for (let i = 1; i <= parts.length; i += 1) {
       const at = parts.slice(0, i).join("/");
       crumbs.push({ name: this.folders.get(at)?.name ?? at, path: at });
     }
-    const unsorted = [
-      ...folder.folders.map((child) => {
-        const inner = this.walk(child).filter((item) => item.content == null);
+    let hidden = 0;
+    const children = folder.folders
+      .map((child) => {
+        const inner = this.walk(child).filter((item) => item.content == null && (!narrowing || this.matches(item, narrowing)));
         return { kind: "folder", name: this.folders.get(child)!.name, path: child, recordType: this.folders.get(child)!.recordType, count: inner.length, bytes: inner.reduce((sum, item) => sum + (item.bytes ?? 0), 0) };
-      }),
-      ...folder.files.map((file) => this.entry(file))
-    ];
+      })
+      .filter((entry) => {
+        if (!narrowing || entry.count > 0) return true;
+        hidden += 1;
+        return false;
+      });
+    const unsorted = [...children, ...folder.files.filter((file) => !narrowing || this.matches(file, narrowing)).map((file) => this.entry(file))];
     const sortable = this.sortableFolders.has(path);
     const all = sortable ? fakeSorted(unsorted, sort) : unsorted.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "folder" ? -1 : 1) || String(a.name).toLowerCase().localeCompare(String(b.name).toLowerCase()));
     const [sortKey, sortDir] = (sort || "name:asc").split(":");
@@ -482,6 +611,8 @@ export class DataExplorerFake {
       taxonomy: path.startsWith("crafts") ? "crafts" : "workshops",
       designWorkshopsVisible: true,
       designWorkshopsDownloadable: true,
+      filters: narrowing ? this.applied(narrowing) : { active: [], count: 0 },
+      hidden,
       ...(sortable ? { sort: { key: sortKey, dir: sortDir }, sorts: ["name", "recorded", "added", "modified", "size", "type"] } : {})
     };
   }
@@ -499,6 +630,15 @@ export class DataExplorerFake {
         return { status: 500, json: { detail: "The report couldn't be built." } };
       }
       return { status: 200, raw: Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(60)]), contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers: { "content-disposition": 'attachment; filename="Dataset_Report_Bagru-2026.xlsx"' } };
+    }
+    if (query.get("path") === BENGAL_FOLDER) {
+      const columns = ["Design workshop", "Scheme", "District", "Artisans", "Stage", "Designer"];
+      const rows = [
+        ["Bolpur design lab", BENGALI_SCHEME, "বীরভূম", "১২", "০৭ নমুনা তৈরি", "Sraboni Sen"],
+        ["Santiniketan prototype week", `${BENGALI_SCHEME} ${BENGALI_SCHEME}`, "বীরভূম", "৮", "১১ স্কেচ", "Arijit Pal"],
+        ["Kantha revival", "নকশিকাঁথা", "পূর্ব বর্ধমান", "৫", "০৩ গবেষণা", "Moumita Roy"]
+      ];
+      return { status: 200, json: { sheets: [{ name: "Design workshops", color: "FF58068C", columns, rows, rowNumbers: rows.map((_row, index) => index + 1), totalRows: rows.length }], previewRows: 200 } };
     }
     const artisans = Array.from({ length: 200 }, (_, index) => [`Artisan ${index + 1}`, index % 2 ? "Bagru" : "Sanganer"]);
     artisans.push(["Rare Weaver", "Kaithoon"]);
@@ -520,7 +660,7 @@ export class DataExplorerFake {
         this.treeFailures.set(query.get("path") ?? "", failing - 1);
         return { status: 500, json: { detail: "The folder could not be read." } };
       }
-      const tree = this.tree(query.get("path") ?? "", query.get("cursor"), query.get("sort"));
+      const tree = this.tree(query.get("path") ?? "", query.get("cursor"), query.get("sort"), fakeFilterOf(query));
       return tree ? { status: 200, json: tree } : { status: 404, json: { detail: "No such folder." } };
     }
     if (path === "/data/stats" && method === "GET") {
@@ -543,6 +683,13 @@ export class DataExplorerFake {
       return { status: 200, json: { files, totalFiles: files.length, totalMedia: files.length, truncated: false } };
     }
     if (path === "/data/report") return this.report(query);
+    if (path === "/data/filters") return { status: 200, json: this.facets(query) };
+    if (path === "/data/peer") {
+      const type = query.get("type");
+      const wanted = type === "media" ? "media" : type === "artisan" ? "artisans" : null;
+      const items = this.peerRows.filter((row) => !wanted || row.type === wanted);
+      return { status: 200, json: { portal: "fieldRepository", portalLabel: "Field Repository", status: "ok", items, total: items.length, page: 1, pageSize: 20, pages: 1, notApplied: query.has("workshopIds") ? ["workshopIds"] : [] } };
+    }
     const media = /^\/data\/media\/([^/]+)\/(thumbnail|preview|download|transcript)$/.exec(path);
     if (media) {
       const [, id, leaf] = media;

@@ -189,7 +189,7 @@ export function CommandPalette({
         id={`${listId}-${at}`}
         role="option"
         aria-selected={at === current}
-        onMouseEnter={() => setActive(at)}
+        onMouseMove={() => setActive(at)}
         onClick={() => run(entry)}
         className={`flex min-h-11 cursor-pointer items-center gap-3 px-4 py-2.5 text-sm text-ink-900 ${at === current ? "bg-purple-100 dark:bg-purple-950/60" : ""}`}
       >

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 
 from app.core.deps import require_dataset_downloader
-from app.services.data_explorer import report_cache, report_options
+from app.services.data_explorer import filters as explorer_filters, report_cache, report_options
 from app.services.datareport import jobs
 
 router = APIRouter(
@@ -29,6 +29,7 @@ async def data_report_pack(
     locale: str | None = None,
     extras: str | None = None,
     status_value: str | None = Query(None, alias="status"),
+    flt: explorer_filters.Filter = Depends(explorer_filters.from_request),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
     try:
@@ -46,6 +47,9 @@ async def data_report_pack(
         "status": status_value,
         "extra": {k: v for k, v in (("thumbnails", thumbnails), ("locale", locale), ("extras", extras)) if v is not None},
     }
+    chosen = explorer_filters.as_query(flt)
+    if chosen:
+        params["filters"] = chosen
     try:
         return await jobs.fetch(current_user, jobs.PACK, params, status_filter=status_value)
     except report_cache.ReportBusy as busy:
