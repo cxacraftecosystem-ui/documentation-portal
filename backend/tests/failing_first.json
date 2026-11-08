@@ -1,5 +1,17 @@
 [
   {
+    "id": "upload-completion-checks-storage",
+    "tests": [
+      "tests/test_upload_landing.py::test_an_upload_that_never_reached_storage_is_refused_so_the_client_sends_it_again",
+      "tests/test_upload_landing.py::test_completion_checks_storage_before_it_creates_the_media_record",
+      "tests/test_upload_landing.py::test_a_storage_error_while_checking_reads_as_cannot_answer"
+    ],
+    "revert": [
+      "backend/app/api/routes/media.py"
+    ],
+    "to": "96ba72e35338e321897131f234306eca60c5ae88"
+  },
+  {
     "id": "wp3-ffmpeg-input-guard",
     "tests": [
       "tests/test_data_explorer_units.py::test_the_waveform_reads_only_this_portals_media_and_never_a_protocol_or_playlist",
@@ -85,17 +97,5 @@
       "backend/app/api/routes/questionnaire.py"
     ],
     "to": "2d6447bf21ca28a7dcc951ad308fb33f323759d1"
-  },
-  {
-    "id": "upload-completion-checks-storage",
-    "tests": [
-      "tests/test_upload_landing.py::test_an_upload_that_never_reached_storage_is_refused_so_the_client_sends_it_again",
-      "tests/test_upload_landing.py::test_completion_checks_storage_before_it_creates_the_media_record",
-      "tests/test_upload_landing.py::test_a_storage_error_while_checking_reads_as_cannot_answer"
-    ],
-    "revert": [
-      "backend/app/api/routes/media.py"
-    ],
-    "to": "96ba72e35338e321897131f234306eca60c5ae88"
   }
 ]
