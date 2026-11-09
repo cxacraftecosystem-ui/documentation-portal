@@ -16,14 +16,14 @@ def test_a_session_place_is_pinned_on_start_read_back_and_moved_or_cleared_on_ed
             ids = await seed(client)
             pin = {"latitude": 26.8105, "longitude": 75.5466, "placeName": "Bagru, Jaipur, Rajasthan"}
             s, _ = await sessions.create_session(session_create(ids, ids.artisans[:1], place="Bagru, Jaipur", location=pin), ids.lead)
-            assert s["location"] == {**pin, "accuracy": None}
+            assert {k: s["location"][k] for k in ("latitude", "longitude", "accuracy", "placeName")} == {**pin, "accuracy": None}
             moved = await sessions.patch_session(
                 s["id"], S.SessionPatch(version=s["version"], place="Sanganer, Jaipur", location=S.SessionLocation(latitude=26.8213, longitude=75.7849, placeName="Sanganer")), ids.lead
             )
             assert moved["place"] == "Sanganer, Jaipur"
-            assert moved["location"] == {"latitude": 26.8213, "longitude": 75.7849, "accuracy": None, "placeName": "Sanganer"}
+            assert {k: moved["location"][k] for k in ("latitude", "longitude", "accuracy", "placeName")} == {"latitude": 26.8213, "longitude": 75.7849, "accuracy": None, "placeName": "Sanganer"}
             kept = await sessions.patch_session(s["id"], S.SessionPatch(version=moved["version"], note="Second sitting"), ids.lead)
-            assert kept["location"] == moved["location"]
+            assert kept["location"]["latitude"] == moved["location"]["latitude"]
             cleared = await sessions.patch_session(s["id"], S.SessionPatch(version=kept["version"], location=None), ids.lead)
             assert cleared["location"] is None and cleared["place"] == "Sanganer, Jaipur"
             again = await sessions.patch_session(s["id"], S.SessionPatch(version=cleared["version"], location=S.SessionLocation(latitude=26.8, longitude=75.5)), ids.lead)

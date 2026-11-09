@@ -6,7 +6,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 
 ## Design Prototype Workshop
 
-142 models, 1773 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+142 models, 1775 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
 
 ### Models and fields
 
@@ -753,6 +753,8 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `title`: Questionnaire sittings › Title
   - `interviewDate`: Questionnaire sittings › Interview date
   - `place`: Map › Place; Questionnaire sittings › Place
+  - `crafts`: Questionnaire sittings › Crafts
+  - `craftsByHand`: Questionnaire sittings › Crafts by hand
   - `language`: Questionnaire sittings › Language
   - `notes`: Questionnaire sittings › Notes
   - `status`: Questionnaire sittings › Status
@@ -1363,7 +1365,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 
 ## Field Repository
 
-99 models, 1219 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+99 models, 1221 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
 
 ### Models and fields
 
@@ -1759,6 +1761,8 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `title`: Questionnaire sittings › Title
   - `interviewDate`: Questionnaire sittings › Interview date
   - `place`: Map › Place; Questionnaire sittings › Place
+  - `crafts`: Questionnaire sittings › Crafts
+  - `craftsByHand`: Questionnaire sittings › Crafts by hand
   - `language`: Questionnaire sittings › Language
   - `notes`: Questionnaire sittings › Notes
   - `status`: Questionnaire sittings › Status

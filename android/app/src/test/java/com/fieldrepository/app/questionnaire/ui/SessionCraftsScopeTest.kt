@@ -15,9 +15,9 @@ class SessionCraftsScopeTest {
 
     @Test fun `the artisan picker offers all records only once a workshop is chosen`() {
         assertNull(scopeOption(workshopChosen = false, showAll = false))
-        assertEquals(ALL_ARTISANS, scopeOption(workshopChosen = true, showAll = false)!!.value)
+        assertEquals(ARTISANS_ALL_RECORDS, scopeOption(workshopChosen = true, showAll = false)!!.value)
         assertEquals("Show from all records", scopeOption(workshopChosen = true, showAll = false)!!.label)
-        assertEquals(WORKSHOP_ARTISANS, scopeOption(workshopChosen = true, showAll = true)!!.value)
+        assertEquals(ARTISANS_WORKSHOP_ONLY, scopeOption(workshopChosen = true, showAll = true)!!.value)
     }
 
     @Test fun `editing sends the crafts and keeps hand-set ones apart`() {

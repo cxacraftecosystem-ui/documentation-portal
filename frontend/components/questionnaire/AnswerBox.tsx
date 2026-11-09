@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Check } from "lucide-react";
 
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import { PromptDialog } from "@/components/questionnaire/Prompts";

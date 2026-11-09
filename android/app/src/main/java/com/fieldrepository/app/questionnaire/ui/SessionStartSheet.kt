@@ -126,8 +126,8 @@ data class StartForm(
     )
 }
 
-internal const val ALL_ARTISANS = "__all_records__"
-internal const val WORKSHOP_ARTISANS = "__workshop_only__"
+internal const val ARTISANS_ALL_RECORDS = "__all_records__"
+internal const val ARTISANS_WORKSHOP_ONLY = "__workshop_only__"
 
 internal fun craftsFor(fromArtisans: List<String?>, byHand: List<String>): List<String> {
     val seen = linkedMapOf<String, String>()
@@ -140,8 +140,8 @@ internal fun craftsFor(fromArtisans: List<String?>, byHand: List<String>): List<
 
 internal fun scopeOption(workshopChosen: Boolean, showAll: Boolean): SelectOption? = when {
     !workshopChosen -> null
-    showAll -> SelectOption(WORKSHOP_ARTISANS, QuestionnaireCopy.s("start.workshopOnly"))
-    else -> SelectOption(ALL_ARTISANS, QuestionnaireCopy.s("start.allRecords"))
+    showAll -> SelectOption(ARTISANS_WORKSHOP_ONLY, QuestionnaireCopy.s("start.workshopOnly"))
+    else -> SelectOption(ARTISANS_ALL_RECORDS, QuestionnaireCopy.s("start.allRecords"))
 }
 
 internal fun startFormFor(resolved: String?, current: String, forms: List<QFormOption>): String = when {
@@ -287,8 +287,8 @@ fun SessionStartSheet(
                 registered.map { (id, a) -> SelectOption(id, a.name.trim(), QuestionnaireCopy.s("artisan.onPhone")) } +
                 listOfNotNull(scopeOption(form.workshopId.isNotBlank(), showAll))
             fun scopeChosen(ids: Collection<String>): Boolean {
-                if (ALL_ARTISANS in ids) { showAll = true; return true }
-                if (WORKSHOP_ARTISANS in ids) { showAll = false; return true }
+                if (ARTISANS_ALL_RECORDS in ids) { showAll = true; return true }
+                if (ARTISANS_WORKSHOP_ONLY in ids) { showAll = false; return true }
                 return false
             }
             if (form.group) {
@@ -298,7 +298,7 @@ fun SessionStartSheet(
                     selected = form.artisanIds.toSet()
                 ) { picked ->
                     scopeChosen(picked)
-                    val chosen = picked - ALL_ARTISANS - WORKSHOP_ARTISANS
+                    val chosen = picked - ARTISANS_ALL_RECORDS - ARTISANS_WORKSHOP_ONLY
                     form = form.copy(artisanIds = form.artisanIds.filter { it in chosen } + chosen.filter { it !in form.artisanIds })
                 }
             } else {
