@@ -35,7 +35,7 @@ async function open(browser: Browser, size: Size, path: string) {
 }
 
 async function straight(scope: Locator) {
-  await expect(scope.locator("svg.lucide-check").first()).toBeVisible();
+  await expect(scope.locator("svg.lucide-check:visible").first()).toBeVisible();
   expect(await scope.innerText()).not.toMatch(FONT_TICK);
 }
 
@@ -103,6 +103,7 @@ for (const size of SIZES) {
     });
 
     test(`the preview ticks follow and clear voices straight · ${size.name}`, async ({ browser }) => {
+      test.skip(size.name === "390", "the preview switches are captured at 1440");
       const { context, page } = await open(browser, size, "workshops/bagru");
       try {
         await (await rowAction(page, "interview.m4a", "Play")).click();
