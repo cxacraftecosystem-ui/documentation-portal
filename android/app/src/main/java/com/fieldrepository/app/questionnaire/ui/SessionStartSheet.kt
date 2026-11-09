@@ -127,6 +127,8 @@ data class StartForm(
 }
 
 internal const val ARTISANS_ALL_RECORDS = "__all_records__"
+internal const val ARTISAN_PAGE_SIZE = 100
+internal const val ARTISAN_PAGES = 50
 internal const val ARTISANS_WORKSHOP_ONLY = "__workshop_only__"
 
 internal fun craftsFor(fromArtisans: List<String?>, byHand: List<String>): List<String> {
@@ -221,7 +223,14 @@ fun SessionStartSheet(
         val id = form.workshopId.ifBlank { null }
         val key = if (QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP) "designWorkshopId" else "workshopId"
         scoped = if (id == null) null else runCatching {
-            v2.api.artisansIn(if (showAll) emptyMap() else mapOf(key to id)).items.map { it.option() }
+            val scope = if (showAll) emptyMap() else mapOf(key to id)
+            val found = mutableListOf<QArtisanOption>()
+            for (page in 1..ARTISAN_PAGES) {
+                val items = v2.api.artisansIn(scope, page = page).items
+                found += items.map { it.option() }
+                if (items.size < ARTISAN_PAGE_SIZE) break
+            }
+            found.distinctBy { it.id }
         }.getOrNull()
     }
     val autoCrafts = form.artisanIds.mapNotNull { byId[it]?.craft }

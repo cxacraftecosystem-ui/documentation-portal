@@ -126,10 +126,10 @@ interface QuestionnaireApi {
     suspend fun registerRespondent(@Path("respondentId") respondentId: String, @Body body: QRespondentRegister): JsonObject
 
     @GET("artisans")
-    suspend fun artisansIn(@QueryMap scope: Map<String, String>, @Query("pageSize") pageSize: Int = 200): QArtisanPage
+    suspend fun artisansIn(@QueryMap scope: Map<String, String>, @Query("page") page: Int = 1, @Query("pageSize") pageSize: Int = 100): QArtisanPage
 
     @GET("crafts")
-    suspend fun crafts(@Query("pageSize") pageSize: Int = 200): QCraftPage
+    suspend fun crafts(@Query("pageSize") pageSize: Int = 500): QCraftPage
 
     @GET("questionnaire/form-for")
     suspend fun formFor(
