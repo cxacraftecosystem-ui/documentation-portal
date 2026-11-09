@@ -368,8 +368,8 @@ export function SessionStartSheet({
   const workshopChosen = Boolean(form.workshopId && form.workshopId !== FIELD_VISIT);
   const scopeOption = artisanScopeOption(workshopChosen, showAll);
   const artisanOptions = [
-    ...artisans.map((a) => ({ value: a.id, label: a.place ? `${a.name} · ${a.place}` : a.name })),
-    ...(scopeOption ? [scopeOption] : [])
+    ...(scopeOption ? [scopeOption] : []),
+    ...artisans.map((a) => ({ value: a.id, label: a.place ? `${a.name} · ${a.place}` : a.name }))
   ];
   const autoCrafts = craftsFor(chosen.map((a) => a.craft?.name), []);
   const craftKey = autoCrafts.join("|");

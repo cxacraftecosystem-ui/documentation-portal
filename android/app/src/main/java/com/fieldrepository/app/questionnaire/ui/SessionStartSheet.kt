@@ -283,9 +283,9 @@ fun SessionStartSheet(
                 selectedValue = if (form.group) "G" else "I"
             ) { v -> form = form.copy(group = v == "G", artisanIds = if (v == "I") form.artisanIds.take(1) else form.artisanIds, guests = if (v == "I" && form.artisanIds.isNotEmpty()) emptyList() else form.guests) }
             val listed = scoped?.let { inWorkshop -> inWorkshop + artisans.filter { a -> a.id in form.artisanIds && inWorkshop.none { it.id == a.id } } } ?: artisans
-            val artisanOptions = listed.map { SelectOption(it.id, it.name, it.place.ifBlank { null }) } +
-                registered.map { (id, a) -> SelectOption(id, a.name.trim(), QuestionnaireCopy.s("artisan.onPhone")) } +
-                listOfNotNull(scopeOption(form.workshopId.isNotBlank(), showAll))
+            val artisanOptions = listOfNotNull(scopeOption(form.workshopId.isNotBlank(), showAll)) +
+                listed.map { SelectOption(it.id, it.name, it.place.ifBlank { null }) } +
+                registered.map { (id, a) -> SelectOption(id, a.name.trim(), QuestionnaireCopy.s("artisan.onPhone")) }
             fun scopeChosen(ids: Collection<String>): Boolean {
                 if (ARTISANS_ALL_RECORDS in ids) { showAll = true; return true }
                 if (ARTISANS_WORKSHOP_ONLY in ids) { showAll = false; return true }
