@@ -78,7 +78,7 @@ test("@qf:B33 consent is asked inline and never blocks Start", () => {
 });
 
 test("each request goes out once per real change: artisan page, consent, coverage", () => {
-  expect(SHEET).toContain("}, [search, form.workshopId]);");
+  expect(SHEET).toContain("}, [search, form.workshopId, showAll]);");
   expect(SHEET).toMatch(/consentRequested\.current\.has\(id\)\) continue;\s*consentRequested\.current\.add\(id\);/);
   expect(SHEET).toContain("}, [form.questionnaireId, form.workshopId, artisanKey]);");
   expect(SHEET).toContain("}, [coverageGrid, coverageHeld, artisans]);");
