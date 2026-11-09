@@ -56,7 +56,9 @@ import com.fieldrepository.app.ui.SearchableMultiSelectField
 import com.fieldrepository.app.ui.SearchableSelectField
 import com.fieldrepository.app.ui.SelectOption
 import com.fieldrepository.app.ui.field
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.LocalDate
@@ -217,12 +219,13 @@ fun SessionStartSheet(
     }
 
     LaunchedEffect(Unit) {
-        craftCatalog = runCatching { v2.api.crafts().items.mapNotNull { (it.name ?: it.title)?.trim()?.ifBlank { null } } }.getOrDefault(emptyList())
+        val names = withContext(Dispatchers.IO) { runCatching { v2.api.crafts().items.mapNotNull { (it.name ?: it.title)?.trim()?.ifBlank { null } } }.getOrDefault(emptyList()) }
+        craftCatalog = names
     }
     LaunchedEffect(form.workshopId, showAll) {
         val id = form.workshopId.ifBlank { null }
         val key = if (QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP) "designWorkshopId" else "workshopId"
-        scoped = if (id == null) null else runCatching {
+        val fetched = if (id == null) null else withContext(Dispatchers.IO) { runCatching {
             val scope = if (showAll) emptyMap() else mapOf(key to id)
             val found = mutableListOf<QArtisanOption>()
             for (page in 1..ARTISAN_PAGES) {
@@ -231,7 +234,8 @@ fun SessionStartSheet(
                 if (items.size < ARTISAN_PAGE_SIZE) break
             }
             found.distinctBy { it.id }
-        }.getOrNull()
+        }.getOrNull() }
+        scoped = fetched
     }
     val autoCrafts = form.artisanIds.mapNotNull { byId[it]?.craft }
     LaunchedEffect(autoCrafts) {
