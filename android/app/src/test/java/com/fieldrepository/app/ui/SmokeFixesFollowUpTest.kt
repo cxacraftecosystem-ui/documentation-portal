@@ -56,8 +56,8 @@ class SmokeFixesFollowUpTest {
 
     @Test
     fun `a queued batch reads saved on device, never uploaded`() {
-        assertEquals("Saved on device ✓", mediaUploadButtonLabel(false, succeeded = true, failed = false, queued = true, hasRecordType = true))
-        assertEquals("Uploaded ✓", mediaUploadButtonLabel(false, succeeded = true, failed = false, queued = false, hasRecordType = true))
+        assertEquals("Saved on device", mediaUploadButtonLabel(false, succeeded = true, failed = false, queued = true, hasRecordType = true))
+        assertEquals("Uploaded", mediaUploadButtonLabel(false, succeeded = true, failed = false, queued = false, hasRecordType = true))
         assertEquals("Uploading...", mediaUploadButtonLabel(true, succeeded = false, failed = false, queued = true, hasRecordType = true))
         assertEquals("Upload batch", mediaUploadButtonLabel(false, succeeded = false, failed = false, queued = false, hasRecordType = true))
     }

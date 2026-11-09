@@ -1651,8 +1651,9 @@ private fun DownloadCard(
                 val stats: ExplorerTypeStats? = size?.byKind?.get(kind)
                 val bytes = stats?.bytes?.takeIf { it > 0 && kind in setOf(ExplorerKind.IMAGES, ExplorerKind.VIDEOS, ExplorerKind.AUDIOS) }?.let { ExplorerBytes.format(it) }
                 ExplorerPill(
-                    text = listOfNotNull(if (on) "✓ ${kind.label}" else kind.label, bytes).joinToString(" "),
+                    text = listOfNotNull(kind.label, bytes).joinToString(" "),
                     selected = on,
+                    ticked = on,
                     onClick = { onInclude(kind.token) },
                     minHeight = 34.dp,
                     style = MaterialTheme.typography.bodySmall,

@@ -364,9 +364,9 @@ private fun ColumnScope.MediaPane(
                     Text(s.name?.ifBlank { null } ?: s.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.weight(1f))
-                Text(
-                    if (follow) "✓ " + ExplorerUiText.followsVideo else ExplorerUiText.follow,
-                    style = MaterialTheme.typography.labelMedium,
+                ExplorerTickText(
+                    if (follow) ExplorerUiText.followsVideo else ExplorerUiText.follow,
+                    ticked = follow,
                     fontWeight = FontWeight.SemiBold,
                     color = if (follow) (if (MaterialTheme.field.isDark) AudioColors.followDark else AudioColors.follow) else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.clickable(role = Role.Switch) { follow = !follow }.padding(vertical = 6.dp).testTag("explorer.preview.follow"),

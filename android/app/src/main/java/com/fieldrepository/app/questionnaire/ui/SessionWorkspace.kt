@@ -966,7 +966,7 @@ internal fun QuestionBlock(
         val marks = roster.map { CoverageGridModel.questionMark(question, it.artisanId, known, overlay, typed) }
         val line = roster.zip(marks).filter { it.second.mark != CellMark.NONE }
             .joinToString(" · ") { (p, m) -> "${QuestionnaireCopy.firstName(p.name)} ${m.glyph}" }
-        if (line.isNotBlank()) TextButton(onClick = onOpenTakes) { Text(line, style = MaterialTheme.typography.bodySmall) }
+        if (line.isNotBlank()) TextButton(onClick = onOpenTakes) { CoverageTick.Line(line, style = MaterialTheme.typography.bodySmall) }
         answerLines.forEach { a ->
             Text(
                 listOfNotNull(QuestionnaireCopy.firstName(nameOf(a.artisanId)) + ": " + a.text, a.badge).joinToString(" · "),

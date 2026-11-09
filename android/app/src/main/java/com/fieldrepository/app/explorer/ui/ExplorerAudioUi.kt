@@ -226,7 +226,7 @@ internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, star
         }
         val clearPill: @Composable () -> Unit = {
             if (isolated) {
-                Pill(if (clear) "✓ ${AudioText.clear}" else AudioText.clear, filled = clear, enabled = true, tag = "explorer.audio.clear", role = Role.Switch) {
+                Pill(AudioText.clear, ticked = clear, filled = clear, enabled = true, tag = "explorer.audio.clear", role = Role.Switch) {
                     val on = !clear
                     clear = on
                     val source = if (on) isolatedSource(entry.mediaId!!) else audioSource(entry)
@@ -407,7 +407,7 @@ internal fun FindField(needle: String, label: String, onChange: (String) -> Unit
 }
 
 @Composable
-private fun Pill(label: String, filled: Boolean, enabled: Boolean, tag: String, role: Role = Role.Button, onClick: () -> Unit) {
+private fun Pill(label: String, ticked: Boolean = false, filled: Boolean, enabled: Boolean, tag: String, role: Role = Role.Button, onClick: () -> Unit) {
     Box(
         Modifier.heightIn(min = 40.dp)
             .clip(CircleShape)
@@ -418,7 +418,7 @@ private fun Pill(label: String, filled: Boolean, enabled: Boolean, tag: String, 
             .testTag(tag),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = if (filled) FontWeight.SemiBold else FontWeight.Normal, color = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+        ExplorerTickText(label, ticked, if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface, fontWeight = if (filled) FontWeight.SemiBold else FontWeight.Normal)
     }
 }
 

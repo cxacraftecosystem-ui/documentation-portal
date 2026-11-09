@@ -137,7 +137,7 @@ export function AnswerBox({
   const [note, setNote] = useState(() => focused?.note ?? "");
   const [noteOpen, setNoteOpen] = useState(Boolean(focused?.note));
   const [origin, setOrigin] = useState<{ origin: AnswerOrigin; sourceRecordingId: string | null } | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lockedFor, setLockedFor] = useState<string[]>([]);
   const [history, setHistory] = useState<AnswerRevision[] | null>(null);
@@ -163,7 +163,7 @@ export function AnswerBox({
     setText(answerEditorValue(a));
     setNote(a?.note ?? "");
     setNoteOpen(Boolean(a?.note));
-    setSaved(null);
+    setSaved(false);
     setLockedFor([]);
   }
 
@@ -195,7 +195,7 @@ export function AnswerBox({
     try {
       if (navigator.onLine === false || session.version === 0) {
         await keep({ kind: "answers", status: "PENDING", items: forQueue(items) });
-        setSaved("✓");
+        setSaved(true);
         return;
       }
       let results: AnswerResult[];
@@ -205,7 +205,7 @@ export function AnswerBox({
         const step = answerFallback(items, { error: failure });
         if (!step) throw failure;
         await keep(step);
-        setSaved("✓");
+        setSaved(true);
         return;
       }
       const next = [...existing];
@@ -222,7 +222,7 @@ export function AnswerBox({
       setLockedFor(results.filter((r) => r.code === "ANSWER_LOCKED").map((r) => ownerKey(r)));
       const held = answerFallback(items, { results });
       if (held) await keep(held);
-      setSaved(results.some((r) => r.status === "SAVED" || r.status === "UNCHANGED") ? "✓" : null);
+      setSaved(results.some((r) => r.status === "SAVED" || r.status === "UNCHANGED"));
     } catch (failure) {
       setError(failure instanceof ApiError || failure instanceof Error ? failure.message : String(failure));
     }
@@ -262,7 +262,7 @@ export function AnswerBox({
         onChange={(value) => {
           setTextState(value);
           setOrigin(null);
-          setSaved(null);
+          setSaved(false);
           setConfirmed(new Set());
           setSkipped(new Set());
         }}
@@ -292,7 +292,7 @@ export function AnswerBox({
             onClick={() => {
               setText(offer.text);
               setOrigin({ origin: offer.origin, sourceRecordingId: offer.sourceRecordingId });
-              setSaved(null);
+              setSaved(false);
             }}
           >
             {qs("useAsAnswer")}
@@ -309,7 +309,7 @@ export function AnswerBox({
           readOnly={locked}
           onChange={(e) => {
             setNote(e.target.value);
-            setSaved(null);
+            setSaved(false);
           }}
           onBlur={() => void (locked ? undefined : save())}
           data-answer-note
@@ -326,7 +326,7 @@ export function AnswerBox({
             {qs("history")}
           </button>
         ) : null}
-        {saved ? <span className="text-success-600">{saved}</span> : null}
+        {saved ? <Check className="h-3.5 w-3.5 text-success-600" aria-hidden data-answer-saved /> : null}
       </div>
       {error ? (
         <p role="alert" className="text-xs text-error-600">

@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -98,6 +99,7 @@ fun ExplorerPill(
     horizontal: Dp = 12.dp,
     role: Role = Role.Checkbox,
     enabled: Boolean = true,
+    ticked: Boolean = false,
 ) {
     val dark = MaterialTheme.field.isDark
     val container = when {
@@ -121,7 +123,7 @@ fun ExplorerPill(
             .padding(horizontal = horizontal),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, style = style, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, color = content, textAlign = TextAlign.Center)
+        ExplorerTickText(text, ticked, content, style = style, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, textAlign = TextAlign.Center)
     }
 }
 
@@ -247,6 +249,23 @@ enum class ExplorerMarkKind(val icon: ImageVector, val tag: String) {
 @Composable
 internal fun ExplorerMarkIcon(kind: ExplorerMarkKind, tint: Color, size: Dp = 14.dp, modifier: Modifier = Modifier) {
     Icon(kind.icon, contentDescription = null, tint = tint, modifier = modifier.size(size).testTag("explorer.mark.${kind.tag}"))
+}
+
+@Composable
+fun ExplorerTickText(
+    text: String,
+    ticked: Boolean,
+    color: Color,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.labelMedium,
+    fontWeight: FontWeight? = null,
+    textAlign: TextAlign? = null,
+    tick: Dp = 14.dp,
+) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (ticked) ExplorerMarkIcon(ExplorerMarkKind.SAVED, color, tick)
+        Text(text, style = style, fontWeight = fontWeight, color = color, textAlign = textAlign)
+    }
 }
 
 @Composable

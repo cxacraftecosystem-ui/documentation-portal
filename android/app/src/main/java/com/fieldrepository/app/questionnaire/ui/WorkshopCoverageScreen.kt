@@ -156,7 +156,7 @@ fun WorkshopCoverageScreen(
                                 cell.glyph,
                                 color = if (cell.mark == CellMark.TYPED || cell.mark == CellMark.NONE) MaterialTheme.field.muted else MaterialTheme.field.body,
                                 width = 88.dp,
-                                describe = "${names[id] ?: ""}, ${section.code} ${section.title}: ${cell.glyph}",
+                                describe = CoverageTick.spoken("${names[id] ?: ""}, ${section.code} ${section.title}: ${cell.glyph}"),
                                 onOpen = if (wire != null && CoverageRecordings.hasTakes(wire)) ({ openDot(section.sectionId, id, wire) }) else null,
                                 modifier = Modifier.testTag("coverage.dot.${section.sectionId}.$id")
                             )
@@ -166,7 +166,7 @@ fun WorkshopCoverageScreen(
             }
             Text(QuestionnaireCopy.s("coverage.legend"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted)
             val overrides = g.sections.flatMap { it.cells }.mapNotNull { it.override }.distinct()
-            if (overrides.isNotEmpty()) Text(
+            if (overrides.isNotEmpty()) CoverageTick.Line(
                 overrides.mapNotNull { o -> QuestionnaireCopy.overrideLabel(o)?.let { "${GridCell("", CellMark.NONE, override = o).glyph} $it" } }.joinToString("  "),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted
             )

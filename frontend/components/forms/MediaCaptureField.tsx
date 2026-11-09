@@ -1,8 +1,8 @@
 "use client";
 
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { useEffect, useRef, useState } from "react";
-import { Camera, FolderOpen, Mic, Square, Video } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Camera, Check, FolderOpen, Mic, Square, Video } from "lucide-react";
 
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { TranscribeChoices } from "@/components/transcript/TranscribeChoices";
@@ -43,9 +43,15 @@ function mergeFiles(existing: File[], incoming: File[]) {
   return merged;
 }
 
-function stageStatusLabel(entry: StageEntry | null): string | null {
+function stageStatusLabel(entry: StageEntry | null): ReactNode {
   if (!entry) return null;
-  if (entry.status === "ready") return "Uploaded ✓";
+  if (entry.status === "ready")
+    return (
+      <>
+        Uploaded
+        <Check className="ml-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
+      </>
+    );
   if (entry.status === "error") return entry.error ? `Upload failed — ${entry.error}` : "Upload failed";
   const percent = entry.total > 0 ? Math.floor((entry.loaded * 100) / entry.total) : 0;
   return `Uploading… ${percent}%`;
@@ -239,7 +245,12 @@ export function MediaCaptureField({
             </p>
             <p className={`text-xs ${staging.failed ? "font-medium text-red-800 dark:text-red-300" : "text-ink-500"}`}>
               {staging.allReady
-                ? "All uploaded ✓ — ready to save"
+                ? (
+                  <>
+                    <Check className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
+                    All uploaded — ready to save
+                  </>
+                )
                 : staging.failed
                   ? `${staging.failed} failed — retry below or save`
                   : `Uploading… ${Math.round(staging.fraction * 100)}% (${staging.ready}/${staging.total} files done)`}

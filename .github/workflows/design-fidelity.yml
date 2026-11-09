@@ -199,6 +199,8 @@ jobs:
             test -s "$SHOTS/AndroidFilterSheet/impl-android-3.png"
             test -s "$SHOTS/AndroidHomeFab/impl-android-sessions-top.png"
             test -s "$SHOTS/AndroidHomeFab/impl-android-forms-end.png"
+            test -s "$SHOTS/AndroidTicks/impl-android-marks.png"
+            test -s "$SHOTS/AndroidTicks/impl-android-include-phone.png"
             grep -q "^OK (" "$RUNNER_TEMP/shots.txt"
             grep -q "^OK (" "$RUNNER_TEMP/place.txt"
             grep -q "^OK (" "$RUNNER_TEMP/bottom.txt"

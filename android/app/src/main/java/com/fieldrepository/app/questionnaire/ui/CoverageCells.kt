@@ -83,7 +83,7 @@ fun CoverageName(fullName: String, width: Dp, modifier: Modifier = Modifier, tag
 
 @Composable
 fun CoverageDot(glyph: String, color: Color, width: Dp, describe: String, onOpen: (() -> Unit)?, modifier: Modifier = Modifier) {
-    Text(
+    CoverageTick.Line(
         glyph,
         style = MaterialTheme.typography.bodyMedium,
         color = color,

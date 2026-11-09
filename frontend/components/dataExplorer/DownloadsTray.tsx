@@ -1,5 +1,6 @@
 "use client";
 
+import { Check } from "lucide-react";
 import { useState } from "react";
 
 import type { Downloads } from "@/components/dataExplorer/useDownloads";
@@ -71,7 +72,7 @@ function Job({ item, downloads, zipRunning }: { item: DownloadItem; downloads: D
     <li className={`grid gap-1.5 rounded-[14px] border px-3.5 py-3 ${tone}`} data-status={item.status} data-outcome={outcome} data-testid="tray-item">
       <div className="flex items-center justify-between gap-2 text-sm">
         <strong className="min-w-0 truncate font-semibold">
-          {outcome === "saved" ? "✓ " : outcome === "partial" ? "! " : ""}
+          {outcome === "saved" ? <Check className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden data-testid="tray-tick" /> : outcome === "partial" ? "! " : ""}
           {item.label}
         </strong>
         <span

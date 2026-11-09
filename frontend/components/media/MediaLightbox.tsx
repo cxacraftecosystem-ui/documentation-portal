@@ -104,7 +104,7 @@ export function MediaPreviewTile({
   removeLabel?: string;
   progress?: number | null;
   failed?: boolean;
-  statusLabel?: string | null;
+  statusLabel?: ReactNode;
   onRetry?: () => void;
   downloadFile?: Blob | null;
 }) {

@@ -1,5 +1,6 @@
 "use client";
 
+import { Check } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { Problem, Skeleton } from "@/components/dataExplorer/explorerUi";
@@ -167,8 +168,9 @@ export function SavedViewsDialog({
           </button>
         </div>
         {copied ? (
-          <p role="status" className="rounded-[10px] bg-success-100 px-2.5 py-2 text-xs text-green-900 dark:bg-[#123b25] dark:text-green-100">
-            ✓ Link copied
+          <p role="status" className="flex items-center gap-1.5 rounded-[10px] bg-success-100 px-2.5 py-2 text-xs text-green-900 dark:bg-[#123b25] dark:text-green-100">
+            <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Link copied
           </p>
         ) : null}
         {views ? <ReportScheduleControls savedViews={rows} /> : null}

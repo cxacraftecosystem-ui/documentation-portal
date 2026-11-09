@@ -1,6 +1,6 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { Check, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { TAG_TONE } from "@/components/dataExplorer/FolderContents";
@@ -68,7 +68,12 @@ function workingLine(summary: TranscriptSummary | null): string {
 function StatePill({ row }: { row: Row }) {
   switch (row.state) {
     case "ready":
-      return <span className={`${PILL} bg-success-100 text-success-600 dark:bg-[#123b25] dark:text-green-200`}>✓ Ready</span>;
+      return (
+        <span className={`${PILL} gap-1 bg-success-100 text-success-600 dark:bg-[#123b25] dark:text-green-200`}>
+          <Check className="h-3 w-3 shrink-0" aria-hidden />
+          Ready
+        </span>
+      );
     case "working":
       return <span className={`${PILL} bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200`}>{translatingLabel(row.summary)}</span>;
     case "failed":

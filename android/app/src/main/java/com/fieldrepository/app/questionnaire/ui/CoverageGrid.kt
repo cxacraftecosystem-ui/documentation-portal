@@ -38,7 +38,7 @@ fun CoverageGrid(
                 ) {
                     Text(row.section.code, style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(28.dp))
                     Text(row.section.title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(row.summary + " ›", style = MaterialTheme.typography.bodyMedium, color = if (row.section.id == currentSectionId) MaterialTheme.colorScheme.primary else MaterialTheme.field.body)
+                    CoverageTick.Line(row.summary + " ›", style = MaterialTheme.typography.bodyMedium, color = if (row.section.id == currentSectionId) MaterialTheme.colorScheme.primary else MaterialTheme.field.body)
                 }
                 HorizontalDivider(color = MaterialTheme.field.hairline)
             }
@@ -58,7 +58,7 @@ fun CoverageGrid(
                             modifier = Modifier.width(200.dp).clickable { onOpenSection(row.section.id) }, maxLines = 1, overflow = TextOverflow.Ellipsis
                         )
                         row.cells.forEach { cell ->
-                            Text(
+                            CoverageTick.Line(
                                 cell.glyph,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = when {
@@ -76,7 +76,7 @@ fun CoverageGrid(
             }
             Text(QuestionnaireCopy.s("coverage.legend"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted)
             val overrides = rows.flatMap { it.cells }.mapNotNull { it.override }.distinct()
-            if (overrides.isNotEmpty()) Text(
+            if (overrides.isNotEmpty()) CoverageTick.Line(
                 overrides.mapNotNull { o -> QuestionnaireCopy.overrideLabel(o)?.let { "${GridCell("", CellMark.NONE, override = o).glyph} $it" } }.joinToString("  "),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted
             )

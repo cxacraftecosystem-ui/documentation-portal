@@ -103,7 +103,7 @@ object ReportText {
     const val shared = "Shared"
     const val saveView = "Save current view"
     const val copyLink = "Copy link"
-    const val copied = "✓ Link copied"
+    const val copied = "Link copied"
     const val noViews = "No saved views yet."
     const val viewSaved = "View saved"
     const val linkFailed = "That didn't work. Try again."
@@ -119,7 +119,7 @@ object ReportText {
 
     fun filtered(q: String) = "Only what's filtered ($q)"
 
-    fun ready(sheets: Int) = "✓ ${if (sheets == 1) "1 sheet" else "$sheets sheets"} · $checked"
+    fun ready(sheets: Int) = "${if (sheets == 1) "1 sheet" else "$sheets sheets"} · $checked"
 
     fun days(n: Int) = if (n == 1) "1 day" else "$n days"
 
@@ -336,7 +336,7 @@ internal fun ReportOptionsSheet(
                 modifier = Modifier.fillMaxWidth().testTag("explorer.report.name"),
             )
             val count = if (choices.isEmpty()) 0 else picked.size
-            if (count > 0) Text(ReportText.ready(count), style = MaterialTheme.typography.bodySmall, color = explorerTone(ExplorerStatus.SAVED)!!.accent)
+            if (count > 0) ExplorerTickText(ReportText.ready(count), ticked = true, color = explorerTone(ExplorerStatus.SAVED)!!.accent, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("explorer.report.ready"))
             TextButton(
                 onClick = {
                     scope.launch {
@@ -439,7 +439,7 @@ internal fun ReportOptionsSheet(
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("explorer.view.copy"),
                 ) { Text(ReportText.copyLink) }
             }
-            if (copied != null) Text(ReportText.copied, style = MaterialTheme.typography.bodySmall, color = explorerTone(ExplorerStatus.SAVED)!!.accent)
+            if (copied != null) ExplorerTickText(ReportText.copied, ticked = true, color = explorerTone(ExplorerStatus.SAVED)!!.accent, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("explorer.report.copied"))
         }
     }
 }

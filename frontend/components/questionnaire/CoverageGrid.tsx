@@ -1,9 +1,11 @@
 "use client";
 
+import { Check } from "lucide-react";
+
 import type { CoverageGridCell, GridView as Grid } from "@/lib/questionnaire/api";
 import { qs } from "@/lib/questionnaire/qs";
 
-export function cellMark(cell: Pick<CoverageGridCell, "state" | "count" | "partial" | "source" | "addRecording"> | null): { mark: string; label: string; tone: string } {
+export function cellMark(cell: Pick<CoverageGridCell, "state" | "count" | "partial" | "source" | "addRecording"> | null): { mark: string; label: string; tone: string; tick?: boolean } {
   if (!cell) return { mark: "○", label: qs("stateNotRecorded"), tone: "text-ink-300" };
   const typedOnly = cell.source === "TYPED" && (cell.state === "PARTIAL" || cell.state === "RECORDED");
   if (typedOnly) {
@@ -26,7 +28,7 @@ export function cellMark(cell: Pick<CoverageGridCell, "state" | "count" | "parti
     case "NEEDS_DECISION":
       return { mark: "⚠", label: qs("needsDecision"), tone: "text-amber-800" };
     case "COMPLETED":
-      return { mark: "✓", label: qs("stateMarkedComplete"), tone: "text-success-600" };
+      return { mark: "", label: qs("stateMarkedComplete"), tone: "text-success-600", tick: true };
     case "NEEDS_REDO":
       return { mark: "↻", label: qs("stateNeedsRedo"), tone: "text-amber-800" };
     default:
@@ -116,7 +118,7 @@ export function CoverageGrid({
                   return (
                     <td key={a.id} className="px-2 py-1">
                       <span role="img" className={`inline-grid min-h-10 min-w-10 place-items-center px-2 font-medium ${m.tone}`} aria-label={label} data-coverage-cell={`${section.id}:${a.id}`}>
-                        {m.mark}
+                        {m.tick ? <Check className="h-4 w-4" aria-hidden /> : m.mark}
                       </span>
                     </td>
                   );
@@ -130,7 +132,7 @@ export function CoverageGrid({
                       data-coverage-cell={`${section.id}:${a.id}`}
                       data-opens={recordings ? "recordings" : "take"}
                     >
-                      {m.mark}
+                      {m.tick ? <Check className="mx-auto h-4 w-4" aria-hidden /> : m.mark}
                     </button>
                   </td>
                 );

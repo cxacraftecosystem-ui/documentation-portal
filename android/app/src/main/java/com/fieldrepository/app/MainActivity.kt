@@ -4879,15 +4879,21 @@ private fun MediaCaptureSection(
                         trackColor = FieldProgressDefaults.onBrandTileTrack
                     )
                 }
-                Text(
-                    when {
-                        allDone -> "All uploaded ✓ — ready to save"
-                        stalled -> uploadStalledSentence(failedCount)
-                        else -> "Uploading… ${(overall * 100).toInt()}% (${media.staged.size}/${media.uris.size})"
-                    },
-                    color = MaterialTheme.field.onBrandTileMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (allDone) {
+                        com.fieldrepository.app.explorer.ui.ExplorerMarkIcon(com.fieldrepository.app.explorer.ui.ExplorerMarkKind.SAVED, MaterialTheme.field.onBrandTileMuted, 14.dp)
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Text(
+                        when {
+                            allDone -> "All uploaded — ready to save"
+                            stalled -> uploadStalledSentence(failedCount)
+                            else -> "Uploading… ${(overall * 100).toInt()}% (${media.staged.size}/${media.uris.size})"
+                        },
+                        color = MaterialTheme.field.onBrandTileMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
                 var attachmentsExpanded by remember { mutableStateOf(false) }
                 val attachmentsCap = 6
                 val shownAttachments = if (attachmentsExpanded) media.uris else media.uris.take(attachmentsCap)
@@ -5019,15 +5025,21 @@ private fun AttachedUploadsCard(
                 trackColor = FieldProgressDefaults.onBrandTileTrack
             )
         }
-        Text(
-            when {
-                allDone -> "All uploaded ✓ — ready to save"
-                stalled -> uploadStalledSentence(failedCount)
-                else -> "Uploading… ${(overall * 100).toInt()}% ($doneCount/${uris.size})"
-            },
-            color = MaterialTheme.field.onBrandTileMuted,
-            style = MaterialTheme.typography.bodySmall
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (allDone) {
+                com.fieldrepository.app.explorer.ui.ExplorerMarkIcon(com.fieldrepository.app.explorer.ui.ExplorerMarkKind.SAVED, MaterialTheme.field.onBrandTileMuted, 14.dp)
+                Spacer(Modifier.width(4.dp))
+            }
+            Text(
+                when {
+                    allDone -> "All uploaded — ready to save"
+                    stalled -> uploadStalledSentence(failedCount)
+                    else -> "Uploading… ${(overall * 100).toInt()}% ($doneCount/${uris.size})"
+                },
+                color = MaterialTheme.field.onBrandTileMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
         var expanded by remember { mutableStateOf(false) }
         val cap = 8
         val shown = if (expanded) uris else uris.take(cap)
@@ -8687,7 +8699,7 @@ private fun TranscriptRefineControls(
                             runCatching { repository.applyTranscript(media.id, md) }
                                 .onSuccess {
                                     onApplied(md)
-                                    appliedNote = "Saved as the transcript ✓"
+                                    appliedNote = "Saved as the transcript"
                                     refined = null
                                 }
                                 .onFailure {
@@ -8708,7 +8720,12 @@ private fun TranscriptRefineControls(
             }
         }
     }
-    appliedNote?.let { Text(it, color = SuccessGreen, style = MaterialTheme.typography.bodySmall) }
+    appliedNote?.let {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(it, color = SuccessGreen, style = MaterialTheme.typography.bodySmall)
+            com.fieldrepository.app.explorer.ui.ExplorerMarkIcon(com.fieldrepository.app.explorer.ui.ExplorerMarkKind.SAVED, SuccessGreen, 14.dp)
+        }
+    }
 
     val mode = pendingTranslate
     if (mode != null) {
@@ -9029,11 +9046,15 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
                 Text(
                     when {
                         saving -> "Saving…"
-                        status == ActionStatus.SUCCESS -> "Saved ✓"
+                        status == ActionStatus.SUCCESS -> "Saved"
                         existing != null -> "Update feedback"
                         else -> "Submit feedback"
                     }
                 )
+                if (!saving && status == ActionStatus.SUCCESS) {
+                    Spacer(Modifier.width(6.dp))
+                    com.fieldrepository.app.explorer.ui.ExplorerMarkIcon(com.fieldrepository.app.explorer.ui.ExplorerMarkKind.SAVED, LocalContentColor.current, 18.dp)
+                }
             }
             existing?.updatedAt?.let { formatIsoDate(it)?.let { d -> Text("Last updated $d", color = Muted, style = MaterialTheme.typography.bodySmall) } }
         }
@@ -11363,6 +11384,10 @@ private fun AndroidMediaForm(
                     hasRecordType = linkedMode != null
                 )
             )
+            if (!uploading && uploadStatus == ActionStatus.SUCCESS) {
+                Spacer(Modifier.width(6.dp))
+                com.fieldrepository.app.explorer.ui.ExplorerMarkIcon(com.fieldrepository.app.explorer.ui.ExplorerMarkKind.SAVED, Color.White, 18.dp)
+            }
         }
         if (savedMedia.isNotEmpty()) {
             Text("Recent saved media", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
@@ -11456,7 +11481,10 @@ private fun AndroidUriPreview(
             )
             Text("Uploading ${(progress * 100).toInt()}%", color = MaterialTheme.field.onBrandTileMuted, style = MaterialTheme.typography.bodySmall)
         }
-        progress != null && progress >= 1f -> Text("Uploaded ✓", color = SuccessGreen, style = MaterialTheme.typography.bodySmall)
+        progress != null && progress >= 1f -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Uploaded", color = SuccessGreen, style = MaterialTheme.typography.bodySmall)
+            com.fieldrepository.app.explorer.ui.ExplorerMarkIcon(com.fieldrepository.app.explorer.ui.ExplorerMarkKind.SAVED, SuccessGreen, 14.dp)
+        }
     }
     if ((failed && onRetry != null) || downloadable) {
         ActionRow(modifier = Modifier.fillMaxWidth()) {
@@ -11927,11 +11955,15 @@ private fun QuestionnaireForm(
         Text(
             when {
                 syncing -> "Synchronizing…"
-                syncStatus == ActionStatus.SUCCESS -> "Synchronised ✓"
+                syncStatus == ActionStatus.SUCCESS -> "Synchronised"
                 syncStatus == ActionStatus.ERROR -> "Sync failed — tap to retry"
                 else -> "Sync now"
             }
         )
+        if (!syncing && syncStatus == ActionStatus.SUCCESS) {
+            Spacer(Modifier.width(6.dp))
+            com.fieldrepository.app.explorer.ui.ExplorerMarkIcon(com.fieldrepository.app.explorer.ui.ExplorerMarkKind.SAVED, LocalContentColor.current, 18.dp)
+        }
     }
 
     val questionnaireIsAdmin = remember { repository.cachedUser()?.role in setOf("ADMIN", "MASTER_ADMIN") }
@@ -14571,7 +14603,7 @@ private fun SaveButton(
             SaveState.SAVED -> {
                 Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Saved ✓")
+                Text("Saved")
             }
             SaveState.IDLE -> Text(idleLabel)
         }
@@ -14956,8 +14988,8 @@ internal fun mediaUploadButtonLabel(
     hasRecordType: Boolean
 ): String = when {
     uploading -> "Uploading..."
-    succeeded && queued -> "Saved on device ✓"
-    succeeded -> "Uploaded ✓"
+    succeeded && queued -> "Saved on device"
+    succeeded -> "Uploaded"
     failed -> "Upload failed — tap to retry"
     !hasRecordType -> "Choose a record type"
     else -> "Upload batch"

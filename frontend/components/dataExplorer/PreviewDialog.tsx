@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Expand, Pause, Play, Search, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Expand, Pause, Play, Search, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject } from "react";
 
@@ -765,8 +765,15 @@ function PreviewBody({
   );
 
   const followSwitch = (label: string, off: string) => (
-    <button type="button" role="switch" aria-checked={follow} onClick={() => setFollow((value) => !value)} className={`text-left text-xs font-semibold ${follow ? "text-green-700 dark:text-green-200" : "text-ink-500"}`}>
-      {follow ? `✓ ${label}` : off}
+    <button type="button" role="switch" aria-checked={follow} onClick={() => setFollow((value) => !value)} className={`inline-flex items-center gap-1 text-left text-xs font-semibold ${follow ? "text-green-700 dark:text-green-200" : "text-ink-500"}`}>
+      {follow ? (
+        <>
+          <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          {label}
+        </>
+      ) : (
+        off
+      )}
     </button>
   );
 
@@ -985,13 +992,13 @@ function PreviewBody({
           onClick={switchSource}
           className={
             phone
-              ? `min-h-10 rounded-full px-2.5 text-xs ${clean ? "bg-purple-700 font-semibold text-white" : "border border-line-200 bg-card text-ink-900"}`
+              ? `inline-flex min-h-10 items-center gap-1 rounded-full px-2.5 text-xs ${clean ? "bg-purple-700 font-semibold text-white" : "border border-line-200 bg-card text-ink-900"}`
               : clean
                 ? "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md border border-[#d6b6fb] bg-[#f2e9fe] px-3.5 text-[13px] font-semibold text-[#5f2491] transition hover:bg-purple-100 dark:border-purple-700 dark:bg-purple-950/60 dark:text-purple-100"
                 : BTN
           }
         >
-          <span aria-hidden>{clean ? "✓ " : ""}</span>
+          {clean ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
           {phone ? "Clear" : "Clear voices"}
         </button>
       );

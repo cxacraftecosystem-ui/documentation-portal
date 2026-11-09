@@ -46,7 +46,7 @@ class CoverageMarksTest {
             QGridCell(artisanId = "a1", override = "COMPLETED"), QGridCell(artisanId = "a2", override = "NEEDS_REVIEW"), QGridCell(artisanId = "a3", override = "NEEDS_REDO")
         ))))
         val cells = CoverageGridModel.rows(instrument, listOf("a1", "a2", "a3"), listOf(take("a3", "S:secA")), emptyList(), server = server).first().cells
-        assertEquals(listOf("✓", "?", "↻"), cells.map { it.glyph })
+        assertEquals(listOf(CoverageTick.TOKEN, "?", "↻"), cells.map { it.glyph })
         assertTrue("Marked complete counts", cells[0].covered)
         assertEquals(listOf("Marked complete", "Needs review", "Needs redo"), cells.map { QuestionnaireCopy.overrideLabel(it.override) })
         assertEquals("the takes are still there under the override", CellMark.RECORDED, cells[2].mark)
@@ -80,7 +80,7 @@ class CoverageMarksTest {
         assertEquals("◐ 1/3", cellOf(QGridCell(artisanId = "a1", state = "PARTIAL", covered = 1, total = 3, source = "RECORDED")).glyph)
         assertEquals("✎", cellOf(QGridCell(artisanId = "a1", covered = 3, total = 3, source = "TYPED")).glyph)
         assertEquals("⚠", cellOf(QGridCell(artisanId = "a1", needsDecision = true)).glyph)
-        assertEquals("✓", cellOf(QGridCell(artisanId = "a1", override = "COMPLETED")).glyph)
+        assertEquals(CoverageTick.TOKEN, cellOf(QGridCell(artisanId = "a1", override = "COMPLETED")).glyph)
         assertEquals("○", cellOf(QGridCell(artisanId = "a1")).glyph)
     }
 }

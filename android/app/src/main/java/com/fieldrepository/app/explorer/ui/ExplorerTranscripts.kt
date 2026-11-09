@@ -446,14 +446,14 @@ private fun StatusPill(status: TranscriptStatus, percent: Int?) {
     val failed = explorerTone(ExplorerStatus.FAILED)!!
     val warn = explorerWarnTone()
     val (bg, fg, label) = when (status) {
-        TranscriptStatus.READY -> Triple(saved.container, saved.accent, "✓ " + ExplorerUiText.ready)
+        TranscriptStatus.READY -> Triple(saved.container, saved.accent, ExplorerUiText.ready)
         TranscriptStatus.TRANSLATING -> Triple(warn.container, warn.muted, percent?.let { ExplorerUiText.translatingPercent(it) } ?: ExplorerUiText.translating)
         TranscriptStatus.TRANSCRIBING -> Triple(warn.container, warn.muted, ExplorerUiText.transcribing)
         TranscriptStatus.FAILED -> Triple(MaterialTheme.colorScheme.surface, failed.accent, ExplorerUiText.failed)
     }
     Box(Modifier.heightIn(min = 40.dp), contentAlignment = Alignment.Center) {
         Box(Modifier.background(bg, MaterialTheme.shapes.extraLarge).padding(horizontal = 10.dp, vertical = 4.dp)) {
-            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = fg)
+            ExplorerTickText(label, status == TranscriptStatus.READY, fg, fontWeight = FontWeight.SemiBold)
         }
     }
 }

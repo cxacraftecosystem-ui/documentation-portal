@@ -76,7 +76,7 @@ data class GridCell(
     val override: String? = null
 ) {
     val glyph: String get() = when (override) {
-        "COMPLETED" -> "✓"
+        "COMPLETED" -> CoverageTick.TOKEN
         "NEEDS_REVIEW" -> "?"
         "NEEDS_REDO" -> "↻"
         else -> when (mark) {
