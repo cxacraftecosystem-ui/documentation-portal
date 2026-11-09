@@ -374,8 +374,9 @@ export function SessionStartSheet({
   const autoCrafts = craftsFor(chosen.map((a) => a.craft?.name), []);
   const craftKey = autoCrafts.join("|");
   useEffect(() => {
+    const fromArtisans = craftKey ? craftKey.split("|") : [];
     setForm((f) => {
-      const next = craftsFor(autoCrafts, f.craftsByHand ?? []);
+      const next = craftsFor(fromArtisans, f.craftsByHand ?? []);
       return next.join("|") === (f.crafts ?? []).join("|") ? f : { ...f, crafts: next };
     });
   }, [craftKey]);

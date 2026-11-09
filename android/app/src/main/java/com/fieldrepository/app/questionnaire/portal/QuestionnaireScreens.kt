@@ -108,5 +108,5 @@ fun LocationRequest.session(): QSessionLocation = QSessionLocation(
 )
 
 fun sessionLocationCard(repository: FieldRepository): SessionLocationCard = { value, editing, onChange ->
-    LocationFieldsSection(repository = repository, value = value?.request(), onChange = { onChange(it?.session()) }, required = false, isEdit = editing)
+    LocationFieldsSection(repository = repository, value = value?.request(), onChange = { onChange(it?.session()) }, required = false, isEdit = editing, heading = "Session location")
 }
