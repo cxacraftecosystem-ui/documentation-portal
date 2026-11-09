@@ -3,6 +3,7 @@ package com.fieldrepository.app.questionnaire
 import android.content.Context
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -70,7 +71,7 @@ class QuestionnaireHomeOpensUiTest {
                 assertTrue("Not now remembers the answer", prefs().getBoolean("batteryAsked", false))
             }
             compose.waitUntil(20_000) { shown("Fourth workshop sitting", substring = true) || shown("Bagru", substring = true) }
-            compose.onNodeWithText("New session", useUnmergedTree = true).performClick()
+            compose.onNodeWithText("New session", useUnmergedTree = true).assertIsDisplayed().performClick()
             compose.waitUntil(20_000) { shown("Start session") }
             compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag("q-place"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
         } finally {

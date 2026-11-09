@@ -10,7 +10,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.UserDto
@@ -25,10 +24,6 @@ import com.fieldrepository.app.questionnaire.ui.QuestionnaireV2Nav
 import com.fieldrepository.app.questionnaire.ui.openAppDownloadPage
 import com.fieldrepository.app.ui.FieldPermissions
 import com.fieldrepository.app.ui.LocalMayDelete
-
-@Composable
-fun questionnaireViewportHeight(): Dp =
-    (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp - 190.dp).coerceAtLeast(420.dp)
 
 @Composable
 fun questionnaireSessionsOn(): Boolean {
