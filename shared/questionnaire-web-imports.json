@@ -40,7 +40,9 @@
     "@/components/ui/Toggle",
     "@/components/forms/PlaceSearchBox",
     "@/components/forms/MapPointPicker",
+    "@/components/forms/LocationFields",
     "@/lib/placeSearch",
+    "@/lib/forms",
     "@/components/transcript/TranscriptViewer",
     "@/components/transcript/TranscriptPreview",
     "@/lib/transcript/contract"

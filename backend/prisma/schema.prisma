@@ -2083,6 +2083,8 @@ model QuestionnaireInterview {
   title         String
   interviewDate DateTime?
   place         String?
+  crafts        String[]     @default([])
+  craftsByHand  String[]     @default([])
   language      String?
   notes         String?
   status        RecordStatus @default(PENDING)

@@ -150,6 +150,7 @@ export function SessionsList({ fixed, embedded = false }: { fixed?: Filters; emb
                         ))}
                     </div>
                     <p className="mt-1 text-xs text-ink-500">{modeLabel(s)}</p>
+                    {s.crafts?.length ? <p className="mt-1 text-xs text-ink-500" data-session-crafts>{s.crafts.join(", ")}</p> : null}
                   </td>
                   <td className="p-3 align-top">{s.questionnaire.title}</td>
                   <td className="p-3 align-top">{s.researchers.map((r) => r.name).join(", ")}</td>

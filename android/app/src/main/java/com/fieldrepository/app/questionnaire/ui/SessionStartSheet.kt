@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.data.Naming
 import com.fieldrepository.app.questionnaire.data.QArtisanOption
@@ -82,7 +83,9 @@ data class StartForm(
     val location: QSessionLocation? = null,
     val languageCode: String = "",
     val languageOther: String = "",
-    val note: String = ""
+    val note: String = "",
+    val crafts: List<String> = emptyList(),
+    val craftsByHand: List<String> = emptyList()
 ) {
     val canStart: Boolean get() = questionnaireId.isNotBlank() && date != null && (artisanIds.isNotEmpty() || guests.any { it.input().name != null || it.kind == RespondentKind.SELF.wire })
 
@@ -117,8 +120,28 @@ data class StartForm(
         participants = artisanIds.map { QArtisanRef(it) },
         researchers = listOfNotNull(me?.let { QResearcherRef(it, "LEAD") }),
         respondents = guests.map { it.input() },
-        location = location
+        location = location,
+        crafts = crafts,
+        craftsByHand = craftsByHand
     )
+}
+
+internal const val ALL_ARTISANS = "__all_records__"
+internal const val WORKSHOP_ARTISANS = "__workshop_only__"
+
+internal fun craftsFor(fromArtisans: List<String?>, byHand: List<String>): List<String> {
+    val seen = linkedMapOf<String, String>()
+    (fromArtisans + byHand).forEach { name ->
+        val clean = name?.trim().orEmpty()
+        if (clean.isNotEmpty()) seen.putIfAbsent(clean.lowercase(), clean)
+    }
+    return seen.values.toList()
+}
+
+internal fun scopeOption(workshopChosen: Boolean, showAll: Boolean): SelectOption? = when {
+    !workshopChosen -> null
+    showAll -> SelectOption(WORKSHOP_ARTISANS, QuestionnaireCopy.s("start.workshopOnly"))
+    else -> SelectOption(ALL_ARTISANS, QuestionnaireCopy.s("start.allRecords"))
 }
 
 internal fun startFormFor(resolved: String?, current: String, forms: List<QFormOption>): String = when {
@@ -153,10 +176,14 @@ fun SessionStartSheet(
 ) {
     val scope = rememberCoroutineScope()
     var registered by remember { mutableStateOf<List<Pair<String, NewArtisan>>>(emptyList()) }
+    var showAll by remember { mutableStateOf(false) }
+    var scoped by remember { mutableStateOf<List<QArtisanOption>?>(null) }
+    var craftCatalog by remember { mutableStateOf<List<String>>(emptyList()) }
     var registering by remember { mutableStateOf(false) }
     var addingGuest by remember { mutableStateOf(false) }
-    val byId = remember(artisans, registered) {
-        artisans.associateBy { it.id } + registered.associate { (id, a) -> id to QArtisanOption(id = id, name = a.name.trim(), place = a.place.trim()) }
+    val byId = remember(artisans, registered, scoped) {
+        artisans.associateBy { it.id } + scoped.orEmpty().associateBy { it.id } +
+            registered.associate { (id, a) -> id to QArtisanOption(id = id, name = a.name.trim(), place = a.place.trim()) }
     }
     var form by remember {
         mutableStateOf(StartForm(
@@ -185,6 +212,22 @@ fun SessionStartSheet(
         }
         bound = resolution?.bound?.map { it.questionnaireId }?.toSet().orEmpty()
         if (!formTouched) form = form.copy(questionnaireId = startFormFor(resolution?.questionnaireId, form.questionnaireId, forms))
+    }
+
+    LaunchedEffect(Unit) {
+        craftCatalog = runCatching { v2.api.crafts().items.mapNotNull { (it.name ?: it.title)?.trim()?.ifBlank { null } } }.getOrDefault(emptyList())
+    }
+    LaunchedEffect(form.workshopId, showAll) {
+        val id = form.workshopId.ifBlank { null }
+        scoped = if (id == null || showAll) null else runCatching {
+            val key = if (QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP) "designWorkshopId" else "workshopId"
+            v2.api.artisansIn(mapOf(key to id)).items.map { it.option() }
+        }.getOrNull()
+    }
+    val autoCrafts = form.artisanIds.mapNotNull { byId[it]?.craft }
+    LaunchedEffect(autoCrafts) {
+        val next = craftsFor(autoCrafts, form.craftsByHand)
+        if (next != form.crafts) form = form.copy(crafts = next)
     }
 
     LaunchedEffect(form.artisanIds) {
@@ -239,14 +282,25 @@ fun SessionStartSheet(
                 options = listOf(SelectOption("I", QuestionnaireCopy.s("start.mode.individual")), SelectOption("G", QuestionnaireCopy.s("start.mode.group"))),
                 selectedValue = if (form.group) "G" else "I"
             ) { v -> form = form.copy(group = v == "G", artisanIds = if (v == "I") form.artisanIds.take(1) else form.artisanIds, guests = if (v == "I" && form.artisanIds.isNotEmpty()) emptyList() else form.guests) }
-            val artisanOptions = artisans.map { SelectOption(it.id, it.name, it.place.ifBlank { null }) } +
-                registered.map { (id, a) -> SelectOption(id, a.name.trim(), QuestionnaireCopy.s("artisan.onPhone")) }
+            val listed = scoped?.let { inWorkshop -> inWorkshop + artisans.filter { a -> a.id in form.artisanIds && inWorkshop.none { it.id == a.id } } } ?: artisans
+            val artisanOptions = listed.map { SelectOption(it.id, it.name, it.place.ifBlank { null }) } +
+                registered.map { (id, a) -> SelectOption(id, a.name.trim(), QuestionnaireCopy.s("artisan.onPhone")) } +
+                listOfNotNull(scopeOption(form.workshopId.isNotBlank(), showAll))
+            fun scopeChosen(ids: Collection<String>): Boolean {
+                if (ALL_ARTISANS in ids) { showAll = true; return true }
+                if (WORKSHOP_ARTISANS in ids) { showAll = false; return true }
+                return false
+            }
             if (form.group) {
                 SearchableMultiSelectField(
                     label = QuestionnaireCopy.s("start.artisans"),
                     options = artisanOptions,
                     selected = form.artisanIds.toSet()
-                ) { chosen -> form = form.copy(artisanIds = form.artisanIds.filter { it in chosen } + chosen.filter { it !in form.artisanIds }) }
+                ) { picked ->
+                    scopeChosen(picked)
+                    val chosen = picked - ALL_ARTISANS - WORKSHOP_ARTISANS
+                    form = form.copy(artisanIds = form.artisanIds.filter { it in chosen } + chosen.filter { it !in form.artisanIds })
+                }
             } else {
                 SearchableSelectField(
                     label = QuestionnaireCopy.s("start.artisan"),
@@ -254,7 +308,7 @@ fun SessionStartSheet(
                     selectedValue = form.artisanIds.firstOrNull().orEmpty(),
                     includeNone = false,
                     searchable = true
-                ) { form = form.copy(artisanIds = listOf(it), guests = emptyList()) }
+                ) { if (!scopeChosen(listOf(it))) form = form.copy(artisanIds = listOf(it), guests = emptyList()) }
             }
             if (form.guests.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 form.guests.forEach { g ->
@@ -281,6 +335,15 @@ fun SessionStartSheet(
                         scope.launch { v2.recordConsent(id, state) }
                     }
                 })
+            }
+            SearchableMultiSelectField(
+                label = QuestionnaireCopy.s("start.crafts"),
+                options = craftsFor(craftCatalog + autoCrafts, form.crafts).map { SelectOption(it, it) },
+                selected = form.crafts.toSet(),
+                modifier = Modifier.testTag("q-crafts")
+            ) { chosen ->
+                val ordered = form.crafts.filter { it in chosen } + chosen.filter { it !in form.crafts }
+                form = form.copy(crafts = ordered, craftsByHand = ordered.filter { c -> autoCrafts.none { it.equals(c, ignoreCase = true) } })
             }
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(QuestionnaireCopy.s("start.purpose"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)

@@ -258,14 +258,13 @@ test("a form's page: an admin keeps it bound and sets a workshop type's default"
   expect(fake.calledWith("PUT", "/questionnaire/type-defaults")[0].body).toEqual({ workshopType: "DESIGN_PROTOTYPE", questionnaireId: "f1" });
 });
 
-test("@qf:C9 the start sheet takes the device's location beside the typed place", async ({ page, context }) => {
+test("@qf:C9 the start sheet fills the device's location in the Captured at card beside the typed place", async ({ page, context }) => {
   const fake = new QuestionnaireFake();
   await context.grantPermissions(["geolocation"]);
   await context.setGeolocation({ latitude: 26.82, longitude: 75.55, accuracy: 12 });
   await open(page, fake, "/questionnaire/sessions/new?artisanId=a1");
   const sheet = page.locator("[data-start-sheet]");
-  await sheet.getByRole("button", { name: "Use my location" }).click();
-  await expect(sheet.locator("[data-device-location='saved']")).toContainText("Location saved (within 12 m)");
+  await expect(sheet.locator('[data-session-place] input[name="latitude"]')).toHaveValue(/^26\.82/, { timeout: 20_000 });
   await sheet.getByRole("button", { name: "Start session" }).click();
   await expect.poll(() => fake.calledWith("POST", "/questionnaire/sessions").length).toBe(1);
   expect(fake.calledWith("POST", "/questionnaire/sessions")[0].body).toMatchObject({ workshopId: "w1", location: { latitude: 26.82, longitude: 75.55, accuracy: 12 } });

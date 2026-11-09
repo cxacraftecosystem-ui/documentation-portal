@@ -118,6 +118,7 @@ fun SessionReadView(
                     people.joinToString(", ").ifBlank { null },
                     d.researchers.joinToString(", ") { it.name }.ifBlank { null },
                     d.place?.ifBlank { null },
+                    d.crafts.joinToString(", ").ifBlank { null },
                     d.languageCode?.let { SharedLanguages.labels[it] ?: it }?.let { if (it == "Other") d.languageOther ?: it else it }
                 ).forEach { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.body) }
                 LocalSessionReaders.current?.invoke(sessionId, attempt)

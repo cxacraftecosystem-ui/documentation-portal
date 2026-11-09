@@ -101,7 +101,15 @@ data class QSessionLocation(
     val longitude: Double,
     val accuracy: Double? = null,
     val altitude: Double? = null,
-    val placeName: String? = null
+    val placeName: String? = null,
+    val address: String? = null,
+    val state: String? = null,
+    val district: String? = null,
+    val village: String? = null,
+    val pincode: String? = null,
+    val subjectLatitude: Double? = null,
+    val subjectLongitude: Double? = null,
+    val capturedAt: String? = null
 )
 
 @Serializable
@@ -121,7 +129,9 @@ data class QSessionCreate(
     @EncodeDefault val researchers: List<QResearcherRef> = emptyList(),
     val respondents: List<QRespondentInput> = emptyList(),
     @EncodeDefault val source: String = SessionSource.APP.wire,
-    val location: QSessionLocation? = null
+    val location: QSessionLocation? = null,
+    val crafts: List<String>? = null,
+    val craftsByHand: List<String>? = null
 )
 
 @Serializable
@@ -170,7 +180,9 @@ data class QSessionPatch(
     val designWorkshopId: String? = null,
     val purpose: String? = null,
     val location: QSessionLocation? = null,
-    val clearLocation: Boolean? = null
+    val clearLocation: Boolean? = null,
+    val crafts: List<String>? = null,
+    val craftsByHand: List<String>? = null
 )
 
 @Serializable
@@ -217,6 +229,8 @@ data class QSession(
     val participantCount: Int = 0,
     val place: String? = null,
     val location: QSessionLocation? = null,
+    val crafts: List<String> = emptyList(),
+    val craftsByHand: List<String> = emptyList(),
     val languageCode: String? = null,
     val languageOther: String? = null,
     val joinCode: String? = null,
@@ -249,6 +263,8 @@ data class QSessionDetail(
     val participantCount: Int = 0,
     val place: String? = null,
     val location: QSessionLocation? = null,
+    val crafts: List<String> = emptyList(),
+    val craftsByHand: List<String> = emptyList(),
     val languageCode: String? = null,
     val joinCode: String? = null,
     val joinQr: String? = null,
@@ -1016,6 +1032,17 @@ data class QArtisanOption(
     val place: String = "",
     val craft: String? = null
 )
+
+@Serializable
+data class QArtisanRow(val id: String, val name: String = "", val place: String? = null, val craft: QNamedRef? = null) {
+    fun option(): QArtisanOption = QArtisanOption(id = id, name = name, place = place.orEmpty(), craft = craft?.name?.ifBlank { null })
+}
+
+@Serializable
+data class QArtisanPage(val items: List<QArtisanRow> = emptyList())
+
+@Serializable
+data class QCraftPage(val items: List<QNamedRef> = emptyList())
 
 @Serializable
 data class QDirectoryUser(val id: String, val name: String = "", val role: String? = null, val email: String? = null)

@@ -7,7 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { ConsentQuestion } from "@/components/questionnaire/ConsentQuestion";
 import { loadInstrumentQuestions } from "@/components/questionnaire/instrumentQuestions";
 import { PromptDialog } from "@/components/questionnaire/Prompts";
-import { SessionPlaceField } from "@/components/questionnaire/SessionPlaceField";
+import { placeFromLocation, SessionPlaceField, sessionLocationFromForm } from "@/components/questionnaire/SessionPlaceField";
 import { enqueueUnit, onSessionLanded, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
 import { SearchInput } from "@/components/SearchInput";
 import { CalendarField } from "@/components/ui/CalendarField";
@@ -48,6 +48,8 @@ export type StartSheetState = {
   purpose: SessionPurpose;
   place: string;
   location?: SessionLocation | null;
+  crafts?: string[];
+  craftsByHand?: string[];
   languageCode: string;
   languageOther: string;
   note: string;
@@ -79,14 +81,33 @@ export function sessionCreateBody(form: StartSheetState, clientKey: string, now 
     sessionDate: form.sessionDate,
     startedAt: now.toISOString(),
     purpose: form.purpose,
-    place: form.place.trim() || null,
+    place: placeFromLocation(form.place, form.location ?? null) || null,
     ...(form.location ? { location: form.location } : {}),
+    crafts: form.crafts ?? [],
+    craftsByHand: form.craftsByHand ?? [],
     languageCode: form.languageCode || null,
     languageOther: form.languageCode === "other" ? form.languageOther.trim() || null : null,
     note: note || null,
     participants: form.mode === "GUEST" ? [] : form.artisanIds.map((artisanId) => ({ artisanId })),
     respondents: form.mode === "GUEST" ? [{ name: form.guestName.trim().slice(0, 120), kind: "GUEST" }] : []
   };
+}
+
+export const ALL_ARTISANS = "__all_records__";
+export const WORKSHOP_ARTISANS = "__workshop_only__";
+
+export function artisanScopeOption(workshopChosen: boolean, showAll: boolean): { value: string; label: string } | null {
+  if (!workshopChosen) return null;
+  return showAll ? { value: WORKSHOP_ARTISANS, label: qs("showWorkshopOnly") } : { value: ALL_ARTISANS, label: qs("showAllRecords") };
+}
+
+export function craftsFor(artisanCrafts: (string | null | undefined)[], byHand: string[]): string[] {
+  const seen = new Map<string, string>();
+  for (const name of [...artisanCrafts, ...byHand]) {
+    const clean = (name ?? "").trim();
+    if (clean && !seen.has(clean.toLowerCase())) seen.set(clean.toLowerCase(), clean);
+  }
+  return [...seen.values()];
 }
 
 export function formOptions(forms: PortalForm[], resolved: FormFor | null): { value: string; label: string; group?: string }[] {
@@ -135,6 +156,9 @@ export function SessionStartSheet({
   const [resolved, setResolved] = useState<FormFor | null>(null);
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const [search, setSearch] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const [craftNames, setCraftNames] = useState<string[]>([]);
+  const formRef = useRef<HTMLFormElement | null>(null);
   const [form, setForm] = useState<StartSheetState>({
     workshopId: initialWorkshopId ?? "",
     questionnaireId: initialQuestionnaireId ?? "",
@@ -196,7 +220,7 @@ export function SessionStartSheet({
     let cancelled = false;
     const workshopId = form.workshopId && form.workshopId !== FIELD_VISIT ? form.workshopId : null;
     const timer = window.setTimeout(() => {
-      void listResource<Artisan>("/artisans", { pageSize: 80, search: search || undefined, ...artisanFilter(workshopId) })
+      void listResource<Artisan>("/artisans", { pageSize: 80, search: search || undefined, ...(showAll ? {} : artisanFilter(workshopId)) })
         .then((page) => {
           const items = page.items ?? [];
           writeStartLists({ artisans: items.map((a) => trimArtisan({ ...a, workshopId })) });
@@ -215,7 +239,19 @@ export function SessionStartSheet({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [search, form.workshopId]);
+  }, [search, form.workshopId, showAll]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listResource<{ id: string; name: string }>("/crafts", { pageSize: 200 })
+      .then((page) => {
+        if (!cancelled) setCraftNames((page.items ?? []).map((c) => c.name).filter(Boolean));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const artisanKey = form.artisanIds.join(",");
   useEffect(() => {
     const selected = artisanKey ? artisanKey.split(",") : [];
@@ -329,7 +365,29 @@ export function SessionStartSheet({
 
   const workshopOptions = [{ value: FIELD_VISIT, label: NO_WORKSHOP_LABEL }, ...workshops.map((w) => ({ value: w.id, label: w.title }))];
   const instrumentOptions = formOptions(instruments, resolved);
-  const artisanOptions = artisans.map((a) => ({ value: a.id, label: a.place ? `${a.name} · ${a.place}` : a.name }));
+  const workshopChosen = Boolean(form.workshopId && form.workshopId !== FIELD_VISIT);
+  const scopeOption = artisanScopeOption(workshopChosen, showAll);
+  const artisanOptions = [
+    ...artisans.map((a) => ({ value: a.id, label: a.place ? `${a.name} · ${a.place}` : a.name })),
+    ...(scopeOption ? [scopeOption] : [])
+  ];
+  const autoCrafts = craftsFor(chosen.map((a) => a.craft?.name), []);
+  const craftKey = autoCrafts.join("|");
+  useEffect(() => {
+    setForm((f) => {
+      const next = craftsFor(autoCrafts, f.craftsByHand ?? []);
+      return next.join("|") === (f.crafts ?? []).join("|") ? f : { ...f, crafts: next };
+    });
+  }, [craftKey]);
+  const craftOptions = craftsFor([...craftNames, ...autoCrafts], form.crafts ?? []).map((name) => ({ value: name, label: name }));
+  function pickArtisans(values: string[]) {
+    if (values.includes(ALL_ARTISANS) || values.includes(WORKSHOP_ARTISANS)) {
+      setShowAll(values.includes(ALL_ARTISANS));
+      set("artisanIds", values.filter((v) => v !== ALL_ARTISANS && v !== WORKSHOP_ARTISANS));
+      return;
+    }
+    set("artisanIds", values);
+  }
   const languageOptions = LANGUAGES.map((l) => ({ value: l.code, label: l.label }));
 
   async function start(skipMatch = false) {
@@ -348,7 +406,8 @@ export function SessionStartSheet({
         }
       }
       const clientKey = mintKey("c");
-      const unit = newSessionUnit(sessionCreateBody(form, clientKey));
+      const location = formRef.current ? sessionLocationFromForm(new FormData(formRef.current)) : null;
+      const unit = newSessionUnit(sessionCreateBody({ ...form, location }, clientKey));
       const landed = new Promise<Session | null>((resolve) => {
         const off = onSessionLanded((s) => {
           if (s.clientKey === clientKey) {
@@ -378,6 +437,7 @@ export function SessionStartSheet({
 
   return (
     <form
+      ref={formRef}
       className="panel grid gap-4 p-4"
       data-start-sheet
       onSubmit={(event) => {
@@ -444,13 +504,13 @@ export function SessionStartSheet({
         {form.mode === "GROUP" ? (
           <div className="grid gap-2">
             <SearchInput value={search} onChange={setSearch} placeholder={qs("fieldArtisans")} />
-            <SearchableMultiSelect values={form.artisanIds} onChange={(v) => set("artisanIds", v)} options={artisanOptions} searchable={false} ariaLabel={qs("fieldArtisans")} />
+            <SearchableMultiSelect values={form.artisanIds} onChange={pickArtisans} options={artisanOptions} searchable={false} ariaLabel={qs("fieldArtisans")} />
           </div>
         ) : (
           <SearchableSelect
             id={ids.artisans}
             value={form.artisanIds[0] ?? ""}
-            onChange={(v) => set("artisanIds", v ? [v] : [])}
+            onChange={(v) => pickArtisans(v ? [v] : [])}
             options={artisanOptions}
             searchable
             onSearch={setSearch}
@@ -486,13 +546,20 @@ export function SessionStartSheet({
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <SessionPlaceField
-          id={ids.place}
-          value={{ place: form.place, location: form.location ?? null }}
-          onChange={(next) => setForm((f) => ({ ...f, place: next.place, location: next.location }))}
-          deviceLocation
+      <div className="grid gap-1" data-session-crafts-field>
+        <span className="field-label">{qs("fieldCrafts")}</span>
+        <SearchableMultiSelect
+          values={form.crafts ?? []}
+          onChange={(values) => setForm((f) => ({ ...f, crafts: values, craftsByHand: values.filter((v) => !autoCrafts.some((a) => a.toLowerCase() === v.toLowerCase())) }))}
+          options={craftOptions}
+          searchable
+          ariaLabel={qs("fieldCrafts")}
         />
+      </div>
+
+      <SessionPlaceField id={ids.place} place={form.place} onPlace={(v) => set("place", v)} />
+
+      <div className="grid gap-4 md:grid-cols-2">
         <div className="grid gap-1">
           <label htmlFor={ids.language} className="field-label">
             {qs("fieldLanguage")}

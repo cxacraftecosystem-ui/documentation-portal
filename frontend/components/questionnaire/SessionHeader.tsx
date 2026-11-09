@@ -45,6 +45,11 @@ export function SessionHeader({
               .filter(Boolean)
               .join(" · ")}
           </p>
+          {session.crafts?.length ? (
+            <p className="mt-1 text-sm text-ink-500" data-session-crafts>
+              {session.crafts.join(", ")}
+            </p>
+          ) : null}
           {pendingTakes > 0 ? <p className="mt-1 text-xs text-purple-700">{qs("takesUploading", { count: pendingTakes })}</p> : null}
         </div>
         <div className="flex items-start gap-3">

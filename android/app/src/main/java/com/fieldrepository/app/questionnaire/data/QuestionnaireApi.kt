@@ -125,6 +125,12 @@ interface QuestionnaireApi {
     @POST("questionnaire/respondents/{respondentId}/register")
     suspend fun registerRespondent(@Path("respondentId") respondentId: String, @Body body: QRespondentRegister): JsonObject
 
+    @GET("artisans")
+    suspend fun artisansIn(@QueryMap scope: Map<String, String>, @Query("pageSize") pageSize: Int = 200): QArtisanPage
+
+    @GET("crafts")
+    suspend fun crafts(@Query("pageSize") pageSize: Int = 200): QCraftPage
+
     @GET("questionnaire/form-for")
     suspend fun formFor(
         @Query("workshopId") workshopId: String? = null,

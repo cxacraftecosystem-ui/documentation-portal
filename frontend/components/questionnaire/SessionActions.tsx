@@ -1,14 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { useAdminView } from "@/components/AdminViewProvider";
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
-import { SessionPlaceField, type SessionPlace } from "@/components/questionnaire/SessionPlaceField";
+import { locationChanged, placeFromLocation, SessionPlaceField, sessionLocationFromForm } from "@/components/questionnaire/SessionPlaceField";
+import { SearchableMultiSelect, SearchableSelect } from "@/components/ui/SearchableSelect";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { CalendarField } from "@/components/ui/CalendarField";
-import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { listResource } from "@/lib/api";
 import { contractError, questionnaireApi, type Respondent, type Session, type SessionLocation } from "@/lib/questionnaire/api";
 import { qs } from "@/lib/questionnaire/qs";
@@ -326,11 +326,6 @@ function RegisterGuest({ guest, busy, error, onClose, onPick }: { guest: Respond
   );
 }
 
-export function locationChanged(before: SessionLocation | null, after: SessionLocation | null): boolean {
-  if (!before || !after) return before !== after;
-  return before.latitude !== after.latitude || before.longitude !== after.longitude || (before.placeName ?? null) !== (after.placeName ?? null);
-}
-
 function EditSession({
   session,
   busy,
@@ -342,17 +337,26 @@ function EditSession({
   busy: boolean;
   error: string | null;
   onClose: () => void;
-  onSave: (body: { version: number; place: string | null; note: string | null; sessionDate?: string; location?: SessionLocation | null }) => void;
+  onSave: (body: { version: number; place: string | null; note: string | null; sessionDate?: string; location?: SessionLocation | null; crafts?: string[]; craftsByHand?: string[] }) => void;
 }) {
   const placeId = useId();
-  const [where, setWhere] = useState<SessionPlace>({ place: session.place ?? "", location: session.location ?? null });
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const [place, setPlace] = useState(session.place ?? "");
+  const [crafts, setCrafts] = useState<string[]>(session.crafts ?? []);
+  const fromArtisans = (session.crafts ?? []).filter((c) => !(session.craftsByHand ?? []).includes(c));
   const [note, setNote] = useState(session.note ?? "");
   const [date, setDate] = useState(session.sessionDate ?? "");
   return (
     <FieldDialog open onClose={onClose} title={qs("editSession")} busy={busy}>
       <div className="grid gap-3">
         <CalendarField label={qs("fieldDate")} value={date} onChange={setDate} clearable={false} required />
-        <SessionPlaceField id={placeId} value={where} onChange={setWhere} disabled={busy} />
+        <form ref={formRef} className="grid gap-3" onSubmit={(event) => event.preventDefault()}>
+          <SessionPlaceField id={placeId} place={place} onPlace={setPlace} saved={session.location ?? null} editing disabled={busy} />
+        </form>
+        <div className="grid gap-1 text-sm" data-session-crafts-field>
+          <span className="field-label">{qs("fieldCrafts")}</span>
+          <SearchableMultiSelect values={crafts} onChange={setCrafts} options={crafts.map((c) => ({ value: c, label: c }))} searchable ariaLabel={qs("fieldCrafts")} />
+        </div>
         <label className="grid gap-1 text-sm">
           <span className="field-label">{qs("fieldNote")}</span>
           <input className="field-input" value={note} maxLength={80} onChange={(e) => setNote(e.target.value)} />
@@ -367,15 +371,17 @@ function EditSession({
           type="button"
           className="field-button"
           disabled={busy || !date}
-          onClick={() =>
+          onClick={() => {
+            const location = formRef.current ? sessionLocationFromForm(new FormData(formRef.current)) : null;
             onSave({
               version: session.version,
-              place: where.place.trim() || null,
+              place: placeFromLocation(place, location) || null,
               note: note.trim() || null,
               ...(date && date !== session.sessionDate ? { sessionDate: date } : {}),
-              ...(locationChanged(session.location ?? null, where.location) ? { location: where.location } : {})
-            })
-          }
+              ...(locationChanged(session.location ?? null, location) ? { location } : {}),
+              ...(crafts.join("|") !== (session.crafts ?? []).join("|") ? { crafts, craftsByHand: crafts.filter((c) => !fromArtisans.includes(c)) } : {})
+            });
+          }}
         >
           {qs("save")}
         </button>

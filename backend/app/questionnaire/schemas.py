@@ -130,6 +130,14 @@ class SessionLocation(Strict):
     accuracy: float | None = Field(default=None, ge=0)
     altitude: float | None = None
     placeName: str | None = Field(default=None, max_length=200)
+    address: str | None = Field(default=None, max_length=500)
+    state: str | None = Field(default=None, max_length=120)
+    district: str | None = Field(default=None, max_length=120)
+    village: str | None = Field(default=None, max_length=200)
+    pincode: str | None = Field(default=None, max_length=6)
+    subjectLatitude: float | None = Field(default=None, ge=-90, le=90)
+    subjectLongitude: float | None = Field(default=None, ge=-180, le=180)
+    capturedAt: datetime | None = None
 
 
 class SessionCreate(Strict):
@@ -149,6 +157,8 @@ class SessionCreate(Strict):
     respondents: list[RespondentInput] = Field(default_factory=list, max_length=50)
     source: str = "APP"
     location: SessionLocation | None = None
+    crafts: list[str] | None = Field(default=None, max_length=50)
+    craftsByHand: list[str] = Field(default_factory=list, max_length=50)
 
     _purpose = field_validator("purpose")(_one_of(V.SessionPurpose))
     _lang = field_validator("languageCode")(_language)
@@ -176,6 +186,8 @@ class SessionPatch(Strict):
     questionnaireId: str | None = None
     location: SessionLocation | None = None
     clearLocation: bool | None = None
+    crafts: list[str] | None = Field(default=None, max_length=50)
+    craftsByHand: list[str] | None = Field(default=None, max_length=50)
 
     _purpose = field_validator("purpose")(_one_of(V.SessionPurpose))
     _lang = field_validator("languageCode")(_language)

@@ -1,5 +1,10 @@
 package com.fieldrepository.app.questionnaire.portal
 
+import com.fieldrepository.app.ui.LocationFieldsSection
+import com.fieldrepository.app.questionnaire.ui.SessionLocationCard
+import com.fieldrepository.app.questionnaire.data.QSessionLocation
+import com.fieldrepository.app.data.FieldRepository
+import com.fieldrepository.app.data.LocationRequest
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -88,4 +93,20 @@ fun FieldArtisanQuestionnaireRecord(artisanId: String, artisanName: String, focu
         onMessage = onMessage,
         focusSection = focusSection
     )
+}
+
+fun QSessionLocation.request(): LocationRequest = LocationRequest(
+    latitude = latitude, longitude = longitude, altitude = altitude, accuracy = accuracy, address = address, placeName = placeName,
+    state = state, district = district, village = village, pincode = pincode,
+    subjectLatitude = subjectLatitude, subjectLongitude = subjectLongitude, capturedAt = capturedAt
+)
+
+fun LocationRequest.session(): QSessionLocation = QSessionLocation(
+    latitude = latitude, longitude = longitude, accuracy = accuracy, altitude = altitude, placeName = placeName, address = address,
+    state = state, district = district, village = village, pincode = pincode,
+    subjectLatitude = subjectLatitude, subjectLongitude = subjectLongitude, capturedAt = capturedAt
+)
+
+fun sessionLocationCard(repository: FieldRepository): SessionLocationCard = { value, editing, onChange ->
+    LocationFieldsSection(repository = repository, value = value?.request(), onChange = { onChange(it?.session()) }, required = false, isEdit = editing)
 }

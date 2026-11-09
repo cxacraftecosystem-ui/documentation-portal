@@ -785,7 +785,9 @@ fun SessionWorkspace(
         val initial = SessionEdit.of(
             detail?.sessionDate ?: frozen?.sessionDate, detail?.purpose ?: frozen?.purpose, detail?.place ?: frozen?.place,
             detail?.languageCode ?: frozen?.languageCode, detail?.languageOther ?: frozen?.languageOther, detail?.note ?: frozen?.note,
-            detail?.location ?: frozen?.location
+            detail?.location ?: frozen?.location,
+            detail?.crafts ?: frozen?.crafts.orEmpty(),
+            detail?.craftsByHand ?: frozen?.craftsByHand.orEmpty()
         )
         EditSessionDialog(initial, onDismiss = { editing = false }) { edit ->
             editing = false

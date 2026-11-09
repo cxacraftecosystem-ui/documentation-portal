@@ -110,9 +110,25 @@ export type SessionCreate = {
   researchers?: { userId: string; role: string }[];
   respondents?: { name: string; kind: RespondentKind; notes?: string | null }[];
   location?: SessionLocation | null;
+  crafts?: string[];
+  craftsByHand?: string[];
 };
 
-export type SessionLocation = { latitude: number; longitude: number; accuracy?: number | null; altitude?: number | null; placeName?: string | null };
+export type SessionLocation = {
+  latitude: number;
+  longitude: number;
+  accuracy?: number | null;
+  altitude?: number | null;
+  placeName?: string | null;
+  address?: string | null;
+  state?: string | null;
+  district?: string | null;
+  village?: string | null;
+  pincode?: string | null;
+  subjectLatitude?: number | null;
+  subjectLongitude?: number | null;
+  capturedAt?: string | null;
+};
 
 export type RespondentKind = "GUEST" | "SELF";
 export type Respondent = {
@@ -137,6 +153,8 @@ export type SessionPatch = {
   designWorkshopId?: string | null;
   purpose?: SessionPurpose;
   location?: SessionLocation | null;
+  crafts?: string[];
+  craftsByHand?: string[];
 };
 
 export type SessionParticipant = {
@@ -169,6 +187,8 @@ export type Session = {
   participantCount: number;
   place: string | null;
   location?: SessionLocation | null;
+  crafts?: string[];
+  craftsByHand?: string[];
   languageCode: string | null;
   languageOther: string | null;
   joinCode: string | null;

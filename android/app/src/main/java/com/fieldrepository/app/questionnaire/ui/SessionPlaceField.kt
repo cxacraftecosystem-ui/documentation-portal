@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -39,6 +40,10 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 data class SessionWhere(val place: String = "", val location: QSessionLocation? = null)
+
+typealias SessionLocationCard = @Composable (value: QSessionLocation?, editing: Boolean, onChange: (QSessionLocation?) -> Unit) -> Unit
+
+val LocalSessionLocationCard = staticCompositionLocalOf<SessionLocationCard?> { null }
 
 internal const val SESSION_PLACE_MAX = 200
 
@@ -73,8 +78,25 @@ fun SessionPlaceField(
     onChange: (SessionWhere) -> Unit,
     modifier: Modifier = Modifier,
     label: String = QuestionnaireCopy.s("start.place"),
-    trailingIcon: (@Composable () -> Unit)? = null
+    trailingIcon: (@Composable () -> Unit)? = null,
+    editing: Boolean = false
 ) {
+    val card = LocalSessionLocationCard.current
+    if (card != null) {
+        val current by rememberUpdatedState(value)
+        Column(modifier.fillMaxWidth().testTag("q-place"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = value.place,
+                onValueChange = { onChange(current.copy(place = it.take(SESSION_PLACE_MAX))) },
+                label = { Text(label) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("q-place-text"),
+                trailingIcon = trailingIcon
+            )
+            card(value.location, editing) { next -> onChange(current.copy(location = next)) }
+        }
+        return
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val current by rememberUpdatedState(value)

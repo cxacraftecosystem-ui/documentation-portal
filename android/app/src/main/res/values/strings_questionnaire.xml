@@ -318,6 +318,9 @@
     <string name="q_hide_map">Hide map</string>
     <string name="q_place_pinned">Pinned at %1$s, %2$s</string>
     <string name="q_place_map_label">Click the map to pin the place</string>
+    <string name="q_field_crafts">Crafts</string>
+    <string name="q_show_all_records">Show from all records</string>
+    <string name="q_show_workshop_only">Show this workshop\'s artisans</string>
     <string name="q_prefilled_from_record">From the artisan\'s record</string>
     <string name="q_default_form_toggle">Default form when nothing is bound</string>
     <string name="q_default_form_note">Sessions use this form when their workshop has no form of its own.</string>

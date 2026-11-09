@@ -34,3 +34,34 @@ def test_a_session_place_is_pinned_on_start_read_back_and_moved_or_cleared_on_ed
             await client.disconnect()
 
     run(go())
+
+
+def test_a_session_carries_its_artisans_crafts_and_keeps_a_craft_set_by_hand(monkeypatch) -> None:
+    from app.questionnaire import schemas as S, sessions
+
+    async def go() -> None:
+        client = await connect()
+        patch_db(monkeypatch, client)
+        no_outside_calls(monkeypatch)
+        try:
+            ids = await seed(client)
+            other = f"{ids.craft}-dokra"
+            await client.execute_raw('INSERT INTO "Craft" ("id", "name", "createdById", "updatedAt") VALUES ($1, $2, $3, now())', other, f"Dokra {other}", ids.admin.id)
+            await client.execute_raw('UPDATE "Artisan" SET "craftId" = $1 WHERE "id" = $2', other, ids.artisans[1])
+            block = (await client.query_raw('SELECT "name" FROM "Craft" WHERE "id" = $1', ids.craft))[0]["name"]
+            dokra = f"Dokra {other}"
+            s, _ = await sessions.create_session(session_create(ids, ids.artisans[:2]), ids.lead)
+            assert sorted(s["crafts"]) == sorted([block, dokra])
+            assert s["craftsByHand"] == []
+            hand = await sessions.patch_session(s["id"], S.SessionPatch(version=s["version"], crafts=[block, dokra, "Weaving"], craftsByHand=["Weaving"]), ids.lead)
+            assert sorted(hand["crafts"]) == sorted([block, dokra, "Weaving"])
+            gone = await sessions.remove_participant(s["id"], ids.artisans[1], False, ids.lead)
+            assert sorted(gone["crafts"]) == sorted([block, "Weaving"])
+            back = await sessions.add_participant(s["id"], ids.artisans[1], None, ids.lead)
+            assert sorted(back["crafts"]) == sorted([block, dokra, "Weaving"])
+            chosen, _ = await sessions.create_session(session_create(ids, ids.artisans[:1], crafts=["Only this"], craftsByHand=["Only this"]), ids.lead)
+            assert chosen["crafts"] == ["Only this"]
+        finally:
+            await client.disconnect()
+
+    run(go())

@@ -132,20 +132,51 @@ def _sees_join_secrets(viewer: Any, row: dict[str, Any], researcher_rows: list[d
     return any(str(r["sid"]) == str(row["id"]) and str(r["userId"]) == str(viewer.id) for r in researcher_rows)
 
 
+LOCATION_TEXT = ("placeName", "address", "state", "district", "village", "pincode")
+
+
+def clean_crafts(values: Any) -> list[str]:
+    seen: dict[str, str] = {}
+    for value in values or []:
+        text = " ".join(str(value or "").split())[:120]
+        if text and text.lower() not in seen:
+            seen[text.lower()] = text
+    return list(seen.values())
+
+
+async def refresh_crafts(client: Any, session_id: str) -> None:
+    await client.execute_raw(
+        'UPDATE "QuestionnaireInterview" i SET "crafts" = COALESCE((SELECT ARRAY_AGG(DISTINCT t.n ORDER BY t.n) FROM ('
+        'SELECT c."name" AS n FROM "QuestionnaireInterviewArtisan" x JOIN "Artisan" a ON a."id" = x."artisanId" '
+        'JOIN "Craft" c ON c."id" = a."craftId" WHERE x."interviewId" = i."id" AND btrim(COALESCE(c."name", \'\')) <> \'\' '
+        'UNION SELECT unnest(i."craftsByHand")) t), ARRAY[]::text[]) WHERE i."id" = $1',
+        session_id,
+    )
+
+
 async def _session_locations(client: Any, rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     ids = sorted({str(r["locationId"]) for r in rows if r.get("locationId")})
     if not ids:
         return {}
     found = await client.query_raw(
-        'SELECT "id", "latitude", "longitude", "accuracy", "placeName" FROM "Location" WHERE "id" = ANY($1::text[])',
+        'SELECT "id", "latitude", "longitude", "accuracy", "altitude", "placeName", "address", "state", "district", "village", '
+        '"pincode", "subjectLatitude", "subjectLongitude", "capturedAt" FROM "Location" WHERE "id" = ANY($1::text[])',
         ids,
     )
+
+    def num(value: Any) -> float | None:
+        return float(value) if value is not None else None
+
     return {
         str(r["id"]): {
             "latitude": float(r["latitude"]),
             "longitude": float(r["longitude"]),
-            "accuracy": float(r["accuracy"]) if r.get("accuracy") is not None else None,
-            "placeName": r.get("placeName"),
+            "accuracy": num(r.get("accuracy")),
+            "altitude": num(r.get("altitude")),
+            **{key: r.get(key) for key in LOCATION_TEXT},
+            "subjectLatitude": num(r.get("subjectLatitude")),
+            "subjectLongitude": num(r.get("subjectLongitude")),
+            "capturedAt": iso(r.get("capturedAt")),
         }
         for r in found
         if r.get("latitude") is not None and r.get("longitude") is not None
@@ -229,6 +260,8 @@ async def serialize_sessions(client: Any, rows: list[dict[str, Any]], viewer: An
                 "participantCount": len(participants),
                 "place": row.get("place"),
                 "location": places.get(str(row.get("locationId") or "")),
+                "crafts": list(row.get("crafts") or []),
+                "craftsByHand": list(row.get("craftsByHand") or []),
                 "languageCode": row.get("languageCode"),
                 "languageOther": row.get("languageOther"),
                 "joinCode": row.get("joinCode"),
@@ -457,6 +490,8 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
                         "languageCode": payload.languageCode,
                         "languageOther": payload.languageOther if payload.languageCode == "other" else None,
                         "note": (payload.note or "").strip() or None,
+                        "crafts": clean_crafts(getattr(payload, "crafts", None)),
+                        "craftsByHand": clean_crafts(getattr(payload, "craftsByHand", None)),
                         "legacyTitle": legacy_title,
                         "source": getattr(payload, "source", None) or "APP",
                         "status": data["status"],
@@ -467,6 +502,8 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
                 )
                 session_id = created.id
                 await add_participants(tx, session_id, artisan_ids)
+                if getattr(payload, "crafts", None) is None:
+                    await refresh_crafts(tx, session_id)
                 if guests:
                     await respondents.insert_many(tx, session_id, guests, user)
                 await add_researcher(tx, session_id, user.id, "CONTRIBUTOR" if joining else "LEAD")
@@ -583,6 +620,9 @@ async def patch_session(session_id: str, payload: Any, user: Any, *, client: Any
         data["locationId"] = (await ports.attach_location({"location": payload.location.model_dump(exclude_none=True)})).get("locationId")
     elif "location" in sent or payload.clearLocation:
         data["locationId"] = None
+    for key in ("crafts", "craftsByHand"):
+        if key in sent and getattr(payload, key) is not None:
+            data[key] = {"set": clean_crafts(getattr(payload, key))}
     if data.get("languageCode") and data["languageCode"] != "other":
         data["languageOther"] = None
     owner = db if client is not None else default_db
@@ -611,6 +651,7 @@ async def add_participant(session_id: str, artisan_id: str, joined_at: datetime 
     owner = db if client is not None else default_db
     async with owner.tx(max_wait=TX_MAX_WAIT, timeout=TX_TIMEOUT) as tx:
         if await add_participants(tx, session_id, [artisan_id], joined_at or now()):
+            await refresh_crafts(tx, session_id)
             await _bump(tx, session_id)
             await titles.regenerate_title(tx, session_id)
     return await session_payload(db, session_id, user)
@@ -669,6 +710,7 @@ async def remove_participant(session_id: str, artisan_id: str, detach: bool, use
         await tx.execute_raw(
             'DELETE FROM "QuestionnaireInterviewArtisan" WHERE "interviewId" = $1 AND "artisanId" = $2', session_id, artisan_id
         )
+        await refresh_crafts(tx, session_id)
         await _bump(tx, session_id)
         await titles.regenerate_title(tx, session_id)
     return await session_payload(db, session_id, user)

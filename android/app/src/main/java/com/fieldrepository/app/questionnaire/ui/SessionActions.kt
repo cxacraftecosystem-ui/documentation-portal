@@ -48,7 +48,9 @@ data class SessionEdit(
     val languageCode: String,
     val languageOther: String,
     val note: String,
-    val location: QSessionLocation? = null
+    val location: QSessionLocation? = null,
+    val crafts: List<String> = emptyList(),
+    val craftsByHand: List<String> = emptyList()
 ) {
     fun patch(version: Int, before: SessionEdit): QSessionPatch = QSessionPatch(
         version = version,
@@ -59,7 +61,9 @@ data class SessionEdit(
         languageOther = languageOther.trim().takeIf { languageCode == "other" && it != before.languageOther },
         note = note.trim().take(80).takeIf { it != before.note },
         location = location?.takeIf { it != before.location },
-        clearLocation = true.takeIf { location == null && before.location != null }
+        clearLocation = true.takeIf { location == null && before.location != null },
+        crafts = crafts.takeIf { it != before.crafts },
+        craftsByHand = crafts.filter { it in before.craftsByHand || it !in before.crafts }.takeIf { crafts != before.crafts }
     )
 
     fun applyTo(create: QSessionCreate): QSessionCreate = create.copy(
@@ -69,15 +73,20 @@ data class SessionEdit(
         languageCode = languageCode.ifBlank { null },
         languageOther = languageOther.trim().ifBlank { null }?.takeIf { languageCode == "other" },
         note = note.trim().take(80).ifBlank { null },
-        location = location
+        location = location,
+        crafts = crafts,
+        craftsByHand = craftsByHand
     )
 
     companion object {
-        fun of(date: String?, purpose: String?, place: String?, languageCode: String?, languageOther: String?, note: String?, location: QSessionLocation? = null) = SessionEdit(
+        fun of(
+            date: String?, purpose: String?, place: String?, languageCode: String?, languageOther: String?, note: String?,
+            location: QSessionLocation? = null, crafts: List<String> = emptyList(), craftsByHand: List<String> = emptyList()
+        ) = SessionEdit(
             date = date?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() },
             purpose = purpose ?: SessionPurpose.FIRST_SITTING.wire,
             place = place.orEmpty(), languageCode = languageCode.orEmpty(), languageOther = languageOther.orEmpty(), note = note.orEmpty(),
-            location = location
+            location = location, crafts = crafts, craftsByHand = craftsByHand
         )
     }
 }
@@ -101,8 +110,14 @@ fun EditSessionDialog(initial: SessionEdit, onDismiss: () -> Unit, onSave: (Sess
                 SessionPlaceField(
                     value = SessionWhere(form.place, form.location),
                     label = QuestionnaireCopy.s("start.place"),
-                    onChange = { where -> form = form.copy(place = where.place, location = where.location) }
+                    onChange = { where -> form = form.copy(place = where.place, location = where.location) },
+                    editing = true
                 )
+                SearchableMultiSelectField(
+                    label = QuestionnaireCopy.s("start.crafts"),
+                    options = form.crafts.map { SelectOption(it, it) },
+                    selected = form.crafts.toSet()
+                ) { chosen -> form = form.copy(crafts = form.crafts.filter { it in chosen }) }
                 SearchableSelectField(
                     label = QuestionnaireCopy.s("start.language"), options = SESSION_LANGUAGES, selectedValue = form.languageCode, includeNone = false, searchable = true
                 ) { form = form.copy(languageCode = it) }

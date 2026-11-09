@@ -114,6 +114,7 @@ internal fun serverRow(s: QSession): SessionListRow = SessionListRow(
         s.sessionDate?.let { runCatching { QuestionnaireCopy.day(LocalDate.parse(it.take(10))) }.getOrNull() },
         QuestionnaireCopy.mode(s.participantCount.coerceAtLeast(s.participants.size) + s.respondents.count { it.artisanId == null }),
         s.questionnaire?.title,
+        s.crafts.joinToString(", ").ifBlank { null },
         s.researchers.joinToString(", ") { QuestionnaireCopy.firstName(it.name) }.ifBlank { null },
         "${s.counts.sections} ${if (s.counts.sections == 1) "section" else "sections"} · ${s.counts.takes} ${if (s.counts.takes == 1) "take" else "takes"}",
         s.status.lowercase().replaceFirstChar { it.uppercase() }

@@ -193,6 +193,7 @@ export function SessionReadView({ id }: { id: string }) {
         </div>
         <Row label={qs("colResearchers")} value={detail.researchers.map((r) => r.name).join(", ")} />
         <Row label={qs("fieldPlace")} value={detail.place ?? ""} />
+        <Row label={qs("fieldCrafts")} value={(detail.crafts ?? []).join(", ")} />
         <Row label={qs("fieldLanguage")} value={languageLabel(detail.languageCode, detail.languageOther)} />
       </section>
 

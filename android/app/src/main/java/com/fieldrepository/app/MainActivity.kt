@@ -1,5 +1,7 @@
 package com.fieldrepository.app
 
+import com.fieldrepository.app.questionnaire.portal.sessionLocationCard
+import com.fieldrepository.app.questionnaire.ui.LocalSessionLocationCard
 import com.fieldrepository.app.transcript.data.TranscribeChoices
 import com.fieldrepository.app.ui.FieldRadioButton
 import com.fieldrepository.app.transcript.data.UploadTranscribe
@@ -2294,12 +2296,14 @@ private fun HomeScreen(
                 val v2Context = LocalContext.current
                 val v2Config by remember { QuestionnaireV2.get(v2Context) }.config.collectAsState()
                 if (v2Config?.v2Enabled == true) {
-                    FieldQuestionnaireHome(
-                        artisans = artisans,
-                        user = user,
-                        onError = { showMessage(it) },
-                        modifier = Modifier.fillMaxWidth().fillMaxHeight()
-                    )
+                    CompositionLocalProvider(LocalSessionLocationCard provides remember(repository) { sessionLocationCard(repository) }) {
+                        FieldQuestionnaireHome(
+                            artisans = artisans,
+                            user = user,
+                            onError = { showMessage(it) },
+                            modifier = Modifier.fillMaxWidth().fillMaxHeight()
+                        )
+                    }
                 } else QuestionnaireForm(
                     repository = repository,
                     sections = sections,
