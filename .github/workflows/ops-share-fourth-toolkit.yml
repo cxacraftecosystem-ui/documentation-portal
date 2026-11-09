@@ -1,0 +1,42 @@
+name: Ops - share the 4th Craft Toolkit Workshop form
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Share it. Unticked only reads the form and prints what would change."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-share-fourth-toolkit
+  cancel-in-progress: false
+
+jobs:
+  share:
+    name: Share the form with every user, through the API
+    runs-on: ubuntu-26.04
+    if: ${{ github.ref == 'refs/heads/main' }}
+    environment: android-release
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15"
+          check-latest: true
+
+      - name: Read the form, and share it only when asked
+        env:
+          SHARE_ADMIN_EMAIL: ${{ secrets.APP_PUBLISH_EMAIL }}
+          SHARE_ADMIN_PASSWORD: ${{ secrets.APP_PUBLISH_PASSWORD }}
+          MODE: ${{ inputs.apply && '--apply' || '--dry-run' }}
+        run: |
+          set -euo pipefail
+          python scripts/ops/share_fourth_toolkit.py "$MODE" --log "${RUNNER_TEMP}/share-fourth-toolkit.jsonl" | tee -a "$GITHUB_STEP_SUMMARY"
