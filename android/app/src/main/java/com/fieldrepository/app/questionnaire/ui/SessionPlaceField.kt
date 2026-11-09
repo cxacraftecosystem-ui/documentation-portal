@@ -72,6 +72,7 @@ fun SessionPlaceField(
     value: SessionWhere,
     onChange: (SessionWhere) -> Unit,
     modifier: Modifier = Modifier,
+    label: String = QuestionnaireCopy.s("start.place"),
     trailingIcon: (@Composable () -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -82,7 +83,7 @@ fun SessionPlaceField(
         OutlinedTextField(
             value = value.place,
             onValueChange = { onChange(current.copy(place = it.take(SESSION_PLACE_MAX))) },
-            label = { Text(QuestionnaireCopy.s("start.place")) },
+            label = { Text(label) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().testTag("q-place-text"),
             trailingIcon = trailingIcon

@@ -70,7 +70,7 @@ class QuestionnaireHomeOpensUiTest {
                 assertTrue("Not now remembers the answer", prefs().getBoolean("batteryAsked", false))
             }
             compose.waitUntil(20_000) { shown("Fourth workshop sitting", substring = true) || shown("Bagru", substring = true) }
-            compose.onNodeWithText("New session").performClick()
+            compose.onNodeWithText("New session", useUnmergedTree = true).performClick()
             compose.waitUntil(20_000) { shown("Start session") }
             compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag("q-place"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
         } finally {

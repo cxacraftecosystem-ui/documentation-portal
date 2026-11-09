@@ -19,12 +19,10 @@ let maplibreRequest: Promise<MapLibre> | null = null;
 export function loadMapLibre(): Promise<MapLibre> {
   maplibreRequest ??= Promise.all([
     import("maplibre-gl"),
-    import("maplibre-gl/dist/maplibre-gl.css")
+    import("maplibre-gl/dist/maplibre-gl.css"),
+    import("@/components/forms/mapLibreWorker")
   ])
-    .then(([module]) => {
-      module.setWorkerUrl(new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url).toString());
-      return module;
-    })
+    .then(([module, , worker]) => worker.withBundledWorker(module))
     .catch((error) => {
       maplibreRequest = null;
       throw error;

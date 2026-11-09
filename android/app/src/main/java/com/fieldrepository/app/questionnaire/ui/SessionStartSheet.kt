@@ -292,6 +292,7 @@ fun SessionStartSheet(
             }
             SessionPlaceField(
                 value = SessionWhere(form.place, form.location),
+                label = QuestionnaireCopy.s("start.place"),
                 onChange = { where -> form = form.copy(place = where.place, location = where.location) },
                 trailingIcon = { PlaceFromDevice(onPlace = { form = form.copy(place = it) }, onError = onError) }
             )

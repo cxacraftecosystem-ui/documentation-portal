@@ -100,6 +100,7 @@ fun EditSessionDialog(initial: SessionEdit, onDismiss: () -> Unit, onSave: (Sess
                 }
                 SessionPlaceField(
                     value = SessionWhere(form.place, form.location),
+                    label = QuestionnaireCopy.s("start.place"),
                     onChange = { where -> form = form.copy(place = where.place, location = where.location) }
                 )
                 SearchableSelectField(

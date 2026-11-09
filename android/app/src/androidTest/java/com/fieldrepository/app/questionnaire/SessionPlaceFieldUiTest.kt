@@ -81,9 +81,13 @@ class SessionPlaceFieldUiTest {
         assertEquals("Sanganer", seen!!.place)
     }
 
-    @Test fun thePlaceFieldAtTabletWidthAndLargeText() {
+    @Test fun thePlaceFieldAtTabletWidth() {
         field(SessionWhere("Bagru, Jaipur", pin), 840) {}
+        compose.onNodeWithText("Pick on map").assertExists()
         capture("tablet")
+    }
+
+    @Test fun thePlaceFieldAtLargeText() {
         field(SessionWhere("Bagru, Jaipur", pin), 390, fontScale = 2f) {}
         compose.onNodeWithText("Pick on map").assertExists()
         capture("font2")
