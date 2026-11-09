@@ -155,7 +155,7 @@ fun FormDetailScreen(
         act("Couldn't upload that workbook.") { v2.api.reuploadWorkbook(formId, workbookPart(context, uri)); message = FormsCopy.UPLOADED }
     }
 
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxWidth().testTag("forms.detail"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         TextButton(onClick = onBack) { Text("‹ " + FormsCopy.FORMS) }
         if (loading && form == null) FieldLinearProgressIndicator(Modifier.fillMaxWidth())
         val f = form ?: return@Column

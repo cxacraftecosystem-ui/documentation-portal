@@ -608,7 +608,6 @@ import com.fieldrepository.app.questionnaire.ui.ScreenMemories
 import com.fieldrepository.app.questionnaire.ui.rememberKept
 import com.fieldrepository.app.questionnaire.portal.FieldArtisanQuestionnaireRecord
 import com.fieldrepository.app.questionnaire.portal.FieldQuestionnaireHome
-import com.fieldrepository.app.questionnaire.portal.questionnaireViewportHeight
 import com.fieldrepository.app.questionnaire.ui.QuestionnaireV2Nav
 import com.fieldrepository.app.ui.FieldScanControls
 import com.fieldrepository.app.ui.TopBarScanSheet
@@ -2011,6 +2010,8 @@ private fun HomeScreen(
             }
         )
                 }) { islandReserve ->
+        val questionnaireConfig by remember { QuestionnaireV2.get(context) }.config.collectAsState()
+        val questionnaireViewport = (screen as? Screen.Create)?.mode == EntryMode.QUESTIONNAIRE && questionnaireConfig?.v2Enabled == true
         val quickReturn = if (lazyPage) {
             rememberQuickReturnHeader(pageList, pinned = searchOpen)
         } else {
@@ -2082,7 +2083,7 @@ private fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .nestedScroll(quickReturn.connection)
-                .verticalScroll(pageScroll)
+                .then(if (questionnaireViewport) Modifier else Modifier.verticalScroll(pageScroll))
                 .padding(top = pageTop)
                 .padding(bottom = pageReserve),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -2297,7 +2298,7 @@ private fun HomeScreen(
                         artisans = artisans,
                         user = user,
                         onError = { showMessage(it) },
-                        modifier = Modifier.fillMaxWidth().height(questionnaireViewportHeight())
+                        modifier = Modifier.fillMaxWidth().fillMaxHeight()
                     )
                 } else QuestionnaireForm(
                     repository = repository,
