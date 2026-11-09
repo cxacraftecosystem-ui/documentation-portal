@@ -90,7 +90,9 @@ class HomeFabClearanceUiTest {
         val end = bounds("questionnaire.listEnd")
         val after = bounds("questionnaire.fab")
         assertTrue("the last row ends (${end.top}) above the FAB (${after.top})", end.top <= after.top)
-        assertTrue("the list's tail (${end.height}) is taller than the FAB (${after.height})", end.height >= after.height)
+        val tail = compose.onNodeWithTag("questionnaire.listEnd", useUnmergedTree = true).fetchSemanticsNode().size.height
+        val fabHeight = compose.onNodeWithTag("questionnaire.fab").fetchSemanticsNode().size.height
+        assertTrue("the list's tail ($tail) is taller than the FAB ($fabHeight)", tail >= fabHeight)
         capture("$name-end")
     }
 

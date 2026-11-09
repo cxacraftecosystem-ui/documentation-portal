@@ -52,6 +52,7 @@ for (const width of WIDTHS) {
     await expect(place.locator('input[name="village"]')).toHaveValue("Sanganer");
     await expect(dialog.locator("[data-session-crafts-field]")).toContainText("Weaving");
     await dialog.screenshot({ path: `${SHOTS}/edit-session-captured-at-${width}.png` });
+    await place.getByText("Captured at", { exact: true }).click();
     await place.locator('input[name="latitude"]').fill("26.9");
     await dialog.getByRole("button", { name: "Save" }).click();
     await expect.poll(() => fake.calledWith("PATCH", "/questionnaire/sessions/s-1").length).toBe(1);
