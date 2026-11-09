@@ -127,7 +127,7 @@ test("the search panel follows Android's AppSearchPanel", () => {
 
 test("the page clears the header and the bar below lg, and the island from lg up", () => {
   expect(SHELL).toContain(
-    'className="relative z-10 mx-auto max-w-7xl px-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))] pt-[calc(60px+1.25rem)] lg:pb-12 lg:pt-24"'
+    'className="relative z-10 mx-auto max-w-7xl px-4 pb-[calc(var(--bottom-nav-h,env(safe-area-inset-bottom,0px))+1.5rem)] pt-[calc(60px+1.25rem)] lg:pb-12 lg:pt-24"'
   );
 });
 

@@ -83,7 +83,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.22, ease: "easeOut" }}
-        className="relative z-10 mx-auto max-w-7xl px-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))] pt-[calc(60px+1.25rem)] lg:pb-12 lg:pt-24"
+        className="relative z-10 mx-auto max-w-7xl px-4 pb-[calc(var(--bottom-nav-h,env(safe-area-inset-bottom,0px))+1.5rem)] pt-[calc(60px+1.25rem)] lg:pb-12 lg:pt-24"
       >
         {reach === "retrying" ? (
           <p role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700" data-testid="reconnecting">

@@ -294,12 +294,12 @@ form — they are siblings. Signed-in-only dialogs live in the protected layout,
 <motion.main id="main-content" tabIndex={-1} key={pathname}
   initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
   transition={{ duration: 0.22, ease: "easeOut" }}
-  className="relative z-10 mx-auto max-w-7xl px-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))]
+  className="relative z-10 mx-auto max-w-7xl px-4 pb-[calc(var(--bottom-nav-h,env(safe-area-inset-bottom,0px))+1.5rem)]
              pt-[calc(60px+1.25rem)] lg:pb-12 lg:pt-24">
 ```
 
 **`lg:pt-24` (96px) IS the island clearance contract**, and below `lg` the two `calc()`s clear the
-search header (60px + its 12px offset + 8px) and the bottom island (§7.11). Never reduce them and
+search header (60px + its 12px offset + 8px) and the bottom island (§7.11: `--bottom-nav-h`, the bar and its offset, plus 1.5rem, so a page's last action ends above the bar; `e2e/questionnaire-bottom-actions.spec.ts` measures it). Never reduce them and
 never add your own top or bottom padding for the nav. `key={pathname}` is what replays the 6px-rise fade on every navigation.
 
 Four mutually exclusive branches, in order: route-locked → admin-view settling → admin-chrome hidden →

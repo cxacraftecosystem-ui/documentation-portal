@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -49,8 +51,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.BuildConfig
 import com.fieldrepository.app.data.Naming
@@ -130,6 +135,10 @@ internal fun appendPage(rows: List<SessionListRow>, page: List<QSession>): List<
 
 enum class QuestionnaireTab { SESSIONS, FORMS }
 
+internal val HOME_FAB_MARGIN = 16.dp
+
+internal fun homeFabClearance(fabHeight: Dp): Dp = fabHeight.coerceAtLeast(56.dp) + HOME_FAB_MARGIN * 2
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun QuestionnaireHome(
@@ -186,6 +195,9 @@ fun QuestionnaireHome(
     var unsent by remember { mutableStateOf<List<String>>(emptyList()) }
     val names = remember(artisans) { artisans.associate { it.id to it.name } + v2.localArtisanNames() }
     val config by v2.config.collectAsState()
+    val density = LocalDensity.current
+    var fabHeightPx by remember { mutableIntStateOf(0) }
+    val fabClearance = homeFabClearance(with(density) { fabHeightPx.toDp() })
 
     LaunchedEffect(Unit) {
         runCatching { v2.refreshConfig() }
@@ -306,7 +318,7 @@ fun QuestionnaireHome(
                     CompositionLocalProvider(LocalScreenMemory provides homeMemory.child("forms"), LocalFormsScroll provides formsScroll) {
                         formsTab { questionnaireId -> prefillForm = questionnaireId; tab = QuestionnaireTab.SESSIONS; starting = true }
                     }
-                    Box(Modifier.padding(bottom = 72.dp))
+                    Spacer(Modifier.height(fabClearance).testTag("questionnaire.listEnd"))
                 } else Column(Modifier.fillMaxWidth().verticalScroll(sessionsScroll).padding(16.dp).testTag("questionnaire.sessions"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(QuestionnaireCopy.s("sessions.title"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
@@ -370,7 +382,7 @@ fun QuestionnaireHome(
                             }
                         }))
                     }
-                    Box(Modifier.padding(bottom = 72.dp))
+                    Spacer(Modifier.height(fabClearance).testTag("questionnaire.listEnd"))
                 }
             }
             is QRoute.Workspace -> SessionWorkspace(
@@ -418,7 +430,8 @@ fun QuestionnaireHome(
                 onClick = { if (tab == QuestionnaireTab.FORMS) onNewForm() else starting = true },
                 icon = { Icon(Icons.Filled.Add, contentDescription = null) },
                 text = { Text(QuestionnaireCopy.s(if (tab == QuestionnaireTab.FORMS) "home.newForm" else "sessions.new")) },
-                modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+                modifier = Modifier.align(Alignment.BottomCenter).padding(HOME_FAB_MARGIN)
+                    .onSizeChanged { fabHeightPx = it.height }.testTag("questionnaire.fab")
             )
         }
     }

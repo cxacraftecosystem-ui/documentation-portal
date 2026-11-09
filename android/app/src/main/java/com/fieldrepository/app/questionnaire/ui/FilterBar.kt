@@ -2,6 +2,7 @@ package com.fieldrepository.app.questionnaire.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -12,8 +13,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
@@ -39,7 +38,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.questionnaire.data.ChipRules
 import com.fieldrepository.app.questionnaire.data.QFilterOption
@@ -147,9 +151,18 @@ fun FilterBar(
         }
         if (offline) Text(QuestionnaireCopy.t("filterOfflineCached"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
     }
-    if (sheet) ModalBottomSheet(onDismissRequest = { sheet = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    if (sheet) ModalBottomSheet(
+        onDismissRequest = { sheet = false },
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        modifier = Modifier.nestedScroll(SheetScrollBoundary).testTag("filter-sheet-surface")
+    ) {
         FilterSheet(filters, onChange, options, fields.filterNot { it.key in fixed }) { sheet = false }
     }
+}
+
+internal object SheetScrollBoundary : NestedScrollConnection {
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset = available
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = available
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -163,49 +176,55 @@ private fun FilterSheet(
 ) {
     var picking by remember { mutableStateOf<FilterField?>(null) }
     var dates by remember { mutableStateOf(false) }
-    Column(
-        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 16.dp).navigationBarsPadding(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+    LazyColumn(
+        Modifier.fillMaxWidth().navigationBarsPadding().testTag("filter-sheet"),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        overscrollEffect = null
     ) {
-        Text(QuestionnaireCopy.t("filtersTitle"), style = MaterialTheme.typography.titleMedium)
-        fields.forEach { field ->
-            val label = QuestionnaireCopy.t(field.labelKey)
-            when (field) {
-                FilterField.KIND, FilterField.SOURCE, FilterField.TRANSCRIPT -> {
-                    val values = when (field) {
-                        FilterField.KIND -> QuestionnaireFilters.KINDS
-                        FilterField.SOURCE -> QuestionnaireFilters.SOURCES
-                        else -> QuestionnaireFilters.TRANSCRIPT
-                    }
-                    Text(label, style = MaterialTheme.typography.labelLarge)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        values.forEach { v ->
-                            val on = v in filters[field.key]
-                            FilterChip(
-                                selected = on, onClick = { onChange(filters.with(field.key, if (on) filters[field.key] - v else filters[field.key] + v)) },
-                                label = { Text(pillLabel(filters, field.key, v)) }, modifier = Modifier.heightIn(min = 40.dp)
-                            )
+        item(key = "title") { Text(QuestionnaireCopy.t("filtersTitle"), style = MaterialTheme.typography.titleMedium) }
+        items(fields, key = { it.name }) { field ->
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                val label = QuestionnaireCopy.t(field.labelKey)
+                when (field) {
+                    FilterField.KIND, FilterField.SOURCE, FilterField.TRANSCRIPT -> {
+                        val values = when (field) {
+                            FilterField.KIND -> QuestionnaireFilters.KINDS
+                            FilterField.SOURCE -> QuestionnaireFilters.SOURCES
+                            else -> QuestionnaireFilters.TRANSCRIPT
+                        }
+                        Text(label, style = MaterialTheme.typography.labelLarge)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            values.forEach { v ->
+                                val on = v in filters[field.key]
+                                FilterChip(
+                                    selected = on, onClick = { onChange(filters.with(field.key, if (on) filters[field.key] - v else filters[field.key] + v)) },
+                                    label = { Text(pillLabel(filters, field.key, v)) }, modifier = Modifier.heightIn(min = 40.dp)
+                                )
+                            }
                         }
                     }
+                    FilterField.DATES -> FieldRow(
+                        label,
+                        if (filters.dateFrom == null && filters.dateTo == null) QuestionnaireCopy.t("filterAny")
+                        else QuestionnaireCopy.t("filterDateRange", "from" to (filters.dateFrom?.let(ChipRules::dayLabel) ?: "…"), "to" to (filters.dateTo?.let(ChipRules::dayLabel) ?: "…"))
+                    ) { dates = true }
+                    else -> {
+                        val chosen = filters[field.key] + if (field == FilterField.SECTION) filters["questionLineageId"] else emptyList()
+                        val chosenWorkshops = if (field == FilterField.WORKSHOP) filters["designWorkshopId"] else emptyList()
+                        val all = chosen + chosenWorkshops
+                        FieldRow(label, if (all.isEmpty()) QuestionnaireCopy.t("filterAny") else all.joinToString(", ") { filters.labels[it] ?: it }) { picking = field }
+                    }
                 }
-                FilterField.DATES -> FieldRow(
-                    label,
-                    if (filters.dateFrom == null && filters.dateTo == null) QuestionnaireCopy.t("filterAny")
-                    else QuestionnaireCopy.t("filterDateRange", "from" to (filters.dateFrom?.let(ChipRules::dayLabel) ?: "…"), "to" to (filters.dateTo?.let(ChipRules::dayLabel) ?: "…"))
-                ) { dates = true }
-                else -> {
-                    val chosen = filters[field.key] + if (field == FilterField.SECTION) filters["questionLineageId"] else emptyList()
-                    val chosenWorkshops = if (field == FilterField.WORKSHOP) filters["designWorkshopId"] else emptyList()
-                    val all = chosen + chosenWorkshops
-                    FieldRow(label, if (all.isEmpty()) QuestionnaireCopy.t("filterAny") else all.joinToString(", ") { filters.labels[it] ?: it }) { picking = field }
-                }
+                HorizontalDivider(color = MaterialTheme.field.hairline)
             }
-            HorizontalDivider(color = MaterialTheme.field.hairline)
         }
-        PromptButtons(listOf(
-            PromptButton(QuestionnaireCopy.t("filterClearAll")) { onChange(QuestionnaireFilters(labels = filters.labels).withQ(filters.q)) },
-            PromptButton(QuestionnaireCopy.t("filterDone"), primary = true, onClick = onDone)
-        ))
+        item(key = "actions") {
+            PromptButtons(listOf(
+                PromptButton(QuestionnaireCopy.t("filterClearAll")) { onChange(QuestionnaireFilters(labels = filters.labels).withQ(filters.q)) },
+                PromptButton(QuestionnaireCopy.t("filterDone"), primary = true, onClick = onDone)
+            ))
+        }
     }
     picking?.let { field ->
         OptionPicker(field, filters, options, onDismiss = { picking = null }) { onChange(it); picking = null }
@@ -278,7 +297,7 @@ private fun OptionPicker(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("filter-picker-search"))
-                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                LazyColumn(Modifier.heightIn(max = 360.dp).testTag("filter-picker-list")) {
                     items(found + questions, key = { keyOf(it) + it.id }) { o ->
                         val key = keyOf(o)
                         val on = o.id in draft[key]

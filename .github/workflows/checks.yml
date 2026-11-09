@@ -327,7 +327,7 @@ jobs:
             sleep 2
           done
           curl -fsS -o /dev/null http://localhost:3000/login || { cat next.log; exit 1; }
-          npx playwright test e2e/questionnaire-fr-web.spec.ts e2e/questionnaire-r006-web.spec.ts e2e/questionnaire-session-place.spec.ts
+          npx playwright test e2e/questionnaire-fr-web.spec.ts e2e/questionnaire-r006-web.spec.ts e2e/questionnaire-session-place.spec.ts e2e/questionnaire-bottom-actions.spec.ts
 
       - name: Keep the screenshots
         if: always()
