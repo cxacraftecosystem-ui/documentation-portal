@@ -217,7 +217,7 @@ object ScreenBoards {
 
     val SORTS = listOf("name", "recorded", "added", "modified", "size", "duration", "type")
 
-    class Api(private val context: Context, var mode: Mode = Mode.NORMAL, var sorted: Boolean = false) : ExplorerApi {
+    class Api(private val context: Context, var mode: Mode = Mode.NORMAL, var sorted: Boolean = false, private val lead: List<ExplorerEntry> = emptyList()) : ExplorerApi {
         val calls: MutableList<String> = Collections.synchronizedList(mutableListOf())
 
         override suspend fun tree(path: String, status: String?, cursor: String?, slim: Int, sort: String?, filters: Map<String, String>): ExplorerTree {
@@ -236,7 +236,7 @@ object ScreenBoards {
                 "", ROOT -> ExplorerTree(path = ROOT, crumbs = crumbsRoot, entries = workshops, total = workshops.size, taxonomies = taxonomies, taxonomy = "workshop")
                 WORKSHOP -> ExplorerTree(path = WORKSHOP, crumbs = crumbsWorkshop, info = ExplorerInfo("3rd Craft Toolkit", listOf(ExplorerInfoField("Place", "Bagru, Rajasthan"), ExplorerInfoField("Dates", "14–22 Sep 2026"))), entries = artisans, total = artisans.size, taxonomies = taxonomies, taxonomy = "workshop")
                 EMPTY -> ExplorerTree(path = EMPTY, crumbs = crumbsWorkshop + ExplorerCrumb("Meera Devi", EMPTY), info = ExplorerInfo("Meera Devi"), entries = emptyList(), total = 0, taxonomies = taxonomies, taxonomy = "workshop")
-                else -> ExplorerTree(path = GIRIRAJ, crumbs = crumbsWorkshop + ExplorerCrumb("Giriraj Prasad Chhipa", GIRIRAJ), info = info, entries = files(context), total = 48, taxonomies = taxonomies, taxonomy = "workshop")
+                else -> ExplorerTree(path = GIRIRAJ, crumbs = crumbsWorkshop + ExplorerCrumb("Giriraj Prasad Chhipa", GIRIRAJ), info = info, entries = lead + files(context), total = 48 + lead.size, taxonomies = taxonomies, taxonomy = "workshop")
             }
         }
 

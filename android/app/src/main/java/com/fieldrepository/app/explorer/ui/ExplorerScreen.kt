@@ -1069,14 +1069,13 @@ fun ExplorerScreen(
                                 )
                             }
                         }
-                        val pairs = listed.chunked(if (roomy) 2 else 1)
+                        val pairs = fileRowGroups(listed, if (roomy) 2 else 1) { f -> f.content != null || f.key in state.openText || f.key in state.openTranscripts }
                         itemsIndexed(pairs, key = { _, pair -> pair.joinToString("|") { it.key } }) { index, pair ->
                             val first = index == 0
                             val last = index == pairs.lastIndex
                             Box(Modifier.fillMaxWidth().padding(bottom = if (last) 12.dp else 0.dp)) {
                                 Row(Modifier.fillMaxWidth().explorerCell(first, last), verticalAlignment = Alignment.CenterVertically) {
                                     pair.forEach { file -> Box(Modifier.weight(1f)) { fileRow(file, first, last, false) } }
-                                    if (pair.size == 1 && roomy) Spacer(Modifier.weight(1f))
                                 }
                             }
                         }

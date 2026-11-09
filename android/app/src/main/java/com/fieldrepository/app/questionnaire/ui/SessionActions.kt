@@ -25,6 +25,7 @@ import com.fieldrepository.app.questionnaire.data.QContinueRequest
 import com.fieldrepository.app.questionnaire.data.QProposal
 import com.fieldrepository.app.questionnaire.data.QSession
 import com.fieldrepository.app.questionnaire.data.QSessionCreate
+import com.fieldrepository.app.questionnaire.data.QSessionLocation
 import com.fieldrepository.app.questionnaire.data.QSessionPatch
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
@@ -46,7 +47,8 @@ data class SessionEdit(
     val place: String,
     val languageCode: String,
     val languageOther: String,
-    val note: String
+    val note: String,
+    val location: QSessionLocation? = null
 ) {
     fun patch(version: Int, before: SessionEdit): QSessionPatch = QSessionPatch(
         version = version,
@@ -55,7 +57,9 @@ data class SessionEdit(
         place = place.trim().takeIf { it != before.place },
         languageCode = languageCode.takeIf { it != before.languageCode }?.ifBlank { null },
         languageOther = languageOther.trim().takeIf { languageCode == "other" && it != before.languageOther },
-        note = note.trim().take(80).takeIf { it != before.note }
+        note = note.trim().take(80).takeIf { it != before.note },
+        location = location?.takeIf { it != before.location },
+        clearLocation = true.takeIf { location == null && before.location != null }
     )
 
     fun applyTo(create: QSessionCreate): QSessionCreate = create.copy(
@@ -64,14 +68,16 @@ data class SessionEdit(
         place = place.trim().ifBlank { null },
         languageCode = languageCode.ifBlank { null },
         languageOther = languageOther.trim().ifBlank { null }?.takeIf { languageCode == "other" },
-        note = note.trim().take(80).ifBlank { null }
+        note = note.trim().take(80).ifBlank { null },
+        location = location
     )
 
     companion object {
-        fun of(date: String?, purpose: String?, place: String?, languageCode: String?, languageOther: String?, note: String?) = SessionEdit(
+        fun of(date: String?, purpose: String?, place: String?, languageCode: String?, languageOther: String?, note: String?, location: QSessionLocation? = null) = SessionEdit(
             date = date?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() },
             purpose = purpose ?: SessionPurpose.FIRST_SITTING.wire,
-            place = place.orEmpty(), languageCode = languageCode.orEmpty(), languageOther = languageOther.orEmpty(), note = note.orEmpty()
+            place = place.orEmpty(), languageCode = languageCode.orEmpty(), languageOther = languageOther.orEmpty(), note = note.orEmpty(),
+            location = location
         )
     }
 }
@@ -92,7 +98,10 @@ fun EditSessionDialog(initial: SessionEdit, onDismiss: () -> Unit, onSave: (Sess
                         FilterChip(selected = form.purpose == p, onClick = { form = form.copy(purpose = p) }, label = { Text(QuestionnaireCopy.purposeLabel(p)) })
                     }
                 }
-                OutlinedTextField(value = form.place, onValueChange = { form = form.copy(place = it) }, label = { Text(QuestionnaireCopy.s("start.place")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                SessionPlaceField(
+                    value = SessionWhere(form.place, form.location),
+                    onChange = { where -> form = form.copy(place = where.place, location = where.location) }
+                )
                 SearchableSelectField(
                     label = QuestionnaireCopy.s("start.language"), options = SESSION_LANGUAGES, selectedValue = form.languageCode, includeNone = false, searchable = true
                 ) { form = form.copy(languageCode = it) }

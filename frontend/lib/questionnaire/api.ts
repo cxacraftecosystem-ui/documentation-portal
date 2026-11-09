@@ -112,7 +112,7 @@ export type SessionCreate = {
   location?: SessionLocation | null;
 };
 
-export type SessionLocation = { latitude: number; longitude: number; accuracy?: number | null; altitude?: number | null };
+export type SessionLocation = { latitude: number; longitude: number; accuracy?: number | null; altitude?: number | null; placeName?: string | null };
 
 export type RespondentKind = "GUEST" | "SELF";
 export type Respondent = {
@@ -136,6 +136,7 @@ export type SessionPatch = {
   workshopId?: string | null;
   designWorkshopId?: string | null;
   purpose?: SessionPurpose;
+  location?: SessionLocation | null;
 };
 
 export type SessionParticipant = {
@@ -167,6 +168,7 @@ export type Session = {
   mode: "INDIVIDUAL" | "GROUP";
   participantCount: number;
   place: string | null;
+  location?: SessionLocation | null;
   languageCode: string | null;
   languageOther: string | null;
   joinCode: string | null;

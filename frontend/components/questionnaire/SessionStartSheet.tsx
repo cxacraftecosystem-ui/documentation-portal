@@ -7,6 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { ConsentQuestion } from "@/components/questionnaire/ConsentQuestion";
 import { loadInstrumentQuestions } from "@/components/questionnaire/instrumentQuestions";
 import { PromptDialog } from "@/components/questionnaire/Prompts";
+import { SessionPlaceField } from "@/components/questionnaire/SessionPlaceField";
 import { enqueueUnit, onSessionLanded, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
 import { SearchInput } from "@/components/SearchInput";
 import { CalendarField } from "@/components/ui/CalendarField";
@@ -486,13 +487,12 @@ export function SessionStartSheet({
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="grid gap-1">
-          <label htmlFor={ids.place} className="field-label">
-            {qs("fieldPlace")}
-          </label>
-          <input id={ids.place} className="field-input" value={form.place} onChange={(e) => set("place", e.target.value)} autoComplete="off" />
-          <DeviceLocation value={form.location ?? null} onChange={(location) => set("location", location)} />
-        </div>
+        <SessionPlaceField
+          id={ids.place}
+          value={{ place: form.place, location: form.location ?? null }}
+          onChange={(next) => setForm((f) => ({ ...f, place: next.place, location: next.location }))}
+          deviceLocation
+        />
         <div className="grid gap-1">
           <label htmlFor={ids.language} className="field-label">
             {qs("fieldLanguage")}
@@ -574,50 +574,4 @@ function mergeById<T extends { id: string }>(a: T[], b: T[]): T[] {
   const seen = new Map<string, T>();
   for (const x of [...a, ...b]) seen.set(x.id, x);
   return [...seen.values()];
-}
-
-export function DeviceLocation({ value, onChange }: { value: SessionLocation | null; onChange: (location: SessionLocation | null) => void }) {
-  const [state, setState] = useState<"idle" | "finding" | "unavailable">("idle");
-  if (value) {
-    return (
-      <p className="flex flex-wrap items-center gap-2 text-xs text-ink-600" data-device-location="saved">
-        <span>{qs("locationCaptured", { metres: Math.max(1, Math.round(value.accuracy ?? 0)) })}</span>
-        <button type="button" className="font-medium text-purple-700 underline dark:text-purple-300" onClick={() => onChange(null)}>
-          {qs("locationRemove")}
-        </button>
-      </p>
-    );
-  }
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-xs" data-device-location={state}>
-      <button
-        type="button"
-        className="field-button-secondary"
-        disabled={state === "finding"}
-        onClick={() => {
-          if (typeof navigator === "undefined" || !navigator.geolocation) {
-            setState("unavailable");
-            return;
-          }
-          setState("finding");
-          navigator.geolocation.getCurrentPosition(
-            (position) => {
-              setState("idle");
-              onChange({
-                latitude: position.coords.latitude,
-                longitude: position.coords.longitude,
-                accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
-                altitude: position.coords.altitude ?? null
-              });
-            },
-            () => setState("unavailable"),
-            { enableHighAccuracy: true, timeout: 20_000, maximumAge: 60_000 }
-          );
-        }}
-      >
-        {state === "finding" ? qs("locationFinding") : qs("useMyLocation")}
-      </button>
-      {state === "unavailable" ? <span className="text-ink-600">{qs("locationUnavailable")}</span> : null}
-    </div>
-  );
 }

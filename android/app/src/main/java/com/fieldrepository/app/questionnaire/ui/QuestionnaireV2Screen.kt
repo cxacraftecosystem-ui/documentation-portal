@@ -196,8 +196,8 @@ fun QuestionnaireHome(
         val drafts = RecordingDrafts.all(v2.filesDir)
         RecoveryScanner.empty(drafts, active).forEach { RecordingDrafts.delete(v2.filesDir, it, keepAudio = false) }
         recovered = RecoveryScanner.recoverable(drafts, active).firstOrNull()
-        batteryAsk = shouldAskBattery(context)
     }
+    LaunchedEffect(Unit) { batteryAsk = shouldAskBattery(context) }
 
     suspend fun page(after: String?) = v2.sessionsPage(filters, after)
 
@@ -460,7 +460,7 @@ fun QuestionnaireHome(
             title = QuestionnaireCopy.s("battery.title"),
             body = QuestionnaireCopy.s("battery.reason"),
             buttons = listOf(
-                PromptButton(QuestionnaireCopy.t("notNow")) {
+                PromptButton(QuestionnaireCopy.s("battery.notNow")) {
                     batteryAsk = false
                     markBatteryAsked(context)
                 },
@@ -488,7 +488,7 @@ private fun UnsentBanner(sessions: Int, onOpen: () -> Unit) {
 private const val PREFS = "questionnaire-v2"
 private const val BATTERY_ASKED = "batteryAsked"
 
-private fun shouldAskBattery(context: Context): Boolean {
+internal fun shouldAskBattery(context: Context): Boolean {
     if (context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(BATTERY_ASKED, false)) return false
     val power = context.getSystemService(PowerManager::class.java) ?: return false
     return !power.isIgnoringBatteryOptimizations(context.packageName)

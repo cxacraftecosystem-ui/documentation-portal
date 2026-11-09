@@ -36,3 +36,26 @@ internal class ExplorerRowPlan {
         fun build(content: ExplorerRowPlan.() -> Unit): ExplorerRowPlan = ExplorerRowPlan().apply(content)
     }
 }
+
+internal fun <T> fileRowGroups(items: List<T>, perRow: Int, alone: (T) -> Boolean): List<List<T>> {
+    if (perRow <= 1) return items.map { listOf(it) }
+    val out = ArrayList<List<T>>()
+    val pending = ArrayList<T>()
+    for (item in items) {
+        if (alone(item)) {
+            if (pending.isNotEmpty()) {
+                out.add(pending.toList())
+                pending.clear()
+            }
+            out.add(listOf(item))
+        } else {
+            pending.add(item)
+            if (pending.size == perRow) {
+                out.add(pending.toList())
+                pending.clear()
+            }
+        }
+    }
+    if (pending.isNotEmpty()) out.add(pending.toList())
+    return out
+}

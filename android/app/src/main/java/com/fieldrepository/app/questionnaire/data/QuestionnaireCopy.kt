@@ -1,5 +1,6 @@
 package com.fieldrepository.app.questionnaire.data
 
+import com.fieldrepository.app.BuildConfig
 import com.fieldrepository.app.data.Naming
 import java.time.Duration
 import java.time.Instant
@@ -219,11 +220,17 @@ object QuestionnaireCopy {
         "removedTakes" to "Removed takes",
         "formsTitle" to "Forms",
         "newForm" to "New form",
+        "notNow" to "Not now",
         "needsConnection" to "Needs a connection",
         "outboxSendAgain" to "Send again",
         "outboxDiscardTitle" to "Discard this?",
         "outboxSendWithout" to "Send without the conflicting answers",
         "useMyLocation" to "Use my location",
+        "locationRemove" to "Remove location",
+        "placeSearch" to "Search a place",
+        "placeSearchHint" to "Picking a place fills it in and pins it.",
+        "pickOnMap" to "Pick on map",
+        "placePinned" to "Pinned at {lat}, {lon}",
         "recordingsTitle" to "Recordings",
         "chipWholeSession" to "Whole session",
         "chipPresent" to "{name} · present",
@@ -381,6 +388,7 @@ object QuestionnaireCopy {
         "inbox.primaryChanged" to "inboxPrimaryChanged",
         "join.submit" to "openMatchJoin",
         "battery.reason" to "batteryReason",
+        "battery.notNow" to "notNow",
         "recorder.pause" to "pause",
         "recorder.resume" to "resume",
         "recorder.stop" to "stop",
@@ -439,6 +447,10 @@ object QuestionnaireCopy {
         "tray.discardTitle" to "outboxDiscardTitle",
         "tray.sendWithout" to "outboxSendWithout",
         "place.useLocation" to "useMyLocation",
+        "place.remove" to "locationRemove",
+        "place.search" to "placeSearch",
+        "place.searchHint" to "placeSearchHint",
+        "place.pickOnMap" to "pickOnMap",
         "researcher.pick" to "filterResearcher",
         "researcher.roleContributor" to "filterResearcher",
         "sessions.filters" to "filtersTitle",
@@ -553,13 +565,20 @@ object QuestionnaireCopy {
 
     val strings: Map<String, String> = sharedKeyOf.mapValues { (_, key) -> shared.getValue(key) } + androidOnly
 
-    fun s(key: String): String = strings[key] ?: error("No questionnaire string '$key'")
+    internal var strict: Boolean = BuildConfig.DEBUG
+
+    private fun missing(what: String, key: String): String {
+        check(!strict) { "No $what string '$key'" }
+        return key.substringAfterLast('.').replace(Regex("([a-z])([A-Z])"), "$1 $2").replaceFirstChar { it.uppercase() }
+    }
+
+    fun s(key: String): String = strings[key] ?: shared[key] ?: missing("questionnaire", key)
 
     private val PLACEHOLDER = Regex("\\{([A-Za-z][A-Za-z0-9]*)\\}")
     private val ONE_PLURAL = Regex("\\b1 (takes|sections|artisans|sessions|repeats|recordings)\\b")
 
     fun t(key: String, vararg values: Pair<String, Any?>): String {
-        val template = shared[key] ?: error("No shared questionnaire string '$key'")
+        val template = shared[key] ?: return missing("shared questionnaire", key)
         val map = values.toMap()
         val filled = PLACEHOLDER.replace(template) { m ->
             val name = m.groupValues[1]

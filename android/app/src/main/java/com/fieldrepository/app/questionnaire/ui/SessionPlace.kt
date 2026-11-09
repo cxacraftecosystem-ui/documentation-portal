@@ -74,14 +74,16 @@ internal suspend fun placeHere(context: Context): String? {
             .minByOrNull { it.accuracy }
     }.getOrNull()
     val fix = recent ?: withTimeoutOrNull(15_000) { oneFix(manager) } ?: return null
-    return withContext(Dispatchers.IO) {
-        if (!Geocoder.isPresent()) return@withContext null
-        runCatching {
-            @Suppress("DEPRECATION")
-            val first = Geocoder(context, Locale.UK).getFromLocation(fix.latitude, fix.longitude, 1)?.firstOrNull()
-            placeWords(first?.subAdminArea, first?.adminArea)
-        }.getOrNull()
-    }
+    return placeAt(context, fix.latitude, fix.longitude)
+}
+
+internal suspend fun placeAt(context: Context, latitude: Double, longitude: Double): String? = withContext(Dispatchers.IO) {
+    if (!Geocoder.isPresent()) return@withContext null
+    runCatching {
+        @Suppress("DEPRECATION")
+        val first = Geocoder(context, Locale.UK).getFromLocation(latitude, longitude, 1)?.firstOrNull()
+        placeWords(first?.subAdminArea, first?.adminArea)
+    }.getOrNull()
 }
 
 fun placeWords(district: String?, state: String?): String? =

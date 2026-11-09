@@ -28,6 +28,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.fieldrepository.app.data.leafletCameraScript
+import com.fieldrepository.app.data.cameraForPlace
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.ui.text.font.FontFamily
@@ -155,10 +158,18 @@ fun LocationEditor(
 
 private fun trimCoord(value: Double): String = String.format("%.6f", value)
 
-private class MapBridge(val callback: (Double, Double) -> Unit) {
+private class MapBridge(
+    val callback: (Double, Double) -> Unit,
+    val centreCallback: (Double, Double) -> Unit = { _, _ -> }
+) {
     @JavascriptInterface
     fun onPick(lat: Double, lng: Double) {
         callback(lat, lng)
+    }
+
+    @JavascriptInterface
+    fun onCentre(lat: Double, lng: Double) {
+        centreCallback(lat, lng)
     }
 }
 
@@ -178,6 +189,9 @@ fun MapPickerDialog(
         mapHtml(startLat, startLng, startZoom, BuildConfig.MAPTILER_API_KEY)
     }
 
+    var mapView by remember { mutableStateOf<WebView?>(null) }
+    var centre by remember { mutableStateOf(startLat to startLng) }
+
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         ElevatedCard(
             colors = CardDefaults.elevatedCardColors(containerColor = Canvas),
@@ -186,35 +200,51 @@ fun MapPickerDialog(
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Drop a pin", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
-                Text("Tap or drag the marker.", color = Muted, style = MaterialTheme.typography.bodySmall)
-                AndroidView(
-                    modifier = Modifier.fillMaxWidth().height(380.dp).background(SurfaceCard, RoundedCornerShape(12.dp)),
-                    factory = { ctx ->
-                        WebView(ctx).apply {
-                            layoutParams = android.view.ViewGroup.LayoutParams(
-                                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                                android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.loadWithOverviewMode = true
-                            settings.useWideViewPort = true
-                            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                            webChromeClient = android.webkit.WebChromeClient()
-                            webViewClient = object : android.webkit.WebViewClient() {
-                                override fun onPageFinished(view: WebView, url: String?) {
-                                    view.evaluateJavascript(
-                                        "if(window.__map){window.__map.invalidateSize(true);}",
-                                        null
-                                    )
+                Text("Tap or drag the marker to set the location.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxWidth().height(340.dp).background(SurfaceCard, RoundedCornerShape(12.dp)),
+                        factory = { ctx ->
+                            WebView(ctx).apply {
+                                layoutParams = android.view.ViewGroup.LayoutParams(
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                settings.loadWithOverviewMode = true
+                                settings.useWideViewPort = true
+                                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                webChromeClient = android.webkit.WebChromeClient()
+                                webViewClient = object : android.webkit.WebViewClient() {
+                                    override fun onPageFinished(view: WebView, url: String?) {
+                                        view.evaluateJavascript(
+                                            "if(window.__map){window.__map.invalidateSize(true);}",
+                                            null
+                                        )
+                                    }
                                 }
-                            }
-                            addJavascriptInterface(MapBridge { lat, lng -> picked = lat to lng }, "AndroidMapBridge")
-                            loadDataWithBaseURL("https://tile.openstreetmap.org/", html, "text/html", "utf-8", null)
-                        }
-                    },
-                    onRelease = { it.destroy() }
-                )
+                                addJavascriptInterface(
+                                    MapBridge(
+                                        callback = { lat, lng -> picked = lat to lng },
+                                        centreCallback = { lat, lng -> centre = lat to lng }
+                                    ),
+                                    "AndroidMapBridge"
+                                )
+                                loadDataWithBaseURL("https://tile.openstreetmap.org/", html, "text/html", "utf-8", null)
+                            }.also { mapView = it }
+                        },
+                        onRelease = { mapView = null; it.destroy() }
+                    )
+                    PlaceSearchOverlay(
+                        apiKey = BuildConfig.MAPTILER_API_KEY,
+                        getProximity = { centre.second to centre.first },
+                        onChoose = { hit ->
+                            mapView?.evaluateJavascript(leafletCameraScript(cameraForPlace(hit)), null)
+                        },
+                        modifier = Modifier.align(Alignment.TopCenter).padding(8.dp)
+                    )
+                }
                 picked?.let { (lat, lng) ->
                     Text("Selected: ${trimCoord(lat)}, ${trimCoord(lng)}", color = Body, style = MaterialTheme.typography.bodySmall)
                 }
@@ -261,8 +291,14 @@ private fun mapHtml(lat: Double, lng: Double, zoom: Int, key: String): String {
               }
               marker.on('dragend', function (e) { report(e.target.getLatLng()); });
               map.on('click', function (e) { marker.setLatLng(e.latlng); report(e.latlng); });
-              // The WebView frequently finishes layout after this script runs, leaving Leaflet
-              // with a zero-size container (the blank-map symptom). Re-measure a few times.
+              function reportCentre() {
+                if (window.AndroidMapBridge && AndroidMapBridge.onCentre) {
+                  var c = map.getCenter();
+                  AndroidMapBridge.onCentre(c.lat, c.lng);
+                }
+              }
+              map.on('moveend', reportCentre);
+              reportCentre();
               [120, 350, 700, 1200].forEach(function (t) { setTimeout(function () { map.invalidateSize(true); }, t); });
             }
             window.addEventListener('load', initMap);

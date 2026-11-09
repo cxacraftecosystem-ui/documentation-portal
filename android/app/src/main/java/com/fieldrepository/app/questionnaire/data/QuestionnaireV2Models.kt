@@ -96,6 +96,15 @@ data class QArtisanRef(val artisanId: String)
 data class QResearcherRef(val userId: String, @EncodeDefault val role: String = "CONTRIBUTOR")
 
 @Serializable
+data class QSessionLocation(
+    val latitude: Double,
+    val longitude: Double,
+    val accuracy: Double? = null,
+    val altitude: Double? = null,
+    val placeName: String? = null
+)
+
+@Serializable
 data class QSessionCreate(
     val clientKey: String,
     val questionnaireId: String,
@@ -111,7 +120,8 @@ data class QSessionCreate(
     @EncodeDefault val participants: List<QArtisanRef> = emptyList(),
     @EncodeDefault val researchers: List<QResearcherRef> = emptyList(),
     val respondents: List<QRespondentInput> = emptyList(),
-    @EncodeDefault val source: String = SessionSource.APP.wire
+    @EncodeDefault val source: String = SessionSource.APP.wire,
+    val location: QSessionLocation? = null
 )
 
 @Serializable
@@ -158,7 +168,9 @@ data class QSessionPatch(
     val sessionDate: String? = null,
     val workshopId: String? = null,
     val designWorkshopId: String? = null,
-    val purpose: String? = null
+    val purpose: String? = null,
+    val location: QSessionLocation? = null,
+    val clearLocation: Boolean? = null
 )
 
 @Serializable
@@ -204,6 +216,7 @@ data class QSession(
     val mode: String = "INDIVIDUAL",
     val participantCount: Int = 0,
     val place: String? = null,
+    val location: QSessionLocation? = null,
     val languageCode: String? = null,
     val languageOther: String? = null,
     val joinCode: String? = null,
@@ -235,6 +248,7 @@ data class QSessionDetail(
     val purpose: String = SessionPurpose.FIRST_SITTING.wire,
     val participantCount: Int = 0,
     val place: String? = null,
+    val location: QSessionLocation? = null,
     val languageCode: String? = null,
     val joinCode: String? = null,
     val joinQr: String? = null,

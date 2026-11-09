@@ -177,6 +177,7 @@ jobs:
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package $APP_ID.explorer.shots $APP_ID.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/shots.txt" 2>&1; cat "$RUNNER_TEMP/shots.txt"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package $APP_ID.explorer.capture $APP_ID.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/capture.txt" 2>&1; cat "$RUNNER_TEMP/capture.txt"
+            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e class $APP_ID.questionnaire.SessionPlaceFieldUiTest $APP_ID.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/place.txt" 2>&1; cat "$RUNNER_TEMP/place.txt"
             mkdir -p "$SHOTS" && "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" pull "/sdcard/Android/data/$APP_ID/files/design-fidelity/." "$SHOTS/"
             ls -R "$SHOTS"
             test -s "$SHOTS/AndroidAudio/impl-android-expand.png"
@@ -186,7 +187,14 @@ jobs:
             test -s "$SHOTS/AndroidFilters/impl-android-pane-max-tablet.png"
             test -s "$SHOTS/AndroidFilters/impl-android-tables-bengali.png"
             test -s "$SHOTS/AndroidFilters/impl-android-details-table-tablet.png"
+            test -s "$SHOTS/AndroidFileActions/impl-android-phone.png"
+            test -s "$SHOTS/AndroidFileActions/impl-android-840.png"
+            test -s "$SHOTS/AndroidFileActions/impl-android-tablet.png"
+            test -s "$SHOTS/AndroidFileActions/impl-android-font2.png"
+            test -s "$SHOTS/AndroidSessionPlace/impl-android-phone.png"
+            test -s "$SHOTS/AndroidSessionPlace/impl-android-tablet.png"
             grep -q "^OK (" "$RUNNER_TEMP/shots.txt"
+            grep -q "^OK (" "$RUNNER_TEMP/place.txt"
 
       - name: Keep the Android screens
         if: always()

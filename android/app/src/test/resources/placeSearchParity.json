@@ -1,0 +1,1154 @@
+{
+  "minQueryLength": 3,
+  "key": "TESTKEY",
+  "parse": [
+    {
+      "name": "live-Barpali",
+      "query": "Barpali",
+      "proximity": {
+        "lon": 85,
+        "lat": 21
+      },
+      "status": 200,
+      "notJson": false,
+      "body": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n2275459328\",\"country_code\":\"in\",\"wikidata\":\"Q712508\",\"kind\":\"place\",\"place_designation\":\"town\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[83.58720168471336,21.190080997194745]},\"bbox\":[83.58720168471336,21.190080997194745,83.58720168471336,21.190080997194745],\"center\":[83.58720168471336,21.190080997194745],\"place_name\":\"Barapali, Barapali, Odisha, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.803869\",\"text\":\"Barapali\",\"place_type_name\":[\"locality\"],\"matching_text\":\"Barpāli Barpali\",\"matching_place_name\":\"Barpāli Barpali, Barapali, Bargarh, Odisha, India\",\"context\":[{\"ref\":\"osm:r10319751\",\"id\":\"major_landform.2481658\",\"text\":\"Bargarh main canal\",\"country_code\":\"in\",\"wikidata\":\"Q28169856\",\"feature_tags\":{\"type\":\"waterway\",\"waterway\":\"canal\",\"wikipedia\":\"en:Bargarh Main Canal\"},\"categories\":[\"canal\"],\"text_en\":\"Bargarh main canal\"},{\"ref\":\"osm:r10105565\",\"id\":\"county.14699\",\"text\":\"Barapali\",\"country_code\":\"in\",\"wikidata\":\"Q123280076\",\"kind\":\"admin_area\",\"text_en\":\"Barapali\"},{\"ref\":\"osm:r1984023\",\"id\":\"subregion.977\",\"text\":\"Bargarh\",\"country_code\":\"in\",\"wikidata\":\"Q808140\",\"kind\":\"admin_area\",\"text_en\":\"Bargarh\"},{\"ref\":\"osm:r1984022\",\"id\":\"region.1502\",\"text\":\"Odisha\",\"country_code\":\"in\",\"wikidata\":\"Q22048\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Odisha\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Barapali\",\"place_name_en\":\"Barapali, Barapali, Bargarh, Odisha, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n8147130674\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"village\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[82.74589028209448,20.89405824525621]},\"bbox\":[82.74589028209448,20.89405824525621,82.74589028209448,20.89405824525621],\"center\":[82.74589028209448,20.89405824525621],\"place_name\":\"Barpali, Paikmal, Odisha, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.2592481\",\"text\":\"Barpali\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:w874876509\",\"id\":\"major_landform.3060658\",\"text\":\"Dhenki Jhor\",\"country_code\":\"in\",\"feature_tags\":{},\"categories\":[],\"language\":\"en\",\"text_en\":\"Dhenki Jhor\",\"language_en\":\"en\"},{\"ref\":\"osm:r10105557\",\"id\":\"county.14671\",\"text\":\"Paikmal\",\"country_code\":\"in\",\"wikidata\":\"Q123279582\",\"kind\":\"admin_area\",\"place_designation\":\"village\",\"language\":\"en\",\"text_en\":\"Paikmal\",\"language_en\":\"en\"},{\"ref\":\"osm:r1984023\",\"id\":\"subregion.977\",\"text\":\"Bargarh\",\"country_code\":\"in\",\"wikidata\":\"Q808140\",\"kind\":\"admin_area\",\"text_en\":\"Bargarh\"},{\"ref\":\"osm:r1984022\",\"id\":\"region.1502\",\"text\":\"Odisha\",\"country_code\":\"in\",\"wikidata\":\"Q22048\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Odisha\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"language\":\"en\",\"text_en\":\"Barpali\",\"language_en\":\"en\",\"place_name_en\":\"Barpali, Paikmal, Bargarh, Odisha, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n7241937233\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"village\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[83.00785526633263,21.768146377692972]},\"bbox\":[83.00785526633263,21.768146377692972,83.00785526633263,21.768146377692972],\"center\":[83.00785526633263,21.768146377692972],\"place_name\":\"Barpali, Malkharoda Tahsil, Chhattisgarh, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.2256230\",\"text\":\"Barpali\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r9905704\",\"id\":\"county.13164\",\"text\":\"Malkharoda Tahsil\",\"country_code\":\"in\",\"wikidata\":\"Q123268555\",\"kind\":\"admin_area\",\"text_en\":\"Malkharoda Tahsil\"},{\"ref\":\"osm:r14722587\",\"id\":\"subregion.1700\",\"text\":\"Sakti\",\"country_code\":\"in\",\"wikidata\":\"Q108569905\",\"kind\":\"admin_area\",\"text_en\":\"Sakti\"},{\"ref\":\"osm:r1972004\",\"id\":\"region.873\",\"text\":\"Chhattisgarh\",\"country_code\":\"in\",\"wikidata\":\"Q1168\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Chhattisgarh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Barpali\",\"place_name_en\":\"Barpali, Malkharoda Tahsil, Sakti, Chhattisgarh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n7726162061\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"village\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[82.57817711681128,21.68595371118549]},\"bbox\":[82.57817711681128,21.68595371118549,82.57817711681128,21.68595371118549],\"center\":[82.57817711681128,21.68595371118549],\"place_name\":\"Barpali, Kasdol Tahsil, Chhattisgarh, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.2486017\",\"text\":\"Barpali\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r9903096\",\"id\":\"county.12894\",\"text\":\"Kasdol Tahsil\",\"country_code\":\"in\",\"wikidata\":\"Q123268564\",\"kind\":\"admin_area\",\"text_en\":\"Kasdol Tahsil\"},{\"ref\":\"osm:r9523380\",\"id\":\"subregion.1426\",\"text\":\"Baloda Bazar\",\"country_code\":\"in\",\"wikidata\":\"Q15663455\",\"kind\":\"admin_area\",\"text_en\":\"Baloda Bazar\"},{\"ref\":\"osm:r1972004\",\"id\":\"region.873\",\"text\":\"Chhattisgarh\",\"country_code\":\"in\",\"wikidata\":\"Q1168\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Chhattisgarh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Barpali\",\"place_name_en\":\"Barpali, Kasdol Tahsil, Baloda Bazar, Chhattisgarh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:w915615406\",\"country_code\":\"in\",\"kind\":\"street\",\"place_type_name\":[\"address\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[83.64568021148443,21.209424470925804]},\"bbox\":[83.59821014106274,21.187757997079775,83.69116276502609,21.233997611528117],\"center\":[83.64568021148443,21.209424470925804],\"place_name\":\"Barpali to Kumbhari Baramkela road, Barapali, Odisha, India\",\"place_type\":[\"address\"],\"relevance\":1,\"id\":\"address.12634410\",\"text\":\"Barpali to Kumbhari Baramkela road\",\"place_type_name\":[\"address\"],\"context\":[{\"ref\":\"osm:n8429808266\",\"id\":\"place.2674989\",\"text\":\"Kumbhari\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"village\",\"language\":\"en\",\"text_en\":\"Kumbhari\",\"language_en\":\"en\"},{\"ref\":\"osm:r10105565\",\"id\":\"county.14699\",\"text\":\"Barapali\",\"country_code\":\"in\",\"wikidata\":\"Q123280076\",\"kind\":\"admin_area\",\"text_en\":\"Barapali\"},{\"ref\":\"osm:r1984023\",\"id\":\"subregion.977\",\"text\":\"Bargarh\",\"country_code\":\"in\",\"wikidata\":\"Q808140\",\"kind\":\"admin_area\",\"text_en\":\"Bargarh\"},{\"ref\":\"osm:r1984022\",\"id\":\"region.1502\",\"text\":\"Odisha\",\"country_code\":\"in\",\"wikidata\":\"Q22048\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Odisha\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Barpali to Kumbhari Baramkela road\",\"place_name_en\":\"Barpali to Kumbhari Baramkela road, Kumbhari, Barapali, Bargarh, Odisha, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r10105565\",\"country_code\":\"in\",\"wikidata\":\"Q123280076\",\"kind\":\"admin_area\",\"place_type_name\":[\"county\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[83.58720168471336,21.190080997194745]},\"bbox\":[83.4733482822776,21.0619949765407,83.70867457240821,21.27649837431301],\"center\":[83.58720168471336,21.190080997194745],\"place_name\":\"Barapali, Odisha, India\",\"place_type\":[\"county\"],\"relevance\":0.928571,\"id\":\"county.14699\",\"text\":\"Barapali\",\"place_type_name\":[\"county\"],\"context\":[{\"ref\":\"osm:r1984023\",\"id\":\"subregion.977\",\"text\":\"Bargarh\",\"country_code\":\"in\",\"wikidata\":\"Q808140\",\"kind\":\"admin_area\",\"text_en\":\"Bargarh\"},{\"ref\":\"osm:r1984022\",\"id\":\"region.1502\",\"text\":\"Odisha\",\"country_code\":\"in\",\"wikidata\":\"Q22048\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Odisha\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Barapali\",\"place_name_en\":\"Barapali, Bargarh, Odisha, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r16536163\",\"country_code\":\"in\",\"kind\":\"admin_area\",\"place_type_name\":[\"municipality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[79.6453755000557,21.565283390088272]},\"bbox\":[79.62426234036684,21.552969688557233,79.66332335025072,21.581948869112544],\"center\":[79.6453755000557,21.565283390088272],\"place_name\":\"Barpani, Madhya Pradesh, India\",\"place_type\":[\"municipality\"],\"relevance\":0.928571,\"id\":\"municipality.222283\",\"text\":\"Barpani\",\"place_type_name\":[\"municipality\"],\"context\":[{\"ref\":\"osm:r9681569\",\"id\":\"county.12543\",\"text\":\"Tirodi Tahsil\",\"country_code\":\"in\",\"wikidata\":\"Q20593275\",\"kind\":\"admin_area\",\"text_en\":\"Tirodi Tahsil\"},{\"ref\":\"osm:r1982958\",\"id\":\"subregion.950\",\"text\":\"Balaghat\",\"country_code\":\"in\",\"wikidata\":\"Q641904\",\"kind\":\"admin_area\",\"text_en\":\"Balaghat\"},{\"ref\":\"osm:r1950071\",\"id\":\"region.744\",\"text\":\"Madhya Pradesh\",\"country_code\":\"in\",\"wikidata\":\"Q1188\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Madhya Pradesh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Barpani\",\"place_name_en\":\"Barpani, Tirodi Tahsil, Balaghat, Madhya Pradesh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r16537613\",\"country_code\":\"in\",\"kind\":\"admin_area\",\"place_type_name\":[\"municipality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[79.67617348350177,22.523806567276356]},\"bbox\":[79.66745596379042,22.515105051507195,79.68785986304283,22.535828472419734],\"center\":[79.67617348350177,22.523806567276356],\"place_name\":\"Barpani, Madhya Pradesh, India\",\"place_type\":[\"municipality\"],\"relevance\":0.928571,\"id\":\"municipality.228692\",\"text\":\"Barpani\",\"place_type_name\":[\"municipality\"],\"context\":[{\"ref\":\"osm:r16718658\",\"id\":\"county.19691\",\"text\":\"Seoni Nagar Tahsil\",\"country_code\":\"in\",\"wikidata\":\"Q123254007\",\"kind\":\"admin_area\",\"text_en\":\"Seoni Nagar Tahsil\"},{\"ref\":\"osm:r1982942\",\"id\":\"subregion.947\",\"text\":\"Seoni\",\"country_code\":\"in\",\"wikidata\":\"Q2221184\",\"kind\":\"admin_area\",\"text_en\":\"Seoni\"},{\"ref\":\"osm:r1950071\",\"id\":\"region.744\",\"text\":\"Madhya Pradesh\",\"country_code\":\"in\",\"wikidata\":\"Q1188\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Madhya Pradesh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Barpani\",\"place_name_en\":\"Barpani, Seoni Nagar Tahsil, Seoni, Madhya Pradesh, India\"}],\"query\":[\"barpali\"],\"attribution\":\"<a href=\\\"https://www.maptiler.com/copyright/\\\" target=\\\"_blank\\\">&copy; MapTiler</a> <a href=\\\"https://www.openstreetmap.org/copyright\\\" target=\\\"_blank\\\">&copy; OpenStreetMap contributors</a>\"}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/Barpali.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true&proximity=85%2C21",
+      "expectedHits": [
+        {
+          "id": "place.803869",
+          "name": "Barapali",
+          "context": "Barapali, Odisha, India",
+          "lon": 83.58720168471336,
+          "lat": 21.190080997194745,
+          "bbox": [
+            83.58720168471336,
+            21.190080997194745,
+            83.58720168471336,
+            21.190080997194745
+          ]
+        },
+        {
+          "id": "place.2592481",
+          "name": "Barpali",
+          "context": "Paikmal, Odisha, India",
+          "lon": 82.74589028209448,
+          "lat": 20.89405824525621,
+          "bbox": [
+            82.74589028209448,
+            20.89405824525621,
+            82.74589028209448,
+            20.89405824525621
+          ]
+        },
+        {
+          "id": "place.2256230",
+          "name": "Barpali",
+          "context": "Malkharoda Tahsil, Chhattisgarh, India",
+          "lon": 83.00785526633263,
+          "lat": 21.768146377692972,
+          "bbox": [
+            83.00785526633263,
+            21.768146377692972,
+            83.00785526633263,
+            21.768146377692972
+          ]
+        },
+        {
+          "id": "place.2486017",
+          "name": "Barpali",
+          "context": "Kasdol Tahsil, Chhattisgarh, India",
+          "lon": 82.57817711681128,
+          "lat": 21.68595371118549,
+          "bbox": [
+            82.57817711681128,
+            21.68595371118549,
+            82.57817711681128,
+            21.68595371118549
+          ]
+        },
+        {
+          "id": "address.12634410",
+          "name": "Barpali to Kumbhari Baramkela road",
+          "context": "Barapali, Odisha, India",
+          "lon": 83.64568021148443,
+          "lat": 21.209424470925804,
+          "bbox": [
+            83.59821014106274,
+            21.187757997079775,
+            83.69116276502609,
+            21.233997611528117
+          ]
+        },
+        {
+          "id": "county.14699",
+          "name": "Barapali",
+          "context": "Odisha, India",
+          "lon": 83.58720168471336,
+          "lat": 21.190080997194745,
+          "bbox": [
+            83.4733482822776,
+            21.0619949765407,
+            83.70867457240821,
+            21.27649837431301
+          ]
+        },
+        {
+          "id": "municipality.222283",
+          "name": "Barpani",
+          "context": "Madhya Pradesh, India",
+          "lon": 79.6453755000557,
+          "lat": 21.565283390088272,
+          "bbox": [
+            79.62426234036684,
+            21.552969688557233,
+            79.66332335025072,
+            21.581948869112544
+          ]
+        },
+        {
+          "id": "municipality.228692",
+          "name": "Barpani",
+          "context": "Madhya Pradesh, India",
+          "lon": 79.67617348350177,
+          "lat": 22.523806567276356,
+          "bbox": [
+            79.66745596379042,
+            22.515105051507195,
+            79.68785986304283,
+            22.535828472419734
+          ]
+        }
+      ],
+      "expectedError": null
+    },
+    {
+      "name": "live-Bargarh",
+      "query": "Bargarh",
+      "proximity": {
+        "lon": 85,
+        "lat": 21
+      },
+      "status": 200,
+      "notJson": false,
+      "body": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n245694333\",\"country_code\":\"in\",\"wikidata\":\"Q712361\",\"kind\":\"place\",\"place_designation\":\"town\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[83.61904889345169,21.333500594158206]},\"bbox\":[83.6190488934517,21.333500594158206,83.6190488934517,21.333500594158206],\"center\":[83.61904889345169,21.333500594158206],\"place_name\":\"Bargarh, Bargarh, Odisha, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.47697\",\"text\":\"Bargarh\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r10105554\",\"id\":\"county.14661\",\"text\":\"Bargarh\",\"country_code\":\"in\",\"wikidata\":\"Q123279737\",\"kind\":\"admin_area\",\"text_en\":\"Bargarh\"},{\"ref\":\"osm:r1984023\",\"id\":\"subregion.977\",\"text\":\"Bargarh\",\"country_code\":\"in\",\"wikidata\":\"Q808140\",\"kind\":\"admin_area\",\"text_en\":\"Bargarh\"},{\"ref\":\"osm:r1984022\",\"id\":\"region.1502\",\"text\":\"Odisha\",\"country_code\":\"in\",\"wikidata\":\"Q22048\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Odisha\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"language\":\"en\",\"text_en\":\"Bargarh\",\"language_en\":\"en\",\"place_name_en\":\"Bargarh, Bargarh, Bargarh, Odisha, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r1984023\",\"country_code\":\"in\",\"wikidata\":\"Q808140\",\"kind\":\"admin_area\",\"place_type_name\":[\"region\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[83.61904889345169,21.333500594158206]},\"bbox\":[82.63642966747284,20.722963153925253,83.91022648662329,21.74283862190238],\"center\":[83.61904889345169,21.333500594158206],\"place_name\":\"Bargarh, Odisha, India\",\"place_type\":[\"subregion\"],\"relevance\":1,\"id\":\"subregion.977\",\"text\":\"Bargarh\",\"place_type_name\":[\"region\"],\"context\":[{\"ref\":\"osm:r1984022\",\"id\":\"region.1502\",\"text\":\"Odisha\",\"country_code\":\"in\",\"wikidata\":\"Q22048\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Odisha\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bargarh\",\"place_name_en\":\"Bargarh, Odisha, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r10319751\",\"country_code\":\"in\",\"wikidata\":\"Q28169856\",\"feature_tags\":{\"type\":\"waterway\",\"waterway\":\"canal\",\"wikipedia\":\"en:Bargarh Main Canal\"},\"categories\":[\"canal\"],\"place_type_name\":[null]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[83.5849442705512,21.202567864715814]},\"bbox\":[83.56165196746588,20.915983602979036,83.79980698227882,21.499189730767448],\"center\":[83.5849442705512,21.202567864715814],\"place_name\":\"Bargarh main canal, Odisha, India\",\"place_type\":[\"major_landform\"],\"relevance\":1,\"id\":\"major_landform.2481658\",\"text\":\"Bargarh main canal\",\"place_type_name\":[null],\"context\":[{\"ref\":\"osm:r10105565\",\"id\":\"county.14699\",\"text\":\"Barapali\",\"country_code\":\"in\",\"wikidata\":\"Q123280076\",\"kind\":\"admin_area\",\"text_en\":\"Barapali\"},{\"ref\":\"osm:r1984023\",\"id\":\"subregion.977\",\"text\":\"Bargarh\",\"country_code\":\"in\",\"wikidata\":\"Q808140\",\"kind\":\"admin_area\",\"text_en\":\"Bargarh\"},{\"ref\":\"osm:r1984022\",\"id\":\"region.1502\",\"text\":\"Odisha\",\"country_code\":\"in\",\"wikidata\":\"Q22048\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Odisha\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bargarh main canal\",\"place_name_en\":\"Bargarh main canal, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r10105554\",\"country_code\":\"in\",\"wikidata\":\"Q123279737\",\"kind\":\"admin_area\",\"place_type_name\":[\"county\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[83.61904889345169,21.333500594158206]},\"bbox\":[83.57643127441406,21.265540640407647,83.76324143260717,21.430579831681413],\"center\":[83.61904889345169,21.333500594158206],\"place_name\":\"Bargarh, Odisha, India\",\"place_type\":[\"county\"],\"relevance\":1,\"id\":\"county.14661\",\"text\":\"Bargarh\",\"place_type_name\":[\"county\"],\"context\":[{\"ref\":\"osm:r1984023\",\"id\":\"subregion.977\",\"text\":\"Bargarh\",\"country_code\":\"in\",\"wikidata\":\"Q808140\",\"kind\":\"admin_area\",\"text_en\":\"Bargarh\"},{\"ref\":\"osm:r1984022\",\"id\":\"region.1502\",\"text\":\"Odisha\",\"country_code\":\"in\",\"wikidata\":\"Q22048\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Odisha\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bargarh\",\"place_name_en\":\"Bargarh, Bargarh, Odisha, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r10105555\",\"country_code\":\"in\",\"wikidata\":\"Q123279679\",\"kind\":\"admin_area\",\"place_designation\":\"village\",\"place_type_name\":[\"county\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[83.59397258609533,21.33814039995856]},\"bbox\":[83.4715461730957,21.228882295044507,83.72328724712135,21.38846802857829],\"center\":[83.59397258609533,21.33814039995856],\"place_name\":\"Bargarh Sadar, Odisha, India\",\"place_type\":[\"county\"],\"relevance\":1,\"id\":\"county.14663\",\"text\":\"Bargarh Sadar\",\"place_type_name\":[\"county\"],\"context\":[{\"ref\":\"osm:r1984023\",\"id\":\"subregion.977\",\"text\":\"Bargarh\",\"country_code\":\"in\",\"wikidata\":\"Q808140\",\"kind\":\"admin_area\",\"text_en\":\"Bargarh\"},{\"ref\":\"osm:r1984022\",\"id\":\"region.1502\",\"text\":\"Odisha\",\"country_code\":\"in\",\"wikidata\":\"Q22048\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Odisha\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bargarh Sadar\",\"place_name_en\":\"Bargarh Sadar, Bargarh, Odisha, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r16293621\",\"country_code\":\"in\",\"kind\":\"admin_area\",\"place_designation\":\"village\",\"place_type_name\":[\"municipality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[75.06429512053728,23.599556004020343]},\"bbox\":[75.0540866330266,23.58419670512139,75.08540477603674,23.60342619359963],\"center\":[75.06429512053728,23.599556004020343],\"place_name\":\"Bargarh, Madhya Pradesh, India\",\"place_type\":[\"municipality\"],\"relevance\":1,\"id\":\"municipality.191132\",\"text\":\"Bargarh\",\"place_type_name\":[\"municipality\"],\"context\":[{\"ref\":\"osm:r9700452\",\"id\":\"county.11970\",\"text\":\"Piploda Tahsil\",\"country_code\":\"in\",\"wikidata\":\"Q20595589\",\"kind\":\"admin_area\",\"text_en\":\"Piploda Tahsil\"},{\"ref\":\"osm:r1976133\",\"id\":\"subregion.599\",\"text\":\"Ratlam\",\"country_code\":\"in\",\"wikidata\":\"Q2299164\",\"kind\":\"admin_area\",\"text_en\":\"Ratlam\"},{\"ref\":\"osm:r1950071\",\"id\":\"region.744\",\"text\":\"Madhya Pradesh\",\"country_code\":\"in\",\"wikidata\":\"Q1188\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Madhya Pradesh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bargarh\",\"place_name_en\":\"Bargarh, Piploda Tahsil, Ratlam, Madhya Pradesh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n6188827321\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"village\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[83.78643717616796,23.636268587003585]},\"bbox\":[83.78643717616796,23.636268587003585,83.78643717616796,23.636268587003585],\"center\":[83.78643717616796,23.636268587003585],\"place_name\":\"Bargarh, Bhandaria, Jharkhand, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.2008176\",\"text\":\"Bargarh\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r9921428\",\"id\":\"county.13848\",\"text\":\"Bhandaria\",\"country_code\":\"in\",\"wikidata\":\"Q24932210\",\"kind\":\"admin_area\",\"place_designation\":\"village\",\"language\":\"en\",\"text_en\":\"Bhandaria\",\"language_en\":\"en\"},{\"ref\":\"osm:r1972005\",\"id\":\"subregion.386\",\"text\":\"Garhwa\",\"country_code\":\"in\",\"wikidata\":\"Q2302076\",\"kind\":\"admin_area\",\"text_en\":\"Garhwa\"},{\"ref\":\"osm:r1960191\",\"id\":\"region.1789\",\"text\":\"Jharkhand\",\"country_code\":\"in\",\"wikidata\":\"Q1184\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Jharkhand\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bargarh\",\"place_name_en\":\"Bargarh, Bhandaria, Garhwa, Jharkhand, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n245729819\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"village\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[81.44718244671822,25.144701579845563]},\"bbox\":[81.44718244671822,25.144701579845563,81.44718244671822,25.144701579845563],\"center\":[81.44718244671822,25.144701579845563],\"place_name\":\"Bargarh, Mau, Uttar Pradesh, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.50740\",\"text\":\"Bargarh\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r10023046\",\"id\":\"county.13838\",\"text\":\"Mau\",\"country_code\":\"in\",\"wikidata\":\"Q123259700\",\"kind\":\"admin_area\",\"place_designation\":\"village\",\"text_en\":\"Mau\"},{\"ref\":\"osm:r9538920\",\"id\":\"subregion.1464\",\"text\":\"Chitrakoot\",\"country_code\":\"in\",\"wikidata\":\"Q2089141\",\"kind\":\"admin_area\",\"text_en\":\"Chitrakoot\"},{\"ref\":\"osm:r1942587\",\"id\":\"region.737\",\"text\":\"Uttar Pradesh\",\"country_code\":\"in\",\"wikidata\":\"Q1498\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Uttar Pradesh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bargarh\",\"place_name_en\":\"Bargarh, Mau, Chitrakoot, Uttar Pradesh, India\"}],\"query\":[\"bargarh\"],\"attribution\":\"<a href=\\\"https://www.maptiler.com/copyright/\\\" target=\\\"_blank\\\">&copy; MapTiler</a> <a href=\\\"https://www.openstreetmap.org/copyright\\\" target=\\\"_blank\\\">&copy; OpenStreetMap contributors</a>\"}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/Bargarh.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true&proximity=85%2C21",
+      "expectedHits": [
+        {
+          "id": "place.47697",
+          "name": "Bargarh",
+          "context": "Bargarh, Odisha, India",
+          "lon": 83.61904889345169,
+          "lat": 21.333500594158206,
+          "bbox": [
+            83.6190488934517,
+            21.333500594158206,
+            83.6190488934517,
+            21.333500594158206
+          ]
+        },
+        {
+          "id": "subregion.977",
+          "name": "Bargarh",
+          "context": "Odisha, India",
+          "lon": 83.61904889345169,
+          "lat": 21.333500594158206,
+          "bbox": [
+            82.63642966747284,
+            20.722963153925253,
+            83.91022648662329,
+            21.74283862190238
+          ]
+        },
+        {
+          "id": "major_landform.2481658",
+          "name": "Bargarh main canal",
+          "context": "Odisha, India",
+          "lon": 83.5849442705512,
+          "lat": 21.202567864715814,
+          "bbox": [
+            83.56165196746588,
+            20.915983602979036,
+            83.79980698227882,
+            21.499189730767448
+          ]
+        },
+        {
+          "id": "county.14661",
+          "name": "Bargarh",
+          "context": "Odisha, India",
+          "lon": 83.61904889345169,
+          "lat": 21.333500594158206,
+          "bbox": [
+            83.57643127441406,
+            21.265540640407647,
+            83.76324143260717,
+            21.430579831681413
+          ]
+        },
+        {
+          "id": "county.14663",
+          "name": "Bargarh Sadar",
+          "context": "Odisha, India",
+          "lon": 83.59397258609533,
+          "lat": 21.33814039995856,
+          "bbox": [
+            83.4715461730957,
+            21.228882295044507,
+            83.72328724712135,
+            21.38846802857829
+          ]
+        },
+        {
+          "id": "municipality.191132",
+          "name": "Bargarh",
+          "context": "Madhya Pradesh, India",
+          "lon": 75.06429512053728,
+          "lat": 23.599556004020343,
+          "bbox": [
+            75.0540866330266,
+            23.58419670512139,
+            75.08540477603674,
+            23.60342619359963
+          ]
+        },
+        {
+          "id": "place.2008176",
+          "name": "Bargarh",
+          "context": "Bhandaria, Jharkhand, India",
+          "lon": 83.78643717616796,
+          "lat": 23.636268587003585,
+          "bbox": [
+            83.78643717616796,
+            23.636268587003585,
+            83.78643717616796,
+            23.636268587003585
+          ]
+        },
+        {
+          "id": "place.50740",
+          "name": "Bargarh",
+          "context": "Mau, Uttar Pradesh, India",
+          "lon": 81.44718244671822,
+          "lat": 25.144701579845563,
+          "bbox": [
+            81.44718244671822,
+            25.144701579845563,
+            81.44718244671822,
+            25.144701579845563
+          ]
+        }
+      ],
+      "expectedError": null
+    },
+    {
+      "name": "live-Bagru",
+      "query": "Bagru",
+      "proximity": {
+        "lon": 85,
+        "lat": 21
+      },
+      "status": 200,
+      "notJson": false,
+      "body": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n2409936302\",\"country_code\":\"in\",\"wikidata\":\"Q625695\",\"kind\":\"place\",\"place_designation\":\"town\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[75.5440990626812,26.81506632256694]},\"bbox\":[75.5423117056489,26.80879533365383,75.5440990626812,26.81506632256694],\"center\":[75.5440990626812,26.81506632256694],\"place_name\":\"Bagru, Sanganer Tehsil, Rajasthan, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.5107435\",\"text\":\"Bagru\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r9644092\",\"id\":\"county.11923\",\"text\":\"Sanganer Tehsil\",\"country_code\":\"in\",\"wikidata\":\"Q123256836\",\"kind\":\"admin_area\",\"text_en\":\"Sanganer Tehsil\"},{\"ref\":\"osm:r1950062\",\"id\":\"subregion.290\",\"text\":\"Jaipur\",\"country_code\":\"in\",\"wikidata\":\"Q1134781\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Jaipur\",\"language_en\":\"en\"},{\"ref\":\"osm:r1942920\",\"id\":\"region.802\",\"text\":\"Rajasthan\",\"country_code\":\"in\",\"wikidata\":\"Q1437\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Rajasthan\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"language\":\"en\",\"text_en\":\"Bagru\",\"language_en\":\"en\",\"place_name_en\":\"Bagru, Sanganer Tehsil, Jaipur, Rajasthan, India, Asia\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r16627190\",\"country_code\":\"in\",\"kind\":\"admin_area\",\"place_type_name\":[\"municipality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[77.00888891957936,22.467501947083267]},\"bbox\":[76.99908714741468,22.459536465122753,77.01987527310848,22.475847929760207],\"center\":[77.00888891957936,22.467501947083267],\"place_name\":\"Bagrul, Madhya Pradesh, India\",\"place_type\":[\"municipality\"],\"relevance\":1,\"id\":\"municipality.215466\",\"text\":\"Bagrul\",\"place_type_name\":[\"municipality\"],\"context\":[{\"ref\":\"osm:r9691348\",\"id\":\"county.12981\",\"text\":\"Handiya Tahsil\",\"country_code\":\"in\",\"wikidata\":\"Q20599509\",\"kind\":\"admin_area\",\"text_en\":\"Handiya Tahsil\"},{\"ref\":\"osm:r1976219\",\"id\":\"subregion.620\",\"text\":\"Harda\",\"country_code\":\"in\",\"wikidata\":\"Q2173003\",\"kind\":\"admin_area\",\"text_en\":\"Harda\"},{\"ref\":\"osm:r1950071\",\"id\":\"region.744\",\"text\":\"Madhya Pradesh\",\"country_code\":\"in\",\"wikidata\":\"Q1188\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Madhya Pradesh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bagrul\",\"place_name_en\":\"Bagrul, Handiya Tahsil, Harda, Madhya Pradesh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r16633929\",\"country_code\":\"in\",\"kind\":\"admin_area\",\"place_type_name\":[\"municipality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[75.35743562756147,22.541294989198384]},\"bbox\":[75.33874478191137,22.519615133888276,75.38129501044752,22.56112191285446],\"center\":[75.35743562756147,22.541294989198384],\"place_name\":\"Bagruya, Madhya Pradesh, India\",\"place_type\":[\"municipality\"],\"relevance\":1,\"id\":\"municipality.202671\",\"text\":\"Bagruya\",\"place_type_name\":[\"municipality\"],\"context\":[{\"ref\":\"osm:r9689373\",\"id\":\"county.12612\",\"text\":\"Dhar Tahsil\",\"country_code\":\"in\",\"wikidata\":\"Q20590535\",\"kind\":\"admin_area\",\"text_en\":\"Dhar Tahsil\"},{\"ref\":\"osm:r1976159\",\"id\":\"subregion.605\",\"text\":\"Dhar\",\"country_code\":\"in\",\"wikidata\":\"Q2299069\",\"kind\":\"admin_area\",\"text_en\":\"Dhar\"},{\"ref\":\"osm:r1950071\",\"id\":\"region.744\",\"text\":\"Madhya Pradesh\",\"country_code\":\"in\",\"wikidata\":\"Q1188\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Madhya Pradesh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bagruya\",\"place_name_en\":\"Bagruya, Dhar Tahsil, Dhar, Madhya Pradesh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n8744878187\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"isolated_dwelling\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[77.47609555721283,31.00670087204018]},\"bbox\":[77.47609555721283,31.00670087204018,77.47609555721283,31.00670087204018],\"center\":[77.47609555721283,31.00670087204018],\"place_name\":\"Bagru, Chaupal, Himachal Pradesh, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.2816358\",\"text\":\"Bagru\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:w1069273719\",\"id\":\"major_landform.3246209\",\"text\":\"Bhui Nala\",\"country_code\":\"in\",\"feature_tags\":{\"waterway\":\"stream\"},\"categories\":[\"stream\"],\"text_en\":\"Bhui Nala\"},{\"ref\":\"osm:r9982309\",\"id\":\"county.13729\",\"text\":\"Chaupal\",\"country_code\":\"in\",\"wikidata\":\"Q123265191\",\"kind\":\"admin_area\",\"text_en\":\"Chaupal\"},{\"ref\":\"osm:r364181\",\"id\":\"subregion.179\",\"text\":\"Shimla\",\"country_code\":\"in\",\"wikidata\":\"Q1921404\",\"kind\":\"admin_area\",\"text_en\":\"Shimla\"},{\"ref\":\"osm:r364186\",\"id\":\"region.403\",\"text\":\"Himachal Pradesh\",\"country_code\":\"in\",\"wikidata\":\"Q1177\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Himachal Pradesh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bagru\",\"place_name_en\":\"Bagru, Chaupal, Shimla, Himachal Pradesh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n7952307042\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"isolated_dwelling\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[76.83533158153296,31.913401548130967]},\"bbox\":[76.83533158153296,31.913401548130967,76.83533158153296,31.913401548130967],\"center\":[76.83533158153296,31.913401548130967],\"place_name\":\"Bagru, Jogindar Nagar, Himachal Pradesh, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.2549706\",\"text\":\"Bagru\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r9977139\",\"id\":\"county.13101\",\"text\":\"Jogindar Nagar\",\"country_code\":\"in\",\"wikidata\":\"Q123265144\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Jogindar Nagar\",\"language_en\":\"en\"},{\"ref\":\"osm:r364161\",\"id\":\"subregion.174\",\"text\":\"Mandi\",\"country_code\":\"in\",\"wikidata\":\"Q1892161\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Mandi\",\"language_en\":\"en\"},{\"ref\":\"osm:r364186\",\"id\":\"region.403\",\"text\":\"Himachal Pradesh\",\"country_code\":\"in\",\"wikidata\":\"Q1177\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Himachal Pradesh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:w1414235061\",\"id\":\"major_landform.4142609\",\"text\":\"Himalayas\",\"country_code\":\"cn,np,bt,in\",\"wikidata\":\"Q5451\",\"feature_tags\":{\"natural\":\"mountain_range\",\"region:type\":\"mountain_area\",\"place\":\"region\",\"wikipedia\":\"en:Himalayas\"},\"categories\":[\"mountain range\"],\"language\":\"en\",\"text_en\":\"Himalayas\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bagru\",\"place_name_en\":\"Bagru, Jogindar Nagar, Mandi, Himachal Pradesh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n7933547127\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"village\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[79.07495465129614,30.00088196268206]},\"bbox\":[79.07495465129614,30.00088196268206,79.07495465129614,30.00088196268206],\"center\":[79.07495465129614,30.00088196268206],\"place_name\":\"Bagrupakha, Thailisain, Uttarakhand, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.2546002\",\"text\":\"Bagrupakha\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r9994755\",\"id\":\"county.15058\",\"text\":\"Thailisain\",\"country_code\":\"in\",\"wikidata\":\"Q12927662\",\"kind\":\"admin_area\",\"text_en\":\"Thailisain\"},{\"ref\":\"osm:r374972\",\"id\":\"subregion.70\",\"text\":\"Pauri Garhwal\",\"country_code\":\"in\",\"wikidata\":\"Q2085474\",\"kind\":\"admin_area\",\"text_en\":\"Pauri Garhwal\"},{\"ref\":\"osm:r9987086\",\"id\":\"region.1977\",\"text\":\"Uttarakhand\",\"country_code\":\"in\",\"wikidata\":\"Q1499\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Uttarakhand\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bagrupakha\",\"place_name_en\":\"Bagrupakha, Thailisain, Pauri Garhwal, Uttarakhand, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n8435746420\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"hamlet\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[75.49654450267553,26.833147222456187]},\"bbox\":[75.49654450267553,26.833147222456187,75.49654450267553,26.833147222456187],\"center\":[75.49654450267553,26.833147222456187],\"place_name\":\"Bagru Rawan, Sanganer Tehsil, Rajasthan, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.2678743\",\"text\":\"Bagru Rawan\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r9644092\",\"id\":\"county.11923\",\"text\":\"Sanganer Tehsil\",\"country_code\":\"in\",\"wikidata\":\"Q123256836\",\"kind\":\"admin_area\",\"text_en\":\"Sanganer Tehsil\"},{\"ref\":\"osm:r1950062\",\"id\":\"subregion.290\",\"text\":\"Jaipur\",\"country_code\":\"in\",\"wikidata\":\"Q1134781\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Jaipur\",\"language_en\":\"en\"},{\"ref\":\"osm:r1942920\",\"id\":\"region.802\",\"text\":\"Rajasthan\",\"country_code\":\"in\",\"wikidata\":\"Q1437\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Rajasthan\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bagru Rawan\",\"place_name_en\":\"Bagru Rawan, Sanganer Tehsil, Jaipur, Rajasthan, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:w382875283\",\"country_code\":\"in\",\"kind\":\"street\",\"place_type_name\":[\"address\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[75.81373482942581,26.929617898454897]},\"bbox\":[75.81279940903187,26.925908539577026,75.81447310745716,26.93285515525291],\"center\":[75.81373482942581,26.929617898454897],\"place_name\":\"Bagruwalon Ka Rasta, 302 001 Jaipur Municipal Corporation, Rajasthan, India\",\"place_type\":[\"address\"],\"relevance\":1,\"id\":\"address.8888709\",\"text\":\"Bagruwalon Ka Rasta\",\"place_type_name\":[\"address\"],\"context\":[{\"ref\":\"osm:n7037489937\",\"id\":\"postal_code.1508124\",\"text\":\"302 001\",\"country_code\":\"in\",\"text_en\":\"302 001\"},{\"ref\":\"osm:r7923743\",\"id\":\"municipality.151025\",\"text\":\"Jaipur Municipal Corporation\",\"country_code\":\"in\",\"wikidata\":\"Q6124132\",\"kind\":\"admin_area\",\"text_en\":\"Jaipur Municipal Corporation\"},{\"ref\":\"osm:r9644091\",\"id\":\"county.11921\",\"text\":\"Jaipur Tehsil\",\"country_code\":\"in\",\"wikidata\":\"Q123256799\",\"kind\":\"admin_area\",\"text_en\":\"Jaipur Tehsil\"},{\"ref\":\"osm:r1950062\",\"id\":\"subregion.290\",\"text\":\"Jaipur\",\"country_code\":\"in\",\"wikidata\":\"Q1134781\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Jaipur\",\"language_en\":\"en\"},{\"ref\":\"osm:r1942920\",\"id\":\"region.802\",\"text\":\"Rajasthan\",\"country_code\":\"in\",\"wikidata\":\"Q1437\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Rajasthan\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bagruwalon Ka Rasta\",\"place_name_en\":\"Bagruwalon Ka Rasta, 302 001, Jaipur Municipal Corporation, Jaipur Tehsil, Jaipur, Rajasthan, India\"}],\"query\":[\"bagru\"],\"attribution\":\"<a href=\\\"https://www.maptiler.com/copyright/\\\" target=\\\"_blank\\\">&copy; MapTiler</a> <a href=\\\"https://www.openstreetmap.org/copyright\\\" target=\\\"_blank\\\">&copy; OpenStreetMap contributors</a>\"}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/Bagru.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true&proximity=85%2C21",
+      "expectedHits": [
+        {
+          "id": "place.5107435",
+          "name": "Bagru",
+          "context": "Sanganer Tehsil, Rajasthan, India",
+          "lon": 75.5440990626812,
+          "lat": 26.81506632256694,
+          "bbox": [
+            75.5423117056489,
+            26.80879533365383,
+            75.5440990626812,
+            26.81506632256694
+          ]
+        },
+        {
+          "id": "municipality.215466",
+          "name": "Bagrul",
+          "context": "Madhya Pradesh, India",
+          "lon": 77.00888891957936,
+          "lat": 22.467501947083267,
+          "bbox": [
+            76.99908714741468,
+            22.459536465122753,
+            77.01987527310848,
+            22.475847929760207
+          ]
+        },
+        {
+          "id": "municipality.202671",
+          "name": "Bagruya",
+          "context": "Madhya Pradesh, India",
+          "lon": 75.35743562756147,
+          "lat": 22.541294989198384,
+          "bbox": [
+            75.33874478191137,
+            22.519615133888276,
+            75.38129501044752,
+            22.56112191285446
+          ]
+        },
+        {
+          "id": "place.2816358",
+          "name": "Bagru",
+          "context": "Chaupal, Himachal Pradesh, India",
+          "lon": 77.47609555721283,
+          "lat": 31.00670087204018,
+          "bbox": [
+            77.47609555721283,
+            31.00670087204018,
+            77.47609555721283,
+            31.00670087204018
+          ]
+        },
+        {
+          "id": "place.2549706",
+          "name": "Bagru",
+          "context": "Jogindar Nagar, Himachal Pradesh, India",
+          "lon": 76.83533158153296,
+          "lat": 31.913401548130967,
+          "bbox": [
+            76.83533158153296,
+            31.913401548130967,
+            76.83533158153296,
+            31.913401548130967
+          ]
+        },
+        {
+          "id": "place.2546002",
+          "name": "Bagrupakha",
+          "context": "Thailisain, Uttarakhand, India",
+          "lon": 79.07495465129614,
+          "lat": 30.00088196268206,
+          "bbox": [
+            79.07495465129614,
+            30.00088196268206,
+            79.07495465129614,
+            30.00088196268206
+          ]
+        },
+        {
+          "id": "place.2678743",
+          "name": "Bagru Rawan",
+          "context": "Sanganer Tehsil, Rajasthan, India",
+          "lon": 75.49654450267553,
+          "lat": 26.833147222456187,
+          "bbox": [
+            75.49654450267553,
+            26.833147222456187,
+            75.49654450267553,
+            26.833147222456187
+          ]
+        },
+        {
+          "id": "address.8888709",
+          "name": "Bagruwalon Ka Rasta",
+          "context": "302 001 Jaipur Municipal Corporation, Rajasthan, India",
+          "lon": 75.81373482942581,
+          "lat": 26.929617898454897,
+          "bbox": [
+            75.81279940903187,
+            26.925908539577026,
+            75.81447310745716,
+            26.93285515525291
+          ]
+        }
+      ],
+      "expectedError": null
+    },
+    {
+      "name": "live-Kutch",
+      "query": "Kutch",
+      "proximity": {
+        "lon": 85,
+        "lat": 21
+      },
+      "status": 200,
+      "notJson": false,
+      "body": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r8269590\",\"country_code\":\"in\",\"wikidata\":\"Q1063417\",\"kind\":\"admin_area\",\"place_type_name\":[\"region\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[69.66833867132664,23.24724487228956]},\"bbox\":[68.17565817385912,22.728941260633515,71.76204018294811,24.691008534384235],\"center\":[69.66833867132664,23.24724487228956],\"place_name\":\"Kutch, Gujarat, India\",\"place_type\":[\"subregion\"],\"relevance\":1,\"id\":\"subregion.1359\",\"text\":\"Kutch\",\"place_type_name\":[\"region\"],\"context\":[{\"ref\":\"osm:r1949080\",\"id\":\"region.1080\",\"text\":\"Gujarat\",\"country_code\":\"in\",\"wikidata\":\"Q1061\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Gujarat\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Kutch\",\"place_name_en\":\"Kutch, Gujarat, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n3387486073\",\"country_code\":\"in\",\"wikidata\":\"Q12419902\",\"kind\":\"place\",\"place_designation\":\"village\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[78.6747221276164,14.679630120663022]},\"bbox\":[78.6747221276164,14.679630120663022,78.6747221276164,14.679630120663022],\"center\":[78.6747221276164,14.679630120663022],\"place_name\":\"Kutchupapa, Chapad, Andhra Pradesh, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.1201463\",\"text\":\"Kutchupapa\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r18253546\",\"id\":\"major_landform.2540896\",\"text\":\"Kundu River\",\"country_code\":\"in\",\"wikidata\":\"Q6444366\",\"feature_tags\":{\"type\":\"waterway\",\"waterway\":\"river\"},\"categories\":[\"river\"],\"text_en\":\"Kundu River\"},{\"ref\":\"osm:r10219253\",\"id\":\"county.16067\",\"text\":\"Chapad\",\"country_code\":\"in\",\"wikidata\":\"Q60192850\",\"kind\":\"admin_area\",\"text_en\":\"Chapad\"},{\"ref\":\"osm:r2022290\",\"id\":\"subregion.588\",\"text\":\"YSR Kadapa\",\"country_code\":\"in\",\"wikidata\":\"Q15342\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"YSR Kadapa\",\"language_en\":\"en\"},{\"ref\":\"osm:r2022095\",\"id\":\"region.1013\",\"text\":\"Andhra Pradesh\",\"country_code\":\"in\",\"wikidata\":\"Q1159\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Andhra Pradesh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Kutchupapa\",\"place_name_en\":\"Kutchupapa, Chapad, YSR Kadapa, Andhra Pradesh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n9590421610\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"hamlet\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[86.0224449634552,22.901587103790447]},\"bbox\":[86.0224449634552,22.901587103790447,86.0224449634552,22.901587103790447],\"center\":[86.0224449634552,22.901587103790447],\"place_name\":\"Kutchidih, Chandil, Jharkhand, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.3072108\",\"text\":\"Kutchidih\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r9965565\",\"id\":\"county.12893\",\"text\":\"Chandil\",\"country_code\":\"in\",\"wikidata\":\"Q123280009\",\"kind\":\"admin_area\",\"place_designation\":\"village\",\"language\":\"en\",\"text_en\":\"Chandil\",\"language_en\":\"en\"},{\"ref\":\"osm:r9529288\",\"id\":\"subregion.1468\",\"text\":\"Seraikela-Kharsawan\",\"country_code\":\"in\",\"wikidata\":\"Q2362658\",\"kind\":\"admin_area\",\"text_en\":\"Seraikela-Kharsawan\"},{\"ref\":\"osm:r1960191\",\"id\":\"region.1789\",\"text\":\"Jharkhand\",\"country_code\":\"in\",\"wikidata\":\"Q1184\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Jharkhand\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Kutchidih\",\"place_name_en\":\"Kutchidih, Chandil, Seraikela-Kharsawan, Jharkhand, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n11598088890\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"hamlet\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[78.51797718554735,10.80561247506428]},\"bbox\":[78.51797718554735,10.80561247506428,78.51797718554735,10.80561247506428],\"center\":[78.51797718554735,10.80561247506428],\"place_name\":\"Kutchipatti, Kulithalai, Tamil Nadu, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.3584682\",\"text\":\"Kutchipatti\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:w813358725\",\"id\":\"major_landform.2540091\",\"text\":\"Kattalai Canal\",\"country_code\":\"in\",\"feature_tags\":{\"waterway\":\"canal\"},\"categories\":[\"canal\"],\"text_en\":\"Kattalai Canal\"},{\"ref\":\"osm:r10317425\",\"id\":\"county.15510\",\"text\":\"Kulithalai\",\"country_code\":\"in\",\"wikidata\":\"Q6443050\",\"kind\":\"admin_area\",\"text_en\":\"Kulithalai\"},{\"ref\":\"osm:r1819319\",\"id\":\"subregion.247\",\"text\":\"Karur\",\"country_code\":\"in\",\"wikidata\":\"Q15182\",\"kind\":\"admin_area\",\"text_en\":\"Karur\"},{\"ref\":\"osm:r96905\",\"id\":\"region.447\",\"text\":\"Tamil Nadu\",\"country_code\":\"in\",\"wikidata\":\"Q1445\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Tamil Nadu\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Kutchipatti\",\"place_name_en\":\"Kutchipatti, Kulithalai, Karur, Tamil Nadu, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n9241407566\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"hamlet\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[78.45143862068653,10.712686198997542]},\"bbox\":[78.45143862068653,10.712686198997542,78.45143862068653,10.712686198997542],\"center\":[78.45143862068653,10.712686198997542],\"place_name\":\"Kutchibommanaickenpatty, Kulithalai, Tamil Nadu, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.2970959\",\"text\":\"Kutchibommanaickenpatty\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r10317425\",\"id\":\"county.15510\",\"text\":\"Kulithalai\",\"country_code\":\"in\",\"wikidata\":\"Q6443050\",\"kind\":\"admin_area\",\"text_en\":\"Kulithalai\"},{\"ref\":\"osm:r1819319\",\"id\":\"subregion.247\",\"text\":\"Karur\",\"country_code\":\"in\",\"wikidata\":\"Q15182\",\"kind\":\"admin_area\",\"text_en\":\"Karur\"},{\"ref\":\"osm:r96905\",\"id\":\"region.447\",\"text\":\"Tamil Nadu\",\"country_code\":\"in\",\"wikidata\":\"Q1445\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Tamil Nadu\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Kutchibommanaickenpatty\",\"place_name_en\":\"Kutchibommanaickenpatty, Kulithalai, Karur, Tamil Nadu, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n11593211054\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"hamlet\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[78.14966596662998,10.99639929299827]},\"bbox\":[78.14966596662998,10.99639929299827,78.14966596662998,10.99639929299827],\"center\":[78.14966596662998,10.99639929299827],\"place_name\":\"Kutchipalayampudur, Karur, Tamil Nadu, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.3584228\",\"text\":\"Kutchipalayampudur\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r10317428\",\"id\":\"county.15513\",\"text\":\"Karur\",\"country_code\":\"in\",\"wikidata\":\"Q6373727\",\"kind\":\"admin_area\",\"text_en\":\"Karur\"},{\"ref\":\"osm:r1819319\",\"id\":\"subregion.247\",\"text\":\"Karur\",\"country_code\":\"in\",\"wikidata\":\"Q15182\",\"kind\":\"admin_area\",\"text_en\":\"Karur\"},{\"ref\":\"osm:r96905\",\"id\":\"region.447\",\"text\":\"Tamil Nadu\",\"country_code\":\"in\",\"wikidata\":\"Q1445\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Tamil Nadu\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Kutchipalayampudur\",\"place_name_en\":\"Kutchipalayampudur, Karur, Karur, Tamil Nadu, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n13279184281\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"neighbourhood\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[76.58434219658375,8.890173584515003]},\"bbox\":[76.58434219658375,8.890173584515003,76.58434219658375,8.890173584515003],\"center\":[76.58434219658375,8.890173584515003],\"place_name\":\"Kutchery Junction, Kollam, Kerala, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.3938504\",\"text\":\"Kutchery Junction\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:w101010834\",\"id\":\"major_landform.2608803\",\"text\":\"Kollam Thodu\",\"country_code\":\"in\",\"feature_tags\":{\"waterway\":\"canal\"},\"categories\":[\"canal\"],\"text_en\":\"Kollam Thodu\"},{\"ref\":\"osm:r10124866\",\"id\":\"county.14535\",\"text\":\"Kollam\",\"country_code\":\"in\",\"wikidata\":\"Q6427344\",\"kind\":\"admin_area\",\"text_en\":\"Kollam\"},{\"ref\":\"osm:r2018154\",\"id\":\"subregion.403\",\"text\":\"Kollam\",\"country_code\":\"in\",\"wikidata\":\"Q1356124\",\"kind\":\"admin_area\",\"text_en\":\"Kollam\"},{\"ref\":\"osm:r2018151\",\"id\":\"region.879\",\"text\":\"Kerala\",\"country_code\":\"in\",\"wikidata\":\"Q1186\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Kerala\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Kutchery Junction\",\"place_name_en\":\"Kutchery Junction, Kollam, Kollam, Kerala, India\"}],\"query\":[\"kutch\"],\"attribution\":\"<a href=\\\"https://www.maptiler.com/copyright/\\\" target=\\\"_blank\\\">&copy; MapTiler</a> <a href=\\\"https://www.openstreetmap.org/copyright\\\" target=\\\"_blank\\\">&copy; OpenStreetMap contributors</a>\"}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/Kutch.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true&proximity=85%2C21",
+      "expectedHits": [
+        {
+          "id": "subregion.1359",
+          "name": "Kutch",
+          "context": "Gujarat, India",
+          "lon": 69.66833867132664,
+          "lat": 23.24724487228956,
+          "bbox": [
+            68.17565817385912,
+            22.728941260633515,
+            71.76204018294811,
+            24.691008534384235
+          ]
+        },
+        {
+          "id": "place.1201463",
+          "name": "Kutchupapa",
+          "context": "Chapad, Andhra Pradesh, India",
+          "lon": 78.6747221276164,
+          "lat": 14.679630120663022,
+          "bbox": [
+            78.6747221276164,
+            14.679630120663022,
+            78.6747221276164,
+            14.679630120663022
+          ]
+        },
+        {
+          "id": "place.3072108",
+          "name": "Kutchidih",
+          "context": "Chandil, Jharkhand, India",
+          "lon": 86.0224449634552,
+          "lat": 22.901587103790447,
+          "bbox": [
+            86.0224449634552,
+            22.901587103790447,
+            86.0224449634552,
+            22.901587103790447
+          ]
+        },
+        {
+          "id": "place.3584682",
+          "name": "Kutchipatti",
+          "context": "Kulithalai, Tamil Nadu, India",
+          "lon": 78.51797718554735,
+          "lat": 10.80561247506428,
+          "bbox": [
+            78.51797718554735,
+            10.80561247506428,
+            78.51797718554735,
+            10.80561247506428
+          ]
+        },
+        {
+          "id": "place.2970959",
+          "name": "Kutchibommanaickenpatty",
+          "context": "Kulithalai, Tamil Nadu, India",
+          "lon": 78.45143862068653,
+          "lat": 10.712686198997542,
+          "bbox": [
+            78.45143862068653,
+            10.712686198997542,
+            78.45143862068653,
+            10.712686198997542
+          ]
+        },
+        {
+          "id": "place.3584228",
+          "name": "Kutchipalayampudur",
+          "context": "Karur, Tamil Nadu, India",
+          "lon": 78.14966596662998,
+          "lat": 10.99639929299827,
+          "bbox": [
+            78.14966596662998,
+            10.99639929299827,
+            78.14966596662998,
+            10.99639929299827
+          ]
+        },
+        {
+          "id": "place.3938504",
+          "name": "Kutchery Junction",
+          "context": "Kollam, Kerala, India",
+          "lon": 76.58434219658375,
+          "lat": 8.890173584515003,
+          "bbox": [
+            76.58434219658375,
+            8.890173584515003,
+            76.58434219658375,
+            8.890173584515003
+          ]
+        }
+      ],
+      "expectedError": null
+    },
+    {
+      "name": "live-Bhuj",
+      "query": "Bhuj",
+      "proximity": {
+        "lon": 85,
+        "lat": 21
+      },
+      "status": 200,
+      "notJson": false,
+      "body": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n567903581\",\"country_code\":\"in\",\"wikidata\":\"Q798382\",\"kind\":\"place\",\"place_designation\":\"city\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[69.66833867132664,23.24724487228956]},\"bbox\":[69.66833867132664,23.24724487228956,69.66833867132664,23.24724487228956],\"center\":[69.66833867132664,23.24724487228956],\"place_name\":\"Bhuj, Bhuj Taluka, Gujarat, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.5105829\",\"text\":\"Bhuj\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r9652502\",\"id\":\"county.11678\",\"text\":\"Bhuj Taluka\",\"country_code\":\"in\",\"wikidata\":\"Q27125857\",\"kind\":\"admin_area\",\"text_en\":\"Bhuj Taluka\"},{\"ref\":\"osm:r8269590\",\"id\":\"subregion.1359\",\"text\":\"Kutch\",\"country_code\":\"in\",\"wikidata\":\"Q1063417\",\"kind\":\"admin_area\",\"text_en\":\"Kutch\"},{\"ref\":\"osm:r1949080\",\"id\":\"region.1080\",\"text\":\"Gujarat\",\"country_code\":\"in\",\"wikidata\":\"Q1061\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Gujarat\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"language\":\"en\",\"text_en\":\"Bhuj\",\"language_en\":\"en\",\"place_name_en\":\"Bhuj, Bhuj Taluka, Kutch, Gujarat, India, Asia\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:w540392138\",\"country_code\":\"in\",\"wikidata\":\"Q24950052\",\"feature_tags\":{\"natural\":\"scrub\",\"wikipedia\":\"en:Bhujia Hill\"},\"categories\":[\"scrub\"],\"place_type_name\":[null]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[69.68991009196134,23.24558224846399]},\"bbox\":[69.682137966156,23.24094191558102,69.69604220241308,23.249981605915504],\"center\":[69.68991009196134,23.24558224846399],\"place_name\":\"Bhujiyo Dungar, Gujarat, India\",\"place_type\":[\"major_landform\"],\"relevance\":1,\"id\":\"major_landform.1056559\",\"text\":\"Bhujiyo Dungar\",\"place_type_name\":[null],\"context\":[{\"ref\":\"osm:r9652502\",\"id\":\"county.11678\",\"text\":\"Bhuj Taluka\",\"country_code\":\"in\",\"wikidata\":\"Q27125857\",\"kind\":\"admin_area\",\"text_en\":\"Bhuj Taluka\"},{\"ref\":\"osm:r8269590\",\"id\":\"subregion.1359\",\"text\":\"Kutch\",\"country_code\":\"in\",\"wikidata\":\"Q1063417\",\"kind\":\"admin_area\",\"text_en\":\"Kutch\"},{\"ref\":\"osm:r1949080\",\"id\":\"region.1080\",\"text\":\"Gujarat\",\"country_code\":\"in\",\"wikidata\":\"Q1061\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Gujarat\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bhujiyo Dungar\",\"place_name_en\":\"Bhujiyo Dungar, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r9652502\",\"country_code\":\"in\",\"wikidata\":\"Q27125857\",\"kind\":\"admin_area\",\"place_type_name\":[\"county\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[69.66833867132664,23.24724487228956]},\"bbox\":[69.16434220969677,23.00201219526532,70.18821649253368,23.983743792540157],\"center\":[69.66833867132664,23.24724487228956],\"place_name\":\"Bhuj Taluka, Gujarat, India\",\"place_type\":[\"county\"],\"relevance\":1,\"id\":\"county.11678\",\"text\":\"Bhuj Taluka\",\"place_type_name\":[\"county\"],\"context\":[{\"ref\":\"osm:r8269590\",\"id\":\"subregion.1359\",\"text\":\"Kutch\",\"country_code\":\"in\",\"wikidata\":\"Q1063417\",\"kind\":\"admin_area\",\"text_en\":\"Kutch\"},{\"ref\":\"osm:r1949080\",\"id\":\"region.1080\",\"text\":\"Gujarat\",\"country_code\":\"in\",\"wikidata\":\"Q1061\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Gujarat\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bhuj Taluka\",\"place_name_en\":\"Bhuj Taluka, Kutch, Gujarat, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n4754903521\",\"country_code\":\"in\",\"wikidata\":\"Q4902115\",\"kind\":\"place\",\"place_designation\":\"village\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[81.27020359039307,16.576966258315593]},\"bbox\":[81.27020359039308,16.576966258315593,81.27020359039308,16.576966258315593],\"center\":[81.27020359039307,16.576966258315593],\"place_name\":\"Bhujabalapatnam, Kaikaluru, Andhra Pradesh, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.1628984\",\"text\":\"Bhujabalapatnam\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:w664589166\",\"id\":\"major_landform.2433314\",\"text\":\"Pullava Drain\",\"country_code\":\"in\",\"feature_tags\":{\"waterway\":\"drain\"},\"categories\":[\"drain\"],\"text_en\":\"Pullava Drain\"},{\"ref\":\"osm:r10154523\",\"id\":\"county.14233\",\"text\":\"Kaikaluru\",\"country_code\":\"in\",\"wikidata\":\"Q48728320\",\"kind\":\"admin_area\",\"text_en\":\"Kaikaluru\"},{\"ref\":\"osm:r13999189\",\"id\":\"subregion.1664\",\"text\":\"Eluru\",\"country_code\":\"in\",\"wikidata\":\"Q110714851\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Eluru\",\"language_en\":\"en\"},{\"ref\":\"osm:r2022095\",\"id\":\"region.1013\",\"text\":\"Andhra Pradesh\",\"country_code\":\"in\",\"wikidata\":\"Q1159\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Andhra Pradesh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bhujabalapatnam\",\"place_name_en\":\"Bhujabalapatnam, Kaikaluru, Eluru, Andhra Pradesh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r16489795\",\"country_code\":\"in\",\"kind\":\"admin_area\",\"place_type_name\":[\"municipality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[80.28630436586207,24.852827341325394]},\"bbox\":[80.27349807322025,24.843577658440697,80.29610306024551,24.862642565729338],\"center\":[80.28630436586207,24.852827341325394],\"place_name\":\"Bhujawai, Madhya Pradesh, India\",\"place_type\":[\"municipality\"],\"relevance\":1,\"id\":\"municipality.194405\",\"text\":\"Bhujawai\",\"place_type_name\":[\"municipality\"],\"context\":[{\"ref\":\"osm:w209968943\",\"id\":\"major_landform.2561165\",\"text\":\"Baghain\",\"country_code\":\"in\",\"feature_tags\":{\"waterway\":\"river\"},\"categories\":[\"river\"],\"text_en\":\"Baghain\"},{\"ref\":\"osm:r9698272\",\"id\":\"county.11764\",\"text\":\"Ajaigarh Tahsil\",\"country_code\":\"in\",\"wikidata\":\"Q20089886\",\"kind\":\"admin_area\",\"text_en\":\"Ajaigarh Tahsil\"},{\"ref\":\"osm:r1973983\",\"id\":\"subregion.506\",\"text\":\"Panna\",\"country_code\":\"in\",\"wikidata\":\"Q2341630\",\"kind\":\"admin_area\",\"place_designation\":\"town\",\"text_en\":\"Panna\"},{\"ref\":\"osm:r1950071\",\"id\":\"region.744\",\"text\":\"Madhya Pradesh\",\"country_code\":\"in\",\"wikidata\":\"Q1188\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Madhya Pradesh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bhujawai\",\"place_name_en\":\"Bhujawai, Ajaigarh Tahsil, Panna, Madhya Pradesh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r16460076\",\"country_code\":\"in\",\"kind\":\"admin_area\",\"place_type_name\":[\"municipality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[78.75430976573182,26.58242875003897]},\"bbox\":[78.74506440013647,26.57424859435307,78.76858234405518,26.58996207024862],\"center\":[78.75430976573182,26.58242875003897],\"place_name\":\"Bhujpura, Madhya Pradesh, India\",\"place_type\":[\"municipality\"],\"relevance\":1,\"id\":\"municipality.241727\",\"text\":\"Bhujpura\",\"place_type_name\":[\"municipality\"],\"context\":[{\"ref\":\"osm:r14918941\",\"id\":\"county.19280\",\"text\":\"Bhind Nagar Tahsil\",\"country_code\":\"in\",\"wikidata\":\"Q123253862\",\"kind\":\"admin_area\",\"text_en\":\"Bhind Nagar Tahsil\"},{\"ref\":\"osm:r1973948\",\"id\":\"subregion.468\",\"text\":\"Bhind\",\"country_code\":\"in\",\"wikidata\":\"Q2341700\",\"kind\":\"admin_area\",\"text_en\":\"Bhind\"},{\"ref\":\"osm:r1950071\",\"id\":\"region.744\",\"text\":\"Madhya Pradesh\",\"country_code\":\"in\",\"wikidata\":\"Q1188\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Madhya Pradesh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bhujpura\",\"place_name_en\":\"Bhujpura, Bhind Nagar Tahsil, Bhind, Madhya Pradesh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r17455743\",\"country_code\":\"in\",\"kind\":\"admin_area\",\"place_type_name\":[\"municipality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[77.6132767859151,12.819797513703538]},\"bbox\":[77.61185724288225,12.817107318244345,77.61486768722534,12.824223004249141],\"center\":[77.6132767859151,12.819797513703538],\"place_name\":\"Bhujangadasana Amanikere, Karnataka, India\",\"place_type\":[\"municipality\"],\"relevance\":1,\"id\":\"municipality.235587\",\"text\":\"Bhujangadasana Amanikere\",\"place_type_name\":[\"municipality\"],\"context\":[{\"ref\":\"osm:w413020105\",\"id\":\"major_landform.890572\",\"text\":\"Amanikere\",\"country_code\":\"in\",\"feature_tags\":{\"landuse\":\"reservoir\"},\"categories\":[\"reservoir\"],\"text_en\":\"Amanikere\"},{\"ref\":\"osm:r10594819\",\"id\":\"county.17950\",\"text\":\"Anekal\",\"country_code\":\"in\",\"wikidata\":\"Q20196111\",\"kind\":\"admin_area\",\"text_en\":\"Anekal\"},{\"ref\":\"osm:r2020589\",\"id\":\"subregion.473\",\"text\":\"Bengaluru Urban\",\"country_code\":\"in\",\"wikidata\":\"Q806463\",\"kind\":\"admin_area\",\"text_en\":\"Bengaluru Urban\"},{\"ref\":\"osm:r2019939\",\"id\":\"region.916\",\"text\":\"Karnataka\",\"country_code\":\"in\",\"wikidata\":\"Q1185\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Karnataka\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bhujangadasana Amanikere\",\"place_name_en\":\"Bhujangadasana Amanikere, Anekal, Bengaluru Urban, Karnataka, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r14215110\",\"country_code\":\"in\",\"kind\":\"admin_area\",\"place_designation\":\"hamlet\",\"place_type_name\":[\"municipality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[77.36209597438574,20.84984888323801]},\"bbox\":[77.35585179179907,20.84330973126085,77.37645149230957,20.864807025256734],\"center\":[77.36209597438574,20.84984888323801],\"place_name\":\"Bhujwada, Maharashtra, India\",\"place_type\":[\"municipality\"],\"relevance\":1,\"id\":\"municipality.183941\",\"text\":\"Bhujwada\",\"place_type_name\":[\"municipality\"],\"context\":[{\"ref\":\"osm:r10330554\",\"id\":\"county.16447\",\"text\":\"Daryapur\",\"country_code\":\"in\",\"wikidata\":\"Q19807844\",\"kind\":\"admin_area\",\"text_en\":\"Daryapur\"},{\"ref\":\"osm:r9510709\",\"id\":\"subregion.1391\",\"text\":\"Amravati\",\"country_code\":\"in\",\"wikidata\":\"Q1771774\",\"kind\":\"admin_area\",\"text_en\":\"Amravati\"},{\"ref\":\"osm:r1950884\",\"id\":\"region.815\",\"text\":\"Maharashtra\",\"country_code\":\"in\",\"wikidata\":\"Q1191\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Maharashtra\",\"language_en\":\"en\"},{\"ref\":\"osm:w158655842\",\"id\":\"major_landform.4132087\",\"text\":\"Purna\",\"country_code\":\"in\",\"wikidata\":\"Q982731\",\"feature_tags\":{\"waterway\":\"river\"},\"categories\":[\"river\"],\"text_en\":\"Purna\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Bhujwada\",\"place_name_en\":\"Bhujwada, Daryapur, Amravati, Maharashtra, India\"}],\"query\":[\"bhuj\"],\"attribution\":\"<a href=\\\"https://www.maptiler.com/copyright/\\\" target=\\\"_blank\\\">&copy; MapTiler</a> <a href=\\\"https://www.openstreetmap.org/copyright\\\" target=\\\"_blank\\\">&copy; OpenStreetMap contributors</a>\"}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/Bhuj.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true&proximity=85%2C21",
+      "expectedHits": [
+        {
+          "id": "place.5105829",
+          "name": "Bhuj",
+          "context": "Bhuj Taluka, Gujarat, India",
+          "lon": 69.66833867132664,
+          "lat": 23.24724487228956,
+          "bbox": [
+            69.66833867132664,
+            23.24724487228956,
+            69.66833867132664,
+            23.24724487228956
+          ]
+        },
+        {
+          "id": "major_landform.1056559",
+          "name": "Bhujiyo Dungar",
+          "context": "Gujarat, India",
+          "lon": 69.68991009196134,
+          "lat": 23.24558224846399,
+          "bbox": [
+            69.682137966156,
+            23.24094191558102,
+            69.69604220241308,
+            23.249981605915504
+          ]
+        },
+        {
+          "id": "county.11678",
+          "name": "Bhuj Taluka",
+          "context": "Gujarat, India",
+          "lon": 69.66833867132664,
+          "lat": 23.24724487228956,
+          "bbox": [
+            69.16434220969677,
+            23.00201219526532,
+            70.18821649253368,
+            23.983743792540157
+          ]
+        },
+        {
+          "id": "place.1628984",
+          "name": "Bhujabalapatnam",
+          "context": "Kaikaluru, Andhra Pradesh, India",
+          "lon": 81.27020359039307,
+          "lat": 16.576966258315593,
+          "bbox": [
+            81.27020359039308,
+            16.576966258315593,
+            81.27020359039308,
+            16.576966258315593
+          ]
+        },
+        {
+          "id": "municipality.194405",
+          "name": "Bhujawai",
+          "context": "Madhya Pradesh, India",
+          "lon": 80.28630436586207,
+          "lat": 24.852827341325394,
+          "bbox": [
+            80.27349807322025,
+            24.843577658440697,
+            80.29610306024551,
+            24.862642565729338
+          ]
+        },
+        {
+          "id": "municipality.241727",
+          "name": "Bhujpura",
+          "context": "Madhya Pradesh, India",
+          "lon": 78.75430976573182,
+          "lat": 26.58242875003897,
+          "bbox": [
+            78.74506440013647,
+            26.57424859435307,
+            78.76858234405518,
+            26.58996207024862
+          ]
+        },
+        {
+          "id": "municipality.235587",
+          "name": "Bhujangadasana Amanikere",
+          "context": "Karnataka, India",
+          "lon": 77.6132767859151,
+          "lat": 12.819797513703538,
+          "bbox": [
+            77.61185724288225,
+            12.817107318244345,
+            77.61486768722534,
+            12.824223004249141
+          ]
+        },
+        {
+          "id": "municipality.183941",
+          "name": "Bhujwada",
+          "context": "Maharashtra, India",
+          "lon": 77.36209597438574,
+          "lat": 20.84984888323801,
+          "bbox": [
+            77.35585179179907,
+            20.84330973126085,
+            77.37645149230957,
+            20.864807025256734
+          ]
+        }
+      ],
+      "expectedError": null
+    },
+    {
+      "name": "live-Srinagar",
+      "query": "Srinagar",
+      "proximity": {
+        "lon": 85,
+        "lat": 21
+      },
+      "status": 200,
+      "notJson": false,
+      "body": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n273658993\",\"country_code\":\"in\",\"wikidata\":\"Q170115\",\"kind\":\"place\",\"place_designation\":\"city\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[74.82044409960508,34.074744544436626]},\"bbox\":[74.82044409960508,34.074744544436626,74.82044409960508,34.074744544436626],\"center\":[74.82044409960508,34.074744544436626],\"place_name\":\"Srinagar, Srinagar (South), Jammu and Kashmir, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.5104915\",\"text\":\"Srinagar\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r8306691\",\"id\":\"major_landform.2615600\",\"text\":\"Jhelum River\",\"country_code\":\"in,pk\",\"wikidata\":\"Q214874\",\"feature_tags\":{\"type\":\"waterway\",\"waterway\":\"river\",\"wikipedia\":\"ur:دریائے جہلم\"},\"categories\":[\"river\"],\"language\":\"en\",\"text_en\":\"Jhelum River\",\"language_en\":\"en\"},{\"ref\":\"osm:r10389875\",\"id\":\"county.16480\",\"text\":\"Srinagar (South)\",\"country_code\":\"in\",\"wikidata\":\"Q123256311\",\"kind\":\"admin_area\",\"text_en\":\"Srinagar (South)\"},{\"ref\":\"osm:r9544370\",\"id\":\"subregion.1433\",\"text\":\"Srinagar\",\"country_code\":\"in\",\"wikidata\":\"Q1506029\",\"kind\":\"admin_area\",\"text_en\":\"Srinagar\"},{\"ref\":\"osm:r1943188\",\"id\":\"region.831\",\"text\":\"Jammu and Kashmir\",\"country_code\":\"in\",\"wikidata\":\"Q66278313\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Jammu and Kashmir\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"language\":\"en\",\"text_en\":\"Srinagar\",\"language_en\":\"en\",\"place_name_en\":\"Srinagar, Jhelum River, Srinagar (South), Srinagar, Jammu and Kashmir, India, Asia\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n342110107\",\"country_code\":\"in\",\"wikidata\":\"Q2548709\",\"kind\":\"place\",\"place_designation\":\"town\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[78.78790430724621,30.223806534554594]},\"bbox\":[78.78790430724621,30.223806534554594,78.78790430724621,30.223806534554594],\"center\":[78.78790430724621,30.223806534554594],\"place_name\":\"Srinagar, Srinagar, Uttarakhand, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.5105371\",\"text\":\"Srinagar\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r1243393\",\"id\":\"major_landform.2846039\",\"text\":\"Alaknanda\",\"country_code\":\"in\",\"wikidata\":\"Q1419768\",\"feature_tags\":{\"destination\":\"Ganges\",\"wikipedia\":\"en:Alaknanda River\",\"type\":\"waterway\",\"boat\":\"no\",\"waterway\":\"river\"},\"categories\":[\"river\"],\"language\":\"en\",\"text_en\":\"Alaknanda\",\"language_en\":\"en\"},{\"ref\":\"osm:r9994756\",\"id\":\"county.15061\",\"text\":\"Srinagar\",\"country_code\":\"in\",\"wikidata\":\"Q123260026\",\"kind\":\"admin_area\",\"text_en\":\"Srinagar\"},{\"ref\":\"osm:r374972\",\"id\":\"subregion.70\",\"text\":\"Pauri Garhwal\",\"country_code\":\"in\",\"wikidata\":\"Q2085474\",\"kind\":\"admin_area\",\"text_en\":\"Pauri Garhwal\"},{\"ref\":\"osm:r9987086\",\"id\":\"region.1977\",\"text\":\"Uttarakhand\",\"country_code\":\"in\",\"wikidata\":\"Q1499\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Uttarakhand\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Srinagar\",\"place_name_en\":\"Srinagar, Alaknanda, Srinagar, Pauri Garhwal, Uttarakhand, India, Asia\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r9544370\",\"country_code\":\"in\",\"wikidata\":\"Q1506029\",\"kind\":\"admin_area\",\"place_type_name\":[\"region\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[74.82044409960508,34.074744544436626]},\"bbox\":[74.66808892786503,34.00770843852552,75.1458403095603,34.22834971980279],\"center\":[74.82044409960508,34.074744544436626],\"place_name\":\"Srinagar, Jammu and Kashmir, India\",\"place_type\":[\"subregion\"],\"relevance\":1,\"id\":\"subregion.1433\",\"text\":\"Srinagar\",\"place_type_name\":[\"region\"],\"context\":[{\"ref\":\"osm:r1943188\",\"id\":\"region.831\",\"text\":\"Jammu and Kashmir\",\"country_code\":\"in\",\"wikidata\":\"Q66278313\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Jammu and Kashmir\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Srinagar\",\"place_name_en\":\"Srinagar, Jammu and Kashmir, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n2930530926\",\"country_code\":\"in\",\"wikidata\":\"Q7586420\",\"kind\":\"place\",\"place_designation\":\"neighbourhood\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[78.43379504978657,17.43123117837911]},\"bbox\":[78.43379504978657,17.43123117837911,78.43379504978657,17.43123117837911],\"center\":[78.43379504978657,17.43123117837911],\"place_name\":\"Srinagar Colony, Greater Hyderabad Municipal Corporation Central Zone, Telangana, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.1004489\",\"text\":\"Srinagar Colony\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r7857795\",\"id\":\"municipal_district.70024\",\"text\":\"Ward 97 Somajiguda\",\"country_code\":\"in\",\"kind\":\"admin_area\",\"text_en\":\"Ward 97 Somajiguda\"},{\"ref\":\"osm:r7868416\",\"id\":\"municipality.153472\",\"text\":\"Greater Hyderabad Municipal Corporation Central Zone\",\"country_code\":\"in\",\"kind\":\"admin_area\",\"text_en\":\"Greater Hyderabad Municipal Corporation Central Zone\"},{\"ref\":\"osm:r9823290\",\"id\":\"county.12373\",\"text\":\"Khairatabad mandal\",\"country_code\":\"in\",\"wikidata\":\"Q61607262\",\"kind\":\"admin_area\",\"text_en\":\"Khairatabad mandal\"},{\"ref\":\"osm:r7255986\",\"id\":\"subregion.1314\",\"text\":\"Hyderabad\",\"country_code\":\"in\",\"wikidata\":\"Q15340\",\"kind\":\"admin_area\",\"text_en\":\"Hyderabad\"},{\"ref\":\"osm:r3250963\",\"id\":\"region.1388\",\"text\":\"Telangana\",\"country_code\":\"in\",\"wikidata\":\"Q677037\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Telangana\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Srinagar Colony\",\"place_name_en\":\"Srinagar Colony, Ward 97 Somajiguda, Greater Hyderabad Municipal Corporation Central Zone, Khairatabad mandal, Hyderabad, Telangana, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r10298380\",\"country_code\":\"in\",\"wikidata\":\"Q123280627\",\"kind\":\"admin_area\",\"place_designation\":\"village\",\"place_type_name\":[\"county\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[87.40122880786657,25.944037488264414]},\"bbox\":[87.30443995445968,25.828112834669568,87.47668471187353,25.991854860346393],\"center\":[87.40122880786657,25.944037488264414],\"place_name\":\"Srinagar, Bihar, India\",\"place_type\":[\"county\"],\"relevance\":1,\"id\":\"county.15686\",\"text\":\"Srinagar\",\"place_type_name\":[\"county\"],\"context\":[{\"ref\":\"osm:r1960187\",\"id\":\"subregion.1228\",\"text\":\"Purnia\",\"country_code\":\"in\",\"wikidata\":\"Q100082\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Purnia\",\"language_en\":\"en\"},{\"ref\":\"osm:r1958982\",\"id\":\"region.1177\",\"text\":\"Bihar\",\"country_code\":\"in\",\"wikidata\":\"Q1165\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Bihar\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Srinagar\",\"place_name_en\":\"Srinagar, Purnia, Bihar, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r9994756\",\"country_code\":\"in\",\"wikidata\":\"Q123260026\",\"kind\":\"admin_area\",\"place_type_name\":[\"county\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[78.78790430724621,30.223806534554594]},\"bbox\":[78.61860159784555,30.140748241793986,78.9154963195324,30.260246723445768],\"center\":[78.78790430724621,30.223806534554594],\"place_name\":\"Srinagar, Uttarakhand, India\",\"place_type\":[\"county\"],\"relevance\":1,\"id\":\"county.15061\",\"text\":\"Srinagar\",\"place_type_name\":[\"county\"],\"context\":[{\"ref\":\"osm:r374972\",\"id\":\"subregion.70\",\"text\":\"Pauri Garhwal\",\"country_code\":\"in\",\"wikidata\":\"Q2085474\",\"kind\":\"admin_area\",\"text_en\":\"Pauri Garhwal\"},{\"ref\":\"osm:r9987086\",\"id\":\"region.1977\",\"text\":\"Uttarakhand\",\"country_code\":\"in\",\"wikidata\":\"Q1499\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Uttarakhand\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Srinagar\",\"place_name_en\":\"Srinagar, Pauri Garhwal, Uttarakhand, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r10389875\",\"country_code\":\"in\",\"wikidata\":\"Q123256311\",\"kind\":\"admin_area\",\"place_type_name\":[\"county\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[74.82044409960508,34.074744544436626]},\"bbox\":[74.78630729019642,34.054000830066705,74.85774222761393,34.093358346354805],\"center\":[74.82044409960508,34.074744544436626],\"place_name\":\"Srinagar (South), Jammu and Kashmir, India\",\"place_type\":[\"county\"],\"relevance\":1,\"id\":\"county.16480\",\"text\":\"Srinagar (South)\",\"place_type_name\":[\"county\"],\"context\":[{\"ref\":\"osm:r9544370\",\"id\":\"subregion.1433\",\"text\":\"Srinagar\",\"country_code\":\"in\",\"wikidata\":\"Q1506029\",\"kind\":\"admin_area\",\"text_en\":\"Srinagar\"},{\"ref\":\"osm:r1943188\",\"id\":\"region.831\",\"text\":\"Jammu and Kashmir\",\"country_code\":\"in\",\"wikidata\":\"Q66278313\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Jammu and Kashmir\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Srinagar (South)\",\"place_name_en\":\"Srinagar (South), Srinagar, Jammu and Kashmir, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r10389874\",\"country_code\":\"in\",\"wikidata\":\"Q123256319\",\"kind\":\"admin_area\",\"place_type_name\":[\"county\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[74.87556493074385,34.18394582561747]},\"bbox\":[74.81388006359339,34.14732862826149,74.93890017271043,34.22834971980279],\"center\":[74.87556493074385,34.18394582561747],\"place_name\":\"Srinagar (North), Jammu and Kashmir, India\",\"place_type\":[\"county\"],\"relevance\":1,\"id\":\"county.16477\",\"text\":\"Srinagar (North)\",\"place_type_name\":[\"county\"],\"context\":[{\"ref\":\"osm:r9544370\",\"id\":\"subregion.1433\",\"text\":\"Srinagar\",\"country_code\":\"in\",\"wikidata\":\"Q1506029\",\"kind\":\"admin_area\",\"text_en\":\"Srinagar\"},{\"ref\":\"osm:r1943188\",\"id\":\"region.831\",\"text\":\"Jammu and Kashmir\",\"country_code\":\"in\",\"wikidata\":\"Q66278313\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Jammu and Kashmir\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Srinagar (North)\",\"place_name_en\":\"Srinagar (North), Srinagar, Jammu and Kashmir, India\"}],\"query\":[\"srinagar\"],\"attribution\":\"<a href=\\\"https://www.maptiler.com/copyright/\\\" target=\\\"_blank\\\">&copy; MapTiler</a> <a href=\\\"https://www.openstreetmap.org/copyright\\\" target=\\\"_blank\\\">&copy; OpenStreetMap contributors</a>\"}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/Srinagar.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true&proximity=85%2C21",
+      "expectedHits": [
+        {
+          "id": "place.5104915",
+          "name": "Srinagar",
+          "context": "Srinagar (South), Jammu and Kashmir, India",
+          "lon": 74.82044409960508,
+          "lat": 34.074744544436626,
+          "bbox": [
+            74.82044409960508,
+            34.074744544436626,
+            74.82044409960508,
+            34.074744544436626
+          ]
+        },
+        {
+          "id": "place.5105371",
+          "name": "Srinagar",
+          "context": "Srinagar, Uttarakhand, India",
+          "lon": 78.78790430724621,
+          "lat": 30.223806534554594,
+          "bbox": [
+            78.78790430724621,
+            30.223806534554594,
+            78.78790430724621,
+            30.223806534554594
+          ]
+        },
+        {
+          "id": "subregion.1433",
+          "name": "Srinagar",
+          "context": "Jammu and Kashmir, India",
+          "lon": 74.82044409960508,
+          "lat": 34.074744544436626,
+          "bbox": [
+            74.66808892786503,
+            34.00770843852552,
+            75.1458403095603,
+            34.22834971980279
+          ]
+        },
+        {
+          "id": "place.1004489",
+          "name": "Srinagar Colony",
+          "context": "Greater Hyderabad Municipal Corporation Central Zone, Telangana, India",
+          "lon": 78.43379504978657,
+          "lat": 17.43123117837911,
+          "bbox": [
+            78.43379504978657,
+            17.43123117837911,
+            78.43379504978657,
+            17.43123117837911
+          ]
+        },
+        {
+          "id": "county.15686",
+          "name": "Srinagar",
+          "context": "Bihar, India",
+          "lon": 87.40122880786657,
+          "lat": 25.944037488264414,
+          "bbox": [
+            87.30443995445968,
+            25.828112834669568,
+            87.47668471187353,
+            25.991854860346393
+          ]
+        },
+        {
+          "id": "county.15061",
+          "name": "Srinagar",
+          "context": "Uttarakhand, India",
+          "lon": 78.78790430724621,
+          "lat": 30.223806534554594,
+          "bbox": [
+            78.61860159784555,
+            30.140748241793986,
+            78.9154963195324,
+            30.260246723445768
+          ]
+        },
+        {
+          "id": "county.16480",
+          "name": "Srinagar (South)",
+          "context": "Jammu and Kashmir, India",
+          "lon": 74.82044409960508,
+          "lat": 34.074744544436626,
+          "bbox": [
+            74.78630729019642,
+            34.054000830066705,
+            74.85774222761393,
+            34.093358346354805
+          ]
+        },
+        {
+          "id": "county.16477",
+          "name": "Srinagar (North)",
+          "context": "Jammu and Kashmir, India",
+          "lon": 74.87556493074385,
+          "lat": 34.18394582561747,
+          "bbox": [
+            74.81388006359339,
+            34.14732862826149,
+            74.93890017271043,
+            34.22834971980279
+          ]
+        }
+      ],
+      "expectedError": null
+    },
+    {
+      "name": "live-Barpali-no-proximity",
+      "query": "Barpali",
+      "proximity": null,
+      "status": 200,
+      "notJson": false,
+      "body": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n2275459328\",\"country_code\":\"in\",\"wikidata\":\"Q712508\",\"kind\":\"place\",\"place_designation\":\"town\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[83.58720168471336,21.190080997194745]},\"bbox\":[83.58720168471336,21.190080997194745,83.58720168471336,21.190080997194745],\"center\":[83.58720168471336,21.190080997194745],\"place_name\":\"Barapali, Barapali, Odisha, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.803869\",\"text\":\"Barapali\",\"place_type_name\":[\"locality\"],\"matching_text\":\"Barpāli Barpali\",\"matching_place_name\":\"Barpāli Barpali, Barapali, Bargarh, Odisha, India\",\"context\":[{\"ref\":\"osm:r10319751\",\"id\":\"major_landform.2481658\",\"text\":\"Bargarh main canal\",\"country_code\":\"in\",\"wikidata\":\"Q28169856\",\"feature_tags\":{\"type\":\"waterway\",\"waterway\":\"canal\",\"wikipedia\":\"en:Bargarh Main Canal\"},\"categories\":[\"canal\"],\"text_en\":\"Bargarh main canal\"},{\"ref\":\"osm:r10105565\",\"id\":\"county.14699\",\"text\":\"Barapali\",\"country_code\":\"in\",\"wikidata\":\"Q123280076\",\"kind\":\"admin_area\",\"text_en\":\"Barapali\"},{\"ref\":\"osm:r1984023\",\"id\":\"subregion.977\",\"text\":\"Bargarh\",\"country_code\":\"in\",\"wikidata\":\"Q808140\",\"kind\":\"admin_area\",\"text_en\":\"Bargarh\"},{\"ref\":\"osm:r1984022\",\"id\":\"region.1502\",\"text\":\"Odisha\",\"country_code\":\"in\",\"wikidata\":\"Q22048\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Odisha\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Barapali\",\"place_name_en\":\"Barapali, Barapali, Bargarh, Odisha, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n8147130674\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"village\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[82.74589028209448,20.89405824525621]},\"bbox\":[82.74589028209448,20.89405824525621,82.74589028209448,20.89405824525621],\"center\":[82.74589028209448,20.89405824525621],\"place_name\":\"Barpali, Paikmal, Odisha, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.2592481\",\"text\":\"Barpali\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:w874876509\",\"id\":\"major_landform.3060658\",\"text\":\"Dhenki Jhor\",\"country_code\":\"in\",\"feature_tags\":{},\"categories\":[],\"language\":\"en\",\"text_en\":\"Dhenki Jhor\",\"language_en\":\"en\"},{\"ref\":\"osm:r10105557\",\"id\":\"county.14671\",\"text\":\"Paikmal\",\"country_code\":\"in\",\"wikidata\":\"Q123279582\",\"kind\":\"admin_area\",\"place_designation\":\"village\",\"language\":\"en\",\"text_en\":\"Paikmal\",\"language_en\":\"en\"},{\"ref\":\"osm:r1984023\",\"id\":\"subregion.977\",\"text\":\"Bargarh\",\"country_code\":\"in\",\"wikidata\":\"Q808140\",\"kind\":\"admin_area\",\"text_en\":\"Bargarh\"},{\"ref\":\"osm:r1984022\",\"id\":\"region.1502\",\"text\":\"Odisha\",\"country_code\":\"in\",\"wikidata\":\"Q22048\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Odisha\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"language\":\"en\",\"text_en\":\"Barpali\",\"language_en\":\"en\",\"place_name_en\":\"Barpali, Paikmal, Bargarh, Odisha, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n7241937233\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"village\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[83.00785526633263,21.768146377692972]},\"bbox\":[83.00785526633263,21.768146377692972,83.00785526633263,21.768146377692972],\"center\":[83.00785526633263,21.768146377692972],\"place_name\":\"Barpali, Malkharoda Tahsil, Chhattisgarh, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.2256230\",\"text\":\"Barpali\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r9905704\",\"id\":\"county.13164\",\"text\":\"Malkharoda Tahsil\",\"country_code\":\"in\",\"wikidata\":\"Q123268555\",\"kind\":\"admin_area\",\"text_en\":\"Malkharoda Tahsil\"},{\"ref\":\"osm:r14722587\",\"id\":\"subregion.1700\",\"text\":\"Sakti\",\"country_code\":\"in\",\"wikidata\":\"Q108569905\",\"kind\":\"admin_area\",\"text_en\":\"Sakti\"},{\"ref\":\"osm:r1972004\",\"id\":\"region.873\",\"text\":\"Chhattisgarh\",\"country_code\":\"in\",\"wikidata\":\"Q1168\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Chhattisgarh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Barpali\",\"place_name_en\":\"Barpali, Malkharoda Tahsil, Sakti, Chhattisgarh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:n7726162061\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"village\",\"place_type_name\":[\"locality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[82.57817711681128,21.68595371118549]},\"bbox\":[82.57817711681128,21.68595371118549,82.57817711681128,21.68595371118549],\"center\":[82.57817711681128,21.68595371118549],\"place_name\":\"Barpali, Kasdol Tahsil, Chhattisgarh, India\",\"place_type\":[\"place\"],\"relevance\":1,\"id\":\"place.2486017\",\"text\":\"Barpali\",\"place_type_name\":[\"locality\"],\"context\":[{\"ref\":\"osm:r9903096\",\"id\":\"county.12894\",\"text\":\"Kasdol Tahsil\",\"country_code\":\"in\",\"wikidata\":\"Q123268564\",\"kind\":\"admin_area\",\"text_en\":\"Kasdol Tahsil\"},{\"ref\":\"osm:r9523380\",\"id\":\"subregion.1426\",\"text\":\"Baloda Bazar\",\"country_code\":\"in\",\"wikidata\":\"Q15663455\",\"kind\":\"admin_area\",\"text_en\":\"Baloda Bazar\"},{\"ref\":\"osm:r1972004\",\"id\":\"region.873\",\"text\":\"Chhattisgarh\",\"country_code\":\"in\",\"wikidata\":\"Q1168\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Chhattisgarh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Barpali\",\"place_name_en\":\"Barpali, Kasdol Tahsil, Baloda Bazar, Chhattisgarh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:w915615406\",\"country_code\":\"in\",\"kind\":\"street\",\"place_type_name\":[\"address\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[83.64568021148443,21.209424470925804]},\"bbox\":[83.59821014106274,21.187757997079775,83.69116276502609,21.233997611528117],\"center\":[83.64568021148443,21.209424470925804],\"place_name\":\"Barpali to Kumbhari Baramkela road, Barapali, Odisha, India\",\"place_type\":[\"address\"],\"relevance\":1,\"id\":\"address.12634410\",\"text\":\"Barpali to Kumbhari Baramkela road\",\"place_type_name\":[\"address\"],\"context\":[{\"ref\":\"osm:n8429808266\",\"id\":\"place.2674989\",\"text\":\"Kumbhari\",\"country_code\":\"in\",\"kind\":\"place\",\"place_designation\":\"village\",\"language\":\"en\",\"text_en\":\"Kumbhari\",\"language_en\":\"en\"},{\"ref\":\"osm:r10105565\",\"id\":\"county.14699\",\"text\":\"Barapali\",\"country_code\":\"in\",\"wikidata\":\"Q123280076\",\"kind\":\"admin_area\",\"text_en\":\"Barapali\"},{\"ref\":\"osm:r1984023\",\"id\":\"subregion.977\",\"text\":\"Bargarh\",\"country_code\":\"in\",\"wikidata\":\"Q808140\",\"kind\":\"admin_area\",\"text_en\":\"Bargarh\"},{\"ref\":\"osm:r1984022\",\"id\":\"region.1502\",\"text\":\"Odisha\",\"country_code\":\"in\",\"wikidata\":\"Q22048\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Odisha\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Barpali to Kumbhari Baramkela road\",\"place_name_en\":\"Barpali to Kumbhari Baramkela road, Kumbhari, Barapali, Bargarh, Odisha, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r10105565\",\"country_code\":\"in\",\"wikidata\":\"Q123280076\",\"kind\":\"admin_area\",\"place_type_name\":[\"county\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[83.58720168471336,21.190080997194745]},\"bbox\":[83.4733482822776,21.0619949765407,83.70867457240821,21.27649837431301],\"center\":[83.58720168471336,21.190080997194745],\"place_name\":\"Barapali, Odisha, India\",\"place_type\":[\"county\"],\"relevance\":0.928571,\"id\":\"county.14699\",\"text\":\"Barapali\",\"place_type_name\":[\"county\"],\"context\":[{\"ref\":\"osm:r1984023\",\"id\":\"subregion.977\",\"text\":\"Bargarh\",\"country_code\":\"in\",\"wikidata\":\"Q808140\",\"kind\":\"admin_area\",\"text_en\":\"Bargarh\"},{\"ref\":\"osm:r1984022\",\"id\":\"region.1502\",\"text\":\"Odisha\",\"country_code\":\"in\",\"wikidata\":\"Q22048\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Odisha\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Barapali\",\"place_name_en\":\"Barapali, Bargarh, Odisha, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r16536163\",\"country_code\":\"in\",\"kind\":\"admin_area\",\"place_type_name\":[\"municipality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[79.6453755000557,21.565283390088272]},\"bbox\":[79.62426234036684,21.552969688557233,79.66332335025072,21.581948869112544],\"center\":[79.6453755000557,21.565283390088272],\"place_name\":\"Barpani, Madhya Pradesh, India\",\"place_type\":[\"municipality\"],\"relevance\":0.928571,\"id\":\"municipality.222283\",\"text\":\"Barpani\",\"place_type_name\":[\"municipality\"],\"context\":[{\"ref\":\"osm:r9681569\",\"id\":\"county.12543\",\"text\":\"Tirodi Tahsil\",\"country_code\":\"in\",\"wikidata\":\"Q20593275\",\"kind\":\"admin_area\",\"text_en\":\"Tirodi Tahsil\"},{\"ref\":\"osm:r1982958\",\"id\":\"subregion.950\",\"text\":\"Balaghat\",\"country_code\":\"in\",\"wikidata\":\"Q641904\",\"kind\":\"admin_area\",\"text_en\":\"Balaghat\"},{\"ref\":\"osm:r1950071\",\"id\":\"region.744\",\"text\":\"Madhya Pradesh\",\"country_code\":\"in\",\"wikidata\":\"Q1188\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Madhya Pradesh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Barpani\",\"place_name_en\":\"Barpani, Tirodi Tahsil, Balaghat, Madhya Pradesh, India\"},{\"type\":\"Feature\",\"properties\":{\"ref\":\"osm:r16537613\",\"country_code\":\"in\",\"kind\":\"admin_area\",\"place_type_name\":[\"municipality\"]},\"geometry\":{\"type\":\"Point\",\"coordinates\":[79.67617348350177,22.523806567276356]},\"bbox\":[79.66745596379042,22.515105051507195,79.68785986304283,22.535828472419734],\"center\":[79.67617348350177,22.523806567276356],\"place_name\":\"Barpani, Madhya Pradesh, India\",\"place_type\":[\"municipality\"],\"relevance\":0.928571,\"id\":\"municipality.228692\",\"text\":\"Barpani\",\"place_type_name\":[\"municipality\"],\"context\":[{\"ref\":\"osm:r16718658\",\"id\":\"county.19691\",\"text\":\"Seoni Nagar Tahsil\",\"country_code\":\"in\",\"wikidata\":\"Q123254007\",\"kind\":\"admin_area\",\"text_en\":\"Seoni Nagar Tahsil\"},{\"ref\":\"osm:r1982942\",\"id\":\"subregion.947\",\"text\":\"Seoni\",\"country_code\":\"in\",\"wikidata\":\"Q2221184\",\"kind\":\"admin_area\",\"text_en\":\"Seoni\"},{\"ref\":\"osm:r1950071\",\"id\":\"region.744\",\"text\":\"Madhya Pradesh\",\"country_code\":\"in\",\"wikidata\":\"Q1188\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"Madhya Pradesh\",\"language_en\":\"en\"},{\"ref\":\"osm:r304716\",\"id\":\"country.198\",\"text\":\"India\",\"country_code\":\"in\",\"wikidata\":\"Q668\",\"kind\":\"admin_area\",\"language\":\"en\",\"text_en\":\"India\",\"language_en\":\"en\"},{\"ref\":\"osm:n36966065\",\"id\":\"continental_marine.5\",\"text\":\"Asia\",\"wikidata\":\"Q48\",\"feature_tags\":{\"sqkm\":\"44614500\",\"place\":\"continent\",\"wikipedia\":\"en:Asia\",\"population\":\"4950360147\"},\"categories\":[\"continent\"],\"language\":\"en\",\"text_en\":\"Asia\",\"language_en\":\"en\"}],\"text_en\":\"Barpani\",\"place_name_en\":\"Barpani, Seoni Nagar Tahsil, Seoni, Madhya Pradesh, India\"}],\"query\":[\"barpali\"],\"attribution\":\"<a href=\\\"https://www.maptiler.com/copyright/\\\" target=\\\"_blank\\\">&copy; MapTiler</a> <a href=\\\"https://www.openstreetmap.org/copyright\\\" target=\\\"_blank\\\">&copy; OpenStreetMap contributors</a>\"}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/Barpali.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": [
+        {
+          "id": "place.803869",
+          "name": "Barapali",
+          "context": "Barapali, Odisha, India",
+          "lon": 83.58720168471336,
+          "lat": 21.190080997194745,
+          "bbox": [
+            83.58720168471336,
+            21.190080997194745,
+            83.58720168471336,
+            21.190080997194745
+          ]
+        },
+        {
+          "id": "place.2592481",
+          "name": "Barpali",
+          "context": "Paikmal, Odisha, India",
+          "lon": 82.74589028209448,
+          "lat": 20.89405824525621,
+          "bbox": [
+            82.74589028209448,
+            20.89405824525621,
+            82.74589028209448,
+            20.89405824525621
+          ]
+        },
+        {
+          "id": "place.2256230",
+          "name": "Barpali",
+          "context": "Malkharoda Tahsil, Chhattisgarh, India",
+          "lon": 83.00785526633263,
+          "lat": 21.768146377692972,
+          "bbox": [
+            83.00785526633263,
+            21.768146377692972,
+            83.00785526633263,
+            21.768146377692972
+          ]
+        },
+        {
+          "id": "place.2486017",
+          "name": "Barpali",
+          "context": "Kasdol Tahsil, Chhattisgarh, India",
+          "lon": 82.57817711681128,
+          "lat": 21.68595371118549,
+          "bbox": [
+            82.57817711681128,
+            21.68595371118549,
+            82.57817711681128,
+            21.68595371118549
+          ]
+        },
+        {
+          "id": "address.12634410",
+          "name": "Barpali to Kumbhari Baramkela road",
+          "context": "Barapali, Odisha, India",
+          "lon": 83.64568021148443,
+          "lat": 21.209424470925804,
+          "bbox": [
+            83.59821014106274,
+            21.187757997079775,
+            83.69116276502609,
+            21.233997611528117
+          ]
+        },
+        {
+          "id": "county.14699",
+          "name": "Barapali",
+          "context": "Odisha, India",
+          "lon": 83.58720168471336,
+          "lat": 21.190080997194745,
+          "bbox": [
+            83.4733482822776,
+            21.0619949765407,
+            83.70867457240821,
+            21.27649837431301
+          ]
+        },
+        {
+          "id": "municipality.222283",
+          "name": "Barpani",
+          "context": "Madhya Pradesh, India",
+          "lon": 79.6453755000557,
+          "lat": 21.565283390088272,
+          "bbox": [
+            79.62426234036684,
+            21.552969688557233,
+            79.66332335025072,
+            21.581948869112544
+          ]
+        },
+        {
+          "id": "municipality.228692",
+          "name": "Barpani",
+          "context": "Madhya Pradesh, India",
+          "lon": 79.67617348350177,
+          "lat": 22.523806567276356,
+          "bbox": [
+            79.66745596379042,
+            22.515105051507195,
+            79.68785986304283,
+            22.535828472419734
+          ]
+        }
+      ],
+      "expectedError": null
+    },
+    {
+      "name": "edge-describe",
+      "query": "edge",
+      "proximity": null,
+      "status": 200,
+      "notJson": false,
+      "body": "{\"features\":[{\"type\":\"Feature\",\"id\":\"a\",\"text\":\"Barpali\",\"place_name\":\"Barpali, Paikmal, Odisha, India\",\"center\":[82.7,20.8]},{\"type\":\"Feature\",\"id\":\"b\",\"text\":\"India\",\"place_name\":\"India\",\"center\":[79,22]},{\"type\":\"Feature\",\"id\":\"c\",\"text\":\"Bhuj\",\"place_name\":\"Old Bhuj, Kachchh, Gujarat, India\",\"center\":[69.6,23.2]},{\"type\":\"Feature\",\"id\":\"d\",\"place_name\":\"Somewhere, India\",\"center\":[77,28]},{\"type\":\"Feature\",\"id\":\"e\",\"center\":[0,0]},{\"type\":\"Feature\",\"id\":\"g\",\"text\":\"  Bagru  \",\"place_name\":\"  Bagru, Jaipur, Rajasthan, India  \",\"center\":[75.5,26.8]},{\"type\":\"Feature\",\"id\":\"h\",\"text\":\"Bar\",\"place_name\":\"Barpali, Odisha, India\",\"center\":[83.5,21.1]},{\"type\":\"Feature\",\"text\":\"Nameless\",\"place_name\":\"Nameless, India\",\"center\":[80,20]}]}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/edge.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": [
+        {
+          "id": "a",
+          "name": "Barpali",
+          "context": "Paikmal, Odisha, India",
+          "lon": 82.7,
+          "lat": 20.8
+        },
+        {
+          "id": "b",
+          "name": "India",
+          "context": "",
+          "lon": 79,
+          "lat": 22
+        },
+        {
+          "id": "c",
+          "name": "Bhuj",
+          "context": "Old Bhuj, Kachchh, Gujarat, India",
+          "lon": 69.6,
+          "lat": 23.2
+        },
+        {
+          "id": "d",
+          "name": "Somewhere, India",
+          "context": "",
+          "lon": 77,
+          "lat": 28
+        },
+        {
+          "id": "e",
+          "name": "",
+          "context": "",
+          "lon": 0,
+          "lat": 0
+        },
+        {
+          "id": "g",
+          "name": "Bagru",
+          "context": "Jaipur, Rajasthan, India",
+          "lon": 75.5,
+          "lat": 26.8
+        },
+        {
+          "id": "h",
+          "name": "Bar",
+          "context": "Barpali, Odisha, India",
+          "lon": 83.5,
+          "lat": 21.1
+        },
+        {
+          "id": "hit-7",
+          "name": "Nameless",
+          "context": "India",
+          "lon": 80,
+          "lat": 20
+        }
+      ],
+      "expectedError": null
+    },
+    {
+      "name": "edge-centres",
+      "query": "centres",
+      "proximity": null,
+      "status": 200,
+      "notJson": false,
+      "body": "{\"features\":[{\"type\":\"Feature\",\"id\":\"no-centre\",\"text\":\"No centre\",\"place_name\":\"No centre, India\"},{\"type\":\"Feature\",\"id\":\"null-centre\",\"text\":\"Null\",\"place_name\":\"Null, India\",\"center\":null},{\"type\":\"Feature\",\"id\":\"nan-centre\",\"text\":\"NaN\",\"place_name\":\"NaN, India\",\"center\":[\"x\",21]},{\"type\":\"Feature\",\"id\":\"short-centre\",\"text\":\"Short\",\"place_name\":\"Short, India\",\"center\":[83.5]},{\"type\":\"Feature\",\"id\":\"ok\",\"text\":\"Ok\",\"place_name\":\"Ok, India\",\"center\":[83.5,21.1]}]}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/centres.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": [
+        {
+          "id": "ok",
+          "name": "Ok",
+          "context": "India",
+          "lon": 83.5,
+          "lat": 21.1
+        }
+      ],
+      "expectedError": null
+    },
+    {
+      "name": "edge-bbox",
+      "query": "bbox",
+      "proximity": null,
+      "status": 200,
+      "notJson": false,
+      "body": "{\"features\":[{\"type\":\"Feature\",\"id\":\"area\",\"text\":\"Bargarh\",\"place_name\":\"Bargarh, Odisha, India\",\"center\":[83.6,21.3],\"bbox\":[82.6,20.7,83.9,21.7]},{\"type\":\"Feature\",\"id\":\"point\",\"text\":\"Barpali\",\"place_name\":\"Barpali, Odisha, India\",\"center\":[83.5,21.1],\"bbox\":[83.5,21.1,83.5,21.1]},{\"type\":\"Feature\",\"id\":\"short\",\"text\":\"Short\",\"place_name\":\"Short, India\",\"center\":[80,20],\"bbox\":[1,2,3]}]}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/bbox.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": [
+        {
+          "id": "area",
+          "name": "Bargarh",
+          "context": "Odisha, India",
+          "lon": 83.6,
+          "lat": 21.3,
+          "bbox": [
+            82.6,
+            20.7,
+            83.9,
+            21.7
+          ]
+        },
+        {
+          "id": "point",
+          "name": "Barpali",
+          "context": "Odisha, India",
+          "lon": 83.5,
+          "lat": 21.1,
+          "bbox": [
+            83.5,
+            21.1,
+            83.5,
+            21.1
+          ]
+        },
+        {
+          "id": "short",
+          "name": "Short",
+          "context": "India",
+          "lon": 80,
+          "lat": 20
+        }
+      ],
+      "expectedError": null
+    },
+    {
+      "name": "empty-features",
+      "query": "zzzqqxxvv",
+      "proximity": null,
+      "status": 200,
+      "notJson": false,
+      "body": "{\"features\":[]}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/zzzqqxxvv.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": [],
+      "expectedError": null
+    },
+    {
+      "name": "no-features-key",
+      "query": "weird",
+      "proximity": null,
+      "status": 200,
+      "notJson": false,
+      "body": "{}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/weird.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": [],
+      "expectedError": null
+    },
+    {
+      "name": "http-403",
+      "query": "Barpali",
+      "proximity": null,
+      "status": 403,
+      "notJson": false,
+      "body": "{}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/Barpali.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": null,
+      "expectedError": {
+        "status": 403,
+        "message": "The place search answered 403."
+      }
+    },
+    {
+      "name": "http-500",
+      "query": "Barpali",
+      "proximity": null,
+      "status": 500,
+      "notJson": false,
+      "body": "{}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/Barpali.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": null,
+      "expectedError": {
+        "status": 500,
+        "message": "The place search answered 500."
+      }
+    },
+    {
+      "name": "http-429",
+      "query": "Barpali",
+      "proximity": null,
+      "status": 429,
+      "notJson": false,
+      "body": "{}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/Barpali.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": null,
+      "expectedError": {
+        "status": 429,
+        "message": "The place search answered 429."
+      }
+    },
+    {
+      "name": "not-json-200",
+      "query": "Barpali",
+      "proximity": null,
+      "status": 200,
+      "notJson": true,
+      "body": "<!doctype html><html>captive portal</html>",
+      "expectedUrl": "https://api.maptiler.com/geocoding/Barpali.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": null,
+      "expectedError": {
+        "status": 502,
+        "message": "The place search answered with something that could not be read."
+      }
+    },
+    {
+      "name": "query-needing-escape",
+      "query": "Kollam / Kerala",
+      "proximity": null,
+      "status": 200,
+      "notJson": false,
+      "body": "{\"features\":[]}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/Kollam%20%2F%20Kerala.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": [],
+      "expectedError": null
+    },
+    {
+      "name": "query-ampersand",
+      "query": "A&B?c#d",
+      "proximity": null,
+      "status": 200,
+      "notJson": false,
+      "body": "{\"features\":[]}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/A%26B%3Fc%23d.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": [],
+      "expectedError": null
+    },
+    {
+      "name": "query-plus-and-tilde",
+      "query": "a+b ~c!d*e'f(g)",
+      "proximity": null,
+      "status": 200,
+      "notJson": false,
+      "body": "{\"features\":[]}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/a%2Bb%20~c!d*e'f(g).json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": [],
+      "expectedError": null
+    },
+    {
+      "name": "query-odia",
+      "query": "ବରପାଲି",
+      "proximity": null,
+      "status": 200,
+      "notJson": false,
+      "body": "{\"features\":[]}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/%E0%AC%AC%E0%AC%B0%E0%AC%AA%E0%AC%BE%E0%AC%B2%E0%AC%BF.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": [],
+      "expectedError": null
+    },
+    {
+      "name": "query-devanagari",
+      "query": "बागरू",
+      "proximity": null,
+      "status": 200,
+      "notJson": false,
+      "body": "{\"features\":[]}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/%E0%A4%AC%E0%A4%BE%E0%A4%97%E0%A4%B0%E0%A5%82.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true",
+      "expectedHits": [],
+      "expectedError": null
+    },
+    {
+      "name": "proximity-fractional",
+      "query": "Barpali",
+      "proximity": {
+        "lon": 83.58720168471336,
+        "lat": 21.190080997194745
+      },
+      "status": 200,
+      "notJson": false,
+      "body": "{\"features\":[]}",
+      "expectedUrl": "https://api.maptiler.com/geocoding/Barpali.json?key=TESTKEY&country=in&language=en&limit=8&autocomplete=true&proximity=83.58720168471336%2C21.190080997194745",
+      "expectedHits": [],
+      "expectedError": null
+    }
+  ],
+  "failure": [
+    {
+      "name": "no-response",
+      "status": null,
+      "expectedMessage": "No connection, so places cannot be looked up right now. The map still works, and the coordinate boxes need no network at all."
+    },
+    {
+      "name": "408",
+      "status": 408,
+      "expectedMessage": "No connection, so places cannot be looked up right now. The map still works, and the coordinate boxes need no network at all."
+    },
+    {
+      "name": "429",
+      "status": 429,
+      "expectedMessage": "The place search is not answering just now — this is the service, not your connection. Try again in a moment."
+    },
+    {
+      "name": "500",
+      "status": 500,
+      "expectedMessage": "The place search is not answering just now — this is the service, not your connection. Try again in a moment."
+    },
+    {
+      "name": "502",
+      "status": 502,
+      "expectedMessage": "The place search is not answering just now — this is the service, not your connection. Try again in a moment."
+    },
+    {
+      "name": "503",
+      "status": 503,
+      "expectedMessage": "The place search is not answering just now — this is the service, not your connection. Try again in a moment."
+    },
+    {
+      "name": "403",
+      "status": 403,
+      "expectedMessage": "Place search is not available right now. Move the map or type the coordinates."
+    },
+    {
+      "name": "401",
+      "status": 401,
+      "expectedMessage": "Place search is not available right now. Move the map or type the coordinates."
+    },
+    {
+      "name": "400",
+      "status": 400,
+      "expectedMessage": "Place search is not available right now. Move the map or type the coordinates."
+    },
+    {
+      "name": "404",
+      "status": 404,
+      "expectedMessage": "Place search is not available right now. Move the map or type the coordinates."
+    }
+  ]
+}

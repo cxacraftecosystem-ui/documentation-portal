@@ -442,7 +442,7 @@ private fun RowMenuButton(
     onText: () -> Unit,
 ) {
     Box {
-        IconButton(onClick = { onOpenChange(true) }, modifier = Modifier.size(40.dp).testTag("explorer.actions.$id")) {
+        IconButton(onClick = { onOpenChange(true) }, modifier = Modifier.size(48.dp).testTag("explorer.actions.$id")) {
             Icon(Icons.Filled.MoreVert, contentDescription = ExplorerUiText.moreActions, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
         }
         DropdownMenu(expanded = open, onDismissRequest = { onOpenChange(false) }) {

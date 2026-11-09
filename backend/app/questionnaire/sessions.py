@@ -132,6 +132,26 @@ def _sees_join_secrets(viewer: Any, row: dict[str, Any], researcher_rows: list[d
     return any(str(r["sid"]) == str(row["id"]) and str(r["userId"]) == str(viewer.id) for r in researcher_rows)
 
 
+async def _session_locations(client: Any, rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    ids = sorted({str(r["locationId"]) for r in rows if r.get("locationId")})
+    if not ids:
+        return {}
+    found = await client.query_raw(
+        'SELECT "id", "latitude", "longitude", "accuracy", "placeName" FROM "Location" WHERE "id" = ANY($1::text[])',
+        ids,
+    )
+    return {
+        str(r["id"]): {
+            "latitude": float(r["latitude"]),
+            "longitude": float(r["longitude"]),
+            "accuracy": float(r["accuracy"]) if r.get("accuracy") is not None else None,
+            "placeName": r.get("placeName"),
+        }
+        for r in found
+        if r.get("latitude") is not None and r.get("longitude") is not None
+    }
+
+
 async def serialize_sessions(client: Any, rows: list[dict[str, Any]], viewer: Any = None) -> list[dict[str, Any]]:
     if not rows:
         return []
@@ -158,6 +178,7 @@ async def serialize_sessions(client: Any, rows: list[dict[str, Any]], viewer: An
     artisan_ids = list({str(p["artisanId"]) for p in parts})
     consent = await consent_gate.current_states("ARTISAN", artisan_ids, client=client)
     counts = await _counts(client, sids)
+    places = await _session_locations(client, rows)
     reason_by = {str(r["sid"]): r for r in reasons}
     out: list[dict[str, Any]] = []
     for row in rows:
@@ -207,6 +228,7 @@ async def serialize_sessions(client: Any, rows: list[dict[str, Any]], viewer: An
                 "mode": "GROUP" if len(participants) > 1 else "INDIVIDUAL",
                 "participantCount": len(participants),
                 "place": row.get("place"),
+                "location": places.get(str(row.get("locationId") or "")),
                 "languageCode": row.get("languageCode"),
                 "languageOther": row.get("languageOther"),
                 "joinCode": row.get("joinCode"),
@@ -557,6 +579,10 @@ async def patch_session(session_id: str, payload: Any, user: Any, *, client: Any
                 data[key] = value
     if "questionnaireId" in sent and payload.questionnaireId:
         data["questionnaireId"] = payload.questionnaireId
+    if "location" in sent and payload.location is not None:
+        data["locationId"] = (await ports.attach_location({"location": payload.location.model_dump(exclude_none=True)})).get("locationId")
+    elif "location" in sent or payload.clearLocation:
+        data["locationId"] = None
     if data.get("languageCode") and data["languageCode"] != "other":
         data["languageOther"] = None
     owner = db if client is not None else default_db

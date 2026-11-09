@@ -174,6 +174,8 @@ class SessionPatch(Strict):
     designWorkshopId: str | None = None
     purpose: str | None = None
     questionnaireId: str | None = None
+    location: SessionLocation | None = None
+    clearLocation: bool | None = None
 
     _purpose = field_validator("purpose")(_one_of(V.SessionPurpose))
     _lang = field_validator("languageCode")(_language)
