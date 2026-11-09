@@ -219,9 +219,9 @@ fun SessionStartSheet(
     }
     LaunchedEffect(form.workshopId, showAll) {
         val id = form.workshopId.ifBlank { null }
-        scoped = if (id == null || showAll) null else runCatching {
-            val key = if (QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP) "designWorkshopId" else "workshopId"
-            v2.api.artisansIn(mapOf(key to id)).items.map { it.option() }
+        val key = if (QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP) "designWorkshopId" else "workshopId"
+        scoped = if (id == null) null else runCatching {
+            v2.api.artisansIn(if (showAll) emptyMap() else mapOf(key to id)).items.map { it.option() }
         }.getOrNull()
     }
     val autoCrafts = form.artisanIds.mapNotNull { byId[it]?.craft }
@@ -282,7 +282,7 @@ fun SessionStartSheet(
                 options = listOf(SelectOption("I", QuestionnaireCopy.s("start.mode.individual")), SelectOption("G", QuestionnaireCopy.s("start.mode.group"))),
                 selectedValue = if (form.group) "G" else "I"
             ) { v -> form = form.copy(group = v == "G", artisanIds = if (v == "I") form.artisanIds.take(1) else form.artisanIds, guests = if (v == "I" && form.artisanIds.isNotEmpty()) emptyList() else form.guests) }
-            val listed = scoped?.let { inWorkshop -> inWorkshop + artisans.filter { a -> a.id in form.artisanIds && inWorkshop.none { it.id == a.id } } } ?: artisans
+            val listed = scoped?.let { fetched -> fetched + artisans.filter { a -> (showAll || a.id in form.artisanIds) && fetched.none { it.id == a.id } } } ?: artisans
             val artisanOptions = listOfNotNull(scopeOption(form.workshopId.isNotBlank(), showAll)) +
                 listed.map { SelectOption(it.id, it.name, it.place.ifBlank { null }) } +
                 registered.map { (id, a) -> SelectOption(id, a.name.trim(), QuestionnaireCopy.s("artisan.onPhone")) }
