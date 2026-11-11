@@ -6,7 +6,15 @@ import kotlinx.serialization.Serializable
 data class TranscriptLanguage(val code: String, val label: String = "")
 
 @Serializable
-data class TranscriptBadge(val kind: String, val provider: String = "", val model: String = "", val label: String = "")
+data class TranscriptBadge(val kind: String, val provider: String = "", val model: String = "", val label: String = "") {
+    fun display(): String = label.ifBlank {
+        when (kind) {
+            "stt" -> TranscriptStrings.badgeStt
+            "translation" -> TranscriptStrings.badgeTranslation
+            else -> model
+        }
+    }
+}
 
 @Serializable
 data class TranscriptSpeaker(

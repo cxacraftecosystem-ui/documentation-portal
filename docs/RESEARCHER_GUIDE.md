@@ -235,7 +235,7 @@ is information, not an error, and usually means exactly what it did above.
   in front of you, saving adds your answers to it — it never creates a second one. This is what stops
   five researchers producing five half-filled interviews with the same person.
 - **Record, don't type.** Each question has a *"Record this question"* control. Every take is
-  uploaded, transcribed (ElevenLabs Scribe v2) and translated turn by turn into English (Gemini), so
+  uploaded, transcribed (ElevenLabs Scribe v3) and translated turn by turn into English (Gemini), so
   you get the artisan's own voice, their words as text *and* the English without typing during the
   conversation. Answer in the artisan's language; Hindi/English code-switching is handled.
 - **Reading a transcript.** The words light up as the recording plays, the view follows along until

@@ -597,7 +597,7 @@ erDiagram
 
   TranscriptVersion {
     int version "UNIQUE with mediaFileId"
-    string sttModel "scribe_v2"
+    string sttModel "scribe_v3"
     string translationModel "gemini-3.8-flash"
     datetime supersededAt
   }

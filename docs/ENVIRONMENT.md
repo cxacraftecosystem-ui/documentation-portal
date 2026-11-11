@@ -165,7 +165,7 @@ uploads still succeed — transcripts and grid measurements simply stay empty.
 | Variable | Required | Default | Secret | Notes |
 |---|---|---|---|---|
 | `ELEVENLABS_API_KEY` | No | unset | **Yes** | Priority 1: ElevenLabs Scribe. Auto language detection, ~1 GB files, no chunking. |
-| `ELEVENLABS_STT_MODEL` | No | `scribe_v2` | No | Read the note below before setting it. |
+| `ELEVENLABS_STT_MODEL` | No | `scribe_v3` | No | Read the note below before setting it. |
 | `DEEPGRAM_API_KEY` | No | unset | **Yes** | Priority 2: Deepgram Nova-3. Handles code-switched Hindi + English. |
 | `DEEPGRAM_STT_MODEL` | No | `nova-3` | No | |
 | `OPENAI_API_KEY` | No | unset | **Yes** | Primary role is transcript **refinement/translation**; only transcribes when neither dedicated STT key is set (priority 3, Whisper). |
@@ -180,11 +180,12 @@ uploads still succeed — transcripts and grid measurements simply stay empty.
 | `MUSE_STT_MODEL` | No | `muse-voice-transcribe-1.0` | No | |
 | `NEXT_PUBLIC_MAPTILER_API_KEY` | No | unset | No | Read by the backend only so one `.env` can feed both apps; the browser gets it from the frontend build. |
 
-> **`ELEVENLABS_STT_MODEL` defaults to `scribe_v2`** (since 31 Oct 2026; it used to read `scribe_v1`
-> in `config.py` while `scribe_v2` ran). `_elevenlabs_model` in `app/services/ai.py` still treats
-> `scribe_v1` as "unset", so writing it into a `.env` does **not** pin the old model. (`scribe_v1` is
-> still used as the conservative retry when a `scribe_v2` request is rejected.) A deployment that
-> genuinely needs the legacy model must change the code, not the variable.
+> **`ELEVENLABS_STT_MODEL` defaults to `scribe_v3`** (since 0.0.2, 11 Nov 2026; `scribe_v2` before
+> that). Production does not set it, so the code default is what runs. `_elevenlabs_model` in
+> `app/services/ai.py` treats the retired `scribe_v1` as "unset", so writing it into a `.env` does
+> **not** pin it. `scribe_v2` can still be pinned, and it is the conservative retry when a
+> `scribe_v3` request is refused (HTTP 400 or 422): the same audio again, without key terms. A
+> transcript keeps the model that made it, so a v2 transcript still reads "Scribe v2".
 
 Provider ordering is a **runtime** setting, not an environment variable: a master admin ranks the
 three providers in the Settings hub, stored on `AppSetting`. The default order is generated into
@@ -540,7 +541,7 @@ grep -oP 'alias="\K[A-Z_0-9]+' backend/app/core/config.py | sort
 |---|---|
 | The backend variable list is complete | The command above. Run it after any change to `config.py`. |
 | The frontend variable list is complete | The `grep` in the Frontend section, which is dated. |
-| Defaults | The `Field(default=…)` in `config.py`. **One default is a lie by design** and is called out in a blockquote: `ELEVENLABS_STT_MODEL`. If another such case appears, it needs the same treatment — a table cell cannot express "the config default is not what runs". |
+| Defaults | The `Field(default=…)` in `config.py`. **One variable reads a value as unset** and is called out in a blockquote: `ELEVENLABS_STT_MODEL`, where the retired `scribe_v1` runs the default. If another such case appears, it needs the same treatment — a table cell cannot express "this value is not what runs". |
 | `SCALE_*` and the AI-feature keys | Owned elsewhere: `backend/app/scale/README.md` and [AI_FEATURES.md](AI_FEATURES.md). This file lists the names only, so it stays a complete index without becoming a second source of truth. |
 | GitHub Actions secrets | `.github/workflows/*.yml`. `grep -ho 'secrets\.[A-Z_]*' .github/workflows/*.yml \| sort -u` is the equivalent set difference. |
 | Vercel variables | The Vercel dashboard — **UNVERIFIED from this repository**. `vercel env ls production` is the check, and rule 3 (Encrypted, never Sensitive) is the thing it exists to catch. |

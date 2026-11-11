@@ -279,7 +279,7 @@ def create_app() -> FastAPI:
     expose_docs = settings.backend_expose_docs
     app = FastAPI(
         title="Field Documentation Repository API",
-        version="0.0.1",
+        version="0.0.2",
         description="API-first backend for artisan, craft, workshop, product, tool, media and review records.",
         lifespan=lifespan,
         docs_url="/docs" if expose_docs else None,

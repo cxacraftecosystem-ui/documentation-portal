@@ -98,9 +98,12 @@ class TranscriptViewerUiTest {
         return text
     }
 
-    private fun show(playback: ManualPlayback = ManualPlayback(available = true, duration = 1524.0)): RecordingHost {
+    private fun show(
+        playback: ManualPlayback = ManualPlayback(available = true, duration = 1524.0),
+        transcript: Transcript = view,
+    ): RecordingHost {
         val host = RecordingHost(context)
-        compose.setContent { MaterialTheme { TranscriptViewer(view, playback, host) } }
+        compose.setContent { MaterialTheme { TranscriptViewer(transcript, playback, host) } }
         return host
     }
 
@@ -112,6 +115,11 @@ class TranscriptViewerUiTest {
         compose.onNodeWithText("Hindi, English").assertIsDisplayed()
         compose.onNodeWithText("25:24").assertIsDisplayed()
         compose.onNodeWithTag("transcript.status").assertIsDisplayed()
+    }
+
+    @Test fun aBadgeWithoutALabelFallsBackToTheCurrentModelName() {
+        show(transcript = view.copy(badges = listOf(TranscriptBadge("stt", "elevenlabs", "scribe_v3", ""))))
+        compose.onNodeWithText("Scribe v3").assertIsDisplayed()
     }
 
     @Test fun tabsSwitchBetweenOriginalEnglishAndSideBySide() {

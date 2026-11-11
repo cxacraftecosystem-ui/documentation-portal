@@ -1,6 +1,6 @@
 # AI image features — background removal, layer separation, vectorisation
 
-> **Where the live AI is.** The transcript pipeline (Scribe v2 words, Gemini 3.8 Flash English,
+> **Where the live AI is.** The transcript pipeline (Scribe v3 words, Gemini 3.8 Flash English,
 > summaries, Ask, autodraft, quote cards, the glossary, refine) is on in production and documented in
 > [TRANSCRIPT_PIPELINE.md](TRANSCRIPT_PIPELINE.md); its summaries are §10 here, and the 0.0.10 model
 > defaults close this file. `AI_FEATURES_ENABLED` and `AI_TRANSCRIPT_INSIGHTS_ENABLED` are written

@@ -36,7 +36,13 @@ from prisma import Json
 
 logger = logging.getLogger(__name__)
 
-STT_LABELS = {"scribe_v2": "Scribe v2", "scribe_v1": "Scribe v1", "nova-3": "Nova-3", "whisper-1": "Whisper"}
+STT_LABELS = {
+    "scribe_v3": "Scribe v3",
+    "scribe_v2": "Scribe v2",
+    "scribe_v1": "Scribe v1",
+    "nova-3": "Nova-3",
+    "whisper-1": "Whisper",
+}
 PROVIDER_LABELS = {"elevenlabs": "ElevenLabs", "deepgram": "Deepgram", "whisper": "Whisper", "muse": "Muse"}
 
 KIND_TRANSLATE = "TRANSLATE"

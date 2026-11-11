@@ -56,7 +56,7 @@ def transport(monkeypatch: pytest.MonkeyPatch):
 
 def _settings(**overrides) -> SimpleNamespace:
     base = {
-        "elevenlabs_stt_model": "scribe_v2",
+        "elevenlabs_stt_model": "scribe_v3",
         "deepgram_stt_model": "nova-3",
         "openai_transcription_model": "whisper-1",
         "openai_chat_model": "gpt-6-luna",

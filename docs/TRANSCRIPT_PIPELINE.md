@@ -1,4 +1,4 @@
-# Transcript pipeline (Scribe v2 → Gemini 3.8 Flash)
+# Transcript pipeline (Scribe v3 → Gemini 3.8 Flash)
 
 Built 31 Oct 2026 from the approved design, `C:/dev/IIT/docs/transcription/DESIGN_2026-10-31_Scribe-Gemini-Pipeline.md`.
 The backend is the same in both portals: shared files are listed in `shared/transcription.sha256`
@@ -13,7 +13,7 @@ sequenceDiagram
   participant C as Web or Android
   participant API
   participant Q as Queue worker
-  participant EL as Scribe v2
+  participant EL as Scribe v3
   participant GM as Gemini 3.8 Flash
   C->>API: media/complete, Transcribe and translate ticked
   API->>API: Store the choice on the row
@@ -54,6 +54,7 @@ failed still leaves the transcript `READY`; that turn reads "Couldn't translate"
 | 0.0.6 (1 Nov) | Karaoke, reading mode, marks and per-speaker colours, auto-follow, previews on list rows, transcripts in View and Download data, the work-directory leak fixed (D37) |
 | 0.0.9 (3 Nov) | Old transcripts translated on first open plus a one-off sweep; declined English typed or pasted by an editor (D38) |
 | 0.0.10 (4 Nov) | Video, the per-file choice, the admin auto switches and the backfill switch (off, D40), Refine on the web, summary edit on Android, Gemini-first text defaults, `[unclear]` translations accepted |
+| 0.0.2 (11 Nov) | Scribe v3 (`scribe_v3`) instead of Scribe v2, at the same rate; a refused v3 request retries on `scribe_v2`; old versions keep their model and badge |
 
 ## Where things are
 
@@ -72,7 +73,7 @@ failed still leaves the transcript `READY`; that turn reads "Couldn't translate"
 ## The queue step
 
 1. **Transcribe.** The existing TRANSCRIPTION job. `transcription_jobs.transcribe_recording` asks
-   Scribe v2 with the recording's own key terms (artisans, its craft, glossary terms for that craft,
+   Scribe v3 (`scribe_v3`) with the recording's own key terms (artisans, its craft, glossary terms for that craft,
    crafts of its state, the vocabulary file, the master list; at most 100, most specific first), then
    stores the words as a new `TranscriptVersion` of `TranscriptTurn`s.
 2. **Translate + insights.** The existing TRANSCRIPT_INSIGHTS job. One Gemini pass (structured JSON,
@@ -92,7 +93,7 @@ re-translate a turn, Ask, auto-draft, quote card).
   runs as it arrives.
 - **Budget:** `AppSetting.transcriptMonthlyBudgetUsd` (default USD 100). At 80 % the admins get one
   notice a month; at 100 % `transcriptionPaused` is set and translation jobs wait too. Spend is
-  `SttUsage` (Scribe, USD 0.22 an hour) plus `TranscriptSpend` (Gemini).
+  `SttUsage` (Scribe v3, USD 0.22 an hour, the same rate as Scribe v2) plus `TranscriptSpend` (Gemini).
 
 ## Keys
 

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 import requests
 
+from app.core.config import Settings
 from app.services import ai, transcript_format
 
 
@@ -217,7 +218,7 @@ def test_an_empty_deepgram_response_is_empty_not_broken(post) -> None:
 
 
 
-def test_elevenlabs_asks_scribe_v2_to_diarize_and_bias_towards_the_craft(post) -> None:
+def test_elevenlabs_asks_scribe_v3_to_diarize_and_bias_towards_the_craft(post) -> None:
     recorder = post(_Response(payload={"text": "hello", "language_code": "hin"}))
 
     result = ai._post_elevenlabs_transcription(b"audio", "clip.webm", "audio/webm", _settings())
@@ -226,7 +227,7 @@ def test_elevenlabs_asks_scribe_v2_to_diarize_and_bias_towards_the_craft(post) -
     assert sent["url"] == "https://api.elevenlabs.io/v1/speech-to-text"
     assert sent["headers"]["xi-api-key"] == "test-key"
     fields = dict(field for field in sent["data"] if field[0] != "keyterms")
-    assert fields["model_id"] == "scribe_v2"
+    assert fields["model_id"] == "scribe_v3"
     assert fields["diarize"] == "true"
     assert fields["tag_audio_events"] == "false"
     assert fields["timestamps_granularity"] == "word"
@@ -235,13 +236,20 @@ def test_elevenlabs_asks_scribe_v2_to_diarize_and_bias_towards_the_craft(post) -
     assert "dabu" in keyterms and "ajrakh" in keyterms
     assert sent["files"]["file"] == ("clip.webm", b"audio", "audio/webm")
     assert result["languageCode"] == "hin"
-    assert result["model"] == "scribe_v2"
+    assert result["model"] == "scribe_v3"
+
+
+def test_scribe_v3_is_the_default_when_nothing_is_configured(post) -> None:
+    recorder = post(_Response(payload={"text": "hi"}))
+    ai._post_elevenlabs_transcription(b"a", "a.webm", "audio/webm", _settings(elevenlabs_stt_model=""))
+    assert dict(f for f in recorder.calls[0]["data"] if f[0] != "keyterms")["model_id"] == "scribe_v3"
+    assert Settings.model_fields["elevenlabs_stt_model"].default == "scribe_v3"
 
 
 def test_an_explicit_elevenlabs_model_wins_over_the_upgrade(post) -> None:
     recorder = post(_Response(payload={"text": "hi"}))
-    ai._post_elevenlabs_transcription(b"a", "a.webm", "audio/webm", _settings(elevenlabs_stt_model="scribe_v3"))
-    assert dict(f for f in recorder.calls[0]["data"] if f[0] != "keyterms")["model_id"] == "scribe_v3"
+    ai._post_elevenlabs_transcription(b"a", "a.webm", "audio/webm", _settings(elevenlabs_stt_model="scribe_v2"))
+    assert dict(f for f in recorder.calls[0]["data"] if f[0] != "keyterms")["model_id"] == "scribe_v2"
 
 
 def test_elevenlabs_speaker_ids_become_the_same_labels_deepgram_produces(post) -> None:
@@ -311,7 +319,7 @@ def test_deepgram_retries_once_without_the_options_it_was_refused(post) -> None:
     assert len(recorder.calls) == 2
 
 
-def test_elevenlabs_falls_back_to_the_model_that_has_always_existed(post) -> None:
+def test_elevenlabs_falls_back_to_scribe_v2_when_scribe_v3_refuses_the_request(post) -> None:
     recorder = post(
         _Response(422, text="model_id not available"),
         _Response(payload={"text": "bagru printing"}),
@@ -320,9 +328,11 @@ def test_elevenlabs_falls_back_to_the_model_that_has_always_existed(post) -> Non
     result = ai._post_elevenlabs_transcription(b"a", "a.webm", "audio/webm", _settings())
 
     assert result["status"] == "COMPLETED"
-    assert result["model"] == "scribe_v1"
+    assert result["model"] == "scribe_v2"
+    first = dict(field for field in recorder.calls[0]["data"] if field[0] != "keyterms")
+    assert first["model_id"] == "scribe_v3"
     second = dict(field for field in recorder.calls[1]["data"] if field[0] != "keyterms")
-    assert second["model_id"] == "scribe_v1"
+    assert second["model_id"] == "scribe_v2"
     assert second["diarize"] == "true"
     assert not [f for f in recorder.calls[1]["data"] if f[0] == "keyterms"]
     assert len(recorder.calls) == 2

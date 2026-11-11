@@ -147,7 +147,7 @@ def test_version_cost_and_badges_follow_one_admin_rule(monkeypatch, role, sees) 
 
     monkeypatch.setattr(transcripts, "_media", media)
     monkeypatch.setattr(transcript_store, "versions", versions)
-    monkeypatch.setattr(transcripts.pipeline, "_badges", lambda _v: ["Scribe v2"])
+    monkeypatch.setattr(transcripts.pipeline, "_badges", lambda _v: ["Scribe v3"])
     item = asyncio.run(transcripts.list_versions("m1", SimpleNamespace(role=role)))["items"][0]
-    assert (item["costUsd"] == 0.12) is sees and (item["badges"] == ["Scribe v2"]) is sees
+    assert (item["costUsd"] == 0.12) is sees and (item["badges"] == ["Scribe v3"]) is sees
     assert sees or (item["costUsd"] is None and item["badges"] == [])

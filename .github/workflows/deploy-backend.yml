@@ -943,7 +943,7 @@ jobs:
           if [ -z "$el" ]; then
             echo "ElevenLabs: no key in the live .env (skipped)"
           else
-            code="$(curl -s -o "$body" -w '%{http_code}' --max-time 30 -H @<(printf 'xi-api-key: %s\n' "$el") -F model_id=scribe_v2 https://api.elevenlabs.io/v1/speech-to-text || true)"
+            code="$(curl -s -o "$body" -w '%{http_code}' --max-time 30 -H @<(printf 'xi-api-key: %s\n' "$el") -F model_id=scribe_v3 https://api.elevenlabs.io/v1/speech-to-text || true)"
             echo "ElevenLabs POST /v1/speech-to-text (no audio): HTTP ${code:-000}"
             case "$code" in
               401|403) echo "::error::ElevenLabs refused this box's key for speech-to-text (HTTP $code). Check the key, its scope and its IP lock."; fail=1 ;;

@@ -37,7 +37,7 @@
 <circle cx="627" cy="65" r="11" fill="#762CB1" stroke="#FFFFFF" stroke-width="2"/>
 <text x="627" y="69" class="s" fill="#FFFFFF" font-size="11" font-weight="700" text-anchor="middle">3</text>
 <text x="600" y="158" class="d" fill="#1E1B2E" font-size="17" font-weight="700" text-anchor="middle">Transcribe</text>
-<text x="600" y="182" class="s" fill="#615D7A" font-size="13" text-anchor="middle">Scribe v2 words, Gemini English</text>
+<text x="600" y="182" class="s" fill="#615D7A" font-size="13" text-anchor="middle">Scribe v3 words, Gemini English</text>
 </g>
 <g class="rise r3">
 <circle class="ring" style="animation-delay:4.2s" cx="845" cy="92" r="36" fill="none" stroke="#762CB1" stroke-width="2"/>

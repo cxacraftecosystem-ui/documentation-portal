@@ -35,7 +35,7 @@ flowchart TD
 
   F1["<b>REPO_FACTS.md</b><br/>generated counts"] --> F2["<b>RESEARCH_NOTES.md</b><br/>dated results"]
 
-  T1["<b>TRANSCRIPT_PIPELINE.md</b><br/>Scribe v2, Gemini, the viewer"] --> T2["<b>AI_FEATURES.md</b><br/>models, summaries, image tools"]
+  T1["<b>TRANSCRIPT_PIPELINE.md</b><br/>Scribe v3, Gemini, the viewer"] --> T2["<b>AI_FEATURES.md</b><br/>models, summaries, image tools"]
   T2 --> T3["<b>questionnaire/API.md</b><br/>sessions, takes, chips"]
 
   K1["<b>readme-kit/README_STYLE.md</b><br/>the visual system"]
@@ -65,7 +65,7 @@ flowchart TD
 | [RELEASE.md](RELEASE.md) | Every release from 0.0.1 to 0.0.11 and what it shipped (the same page as designer-portal's), and the data steps a release takes on production after its migrations, such as mapping crafts onto the master list |
 | [MEDIA_PIPELINE.md](MEDIA_PIPELINE.md) | Every tactic both clients use to get a photograph off a phone on a bad network without losing it |
 | [DATA_EXPLORER_WEB.md](DATA_EXPLORER_WEB.md) | The `/data` page on the web, shared by both portals: the tree-first layout, every download in one place, the worker that keeps zips going in a background tab, browser limits, resume into a folder, and the tables memory |
-| [TRANSCRIPT_PIPELINE.md](TRANSCRIPT_PIPELINE.md) | Scribe v2 turns, Gemini 3.8 Flash English, the transcript API, its switches, budget, keys and backfill |
+| [TRANSCRIPT_PIPELINE.md](TRANSCRIPT_PIPELINE.md) | Scribe v3 turns, Gemini 3.8 Flash English, the transcript API, its switches, budget, keys and backfill |
 | [SECURITY.md](SECURITY.md) | Transport, secrets, PII and Aadhaar handling, the authorisation model's security properties, and the open risk register |
 | [questionnaire/API.md](questionnaire/API.md) | Questionnaire v2 on the shared engine: sessions, takes, coverage, canonical answers, the routes both clients call |
 | [questionnaire/ANDROID.md](questionnaire/ANDROID.md) | The Android half of the questionnaire engine and how it is kept identical to the designer portal's |

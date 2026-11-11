@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="262" viewBox="0 0 1200 262" role="img" aria-label="How a recording becomes English: upload, consent, Scribe v2, Gemini, the viewer">
-<title>How a recording becomes English: upload, consent, Scribe v2, Gemini, the viewer</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="262" viewBox="0 0 1200 262" role="img" aria-label="How a recording becomes English: upload, consent, Scribe v3, Gemini, the viewer">
+<title>How a recording becomes English: upload, consent, Scribe v3, Gemini, the viewer</title>
 <defs>
 <style>.d{font-family:'Plus Jakarta Sans','Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}.s{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}.m{font-family:'JetBrains Mono',ui-monospace,'SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace}.rise{animation:rise .9s cubic-bezier(.2,.7,.2,1) both}@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}.flow{stroke-dasharray:3 13;animation:flow 1.6s linear infinite}@keyframes flow{to{stroke-dashoffset:-32}}.prog{stroke-dasharray:980;stroke-dashoffset:0;animation:prog 8s linear infinite}@keyframes prog{0%{stroke-dashoffset:980}70%{stroke-dashoffset:0}95%{stroke-dashoffset:0;opacity:1}100%{stroke-dashoffset:0;opacity:0}}.ring{opacity:0;animation:ring 8s ease-out infinite;transform-box:fill-box;transform-origin:center}@keyframes ring{0%{opacity:.85;transform:scale(1)}15%{opacity:0;transform:scale(1.55)}100%{opacity:0}}.r0{animation-delay:0.1s}.r1{animation-delay:0.2s}.r2{animation-delay:0.3s}.r3{animation-delay:0.5s}.r4{animation-delay:0.6s}@media (prefers-reduced-motion:reduce){*{animation:none!important}.smil{display:none}.sweep{fill:url(#still)}}</style>
 <linearGradient id="pg" gradientUnits="userSpaceOnUse" x1="110" y1="0" x2="1090" y2="0"><stop offset="0" stop-color="#762CB1"/><stop offset="1" stop-color="#CD9200"/></linearGradient>
@@ -36,7 +36,7 @@
 <g transform="translate(587 79) scale(1.0833)" fill="none" stroke="#762CB1" stroke-width="1.8459999999999999" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></g>
 <circle cx="627" cy="65" r="11" fill="#762CB1" stroke="#FFFFFF" stroke-width="2"/>
 <text x="627" y="69" class="s" fill="#FFFFFF" font-size="11" font-weight="700" text-anchor="middle">3</text>
-<text x="600" y="158" class="d" fill="#1E1B2E" font-size="17" font-weight="700" text-anchor="middle">Scribe v2</text>
+<text x="600" y="158" class="d" fill="#1E1B2E" font-size="17" font-weight="700" text-anchor="middle">Scribe v3</text>
 <text x="600" y="182" class="s" fill="#615D7A" font-size="13" text-anchor="middle">Words, speakers and timings</text>
 </g>
 <g class="rise r3">

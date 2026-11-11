@@ -41,7 +41,7 @@ for (const viewport of VIEWPORTS) {
     test("the header shows the facts, the status and the model badges", async ({ page }) => {
       const viewer = await open(page, new TranscriptFake());
       await expect(viewer.locator("[data-transcript-status]")).toHaveText("Ready");
-      await expect(viewer.locator("[data-model-badges]")).toContainText("Scribe v2");
+      await expect(viewer.locator("[data-model-badges]")).toContainText("Scribe v3");
       await expect(viewer.locator("[data-model-badges]")).toContainText("Gemini 3.8 Flash");
       await expect(viewer.locator("[data-transcript-facts]")).toContainText("Hindi, English");
       await expect(viewer.locator("[data-transcript-facts]")).toContainText("25:24");

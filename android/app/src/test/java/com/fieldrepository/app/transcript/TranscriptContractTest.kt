@@ -6,6 +6,7 @@ import com.fieldrepository.app.transcript.data.CopyTrack
 import com.fieldrepository.app.transcript.data.EnglishNotice
 import com.fieldrepository.app.transcript.data.PipelineStatus
 import com.fieldrepository.app.transcript.data.Transcript
+import com.fieldrepository.app.transcript.data.TranscriptBadge
 import com.fieldrepository.app.transcript.data.TranscriptFormat
 import com.fieldrepository.app.transcript.data.TranscriptStrings
 import com.fieldrepository.app.transcript.data.TranslationStatus
@@ -51,10 +52,18 @@ class TranscriptContractTest {
         assertEquals(6, v.turns[0].words.size)
         assertEquals(listOf(listOf(3, 7)), v.turns[1].lowConfidence)
         assertEquals(TranslationStatus.TRANSLATED, v.turns[0].translation.status)
-        assertEquals(listOf("Scribe v2", "Gemini 3.8 Flash"), v.badges.map { it.label })
+        assertEquals(listOf("Scribe v3", "Gemini 3.8 Flash"), v.badges.map { it.label })
         assertTrue(v.permissions.edit)
         assertFalse(v.permissions.transcribeNow)
         assertEquals(3, v.revision)
+    }
+
+    @Test fun `a badge shows the server's label and names the current model only when the label is missing`() {
+        assertEquals("Scribe v2", TranscriptBadge("stt", "elevenlabs", "scribe_v2", "Scribe v2").display())
+        assertEquals("Scribe v3", TranscriptBadge("stt", "elevenlabs", "scribe_v3", "").display())
+        assertEquals("Scribe v3", TranscriptStrings.badgeStt)
+        assertEquals("Gemini 3.8 Flash", TranscriptBadge("translation", "gemini", "gemini-3.8-flash", "").display())
+        assertEquals("nova-3", TranscriptBadge("other", "deepgram", "nova-3", "").display())
     }
 
     @Test fun `a read-only view decodes with its reason and offers no edit`() {

@@ -32,7 +32,7 @@ flowchart LR
   db[(PostgreSQL 17<br/>Supabase ap-south-1)]
   s3[(S3 · ap-south-1<br/>dual-stack endpoint)]
   worker[fieldrepo-queue<br/>separate systemd unit]
-  stt{{Scribe v2 → Deepgram → Whisper}}
+  stt{{Scribe v3 → Deepgram → Whisper}}
   gem{{Gemini 3.8 Flash<br/>English · insights · measurement}}
 
   researcher --> web
@@ -342,7 +342,7 @@ Flash, plus the summary, quotes and craft terms. That pipeline, its switches, th
 the video path are in [TRANSCRIPT_PIPELINE.md](TRANSCRIPT_PIPELINE.md). This section is the first
 step: which speech-to-text provider hears the audio.
 
-Not Whisper. Scribe v2 is first, Whisper is the **third** provider, and on a deployment with an
+Not Whisper. Scribe v3 is first, Whisper is the **third** provider, and on a deployment with an
 ElevenLabs key it is usually never called. A fourth, Meta Muse, is built and disabled.
 
 ```mermaid
@@ -350,7 +350,7 @@ ElevenLabs key it is usually never called. A fourth, Meta Muse, is built and dis
 flowchart TD
   job["MediaProcessingJob<br/>TRANSCRIPTION, QUEUED"] --> claim{"worker claims it<br/>single elected worker"}
   claim --> chain["transcription_provider_chain()<br/>master admin's ranking,<br/>minus every provider with no key"]
-  chain --> p1["1 · ElevenLabs Scribe<br/>≤ ~1 GB · auto language · scribe_v2"]
+  chain --> p1["1 · ElevenLabs Scribe<br/>≤ ~1 GB · auto language · scribe_v3,<br/>scribe_v2 on a refused option"]
 
   p1 -->|text| done[["write transcript<br/>+ formatted dialogue"]]
   p1 -->|"429 / 503"| rl1[[remember: throttled]]

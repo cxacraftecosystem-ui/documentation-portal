@@ -66,12 +66,50 @@ def test_scribe_is_billed_at_the_pay_as_you_go_rate_and_keeps_its_words() -> Non
     assert words[0] == {"text": "आप", "start": 4.0, "end": 4.3, "type": "word", "speaker_id": "speaker_0", "logprob": -0.05}
 
 
-def test_the_adapter_asks_for_scribe_v2_with_the_recordings_key_terms() -> None:
+def test_the_adapter_asks_for_scribe_v3_with_the_recordings_key_terms() -> None:
     adapter = elevenlabs.ElevenLabs()
     opts = SttOptions(keyterms=["Giriraj Prasad Chhipa", "Dabu"])
     fields = adapter.fields(opts, conservative=False)
-    assert ("model_id", "scribe_v2") in fields
+    assert ("model_id", "scribe_v3") in fields
     assert [v for k, v in fields if k == "keyterms"] == ["Giriraj Prasad Chhipa", "Dabu"]
+    retry = adapter.fields(opts, conservative=True)
+    assert ("model_id", "scribe_v2") in retry and not [v for k, v in retry if k == "keyterms"]
+
+
+def test_a_scribe_v3_reply_keeps_its_words_speakers_timings_and_language() -> None:
+    payload = fixture("scribe_v3")
+    words = elevenlabs.parse_words(payload)
+    assert len(words) == 49 and {w["type"] for w in words} == {"word", "spacing"}
+    assert words[0] == {
+        "text": "आप", "start": 0.04, "end": 0.18, "type": "word", "speaker_id": "speaker_0",
+        "logprob": -0.005240157246589661,
+    }
+    text, speakers = elevenlabs.parse_text(payload)
+    assert speakers == 2 and text.startswith("**Speaker 1:** आप यह रंग")
+    segments = elevenlabs.parse_segments(payload)
+    assert [(s.start_ms, s.end_ms, s.speaker) for s in segments] == [
+        (40, 4960, "speaker_0"), (4980, 8320, "speaker_1")
+    ]
+    turns = turns_from_scribe(payload)
+    assert [(t.speaker_key, t.language) for t in turns] == [("speaker_0", "hi"), ("speaker_1", "en")]
+    assert turns[0].text == "आप यह रंग कैसे बनाते हैं? हम dabu के लिए मिट्टी मिलाते हैं।"
+    assert turns[1].text == "And how long does the dabu dry? Two days in the sun."
+    assert short_language(payload["language_code"]) == "hi"
+
+
+def test_the_badge_names_the_model_that_made_each_version() -> None:
+    from types import SimpleNamespace
+
+    from app.services import transcript_pipeline as pipeline
+
+    def label(model: str) -> str:
+        version = SimpleNamespace(
+            sttModel=model, sttProvider="elevenlabs", translationModel=None, translationProvider=None
+        )
+        return pipeline._badges(version)[0]["label"]
+
+    assert label("scribe_v3") == "Scribe v3"
+    assert label("scribe_v2") == "Scribe v2", "a transcript made before the switch keeps its name"
 
 
 def test_scribe_words_become_speaker_turns_with_timings_offsets_and_unsure_spans() -> None:

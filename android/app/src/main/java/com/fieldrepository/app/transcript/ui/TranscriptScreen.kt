@@ -335,7 +335,7 @@ fun TranscriptEntry(
                 Pill(TranscriptUiText.status(s.summary.status), tone = if (s.summary.status == PipelineStatus.READY) PillTone.MODEL else PillTone.PLAIN)
                 if (s.summary.languages.isNotEmpty()) Pill(s.summary.languages.joinToString(", ") { it.label.ifBlank { it.code } })
                 s.summary.durationMs?.let { Pill(TranscriptFormat.length(it)) }
-                s.summary.badges.forEach { Pill(it.label, tone = PillTone.QUIET) }
+                s.summary.badges.forEach { Pill(it.display(), tone = PillTone.QUIET) }
             }
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 OutlinedButton(onClick = { open = true }, modifier = Modifier.testTag("transcript.open.$mediaId")) {

@@ -118,7 +118,7 @@
       "languages": "[{code: 'hi', label: 'Hindi'}]  in order of share of speech",
       "durationMs": "int|null",
       "speakerCount": "int",
-      "badges": "[{kind: 'stt'|'translation', provider: string, model: string, label: 'Scribe v2'|'Gemini 3.8 Flash'}]  ADMIN, MASTER_ADMIN and MINISTRY_ADMIN only; [] for everyone else (also on TranscriptSummary and VersionInfo)",
+      "badges": "[{kind: 'stt'|'translation', provider: string, model: string, label: 'Scribe v3'|'Scribe v2'|'Gemini 3.8 Flash'}]  ADMIN, MASTER_ADMIN and MINISTRY_ADMIN only; [] for everyone else (also on TranscriptSummary and VersionInfo)",
       "speakers": "[Speaker]",
       "turns": "[Turn]",
       "summary": "[string]  up to five English lines (existing insights), [] when none",
@@ -179,7 +179,7 @@
       "durationMs": 1524000,
       "speakerCount": 2,
       "badges": [
-        {"kind": "stt", "provider": "elevenlabs", "model": "scribe_v2", "label": "Scribe v2"},
+        {"kind": "stt", "provider": "elevenlabs", "model": "scribe_v3", "label": "Scribe v3"},
         {"kind": "translation", "provider": "gemini", "model": "gemini-3.8-flash", "label": "Gemini 3.8 Flash"}
       ],
       "speakers": [

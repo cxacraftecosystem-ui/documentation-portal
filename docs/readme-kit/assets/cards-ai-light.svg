@@ -17,7 +17,7 @@
 <rect x="30" y="30" width="48" height="48" rx="14" fill="#F9F5FF" stroke="#E7D5FE"/>
 <g transform="translate(42 42) scale(1)" fill="none" stroke="#762CB1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></g>
 <text x="364.7" y="52" class="m" fill="#615D7A" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">HEAR</text>
-<text x="30" y="116" class="d" fill="#1E1B2E" font-size="20" font-weight="700" letter-spacing="-.3">Scribe v2 words</text>
+<text x="30" y="116" class="d" fill="#1E1B2E" font-size="20" font-weight="700" letter-spacing="-.3">Scribe v3 words</text>
 <text x="30" y="146" class="s" fill="#615D7A" font-size="15">Speakers, timings and key terms from the</text><text x="30" y="169" class="s" fill="#615D7A" font-size="15">artisan, the craft and the master list.</text><text x="30" y="192" class="s" fill="#615D7A" font-size="15">Video is heard from its sound.</text>
 </g>
 <g class="rise r1">

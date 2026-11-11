@@ -377,7 +377,7 @@ private fun TranscriptHeader(
             if (view.languages.isNotEmpty()) Pill(view.languages.joinToString(", ") { it.label.ifBlank { it.code } })
             view.durationMs?.let { Pill(TranscriptFormat.length(it)) }
             if (view.speakerCount > 0) Pill("${TranscriptStrings.headerSpeakers} ${view.speakerCount}")
-            view.badges.forEach { Pill(it.label.ifBlank { it.model }, tone = PillTone.MODEL) }
+            view.badges.forEach { Pill(it.display(), tone = PillTone.MODEL) }
             if (offline) Pill(TranscriptStrings.offlineCached, tone = PillTone.QUIET)
             view.cost?.let { Pill("${TranscriptStrings.spendPerRecording} ${TranscriptUiText.usd(it.totalUsd)}", tone = PillTone.QUIET) }
         }

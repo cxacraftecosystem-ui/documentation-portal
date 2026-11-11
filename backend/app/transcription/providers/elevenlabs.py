@@ -15,8 +15,8 @@ from app.transcription.providers import _http
 
 ID = "elevenlabs"
 URL = "https://api.elevenlabs.io/v1/speech-to-text"
-MODEL = "scribe_v2"
-LEGACY_MODEL = "scribe_v1"
+MODEL = "scribe_v3"
+LEGACY_MODEL = "scribe_v2"
 KEYTERM_LIMIT = 100
 
 

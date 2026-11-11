@@ -10,7 +10,7 @@
     "headerLanguages": "Language",
     "headerLength": "Length",
     "headerSpeakers": "Speakers",
-    "badgeStt": "Scribe v2",
+    "badgeStt": "Scribe v3",
     "badgeTranslation": "Gemini 3.8 Flash",
     "statusWaitingForConsent": "Waiting for consent",
     "statusQueued": "Queued",

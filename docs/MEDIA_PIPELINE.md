@@ -15,7 +15,7 @@ and of every trick either client plays.
 
 **Scope.** This document ends where the bytes land. What happens to an audio or video file *after*
 it is stored — the provider chain, its failover semantics and the queue's cooldown — is
-[ARCHITECTURE.md §6](ARCHITECTURE.md), and the Scribe v2 + Gemini turn pipeline that follows is
+[ARCHITECTURE.md §6](ARCHITECTURE.md), and the Scribe v3 + Gemini turn pipeline that follows is
 [TRANSCRIPT_PIPELINE.md](TRANSCRIPT_PIPELINE.md).
 
 **The one thing an upload decides about transcription (0.0.10).** Every audio or video file carries

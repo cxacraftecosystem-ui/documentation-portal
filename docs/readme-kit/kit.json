@@ -9,7 +9,7 @@
       "FastAPI",
       "Kotlin + Compose",
       "Postgres",
-      "Scribe v2 + Gemini"
+      "Scribe v3 + Gemini"
     ],
     "motifCaption": "record · transcribe · preserve",
     "label": "Field Repository: living craft documentation, captured in the field, transcribed into English and kept as a research-ready dataset"
@@ -40,7 +40,7 @@
         "icon": "languages",
         "tag": "Transcripts",
         "title": "Every voice in English",
-        "body": "Scribe v2 hears the words, Gemini 3.8 Flash translates each turn, and the viewer follows the audio word by word."
+        "body": "Scribe v3 hears the words, Gemini 3.8 Flash translates each turn, and the viewer follows the audio word by word."
       },
       {
         "icon": "badge-check",
@@ -63,7 +63,7 @@
       {
         "icon": "mic",
         "tag": "Hear",
-        "title": "Scribe v2 words",
+        "title": "Scribe v3 words",
         "body": "Speakers, timings and key terms from the artisan, the craft and the master list. Video is heard from its sound."
       },
       {
@@ -156,7 +156,7 @@
       {
         "icon": "languages",
         "title": "Transcribe",
-        "sub": "Scribe v2 words, Gemini English"
+        "sub": "Scribe v3 words, Gemini English"
       },
       {
         "icon": "badge-check",
@@ -171,7 +171,7 @@
     ]
   },
   "pipeline:transcript": {
-    "label": "How a recording becomes English: upload, consent, Scribe v2, Gemini, the viewer",
+    "label": "How a recording becomes English: upload, consent, Scribe v3, Gemini, the viewer",
     "stages": [
       {
         "icon": "send",
@@ -185,7 +185,7 @@
       },
       {
         "icon": "mic",
-        "title": "Scribe v2",
+        "title": "Scribe v3",
         "sub": "Words, speakers and timings"
       },
       {

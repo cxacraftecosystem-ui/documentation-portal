@@ -258,14 +258,16 @@ def _legacy_result(result: Any, *, language: bool) -> dict[str, Any]:
 
 _OPTION_REJECTED_STATUSES = {400, 422}
 
-_ELEVENLABS_MODEL = "scribe_v2"
-_ELEVENLABS_LEGACY_MODEL = "scribe_v1"
+_ELEVENLABS_MODEL = elevenlabs_adapter.MODEL
+_ELEVENLABS_RETIRED_MODELS = frozenset({"scribe_v1"})
 
 
 def _elevenlabs_model(settings: Settings | None) -> str:
     configured = (getattr(settings, "elevenlabs_stt_model", None) or "").strip()
     return (
-        configured if configured and configured != _ELEVENLABS_LEGACY_MODEL else _ELEVENLABS_MODEL
+        configured
+        if configured and configured not in _ELEVENLABS_RETIRED_MODELS
+        else _ELEVENLABS_MODEL
     )
 
 

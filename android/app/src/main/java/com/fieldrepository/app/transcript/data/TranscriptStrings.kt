@@ -9,7 +9,7 @@ object TranscriptStrings {
     const val headerLanguages = "Language"
     const val headerLength = "Length"
     const val headerSpeakers = "Speakers"
-    const val badgeStt = "Scribe v2"
+    const val badgeStt = "Scribe v3"
     const val badgeTranslation = "Gemini 3.8 Flash"
     const val statusWaitingForConsent = "Waiting for consent"
     const val statusQueued = "Queued"
@@ -143,7 +143,7 @@ object TranscriptStrings {
         "headerLanguages" to "Language",
         "headerLength" to "Length",
         "headerSpeakers" to "Speakers",
-        "badgeStt" to "Scribe v2",
+        "badgeStt" to "Scribe v3",
         "badgeTranslation" to "Gemini 3.8 Flash",
         "statusWaitingForConsent" to "Waiting for consent",
         "statusQueued" to "Queued",
