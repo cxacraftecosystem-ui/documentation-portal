@@ -32,6 +32,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import com.fieldrepository.app.ui.PlayerRenderers
 import kotlinx.coroutines.delay
 
 @Stable
@@ -146,7 +147,7 @@ fun rememberTranscriptPlayback(uri: Uri?): TranscriptPlayback {
     val context = LocalContext.current
     if (uri == null) return remember { ManualPlayback(available = false) }
     val player = remember(uri) {
-        ExoPlayer.Builder(context).build().apply {
+        PlayerRenderers.builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(uri))
             prepare()
             playWhenReady = false
