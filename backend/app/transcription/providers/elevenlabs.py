@@ -17,7 +17,7 @@ ID = "elevenlabs"
 URL = "https://api.elevenlabs.io/v1/speech-to-text"
 MODEL = "scribe_v3"
 LEGACY_MODEL = "scribe_v2"
-KEYTERM_LIMIT = 100
+KEYTERM_LIMIT = 1000
 
 
 class ElevenLabs:
@@ -29,7 +29,8 @@ class ElevenLabs:
     supports = Capabilities(
         diarize=True, word_timestamps=True, segment_timestamps=True, keyterm_limit=KEYTERM_LIMIT
     )
-    price_per_hour_usd = 0.22
+    price_per_hour_usd = 0.20
+    keyterm_price_per_hour_usd = 0.05
 
     def model(self, opts: SttOptions) -> str:
         return opts.models.get(ID) or MODEL

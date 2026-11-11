@@ -67,6 +67,7 @@ async def _state() -> dict[str, Any]:
             "configured": bool(configured.get(provider)),
             "inChain": provider in chain,
             "pricePerHourUsd": ADAPTERS[provider].price_per_hour_usd,
+            "keytermPricePerHourUsd": getattr(ADAPTERS[provider], "keyterm_price_per_hour_usd", 0.0),
         }
         for provider in order
         if provider in PROVIDER_IDS

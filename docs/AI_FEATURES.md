@@ -538,6 +538,16 @@ it queues nothing twice.
 **Summary edit and regenerate on Android (H1).** Both apps now offer the web's Edit and Regenerate under a transcript's summary, gated by the server's `canEdit` and `canRegenerate`. Edit sends `PATCH /media/{id}/insights` with the version read, at most five lines of 400 characters and eight quotes, and the English only when it was opened for editing. Regenerate sends `POST /media/{id}/insights/regenerate` and, over a researcher's edits, asks "Regenerating replaces your edits." (Keep / Replace) before sending `discardEdits: true`. A version conflict, a consent refusal or a used-up allowance shows the server's own sentence. The logic is `data/TranscriptInsightEditing.kt`; the screens are `ui/TranscriptInsightEditor.kt`.
 **Refine transcript on the web (R1).** Under a stored transcript, the uploader and the content admins see Refine transcript and Refine & translate (`components/media/TranscriptRefine.tsx`, `lib/transcriptRefine.ts`, identical in both portals). The cost confirmation, its "Do not remind me again" switch (kept in this browser), the refined Markdown and Approve or Reject match Android. Approve saves through `POST /media/{id}/transcript`. Read-only record pages and held workshops show no control.
 
+## Release 0.0.2: speech-to-text cost
+
+Scribe v3 is billed at ElevenLabs' published batch rate, USD 0.20 an hour, plus USD 0.05 an hour for
+keyterm prompting when key terms are sent ([pricing](https://elevenlabs.io/pricing/api)). A request
+carries the recording's key terms (at most 1,000, the Scribe v3 limit), so it counts USD 0.25 an hour;
+the `scribe_v2` retry sends none and counts USD 0.20. One rule, `chain.hourly_rate` in
+`backend/app/transcription/chain.py`, sets the `SttUsage` ledger, the minutes a provider's spend cap
+still buys, the monthly budget, the admin cost columns and the backfill estimate. Rows written before
+0.0.2 keep the USD 0.22 an hour they were counted at.
+
 ## How this document is kept true
 
 | Claim class | Kept true by |

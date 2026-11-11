@@ -56,6 +56,17 @@ def cost_usd(price_per_hour: float, audio_ms: int | None) -> float:
     return round(price_per_hour * (audio_ms or 0) / 3_600_000, 6)
 
 
+def hourly_rate(adapter: Any, *, keyterms: bool) -> float:
+    rate = float(getattr(adapter, "price_per_hour_usd", 0.0) or 0.0)
+    if keyterms:
+        rate += float(getattr(adapter, "keyterm_price_per_hour_usd", 0.0) or 0.0)
+    return round(rate, 6)
+
+
+def billed_rate(adapter: Any, opts: SttOptions, result: SttResult) -> float:
+    return hourly_rate(adapter, keyterms=bool(opts.keyterms) and not result.degraded)
+
+
 @dataclass
 class Slot:
     provider: str
@@ -67,9 +78,20 @@ class Slot:
 class ChainState:
     cooldowns: dict[tuple[str, str], datetime] = field(default_factory=dict)
     budget_minutes_left: dict[str, float] = field(default_factory=dict)
+    budget_usd_left: dict[str, float] = field(default_factory=dict)
     done_parts: dict[tuple[str, int], SttResult] = field(default_factory=dict)
     disabled: set[str] = field(default_factory=set)
     skip: set[str] = field(default_factory=set)
+
+
+def budget_minutes(state: ChainState, slot: Slot, opts: SttOptions) -> float | None:
+    left = state.budget_minutes_left.get(slot.provider)
+    usd = state.budget_usd_left.get(slot.provider)
+    rate = hourly_rate(slot.adapter, keyterms=bool(opts.keyterms))
+    if usd is None or not rate:
+        return left
+    by_spend = max(0.0, usd) / rate * 60
+    return by_spend if left is None else min(left, by_spend)
 
 
 @dataclass
@@ -229,7 +251,7 @@ def _call_whole(slot: Slot, audio: AudioInput, opts: SttOptions, hooks: ChainHoo
             int((time.monotonic() - started) * 1000),
             200,
             result.status,
-            cost_usd(slot.adapter.price_per_hour_usd, audio_ms),
+            cost_usd(billed_rate(slot.adapter, opts, result), audio_ms),
         )
     )
     return result
@@ -289,7 +311,7 @@ def _call_parts(
                     int((time.monotonic() - started) * 1000),
                     200,
                     result.status,
-                    cost_usd(slot.adapter.price_per_hour_usd, audio_ms),
+                    cost_usd(billed_rate(slot.adapter, part_opts, result), audio_ms),
                     plan.index,
                 )
             )
@@ -328,7 +350,7 @@ def run_chain(
                     Failure(slot.provider, "cooling", retry_after=(until - now).total_seconds())
                 )
                 continue
-            left = state.budget_minutes_left.get(slot.provider)
+            left = budget_minutes(state, slot, opts)
             if left is not None and estimate > left:
                 failures.append(Failure(slot.provider, "budget"))
                 continue

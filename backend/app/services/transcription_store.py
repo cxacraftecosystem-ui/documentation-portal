@@ -72,22 +72,17 @@ class PrismaTranscriptionStore:
                 used_ms, used_usd = await _usage_totals(
                     budget.provider, period_start(budget.period, now)
                 )
-                left: list[float] = []
                 if budget.minutesCap is not None:
-                    left.append(max(0.0, budget.minutesCap - used_ms / 60_000))
-                adapter = ADAPTERS.get(budget.provider)
-                if (
-                    budget.spendCapUsd is not None
-                    and adapter is not None
-                    and adapter.price_per_hour_usd
-                ):
-                    left.append(
-                        max(0.0, (budget.spendCapUsd - used_usd) / adapter.price_per_hour_usd * 60)
-                    )
-                if left:
+                    left = max(0.0, budget.minutesCap - used_ms / 60_000)
                     current = state.budget_minutes_left.get(budget.provider)
-                    state.budget_minutes_left[budget.provider] = min(
-                        [*left, *([current] if current is not None else [])]
+                    state.budget_minutes_left[budget.provider] = (
+                        left if current is None else min(left, current)
+                    )
+                if budget.spendCapUsd is not None and budget.provider in ADAPTERS:
+                    usd = max(0.0, budget.spendCapUsd - used_usd)
+                    current_usd = state.budget_usd_left.get(budget.provider)
+                    state.budget_usd_left[budget.provider] = (
+                        usd if current_usd is None else min(usd, current_usd)
                     )
             if job_id:
                 for part in await db.transcriptionchunk.find_many(

@@ -8,10 +8,11 @@ from typing import Any
 
 from app.core.db import db
 from app.services import app_settings, transcribe_choice
+from app.transcription.chain import hourly_rate
+from app.transcription.providers.elevenlabs import ElevenLabs
 
 logger = logging.getLogger(__name__)
 
-STT_USD_PER_MINUTE = 0.22 / 60
 GEMINI_USD_PER_MINUTE = 0.002
 ASSUMED_BYTES_PER_SECOND = 8_000
 QUEUED = "queued"
@@ -37,6 +38,12 @@ class ConfirmationNeeded(Exception):
         super().__init__(CONFIRM_MESSAGE)
 
 
+def stt_usd_per_minute() -> float:
+    from app.services import ai
+
+    return hourly_rate(ElevenLabs, keyterms=bool(ai.craft_keyterms())) / 60
+
+
 @dataclass
 class Candidate:
     media_id: str
@@ -46,7 +53,7 @@ class Candidate:
 
     @property
     def estimate_usd(self) -> float:
-        return round(self.minutes * (STT_USD_PER_MINUTE + GEMINI_USD_PER_MINUTE), 6)
+        return round(self.minutes * (stt_usd_per_minute() + GEMINI_USD_PER_MINUTE), 6)
 
 
 def minutes_of(duration_ms: Any, size_bytes: Any) -> float:

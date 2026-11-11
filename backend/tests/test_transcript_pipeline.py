@@ -60,7 +60,8 @@ class FakePost:
 
 
 def test_scribe_is_billed_at_the_pay_as_you_go_rate_and_keeps_its_words() -> None:
-    assert elevenlabs.ElevenLabs.price_per_hour_usd == 0.22
+    assert elevenlabs.ElevenLabs.price_per_hour_usd == 0.20
+    assert elevenlabs.ElevenLabs.keyterm_price_per_hour_usd == 0.05
     words = elevenlabs.parse_words(fixture("scribe_v2"))
     assert all(w["type"] != "audio_event" for w in words), "an audio event is not speech"
     assert words[0] == {"text": "आप", "start": 4.0, "end": 4.3, "type": "word", "speaker_id": "speaker_0", "logprob": -0.05}
@@ -171,18 +172,29 @@ def test_language_codes_read_as_the_portals_short_codes() -> None:
 
 
 
-def test_key_terms_put_the_most_specific_first_and_stop_at_one_hundred() -> None:
+def test_key_terms_put_the_most_specific_first_and_stop_at_one_thousand() -> None:
     terms = keyterms.assemble(
         artisan_names=["Giriraj Prasad Chhipa", "  giriraj prasad chhipa "],
         craft_names=["Dabu Printing"],
         glossary_terms=["dabu", "a term far too long to be a key term because it has more than five words"],
         regional_crafts=["Bagru Print", "Dabu Printing"],
         vocabulary=["kalamkari"],
-        master_crafts=[f"Craft {i}" for i in range(300)],
+        master_crafts=[f"Craft {i}" for i in range(1500)],
     )
     assert terms[:5] == ["Giriraj Prasad Chhipa", "Dabu Printing", "dabu", "Bagru Print", "kalamkari"]
+    assert keyterms.LIMIT == 1000
     assert len(terms) == keyterms.LIMIT
+    assert len({t.casefold() for t in terms}) == len(terms)
+    assert terms[-1] == "Craft 994"
     assert all(len(t) <= keyterms.MAX_CHARS and len(t.split()) <= keyterms.MAX_WORDS for t in terms)
+
+
+def test_scribe_v3_is_sent_up_to_one_thousand_key_terms() -> None:
+    terms = [f"term {i}" for i in range(1200)]
+    fields = elevenlabs.ElevenLabs().fields(SttOptions(keyterms=terms), conservative=False)
+    sent = [v for k, v in fields if k == "keyterms"]
+    assert elevenlabs.KEYTERM_LIMIT == 1000
+    assert sent == terms[:1000]
 
 
 
@@ -534,6 +546,15 @@ def _backfill() -> Any:
     return transcript_backfill
 
 
+def test_the_backfill_estimate_drops_the_key_term_rate_without_a_vocabulary(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import ai
+
+    backfill = _backfill()
+    assert backfill.stt_usd_per_minute() == pytest.approx(0.25 / 60)
+    monkeypatch.setattr(ai, "craft_keyterms", lambda: ())
+    assert backfill.stt_usd_per_minute() == pytest.approx(0.20 / 60)
+
+
 def test_the_backfill_goes_oldest_first_inside_the_budget() -> None:
     backfill = _backfill()
     c = backfill.Candidate
@@ -543,7 +564,7 @@ def test_the_backfill_goes_oldest_first_inside_the_budget() -> None:
         c("mid", backfill.QUEUED, "2026-08-01", 60.0),
     ]
     one_hour = candidates[0].estimate_usd
-    assert one_hour == round(60 * (0.22 / 60 + 0.002), 6)
+    assert one_hour == round(60 * (0.25 / 60 + 0.002), 6)
     assert [x.media_id for x in backfill.next_batch(candidates, limit=10, budget_left_usd=None)] == ["old", "mid", "new"]
     assert [x.media_id for x in backfill.next_batch(candidates, limit=2, budget_left_usd=None)] == ["old", "mid"]
     assert [x.media_id for x in backfill.next_batch(candidates, limit=10, budget_left_usd=one_hour * 2.5)] == ["old", "mid"]

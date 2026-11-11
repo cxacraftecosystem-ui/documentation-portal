@@ -387,6 +387,41 @@ def test_budget_exhausted_moves_on_and_all_budgets_exhausted_defers() -> None:
     assert service.outcome_dict(outcome, _messages())["reason"] == "budget"
 
 
+def _scribe_fake(script: list) -> _Fake:
+    fake = _Fake("elevenlabs", script)
+    fake.price_per_hour_usd = ADAPTERS["elevenlabs"].price_per_hour_usd
+    fake.keyterm_price_per_hour_usd = ADAPTERS["elevenlabs"].keyterm_price_per_hour_usd
+    return fake
+
+
+def test_scribe_is_billed_for_key_terms_only_when_they_are_sent() -> None:
+    adapter = ADAPTERS["elevenlabs"]
+    assert chain.hourly_rate(adapter, keyterms=True) == 0.25
+    assert chain.hourly_rate(adapter, keyterms=False) == 0.20
+    hour = 3_600_000
+    cases = (
+        (SttOptions(keyterms=["dabu"]), False, 0.25),
+        (SttOptions(), False, 0.20),
+        (SttOptions(keyterms=["dabu"]), True, 0.20),
+    )
+    for opts, degraded, rate in cases:
+        result = SttResult("COMPLETED", "dabu", "elevenlabs", "scribe_v3", audio_ms=hour, degraded=degraded)
+        hooks = _Hooks()
+        chain.run_chain(CLIP, _slots(_scribe_fake([result])), opts, hooks=hooks)
+        assert hooks.events[-1].cost_usd == rate
+
+
+def test_a_spend_cap_buys_fewer_minutes_when_key_terms_are_sent() -> None:
+    slot = _slots(_scribe_fake([_ok("elevenlabs")]))[0]
+    state = chain.ChainState(budget_usd_left={"elevenlabs": 0.25})
+    assert chain.budget_minutes(state, slot, SttOptions(keyterms=["dabu"])) == pytest.approx(60.0)
+    assert chain.budget_minutes(state, slot, SttOptions()) == pytest.approx(75.0)
+    state.budget_minutes_left["elevenlabs"] = 10.0
+    assert chain.budget_minutes(state, slot, SttOptions(keyterms=["dabu"])) == 10.0
+    spent = chain.ChainState(budget_usd_left={"elevenlabs": 0.0})
+    assert chain.run_chain(CLIP, [slot], SttOptions(keyterms=["dabu"]), spent).status == "BUDGET"
+
+
 def test_disabled_skipped_and_unkeyed_providers_are_never_called() -> None:
     a = _Fake("muse", [_ok("muse")])
     b = _Fake("deepgram", [_ok("deepgram")])

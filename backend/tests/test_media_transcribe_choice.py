@@ -339,7 +339,7 @@ def test_the_estimate_counts_hours_and_cost() -> None:
         refused=3,
     )
     assert summary["recordings"] == 2 and summary["hours"] == 2.0 and summary["leftOutForConsent"] == 3
-    assert summary["costUsd"] == round(120 * (0.22 / 60 + 0.002), 2)
+    assert summary["costUsd"] == round(120 * (0.25 / 60 + 0.002), 2)
 
 
 class _InTmpRunner(_Runner):

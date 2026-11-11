@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-LIMIT = 100
+LIMIT = 1000
 MAX_CHARS = 50
 MAX_WORDS = 5
 

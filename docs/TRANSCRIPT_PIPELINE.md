@@ -74,7 +74,7 @@ failed still leaves the transcript `READY`; that turn reads "Couldn't translate"
 
 1. **Transcribe.** The existing TRANSCRIPTION job. `transcription_jobs.transcribe_recording` asks
    Scribe v3 (`scribe_v3`) with the recording's own key terms (artisans, its craft, glossary terms for that craft,
-   crafts of its state, the vocabulary file, the master list; at most 100, most specific first), then
+   crafts of its state, the vocabulary file, the master list; at most 1,000, the Scribe v3 limit, most specific first), then
    stores the words as a new `TranscriptVersion` of `TranscriptTurn`s.
 2. **Translate + insights.** The existing TRANSCRIPT_INSIGHTS job. One Gemini pass (structured JSON,
    keyed by turn id) gives the English of every turn, the summary, the quotes and the craft terms.
@@ -93,7 +93,8 @@ re-translate a turn, Ask, auto-draft, quote card).
   runs as it arrives.
 - **Budget:** `AppSetting.transcriptMonthlyBudgetUsd` (default USD 100). At 80 % the admins get one
   notice a month; at 100 % `transcriptionPaused` is set and translation jobs wait too. Spend is
-  `SttUsage` (Scribe v3, USD 0.22 an hour, the same rate as Scribe v2) plus `TranscriptSpend` (Gemini).
+  `SttUsage` (Scribe v3: USD 0.25 an hour when key terms are sent, USD 0.20 when not, as on the
+  `scribe_v2` retry) plus `TranscriptSpend` (Gemini).
 
 ## Keys
 

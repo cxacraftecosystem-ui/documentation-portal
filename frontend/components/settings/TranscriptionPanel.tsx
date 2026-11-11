@@ -14,6 +14,7 @@ type ProviderRow = {
   configured: boolean;
   inChain: boolean;
   pricePerHourUsd: number;
+  keytermPricePerHourUsd: number;
 };
 
 type UsageRow = {
