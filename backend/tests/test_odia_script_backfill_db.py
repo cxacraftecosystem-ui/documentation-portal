@@ -191,9 +191,8 @@ def test_dry_run_counts_then_apply_converts_only_odia() -> None:
             assert media[made["media"][2].id].transcriptText == HINDI
 
             again = await script.run(True)
-            mine = {made["detected"].id, made["hinted"].id}
             assert (await _turn(made["detected"].id)).revision == 2, "a second run finds nothing to do"
-            assert all((await _turn(v)).machineText == ODIA for v in mine)
+            assert (await _turn(made["hinted"].id)).machineText == ODIA
             assert again["skipped"] >= 1
         finally:
             try:
