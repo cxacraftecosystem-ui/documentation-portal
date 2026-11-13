@@ -1,5 +1,7 @@
 package com.fieldrepository.app.legacyrecording
 
+import com.fieldrepository.app.recording.MicBusyException
+import com.fieldrepository.app.recording.MicLock
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -23,7 +25,10 @@ class LegacyTakeTest {
 
     private fun take(name: String): File = File(tmp.root, name).apply { writeBytes(ByteArray(2048)) }
 
-    @After fun clear() = LegacyTake.reset()
+    @After fun clear() {
+        LegacyTake.reset()
+        MicLock.reset()
+    }
 
     @Test
     fun `collapsing mid-take stops, releases and hands back the file`() {
@@ -64,6 +69,68 @@ class LegacyTakeTest {
         LegacyTake.begin(FakeRecorder(), take("e.m4a"))
         assertEquals(File(tmp.root, "e.m4a"), LegacyTake.finalise())
         assertEquals(first, LegacyTake.finalise())
+    }
+
+    @Test
+    fun `a new take stops the running one before its recorder is created`() {
+        val events = mutableListOf<String>()
+        val first = object : LegacyTake.Recorder {
+            override fun pause() {}
+            override fun resume() {}
+            override fun stop() { events += "first stopped" }
+            override fun release() { events += "first released" }
+        }
+        val a = Any()
+        val b = Any()
+        LegacyTake.start(a, take("g.m4a")) { events += "first created"; first }
+        LegacyTake.start(b, take("h.m4a")) { events += "second created"; FakeRecorder() }
+        assertEquals(listOf("first created", "first stopped", "first released", "second created"), events)
+        assertTrue(LegacyTake.owns(b))
+        assertFalse(LegacyTake.owns(a))
+        assertEquals(b, LegacyTake.holder.value)
+    }
+
+    @Test
+    fun `each owner gets its own take back after another took the microphone`() {
+        val a = Any()
+        val b = Any()
+        LegacyTake.start(a, take("i.m4a")) { FakeRecorder() }
+        LegacyTake.start(b, take("j.m4a")) { FakeRecorder() }
+        assertEquals(File(tmp.root, "i.m4a"), LegacyTake.finalise(a))
+        assertNull(LegacyTake.finalise(a))
+        assertTrue(LegacyTake.active)
+        assertEquals(File(tmp.root, "j.m4a"), LegacyTake.finalise(b))
+        assertFalse(LegacyTake.active)
+        assertFalse(MicLock.held)
+    }
+
+    @Test
+    fun `two takes in a row both start and the microphone is free afterwards`() {
+        val a = Any()
+        repeat(2) { index ->
+            LegacyTake.start(a, take("k$index.m4a")) { FakeRecorder() }
+            assertTrue(MicLock.held)
+            assertEquals(File(tmp.root, "k$index.m4a"), LegacyTake.finalise(a))
+            assertFalse(MicLock.held)
+        }
+    }
+
+    @Test
+    fun `a session recording holds the microphone, so a legacy take refuses by name`() {
+        assertTrue(MicLock.acquire(MicLock.SESSION))
+        var created = false
+        val error = runCatching { LegacyTake.start(Any(), take("l.m4a")) { created = true; FakeRecorder() } }.exceptionOrNull()
+        assertTrue(error is MicBusyException)
+        assertFalse(created)
+        assertFalse(LegacyTake.active)
+    }
+
+    @Test
+    fun `a recorder that fails to start leaves the microphone free`() {
+        val error = runCatching { LegacyTake.start(Any(), take("m.m4a")) { throw IllegalStateException("start failed") } }.exceptionOrNull()
+        assertTrue(error is IllegalStateException)
+        assertFalse(MicLock.held)
+        assertFalse(LegacyTake.active)
     }
 
     @Test

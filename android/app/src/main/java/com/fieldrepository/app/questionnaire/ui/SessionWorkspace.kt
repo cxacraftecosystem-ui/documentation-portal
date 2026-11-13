@@ -58,7 +58,6 @@ import com.fieldrepository.app.questionnaire.data.QCompleteSubject
 import com.fieldrepository.app.questionnaire.data.QCoverageCheckRequest
 import com.fieldrepository.app.questionnaire.data.QCoverageCheckResponse
 import com.fieldrepository.app.questionnaire.data.QErrorBody
-import com.fieldrepository.app.questionnaire.data.QErrorCodes
 import com.fieldrepository.app.questionnaire.data.QGrid
 import com.fieldrepository.app.questionnaire.data.QMakePrimaryRequest
 import com.fieldrepository.app.questionnaire.data.QProposal
@@ -160,6 +159,7 @@ fun SessionWorkspace(
     var pendingPick by remember { mutableStateOf<RecordRequest?>(null) }
     var menu by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
+    var conflict by remember { mutableStateOf<List<SessionFieldDiff>?>(null) }
     var continuing by remember { mutableStateOf(false) }
     var merging by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
@@ -235,6 +235,7 @@ fun SessionWorkspace(
             when (state.reason) {
                 RecordingService.REASON_START_FAILED -> { onError(QuestionnaireCopy.s("error.recorderStart")); RecordingService.clearFinished() }
                 RecordingService.REASON_QUEUE_FAILED -> { onError(QuestionnaireCopy.s("error.queueTake")); RecordingService.clearFinished() }
+                else -> RecordingService.failureSentence(state.reason)?.let { onError(it); RecordingService.clearFinished() }
             }
         }
         if (state is RecordingService.State.Finished) { delay(600); reload() }
@@ -781,6 +782,7 @@ fun SessionWorkspace(
             }
         )
     }
+    conflict?.let { fields -> SessionConflictPrompt(fields) { conflict = null } }
     if (editing) {
         val initial = SessionEdit.of(
             detail?.sessionDate ?: frozen?.sessionDate, detail?.purpose ?: frozen?.purpose, detail?.place ?: frozen?.place,
@@ -793,12 +795,13 @@ fun SessionWorkspace(
             editing = false
             val d = detail
             if (d != null) online {
-                try {
-                    v2.api.patchSession(d.id, edit.patch(d.version, initial))
-                } catch (http: retrofit2.HttpException) {
-                    if (http.errorCode() == QErrorCodes.STALE_VERSION) { onError(QuestionnaireCopy.s("error.changedElsewhere")); return@online }
-                    throw http
-                }
+                val result = SessionStaleRetry.save(
+                    version = d.version, initial = initial, mine = edit,
+                    patch = { body -> v2.api.patchSession(d.id, body) },
+                    fetch = { v2.api.session(d.id).let { fresh -> detail = fresh; fresh.version to fresh.asEdit() } },
+                    isStale = { error -> error.isStaleVersion() }
+                )
+                if (result is SessionEditResult.Conflict) conflict = result.fields
             } else withUnit { key ->
                 if (!v2.outbox.editPendingSession(key, edit::applyTo)) onError(QuestionnaireCopy.s("error.needsSignal"))
             }
@@ -894,10 +897,6 @@ private fun removeParticipant(
     }
     online { v2.api.removeParticipant(sessionId, artisanId, detach = if (detach) true else null) }
 }
-
-private fun retrofit2.HttpException.errorCode(): String? = runCatching {
-    QuestionnairePortal.json.decodeFromString(QErrorBody.serializer(), response()?.errorBody()?.string().orEmpty()).detail?.code
-}.getOrNull()
 
 @Composable
 internal fun OutboxTray(

@@ -70,12 +70,19 @@ class RecordingService : Service() {
         val initial = State.Recording(draft, SystemClock.elapsedRealtime(), 0, null)
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
         ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(initial), type)
+        if (!MicLock.acquire(MicLock.SESSION)) {
+            _state.value = State.Finished(draft, REASON_MIC_BUSY)
+            stopForegroundCompat()
+            stopSelf()
+            return
+        }
         val rec = AdtsRecorder(this, File(draft.adtsPath)) { why -> handler.post { finish(why) } }
         try {
             rec.start()
         } catch (failed: Exception) {
             rec.stop()
-            _state.value = State.Finished(draft, REASON_START_FAILED)
+            MicLock.release(MicLock.SESSION)
+            _state.value = State.Finished(draft, startFailure(failed, File(draft.adtsPath)))
             stopForegroundCompat()
             stopSelf()
             return
@@ -108,6 +115,7 @@ class RecordingService : Service() {
         pausedForFocus = false
         recorder?.stop()
         recorder = null
+        MicLock.release(MicLock.SESSION)
         abandonFocus()
         val draft = s.draft.copy(finished = true, durationMs = s.elapsedMs())
         RecordingDrafts.write(filesDir, draft)
@@ -209,6 +217,24 @@ class RecordingService : Service() {
     companion object {
         const val REASON_START_FAILED = "error:start"
         const val REASON_QUEUE_FAILED = "error:queue"
+        const val REASON_MIC_BUSY = "error:micBusy"
+        const val REASON_STORAGE_FULL = "error:storageFull"
+        const val REASON_NO_PERMISSION = "error:noPermission"
+
+        fun startFailure(error: Throwable, output: File): String =
+            when (MicFailure.of(error, permitted = true, freeBytes = MicFailure.freeBytes(output))) {
+                MicFailure.BUSY -> REASON_MIC_BUSY
+                MicFailure.STORAGE_FULL -> REASON_STORAGE_FULL
+                MicFailure.NO_PERMISSION -> REASON_NO_PERMISSION
+                MicFailure.OTHER -> REASON_START_FAILED
+            }
+
+        fun failureSentence(reason: String): String? = when (reason) {
+            REASON_MIC_BUSY -> MicFailure.BUSY.sentence
+            REASON_STORAGE_FULL -> MicFailure.STORAGE_FULL.sentence
+            REASON_NO_PERMISSION -> MicFailure.NO_PERMISSION.sentence
+            else -> null
+        }
         const val TRANSIENT_LOSS_LIMIT_MS = 10 * 60 * 1000L
 
         fun focusAction(change: Int, pausedForFocus: Boolean): FocusAction = when (change) {

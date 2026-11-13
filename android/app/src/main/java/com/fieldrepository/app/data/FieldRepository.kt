@@ -2092,10 +2092,12 @@ class FieldRepository(
             StagedJournal.checksumFor(staged.objectKey)
         )
         StagedJournal.drop(staged.objectKey)
+        StagedObjects.settled(staged.objectKey)
         return media
     }
 
     suspend fun deleteStaged(objectKey: String) {
+        if (!StagedObjects.claimDelete(objectKey)) return
         api.deleteMediaObject(objectKey)
         StagedJournal.drop(objectKey)
     }
@@ -2112,7 +2114,7 @@ class FieldRepository(
                 false
             }
             val deleteSettled = try {
-                api.deleteMediaObject(objectKey)
+                if (StagedObjects.claimDelete(objectKey)) api.deleteMediaObject(objectKey)
                 true
             } catch (e: HttpException) {
                 e.code() == 409 || e.code() == 403 || e.code() == 404

@@ -26,7 +26,7 @@ class HeldRecorderTest {
         assertEquals("the legacy questionnaire recorder and startHeldTake, nothing else", 2, starts.size)
         starts.forEach { (index, _) ->
             val next = lines.subList(index, minOf(lines.size, index + 4)).joinToString("\n")
-            assertTrue("line ${index + 1} hands the recorder to LegacyTake", next.contains("LegacyTake.begin("))
+            assertTrue("line ${index + 1} hands the recorder to LegacyTake", next.contains("LegacyTake.start("))
             assertTrue("line ${index + 1} starts the foreground service", next.contains("LegacyRecordingService.start("))
         }
         assertTrue("no screen stops a raw recorder any more", !main.contains("recorder?.stop()"))

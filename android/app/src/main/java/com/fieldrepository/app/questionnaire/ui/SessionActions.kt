@@ -25,6 +25,7 @@ import com.fieldrepository.app.questionnaire.data.QContinueRequest
 import com.fieldrepository.app.questionnaire.data.QProposal
 import com.fieldrepository.app.questionnaire.data.QSession
 import com.fieldrepository.app.questionnaire.data.QSessionCreate
+import com.fieldrepository.app.questionnaire.data.QSessionDetail
 import com.fieldrepository.app.questionnaire.data.QSessionLocation
 import com.fieldrepository.app.questionnaire.data.QSessionPatch
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
@@ -89,6 +90,124 @@ data class SessionEdit(
             location = location, crafts = crafts, craftsByHand = craftsByHand
         )
     }
+}
+
+enum class SessionEditField(val labelKey: String) {
+    DATE("start.date"), PURPOSE("start.purpose"), PLACE("start.place"), LOCATION("start.place"),
+    LANGUAGE("start.language"), NOTE("start.note"), CRAFTS("start.crafts")
+}
+
+data class SessionFieldDiff(val field: SessionEditField, val mine: String, val theirs: String)
+
+sealed interface SessionEditResult {
+    data object Saved : SessionEditResult
+    data class Conflict(val fields: List<SessionFieldDiff>) : SessionEditResult
+}
+
+sealed interface StaleOutcome {
+    data class Retry(val patch: QSessionPatch?) : StaleOutcome
+    data class Conflict(val fields: List<SessionFieldDiff>) : StaleOutcome
+}
+
+object SessionStaleRetry {
+    fun changed(a: SessionEdit, b: SessionEdit): Set<SessionEditField> = SessionEditField.entries.filter { a.valueOf(it) != b.valueOf(it) }.toSet()
+
+    fun merged(server: SessionEdit, mine: SessionEdit, edited: Set<SessionEditField>): SessionEdit = server.copy(
+        date = if (SessionEditField.DATE in edited) mine.date else server.date,
+        purpose = if (SessionEditField.PURPOSE in edited) mine.purpose else server.purpose,
+        place = if (SessionEditField.PLACE in edited) mine.place else server.place,
+        location = if (SessionEditField.LOCATION in edited) mine.location else server.location,
+        languageCode = if (SessionEditField.LANGUAGE in edited) mine.languageCode else server.languageCode,
+        languageOther = if (SessionEditField.LANGUAGE in edited) mine.languageOther else server.languageOther,
+        note = if (SessionEditField.NOTE in edited) mine.note else server.note,
+        crafts = if (SessionEditField.CRAFTS in edited) mine.crafts else server.crafts
+    )
+
+    fun resolve(initial: SessionEdit, mine: SessionEdit, server: SessionEdit, serverVersion: Int): StaleOutcome {
+        val edited = changed(mine, initial)
+        val moved = changed(server, initial)
+        val clashes = (edited intersect moved).filter { mine.valueOf(it) != server.valueOf(it) }
+        if (clashes.isNotEmpty()) return StaleOutcome.Conflict(diff(clashes, mine, server))
+        val next = merged(server, mine, edited)
+        return StaleOutcome.Retry(if (next == server) null else next.patch(serverVersion, server))
+    }
+
+    fun diff(fields: Collection<SessionEditField>, mine: SessionEdit, server: SessionEdit): List<SessionFieldDiff> =
+        SessionEditField.entries.filter { it in fields }.map { SessionFieldDiff(it, mine.valueOf(it), server.valueOf(it)) }
+
+    suspend fun save(
+        version: Int,
+        initial: SessionEdit,
+        mine: SessionEdit,
+        patch: suspend (QSessionPatch) -> Unit,
+        fetch: suspend () -> Pair<Int, SessionEdit>,
+        isStale: (Throwable) -> Boolean
+    ): SessionEditResult {
+        try {
+            patch(mine.patch(version, initial))
+            return SessionEditResult.Saved
+        } catch (first: Exception) {
+            if (first is kotlinx.coroutines.CancellationException || !isStale(first)) throw first
+        }
+        val (serverVersion, server) = fetch()
+        return when (val outcome = resolve(initial, mine, server, serverVersion)) {
+            is StaleOutcome.Conflict -> SessionEditResult.Conflict(outcome.fields)
+            is StaleOutcome.Retry -> {
+                val body = outcome.patch ?: return SessionEditResult.Saved
+                try {
+                    patch(body)
+                    SessionEditResult.Saved
+                } catch (second: Exception) {
+                    if (second is kotlinx.coroutines.CancellationException || !isStale(second)) throw second
+                    val latest = runCatching { fetch().second }.getOrDefault(server)
+                    val fields = changed(mine, initial).ifEmpty { SessionEditField.entries.toSet() }
+                    SessionEditResult.Conflict(diff(fields, mine, latest).filter { it.mine != it.theirs })
+                }
+            }
+        }
+    }
+}
+
+fun SessionEdit.valueOf(field: SessionEditField): String = when (field) {
+    SessionEditField.DATE -> date?.toString().orEmpty()
+    SessionEditField.PURPOSE -> QuestionnaireCopy.purposeLabel(purpose)
+    SessionEditField.PLACE -> place.trim()
+    SessionEditField.LOCATION -> location?.let { it.placeName ?: it.address ?: "${it.latitude}, ${it.longitude}" }.orEmpty()
+    SessionEditField.LANGUAGE -> if (languageCode == "other") languageOther.trim() else languageCode
+    SessionEditField.NOTE -> note.trim()
+    SessionEditField.CRAFTS -> crafts.joinToString(", ")
+}
+
+fun Throwable.isStaleVersion(): Boolean {
+    val http = this as? retrofit2.HttpException ?: return false
+    if (http.code() != 409) return false
+    val body = runCatching { http.response()?.errorBody()?.string() }.getOrNull().orEmpty()
+    return runCatching {
+        com.fieldrepository.app.questionnaire.portal.QuestionnairePortal.json.decodeFromString(com.fieldrepository.app.questionnaire.data.QErrorBody.serializer(), body).detail?.code
+    }.getOrNull() == com.fieldrepository.app.questionnaire.data.QErrorCodes.STALE_VERSION
+}
+
+fun QSessionDetail.asEdit(): SessionEdit = SessionEdit.of(sessionDate, purpose, place, languageCode, languageOther, note, location, crafts, craftsByHand)
+
+@Composable
+fun SessionConflictPrompt(fields: List<SessionFieldDiff>, onDismiss: () -> Unit) {
+    QuestionnairePromptContent(
+        title = QuestionnaireCopy.s("session.conflictTitle"),
+        onDismiss = onDismiss,
+        content = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(QuestionnaireCopy.s("session.conflictBody"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.body)
+                fields.forEach { f ->
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(QuestionnaireCopy.s(f.field.labelKey), style = MaterialTheme.typography.labelLarge)
+                        Text("${QuestionnaireCopy.s("tray.mine")}: ${f.mine.ifBlank { "—" }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body)
+                        Text("${QuestionnaireCopy.s("tray.theirs")}: ${f.theirs.ifBlank { "—" }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
+                    }
+                }
+            }
+        },
+        buttons = listOf(PromptButton(QuestionnaireCopy.s("ok"), primary = true, onClick = onDismiss))
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)

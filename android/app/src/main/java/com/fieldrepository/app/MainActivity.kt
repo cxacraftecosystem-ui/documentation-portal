@@ -3544,7 +3544,7 @@ private fun RegisterUnsavedGuard(dirty: Boolean, onSave: () -> Unit) {
     }
 }
 
-private class MediaCaptureState {
+internal class MediaCaptureState {
     var uris by mutableStateOf<List<Uri>>(emptyList())
     var location by mutableStateOf<LocationRequest?>(null)
     var measurementUri by mutableStateOf<Uri?>(null)
@@ -3586,6 +3586,12 @@ private fun startEagerUpload(
     media.stagedDeferred.remove(uri)
     media.staged = media.staged - uri
     media.stagedFailed = media.stagedFailed - uri
+    com.fieldrepository.app.data.StagedObjects.kept(uri.toString())?.let { kept ->
+        media.stagedDeferred[uri] = CompletableDeferred(kept)
+        media.staged = media.staged + (uri to kept)
+        media.stagedProgress = media.stagedProgress + (uri to 1f)
+        return
+    }
     media.stagedProgress = media.stagedProgress + (uri to 0f)
     val deferred = AppScope.io.async {
         var lastPct = -1
@@ -3596,7 +3602,7 @@ private fun startEagerUpload(
                     lastPct = pct
                     media.stagedProgress = media.stagedProgress + (uri to pct / 100f)
                 }
-            }
+            }.also { com.fieldrepository.app.data.StagedObjects.keep(uri.toString(), it) }
         }.getOrNull()
     }
     media.stagedDeferred[uri] = deferred
@@ -4492,7 +4498,7 @@ private fun AutoResetStatus(status: ActionStatus, onReset: () -> Unit) {
 }
 
 @Composable
-private fun AudioClipRecorder(
+internal fun AudioClipRecorder(
     clips: List<Uri>,
     onAddClip: (Uri) -> Unit,
     onRemoveLast: () -> Unit,
@@ -4509,27 +4515,45 @@ private fun AudioClipRecorder(
     }
 
     val addClip by rememberUpdatedState(onAddClip)
+    val takeOwner = remember { Any() }
+    val micGate = rememberPermissionGate(onRefused = onError)
 
-    fun startNew() {
+    fun startNow() {
+        var file: File? = null
         runCatching {
-            val file = createAppFile(context, "question-audio-", ".m4a")
-            val started = createAudioRecorder(context, file).also { it.start() }
-            com.fieldrepository.app.legacyrecording.LegacyTake.begin(com.fieldrepository.app.legacyrecording.LegacyTake.Media(started), file)
+            val target = createAppFile(context, "question-audio-", ".m4a").also { file = it }
+            val started = com.fieldrepository.app.legacyrecording.LegacyTake.start(takeOwner, target) { com.fieldrepository.app.legacyrecording.LegacyTake.Media(createAudioRecorder(context, target).also { it.start() }) }.recorder
             com.fieldrepository.app.legacyrecording.LegacyRecordingService.start(context)
             recorder = started
-            recordingFile = file
+            recordingFile = target
             phase = RecPhase.RECORDING
-        }.onFailure { onError(it.apiErrorMessage("Unable to start recording")); phase = RecPhase.IDLE }
+        }.onFailure { error ->
+            file?.takeIf { it.length() == 0L }?.delete()
+            onError(micFailureSentence(context, error, file))
+            phase = RecPhase.IDLE
+        }
+    }
+
+    fun startNew() {
+        micGate.run(MICROPHONE_PERMISSION, MICROPHONE_REFUSED_SENTENCE) { startNow() }
     }
 
     fun finaliseTake(): Boolean {
         if (recorder == null) return false
-        val file = com.fieldrepository.app.legacyrecording.LegacyTake.finalise()
+        val file = com.fieldrepository.app.legacyrecording.LegacyTake.finalise(takeOwner)
         com.fieldrepository.app.legacyrecording.LegacyRecordingService.stop(context)
         recorder = null
         recordingFile = null
         if (file != null) addClip(uriForFile(context, file))
         return file != null
+    }
+
+    val heldBy by com.fieldrepository.app.legacyrecording.LegacyTake.holder.collectAsState()
+    LaunchedEffect(heldBy) {
+        if (recorder != null && heldBy !== takeOwner) {
+            runCatching { finaliseTake() }
+            phase = RecPhase.RECORDED
+        }
     }
 
     fun stopAndSave() {
@@ -4628,15 +4652,22 @@ private fun AudioClipRecorder(
     }
 }
 
+private val heldTakeOwner = Any()
+
 private fun startHeldTake(context: Context, file: File): MediaRecorder {
-    val started = createAudioRecorder(context, file).also { it.start() }
-    com.fieldrepository.app.legacyrecording.LegacyTake.begin(com.fieldrepository.app.legacyrecording.LegacyTake.Media(started), file)
+    val started = com.fieldrepository.app.legacyrecording.LegacyTake.start(heldTakeOwner, file) { com.fieldrepository.app.legacyrecording.LegacyTake.Media(createAudioRecorder(context, file).also { it.start() }) }.recorder
     com.fieldrepository.app.legacyrecording.LegacyRecordingService.start(context)
     return started
 }
 
+internal fun micFailureSentence(context: Context, error: Throwable, file: File?): String {
+    val permitted = ContextCompat.checkSelfPermission(context, MICROPHONE_PERMISSION) == PackageManager.PERMISSION_GRANTED
+    val free = com.fieldrepository.app.recording.MicFailure.freeBytes(file ?: DraftStore.capturesDir(context))
+    return com.fieldrepository.app.recording.MicFailure.of(error, permitted, free).sentence
+}
+
 private fun stopHeldTake(context: Context): File? {
-    val file = com.fieldrepository.app.legacyrecording.LegacyTake.finalise()
+    val file = com.fieldrepository.app.legacyrecording.LegacyTake.finalise(heldTakeOwner)
     com.fieldrepository.app.legacyrecording.LegacyRecordingService.stop(context)
     return file
 }
@@ -4689,14 +4720,13 @@ private fun MediaCaptureSection(
             }
         }
     }
-    DisposableEffect(Unit) {
-        onDispose {
-            if (media.uris.isNotEmpty()) {
-                val pending = media.stagedDeferred.values.toList()
-                AppScope.io.launch {
-                    pending.forEach { d -> runCatching { d.await()?.let { repository.deleteStaged(it.objectKey) } } }
-                }
-            }
+    val heldBy by com.fieldrepository.app.legacyrecording.LegacyTake.holder.collectAsState()
+    LaunchedEffect(heldBy) {
+        if (recording && heldBy !== heldTakeOwner) {
+            runCatching { stopHeldTake(context)?.let { file -> media.uris = media.uris + uriForFile(context, file) } }
+            recorder = null
+            recordingFile = null
+            recording = false
         }
     }
 
@@ -4785,7 +4815,7 @@ private fun MediaCaptureSection(
                             recordingFile = file
                             recording = true
                             onMessage("Recording audio...")
-                        }.onFailure { onError(it.apiErrorMessage("Unable to start audio recording")) }
+                        }.onFailure { onError(micFailureSentence(context, it, null)) }
                     } else {
                         runCatching {
                             stopHeldTake(context)?.let { file -> media.uris = media.uris + uriForFile(context, file) }
@@ -4971,23 +5001,13 @@ private fun UriTranscribeChoices(uris: List<Uri>, modifier: Modifier = Modifier)
 }
 
 @Composable
-private fun MediaStagingEffect(repository: FieldRepository, media: MediaCaptureState) {
+internal fun MediaStagingEffect(repository: FieldRepository, media: MediaCaptureState) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     LaunchedEffect(media.uris) {
         media.uris.forEach { uri ->
             if (!media.stagedDeferred.containsKey(uri)) {
                 startEagerUpload(repository, context, media, uri, scope)
-            }
-        }
-    }
-    DisposableEffect(Unit) {
-        onDispose {
-            if (media.uris.isNotEmpty()) {
-                val pending = media.stagedDeferred.values.toList()
-                AppScope.io.launch {
-                    pending.forEach { d -> runCatching { d.await()?.let { repository.deleteStaged(it.objectKey) } } }
-                }
             }
         }
     }

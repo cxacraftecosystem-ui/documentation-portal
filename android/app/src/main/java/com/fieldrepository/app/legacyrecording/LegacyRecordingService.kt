@@ -69,6 +69,7 @@ class LegacyRecordingService : Service() {
         }
 
         fun stop(context: Context) {
+            if (LegacyTake.active) return
             runCatching { context.stopService(Intent(context, LegacyRecordingService::class.java)) }
         }
 
