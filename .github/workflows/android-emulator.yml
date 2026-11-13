@@ -23,9 +23,9 @@ on:
         type: string
         default: ""
       baseline-ref:
-        description: "The released ref whose backend the stack job runs beside this one, to show what shipped"
+        description: "The release before the blank-name fix, whose backend the stack job runs beside this one"
         type: string
-        default: "v0.0.3"
+        default: "v0.0.2"
       parts:
         description: "all, or stack for only the record-save job against a CI backend"
         type: choice
@@ -323,7 +323,7 @@ jobs:
       - name: Checkout the released backend
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.baseline-ref || 'v0.0.3' }}
+          ref: ${{ inputs.baseline-ref || 'v0.0.2' }}
           path: baseline
 
       - name: Set up Python
