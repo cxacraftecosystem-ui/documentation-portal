@@ -29,7 +29,7 @@ test("the validator's stock messages become plain copy", () => {
 });
 
 test("a server's own sentence still passes through as before", () => {
-  expect(describeApiDetail([{ msg: "Value error, Unknown dimension", loc: ["query", "dimension"] }], "unused")).toBe("dimension: Unknown dimension");
+  expect(describeApiDetail([{ msg: "Value error, Unknown dimension", loc: ["query", "dimension"] }], "unused")).toBe("Dimension: Unknown dimension");
   expect(describeApiDetail("Invalid email or password", "unused")).toBe("Invalid email or password");
   expect(validationSentence("dimension", "Unknown dimension")).toBeNull();
 });

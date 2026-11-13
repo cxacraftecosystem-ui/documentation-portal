@@ -115,7 +115,7 @@ test("a caller that supplies its own key is never overruled", async () => {
 test("one payload string is built, and both the request and the queued entry send it", () => {
   const code = codeOnly(SAVE_OR_QUEUE);
   expect((code.match(/JSON\.stringify\(/g) ?? []).length, "exactly one serialisation in saveOrQueue").toBe(1);
-  expect(code).toContain("const payload = JSON.stringify(bodyWithClientKey(endpoint, method, body));");
+  expect(code).toContain("const payload = JSON.stringify(bodyWithClientKey(endpoint, method, writeBody(body, method)));");
   expect(code, "the queued entry sends that same string").toContain("body: payload");
   expect(code, "and so does the online request").toContain("apiFetch<T>(endpoint, { method, body: payload })");
 

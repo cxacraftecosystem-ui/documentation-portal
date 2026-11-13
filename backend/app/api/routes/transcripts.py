@@ -16,6 +16,7 @@ from app.transcription.transcript.schema import (
     CopyBody,
     EnglishBody,
     QuoteCardBody,
+    RetranscribeBody,
     SpeakerMappingBody,
     TurnEditBody,
 )
@@ -115,6 +116,14 @@ async def put_budget(body: BudgetBody, user: Any = Depends(get_current_user)) ->
     view = await pipeline.set_budget(body.monthlyUsd, getattr(user, "id", None))
     await pipeline.check_budget()
     return view
+
+
+@router.get("/spoken-language")
+async def spoken_language(
+    artisanIds: str = Query("", max_length=4_000), user: Any = Depends(get_current_user)
+) -> dict[str, Any]:
+    ids = [part.strip() for part in artisanIds.split(",") if part.strip()][:BATCH_MAX]
+    return await pipeline.spoken_language_suggestion(ids, getattr(user, "id", None))
 
 
 @router.get("/{media_id}", dependencies=ENABLED)
@@ -226,6 +235,22 @@ async def retry(media_id: str, user: Any = Depends(get_current_user)) -> dict[st
         await transcript_insights.enqueue(str(media.id), requested_by_id=getattr(user, "id", None))
     else:
         await pipeline.requeue_transcription(media)
+    return await pipeline.build_view(media, user)
+
+
+@router.post("/{media_id}/retranscribe", dependencies=ENABLED, status_code=status.HTTP_202_ACCEPTED)
+async def retranscribe(media_id: str, body: RetranscribeBody, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    media = await _media(media_id, user)
+    await _take_allowance(user)
+    try:
+        await pipeline.retranscribe(media, user, body.spokenLanguage)
+    except pipeline.PipelineRefused as exc:
+        await _refund_allowance(user)
+        raise _refused(exc) from None
+    except HTTPException:
+        await _refund_allowance(user)
+        raise
+    media = await db.mediafile.find_unique(where={"id": media_id}) or media
     return await pipeline.build_view(media, user)
 
 

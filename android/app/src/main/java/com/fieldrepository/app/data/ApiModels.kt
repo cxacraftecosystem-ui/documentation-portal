@@ -211,7 +211,8 @@ data class MediaCompleteRequest(
     val recordedAt: String? = null,
     val recordedTimezone: String = "Asia/Kolkata",
     val location: LocationRequest? = null,
-    val processingRequests: List<String> = emptyList()
+    val processingRequests: List<String> = emptyList(),
+    val extraMetadata: JsonObject? = null
 )
 
 @Serializable
@@ -662,9 +663,9 @@ data class DuplicateCheckResponse(val candidates: List<DuplicateCandidateDto> = 
 
 @Serializable
 data class ProductCreateRequest(
-    val craftName: String,
-    val place: String,
-    val artisanName: String,
+    val craftName: String? = null,
+    val place: String? = null,
+    val artisanName: String? = null,
     val productName: String,
     val localName: String? = null,
     val productType: String = "OTHER",
@@ -693,9 +694,9 @@ data class ProductCreateRequest(
 
 @Serializable
 data class ToolCreateRequest(
-    val craftName: String,
-    val place: String,
-    val artisanName: String,
+    val craftName: String? = null,
+    val place: String? = null,
+    val artisanName: String? = null,
     val toolkitName: String,
     val localName: String? = null,
     val englishName: String? = null,

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { describeApiDetail, ApiError } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api";
 import { createAlias, fetchUnmatched } from "@/components/map/coverage/coverageApi";
 import type { RegisterState } from "@/components/map/coverage/coverageMath";
 import type { UnmatchedItem } from "@/components/map/coverage/coverageTypes";
@@ -52,11 +52,7 @@ function UnmatchedRow({
       });
       onSaved();
     } catch (cause: unknown) {
-      setError(
-        cause instanceof ApiError
-          ? describeApiDetail((cause.payload as { detail?: unknown } | undefined)?.detail ?? cause.message, "Not saved.")
-          : "Not saved."
-      );
+      setError(apiErrorMessage(cause, "Not saved."));
     } finally {
       setSaving(false);
     }

@@ -23,6 +23,8 @@ import { prompts } from "@/lib/questionnaire/prompts";
 import { newSessionUnit } from "@/lib/questionnaire/queue";
 import { readStartLists, searchCachedArtisans, titleWorkshop, trimArtisan, trimWorkshop, writeStartLists } from "@/lib/questionnaire/startSheetCache";
 import { PURPOSE_KEY, qs } from "@/lib/questionnaire/qs";
+import { SpokenLanguagePicker, useSpokenLanguageChoice } from "@/components/transcript/SpokenLanguagePicker";
+import { rememberSessionSpokenLanguage } from "@/lib/transcript/spokenLanguage";
 import {
   artisanFilter,
   defaultWorkshopId,
@@ -180,6 +182,7 @@ export function SessionStartSheet({
   const [error, setError] = useState<string | null>(null);
 
   const set = <K extends keyof StartSheetState>(key: K, value: StartSheetState[K]) => setForm((f) => ({ ...f, [key]: value }));
+  const spoken = useSpokenLanguageChoice(form.artisanIds, { fallback: form.languageCode || null });
 
   useEffect(() => {
     let cancelled = false;
@@ -407,6 +410,7 @@ export function SessionStartSheet({
         }
       }
       const clientKey = mintKey("c");
+      rememberSessionSpokenLanguage(clientKey, spoken.value);
       const location = formRef.current ? sessionLocationFromForm(new FormData(formRef.current)) : null;
       const unit = newSessionUnit(sessionCreateBody({ ...form, location }, clientKey));
       const landed = new Promise<Session | null>((resolve) => {
@@ -578,6 +582,7 @@ export function SessionStartSheet({
             />
           ) : null}
         </div>
+        <SpokenLanguagePicker value={spoken.value} onChange={spoken.choose} suggestion={spoken.suggestion} />
       </div>
 
       <div className="grid gap-1">

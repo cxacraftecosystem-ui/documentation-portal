@@ -62,6 +62,26 @@ export type TranscriptPermissions = {
   quoteCard: boolean;
   mapSpeakers: boolean;
   addEnglish?: boolean;
+  retranscribe?: boolean;
+};
+
+export type SpokenLanguageView = {
+  chosen: string;
+  chosenLabel: string;
+  requested: string | null;
+  requestedLabel: string | null;
+  detected: string | null;
+  detectedLabel: string | null;
+  probability: number | null;
+  uncertain: boolean;
+  retranscribing: boolean;
+  estimateMinutes: number;
+  estimateUsd: number | null;
+};
+
+export type SpokenLanguageSuggestion = {
+  suggested: { code: string; label: string; source: "artisan" | "researcher" } | null;
+  uncertainBelow?: number;
 };
 
 export type EnglishNotice = "DECLINED" | "UNAVAILABLE" | null;
@@ -74,6 +94,7 @@ export type Transcript = {
   statusMessage: string | null;
   version: number | null;
   languages: TranscriptLanguage[];
+  spokenLanguage?: SpokenLanguageView | null;
   durationMs: number | null;
   speakerCount: number;
   badges: TranscriptBadge[];

@@ -1,6 +1,7 @@
 import { ApiError, apiFetch, apiFetchWithHeaders } from "@/lib/api";
 import type { User, UserRole } from "@/lib/types";
 import { SESSION_ROTATED_HEADER } from "@/lib/sessionCookie";
+import { writeBody } from "@/lib/writeBody";
 
 export type IssuedPasswordLink = {
   id: string;
@@ -157,7 +158,7 @@ export type CreatedAccount = User & {
 };
 
 export async function createPasswordAccount(account: NewPasswordAccount): Promise<CreatedAccount> {
-  return apiFetch<CreatedAccount>("/users", { method: "POST", body: JSON.stringify(account) });
+  return apiFetch<CreatedAccount>("/users", { method: "POST", body: JSON.stringify(writeBody(account, "POST")) });
 }
 
 export const EXISTING_ACCOUNT_HEADER = "x-existing-account-id";

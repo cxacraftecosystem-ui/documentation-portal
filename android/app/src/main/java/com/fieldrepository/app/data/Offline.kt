@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.transcript.data.SpokenLanguageChoices
 import com.fieldrepository.app.transcript.data.TranscribeChoices
 import android.content.Context
 import android.net.ConnectivityManager
@@ -45,7 +46,8 @@ data class PendingMedia(
     val linkedType: String? = null,
     val stepIndex: Int? = null,
     val location: LocationRequest? = null,
-    val capturedAt: String? = null
+    val capturedAt: String? = null,
+    val spokenLanguage: String? = null
 )
 
 @Serializable
@@ -404,7 +406,8 @@ object OfflineOutbox {
             linkedType = linkedType,
             stepIndex = stepIndex,
             location = location,
-            capturedAt = Instant.now().toString()
+            capturedAt = Instant.now().toString(),
+            spokenLanguage = SpokenLanguageChoices.forKey(uri.toString())
         )
     }
 

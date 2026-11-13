@@ -30,7 +30,8 @@ data class RecordingDraft(
     val durationMs: Long = 0,
     val sha256: String? = null,
     val sizeBytes: Long = 0,
-    val queued: Boolean = false
+    val queued: Boolean = false,
+    val spokenLanguage: String? = null
 )
 
 object RecordingDrafts {

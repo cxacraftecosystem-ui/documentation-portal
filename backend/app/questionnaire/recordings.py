@@ -575,6 +575,7 @@ async def complete(payload: Any, user: Any, *, client: Any = None, provenance: s
         **({"clockClamped": True} if clamped else {}),
         **({"reviewNotes": review_notes} if review_notes else {}),
         **({"reviewItem": "New take on an approved session"} if approved_session else {}),
+        **({"spokenLanguage": rec.spokenLanguage} if rec.spokenLanguage else {}),
         **(await _submission_stamp(user, session)),
     }
     target_keys = [t["targetKey"] for t in targets]

@@ -134,6 +134,24 @@ object TranscriptStrings {
     const val settingsBackfillConfirmBody = "Every earlier recording and video with consent is sent, oldest first, within this month's budget. You can turn it off at any time."
     const val settingsBackfillConfirm = "Start backfill"
     const val settingsBackfillCancel = "Cancel"
+    const val spokenLanguage = "Spoken language"
+    const val spokenLanguageAuto = "Detect automatically"
+    const val spokenLanguageMixed = "Mixed (several languages)"
+    const val spokenLanguageSearch = "Search languages"
+    const val spokenLanguageNoMatch = "No language matches"
+    const val spokenLanguageFromArtisan = "Last used with this artisan"
+    const val spokenLanguageFromResearcher = "Your last choice"
+    fun detectedLanguage(language: Any): String = "Detected: {language}".replace("{language}", language.toString())
+    fun transcribedAs(language: Any): String = "Transcribed as {language}".replace("{language}", language.toString())
+    const val languageUncertain = "Language uncertain, check it"
+    const val wrongLanguage = "Wrong language? Re-transcribe as…"
+    const val retranscribeTitle = "Re-transcribe"
+    const val retranscribeConfirm = "Re-transcribe"
+    fun retranscribeMinutes(minutes: Any): String = "About {minutes} min of audio".replace("{minutes}", minutes.toString())
+    fun retranscribeCost(usd: Any): String = "Estimated cost: US\$ {usd}".replace("{usd}", usd.toString())
+    const val retranscribeKeeps = "The current version is kept. Translation and summary run again."
+    const val retranscribing = "Re-transcribing…"
+    const val retranscribeFailed = "Couldn't start. Try again."
 
     /** Every entry as the table spells it, placeholders and all, for the parity test. */
     val table: Map<String, String> = linkedMapOf(
@@ -267,6 +285,24 @@ object TranscriptStrings {
         "settingsBackfillConfirmTitle" to "Start the backfill?",
         "settingsBackfillConfirmBody" to "Every earlier recording and video with consent is sent, oldest first, within this month's budget. You can turn it off at any time.",
         "settingsBackfillConfirm" to "Start backfill",
-        "settingsBackfillCancel" to "Cancel"
+        "settingsBackfillCancel" to "Cancel",
+        "spokenLanguage" to "Spoken language",
+        "spokenLanguageAuto" to "Detect automatically",
+        "spokenLanguageMixed" to "Mixed (several languages)",
+        "spokenLanguageSearch" to "Search languages",
+        "spokenLanguageNoMatch" to "No language matches",
+        "spokenLanguageFromArtisan" to "Last used with this artisan",
+        "spokenLanguageFromResearcher" to "Your last choice",
+        "detectedLanguage" to "Detected: {language}",
+        "transcribedAs" to "Transcribed as {language}",
+        "languageUncertain" to "Language uncertain, check it",
+        "wrongLanguage" to "Wrong language? Re-transcribe as…",
+        "retranscribeTitle" to "Re-transcribe",
+        "retranscribeConfirm" to "Re-transcribe",
+        "retranscribeMinutes" to "About {minutes} min of audio",
+        "retranscribeCost" to "Estimated cost: US\$ {usd}",
+        "retranscribeKeeps" to "The current version is kept. Translation and summary run again.",
+        "retranscribing" to "Re-transcribing…",
+        "retranscribeFailed" to "Couldn't start. Try again."
     )
 }

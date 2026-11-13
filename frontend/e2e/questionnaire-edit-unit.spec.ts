@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
+import { interviewBody } from "@/lib/recordPayloads";
+
 const read = (...parts: string[]) => readFileSync(join(__dirname, "..", ...parts), "utf8");
 const PAGE = read("app", "(protected)", "questionnaire", "page.tsx");
 const DATA_PAGE = read("app", "(protected)", "data", "page.tsx");
@@ -18,15 +20,25 @@ function codeOnly(source: string): string {
 const CODE = codeOnly(PAGE);
 const DATA_CODE = codeOnly(DATA_PAGE);
 
-function payloadBranches(): { edit: string; create: string } {
-  const start = CODE.indexOf("const interviewPayload = editingId");
-  expect(start, "`const interviewPayload = editingId` is how this spec finds the two bodies").toBeGreaterThan(-1);
-  const end = CODE.indexOf("const outcome = await saveOrQueue", start);
-  expect(end, "the payload is expected to be built immediately before the save").toBeGreaterThan(start);
-  const region = CODE.slice(start, end);
-  const split = region.search(/\n\s*:\s*\{\s*\n/);
-  expect(split, "the payload is expected to be a ternary with an object literal on each side").toBeGreaterThan(-1);
-  return { edit: region.slice(0, split), create: region.slice(split) };
+function bodies(withGps: boolean): { edit: Record<string, unknown>; create: Record<string, unknown> } {
+  const form = new FormData();
+  form.set("recordedAt", "2026-11-10T05:30:00.000Z");
+  if (withGps) {
+    form.set("latitude", "27.1767");
+    form.set("longitude", "78.0081");
+  }
+  const ctx = {
+    automaticTitle: "Interview",
+    canPickStatus: false,
+    workshopId: "",
+    artisanIds: ["artisan-1"],
+    responses: [],
+    questionnaireId: "questionnaire-1"
+  };
+  return {
+    edit: interviewBody(form, { ...ctx, editingId: "interview-1" }),
+    create: interviewBody(form, { ...ctx, editingId: null })
+  };
 }
 
 test("the page reads ?edit= through the shared hook, inside the Suspense boundary Next 16 needs", () => {
@@ -44,23 +56,24 @@ test("an edit PATCHes the record's own path and a capture still POSTs to the col
 });
 
 test("the update body never names an instrument, because the API forbids the field", () => {
-  const { edit, create } = payloadBranches();
-  expect(edit).not.toContain("questionnaireId");
-  expect(create).toContain("questionnaireId: questionnaireId || null");
+  const { edit, create } = bodies(true);
+  expect(edit).not.toHaveProperty("questionnaireId");
+  expect(create.questionnaireId).toBe("questionnaire-1");
+  expect(CODE).toContain("const interviewPayload = interviewBody(form, {");
 });
 
 test("an edit does not restamp when the capture happened", () => {
-  const { edit, create } = payloadBranches();
-  expect(edit).not.toContain("recordedAt");
-  expect(edit).not.toContain("recordedTimezone");
-  expect(create).toContain("recordedAt");
-  expect(create).toContain("recordedTimezone");
+  const { edit, create } = bodies(true);
+  expect(edit).not.toHaveProperty("recordedAt");
+  expect(edit).not.toHaveProperty("recordedTimezone");
+  expect(create.recordedAt).toBe("2026-11-10T05:30:00.000Z");
+  expect(create.recordedTimezone).toBe("Asia/Kolkata");
 });
 
 test("an edit omits location rather than sending null, which would be refused as a clear", () => {
-  const { edit, create } = payloadBranches();
-  expect(edit).toMatch(/\.\.\.\(location \? \{ location \} : \{\}\)/);
-  expect(create).toMatch(/\blocation\b/);
+  expect(bodies(false).edit).not.toHaveProperty("location");
+  expect(bodies(true).edit.location).toMatchObject({ latitude: 27.1767, longitude: 78.0081 });
+  expect(bodies(true).create.location).toMatchObject({ latitude: 27.1767, longitude: 78.0081 });
 });
 
 test("the instrument picker is disabled on an edit, as it is on the handset", () => {

@@ -139,6 +139,7 @@ data class TranscriptPermissions(
     val quoteCard: Boolean = false,
     val mapSpeakers: Boolean = false,
     val addEnglish: Boolean = false,
+    val retranscribe: Boolean = false,
 )
 
 object EnglishNotice {
@@ -161,6 +162,7 @@ data class Transcript(
     val statusMessage: String? = null,
     val version: Int? = null,
     val languages: List<TranscriptLanguage> = emptyList(),
+    val spokenLanguage: TranscriptSpokenLanguage? = null,
     val durationMs: Long? = null,
     val speakerCount: Int = 0,
     val badges: List<TranscriptBadge> = emptyList(),

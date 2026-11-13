@@ -276,7 +276,9 @@ def test_every_required_rule_is_something_the_artisan_form_already_refuses():
     contract_dates = {d["field"] for d in contract["requiredDates"]}
     assert contract_dates == {field for field, _ in afc.REQUIRED_DATES}
     schemas = _text(ROOT / "backend" / "app" / "schemas" / "records.py")
-    web_form = _text(ROOT / "frontend" / "components" / "forms" / "ArtisanForm.tsx")
+    builders = _text(ROOT / "frontend" / "lib" / "recordPayloads.ts")
+    web_form = builders[builders.index("export function artisanBody(") : builders.index("export type CraftBodyContext")]
+    assert "artisanBody(form, {" in _text(ROOT / "frontend" / "components" / "forms" / "ArtisanForm.tsx")
     android = "\n".join(
         _text(p) for p in (ROOT / "android" / "app" / "src" / "main" / "java").rglob("MainActivity.kt")
     )

@@ -288,7 +288,8 @@ class QuestionnaireV2 private constructor(context: Context) {
                 contentSha256 = draft.sha256,
                 continuationOfId = draft.continuationOfId,
                 replacesRecordingId = draft.replacesRecordingId,
-                ackedRecordingIds = draft.ackedRecordingIds
+                ackedRecordingIds = draft.ackedRecordingIds,
+                spokenLanguage = draft.spokenLanguage
             )
         )
     }

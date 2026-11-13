@@ -1,5 +1,7 @@
 package com.fieldrepository.app.questionnaire.data
 
+import com.fieldrepository.app.data.TOO_LARGE_SENTENCE
+import com.fieldrepository.app.data.httpRefusalSentence
 import com.fieldrepository.app.questionnaire.portal.QuestionnairePortal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -33,15 +35,14 @@ class QuestionnaireTransport(
         block()
     } catch (http: HttpException) {
         val code = http.code()
-        val detail = if (code in 400..499) runCatching {
-            http.response()?.errorBody()?.string()?.let { QuestionnairePortal.json.decodeFromString(QErrorBody.serializer(), it).detail }
-        }.getOrNull() else null
+        val raw = if (code in 400..499) runCatching { http.response()?.errorBody()?.string() }.getOrNull() else null
+        val detail = raw?.let { runCatching { QuestionnairePortal.json.decodeFromString(QErrorBody.serializer(), it).detail }.getOrNull() }
         if (detail != null && detail.reason == UploadMissing.REASON) throw UploadMissing(detail.message.ifBlank { "The upload is missing from storage." })
         if (code == 404 && v2SwitchedOff()) throw IOException("Questionnaire v2 is switched off on the server", http)
         if (code in 400..499 && code != 408 && code != 429) {
-            throw PermanentStepFailure(detail?.message?.ifBlank { null } ?: "The server refused this ($code).", detail?.code)
+            throw PermanentStepFailure(detail?.message?.ifBlank { null } ?: httpRefusalSentence(code, raw, "The server couldn't accept this. Try again later."), detail?.code)
         }
-        throw IOException("HTTP $code", http)
+        throw IOException(httpRefusalSentence(code, null, "Try again in a moment."), http)
     }
 
     override suspend fun createArtisan(idempotencyKey: String, bodyJson: String): String = call { createArtisanCall(idempotencyKey, bodyJson) }
@@ -84,9 +85,9 @@ class QuestionnaireTransport(
             val body = FileRangeBody(file, offset, length, contentType)
             val request = Request.Builder().url(url).put(body).apply { headers.forEach { (k, v) -> header(k, v) } }.build()
             storage.newCall(request).execute().use { response ->
-                if (response.code == 403) throw SignedUrlExpired("Storage refused the signed upload URL (403).")
+                if (response.code == 403) throw SignedUrlExpired("The upload link expired. Try again.")
                 if (response.code in 400..499 && response.code != 408 && response.code != 429) {
-                    throw PermanentStepFailure("Storage refused the upload (${response.code}).")
+                    throw PermanentStepFailure(if (response.code == 413) TOO_LARGE_SENTENCE else "Storage refused the upload. Try again.")
                 }
                 if (!response.isSuccessful) throw IOException("Storage answered ${response.code}")
                 response.header("ETag") ?: ""

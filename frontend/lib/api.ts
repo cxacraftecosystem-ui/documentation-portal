@@ -73,7 +73,7 @@ export class ApiUnconfiguredError extends ApiError {
 
 export function assertApiConfigured(): void {}
 
-function fieldLabel(field: string | null): string {
+export function fieldLabel(field: string | null): string {
   if (!field) return "This field";
   const words = field.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : "This field";
@@ -84,40 +84,98 @@ export function validationSentence(field: string | null, message: string): strin
   if (/valid email address/i.test(text) || (field && /^e-?mail$/i.test(field) && /^value is not a valid/i.test(text))) return "Enter a valid email address.";
   if (/^Field required$/i.test(text)) return field && /^e-?mail$/i.test(field) ? "Enter your email address." : `${fieldLabel(field)} is required.`;
   const least = /^String should have at least (\d+) characters?$/i.exec(text);
-  if (least) return `${fieldLabel(field)} needs at least ${least[1]} characters.`;
+  if (least) return least[1] === "1" ? `${fieldLabel(field)} can't be empty.` : `${fieldLabel(field)} needs at least ${least[1]} characters.`;
   const most = /^String should have at most (\d+) characters?$/i.exec(text);
   if (most) return `${fieldLabel(field)} can be at most ${most[1]} characters.`;
   if (/^(Input should be|value is not a valid)/i.test(text)) return `Check ${fieldLabel(field).toLowerCase()}.`;
   return null;
 }
 
-export function describeApiDetail(detail: unknown, fallback: string): string {
-  if (typeof detail === "string" && detail.trim()) return detail;
-  if (Array.isArray(detail)) {
-    const messages = detail
-      .map((entry) => {
-        if (!entry || typeof entry !== "object") return "";
-        const record = entry as { msg?: unknown; loc?: unknown };
-        const message = "msg" in record ? String(record.msg) : "";
-        if (!message) return "";
-        const field = Array.isArray(record.loc)
-          ? record.loc.filter((part): part is string => typeof part === "string").at(-1)
-          : null;
-        if (!/^(Value error|Assertion failed),/.test(message)) {
-          const human = validationSentence(field && field !== "body" ? field : null, message);
-          if (human) return human;
-        }
-        const cleaned = message.replace(/^Value error,\s*/, "").trim();
-        return field && field !== "body" ? `${field}: ${cleaned}` : cleaned;
-      })
-      .filter(Boolean);
-    if (messages.length) return messages.join(" ");
+type DetailEntry = { msg?: unknown; loc?: unknown; field?: unknown; label?: unknown };
+
+function nonBlank(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function detailEntries(detail: unknown): DetailEntry[] {
+  if (!Array.isArray(detail)) return [];
+  return detail.filter((entry): entry is DetailEntry => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry));
+}
+
+export function detailEntryField(entry: DetailEntry): string | null {
+  const named = nonBlank(entry.field);
+  if (named) return named;
+  if (!Array.isArray(entry.loc)) return null;
+  const last = entry.loc.filter((part): part is string => typeof part === "string").at(-1);
+  return last && last !== "body" && last !== "query" && last !== "path" ? last : null;
+}
+
+export function detailEntrySentence(entry: DetailEntry): string {
+  const message = nonBlank(entry.msg);
+  if (!message) return "";
+  if (nonBlank(entry.label)) return message;
+  const field = detailEntryField(entry);
+  if (!/^(Value error|Assertion failed),/.test(message)) {
+    const human = validationSentence(field, message);
+    if (human) return human;
   }
-  if (detail && typeof detail === "object" && "message" in detail) {
-    const message = String((detail as { message: unknown }).message);
-    if (message.trim()) return message;
+  const cleaned = message.replace(/^(Value error|Assertion failed),\s*/, "").trim();
+  return field ? `${fieldLabel(field)}: ${cleaned}` : cleaned;
+}
+
+export function describeApiDetail(detail: unknown, fallback: string): string {
+  const text = nonBlank(detail);
+  if (text) return text;
+  if (Array.isArray(detail)) {
+    const sentences = [...new Set(detailEntries(detail).map(detailEntrySentence).filter(Boolean))];
+    if (sentences.length) return sentences.join(" ");
+  }
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const record = detail as { message?: unknown; msg?: unknown };
+    const message = nonBlank(record.message) ?? nonBlank(record.msg);
+    if (message) return message;
   }
   return fallback;
+}
+
+export function statusFallback(status: number, generic: string): string {
+  if (status === 400 || status === 422) return "Some details weren't accepted. Check the form and try again.";
+  if (status === 409) return "This clashes with a record that already exists.";
+  if (status === 413) return "That's too large to send.";
+  return generic;
+}
+
+export function describeApiBody(body: unknown, fallback: string): string {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return fallback;
+  const record = body as { message?: unknown; detail?: unknown };
+  return nonBlank(record.message) ?? describeApiDetail(record.detail, fallback);
+}
+
+function payloadDetail(error: unknown): unknown {
+  if (!(error instanceof ApiError)) return undefined;
+  const payload = error.payload;
+  if (!payload || typeof payload !== "object" || !("detail" in payload)) return undefined;
+  return (payload as { detail: unknown }).detail;
+}
+
+export function apiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    const described = describeApiBody(error.payload, "");
+    if (described) return described;
+  }
+  const message = error instanceof Error ? error.message.trim() : "";
+  if (!message || message === "[object Object]" || /^\s*[[{]/.test(message) || /status code \d{3}|^HTTP \d{3}/i.test(message)) return fallback;
+  return message;
+}
+
+export function apiFieldErrors(error: unknown): Record<string, string> {
+  const errors: Record<string, string> = {};
+  for (const entry of detailEntries(payloadDetail(error))) {
+    const field = detailEntryField(entry);
+    const sentence = detailEntrySentence(entry);
+    if (field && sentence && !(field in errors)) errors[field] = sentence;
+  }
+  return errors;
 }
 
 export { endSession, getSessionMarker } from "@/lib/session";
@@ -186,8 +244,7 @@ export async function apiFetchWithHeaders<T>(
   const body = contentType.includes("application/json") ? await response.json() : await response.text();
 
   if (!response.ok) {
-    const detail = typeof body === "object" && body && "detail" in body ? (body as { detail: unknown }).detail : undefined;
-    const message = describeApiDetail(detail, response.statusText || "Something went wrong. Try again.");
+    const message = describeApiBody(body, statusFallback(response.status, response.statusText || "Something went wrong. Try again."));
     const error = new ApiError(response.status, message, body, response.headers);
     if (error.passwordChangeRequired) {
       passwordChangeOwed = true;

@@ -20,7 +20,6 @@ import { CarryContextBanner, carryScope, useCarryContext } from "@/components/fo
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import {
   forgetAcceptance,
-  measurementMethodsFor,
   NO_ACCEPTED_MEASUREMENTS,
   rememberAcceptance,
   type AcceptedMeasurements
@@ -37,24 +36,21 @@ import { UploadProgress } from "@/components/media/UploadProgress";
 import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
 import { DictationUnavailableNotice } from "@/components/richtext/DictationUnavailableNotice";
 import { RichTextField } from "@/components/richtext/RichTextField";
-import { appendStoredParagraph } from "@/components/richtext/storedRichText";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { statusLabel } from "@/components/StatusBadge";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { apiFetch } from "@/lib/api";
 import {
   locationFromForm,
-  numericValue,
   recordedAtFromForm,
   recordedTimezoneFromForm,
-  requiredText,
-  textValue,
   useFocusField,
   useUnsavedChanges
 } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
+import { productBody } from "@/lib/recordPayloads";
 import { canManageCrafts, hasRank } from "@/lib/permissions";
 import type { Artisan, ProductDocumentation, RecordStatus } from "@/lib/types";
 import { marketDemandOptions, productTypes } from "@/lib/types";
@@ -163,11 +159,6 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
   const [restored, setRestored] = useState<Record<string, string>>({});
   const [draftTick, setDraftTick] = useState(0);
   const workshop = useWorkshopSelection({ initialWorkshopId: initial?.workshopId, isEdit, resetKey: initial?.id ?? null });
-
-  const toNum = (value: string) => {
-    const n = Number(value);
-    return value.trim() && Number.isFinite(n) ? n : null;
-  };
 
   const draft = useFormDraft({
     kind: "product",
@@ -349,39 +340,22 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
       const location = locationFromForm(form);
-      const names = { place: place.trim(), artisanName: artisanName.trim() };
-      const sentNames = initial ? Object.fromEntries(Object.entries(names).filter(([, value]) => value)) : names;
-      const payload = {
-        ...sentNames,
-        productName: requiredText(form, "productName"),
-        localName: textValue(form, "localName"),
-        productType: requiredText(form, "productType") || "OTHER",
-        timeTakenToCompleteProduct: textValue(form, "timeTakenToCompleteProduct"),
-        size: textValue(form, "size"),
-        lengthInches: toNum(length),
-        breadthInches: toNum(breadth),
-        heightInches: toNum(height),
-        measurementMethods: measurementMethodsFor(accepted, {
-          lengthInches: length,
-          breadthInches: breadth,
-          heightInches: height
-        }),
-        costOfMaking: numericValue(form, "costOfMaking"),
-        sellingPrice: numericValue(form, "sellingPrice"),
-        marketDemand: requiredText(form, "marketDemand") || "UNKNOWN",
-        rawMaterialsUsed: textValue(form, "rawMaterialsUsed"),
-        mainToolsUsed: textValue(form, "mainToolsUsed"),
-        productFunctionUse: textValue(form, "productFunctionUse"),
-        remarks: appendStoredParagraph(textValue(form, "remarks") as string | null, exifRemark),
-        artisanId: offRecord ? null : artisanId || null,
-        craftId: craftId || null,
-        workshopId: workshop.workshopId || null,
-        status: requiredText(form, "status") || initial?.status || "PENDING",
-        recordedAt,
-        recordedTimezone,
-        location,
-        extraMetadata: exifItems.length ? { mediaExif: exifItems } : {}
-      };
+      const payload = productBody(form, {
+        isUpdate: Boolean(initial),
+        place,
+        artisanName,
+        length,
+        breadth,
+        height,
+        accepted,
+        offRecord,
+        artisanId,
+        craftId,
+        workshopId: workshop.workshopId,
+        initialStatus: initial?.status,
+        exifItems,
+        exifRemark
+      });
       const outcome = await saveOrQueue<ProductDocumentation>({
         label: `Product · ${payload.productName || "Untitled"}`,
         endpoint: initial ? `/products/${initial.id}` : "/products",
@@ -421,8 +395,8 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
       });
       const sitting = {
         artisanId,
-        artisanName: names.artisanName,
-        place: names.place,
+        artisanName: artisanName.trim(),
+        place: place.trim(),
         craftId,
         craftName: craftName.trim(),
         workshopId: workshop.workshopId,

@@ -1,4 +1,4 @@
-import { API_BASE, ApiError, apiFetch, describeApiDetail } from "@/lib/api";
+import { API_BASE, ApiError, apiFetch, describeApiBody, statusFallback } from "@/lib/api";
 
 import type {
   AskAnswer,
@@ -97,8 +97,7 @@ export async function fetchTranscriptFile(path: string, fallbackName: string): P
   if (!response.ok) {
     const type = response.headers.get("content-type") ?? "";
     const payload: unknown = type.includes("application/json") ? await response.json().catch(() => null) : null;
-    const detail = payload && typeof payload === "object" && "detail" in payload ? (payload as { detail: unknown }).detail : undefined;
-    throw new ApiError(response.status, describeApiDetail(detail, "The download didn't finish. Try again."), payload, response.headers);
+    throw new ApiError(response.status, describeApiBody(payload, statusFallback(response.status, "The download didn't finish. Try again.")), payload, response.headers);
   }
   const disposition = response.headers.get("content-disposition") ?? "";
   const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];

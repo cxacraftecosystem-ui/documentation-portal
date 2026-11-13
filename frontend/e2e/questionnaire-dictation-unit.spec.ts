@@ -125,9 +125,11 @@ test("the three header boxes keep the names their own submit reads them by", () 
   }
   expect(CODE, "language must submit under its own name").toMatch(/<Select name="language" value=\{language\}/);
   expect(CODE, "language is picked from the shared list").toMatch(/languageOptions\(language\)\.map/);
-  expect(CODE, "and submit still reads all three out of the FormData").toMatch(/textValue\(form, "title"\)/);
-  expect(CODE).toMatch(/place: textValue\(form, "place"\)/);
-  expect(CODE).toMatch(/language: textValue\(form, "language"\)/);
+  const payloads = read("lib", "recordPayloads.ts");
+  expect(CODE, "submit builds the body from the FormData").toContain("interviewBody(form, {");
+  expect(payloads, "and reads all three out of it").toMatch(/textValue\(form, "title"\)/);
+  expect(payloads).toMatch(/place: textValue\(form, "place"\)/);
+  expect(payloads).toMatch(/language: textValue\(form, "language"\)/);
 
   expect(CODE).toMatch(/name="title"[\s\S]*?titleCased/);
   expect(CODE).toMatch(/name="place"[\s\S]*?titleCased/);

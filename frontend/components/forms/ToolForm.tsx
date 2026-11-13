@@ -14,7 +14,6 @@ import { cmTextFromInches, inchesTextFromCm, propagate } from "@/components/form
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import {
   forgetAcceptance,
-  measurementMethodsFor,
   NO_ACCEPTED_MEASUREMENTS,
   rememberAcceptance,
   type AcceptedMeasurements
@@ -38,7 +37,6 @@ import { UploadProgress } from "@/components/media/UploadProgress";
 import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
 import { DictationUnavailableNotice } from "@/components/richtext/DictationUnavailableNotice";
 import { RichTextField } from "@/components/richtext/RichTextField";
-import { appendStoredParagraph } from "@/components/richtext/storedRichText";
 import { MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { statusLabel } from "@/components/StatusBadge";
@@ -46,18 +44,16 @@ import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { apiFetch } from "@/lib/api";
 import {
   locationFromForm,
-  numericValue,
   recordedAtFromForm,
   recordedTimezoneFromForm,
-  requiredText,
   sameIdSet,
-  textValue,
   useFocusField,
   useUnsavedChanges
 } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
+import { toolBody } from "@/lib/recordPayloads";
 import { canManageCrafts, hasRank } from "@/lib/permissions";
 import type { Artisan, RecordStatus, ToolDocumentation } from "@/lib/types";
 import { MATERIAL_FAMILY_OPTIONS, TRADITION_OPTIONS, traditionChoice } from "@/lib/standardValues";
@@ -378,11 +374,6 @@ function ToolFormBody({
     }
   });
 
-  const toNum = (value: string) => {
-    const n = Number(value);
-    return value.trim() && Number.isFinite(n) ? n : null;
-  };
-
   const typeInches =
     (set: (value: string) => void, key: string, setPartner?: (value: string) => void) =>
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -490,45 +481,24 @@ function ToolFormBody({
       const location = locationFromForm(form);
       const craftLinksChanged = !initial || !sameIdSet(craftIds, storedCraftIds(initial));
       const artisanLinksChanged = !initial || !sameIdSet(artisanIds, storedArtisanIds(initial));
-      const payload = {
-        place: requiredText(form, "place"),
-        artisanName: requiredText(form, "artisanName"),
-        toolkitName: requiredText(form, "toolkitName"),
-        localName: textValue(form, "localName"),
-        englishName: textValue(form, "englishName"),
-        processUsedIn: textValue(form, "processUsedIn"),
-        material: textValue(form, "material"),
-        materialFamily: textValue(form, "materialFamily"),
-        yearsInUse: numericValue(form, "yearsInUse"),
-        height: toNum(height),
-        width: toNum(width),
-        lengthInches: toNum(length),
-        breadthInches: toNum(breadth),
-        heightInches: toNum(heightInches),
-        measurementMethods: measurementMethodsFor(accepted, {
-          lengthInches: length,
-          breadthInches: breadth,
-          heightInches
-        }),
-        thickness: numericValue(form, "thickness"),
-        weight: numericValue(form, "weight"),
-        radius: numericValue(form, "radius"),
-        maker: requiredText(form, "maker") || "UNKNOWN",
-        traditionType: requiredText(form, "traditionType") || "UNKNOWN",
-        replacementCost: numericValue(form, "replacementCost"),
-        suggestionsForToolImprovement: textValue(form, "suggestionsForToolImprovement"),
-        remarks: appendStoredParagraph(textValue(form, "remarks") as string | null, exifRemark),
-        artisanId: artisanId || null,
-        craftId: craftId || null,
-        craftIds: craftLinksChanged ? craftIds : undefined,
-        artisanIds: artisanLinksChanged ? artisanIds : undefined,
-        workshopId: workshop.workshopId || null,
-        status: requiredText(form, "status") || initial?.status || "PENDING",
-        recordedAt,
-        recordedTimezone,
-        location,
-        extraMetadata: exifItems.length ? { mediaExif: exifItems } : {}
-      };
+      const payload = toolBody(form, {
+        height,
+        width,
+        length,
+        breadth,
+        heightInches,
+        accepted,
+        artisanId,
+        craftId,
+        craftIds,
+        artisanIds,
+        craftLinksChanged,
+        artisanLinksChanged,
+        workshopId: workshop.workshopId,
+        initialStatus: initial?.status,
+        exifItems,
+        exifRemark
+      });
       const outcome = await saveOrQueue<ToolDocumentation>({
         label: `Tool · ${payload.toolkitName || "Untitled"}`,
         endpoint: initial ? `/tools/${initial.id}` : "/tools",

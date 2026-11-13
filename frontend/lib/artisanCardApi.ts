@@ -1,4 +1,4 @@
-import { API_BASE, ApiError, apiFetch, assertApiConfigured, describeApiDetail } from "@/lib/api";
+import { API_BASE, ApiError, apiFetch, assertApiConfigured, describeApiBody, statusFallback } from "@/lib/api";
 import { saveBlobToDevice } from "@/lib/saveToDevice";
 
 export type ArtisanCardFace = {
@@ -87,8 +87,7 @@ async function savePdf(path: string, init: RequestInit, fallbackName: string): P
   if (!response.ok) {
     const type = response.headers.get("content-type") ?? "";
     const payload = type.includes("application/json") ? await response.json() : await response.text();
-    const detail = typeof payload === "object" && payload && "detail" in payload ? (payload as { detail: unknown }).detail : undefined;
-    throw new ApiError(response.status, describeApiDetail(detail, "The card couldn't be printed. Try again."), payload);
+    throw new ApiError(response.status, describeApiBody(payload, statusFallback(response.status, "The card couldn't be printed. Try again.")), payload);
   }
   const name = fileNameFrom(response.headers.get("content-disposition"), fallbackName);
   saveBlobToDevice(await response.blob(), name);

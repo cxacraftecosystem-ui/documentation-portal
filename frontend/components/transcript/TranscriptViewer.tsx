@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowDownToLine, BookOpen, CheckSquare, Copy, Download, ListOrdered, Loader2, MapPin, MessageCircleQuestion, Pause, Play, Quote, RotateCw, Users, Zap } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, BookOpen, CheckSquare, Copy, Download, Languages, ListOrdered, Loader2, MapPin, MessageCircleQuestion, Pause, Play, Quote, RotateCw, Users, Zap } from "lucide-react";
 
 import {
   addEnglish,
@@ -19,6 +19,7 @@ import {
 import type { CopyTrack, DownloadFormat, SpeakerMapping, Transcript, TranscriptSpeaker, TranscriptTurn, ViewTab } from "@/lib/transcript/contract";
 import { clock, lengthLabel, usd } from "@/lib/transcript/format";
 import { locate } from "@/lib/transcript/karaoke";
+import { languageSentence, languageUncertain, retranscribe } from "@/lib/transcript/spokenLanguage";
 import { copyAll, copySelected, copySingle } from "@/lib/transcript/markdown";
 import { downloadWhat, nameForView } from "@/lib/transcript/names";
 import { inFlight, statusAction, statusLabel, statusNote, statusTone } from "@/lib/transcript/status";
@@ -30,6 +31,7 @@ import { FillFromRecording } from "./FillFromRecording";
 import { Badge, CopyStatus, MenuButton, PRIMARY, SECONDARY, useCopyFeedback } from "./parts";
 import { QuoteCardBuilder } from "./QuoteCardBuilder";
 import { ReadingView } from "./ReadingView";
+import { RetranscribePanel } from "./RetranscribePanel";
 import { SpeakerNames } from "./SpeakerNames";
 import { TimelineMarks } from "./TimelineMarks";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
@@ -79,7 +81,7 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
   const playerRef = useRef<HTMLDivElement | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [panel, setPanel] = useState<"speakers" | "ask" | "quote" | null>(null);
+  const [panel, setPanel] = useState<"speakers" | "ask" | "quote" | "language" | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [open, setOpen] = useState(initiallyOpen);
   const [original, setOriginal] = useState(false);
@@ -114,7 +116,7 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
     };
   }, [mediaId, reloadKey]);
 
-  const moving = transcript ? inFlight(transcript.status) : false;
+  const moving = transcript ? inFlight(transcript.status) || Boolean(transcript.spokenLanguage?.retranscribing) : false;
   useEffect(() => {
     if (!moving) return;
     const timer = window.setInterval(() => {
@@ -313,6 +315,50 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
             </div>
           ) : null}
         </dl>
+        {languageSentence(transcript) || languageUncertain(transcript) || transcript.spokenLanguage?.retranscribing || transcript.permissions.retranscribe ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm" data-transcript-language>
+            {languageSentence(transcript) ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-line-200 bg-surface-50 px-2.5 py-1 text-xs font-medium text-ink-900" data-detected-language>
+                <Languages className="h-3.5 w-3.5 text-ink-500" aria-hidden />
+                {languageSentence(transcript)}
+              </span>
+            ) : null}
+            {languageUncertain(transcript) ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800" data-language-uncertain>
+                <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+                {ts("languageUncertain")}
+              </span>
+            ) : null}
+            {transcript.spokenLanguage?.retranscribing ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-ink-500" role="status" data-retranscribing>
+                <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden />
+                {ts("retranscribing")}
+              </span>
+            ) : transcript.permissions.retranscribe ? (
+              <button
+                type="button"
+                className="inline-flex min-h-9 items-center rounded-md px-2 text-sm font-medium text-purple-700 underline-offset-4 hover:underline max-sm:min-h-11 dark:text-purple-300"
+                aria-expanded={panel === "language"}
+                onClick={() => setPanel(panel === "language" ? null : "language")}
+                data-testid="retranscribe-open"
+              >
+                {ts("wrongLanguage")}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {panel === "language" && transcript.permissions.retranscribe && !transcript.spokenLanguage?.retranscribing ? (
+          <RetranscribePanel
+            transcript={transcript}
+            busy={busy === "retranscribe"}
+            onClose={() => setPanel(null)}
+            onConfirm={(choice) =>
+              void runView("retranscribe", () => retranscribe(mediaId, choice)).then((done) => {
+                if (done) setPanel(null);
+              })
+            }
+          />
+        ) : null}
         {chips}
       </header>
 

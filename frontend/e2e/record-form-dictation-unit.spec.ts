@@ -36,6 +36,7 @@ const TOOL_FORM = read("components", "forms", "ToolForm.tsx");
 const PROCESS_FORM = read("components", "forms", "ProcessForm.tsx");
 const DICTATED_TEXTINPUT = read("components", "richtext", "DictatedTextInput.tsx");
 const DICTATED_VALUE = read("components", "richtext", "dictatedValue.ts");
+const RECORD_PAYLOADS = read("lib", "recordPayloads.ts");
 const UNAVAILABLE_NOTICE = read("components", "richtext", "DictationUnavailableNotice.tsx");
 const REQUIRED_MARK = read("components", "ui", "RequiredMark.tsx");
 const FORM_CONTROLS = read("components", "FormControls.tsx");
@@ -180,10 +181,12 @@ test("the three forms that machine-append EXIF use the document-aware helper", (
     ["ToolForm", TOOL_FORM]
   ] as const) {
     expect(source, `${name} still concatenates onto a possibly-JSON column`).not.toMatch(/appendRemarksWithExif\(/);
-    expect(source, `${name} must append through appendStoredParagraph`).toMatch(/appendStoredParagraph\(/);
+    expect(source, `${name} hands the EXIF remark to its body builder`).toMatch(/^\s*exifRemark\s*$/m);
   }
-  expect(ARTISAN_FORM, "Artisan.notes is blank-line separated").toMatch(
-    /appendStoredParagraph\(textValue\(form, "notes"\) as string \| null, exifRemark, "paragraph"\)/
+  expect(RECORD_PAYLOADS).not.toMatch(/appendRemarksWithExif\(/);
+  expect((RECORD_PAYLOADS.match(/appendStoredParagraph\(/g) ?? []).length, "each builder appends through appendStoredParagraph").toBe(3);
+  expect(RECORD_PAYLOADS, "Artisan.notes is blank-line separated").toMatch(
+    /appendStoredParagraph\(textValue\(form, "notes"\) as string \| null, ctx\.exifRemark, "paragraph"\)/
   );
 });
 

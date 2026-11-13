@@ -15,6 +15,7 @@ import {
   type SubjectRole
 } from "@/lib/questionnaire/enums";
 import { normaliseInbox, type Inbox } from "@/lib/questionnaire/inbox";
+import { writeBody } from "@/lib/writeBody";
 
 export const CONTRACT_VERSION = 1;
 const Q = "/questionnaire";
@@ -571,6 +572,7 @@ export type CompleteRecording = {
   continuationOfId: string | null;
   replacesRecordingId: string | null;
   ackedRecordingIds: string[];
+  spokenLanguage?: string | null;
 };
 export type CompleteRequest = {
   objectKey: string;
@@ -679,7 +681,7 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
           date: params.date
         })}`
       ),
-    createSession: (body: SessionCreate) => fetchJson<Session>(`${Q}/sessions`, json("POST", body, body.clientKey)),
+    createSession: (body: SessionCreate) => fetchJson<Session>(`${Q}/sessions`, json("POST", writeBody(body, "POST"), body.clientKey)),
     listSessions: (params: Record<string, string | number | undefined | null>) =>
       fetchJson<SessionList>(`${Q}/sessions${buildQuery(params)}`),
     sessions: (filters: Filters, extra: { cursor?: string | null; limit?: number; deleted?: boolean } = {}) =>

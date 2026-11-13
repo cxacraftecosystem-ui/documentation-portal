@@ -48,7 +48,9 @@ test("H21: the page settles every batch and turns a partial save into an edit of
 
 test("Legacy status: a new sitting defaults to PENDING, never APPROVED", () => {
   expect(PAGE).toMatch(/defaultValue=\{editing\?\.status \?\? "PENDING"\}/);
-  expect(PAGE).toMatch(/textValue\(form, "status"\) \|\| "PENDING"/);
+  const payloads = readFileSync(join(__dirname, "..", "lib", "recordPayloads.ts"), "utf8");
+  expect(payloads).toMatch(/textValue\(form, "status"\) \|\| "PENDING"/);
+  expect(payloads).not.toMatch(/\|\| "APPROVED"/);
   expect(PAGE).not.toMatch(/\|\| "APPROVED"/);
 });
 

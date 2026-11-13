@@ -59,3 +59,17 @@ class QuoteCardBody(_Body):
 
 class BudgetBody(_Body):
     monthlyUsd: float = Field(ge=0, le=100_000)
+
+
+class RetranscribeBody(_Body):
+    spokenLanguage: str = Field(min_length=1, max_length=40)
+
+    @field_validator("spokenLanguage")
+    @classmethod
+    def _known(cls, value: str) -> str:
+        from app.transcription import languages
+
+        found = languages.choice_of(value)
+        if found is None:
+            raise ValueError("Pick a language from the list.")
+        return found

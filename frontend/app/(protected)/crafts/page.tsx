@@ -32,10 +32,10 @@ import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/api";
 import { countNoun } from "@/lib/format";
-import { requiredText, textValue } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
+import { craftBody } from "@/lib/recordPayloads";
 import { canManageCrafts } from "@/lib/permissions";
 import { UnmappedCraftsPanel } from "@/components/crafts/UnmappedCraftsPanel";
 import { CraftReviewQueue } from "@/components/crafts/CraftReviewQueue";
@@ -302,18 +302,15 @@ function CraftsPageBody() {
     try {
       const exifItems = await collectExifMetadata(mediaFiles);
       const exifRemark = exifMetadataToRemark(exifItems);
-      const description = [textValue(form, "description"), exifRemark].filter(Boolean).join("\n\n") || null;
-      const payload: Record<string, unknown> = {
-        name: requiredText(form, "name"),
-        localName: textValue(form, "localName"),
-        subCategoryId: subCategoryId || null,
+      const payload = craftBody(form, {
+        subCategoryId,
         stateOfOrigin,
         stateOfPractice,
         giStatus,
-        workshopId: workshop.workshopId || null,
-        description
-      };
-      if (exifItems.length) payload.extraMetadata = { mediaExif: exifItems };
+        workshopId: workshop.workshopId,
+        exifItems,
+        exifRemark
+      });
       const outcome = await saveOrQueue<Craft>({
         label: `Craft · ${payload.name || "Untitled"}`,
         endpoint: editing ? `/crafts/${editing.id}` : "/crafts",

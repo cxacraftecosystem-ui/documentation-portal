@@ -1,12 +1,13 @@
 "use client";
 
 import { Languages } from "lucide-react";
-import { useId } from "react";
+import { useEffect, useId } from "react";
 
 import { Toggle } from "@/components/ui/Toggle";
 import { ts } from "@/lib/transcript/strings";
 import {
   lockedByPolicy,
+  setSpokenLanguages,
   setTranscribeChoice,
   setTranscribeChoices,
   transcribableKind,
@@ -15,6 +16,8 @@ import {
   useUploadPolicy
 } from "@/lib/transcript/uploadChoice";
 
+import { SpokenLanguagePicker, useSpokenLanguageChoice } from "./SpokenLanguagePicker";
+
 type ChoiceFile = Pick<File, "type" | "name" | "size" | "lastModified">;
 
 export type TranscribeChoicesProps = {
@@ -22,15 +25,23 @@ export type TranscribeChoicesProps = {
   nameOf?: (file: ChoiceFile, index: number) => string;
   disabled?: boolean;
   className?: string;
+  artisanIds?: readonly string[];
 };
 
-export function TranscribeChoices({ files, nameOf, disabled = false, className = "" }: TranscribeChoicesProps) {
+const NO_ARTISANS: readonly string[] = [];
+
+export function TranscribeChoices({ files, nameOf, disabled = false, className = "", artisanIds = NO_ARTISANS }: TranscribeChoicesProps) {
   useUploadChoiceVersion();
   const policy = useUploadPolicy(files.length > 0);
   const baseId = useId();
+  const spoken = useSpokenLanguageChoice(artisanIds);
   const rows = files
     .map((file, index) => ({ file, index, kind: transcribableKind(file) }))
     .filter((row) => row.kind !== null);
+  const spokenValue = spoken.value;
+  useEffect(() => {
+    setSpokenLanguages(files, spokenValue);
+  }, [files, spokenValue]);
   if (!rows.length) return null;
 
   const lockedRows = rows.filter((row) => lockedByPolicy(row.kind, policy));
@@ -61,6 +72,7 @@ export function TranscribeChoices({ files, nameOf, disabled = false, className =
           {note}
         </p>
       ) : null}
+      <SpokenLanguagePicker value={spoken.value} onChange={spoken.choose} suggestion={spoken.suggestion} disabled={disabled} />
       <ul className="grid gap-1">
         {rows.map((row) => {
           const locked = lockedByPolicy(row.kind, policy);

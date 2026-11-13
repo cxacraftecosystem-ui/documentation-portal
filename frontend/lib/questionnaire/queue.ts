@@ -1,4 +1,4 @@
-import { ApiError } from "@/lib/api";
+import { ApiError, apiErrorMessage } from "@/lib/api";
 import { ownerKey } from "@/lib/questionnaire/api";
 import type {
   AnswerItem,
@@ -388,9 +388,8 @@ export function sendWithoutConflicts(store: QueueStore, unitId: string, key: str
 }
 
 function describe(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
-  if (error instanceof Error) return error.message;
-  return String(error);
+  if (typeof error === "string" && error.trim()) return error;
+  return apiErrorMessage(error, "Something went wrong. Try again.");
 }
 
 export function isPermanent(error: unknown): boolean {

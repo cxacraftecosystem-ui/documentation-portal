@@ -539,7 +539,8 @@ data class QCompleteRecording(
     val contentSha256: String? = null,
     val continuationOfId: String? = null,
     val replacesRecordingId: String? = null,
-    @EncodeDefault val ackedRecordingIds: List<String> = emptyList()
+    @EncodeDefault val ackedRecordingIds: List<String> = emptyList(),
+    val spokenLanguage: String? = null
 )
 
 @Serializable
@@ -796,7 +797,8 @@ data class QCompleteRecordingWire(
     val contentSha256: String? = null,
     val continuationOfId: String? = null,
     val replacesRecordingId: String? = null,
-    @EncodeDefault val ackedRecordingIds: List<String> = emptyList()
+    @EncodeDefault val ackedRecordingIds: List<String> = emptyList(),
+    val spokenLanguage: String? = null
 )
 
 @Serializable
@@ -819,7 +821,7 @@ fun QCompleteRequest.wire(): QCompleteRequestWire = QCompleteRequestWire(
         clockOffsetMeasuredAt = recording.clockOffsetMeasuredAt, capturedAtSource = recording.capturedAtSource,
         durationMs = recording.durationMs, rosterCount = recording.rosterCount, contentSha256 = recording.contentSha256,
         continuationOfId = recording.continuationOfId, replacesRecordingId = recording.replacesRecordingId,
-        ackedRecordingIds = recording.ackedRecordingIds
+        ackedRecordingIds = recording.ackedRecordingIds, spokenLanguage = recording.spokenLanguage
     )
 )
 

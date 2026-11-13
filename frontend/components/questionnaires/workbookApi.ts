@@ -1,4 +1,4 @@
-import { API_BASE, ApiError, apiFetch, assertApiConfigured, describeApiDetail } from "@/lib/api";
+import { API_BASE, ApiError, apiFetch, assertApiConfigured, describeApiBody, statusFallback } from "@/lib/api";
 import { saveBlobToDevice } from "@/lib/saveToDevice";
 import { exportFilename } from "@/lib/naming";
 
@@ -77,11 +77,9 @@ async function fetchWorkbook(path: string, fallbackName: string): Promise<QWorkb
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? "";
     const payload = contentType.includes("application/json") ? await response.json() : await response.text();
-    const detail =
-      typeof payload === "object" && payload && "detail" in payload ? (payload as { detail: unknown }).detail : undefined;
     throw new ApiError(
       response.status,
-      describeApiDetail(detail, response.statusText || "The request didn’t go through. Try again."),
+      describeApiBody(payload, statusFallback(response.status, "The request didn’t go through. Try again.")),
       payload
     );
   }

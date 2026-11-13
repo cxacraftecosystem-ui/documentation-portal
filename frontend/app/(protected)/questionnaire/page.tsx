@@ -14,6 +14,8 @@ import { Field, MultiNoteField, Select, TextArea } from "@/components/FormContro
 import { CarryContextBanner, carryScope, useCarryContext } from "@/components/forms/CarryContextBanner";
 import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
+import { SpokenLanguagePicker, useSpokenLanguageChoice } from "@/components/transcript/SpokenLanguagePicker";
+import { setSpokenLanguages } from "@/lib/transcript/uploadChoice";
 import { QuestionnaireCaptureControls, useCapturePrefs } from "@/components/forms/QuestionnaireCaptureControls";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { useEditDeepLink } from "@/components/hooks/useEditDeepLink";
@@ -54,7 +56,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { ApiError, apiFetch, buildQuery, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { parseCompletenessFilter, type CompletenessFilter as CompletenessValue } from "@/lib/completenessCore";
-import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, textValue, useFocusField } from "@/lib/forms";
+import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, useFocusField } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import {
   audioExtensionForMimeType,
@@ -64,6 +66,7 @@ import {
   type BatchProgress
 } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
+import { interviewBody, interviewTitle as interviewTitleFor } from "@/lib/recordPayloads";
 import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import { canManageQuestionnaire, hasRank, isContentAdmin, mayDeleteQuestionnaire, mayEditQuestionnaire } from "@/lib/permissions";
 import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
@@ -356,6 +359,11 @@ function QuestionnairePageBody() {
   );
 
   const selectedSetKey = artisanSetKey(selectedArtisanIds);
+  const spoken = useSpokenLanguageChoice(selectedArtisanIds);
+  const spokenValue = spoken.value;
+  useEffect(() => {
+    setSpokenLanguages(mediaFiles, spokenValue);
+  }, [mediaFiles, spokenValue]);
 
   useEffect(() => {
     if (selectedArtisanIds.length === 0) {
@@ -724,7 +732,7 @@ function QuestionnairePageBody() {
       if (!section) return null;
       return {
         caption: `Section audio: ${section.code} ${section.title}`.trim(),
-        extraMetadata: { sectionId: section.id, sectionCode: section.code, sectionTitle: section.title },
+        extraMetadata: { sectionId: section.id, sectionCode: section.code, sectionTitle: section.title, spokenLanguage: spoken.value },
         trayLabel: `Section ${section.code} audio`
       };
     }
@@ -732,7 +740,7 @@ function QuestionnairePageBody() {
     if (!question) return null;
     return {
       caption: `Question audio: ${question.sectionCode}${question.sortOrder} - ${question.prompt}`,
-      extraMetadata: { questionId: question.id, questionPrompt: question.prompt, sectionCode: question.sectionCode },
+      extraMetadata: { questionId: question.id, questionPrompt: question.prompt, sectionCode: question.sectionCode, spokenLanguage: spoken.value },
       trayLabel: `Q${question.sectionCode}${question.sortOrder} audio`
     };
   }
@@ -893,27 +901,17 @@ function QuestionnairePageBody() {
       const location = locationFromForm(form);
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
-      const interviewTitle = textValue(form, "title") || automaticTitle;
-      const commonPayload = {
-          title: interviewTitle,
-          place: textValue(form, "place"),
-          language: textValue(form, "language"),
-          notes: textValue(form, "notes"),
-          status: canPickStatus ? textValue(form, "status") || "PENDING" : "PENDING",
-          workshopId: workshop.workshopId || null,
-          artisanIds,
-          responses
-      };
+      const interviewTitle = interviewTitleFor(form, automaticTitle);
       const editingId = editing?.id ?? null;
-      const interviewPayload = editingId
-        ? { ...commonPayload, ...(location ? { location } : {}) }
-        : {
-            ...commonPayload,
-            questionnaireId: questionnaireId || null,
-            recordedAt,
-            recordedTimezone,
-            location
-          };
+      const interviewPayload = interviewBody(form, {
+        editingId,
+        automaticTitle,
+        canPickStatus,
+        workshopId: workshop.workshopId,
+        artisanIds,
+        responses,
+        questionnaireId
+      });
       const outcome = await saveOrQueue<QuestionnaireInterview>({
         label: editingId ? `Interview (edit) · ${interviewTitle}` : `Interview · ${interviewTitle}`,
         endpoint: editingId ? `/questionnaire/interviews/${editingId}` : "/questionnaire/interviews",
@@ -1399,6 +1397,7 @@ function QuestionnairePageBody() {
           </section>
         ) : null}
         <QuestionnaireCaptureControls prefs={capture} onChange={updateCapture} />
+        <SpokenLanguagePicker value={spoken.value} onChange={spoken.choose} suggestion={spoken.suggestion} className="sm:max-w-sm" />
         <div data-field="recording">
           <MediaCaptureField
             files={mediaFiles}

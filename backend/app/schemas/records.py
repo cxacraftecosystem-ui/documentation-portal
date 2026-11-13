@@ -100,6 +100,8 @@ class ArtisanCreate(APIModel):
 
 
 class ArtisanUpdate(APIModel):
+    clientKey: str | None = Field(default=None, max_length=200, exclude=True)
+    duplicateAcknowledged: list[str] | None = Field(default=None, max_length=20, exclude=True)
     name: str | None = Field(default=None, min_length=1, max_length=180)
     localName: str | None = None
     gender: str | None = None
@@ -173,6 +175,7 @@ class CraftCreate(APIModel):
 
 
 class CraftUpdate(APIModel):
+    clientKey: str | None = Field(default=None, max_length=200, exclude=True)
     name: str | None = Field(default=None, min_length=1, max_length=180)
     subCategoryId: str | None = None
     stateOfOrigin: list[str] | None = None
@@ -240,6 +243,7 @@ class WorkshopCreate(APIModel):
 
 
 class WorkshopUpdate(APIModel):
+    clientKey: str | None = Field(default=None, max_length=200, exclude=True)
     title: str | None = Field(default=None, min_length=1, max_length=220)
     workshopType: str | None = None
     date: datetime | None = None
@@ -335,6 +339,7 @@ class ProductCreate(APIModel):
 
 
 class ProductUpdate(APIModel):
+    clientKey: str | None = Field(default=None, max_length=200, exclude=True)
     craftName: str | None = Field(default=None, min_length=1, max_length=180)
     place: str | None = Field(default=None, min_length=1, max_length=180)
     artisanName: str | None = Field(default=None, min_length=1, max_length=180)
@@ -404,6 +409,7 @@ class ProcessCreate(APIModel):
 
 
 class ProcessUpdate(APIModel):
+    clientKey: str | None = Field(default=None, max_length=200, exclude=True)
     name: str | None = Field(default=None, min_length=1, max_length=220)
     productId: str | None = None
     preProcessAvailable: bool | None = None
@@ -473,6 +479,7 @@ class ToolCreate(APIModel):
 
 
 class ToolUpdate(APIModel):
+    clientKey: str | None = Field(default=None, max_length=200, exclude=True)
     craftName: str | None = Field(default=None, min_length=1, max_length=TOOL_CRAFT_NAME_MAX)
     place: str | None = Field(default=None, min_length=1, max_length=180)
     artisanName: str | None = Field(default=None, min_length=1, max_length=180)

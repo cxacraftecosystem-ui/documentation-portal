@@ -45,6 +45,8 @@
     "@/lib/forms",
     "@/components/transcript/TranscriptViewer",
     "@/components/transcript/TranscriptPreview",
+    "@/components/transcript/SpokenLanguagePicker",
+    "@/lib/transcript/spokenLanguage",
     "@/lib/transcript/contract"
   ]
 }

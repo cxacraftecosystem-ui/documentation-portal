@@ -76,6 +76,44 @@ export function setTranscribeChoices(files: readonly ChoiceFile[], on: boolean) 
   if (changed) emit();
 }
 
+const spokenByFile = new WeakMap<object, string>();
+const spokenBySignature = new Map<string, string>();
+
+export function spokenLanguageFor(file: ChoiceFile): string | null {
+  if (transcribableKind(file) === null) return null;
+  return spokenByFile.get(file) ?? spokenBySignature.get(signature(file)) ?? null;
+}
+
+export function setSpokenLanguages(files: readonly ChoiceFile[], value: string | null | undefined) {
+  let changed = false;
+  for (const file of files) {
+    if (transcribableKind(file) === null) continue;
+    if (!value) {
+      if (spokenByFile.has(file) || spokenBySignature.has(signature(file))) changed = true;
+      spokenByFile.delete(file);
+      spokenBySignature.delete(signature(file));
+      continue;
+    }
+    if (spokenLanguageFor(file) !== value) changed = true;
+    spokenByFile.set(file, value);
+    spokenBySignature.set(signature(file), value);
+  }
+  if (changed) emit();
+}
+
+export function spokenLanguagesOf(files: readonly ChoiceFile[]): (string | null)[] {
+  return files.map((file) => spokenLanguageFor(file));
+}
+
+export function withSpokenLanguage(
+  file: ChoiceFile,
+  extraMetadata: Record<string, unknown> | undefined,
+  chosen: string | null = spokenLanguageFor(file)
+): Record<string, unknown> | undefined {
+  if (!chosen || transcribableKind(file) === null) return extraMetadata;
+  return { ...(extraMetadata ?? {}), spokenLanguage: chosen };
+}
+
 export function cachedUploadPolicy(): UploadPolicy | null {
   return policy;
 }
@@ -124,6 +162,7 @@ export function loadUploadPolicy(force = false): Promise<UploadPolicy> {
 
 export function resetUploadChoicesForTests() {
   bySignature.clear();
+  spokenBySignature.clear();
   policy = null;
   policyAt = 0;
   emit();

@@ -64,7 +64,8 @@ export function MediaCaptureField({
   description = "Photos, video, audio and files.",
   allowDocuments = true,
   allowedTypes,
-  transcribeChoice = true
+  transcribeChoice = true,
+  artisanIds
 }: {
   files: File[];
   onFilesChange: (files: File[]) => void;
@@ -73,6 +74,7 @@ export function MediaCaptureField({
   allowDocuments?: boolean;
   allowedTypes?: MediaType[];
   transcribeChoice?: boolean;
+  artisanIds?: readonly string[];
 }) {
   const [recording, setRecording] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -236,7 +238,7 @@ export function MediaCaptureField({
           Or drag files here. Uploads start right away.
         </p>
       </div>
-      {transcribeChoice ? <TranscribeChoices files={files} /> : null}
+      {transcribeChoice ? <TranscribeChoices files={files} artisanIds={artisanIds} /> : null}
       {previewItems.length ? (
         <div className="grid gap-2">
           <div className="flex flex-wrap items-center justify-between gap-2">

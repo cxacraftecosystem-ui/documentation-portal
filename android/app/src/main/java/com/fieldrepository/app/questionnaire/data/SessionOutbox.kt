@@ -719,7 +719,7 @@ class SessionOutbox(
         try {
             again()
         } catch (still: SignedUrlExpired) {
-            throw PermanentStepFailure(still.message ?: "Storage refused the upload (403).")
+            throw PermanentStepFailure(still.message ?: "The upload link expired. Try again.")
         }
     }
 }

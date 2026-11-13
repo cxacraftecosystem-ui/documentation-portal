@@ -31,21 +31,19 @@ import { DictatedTextArea } from "@/components/richtext/DictatedTextArea";
 import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
 import { DictationUnavailableNotice } from "@/components/richtext/DictationUnavailableNotice";
 import { RichTextField } from "@/components/richtext/RichTextField";
-import { appendStoredParagraph } from "@/components/richtext/storedRichText";
 import { CalendarField } from "@/components/ui/CalendarField";
 import { RequiredMark } from "@/components/ui/RequiredMark";
 import { toIsoDate } from "@/components/forms/DateTimeField";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { statusLabel } from "@/components/StatusBadge";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
-import { ApiError, apiFetch } from "@/lib/api";
+import { ApiError, apiErrorMessage, apiFetch } from "@/lib/api";
 import { CRAFT_NOT_IN_LIST, useCraftCatalogue } from "@/lib/craftCatalogue";
 import { ARTISAN_FORM_CONTRACT, missingArtisanDatesSentence } from "@/lib/artisanFormContract";
 import {
   locationFromForm,
   recordedAtFromForm,
   recordedTimezoneFromForm,
-  requiredText,
   textValue,
   useFocusField,
   useUnsavedChanges
@@ -63,6 +61,7 @@ import {
   type PossibleDuplicateHold
 } from "@/lib/duplicates";
 import { saveOrQueue } from "@/lib/offline";
+import { artisanBody, PEHCHAN_NO } from "@/lib/recordPayloads";
 import { canManageCrafts, hasRank } from "@/lib/permissions";
 import type { AadhaarLookupResult, Artisan, ArtisanIdentityConflict, ArtisanIdentityMatch, RecordStatus } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
@@ -76,7 +75,6 @@ const EXPERIENCE_MONTH_OPTIONS = Array.from({ length: 12 }, (_, month) => month)
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const PEHCHAN_YES = "true";
-const PEHCHAN_NO = "false";
 
 const PEHCHAN_NUMBER_REQUIRED =
   "Enter the Pehchan Card number, or set the card to No.";
@@ -89,21 +87,7 @@ function errorDetail(error: unknown): unknown {
 }
 
 function readableError(error: unknown, fallback: string): string {
-  const detail = errorDetail(error);
-  if (typeof detail === "string" && detail.trim()) return detail;
-  if (Array.isArray(detail)) {
-    const messages = detail
-      .map((entry) => (entry && typeof entry === "object" && "msg" in entry ? String((entry as { msg: unknown }).msg) : ""))
-      .map((message) => message.replace(/^Value error,\s*/, "").trim())
-      .filter(Boolean);
-    if (messages.length) return messages.join(" ");
-  }
-  if (detail && typeof detail === "object" && "message" in detail) {
-    const message = String((detail as { message: unknown }).message);
-    if (message.trim()) return message;
-  }
-  const message = error instanceof Error ? error.message : "";
-  return message && message !== "[object Object]" ? message : fallback;
+  return apiErrorMessage(error, fallback);
 }
 
 function identityConflict(error: unknown): ArtisanIdentityConflict | null {
@@ -511,42 +495,18 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         setSaving(false);
         return;
       }
-      const pehchanAvailable = textValue(form, "pehchanCardAvailable") !== PEHCHAN_NO;
-      const pehchanNumber = textValue(form, "pehchanCardNumber");
-      const pehchanUnchanged = pehchanAvailable && isMaskedIdentityNumber(pehchanNumber);
-      const experienceMonthsText = textValue(form, "experienceMonths");
-      const payload = {
-        name: requiredText(form, "name"),
-        localName: textValue(form, "localName"),
-        gender: textValue(form, "gender"),
-        dateOfBirth: textValue(form, "dateOfBirth") || null,
-        craftStartDate: textValue(form, "craftStartDate") || null,
-        experienceYears: textValue(form, "experienceYears")
-          ? Number(textValue(form, "experienceYears"))
-          : null,
-        experienceMonths: experienceMonthsText === null ? null : Number(experienceMonthsText),
-        phone: textValue(form, "phone"),
-        phoneCountryCode: textValue(form, "phoneCountryCode"),
-        email: textValue(form, "email"),
-        place: requiredText(form, "place"),
-        address: textValue(form, "address"),
-        notes: appendStoredParagraph(textValue(form, "notes") as string | null, exifRemark, "paragraph"),
-        aadhaarNumber: aadhaarNotShared ? null : textValue(form, "aadhaarNumber"),
-        ...(aadhaarNotShared || initial?.aadhaarNotShared ? { aadhaarNotShared } : {}),
-        pehchanCardAvailable: pehchanAvailable,
-        ...(pehchanUnchanged ? {} : { pehchanCardNumber: pehchanAvailable ? pehchanNumber : null }),
-        dos: requiredText(form, "dos"),
-        donts: requiredText(form, "donts"),
+      const payload = artisanBody(form, {
+        isUpdate: Boolean(initial),
         craftId,
-        workshopId: workshop.workshopId || null,
-        status: requiredText(form, "status") || initial?.status || "PENDING",
-        recordedAt,
-        recordedTimezone,
-        location,
-        extraMetadata: exifItems.length ? { mediaExif: exifItems } : {},
+        aadhaarNotShared,
+        storedAadhaarNotShared: Boolean(initial?.aadhaarNotShared),
+        workshopId: workshop.workshopId,
+        initialStatus: initial?.status,
+        dismissed: dismissedRef.current,
         formContract: ARTISAN_FORM_CONTRACT,
-        ...(initial ? {} : { duplicateAcknowledged: acknowledgedIds(dismissedRef.current) })
-      };
+        exifItems,
+        exifRemark
+      });
       const outcome = await saveOrQueue<Artisan>({
         label: `Artisan · ${payload.name || "Untitled"}`,
         endpoint: initial ? `/artisans/${initial.id}` : "/artisans",
@@ -958,6 +918,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             }}
             title="Artisan media"
             description="Photos, audio, video and documents."
+            artisanIds={initial?.id ? [initial.id] : undefined}
           />
         </div>
         <div data-field="location">

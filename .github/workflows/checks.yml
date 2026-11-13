@@ -1234,3 +1234,73 @@ jobs:
 
       - name: No comments remain
         run: python scripts/tools/strip_comments.py --check
+
+  request-contract:
+    name: Every client request body validates against its backend model
+    runs-on: ubuntu-26.04
+    timeout-minutes: 40
+    env:
+      PYTHONUTF8: "1"
+      DATABASE_URL: "postgresql://ci:ci@ci.invalid:5432/no_such_database"
+      JWT_SECRET: "ci-placeholder-not-a-secret-0123456789abcdef"
+      AWS_ACCESS_KEY_ID: "ci-placeholder"
+      AWS_SECRET_ACCESS_KEY: "ci-placeholder"
+      AWS_S3_BUCKET: "ci-placeholder"
+      MASTER_ADMIN_EMAIL: "ci@example.invalid"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+
+      - name: Write every Android request body, filled and with blank optional text
+        working-directory: android
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sdkmanager="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-37.2" "build-tools;37.0.0" > /dev/null
+          ./gradlew :app:testDebugUnitTest --tests '*.RequestContractFixturesTest' --console=plain
+          test -s app/build/request-contract/android-requests.json
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15.2"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/pyproject.toml
+
+      - name: Install the backend from the lock
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+          pip install --no-deps -e .
+          python -m prisma generate --schema prisma/schema.prisma
+
+      - name: Validate the Android and web bodies against the backend models
+        working-directory: backend
+        env:
+          REQUEST_CONTRACT_REQUIRE_ANDROID: "1"
+        run: |
+          set -euo pipefail
+          export REQUEST_CONTRACT_FIXTURES="$GITHUB_WORKSPACE/android/app/build/request-contract/android-requests.json"
+          python -m pytest tests/test_request_dto_contract.py -q -rfs -p no:cacheprovider
+
+      - name: Keep the request fixtures
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: request-contract-fixtures
+          path: android/app/build/request-contract/
+          if-no-files-found: warn
+          retention-days: 14

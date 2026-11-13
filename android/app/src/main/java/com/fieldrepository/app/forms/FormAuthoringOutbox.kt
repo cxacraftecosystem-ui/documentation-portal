@@ -1,6 +1,9 @@
 package com.fieldrepository.app.forms
 
-import com.fieldrepository.app.data.ApiClient
+import com.fieldrepository.app.data.errorBodyObject
+import com.fieldrepository.app.data.httpRefusalSentence
+import com.fieldrepository.app.data.isBareReasonPhrase
+import com.fieldrepository.app.data.serverRefusalSentence
 import com.fieldrepository.app.data.writeFileAtomically
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -222,8 +225,11 @@ class ApiFormTransport(private val api: QuestionnaireFormsApi) : FormTransport {
         block()
     } catch (http: retrofit2.HttpException) {
         val code = http.code()
-        if (code in 400..499 && code != 408 && code != 429) throw PermanentStepFailure(apiDetail(http) ?: "The server refused this ($code).")
-        throw IOException("HTTP $code", http)
+        if (code in 400..499 && code != 408 && code != 429) {
+            val raw = runCatching { http.response()?.errorBody()?.string() }.getOrNull()
+            throw PermanentStepFailure(httpRefusalSentence(code, raw, "The server couldn't accept this form. Try again later."))
+        }
+        throw IOException(httpRefusalSentence(code, null, "Try again in a moment."), http)
     }
 
     override suspend fun createForm(idempotencyKey: String, body: QFormCreate): String = try {
@@ -237,11 +243,5 @@ class ApiFormTransport(private val api: QuestionnaireFormsApi) : FormTransport {
 }
 
 fun apiDetail(http: retrofit2.HttpException): String? = runCatching {
-    val body = http.response()?.errorBody()?.string() ?: return null
-    val detail = ApiClient.json.parseToJsonElement(body).let { (it as? kotlinx.serialization.json.JsonObject)?.get("detail") }
-    when (detail) {
-        is kotlinx.serialization.json.JsonPrimitive -> detail.content
-        is kotlinx.serialization.json.JsonObject -> (detail["message"] as? kotlinx.serialization.json.JsonPrimitive)?.content
-        else -> null
-    }
-}.getOrNull()?.ifBlank { null }
+    serverRefusalSentence(errorBodyObject(http.response()?.errorBody()?.string()))
+}.getOrNull()?.takeUnless { it.isBlank() || it.isBareReasonPhrase() }

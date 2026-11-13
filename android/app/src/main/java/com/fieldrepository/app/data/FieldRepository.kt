@@ -1,5 +1,7 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.transcript.data.SpokenLanguageChoices
+import com.fieldrepository.app.transcript.data.SpokenLanguages
 import com.fieldrepository.app.transcript.data.TranscribeChoices
 import com.fieldrepository.app.transcript.data.UploadTranscribe
 import android.content.ContentValues
@@ -202,37 +204,17 @@ fun Throwable.apiFailure(fallback: String): ApiFailure {
     val http = this as? HttpException ?: return ApiFailure(null, own ?: fallback)
     val plain = statusSentence(http.code()) ?: fallback
     val raw = runCatching { http.response()?.errorBody()?.string() }.getOrNull()
-    if (raw.isNullOrBlank()) return ApiFailure(null, plain)
-    val detail = (runCatching { errorBodyJson.parseToJsonElement(raw) }.getOrNull() as? JsonObject)
-        ?.get("detail")
-        ?: return ApiFailure(null, plain)
+    val body = errorBodyObject(raw) ?: return ApiFailure(null, plain)
+    val detail = body["detail"]
     val code = ((detail as? JsonObject)?.get("code") as? JsonPrimitive)?.contentOrNull
         ?.trim()
         ?.takeIf { it.isNotEmpty() }
-    val said = detailMessage(detail)?.takeUnless { looksLikeProtocolText(it) }
+    val said = serverRefusalSentence(body)?.takeUnless { looksLikeProtocolText(it) }
     return ApiFailure(code, said ?: plain, detail as? JsonObject, refusalFieldPaths(detail))
 }
 
-private fun errorBodyDetail(raw: String?): String? {
-    if (raw.isNullOrBlank()) return null
-    val body = runCatching { errorBodyJson.parseToJsonElement(raw) }.getOrNull() as? JsonObject
-    val detail = body?.get("detail") ?: return null
-    return detailMessage(detail)?.takeUnless { looksLikeProtocolText(it) }
-}
-
-private fun detailMessage(detail: JsonElement): String? = when (detail) {
-    is JsonPrimitive -> detail.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
-    is JsonObject -> (detail["message"] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
-    is JsonArray -> detail
-        .mapNotNull { entry ->
-            ((entry as? JsonObject)?.get("msg") as? JsonPrimitive)?.contentOrNull
-                ?.removePrefix("Value error, ")?.trim()?.takeIf { it.isNotEmpty() }
-        }
-        .distinct()
-        .joinToString(" ")
-        .takeIf { it.isNotEmpty() }
-    else -> null
-}
+private fun errorBodyDetail(raw: String?): String? =
+    serverRefusalSentence(errorBodyObject(raw))?.takeUnless { looksLikeProtocolText(it) }
 
 const val REVIEW_PAGE_SIZE = 20
 
@@ -933,7 +915,7 @@ class FieldRepository(
         api.recordMediaReview(recordType, recordId)
 
     private suspend fun postReviewDecision(type: String, decision: QueuedReviewDecision, key: String?): JsonElement {
-        val body = ReviewActionRequest(notes = decision.notes, reason = decision.reason)
+        val body = ReviewActionRequest(notes = decision.notes?.blankToNull(), reason = decision.reason?.blankToNull())
         return when (type) {
             "review-approve" -> api.approveRecord(decision.recordType, decision.recordId, body, key)
             "review-reject" -> api.rejectRecord(decision.recordType, decision.recordId, body, key)
@@ -1809,7 +1791,8 @@ class FieldRepository(
                             linkedRecordId = linkedRecordId.blankToNull(),
                             recordedAt = Instant.now().toString(),
                             location = location,
-                            processingRequests = resolvedProcessing
+                            processingRequests = resolvedProcessing,
+                            extraMetadata = SpokenLanguages.metadata(null, SpokenLanguageChoices.forKey(uri.toString()), mediaType)
                         ),
                         target.checksum
                     )
@@ -2059,7 +2042,8 @@ class FieldRepository(
         stageStep: Int? = null,
         customSegment: String? = null,
         processingRequests: List<String>? = null,
-        overrideBaseName: String? = null
+        overrideBaseName: String? = null,
+        spokenLanguage: String? = null
     ): MediaFileDto {
         val filename = mediaFilename(
             recordType = linkedRecordType,
@@ -2087,7 +2071,8 @@ class FieldRepository(
                 linkedRecordId = linkedRecordId.blankToNull(),
                 recordedAt = Instant.now().toString(),
                 location = location,
-                processingRequests = resolvedProcessing
+                processingRequests = resolvedProcessing,
+                extraMetadata = SpokenLanguages.metadata(null, spokenLanguage, staged.mediaType)
             ),
             StagedJournal.checksumFor(staged.objectKey)
         )
@@ -2627,7 +2612,8 @@ class FieldRepository(
                 linkedRecordId = linkedRecordId.blankToNull(),
                 recordedAt = pm.capturedAt ?: Instant.now().toString(),
                 location = pm.location,
-                processingRequests = resolvedProcessing
+                processingRequests = resolvedProcessing,
+                extraMetadata = SpokenLanguages.metadata(null, pm.spokenLanguage, pm.mediaType)
             ),
             target.checksum
         )

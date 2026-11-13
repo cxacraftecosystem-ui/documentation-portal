@@ -1,6 +1,6 @@
 import type { RecordingChips } from "@/lib/questionnaire/chips";
 import { filtersAsParams, filtersToQuery, type Filters } from "@/lib/questionnaire/filters";
-import { API_BASE, ApiError, apiFetch, assertApiConfigured, buildQuery, describeApiDetail } from "@/lib/api";
+import { API_BASE, ApiError, apiFetch, assertApiConfigured, buildQuery, describeApiBody, statusFallback } from "@/lib/api";
 import { canManageQuestionnaire, isContentAdmin } from "@/lib/permissions";
 import { saveBlobToDevice } from "@/lib/saveToDevice";
 import type { JsonFetcher } from "@/lib/questionnaireApi";
@@ -290,8 +290,7 @@ export async function fetchDownload(path: string, fallbackName: string): Promise
   if (!response.ok) {
     const type = response.headers.get("content-type") ?? "";
     const payload = type.includes("application/json") ? await response.json() : await response.text();
-    const detail = typeof payload === "object" && payload && "detail" in payload ? (payload as { detail: unknown }).detail : undefined;
-    throw new ApiError(response.status, describeApiDetail(detail, response.statusText || "The download didn't start. Try again."), payload);
+    throw new ApiError(response.status, describeApiBody(payload, statusFallback(response.status, "The download didn't start. Try again.")), payload);
   }
   return { blob: await response.blob(), fileName: fileNameFrom(response.headers.get("content-disposition")) ?? fallbackName };
 }

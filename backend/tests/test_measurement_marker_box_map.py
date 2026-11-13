@@ -34,8 +34,16 @@ def _between(source: str, opener: str, closer: str) -> str:
     return source[at : source.index(closer, at)]
 
 
+_WEB_BUILDERS = {"ToolForm.tsx": "export function toolBody(", "ProductForm.tsx": "export function productBody("}
+
+
 def _web_map(form: str) -> str:
-    return _between(_web(form), "measurementMethodsFor(accepted, {", "})")
+    builder = _WEB_BUILDERS[form]
+    assert builder.split()[-1] in _web(form), (
+        f"{form} no longer builds its body with {builder.split()[-1]}"
+    )
+    payloads = (ROOT / "frontend/lib/recordPayloads.ts").read_text(encoding="utf-8")
+    return _between(payloads[payloads.index(builder):], "measurementMethodsFor(ctx.accepted, {", "})")
 
 
 def _android_map(form: str) -> str:
@@ -64,7 +72,7 @@ def test_the_android_form_hands_the_comparison_every_dimension_box(form: str, co
 
 
 def test_the_tool_forms_map_height_inches_to_the_inches_box_and_never_to_the_unit_less_one() -> None:
-    assert not re.search(rf"heightInches\s*:\s*{BARE_HEIGHT}", _web_map("ToolForm.tsx")), (
+    assert not re.search(rf"heightInches\s*:\s*(?:ctx\.)?{BARE_HEIGHT}", _web_map("ToolForm.tsx")), (
         "ToolForm.tsx maps heightInches at the UNIT-LESS `height` box. On the product form that "
         "exact line is correct and here it is a defect -- see this module's docstring and migration "
         "20260913120100 for why the two columns are not the same thing."
@@ -77,7 +85,7 @@ def test_the_tool_forms_map_height_inches_to_the_inches_box_and_never_to_the_uni
 
 
 def test_the_product_forms_map_height_inches_at_their_height_state_which_is_the_inches_one() -> None:
-    assert re.search(rf"heightInches\s*:\s*{BARE_HEIGHT}", _web_map("ProductForm.tsx")), (
+    assert re.search(rf"heightInches\s*:\s*(?:ctx\.)?{BARE_HEIGHT}", _web_map("ProductForm.tsx")), (
         "ProductForm.tsx stopped mapping heightInches at its `height` state. If that state was "
         "renamed, update this test; if the mapping changed, the marker no longer follows the box "
         "the researcher actually types in."

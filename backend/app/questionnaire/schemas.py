@@ -34,6 +34,17 @@ def _language(code: str | None) -> str | None:
     return code
 
 
+def _spoken_language(value: str | None) -> str | None:
+    if value is None:
+        return None
+    from app.transcription import languages
+
+    found = languages.choice_of(value)
+    if found is None:
+        raise ValueError("spokenLanguage must be auto, mixed or a language from the list")
+    return found
+
+
 class Ref(Strict):
     id: str
     name: str
@@ -610,9 +621,11 @@ class RecordingInput(Strict):
     replacesRecordingId: str | None = None
     ackedRecordingIds: list[str] = Field(default_factory=list)
     languageCode: str | None = None
+    spokenLanguage: str | None = Field(default=None, max_length=40)
 
     _source = field_validator("capturedAtSource")(_one_of(V.CapturedAtSource))
     _lang = field_validator("languageCode")(_language)
+    _spoken = field_validator("spokenLanguage")(_spoken_language)
 
 
 class CompleteRequest(Strict):

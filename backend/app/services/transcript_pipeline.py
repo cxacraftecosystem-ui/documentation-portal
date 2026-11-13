@@ -10,7 +10,7 @@ from typing import Any
 
 from app.core.db import db
 from app.services import transcript_insights, transcript_portal, transcript_store
-from app.transcription import audio as transcription_audio, schedule
+from app.transcription import audio as transcription_audio, languages as spoken_languages, schedule
 from app.transcription.contract import ApiKey
 from app.transcription.transcript import (
     PROMPT_VERSION,
@@ -149,6 +149,7 @@ async def store_transcription(media: Any, result: dict[str, Any], *, keyterm_cou
             keyterm_count=keyterm_count,
             stt_cost_usd=0.0 if result.get("cacheHit") else await transcript_store.stt_cost_for(media_id),
         )
+        await remember_version_language(media_id, version.version, result)
         logger.info("transcript version %s stored for media %s (%d turns)", version.version, media_id, len(turns))
         return version
     except Exception as exc:  # noqa: BLE001 - see the docstring
@@ -797,6 +798,7 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
         stt, gem = await transcript_store.media_cost(media_id)
         cost = {"sttUsd": round(stt, 4), "translationUsd": round(gem, 4), "totalUsd": round(stt + gem, 4)}
     languages = list(version.languages or []) if version is not None else []
+    spoken = await spoken_language_view(media, version, sees_spend=sees_spend)
     declined = is_declined(version, tr_job)
     english = english_state(version, turn_rows, row, declined=declined, may_add=edit)
     current = version is not None and version_number is None
@@ -808,6 +810,7 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
         "statusMessage": state.message,
         "version": version.version if version is not None else None,
         "languages": [{"code": c, "label": language_label(c)} for c in languages],
+        "spokenLanguage": spoken,
         "durationMs": version.durationMs if version is not None else None,
         "speakerCount": version.speakerCount if version is not None else 0,
         "badges": _badges(version) if sees_spend else [],
@@ -844,6 +847,7 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
             "quoteCard": version is not None,
             "mapSpeakers": edit and version is not None,
             "addEnglish": edit and current and english["missing"] > 0,
+            "retranscribe": edit and version is not None,
         },
         "englishNotice": english["notice"],
         "manualEnglish": english["manual"],
@@ -967,6 +971,149 @@ def download_name(media: Any, context: dict[str, Any], fmt: str, track: str, *, 
         craft=context["crafts"][0]["name"] if context.get("crafts") else None,
         subject=context["artisans"][0]["name"] if context.get("artisans") else None,
     )
+
+
+VERSION_LANGUAGES_KEY = "transcriptLanguages"
+_OPEN_JOB_STATUSES = {"QUEUED", "PROCESSING"}
+
+
+async def _merge_metadata(media_id: str, change: Any) -> None:
+    row = await db.mediafile.find_unique(where={"id": media_id})
+    if row is None:
+        return
+    current = getattr(row, "extraMetadata", None)
+    merged = dict(current) if isinstance(current, dict) else {}
+    change(merged)
+    await db.mediafile.update(where={"id": media_id}, data={"extraMetadata": Json(merged)})
+
+
+def _probability(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
+
+
+async def remember_version_language(media_id: str, number: int, result: dict[str, Any]) -> None:
+    entry = {
+        "requested": spoken_languages.normalise(result.get("spokenLanguage")),
+        "probability": _probability(result.get("languageProbability")),
+    }
+
+    def apply(meta: dict[str, Any]) -> None:
+        versions = meta.get(VERSION_LANGUAGES_KEY)
+        versions = dict(versions) if isinstance(versions, dict) else {}
+        versions[str(number)] = entry
+        meta[VERSION_LANGUAGES_KEY] = versions
+
+    try:
+        await _merge_metadata(media_id, apply)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not note the language of media %s (%s)", media_id, type(exc).__name__)
+
+
+async def set_spoken_language(media_id: str, choice: str) -> None:
+    chosen = spoken_languages.normalise(choice)
+
+    def apply(meta: dict[str, Any]) -> None:
+        meta[spoken_languages.METADATA_KEY] = chosen
+
+    await _merge_metadata(media_id, apply)
+
+
+def version_language(media: Any, number: int | None) -> dict[str, Any]:
+    meta = _value(media, "extraMetadata")
+    versions = meta.get(VERSION_LANGUAGES_KEY) if isinstance(meta, dict) else None
+    entry = versions.get(str(number)) if isinstance(versions, dict) and number is not None else None
+    return entry if isinstance(entry, dict) else {}
+
+
+def retranscribe_estimate(media: Any, version: Any, *, sees_spend: bool) -> tuple[float, float | None]:
+    from app.services import transcript_backfill
+
+    duration = getattr(version, "durationMs", None) if version is not None else None
+    minutes = transcript_backfill.minutes_of(duration, _value(media, "sizeBytes"))
+    rate = transcript_backfill.stt_usd_per_minute() + transcript_backfill.GEMINI_USD_PER_MINUTE
+    return round(minutes, 2), (round(minutes * rate, 4) if sees_spend else None)
+
+
+async def spoken_language_view(media: Any, version: Any, *, sees_spend: bool) -> dict[str, Any]:
+    entry = version_language(media, getattr(version, "version", None))
+    requested = spoken_languages.choice_of(entry.get("requested"))
+    detected = getattr(version, "detectedLanguage", None) if version is not None else None
+    probability = _probability(entry.get("probability"))
+    chosen = spoken_languages.from_metadata(_value(media, "extraMetadata")) or spoken_languages.AUTO
+    job = await _latest_job(str(_value(media, "id")), "TRANSCRIPTION")
+    minutes, usd = retranscribe_estimate(media, version, sees_spend=sees_spend)
+    return {
+        "chosen": chosen,
+        "chosenLabel": spoken_languages.label(chosen),
+        "requested": requested,
+        "requestedLabel": spoken_languages.label(requested) if requested else None,
+        "detected": detected,
+        "detectedLabel": language_label(detected) if detected else None,
+        "probability": probability,
+        "uncertain": version is not None and spoken_languages.uncertain(probability),
+        "retranscribing": version is not None and _job_status(job) in _OPEN_JOB_STATUSES,
+        "estimateMinutes": minutes,
+        "estimateUsd": usd,
+    }
+
+
+async def retranscribe(media: Any, user: Any, choice: str) -> None:
+    await transcript_portal.guard_write(user, media)
+    may, refusal = await transcript_portal.may_send_audio(media)
+    if not may:
+        raise PipelineRefused("CONSENT_REFUSED", refusal or "Consent was refused.")
+    await set_spoken_language(str(_value(media, "id")), choice)
+    await transcript_portal.requeue_transcription(media)
+
+
+_CHOSEN = "m.\"extraMetadata\"->>'spokenLanguage'"
+_SUGGEST_BY_ARTISAN = (
+    f"SELECT {_CHOSEN} AS choice FROM \"MediaFile\" m "
+    f"WHERE m.\"removedAt\" IS NULL AND COALESCE({_CHOSEN}, 'auto') <> 'auto' "
+    "AND (m.\"artisanId\" = ANY($1::text[]) "
+    "OR EXISTS (SELECT 1 FROM \"QuestionnaireInterviewArtisan\" ia "
+    "WHERE ia.\"interviewId\" = m.\"questionnaireInterviewId\" AND ia.\"artisanId\" = ANY($1::text[])) "
+    "OR EXISTS (SELECT 1 FROM \"QuestionnaireRecording\" r "
+    "JOIN \"QuestionnaireRecordingSubject\" s ON s.\"recordingId\" = r.\"id\" "
+    "WHERE r.\"mediaFileId\" = m.\"id\" AND s.\"artisanId\" = ANY($1::text[]))) "
+    "ORDER BY m.\"updatedAt\" DESC LIMIT 1"
+)
+_SUGGEST_BY_RESEARCHER = (
+    f"SELECT {_CHOSEN} AS choice FROM \"MediaFile\" m "
+    f"WHERE m.\"removedAt\" IS NULL AND m.\"uploadedById\" = $1 AND COALESCE({_CHOSEN}, 'auto') <> 'auto' "
+    "ORDER BY m.\"updatedAt\" DESC LIMIT 1"
+)
+
+
+async def _last_choice(sql: str, arg: Any) -> str | None:
+    try:
+        rows = await db.query_raw(sql, arg)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("spoken language suggestion unreadable (%s)", type(exc).__name__)
+        return None
+    for row in rows or []:
+        found = spoken_languages.choice_of(row.get("choice"))
+        if found is not None and found != spoken_languages.AUTO:
+            return found
+    return None
+
+
+async def spoken_language_suggestion(artisan_ids: list[str], user_id: str | None) -> dict[str, Any]:
+    found: str | None = None
+    source: str | None = None
+    ids = [i for i in dict.fromkeys(artisan_ids) if i]
+    if ids:
+        found = await _last_choice(_SUGGEST_BY_ARTISAN, ids)
+        source = "artisan" if found else None
+    if found is None and user_id:
+        found = await _last_choice(_SUGGEST_BY_RESEARCHER, str(user_id))
+        source = "researcher" if found else None
+    return {
+        "suggested": {"code": found, "label": spoken_languages.label(found), "source": source} if found else None,
+        "uncertainBelow": spoken_languages.UNCERTAIN_BELOW,
+    }
 
 
 async def requeue_transcription(media: Any) -> None:

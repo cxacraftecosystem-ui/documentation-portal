@@ -731,6 +731,28 @@ jobs:
           sudo systemctl reload nginx
           echo "response times: nginx logs \$request_time to /var/log/nginx/response-times.log"
           REMOTE
+      - name: Watch for client refusal bursts
+        env:
+          CLIENT_REFUSALS_WEBHOOK: ${{ secrets.CLIENT_REFUSALS_WEBHOOK }}
+        run: |
+          set -euo pipefail
+          ssh ubuntu@${{ secrets.EC2_HOST }} 'sudo install -D -m 755 -o root -g root /dev/stdin /opt/client-refusals/client_refusals.py' < backend/deploy/client_refusals.py
+          printf 'CLIENT_REFUSALS_PORTAL=field-repository\nCLIENT_REFUSALS_WEBHOOK=%s\n' "${CLIENT_REFUSALS_WEBHOOK:-}" \
+            | ssh ubuntu@${{ secrets.EC2_HOST }} 'sudo install -m 600 -o root -g root /dev/stdin /etc/default/client-refusals'
+          ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          printf '%s\n' '[Unit]' 'Description=Report client write refusals and staged-clip delete bursts from the nginx log' \
+            '[Service]' 'Type=oneshot' 'EnvironmentFile=-/etc/default/client-refusals' \
+            'ExecStart=/usr/bin/python3 /opt/client-refusals/client_refusals.py' 'Nice=10' \
+            | sudo tee /etc/systemd/system/client-refusals.service > /dev/null
+          printf '%s\n' '[Unit]' 'Description=Scan the nginx log for client refusals every five minutes' \
+            '[Timer]' 'OnBootSec=5min' 'OnUnitActiveSec=5min' 'AccuracySec=30s' '[Install]' 'WantedBy=timers.target' \
+            | sudo tee /etc/systemd/system/client-refusals.timer > /dev/null
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now client-refusals.timer
+          sudo systemctl start client-refusals.service || true
+          sudo journalctl -u client-refusals.service -n 5 --no-pager || true
+          REMOTE
       - name: Pin the two-step encryption key and the proxy hops
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}

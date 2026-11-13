@@ -45,6 +45,12 @@ interface TranscriptApi {
     @POST("transcripts/{mediaId}/transcribe-now")
     suspend fun transcribeNow(@Path("mediaId") mediaId: String): Transcript
 
+    @POST("transcripts/{mediaId}/retranscribe")
+    suspend fun retranscribe(@Path("mediaId") mediaId: String, @Body body: RetranscribeBody): Transcript
+
+    @GET("transcripts/spoken-language")
+    suspend fun spokenLanguage(@Query("artisanIds") artisanIds: String): SpokenLanguageSuggestion
+
     @Streaming
     @GET("settings/transcription")
     suspend fun transcriptionSettings(): AudioIsolationEnvelope
@@ -117,6 +123,9 @@ interface TranscriptBackend {
     suspend fun addEnglish(mediaId: String, body: EnglishBody): Transcript =
         throw UnsupportedOperationException("no English here")
     suspend fun transcribeNow(mediaId: String): Transcript
+    suspend fun retranscribe(mediaId: String, spokenLanguage: String): Transcript =
+        throw UnsupportedOperationException("no re-transcribe here")
+    suspend fun spokenLanguageSuggestion(artisanIds: List<String>): SpokenLanguageSuggestion = SpokenLanguageSuggestion()
     suspend fun download(mediaId: String, format: String, track: CopyTrack): DownloadedFile
     suspend fun download(mediaId: String, format: String, track: CopyTrack, timestamps: Boolean): DownloadedFile =
         download(mediaId, format, track)
@@ -147,6 +156,10 @@ class RetrofitTranscriptBackend(private val api: TranscriptApi) : TranscriptBack
     override suspend fun retry(mediaId: String) = api.retry(mediaId)
     override suspend fun addEnglish(mediaId: String, body: EnglishBody) = api.addEnglish(mediaId, body)
     override suspend fun transcribeNow(mediaId: String) = api.transcribeNow(mediaId)
+    override suspend fun retranscribe(mediaId: String, spokenLanguage: String) =
+        api.retranscribe(mediaId, RetranscribeBody(SpokenLanguages.normalise(spokenLanguage)))
+    override suspend fun spokenLanguageSuggestion(artisanIds: List<String>) =
+        api.spokenLanguage(artisanIds.filter { it.isNotBlank() }.distinct().take(50).joinToString(","))
     override suspend fun download(mediaId: String, format: String, track: CopyTrack): DownloadedFile =
         download(mediaId, format, track, timestamps = true)
     override suspend fun download(mediaId: String, format: String, track: CopyTrack, timestamps: Boolean): DownloadedFile {

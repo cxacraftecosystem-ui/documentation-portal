@@ -55,6 +55,7 @@ import com.fieldrepository.app.data.ConnectivityObserver
 import com.fieldrepository.app.data.Naming
 import com.fieldrepository.app.data.OutboxSyncWorker
 import com.fieldrepository.app.data.UserDto
+import com.fieldrepository.app.data.userMessage
 import com.fieldrepository.app.questionnaire.data.QWorkshopOption
 import com.fieldrepository.app.questionnaire.portal.QuestionnairePortal
 import com.fieldrepository.app.questionnaire.ui.PromptButton
@@ -397,4 +398,4 @@ fun workbookPartOf(bytes: ByteArray, name: String): MultipartBody.Part =
     MultipartBody.Part.createFormData("file", Naming.asciiLeaf(name, "workbook.xlsx"), bytes.toRequestBody(XLSX_MIME.toMediaTypeOrNull()))
 
 fun errorText(error: Throwable, fallback: String): String =
-    (error as? retrofit2.HttpException)?.let { apiDetail(it) } ?: fallback
+    error.userMessage(fallback)

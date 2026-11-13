@@ -119,6 +119,7 @@ open class TranscriptHost {
     open fun download(format: String, track: CopyTrack, timestamps: Boolean) = download(format, track)
     open fun statusAction() {}
     open suspend fun addEnglish(text: String): String? = null
+    open suspend fun retranscribe(spokenLanguage: String): String? = null
     open fun editTurn(turn: TranscriptTurn, text: String?, english: String?) {}
     open fun retranslate(turn: TranscriptTurn) {}
     open fun mapSpeakers(mappings: List<SpeakerMapping>) {}
@@ -155,6 +156,7 @@ fun TranscriptViewer(
     var editing by remember { mutableStateOf<TranscriptTurn?>(null) }
     var historyOf by remember { mutableStateOf<TranscriptTurn?>(null) }
     var quoteFor by remember { mutableStateOf<List<String>?>(null) }
+    var retranscribeOpen by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val turns = remember(view.turns) { view.turns.sortedBy { it.index } }
@@ -211,7 +213,10 @@ fun TranscriptViewer(
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 item(key = "header") {
-                    TranscriptHeader(view, offline, waitingEdits, failures, headerExtra, onAction = host::statusAction, host = host)
+                    TranscriptHeader(
+                        view, offline, waitingEdits, failures, headerExtra, onAction = host::statusAction, host = host,
+                        onWrongLanguage = { retranscribeOpen = true },
+                    )
                 }
                 item(key = "toolbar") {
                     if (view.status == PipelineStatus.READY && turns.isNotEmpty()) {
@@ -355,6 +360,7 @@ fun TranscriptViewer(
     editing?.let { turn -> EditTurnDialog(turn, onSave = { text, english -> host.editTurn(turn, text, english); editing = null }, onDismiss = { editing = null }) }
     historyOf?.let { turn -> HistoryDialog(turn, host, onDismiss = { historyOf = null }) }
     quoteFor?.let { ids -> QuoteCardDialog(ids, host, onDismiss = { quoteFor = null; selecting = false; selected.clear() }) }
+    if (retranscribeOpen) RetranscribeDialog(view, host, onDismiss = { retranscribeOpen = false })
 }
 
 private const val HEADER_ITEMS = 2
@@ -369,6 +375,7 @@ private fun TranscriptHeader(
     extra: (@Composable () -> Unit)?,
     onAction: () -> Unit,
     host: TranscriptHost = TranscriptHost(),
+    onWrongLanguage: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(view.title.ifBlank { TranscriptUiText.open }, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
@@ -381,6 +388,7 @@ private fun TranscriptHeader(
             if (offline) Pill(TranscriptStrings.offlineCached, tone = PillTone.QUIET)
             view.cost?.let { Pill("${TranscriptStrings.spendPerRecording} ${TranscriptUiText.usd(it.totalUsd)}", tone = PillTone.QUIET) }
         }
+        SpokenLanguageLine(view, onWrongLanguage)
         extra?.invoke()
         TranscriptUiText.statusLine(view)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted) }
         view.readOnly?.message?.takeIf { it.isNotBlank() }?.let {

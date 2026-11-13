@@ -4,7 +4,7 @@ import { AudioLines } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Toggle } from "@/components/ui/Toggle";
-import { ApiError, apiFetch, describeApiDetail } from "@/lib/api";
+import { ApiError, apiErrorMessage, apiFetch } from "@/lib/api";
 import { ts } from "@/lib/transcript/strings";
 
 type ProviderRow = {
@@ -61,7 +61,7 @@ const OUTCOME_WORDS: Record<string, string> = {
 };
 
 function errorText(error: unknown, fallback: string): string {
-  if (error instanceof ApiError) return describeApiDetail((error.payload as { detail?: unknown })?.detail, error.message);
+  if (error instanceof ApiError) return apiErrorMessage(error, error.message);
   return fallback;
 }
 

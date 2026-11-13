@@ -1,6 +1,6 @@
 import { API_BASE, ApiError, apiFetch, getSessionMarker } from "@/lib/api";
 import { field, questionSequence, recordingFilename, sectionSequence, splitExtension } from "@/lib/naming";
-import { processingFor } from "@/lib/transcript/uploadChoice";
+import { processingFor, withSpokenLanguage } from "@/lib/transcript/uploadChoice";
 import type { MediaFile, MediaType } from "@/lib/types";
 
 export function inferMediaType(file: File): MediaType {
@@ -882,7 +882,7 @@ async function completeUpload(file: File, staged: StagedObject, params: Complete
       linkedRecordType: params.linkedRecordType,
       linkedRecordId: params.linkedRecordId,
       location: params.location,
-      extraMetadata: params.extraMetadata,
+      extraMetadata: withSpokenLanguage(file, params.extraMetadata),
       recordedAt: params.recordedAt,
       recordedTimezone: params.recordedTimezone,
       processingRequests: params.processingRequests

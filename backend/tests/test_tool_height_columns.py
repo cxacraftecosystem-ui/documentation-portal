@@ -69,16 +69,23 @@ def test_both_tool_forms_now_write_the_measured_height_into_the_inches_column():
     root = Path(__file__).resolve().parents[2]
 
     web = (root / "frontend" / "components" / "forms" / "ToolForm.tsx").read_text(encoding="utf-8")
+    builders = (root / "frontend" / "lib" / "recordPayloads.ts").read_text(encoding="utf-8")
+    payload = builders[builders.index("export function toolBody(") : builders.index("export type ProductBodyContext")]
+    call = web[web.index("toolBody(form, {") : web.index("})", web.index("toolBody(form, {"))]
+    assert {line.strip() for line in call.splitlines()} >= {"height,", "heightInches,"}, (
+        "ToolForm.tsx no longer hands both height boxes to `toolBody`, so what it sends is no longer "
+        "what lib/recordPayloads.ts builds"
+    )
     assert "setHeightInches" in web, (
         "ToolForm.tsx no longer has a `heightInches` setter, so the grid panel's inches reading has "
         "nowhere unit-bearing to go and the defect migration 20260913120100 describes is live again"
     )
-    assert [line for line in web.splitlines() if line.strip().startswith("heightInches:")], (
-        "ToolForm.tsx no longer SENDS `heightInches:`. The box can be filled and the number still "
+    assert [line for line in payload.splitlines() if line.strip().startswith("heightInches:")], (
+        "toolBody no longer SENDS `heightInches:`. The box can be filled and the number still "
         "never reaches the column."
     )
-    assert [line for line in web.splitlines() if line.strip().startswith("height:")], (
-        "ToolForm.tsx stopped sending the bare `height:`. That column is NOT deprecated — rows hold "
+    assert [line for line in payload.splitlines() if line.strip().startswith("height:")], (
+        "toolBody stopped sending the bare `height:`. That column is NOT deprecated — rows hold "
         "values in it whose unit nothing can recover, and dropping it from the payload would make "
         "every edit of such a row silently clear it. See migration 20260913120100."
     )
@@ -105,11 +112,19 @@ def test_both_tool_forms_now_write_the_measured_height_into_the_inches_column():
         "`height` again, the inches reading is back in a column that declares no unit — which is "
         "the entire defect migration 20260913120100 exists to close."
     )
-    assert any("heightInches = heightInches.toDoubleOrNull()" in line for line in tool_region), (
+    bodies = (
+        Path(__file__).resolve().parents[2]
+        / "android" / "app" / "src" / "main" / "java" / "com" / "fieldrepository" / "app" / "data"
+        / "RecordFormBodies.kt"
+    ).read_text(encoding="utf-8")
+    tool_body = bodies[bodies.index("fun toolCreateBody("):]
+    tool_body = tool_body[: tool_body.find("\nfun ", 1)] if "\nfun " in tool_body[1:] else tool_body
+    product_body = bodies[bodies.index("fun productCreateBody("):]
+    assert any("heightInches = heightInches," in line for line in tool_region), (
+        "the Android ToolForm accepts a height in inches and no longer hands it to toolCreateBody."
+    )
+    assert "heightInches = fields.heightInches.trim().toDoubleOrNull()" in tool_body, (
         "the Android ToolForm accepts a height in inches and no longer SENDS it. The box would fill "
         "from the grid and the number would never leave the handset."
     )
-
-    assert any(
-        "heightInches = height.toDoubleOrNull()" in line for line in _region("ProductForm")
-    )
+    assert "heightInches = fields.height.trim().toDoubleOrNull()" in product_body

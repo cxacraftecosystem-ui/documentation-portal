@@ -51,6 +51,7 @@ export class TranscriptFake {
   video = false;
   policy = { autoTranscribeVideo: false, autoTranscribeAudio: false };
   backfill = { enabled: false, queued: 0, done: 0, waiting: 0, lastRunAt: null as string | null };
+  suggestion: { code: string; label: string; source: "artisan" | "researcher" } | null = null;
   estimate = { recordings: 42, queued: 0, failed: 2, untranscribed: 40, leftOutForConsent: 1, minutes: 630, hours: 10.5, costUsd: 3.57, computedAt: "2026-11-03T10:00:00Z" };
 
   constructor() {
@@ -128,7 +129,13 @@ export class TranscriptFake {
     if (!path.startsWith("/transcripts")) return null;
     if (this.off) return { status: 404, json: { detail: { code: "NOT_FOUND", message: "Not found." } } };
 
+    if (path === "/transcripts/spoken-language" && method === "GET") return { status: 200, json: { suggested: this.suggestion, uncertainBelow: 0.8 } };
     const base = `/transcripts/${MEDIA_ID}`;
+    if (path === `${base}/retranscribe` && method === "POST") {
+      const chosen = String(body?.spokenLanguage ?? "auto");
+      this.view.spokenLanguage = { ...(this.view.spokenLanguage as Json), chosen, retranscribing: true };
+      return { status: 202, json: this.view };
+    }
     if (path === base && method === "GET") {
       const view = { ...this.view };
       if (this.hostile) view.summary = [HOSTILE_MARKDOWN];

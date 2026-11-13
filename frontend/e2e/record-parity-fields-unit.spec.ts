@@ -13,6 +13,12 @@ const PRODUCT_FORM = read("components", "forms", "ProductForm.tsx");
 const ARTISAN_FORM = read("components", "forms", "ArtisanForm.tsx");
 const PROCESS_FORM = read("components", "forms", "ProcessForm.tsx");
 const WORKSHOPS_PAGE = read("app", "(protected)", "workshops", "page.tsx");
+const PAYLOADS = read("lib", "recordPayloads.ts");
+const builderSource = (name: string) => {
+  const start = PAYLOADS.indexOf(`export function ${name}(`);
+  expect(start, `${name} must exist in lib/recordPayloads.ts`).toBeGreaterThan(-1);
+  return PAYLOADS.slice(start, PAYLOADS.indexOf("\n}\n", start));
+};
 const FORM_CONTROLS = read("components", "FormControls.tsx");
 const TRANSCRIPT_BLOCK = read("components", "media", "TranscriptBlock.tsx");
 const REQUIRED_MARK = read("components", "ui", "RequiredMark.tsx");
@@ -61,7 +67,8 @@ test("the tool form has the unit-bearing height box, and it is the one the grid 
     /<DictatedTextInput[\s\S]{0,400}?name="heightInches"/
   );
 
-  expect(TOOL_FORM, "and the value reaches the request").toContain("heightInches: toNum(heightInches)");
+  expect(TOOL_FORM, "and the value reaches the request").toMatch(/^\s*heightInches,$/m);
+  expect(builderSource("toolBody")).toContain("heightInches: toNum(ctx.heightInches)");
 
   const onHeightAt = TOOL_FORM.indexOf("onHeight={(value, method) => {");
   expect(onHeightAt, "the grid panel's height callback must exist").toBeGreaterThan(-1);
@@ -128,7 +135,8 @@ test("the tool form's centimetre boxes are labelled as centimetres and never ren
   expect(inputFor(TOOL_FORM, "width", "ToolForm"), "and not half-converted from FormData").not.toContain(
     "defaultValue"
   );
-  expect(TOOL_FORM, "and the payload reads it from state").toContain("width: toNum(width)");
+  expect(TOOL_FORM, "and the payload reads it from state").toMatch(/^\s*width,$/m);
+  expect(builderSource("toolBody")).toContain("width: toNum(ctx.width)");
 });
 
 test("no measurement or price on the tool and product forms accepts a negative", () => {
@@ -158,11 +166,12 @@ test("the tool form links SEVERAL crafts and artisans, and still fills the first
   expect(TOOL_FORM, "and so are artisans").toMatch(
     /<Field label="Linked artisans \(fills artisan \+ place\)">[\s\S]{0,400}?<MultiSelectDropdown/
   );
-  const payload = TOOL_FORM.slice(TOOL_FORM.indexOf("const payload = {"), TOOL_FORM.indexOf("const outcome = await saveOrQueue<ToolDocumentation>("));
-  expect(payload, "the craft list is sent").toContain("craftIds: craftLinksChanged ? craftIds : undefined,");
-  expect(payload, "the artisan list is sent").toContain("artisanIds: artisanLinksChanged ? artisanIds : undefined,");
-  expect(payload, "and the first-of-each columns with them").toContain("craftId: craftId || null");
-  expect(payload, "and the first-of-each columns with them").toContain("artisanId: artisanId || null");
+  const payload = builderSource("toolBody");
+  expect(TOOL_FORM, "the form builds its body through the shared builder").toContain("const payload = toolBody(form, {");
+  expect(payload, "the craft list is sent").toContain("craftIds: ctx.craftLinksChanged ? ctx.craftIds : undefined,");
+  expect(payload, "the artisan list is sent").toContain("artisanIds: ctx.artisanLinksChanged ? ctx.artisanIds : undefined,");
+  expect(payload, "and the first-of-each columns with them").toContain("craftId: ctx.craftId || null");
+  expect(payload, "and the first-of-each columns with them").toContain("artisanId: ctx.artisanId || null");
   expect(TOOL_FORM, "the scalars are DERIVED, never a second state").toContain('const craftId = craftIds[0] ?? "";');
   expect(TOOL_FORM, "both of them").toContain('const artisanId = artisanIds[0] ?? "";');
   expect(payload, "an empty selection is not hidden behind a conditional").not.toMatch(/craftIds\.length \?/);
@@ -264,7 +273,7 @@ test("the artisan form collects the craft start date and clears it with an expli
     /<DictatedTextInput[\s\S]{0,400}?name="craftStartDate"/
   );
 
-  expect(ARTISAN_FORM, "an empty box clears the column rather than doing nothing").toContain(
+  expect(builderSource("artisanBody"), "an empty box clears the column rather than doing nothing").toContain(
     'craftStartDate: textValue(form, "craftStartDate") || null'
   );
 });
@@ -283,7 +292,8 @@ test("the months box is a closed 0..11 picker and keeps null and zero apart", ()
     /<DictatedTextInput[\s\S]{0,400}?name="experienceMonths"/
   );
 
-  const code = codeOnly(ARTISAN_FORM);
+  const code = codeOnly(builderSource("artisanBody"));
+  expect(codeOnly(ARTISAN_FORM), "zero is not nothing").not.toMatch(/experienceMonths[^\n]*\|\|\s*null/);
   expect(code, "zero is not nothing").not.toMatch(/experienceMonths[^\n]*\|\|\s*null/);
   expect(code, "the null test is against null, not against truthiness").toContain(
     "experienceMonths: experienceMonthsText === null ? null : Number(experienceMonthsText)"
@@ -310,14 +320,13 @@ test("the workshop form can set the workshop kind, with the sibling product's ow
     "onChange={() => setDirty(true)}"
   );
 
-  expect(WORKSHOPS_PAGE, "the kind is part of the one payload both methods send").toContain(
+  const payload = builderSource("workshopBody");
+  expect(WORKSHOPS_PAGE, "both methods build the one payload").toContain("const payload = workshopBody(form, {");
+  expect(payload, "the kind is part of it").toContain(
     'workshopType: requiredText(form, "workshopType") || "OTHER"'
   );
-  const payload = WORKSHOPS_PAGE.slice(
-    WORKSHOPS_PAGE.indexOf("const payload: Record<string, unknown> = {"),
-    WORKSHOPS_PAGE.indexOf("if (!editing || !sameIdSet(artisanIds")
-  );
-  expect(payload, "and it is inside the object literal, not behind an edit branch").toContain("workshopType:");
+  const literal = payload.slice(payload.indexOf("const body: Record<string, unknown> = {"), payload.indexOf("if (ctx.artisanIds)"));
+  expect(literal, "and it is inside the object literal, not behind an edit branch").toContain("workshopType:");
 });
 
 test("the edited flag has three states and draws nothing for the one that cannot answer", () => {

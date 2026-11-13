@@ -273,7 +273,8 @@ test("save-and-add-another rides on the submitting button, not a ref", () => {
 
 test("an edit leaves out a blank product name, and a linked artisan missing one asks for it", () => {
   const form = FRONTEND("components", "forms", "ProductForm.tsx");
-  expect(form).toContain("Object.entries(names).filter(([, value]) => value)");
+  expect(FRONTEND("lib", "recordPayloads.ts")).toContain("Object.entries(names).filter(([, value]) => value)");
+  expect(form).toContain("isUpdate: Boolean(initial)");
   expect(form).toContain("!pickedArtisan.craftId");
   expect(form).toContain("!pickedArtisan.place?.trim()");
 });

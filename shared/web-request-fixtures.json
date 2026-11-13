@@ -1,0 +1,972 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/tools",
+    "variant": "filled",
+    "body": {
+      "place": "Agra",
+      "artisanName": "Ramesh Kumar",
+      "toolkitName": "Thappa block",
+      "localName": "Thappa",
+      "englishName": "Printing block",
+      "processUsedIn": "Block printing",
+      "material": "Sheesham wood",
+      "materialFamily": "WOOD",
+      "yearsInUse": 12,
+      "height": 8,
+      "width": 6,
+      "lengthInches": 4,
+      "breadthInches": 3,
+      "heightInches": 2,
+      "thickness": 1.5,
+      "weight": 0.4,
+      "radius": 0,
+      "maker": "SELF",
+      "traditionType": "TRADITIONAL",
+      "replacementCost": 850,
+      "suggestionsForToolImprovement": "A lighter handle would help.",
+      "remarks": "Carved by the artisan's father.",
+      "artisanId": "artisan-1",
+      "craftId": "craft-1",
+      "craftIds": [
+        "craft-1",
+        "craft-2"
+      ],
+      "artisanIds": [
+        "artisan-1",
+        "artisan-2"
+      ],
+      "workshopId": "workshop-1",
+      "status": "APPROVED",
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "recordedTimezone": "Asia/Kolkata",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081,
+        "altitude": 171,
+        "accuracy": 12,
+        "address": "Taj Ganj, Agra, Uttar Pradesh 282001",
+        "placeName": "Taj Ganj",
+        "capturedAt": "2026-11-10T05:30:00.000Z",
+        "state": "Uttar Pradesh",
+        "district": "Agra",
+        "village": "Taj Ganj",
+        "pincode": "282001",
+        "subjectLatitude": 27.1751,
+        "subjectLongitude": 78.0421
+      },
+      "extraMetadata": {},
+      "clientKey": "client-key-1"
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/tools/{tool_id}",
+    "variant": "filled",
+    "body": {
+      "place": "Agra",
+      "artisanName": "Ramesh Kumar",
+      "toolkitName": "Thappa block",
+      "localName": "Thappa",
+      "englishName": "Printing block",
+      "processUsedIn": "Block printing",
+      "material": "Sheesham wood",
+      "materialFamily": "WOOD",
+      "yearsInUse": 12,
+      "height": 8,
+      "width": 6,
+      "lengthInches": 4,
+      "breadthInches": 3,
+      "heightInches": 2,
+      "thickness": 1.5,
+      "weight": 0.4,
+      "radius": 0,
+      "maker": "SELF",
+      "traditionType": "TRADITIONAL",
+      "replacementCost": 850,
+      "suggestionsForToolImprovement": "A lighter handle would help.",
+      "remarks": "Carved by the artisan's father.",
+      "artisanId": "artisan-1",
+      "craftId": "craft-1",
+      "craftIds": [
+        "craft-1",
+        "craft-2"
+      ],
+      "artisanIds": [
+        "artisan-1",
+        "artisan-2"
+      ],
+      "workshopId": "workshop-1",
+      "status": "APPROVED",
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "recordedTimezone": "Asia/Kolkata",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081,
+        "altitude": 171,
+        "accuracy": 12,
+        "address": "Taj Ganj, Agra, Uttar Pradesh 282001",
+        "placeName": "Taj Ganj",
+        "capturedAt": "2026-11-10T05:30:00.000Z",
+        "state": "Uttar Pradesh",
+        "district": "Agra",
+        "village": "Taj Ganj",
+        "pincode": "282001",
+        "subjectLatitude": 27.1751,
+        "subjectLongitude": 78.0421
+      },
+      "extraMetadata": {}
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/tools",
+    "variant": "blank-optionals",
+    "body": {
+      "toolkitName": "Thappa block",
+      "localName": null,
+      "englishName": null,
+      "processUsedIn": null,
+      "material": null,
+      "materialFamily": null,
+      "yearsInUse": null,
+      "height": null,
+      "width": null,
+      "lengthInches": null,
+      "breadthInches": null,
+      "heightInches": null,
+      "thickness": null,
+      "weight": null,
+      "radius": null,
+      "maker": "UNKNOWN",
+      "traditionType": "UNKNOWN",
+      "replacementCost": null,
+      "suggestionsForToolImprovement": null,
+      "remarks": null,
+      "artisanId": "artisan-1",
+      "craftId": "craft-1",
+      "craftIds": [
+        "craft-1"
+      ],
+      "artisanIds": [
+        "artisan-1"
+      ],
+      "workshopId": null,
+      "status": "PENDING",
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "recordedTimezone": "Asia/Kolkata",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081
+      },
+      "extraMetadata": {},
+      "clientKey": "client-key-1"
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/tools/{tool_id}",
+    "variant": "blank-optionals",
+    "body": {
+      "toolkitName": "Thappa block",
+      "localName": null,
+      "englishName": null,
+      "processUsedIn": null,
+      "material": null,
+      "materialFamily": null,
+      "yearsInUse": null,
+      "height": null,
+      "width": null,
+      "lengthInches": null,
+      "breadthInches": null,
+      "heightInches": null,
+      "thickness": null,
+      "weight": null,
+      "radius": null,
+      "maker": "UNKNOWN",
+      "traditionType": "UNKNOWN",
+      "replacementCost": null,
+      "suggestionsForToolImprovement": null,
+      "remarks": null,
+      "artisanId": "artisan-1",
+      "craftId": "craft-1",
+      "workshopId": null,
+      "status": "PENDING",
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "recordedTimezone": "Asia/Kolkata",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081
+      },
+      "extraMetadata": {}
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/products",
+    "variant": "filled",
+    "body": {
+      "place": "Agra",
+      "artisanName": "Ramesh Kumar",
+      "productName": "Indigo dupatta",
+      "localName": "Neel dupatta",
+      "productType": "TEXTILE",
+      "timeTakenToCompleteProduct": "3 days",
+      "size": "2.5 m x 1 m",
+      "lengthInches": 98,
+      "breadthInches": 39,
+      "heightInches": null,
+      "costOfMaking": 450,
+      "sellingPrice": 1200,
+      "marketDemand": "HIGH",
+      "rawMaterialsUsed": "Cotton, indigo",
+      "mainToolsUsed": "Thappa block",
+      "productFunctionUse": "Worn as a stole",
+      "remarks": "Sold at the Agra haat.",
+      "artisanId": "artisan-1",
+      "craftId": "craft-1",
+      "workshopId": "workshop-1",
+      "status": "APPROVED",
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "recordedTimezone": "Asia/Kolkata",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081,
+        "altitude": 171,
+        "accuracy": 12,
+        "address": "Taj Ganj, Agra, Uttar Pradesh 282001",
+        "placeName": "Taj Ganj",
+        "capturedAt": "2026-11-10T05:30:00.000Z",
+        "state": "Uttar Pradesh",
+        "district": "Agra",
+        "village": "Taj Ganj",
+        "pincode": "282001",
+        "subjectLatitude": 27.1751,
+        "subjectLongitude": 78.0421
+      },
+      "extraMetadata": {},
+      "clientKey": "client-key-1"
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/products/{product_id}",
+    "variant": "filled",
+    "body": {
+      "place": "Agra",
+      "artisanName": "Ramesh Kumar",
+      "productName": "Indigo dupatta",
+      "localName": "Neel dupatta",
+      "productType": "TEXTILE",
+      "timeTakenToCompleteProduct": "3 days",
+      "size": "2.5 m x 1 m",
+      "lengthInches": 98,
+      "breadthInches": 39,
+      "heightInches": null,
+      "costOfMaking": 450,
+      "sellingPrice": 1200,
+      "marketDemand": "HIGH",
+      "rawMaterialsUsed": "Cotton, indigo",
+      "mainToolsUsed": "Thappa block",
+      "productFunctionUse": "Worn as a stole",
+      "remarks": "Sold at the Agra haat.",
+      "artisanId": "artisan-1",
+      "craftId": "craft-1",
+      "workshopId": "workshop-1",
+      "status": "APPROVED",
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "recordedTimezone": "Asia/Kolkata",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081,
+        "altitude": 171,
+        "accuracy": 12,
+        "address": "Taj Ganj, Agra, Uttar Pradesh 282001",
+        "placeName": "Taj Ganj",
+        "capturedAt": "2026-11-10T05:30:00.000Z",
+        "state": "Uttar Pradesh",
+        "district": "Agra",
+        "village": "Taj Ganj",
+        "pincode": "282001",
+        "subjectLatitude": 27.1751,
+        "subjectLongitude": 78.0421
+      },
+      "extraMetadata": {}
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/products",
+    "variant": "blank-optionals",
+    "body": {
+      "productName": "Indigo dupatta",
+      "localName": null,
+      "productType": "OTHER",
+      "timeTakenToCompleteProduct": null,
+      "size": null,
+      "lengthInches": null,
+      "breadthInches": null,
+      "heightInches": null,
+      "costOfMaking": null,
+      "sellingPrice": null,
+      "marketDemand": "UNKNOWN",
+      "rawMaterialsUsed": null,
+      "mainToolsUsed": null,
+      "productFunctionUse": null,
+      "remarks": null,
+      "artisanId": "artisan-1",
+      "craftId": null,
+      "workshopId": null,
+      "status": "PENDING",
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "recordedTimezone": "Asia/Kolkata",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081
+      },
+      "extraMetadata": {},
+      "clientKey": "client-key-1"
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/products/{product_id}",
+    "variant": "blank-optionals",
+    "body": {
+      "productName": "Indigo dupatta",
+      "localName": null,
+      "productType": "OTHER",
+      "timeTakenToCompleteProduct": null,
+      "size": null,
+      "lengthInches": null,
+      "breadthInches": null,
+      "heightInches": null,
+      "costOfMaking": null,
+      "sellingPrice": null,
+      "marketDemand": "UNKNOWN",
+      "rawMaterialsUsed": null,
+      "mainToolsUsed": null,
+      "productFunctionUse": null,
+      "remarks": null,
+      "artisanId": "artisan-1",
+      "craftId": null,
+      "workshopId": null,
+      "status": "PENDING",
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "recordedTimezone": "Asia/Kolkata",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081
+      },
+      "extraMetadata": {}
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/processes",
+    "variant": "filled",
+    "body": {
+      "name": "Indigo dyeing",
+      "productId": "product-1",
+      "workshopId": "workshop-1",
+      "preProcessAvailable": true,
+      "notes": "Done in the courtyard vats.",
+      "status": "APPROVED",
+      "steps": [
+        {
+          "name": "Soak the cloth",
+          "stepType": "PROCESS",
+          "sortOrder": 1,
+          "notes": "Overnight in plain water."
+        },
+        {
+          "name": "Dip in the vat",
+          "stepType": "PROCESS",
+          "sortOrder": 2,
+          "notes": "Three dips."
+        }
+      ],
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "clientKey": "client-key-1"
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/processes/{process_id}",
+    "variant": "filled",
+    "body": {
+      "name": "Indigo dyeing",
+      "productId": "product-1",
+      "workshopId": "workshop-1",
+      "preProcessAvailable": true,
+      "notes": "Done in the courtyard vats.",
+      "status": "APPROVED",
+      "steps": [
+        {
+          "id": "step-1",
+          "name": "Soak the cloth",
+          "stepType": "PROCESS",
+          "sortOrder": 1,
+          "notes": "Overnight in plain water."
+        },
+        {
+          "name": "Dip in the vat",
+          "stepType": "PROCESS",
+          "sortOrder": 2,
+          "notes": "Three dips."
+        }
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/processes",
+    "variant": "blank-optionals",
+    "body": {
+      "name": "Indigo dyeing",
+      "productId": "product-1",
+      "workshopId": null,
+      "preProcessAvailable": false,
+      "notes": null,
+      "status": "PENDING",
+      "steps": [
+        {
+          "name": "Soak the cloth",
+          "stepType": "PROCESS",
+          "sortOrder": 1,
+          "notes": null
+        },
+        {
+          "name": "Dip in the vat",
+          "stepType": "PROCESS",
+          "sortOrder": 2,
+          "notes": null
+        }
+      ],
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "clientKey": "client-key-1"
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/processes/{process_id}",
+    "variant": "blank-optionals",
+    "body": {
+      "name": "Indigo dyeing",
+      "productId": "product-1",
+      "workshopId": null,
+      "preProcessAvailable": false,
+      "notes": null,
+      "status": "PENDING",
+      "steps": [
+        {
+          "id": "step-1",
+          "name": "Soak the cloth",
+          "stepType": "PROCESS",
+          "sortOrder": 1,
+          "notes": null
+        },
+        {
+          "name": "Dip in the vat",
+          "stepType": "PROCESS",
+          "sortOrder": 2,
+          "notes": null
+        }
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/artisans",
+    "variant": "filled",
+    "body": {
+      "name": "Ramesh Kumar",
+      "localName": "रमेश कुमार",
+      "gender": "MALE",
+      "dateOfBirth": "1978-04-12",
+      "craftStartDate": "1995-06-01",
+      "experienceYears": 31,
+      "experienceMonths": 5,
+      "phone": "9876543210",
+      "phoneCountryCode": "+91",
+      "email": "ramesh@example.com",
+      "place": "Agra",
+      "address": "12 Taj Ganj, Agra 282001",
+      "notes": "Third-generation block printer.",
+      "aadhaarNumber": "234123412346",
+      "pehchanCardAvailable": true,
+      "pehchanCardNumber": "UP123456",
+      "dos": "Wash in cold water",
+      "donts": "Do not bleach",
+      "craftId": "craft-1",
+      "workshopId": "workshop-1",
+      "status": "APPROVED",
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "recordedTimezone": "Asia/Kolkata",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081,
+        "altitude": 171,
+        "accuracy": 12,
+        "address": "Taj Ganj, Agra, Uttar Pradesh 282001",
+        "placeName": "Taj Ganj",
+        "capturedAt": "2026-11-10T05:30:00.000Z",
+        "state": "Uttar Pradesh",
+        "district": "Agra",
+        "village": "Taj Ganj",
+        "pincode": "282001",
+        "subjectLatitude": 27.1751,
+        "subjectLongitude": 78.0421
+      },
+      "extraMetadata": {},
+      "formContract": 2,
+      "duplicateAcknowledged": [
+        "artisan-9"
+      ]
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/artisans/{artisan_id}",
+    "variant": "filled",
+    "body": {
+      "name": "Ramesh Kumar",
+      "localName": "रमेश कुमार",
+      "gender": "MALE",
+      "dateOfBirth": "1978-04-12",
+      "craftStartDate": "1995-06-01",
+      "experienceYears": 31,
+      "experienceMonths": 5,
+      "phone": "9876543210",
+      "phoneCountryCode": "+91",
+      "email": "ramesh@example.com",
+      "place": "Agra",
+      "address": "12 Taj Ganj, Agra 282001",
+      "notes": "Third-generation block printer.",
+      "aadhaarNumber": "234123412346",
+      "pehchanCardAvailable": true,
+      "pehchanCardNumber": "UP123456",
+      "dos": "Wash in cold water",
+      "donts": "Do not bleach",
+      "craftId": "craft-1",
+      "workshopId": "workshop-1",
+      "status": "APPROVED",
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "recordedTimezone": "Asia/Kolkata",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081,
+        "altitude": 171,
+        "accuracy": 12,
+        "address": "Taj Ganj, Agra, Uttar Pradesh 282001",
+        "placeName": "Taj Ganj",
+        "capturedAt": "2026-11-10T05:30:00.000Z",
+        "state": "Uttar Pradesh",
+        "district": "Agra",
+        "village": "Taj Ganj",
+        "pincode": "282001",
+        "subjectLatitude": 27.1751,
+        "subjectLongitude": 78.0421
+      },
+      "extraMetadata": {},
+      "formContract": 2
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/artisans",
+    "variant": "blank-optionals",
+    "body": {
+      "name": "Ramesh Kumar",
+      "localName": null,
+      "gender": null,
+      "dateOfBirth": "1978-04-12",
+      "craftStartDate": "1995-06-01",
+      "experienceYears": null,
+      "experienceMonths": null,
+      "phone": null,
+      "phoneCountryCode": null,
+      "email": null,
+      "place": "Agra",
+      "address": null,
+      "notes": null,
+      "aadhaarNumber": null,
+      "pehchanCardAvailable": false,
+      "pehchanCardNumber": null,
+      "dos": "Wash in cold water",
+      "donts": "Do not bleach",
+      "craftId": "craft-1",
+      "workshopId": null,
+      "status": "PENDING",
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "recordedTimezone": "Asia/Kolkata",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081
+      },
+      "extraMetadata": {},
+      "formContract": 2,
+      "duplicateAcknowledged": []
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/artisans/{artisan_id}",
+    "variant": "blank-optionals",
+    "body": {
+      "name": "Ramesh Kumar",
+      "localName": null,
+      "gender": null,
+      "dateOfBirth": "1978-04-12",
+      "craftStartDate": "1995-06-01",
+      "experienceYears": null,
+      "experienceMonths": null,
+      "phone": null,
+      "phoneCountryCode": null,
+      "email": null,
+      "place": "Agra",
+      "address": null,
+      "notes": null,
+      "aadhaarNumber": null,
+      "pehchanCardAvailable": false,
+      "pehchanCardNumber": null,
+      "dos": "Wash in cold water",
+      "donts": "Do not bleach",
+      "craftId": "craft-1",
+      "workshopId": null,
+      "status": "PENDING",
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "recordedTimezone": "Asia/Kolkata",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081
+      },
+      "extraMetadata": {},
+      "formContract": 2
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/crafts",
+    "variant": "filled",
+    "body": {
+      "name": "Dabu printing",
+      "localName": "Dabu",
+      "subCategoryId": "subcategory-1",
+      "stateOfOrigin": [
+        "Uttar Pradesh"
+      ],
+      "stateOfPractice": [
+        "Uttar Pradesh",
+        "Rajasthan"
+      ],
+      "giStatus": "GI",
+      "workshopId": "workshop-1",
+      "description": "Mud-resist block printing."
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/crafts/{craft_id}",
+    "variant": "filled",
+    "body": {
+      "name": "Dabu printing",
+      "localName": "Dabu",
+      "subCategoryId": "subcategory-1",
+      "stateOfOrigin": [
+        "Uttar Pradesh"
+      ],
+      "stateOfPractice": [
+        "Uttar Pradesh",
+        "Rajasthan"
+      ],
+      "giStatus": "GI",
+      "workshopId": "workshop-1",
+      "description": "Mud-resist block printing."
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/crafts",
+    "variant": "blank-optionals",
+    "body": {
+      "name": "Dabu printing",
+      "localName": null,
+      "subCategoryId": "subcategory-1",
+      "stateOfOrigin": [],
+      "stateOfPractice": [],
+      "giStatus": "NON_GI",
+      "workshopId": null,
+      "description": null
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/crafts/{craft_id}",
+    "variant": "blank-optionals",
+    "body": {
+      "name": "Dabu printing",
+      "localName": null,
+      "subCategoryId": "subcategory-1",
+      "stateOfOrigin": [],
+      "stateOfPractice": [],
+      "giStatus": "NON_GI",
+      "workshopId": null,
+      "description": null
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/workshops",
+    "variant": "filled",
+    "body": {
+      "title": "Agra block printing workshop",
+      "workshopType": "OTHER",
+      "date": "2026-11-10",
+      "startDate": "2026-11-10",
+      "endDate": "2026-11-14",
+      "place": "Agra",
+      "description": "Five days with the Taj Ganj printers.",
+      "notes": "Bring blocks.",
+      "status": "APPROVED",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081,
+        "altitude": 171,
+        "accuracy": 12,
+        "address": "Taj Ganj, Agra, Uttar Pradesh 282001",
+        "placeName": "Taj Ganj",
+        "capturedAt": "2026-11-10T05:30:00.000Z",
+        "state": "Uttar Pradesh",
+        "district": "Agra",
+        "village": "Taj Ganj",
+        "pincode": "282001",
+        "subjectLatitude": 27.1751,
+        "subjectLongitude": 78.0421
+      },
+      "artisanIds": [
+        "artisan-1"
+      ],
+      "craftIds": [
+        "craft-1"
+      ],
+      "clientKey": "client-key-1"
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/workshops/{workshop_id}",
+    "variant": "filled",
+    "body": {
+      "title": "Agra block printing workshop",
+      "workshopType": "OTHER",
+      "date": "2026-11-10",
+      "startDate": "2026-11-10",
+      "endDate": "2026-11-14",
+      "place": "Agra",
+      "description": "Five days with the Taj Ganj printers.",
+      "notes": "Bring blocks.",
+      "status": "APPROVED",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081,
+        "altitude": 171,
+        "accuracy": 12,
+        "address": "Taj Ganj, Agra, Uttar Pradesh 282001",
+        "placeName": "Taj Ganj",
+        "capturedAt": "2026-11-10T05:30:00.000Z",
+        "state": "Uttar Pradesh",
+        "district": "Agra",
+        "village": "Taj Ganj",
+        "pincode": "282001",
+        "subjectLatitude": 27.1751,
+        "subjectLongitude": 78.0421
+      },
+      "artisanIds": [
+        "artisan-1"
+      ],
+      "craftIds": [
+        "craft-1"
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/workshops",
+    "variant": "blank-optionals",
+    "body": {
+      "title": "Agra block printing workshop",
+      "workshopType": "OTHER",
+      "date": "2026-11-10",
+      "startDate": "2026-11-10",
+      "endDate": "2026-11-10",
+      "place": "Agra",
+      "description": null,
+      "notes": null,
+      "status": "PENDING",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081
+      },
+      "artisanIds": [
+        "artisan-1"
+      ],
+      "craftIds": [
+        "craft-1"
+      ],
+      "clientKey": "client-key-1"
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/workshops/{workshop_id}",
+    "variant": "blank-optionals",
+    "body": {
+      "title": "Agra block printing workshop",
+      "workshopType": "OTHER",
+      "date": "2026-11-10",
+      "startDate": "2026-11-10",
+      "endDate": "2026-11-10",
+      "place": "Agra",
+      "description": null,
+      "notes": null,
+      "status": "PENDING",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/questionnaire/interviews",
+    "variant": "filled",
+    "body": {
+      "title": "Ramesh Kumar · 10 Nov 2026",
+      "place": "Agra",
+      "language": "hi",
+      "notes": "Recorded in the workshop.",
+      "status": "APPROVED",
+      "workshopId": "workshop-1",
+      "artisanIds": [
+        "artisan-1"
+      ],
+      "responses": [
+        {
+          "questionId": "question-1",
+          "answerText": "Natural indigo from Agra."
+        },
+        {
+          "questionId": "question-2",
+          "answerText": "Since 1995.",
+          "answerSource": "TRANSCRIPT"
+        }
+      ],
+      "questionnaireId": "questionnaire-1",
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "recordedTimezone": "Asia/Kolkata",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081,
+        "altitude": 171,
+        "accuracy": 12,
+        "address": "Taj Ganj, Agra, Uttar Pradesh 282001",
+        "placeName": "Taj Ganj",
+        "capturedAt": "2026-11-10T05:30:00.000Z",
+        "state": "Uttar Pradesh",
+        "district": "Agra",
+        "village": "Taj Ganj",
+        "pincode": "282001",
+        "subjectLatitude": 27.1751,
+        "subjectLongitude": 78.0421
+      }
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/questionnaire/interviews/{interview_id}",
+    "variant": "filled",
+    "body": {
+      "title": "Ramesh Kumar · 10 Nov 2026",
+      "place": "Agra",
+      "language": "hi",
+      "notes": "Recorded in the workshop.",
+      "status": "APPROVED",
+      "workshopId": "workshop-1",
+      "artisanIds": [
+        "artisan-1"
+      ],
+      "responses": [
+        {
+          "questionId": "question-1",
+          "answerText": "Natural indigo from Agra."
+        },
+        {
+          "questionId": "question-2",
+          "answerText": "Since 1995.",
+          "answerSource": "TRANSCRIPT"
+        }
+      ],
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081,
+        "altitude": 171,
+        "accuracy": 12,
+        "address": "Taj Ganj, Agra, Uttar Pradesh 282001",
+        "placeName": "Taj Ganj",
+        "capturedAt": "2026-11-10T05:30:00.000Z",
+        "state": "Uttar Pradesh",
+        "district": "Agra",
+        "village": "Taj Ganj",
+        "pincode": "282001",
+        "subjectLatitude": 27.1751,
+        "subjectLongitude": 78.0421
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/questionnaire/interviews",
+    "variant": "blank-optionals",
+    "body": {
+      "title": "Interview · Ramesh Kumar",
+      "place": null,
+      "language": null,
+      "notes": null,
+      "status": "PENDING",
+      "workshopId": null,
+      "artisanIds": [
+        "artisan-1"
+      ],
+      "responses": [],
+      "questionnaireId": null,
+      "recordedAt": "2026-11-10T05:30:00.000Z",
+      "recordedTimezone": "Asia/Kolkata",
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081
+      }
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/questionnaire/interviews/{interview_id}",
+    "variant": "blank-optionals",
+    "body": {
+      "title": "Interview · Ramesh Kumar",
+      "place": null,
+      "language": null,
+      "notes": null,
+      "status": "PENDING",
+      "workshopId": null,
+      "artisanIds": [
+        "artisan-1"
+      ],
+      "responses": [],
+      "location": {
+        "latitude": 27.1767,
+        "longitude": 78.0081
+      }
+    }
+  }
+]

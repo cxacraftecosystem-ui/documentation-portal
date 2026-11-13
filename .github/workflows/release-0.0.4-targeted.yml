@@ -1,0 +1,157 @@
+name: Release 0.0.4 targeted tests
+
+on:
+  push:
+    branches: ["release/0.0.4"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-004-targeted-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Compile the app and run the record-save, refusal and language unit tests
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up JDK 25
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+      - name: Compile the app, its unit tests and its device tests
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sdkmanager="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-37.2" "build-tools;37.0.0" > /dev/null
+          ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin --console=plain --stacktrace
+      - name: The targeted unit tests and the request fixtures
+        run: |
+          set -euo pipefail
+          ./gradlew :app:testDebugUnitTest --tests '*.ToolSaveBodyTest' --tests '*.RefusalSentenceTest' --tests '*.RequestContractFixturesTest' --tests '*.SpokenLanguagesTest' --console=plain
+          test -s app/build/request-contract/android-requests.json
+      - name: Keep the request fixtures and the test report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-targeted
+          path: |
+            android/app/build/request-contract/
+            android/app/build/reports/tests/
+          if-no-files-found: warn
+          retention-days: 14
+
+  contract:
+    name: Every client request body validates against its backend model, and the server-side tests for this release
+    needs: android
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      PYTHONUTF8: "1"
+      DATABASE_URL: "postgresql://ci:ci@ci.invalid:5432/no_such_database"
+      JWT_SECRET: "ci-placeholder-not-a-secret-0123456789abcdef"
+      AWS_ACCESS_KEY_ID: "ci-placeholder"
+      AWS_SECRET_ACCESS_KEY: "ci-placeholder"
+      AWS_S3_BUCKET: "ci-placeholder"
+      MASTER_ADMIN_EMAIL: "ci@example.invalid"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15.2"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/pyproject.toml
+      - name: Install the backend from the lock
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+          pip install --no-deps -e .
+          python -m prisma generate --schema prisma/schema.prisma
+      - name: The other portal, for the shared-file parity tests
+        working-directory: .
+        env:
+          PEER: cxacraftecosystem-ui/designer-portal
+          BRANCH: ${{ github.ref_name }}
+          PEER_ENV_NAMES: CROSS_PORTAL_PEER_REPO SIBLING_REPO DESIGNER_PORTAL_DIR
+        run: bash scripts/ci/peer_checkout.sh
+      - name: The Android request fixtures
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-targeted
+          path: ${{ runner.temp }}/android-targeted
+      - name: Run the contract and the targeted backend tests
+        env:
+          REQUEST_CONTRACT_REQUIRE_ANDROID: "1"
+        run: |
+          set -uo pipefail
+          export REQUEST_CONTRACT_FIXTURES="$RUNNER_TEMP/android-targeted/request-contract/android-requests.json"
+          python -m pytest -rfs -v tests/test_android_version_follows_publish.py tests/test_request_dto_contract.py tests/test_client_refusals.py tests/test_spoken_language.py tests/test_transcription_service_portal.py tests/test_request_validation_errors.py tests/test_media_transcribe_choice.py tests/test_transcript_contract.py tests/test_transcript_pipeline.py tests/test_tool_height_columns.py tests/test_measurement_marker_box_map.py tests/test_artisan_form_contract.py tests/test_record_completeness.py tests/test_questionnaire_parity.py tests/test_transcription_parity.py
+
+  web:
+    name: Web types, lint and the unit specs for this release
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/package.json
+          check-latest: true
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install npm 12 and the dependencies
+        run: |
+          set -euo pipefail
+          npm install --global npm@12
+          npm ci
+      - name: Types
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npx eslint . --max-warnings=0
+      - name: The unit specs this release touches
+        run: npx playwright test e2e/api-error-text-unit.spec.ts e2e/duplicates-form-unit.spec.ts e2e/questionnaire-dictation-unit.spec.ts e2e/questionnaire-edit-unit.spec.ts e2e/questionnaire-live-fixes-unit.spec.ts e2e/record-client-key-unit.spec.ts e2e/record-form-dictation-unit.spec.ts e2e/record-parity-fields-unit.spec.ts e2e/record-photo-measure-unit.spec.ts e2e/spoken-language-unit.spec.ts e2e/validation-copy-unit.spec.ts e2e/web-capture-unit.spec.ts e2e/web-request-fixtures-unit.spec.ts e2e/write-body-unit.spec.ts
+      - name: Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build the web app
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
+      - name: The spoken-language and transcript viewer specs against the built app
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+        run: |
+          set -uo pipefail
+          npx next start --port 3000 > next.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://localhost:3000/login; then break; fi
+            sleep 2
+          done
+          curl -fsS -o /dev/null http://localhost:3000/login || { cat next.log; exit 1; }
+          npx playwright test e2e/spoken-language.spec.ts e2e/transcript-web.spec.ts

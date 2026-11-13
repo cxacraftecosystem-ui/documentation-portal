@@ -134,6 +134,24 @@
     "settingsBackfillConfirmTitle": "Start the backfill?",
     "settingsBackfillConfirmBody": "Every earlier recording and video with consent is sent, oldest first, within this month's budget. You can turn it off at any time.",
     "settingsBackfillConfirm": "Start backfill",
-    "settingsBackfillCancel": "Cancel"
+    "settingsBackfillCancel": "Cancel",
+    "spokenLanguage": "Spoken language",
+    "spokenLanguageAuto": "Detect automatically",
+    "spokenLanguageMixed": "Mixed (several languages)",
+    "spokenLanguageSearch": "Search languages",
+    "spokenLanguageNoMatch": "No language matches",
+    "spokenLanguageFromArtisan": "Last used with this artisan",
+    "spokenLanguageFromResearcher": "Your last choice",
+    "detectedLanguage": "Detected: {language}",
+    "transcribedAs": "Transcribed as {language}",
+    "languageUncertain": "Language uncertain, check it",
+    "wrongLanguage": "Wrong language? Re-transcribe as…",
+    "retranscribeTitle": "Re-transcribe",
+    "retranscribeConfirm": "Re-transcribe",
+    "retranscribeMinutes": "About {minutes} min of audio",
+    "retranscribeCost": "Estimated cost: US$ {usd}",
+    "retranscribeKeeps": "The current version is kept. Translation and summary run again.",
+    "retranscribing": "Re-transcribing…",
+    "retranscribeFailed": "Couldn't start. Try again."
   }
 }

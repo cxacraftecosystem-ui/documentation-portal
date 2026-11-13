@@ -1,0 +1,130 @@
+{
+  "contract": "request-contract-samples",
+  "version": 1,
+  "enforcedBy": [
+    "android/app/src/test/java/**/data/RequestContractFixturesTest.kt",
+    "backend/tests/test_request_dto_contract.py"
+  ],
+  "placeholder": "Sample text",
+  "fields": {
+    "state": "Uttar Pradesh",
+    "district": "Agra",
+    "village": "Taj Ganj",
+    "pincode": "282001",
+    "place": "Agra",
+    "placeName": "Agra",
+    "address": "Taj Ganj, Agra",
+    "email": "researcher@example.org",
+    "phone": "9876543210",
+    "mobile": "9876543210",
+    "password": "Field-Notes-2026!",
+    "currentPassword": "Field-Notes-2026!",
+    "newPassword": "Field-Notes-2027!",
+    "recordedTimezone": "Asia/Kolkata",
+    "timezone": "Asia/Kolkata",
+    "language": "hi",
+    "languageCode": "or",
+    "mimeType": "image/jpeg",
+    "contentType": "image/jpeg",
+    "fileName": "photo.jpg",
+    "filename": "photo.jpg",
+    "originalName": "photo.jpg",
+    "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "checksum": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "clientKey": "android-7c1f6b52-3d0e-4f43-9a55-5f6f2f0c9e11",
+    "idempotencyKey": "android-7c1f6b52-3d0e-4f43-9a55-5f6f2f0c9e11",
+    "gender": "Male",
+    "aadhaar": "234567890124",
+    "aadhaarNumber": "234567890124",
+    "otp": "123456",
+    "code": "123456",
+    "url": "https://example.org/field/photo.jpg",
+    "colour": "#762CB1",
+    "color": "#762CB1",
+    "hex": "#762CB1",
+    "status": "PENDING",
+    "maker": "UNKNOWN",
+    "traditionType": "UNKNOWN",
+    "materialFamily": "Stone",
+    "craftName": "Agra Marble Inlay",
+    "artisanName": "Fahim",
+    "name": "Fahim",
+    "title": "Agra marble inlay toolkit",
+    "toolkitName": "Inlay Chisel",
+    "productName": "Inlaid Coaster",
+    "spokenLanguage": "or",
+    "giStatus": "GI",
+    "artisanField": "name",
+    "date": "2026-11-13",
+    "dateOfBirth": "1978-04-12",
+    "phoneCountryCode": "+91",
+    "oidcCodeVerifier": "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk-ab12",
+    "oidcNonce": "n-0S6_WzA2Mj-2026",
+    "role": "RESEARCHER",
+    "workshopType": "OTHER",
+    "uid": "234567890124",
+    "decision": "GRANTED",
+    "templateId": "DCH_STANDARD",
+    "format": "pdf",
+    "kind": "WORKSHOP_INTERVIEW",
+    "workshopKind": "OTHER"
+  },
+  "suffixes": {
+    "At": "2026-11-13T05:26:00Z",
+    "Date": "2026-11-13",
+    "Id": "rec-7c1f6b52",
+    "Email": "researcher@example.org",
+    "Phone": "9876543210",
+    "Url": "https://example.org/field/photo.jpg",
+    "Key": "media/2026/11/13/photo.jpg"
+  },
+  "integers": {
+    "yearsInUse": 12,
+    "page": 1,
+    "pageSize": 25,
+    "sortOrder": 1,
+    "size": 2048,
+    "sizeBytes": 2048,
+    "partNumber": 1,
+    "durationMs": 61000
+  },
+  "numbers": {
+    "latitude": 27.1751,
+    "longitude": 78.0421,
+    "subjectLatitude": 27.1751,
+    "subjectLongitude": 78.0421,
+    "accuracy": 8.0,
+    "altitude": 169.0
+  },
+  "booleans": {},
+  "overrides": {
+    "QConsentPost": {
+      "state": "GRANTED"
+    },
+    "ArtisanConsentRequest": {
+      "state": "GRANTED"
+    },
+    "DwProofreadBody": {
+      "sourceLayerId": null,
+      "text": "The artisan carves the block by hand."
+    },
+    "DwTranslateBody": {
+      "sourceLayerId": null,
+      "text": "The artisan carves the block by hand."
+    }
+  },
+  "neverBlank": [
+    "state",
+    "district",
+    "password",
+    "newPassword",
+    "currentPassword",
+    "latitude",
+    "longitude",
+    "aadhaar",
+    "aadhaarNumber",
+    "workshopType",
+    "date",
+    "startDate"
+  ]
+}

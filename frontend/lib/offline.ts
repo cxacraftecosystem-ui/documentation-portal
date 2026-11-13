@@ -1,9 +1,10 @@
 "use client";
 
-import { ApiError, apiFetch } from "@/lib/api";
+import { ApiError, apiErrorMessage, apiFetch } from "@/lib/api";
 import { holdFromPayload } from "@/lib/duplicates";
 import { uploadMediaBatch } from "@/lib/media";
-import { transcribeFlags } from "@/lib/transcript/uploadChoice";
+import { setSpokenLanguages, spokenLanguagesOf, transcribeFlags } from "@/lib/transcript/uploadChoice";
+import { writeBody } from "@/lib/writeBody";
 import { countNoun } from "@/lib/format";
 
 const DB_NAME = "field-repo-outbox";
@@ -42,12 +43,21 @@ export type OutboxMediaBatch = {
   transcribeAudio?: boolean;
   alwaysTranscribe?: boolean;
   transcribe?: boolean[];
+  spokenLanguages?: (string | null)[];
   stepIndex?: number;
   linkedRecordId?: string | null;
 };
 
 export function withTranscribeFlags(batch: OutboxMediaBatch): OutboxMediaBatch {
-  return batch.transcribe ? batch : { ...batch, transcribe: transcribeFlags(batch.files) };
+  const flagged = batch.transcribe ? batch : { ...batch, transcribe: transcribeFlags(batch.files) };
+  return flagged.spokenLanguages ? flagged : { ...flagged, spokenLanguages: spokenLanguagesOf(batch.files) };
+}
+
+export function restoreSpokenLanguages(batch: OutboxMediaBatch): void {
+  batch.files.forEach((file, position) => {
+    const chosen = batch.spokenLanguages?.[position];
+    if (chosen) setSpokenLanguages([file], chosen);
+  });
 }
 
 export function transcribeFlagsFor(batch: OutboxMediaBatch, subset: readonly File[]): boolean[] {
@@ -384,6 +394,7 @@ async function runSync(): Promise<SyncResult> {
             mediaFailed.push(...batch.files.map((file) => ({ name: file.name })));
             continue;
           }
+          restoreSpokenLanguages(batch);
           const result = await uploadMediaBatch({
             files: batch.files,
             linkedRecordType: batch.linkedRecordType,
@@ -419,7 +430,7 @@ async function runSync(): Promise<SyncResult> {
         stoppedOffline = true;
         break;
       }
-      await markFailure(progress, error instanceof Error ? error.message : "This entry couldn’t be saved.");
+      await markFailure(progress, apiErrorMessage(error, "This entry couldn’t be saved."));
       failed += 1;
     }
   }
@@ -456,7 +467,7 @@ export async function saveOrQueue<T extends { id: string }>({
   body: unknown;
   media?: OutboxMediaBatch[];
 }): Promise<SaveOutcome<T>> {
-  const payload = JSON.stringify(bodyWithClientKey(endpoint, method, body));
+  const payload = JSON.stringify(bodyWithClientKey(endpoint, method, writeBody(body, method)));
   const queue = async () => {
     await queueOffline({ label, endpoint, method, body: payload, media: (media ?? []).filter((batch) => batch.files.length) });
     return { queued: true } as const;

@@ -15,6 +15,7 @@ import { SessionHeader } from "@/components/questionnaire/SessionHeader";
 import { TakeSheet } from "@/components/questionnaire/TakeSheet";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 import { enqueue, onRecordingLanded, onSessionLanded, resolveQueuedAnswer, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
+import { SpokenLanguagePicker, useSpokenLanguageChoice } from "@/components/transcript/SpokenLanguagePicker";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
@@ -55,6 +56,7 @@ import { consentSubject, pickedFileMeta, rosterArtisans, takesFor, takeSubjects 
 import { assembleTake, recorderStore, recoverable, recoveredMinutes, type TakeChunk, type TakeDraft } from "@/lib/questionnaire/recorderStore";
 import { OutboxTray } from "@/components/questionnaire/OutboxTray";
 import { qs } from "@/lib/questionnaire/qs";
+import { sessionSpokenLanguage } from "@/lib/transcript/spokenLanguage";
 import { artisanFilter } from "@/lib/questionnairePortal";
 import type { Artisan } from "@/lib/types";
 
@@ -308,6 +310,11 @@ export function SessionWorkspace({ id }: { id: string }) {
     return { ...grid, cells };
   }, [grid, queue.pendingClips, queue.online]);
 
+  const spoken = useSpokenLanguageChoice(detail?.participants.map((p) => p.artisanId) ?? [], {
+    preset: sessionSpokenLanguage(detail?.clientKey, detail?.id, id),
+    fallback: detail?.languageCode ?? null
+  });
+
   if (loadError) {
     return (
       <div className="panel grid gap-3 p-6 text-center">
@@ -537,7 +544,8 @@ export function SessionWorkspace({ id }: { id: string }) {
           contentSha256: sha,
           continuationOfId: context.continuation,
           replacesRecordingId: context.replaces,
-          ackedRecordingIds: context.acked
+          ackedRecordingIds: context.acked,
+          spokenLanguage: spoken.value
         }
       };
       await enqueue(unitSession, step, { key: take.takeKey, blob: take.blob });
@@ -646,6 +654,12 @@ export function SessionWorkspace({ id }: { id: string }) {
       ) : null}
 
       {session.version > 0 ? <SessionActions session={session} onChanged={() => void load()} /> : null}
+
+      {session.state === "OPEN" ? (
+        <div className="panel p-3 sm:max-w-sm" data-session-spoken-language>
+          <SpokenLanguagePicker value={spoken.value} onChange={spoken.choose} suggestion={spoken.suggestion} />
+        </div>
+      ) : null}
 
       {proposalNote ? (
         <p role="status" className="panel p-3 text-sm text-ink-700" data-proposal-note>

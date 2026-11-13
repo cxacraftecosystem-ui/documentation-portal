@@ -535,7 +535,7 @@ class ExplorerState(
             if (!response.isSuccessful || body == null) {
                 runCatching { response.errorBody()?.close() }
                 if (response.code() == 404) return entry.content
-                throw IOException("HTTP ${response.code()}")
+                throw IOException(ExplorerText.transcriptFailed)
             }
             val text = withContext(Dispatchers.IO) { body.use { it.string() } }
             return runCatching { ExplorerJson.decodeFromString(ExplorerTranscript.serializer(), text).content }.getOrNull() ?: text

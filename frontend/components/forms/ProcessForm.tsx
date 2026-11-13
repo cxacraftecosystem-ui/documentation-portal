@@ -29,6 +29,7 @@ import { apiFetch, listResource } from "@/lib/api";
 import { handleFormEnter } from "@/lib/formNav";
 import { describePreProcess, describeProcessStep, extractImageExifMetadata, renameMediaFile, uploadMediaFile } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
+import { processBody } from "@/lib/recordPayloads";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, ExtraMetadata, MediaFile, ProductDocumentation, RecordStatus, User, Workshop } from "@/lib/types";
 import { useConfirm } from "@/components/dialogs";
@@ -547,22 +548,17 @@ export function ProcessForm({
     setSaving(true);
     try {
       const trimmedName = name.trim();
-      const payload = {
-        name: trimmedName,
+      const payload = processBody({
+        isEdit,
+        name,
         productId,
-        workshopId: workshop.workshopId || null,
+        workshopId: workshop.workshopId,
         preProcessAvailable,
-        notes: notes.trim() || null,
+        notes,
         status,
-        steps: steps.map((step, index) => ({
-          id: step.serverId,
-          name: step.name.trim(),
-          stepType: step.stepType,
-          sortOrder: index + 1,
-          notes: step.recordAdditional ? step.notes.trim() || null : null
-        })),
-        ...(isEdit ? {} : { recordedAt: new Date().toISOString() })
-      };
+        steps,
+        now: new Date()
+      });
       const outcome = await saveOrQueue<ProcessRecord>({
         label: `Process · ${trimmedName || "Untitled"}`,
         endpoint: isEdit ? `/processes/${initial!.id}` : "/processes",

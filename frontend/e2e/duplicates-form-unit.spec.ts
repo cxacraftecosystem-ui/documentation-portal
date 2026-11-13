@@ -91,7 +91,8 @@ test("a pair is merged on the one artisan merge, keeping the older record by def
 
 test("the form sends the acknowledgement on create only and checks before saving", () => {
   const form = read("components", "forms", "ArtisanForm.tsx");
-  expect(form).toContain("...(initial ? {} : { duplicateAcknowledged: acknowledgedIds(dismissedRef.current) })");
+  expect(read("lib", "recordPayloads.ts")).toContain("...(ctx.isUpdate ? {} : { duplicateAcknowledged: acknowledgedIds(ctx.dismissed) })");
+  expect(form).toContain("dismissed: dismissedRef.current");
   expect(form).toContain("onBlur={scheduleDuplicateCheck}");
   expect(form).toMatch(/setTimeout\(\(\) => \{\s*void runDuplicateCheck/);
   expect(form).toContain("}, 600);");

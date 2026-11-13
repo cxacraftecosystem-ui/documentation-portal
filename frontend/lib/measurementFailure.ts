@@ -1,4 +1,4 @@
-import { ApiError, ApiUnconfiguredError, describeApiDetail } from "@/lib/api";
+import { ApiError, ApiUnconfiguredError, describeApiBody } from "@/lib/api";
 import type { MeasurementAnalysisResponse } from "@/lib/media";
 
 export type MeasurementRemedy =
@@ -67,9 +67,7 @@ export function serverSentence(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null;
   const body = error.payload;
   if (!body || typeof body !== "object") return null;
-  const detail = (body as { detail?: unknown }).detail;
-  if (detail === undefined || detail === null) return null;
-  const sentence = describeApiDetail(detail, "").trim();
+  const sentence = describeApiBody(body, "").trim();
   return sentence ? sentence : null;
 }
 

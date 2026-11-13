@@ -213,9 +213,14 @@ for (const [name, path, keys] of [
 
   test(`${name} sends the measurementMethods marker, and only through the one gate`, () => {
     const source = read(path);
-    const payload = source.slice(source.indexOf("const payload = {"), source.indexOf("// Offline this queues"));
+    const payloads = read("lib/recordPayloads.ts");
+    const builder = name === "ToolForm" ? "toolBody" : "productBody";
+    const start = payloads.indexOf(`export function ${builder}(`);
+    const payload = payloads.slice(start, payloads.indexOf("\n}\n", start));
+    expect(source, "the form builds its body through the shared builder").toContain(`const payload = ${builder}(form, {`);
     expect(payload, "the save body carries the marker").toMatch(/^\s*measurementMethods: measurementMethodsFor\(/m);
-    expect(source.match(/measurementMethodsFor\(/g)?.length, "one call, and one only").toBe(1);
+    expect(payload.match(/measurementMethodsFor\(/g)?.length, "one call, and one only").toBe(1);
+    expect(source, "the form never calls it itself").not.toMatch(/measurementMethodsFor\(/);
     expect(source, "the marker object is never hand-built in the form").not.toContain("measurementMethods: {");
   });
 
