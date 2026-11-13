@@ -31,6 +31,9 @@ class RequestContractFixturesTest {
     private val wire: Json = ApiClient.json
     private val samples: JsonObject = Json.parseToJsonElement(locate("shared/request-contract-samples.json").readText()).jsonObject
 
+    private val createOnly: Set<String> =
+        (samples["createOnly"] as? JsonArray)?.map { (it as JsonPrimitive).content }?.toSet().orEmpty()
+
     private val neverBlank: Set<String> =
         (samples["neverBlank"] as? JsonArray)?.map { (it as JsonPrimitive).content }?.toSet().orEmpty()
 
@@ -158,7 +161,9 @@ class RequestContractFixturesTest {
     private fun fixture(call: Call, blank: Boolean): JsonObject {
         val serializer = serializer(call.body) as KSerializer<Any>
         val dto = serializer.descriptor.serialName.substringAfterLast('.').removeSuffix("?")
-        val generated = sample(serializer.descriptor, "", dto, blank, 0)
+        val sampled = sample(serializer.descriptor, "", dto, blank, 0)
+        val generated = if (call.method == "POST" || sampled !is JsonObject) sampled
+        else JsonObject(sampled.mapValues { (key, value) -> if (key in createOnly) JsonNull else value })
         val decoded = Json { ignoreUnknownKeys = false; isLenient = false }.decodeFromJsonElement(serializer, generated)
         val body = wire.encodeToJsonElement(serializer, decoded)
         return buildJsonObject {

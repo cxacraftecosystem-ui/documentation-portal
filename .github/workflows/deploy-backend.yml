@@ -136,7 +136,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-26.04
-    timeout-minutes: 25
+    timeout-minutes: 45
     permissions:
       contents: read
       actions: read
@@ -182,11 +182,11 @@ jobs:
           fi
           api="repos/${GITHUB_REPOSITORY}/actions"
           last=""
-          for attempt in $(seq 1 60); do
+          for attempt in $(seq 1 120); do
             runs="$(gh api "${api}/workflows/checks.yml/runs?head_sha=${SHA}&per_page=30" 2>/dev/null || echo '{"workflow_runs":[]}')"
             run_id="$(printf '%s' "$runs" | jq -r '([.workflow_runs[] | select(.conclusion != "cancelled")] | ([.[] | select(.event == "push")][0] // .[0])) // .workflow_runs[0] | .id // ""')"
             if [ -z "$run_id" ]; then
-              echo "attempt ${attempt}/60: no Checks run for ${SHA} yet"
+              echo "attempt ${attempt}/120: no Checks run for ${SHA} yet"
               last=""
               sleep 20
               continue
@@ -231,16 +231,16 @@ jobs:
                   } >> "$GITHUB_STEP_SUMMARY"
                   exit 0
                 fi
-                echo "attempt ${attempt}/60: Checks on ${SHA} was cancelled (${detail}) and main's tip reads '${tip:-unreadable}', so nothing newer will ship it; waiting for a re-run or a dispatch of Checks"
+                echo "attempt ${attempt}/120: Checks on ${SHA} was cancelled (${detail}) and main's tip reads '${tip:-unreadable}', so nothing newer will ship it; waiting for a re-run or a dispatch of Checks"
                 ;;
               *)
-                echo "attempt ${attempt}/60: still waiting on ${detail}"
+                echo "attempt ${attempt}/120: still waiting on ${detail}"
                 ;;
             esac
             sleep 20
           done
           if [ "$last" = "cancelled" ]; then
-            echo "::error::Checks on ${SHA} was CANCELLED, not failed (${detail}), and nothing re-ran it within 20 minutes. Main's tip read '${tip:-unreadable}' at the last look, so no newer run will ship this commit, and nothing has been shipped from this one. Re-run that Checks run (or dispatch Checks on main), then re-run this workflow. A gating job that hits its own timeout-minutes also ends as cancelled: if one did, the suite is the problem."
+            echo "::error::Checks on ${SHA} was CANCELLED, not failed (${detail}), and nothing re-ran it within 40 minutes. Main's tip read '${tip:-unreadable}' at the last look, so no newer run will ship this commit, and nothing has been shipped from this one. Re-run that Checks run (or dispatch Checks on main), then re-run this workflow. A gating job that hits its own timeout-minutes also ends as cancelled: if one did, the suite is the problem."
             {
               echo "### Stopped — Checks on this commit was cancelled, not failed"
               echo ""
@@ -251,7 +251,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          echo "::error::timed out after 20 minutes waiting for the Checks jobs on ${SHA}. Nothing was deployed. If the suite is genuinely this slow now, raise the loop bound here rather than deleting the gate; a dispatch of this workflow waits for the same Checks, so re-run Checks on this commit first."
+          echo "::error::timed out after 40 minutes waiting for the Checks jobs on ${SHA}. Nothing was deployed. If the suite is genuinely this slow now, raise the loop bound here rather than deleting the gate; a dispatch of this workflow waits for the same Checks, so re-run Checks on this commit first."
           exit 1
 
   deploy:

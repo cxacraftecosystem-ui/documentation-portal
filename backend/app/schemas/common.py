@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Generic, TypeVar
+from typing import Any, ClassVar, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -12,6 +12,7 @@ T = TypeVar("T")
 
 class APIModel(BlankTextModel):
     model_config = ConfigDict(extra="forbid", from_attributes=True)
+    blank_required_text_is_empty: ClassVar[bool] = True
 
 
 class Page(BaseModel, Generic[T]):

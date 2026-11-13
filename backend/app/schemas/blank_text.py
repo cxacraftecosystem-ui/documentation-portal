@@ -1,5 +1,5 @@
 import types
-from typing import Annotated, Any, Union, get_args, get_origin
+from typing import Annotated, Any, ClassVar, Union, get_args, get_origin
 
 from pydantic import BaseModel, model_validator
 
@@ -41,9 +41,11 @@ def blank_text_to_none(cls: type[BaseModel], values: Any) -> Any:
     for key, value in values.items():
         if not isinstance(value, str) or value.strip():
             continue
+        if isinstance(key, str) and key.endswith("Id"):
+            continue
         if key in nullable:
             replacement = None
-        elif key in required_text and value:
+        elif key in required_text and value and getattr(cls, "blank_required_text_is_empty", False):
             replacement = ""
         else:
             continue
@@ -54,6 +56,8 @@ def blank_text_to_none(cls: type[BaseModel], values: Any) -> Any:
 
 
 class BlankTextModel(BaseModel):
+    blank_required_text_is_empty: ClassVar[bool] = False
+
     @model_validator(mode="before")
     @classmethod
     def _blank_text_to_none(cls, values: Any) -> Any:
