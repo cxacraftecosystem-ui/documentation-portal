@@ -9,6 +9,10 @@ if [ ! -f /swapfile ]; then
   echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
+mkdir -p /etc/systemd/journald.conf.d
+printf '[Journal]\nSystemMaxUse=300M\nSystemKeepFree=2G\n' > /etc/systemd/journald.conf.d/size.conf
+systemctl restart systemd-journald
+
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y git ffmpeg nginx libatomic1 curl ca-certificates
