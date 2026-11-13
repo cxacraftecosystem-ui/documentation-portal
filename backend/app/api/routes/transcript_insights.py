@@ -106,8 +106,8 @@ async def patch_insight(
         data["summaryLines"] = payload.summaryLines
     if payload.quotes is not None:
         data["quotes"] = Json([quote.model_dump() for quote in payload.quotes])
-    if payload.translationText is not None:
-        text = payload.translationText.strip()
+    if "translationText" in payload.model_fields_set:
+        text = (payload.translationText or "").strip()
         data["translationText"] = text or None
         if text and row.translationStatus == insights.FAILED:
             data["translationStatus"] = insights.COMPLETED

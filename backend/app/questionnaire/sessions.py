@@ -319,6 +319,10 @@ async def _bump(client: Any, session_id: str) -> None:
 bump_session = _bump
 
 
+async def touch_session(client: Any, session_id: str) -> None:
+    await client.execute_raw('UPDATE "QuestionnaireInterview" SET "updatedAt" = now() WHERE "id" = $1', session_id)
+
+
 async def note_pending_change(client: Any, session_id: str) -> None:
     await client.execute_raw(
         'UPDATE "QuestionnaireInterview" SET "pendingChangesAt" = COALESCE("pendingChangesAt", now()) '
@@ -372,7 +376,7 @@ async def _arrive_on_existing(db: Any, session_id: str, payload: Any, user: Any,
     )
     if joining or leads or row.get("mergedIntoId") or _volunteer(user) or not can_create_records(user):
         await add_researcher(db, session_id, user.id, "VOLUNTEER" if _volunteer(user) else "CONTRIBUTOR")
-        await _bump(db, session_id)
+        await touch_session(db, session_id)
         return
     language_label = None
     if payload.languageCode:
@@ -568,6 +572,8 @@ def _json(value: Any) -> Any:
 
 
 PATCHABLE = ("place", "languageCode", "languageOther", "note", "sessionDate", "workshopId", "designWorkshopId", "purpose")
+DETAIL_KEYS = (*PATCHABLE, "questionnaireId", "crafts", "craftsByHand", "location")
+LOCATION_COMPARED = ("latitude", "longitude", "accuracy", "altitude", *LOCATION_TEXT, "subjectLatitude", "subjectLongitude")
 
 
 async def has_content(client: Any, session_id: str) -> int:
@@ -580,6 +586,56 @@ async def has_content(client: Any, session_id: str) -> int:
     return int(rows[0]["n"]) if rows else 0
 
 
+def _same_detail(key: str, yours: Any, current: Any) -> bool:
+    if key in ("crafts", "craftsByHand"):
+        return sorted(c.lower() for c in clean_crafts(yours)) == sorted(c.lower() for c in clean_crafts(current))
+    if key == "location":
+        if yours is None or current is None:
+            return yours is None and current is None
+        return all(yours.get(k) == current.get(k) for k in LOCATION_COMPARED if k in yours)
+    return yours == current
+
+
+def field_diff(sent: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: {"current": current.get(key), "yours": yours}
+        for key, yours in sent.items()
+        if not _same_detail(key, yours, current.get(key))
+    }
+
+
+def details_conflict(sent: dict[str, Any], current: dict[str, Any], client_version: int, row_version: int) -> dict[str, Any] | None:
+    if client_version == row_version:
+        return None
+    return field_diff(sent, current) or None
+
+
+def _sent_details(payload: Any) -> dict[str, Any]:
+    sent = payload.model_fields_set
+    out: dict[str, Any] = {}
+    for key in PATCHABLE:
+        if key in sent:
+            value = _plain(getattr(payload, key))
+            out[key] = ((value or "").strip() or None) if key in ("place", "note") else value
+    if "questionnaireId" in sent and payload.questionnaireId:
+        out["questionnaireId"] = payload.questionnaireId
+    for key in ("crafts", "craftsByHand"):
+        if key in sent and getattr(payload, key) is not None:
+            out[key] = clean_crafts(getattr(payload, key))
+    if "location" in sent and payload.location is not None:
+        out["location"] = payload.location.model_dump(exclude_none=True, mode="json")
+    elif "location" in sent or payload.clearLocation:
+        out["location"] = None
+    return out
+
+
+def _current_details(row: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    out = {key: current.get(key) for key in DETAIL_KEYS}
+    out["workshopId"] = row.get("workshopId")
+    out["questionnaireId"] = str(row["questionnaireId"]) if row.get("questionnaireId") else None
+    return out
+
+
 async def patch_session(session_id: str, payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
     default_db = ports.db()
 
@@ -587,11 +643,11 @@ async def patch_session(session_id: str, payload: Any, user: Any, *, client: Any
     row = await require_session(db, session_id)
     await assert_can_work_in(db, user, row)
     sent = payload.model_fields_set
+    yours = _sent_details(payload)
     current = (await serialize_sessions(db, [row], user))[0]
-    if payload.version != int(row.get("version") or 1):
-        diff = {k: {"current": current.get(k), "yours": _plain(getattr(payload, k))} for k in PATCHABLE if k in sent
-                and _plain(getattr(payload, k)) != current.get(k)}
-        fail("STALE_VERSION", current=current, diff=diff)
+    conflict = details_conflict(yours, _current_details(row, current), payload.version, int(row.get("version") or 1))
+    if conflict:
+        fail("STALE_VERSION", current=current, diff=conflict)
     if "questionnaireId" in sent and payload.questionnaireId and payload.questionnaireId != str(row["questionnaireId"]):
         if await has_content(db, session_id):
             fail("INSTRUMENT_LOCKED")
@@ -626,15 +682,25 @@ async def patch_session(session_id: str, payload: Any, user: Any, *, client: Any
     if data.get("languageCode") and data["languageCode"] != "other":
         data["languageOther"] = None
     owner = db if client is not None else default_db
-    async with owner.tx(max_wait=TX_MAX_WAIT, timeout=TX_TIMEOUT) as tx:
-        changed = await tx.questionnaireinterview.update_many(
-            where={"id": session_id, "version": int(row.get("version") or 1)},
-            data={**data, "version": {"increment": 1}},
-        )
-        if not changed:
-            fail("STALE_VERSION", current=current, diff={})
-        await titles.regenerate_title(tx, session_id)
-    return await session_payload(db, session_id, user)
+    retried = False
+    while True:
+        async with owner.tx(max_wait=TX_MAX_WAIT, timeout=TX_TIMEOUT) as tx:
+            changed = await tx.questionnaireinterview.update_many(
+                where={"id": session_id, "version": int(row.get("version") or 1)},
+                data={**data, "version": {"increment": 1}},
+            )
+            if changed:
+                await titles.regenerate_title(tx, session_id)
+        if changed:
+            return await session_payload(db, session_id, user)
+        row = await require_session(db, session_id)
+        current = (await serialize_sessions(db, [row], user))[0]
+        if retried:
+            fail("STALE_VERSION", current=current, diff=field_diff(yours, _current_details(row, current)))
+        conflict = details_conflict(yours, _current_details(row, current), payload.version, int(row.get("version") or 1))
+        if conflict:
+            fail("STALE_VERSION", current=current, diff=conflict)
+        retried = True
 
 
 def _plain(value: Any) -> Any:
@@ -652,7 +718,7 @@ async def add_participant(session_id: str, artisan_id: str, joined_at: datetime 
     async with owner.tx(max_wait=TX_MAX_WAIT, timeout=TX_TIMEOUT) as tx:
         if await add_participants(tx, session_id, [artisan_id], joined_at or now()):
             await refresh_crafts(tx, session_id)
-            await _bump(tx, session_id)
+            await touch_session(tx, session_id)
             await titles.regenerate_title(tx, session_id)
     return await session_payload(db, session_id, user)
 
@@ -673,7 +739,7 @@ async def patch_participant(session_id: str, artisan_id: str, payload: Any, user
         )
         if not changed:
             fail("NOT_FOUND", "That artisan is not a participant of this session.")
-        await _bump(db, session_id)
+        await touch_session(db, session_id)
     return await session_payload(db, session_id, user)
 
 
@@ -711,7 +777,7 @@ async def remove_participant(session_id: str, artisan_id: str, detach: bool, use
             'DELETE FROM "QuestionnaireInterviewArtisan" WHERE "interviewId" = $1 AND "artisanId" = $2', session_id, artisan_id
         )
         await refresh_crafts(tx, session_id)
-        await _bump(tx, session_id)
+        await touch_session(tx, session_id)
         await titles.regenerate_title(tx, session_id)
     return await session_payload(db, session_id, user)
 

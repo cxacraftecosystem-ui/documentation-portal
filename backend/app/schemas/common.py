@@ -4,12 +4,13 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas.blank_text import BlankTextModel
 from app.services.address import validate_district, validate_pincode, validate_state
 
 T = TypeVar("T")
 
 
-class APIModel(BaseModel):
+class APIModel(BlankTextModel):
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
 

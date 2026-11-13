@@ -10,6 +10,7 @@ from app.schemas.common import (
     forbid_clearing_location,
     require_location,
 )
+from app.schemas.record_names import CRAFT_NAME_REQUIRED, require_linked_record_names
 from app.services.artisan_identity import (
     is_masked_aadhaar,
     require_aadhaar,
@@ -79,7 +80,7 @@ class ArtisanCreate(APIModel):
     @model_validator(mode="after")
     def require_craft(self) -> "ArtisanCreate":
         if not self.craftId and not self.craftName:
-            raise ValueError("Artisan must be assigned to a craft")
+            raise ValueError(CRAFT_NAME_REQUIRED)
         return self
 
     @model_validator(mode="after")
@@ -421,8 +422,8 @@ TOOL_CRAFT_NAME_MAX = 2000
 
 class ToolCreate(APIModel):
     craftName: str | None = Field(default=None, min_length=1, max_length=TOOL_CRAFT_NAME_MAX)
-    place: str = Field(min_length=1, max_length=180)
-    artisanName: str = Field(min_length=1, max_length=180)
+    place: str | None = Field(default=None, min_length=1, max_length=180)
+    artisanName: str | None = Field(default=None, min_length=1, max_length=180)
     toolkitName: str = Field(min_length=1, max_length=220)
     localName: str | None = None
     englishName: str | None = None
@@ -461,6 +462,7 @@ class ToolCreate(APIModel):
 
     _location_required = model_validator(mode="after")(require_location)
     _measurement_methods = model_validator(mode="after")(validate_measurement_methods)
+    _linked_names = model_validator(mode="after")(require_linked_record_names)
 
     @field_validator("craftIds", "artisanIds", mode="before")
     @classmethod

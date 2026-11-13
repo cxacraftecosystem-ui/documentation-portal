@@ -33,6 +33,7 @@ from app.services.record_filters import (
     tool_craft_clause,
     tool_workshop_clause,
 )
+from app.services.record_names import fill_linked_names
 from app.services.records import (
     Relation,
     public_encode,
@@ -396,6 +397,7 @@ async def create_tool(
     craft_ids = await craft_master.resolve_tool_crafts(db, data, craft_ids)
     artisan_ids = _pop_link_ids(data, "artisanIds")
     await _resolve_tool_links(data, craft_ids, artisan_ids, current_user, tool=None)
+    data = await fill_linked_names(data, client=db)
     data = await attach_location(data)
     check = await enforce_workshop_submission(current_user, data.get("workshopId"))
     stamp_workshop_submission(data, check=check)

@@ -55,7 +55,11 @@ class TranscriptInsightPatch(APIModel):
 
     @model_validator(mode="after")
     def _something_to_save(self) -> TranscriptInsightPatch:
-        if self.summaryLines is None and self.quotes is None and self.translationText is None:
+        if (
+            self.summaryLines is None
+            and self.quotes is None
+            and "translationText" not in self.model_fields_set
+        ):
             raise ValueError("Nothing to save.")
         return self
 

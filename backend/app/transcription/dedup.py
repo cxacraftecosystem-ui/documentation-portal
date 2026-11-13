@@ -25,4 +25,7 @@ def options_hash(opts: SttOptions) -> str:
         "languageBias": sorted(opts.language_bias),
         "models": dict(sorted(opts.models.items())),
     }
+    spoken = getattr(opts, "spoken_language", "auto") or "auto"
+    if spoken != "auto":
+        material["spokenLanguage"] = spoken
     return hashlib.sha256(json.dumps(material, sort_keys=True).encode("utf-8")).hexdigest()[:32]

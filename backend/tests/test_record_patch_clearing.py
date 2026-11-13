@@ -315,26 +315,6 @@ def test_the_record_routes_do_not_share_one_clearable_list():
         assert not (set(module._CLEARABLE_COLUMNS) & CLEARABLE_KEYS)
 
 
-def test_workshop_is_named_here_as_a_route_this_net_does_not_cover():
-    import inspect
-
-    from app.api.routes import workshops
-
-    assert "clearable=" not in inspect.getsource(workshops.update_workshop)
-    assert not hasattr(workshops, "_CLEARABLE_COLUMNS")
-
-
-def test_crafts_is_named_here_as_the_route_this_workstream_could_not_reach():
-    import inspect
-
-    from app.api.routes import crafts
-
-    assert "clearable=" not in inspect.getsource(crafts.update_craft), (
-        "crafts.update_craft now passes `clearable=` — add ('Craft', CraftUpdate, "
-        "crafts._CLEARABLE_COLUMNS) to the completeness table below and delete this test"
-    )
-
-
 
 def _clearable_argument_of(route) -> tuple[str, ...]:
     import ast
@@ -429,8 +409,16 @@ def test_moving_a_process_to_another_product_still_checks_that_product_exists(mo
 
 
 def test_every_nullable_column_a_client_can_send_is_either_clearable_or_exempt():
-    from app.api.routes import artisans, processes, products, tools
-    from app.schemas.records import ArtisanUpdate, ProcessUpdate, ProductUpdate, ToolUpdate
+    from app.api.routes import artisans, crafts, processes, products, questionnaire, tools, workshops
+    from app.schemas.questionnaire import QuestionnaireInterviewUpdate
+    from app.schemas.records import (
+        ArtisanUpdate,
+        CraftUpdate,
+        ProcessUpdate,
+        ProductUpdate,
+        ToolUpdate,
+        WorkshopUpdate,
+    )
     from app.services.records import CLEARABLE_KEYS
 
     system_managed = {
@@ -446,6 +434,13 @@ def test_every_nullable_column_a_client_can_send_is_either_clearable_or_exempt()
         ("ProductDocumentation", ProductUpdate, products._CLEARABLE_COLUMNS),
         ("ToolDocumentation", ToolUpdate, tools._CLEARABLE_COLUMNS),
         ("Process", ProcessUpdate, processes._CLEARABLE_COLUMNS),
+        ("Craft", CraftUpdate, crafts._CLEARABLE_COLUMNS),
+        ("Workshop", WorkshopUpdate, workshops._CLEARABLE_COLUMNS),
+        (
+            "QuestionnaireInterview",
+            QuestionnaireInterviewUpdate,
+            _clearable_argument_of(questionnaire.update_interview),
+        ),
     )
     for model, schema, declared in cases:
         nullable = _nullable_columns(model)
@@ -453,7 +448,8 @@ def test_every_nullable_column_a_client_can_send_is_either_clearable_or_exempt()
             schema.model_fields
         )
         sendable -= {"aadhaarNumber"}
-        expected = (nullable & sendable) - (CLEARABLE_KEYS & nullable) - system_managed
+        refused = {"subCategoryId", "category"} if model == "Craft" else set()
+        expected = (nullable & sendable) - (CLEARABLE_KEYS & nullable) - system_managed - refused
 
         missing = sorted(expected - set(declared))
         assert not missing, (

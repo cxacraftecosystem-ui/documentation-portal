@@ -68,6 +68,8 @@ def result_dict(result: SttResult) -> dict[str, Any]:
     }
     if result.language:
         out["languageCode"] = result.language
+    if result.language_probability is not None:
+        out["languageProbability"] = result.language_probability
     if result.chunks > 1:
         out["chunks"] = result.chunks
     if result.note:

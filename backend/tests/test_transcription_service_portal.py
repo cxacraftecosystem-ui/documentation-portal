@@ -238,13 +238,27 @@ def test_a_job_throttled_three_times_by_one_provider_skips_it() -> None:
     assert transcription_jobs.skipped_providers(job) == {"elevenlabs"}
 
 
-def test_the_language_hint_prefers_the_recording_then_the_state() -> None:
+def test_the_spoken_language_is_never_read_from_the_state_or_place(monkeypatch) -> None:
     from app.transcription import languages
 
-    hinted = SimpleNamespace(extraMetadata={"languageHint": "Odia"}, locationId=None)
-    assert asyncio.run(transcription_jobs.language_hint(hinted)) == ["Odia"]
-    assert languages.bias_for_state("Orissa") == ["Odia", "English"]
-    assert languages.bias_for_state("Nowhere") == []
+    asked: list[str] = []
+
+    class _Db:
+        async def query_raw(self, sql: str, *_args: Any) -> list[dict[str, Any]]:
+            asked.append(sql)
+            return []
+
+    monkeypatch.setattr(transcription_jobs, "db", _Db())
+    placed = SimpleNamespace(id="m-1", extraMetadata=None, locationId="loc-odisha")
+    assert asyncio.run(transcription_jobs.spoken_language(placed)) == languages.AUTO
+    assert all('"Location"' not in sql for sql in asked)
+    assert not hasattr(languages, "bias_for_state")
+    assert not hasattr(languages, "STATE_LANGUAGES")
+    assert not hasattr(transcription_jobs, "language_hint")
+    chosen = SimpleNamespace(id="m-2", extraMetadata={"spokenLanguage": "or"}, locationId="loc-bihar")
+    assert asyncio.run(transcription_jobs.spoken_language(chosen)) == "or"
+    legacy = SimpleNamespace(id="m-3", extraMetadata={"languageHint": "Odia"}, locationId="loc-bihar")
+    assert asyncio.run(transcription_jobs.spoken_language(legacy)) == "or"
 
 
 

@@ -204,7 +204,7 @@ def _old(model: Any, body: dict[str, Any]) -> Any:
     try:
         return model.model_validate(body)
     except ValidationError as exc:
-        raise RequestValidationError(exc.errors()) from None
+        raise RequestValidationError([{**e, "loc": ("body", *e.get("loc", ()))} for e in exc.errors()]) from None
 
 
 async def _v2(model: Any, body: dict[str, Any]) -> Any:

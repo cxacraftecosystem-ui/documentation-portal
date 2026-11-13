@@ -112,6 +112,7 @@ class SttOptions:
     models: dict[str, str] = field(default_factory=dict)
     keep_payload: bool = False
     session_id: str | None = None
+    spoken_language: str = "auto"
 
 
 
@@ -147,6 +148,7 @@ class SttResult:
     raw_ref: str | None = None
     payload: Any = None
     words: list[dict[str, Any]] = field(default_factory=list)
+    language_probability: float | None = None
 
 
 class SttProvider(Protocol):

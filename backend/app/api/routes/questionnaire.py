@@ -100,6 +100,7 @@ from app.services.record_filters import (
     resolve_workshop_ids,
     workshop_clause,
 )
+from app.services.record_names import fill_place_from_artisans
 from app.services.records import (
     Relation,
     add_date_range,
@@ -606,7 +607,7 @@ async def update_question(
     _: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     question = await require_record(db.questionnairequestion, question_id)
-    data = clean_data(payload.model_dump(exclude_unset=True))
+    data = clean_data(payload.model_dump(exclude_unset=True), clearable=("helpText",))
     if data.get("isActive") is False and question.isActive:
         await assert_may_delete_from_form(question.questionnaireId, _)
     else:
@@ -942,6 +943,7 @@ async def create_interview(
     assert_can_create_records(current_user)
     data = clean_data(payload.model_dump(exclude={"artisanIds", "responses"}))
     _standardise(apply_interview_values, data)
+    data = await fill_place_from_artisans(data, payload.artisanIds, client=db)
     if not (data.get("title") or "").strip():
         data["title"] = await automatic_interview_title(
             payload.artisanIds, questionnaire_id, payload.recordedAt
@@ -1207,7 +1209,10 @@ async def update_interview(
 ) -> dict[str, Any]:
     interview = await _require_live_interview(interview_id)
     await redirect_merged_artisans(payload)
-    data = clean_data(payload.model_dump(exclude_unset=True, exclude={"artisanIds", "responses"}))
+    data = clean_data(
+        payload.model_dump(exclude_unset=True, exclude={"artisanIds", "responses"}),
+        clearable=("interviewDate", "place", "language", "notes"),
+    )
     _standardise(apply_interview_values, data, interview)
     data = await attach_location(data)
     check = None
@@ -2581,7 +2586,7 @@ async def update_questionnaire(
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     row = await require_questionnaire(questionnaire_id)
-    data = clean_data(payload.model_dump(exclude_unset=True))
+    data = clean_data(payload.model_dump(exclude_unset=True), clearable=("description",))
     if "kind" in payload.model_fields_set:
         try:
             data["kind"] = questionnaire_kinds.coerce_kind(payload.kind)

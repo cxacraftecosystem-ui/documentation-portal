@@ -227,7 +227,7 @@ async def patch_interview_shim(interview: Any, payload: Any, user: Any) -> dict[
                 await tx.execute_raw(
                     'DELETE FROM "QuestionnaireInterviewArtisan" WHERE "interviewId" = $1 AND "artisanId" = $2', session_id, artisan_id
                 )
-            await sessions.bump_session(tx, session_id)
+            await sessions.touch_session(tx, session_id)
             await titles.regenerate_title(tx, session_id)
         changes["participantsKept"] = kept
         if kept:

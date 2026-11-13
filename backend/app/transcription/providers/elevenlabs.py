@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.transcription import languages
 from app.transcription.contract import (
     ApiKey,
     AudioInput,
@@ -42,9 +43,10 @@ class ElevenLabs:
             ("tag_audio_events", "false"),
             ("timestamps_granularity", "word"),
         ]
+        spoken = languages.scribe_fields(opts.spoken_language, conservative=conservative)
         if conservative:
-            return fields
-        return fields + [("keyterms", term) for term in opts.keyterms[:KEYTERM_LIMIT]]
+            return fields + spoken
+        return fields + spoken + [("keyterms", term) for term in opts.keyterms[:KEYTERM_LIMIT]]
 
     def transcribe(self, audio: AudioInput, opts: SttOptions, key: ApiKey) -> SttResult:
         def send(conservative: bool) -> Any:
@@ -83,7 +85,15 @@ class ElevenLabs:
             degraded=degraded,
             payload=payload if opts.keep_payload else None,
             words=parse_words(payload) if opts.want_segments else [],
+            language_probability=language_probability(payload),
         )
+
+
+def language_probability(payload: dict[str, Any]) -> float | None:
+    value = payload.get("language_probability")
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
 
 
 def _words(payload: dict[str, Any]) -> list[dict[str, Any]]:

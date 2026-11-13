@@ -107,23 +107,34 @@ async def note_throttle(job: Any, provider: str | None) -> None:
         logger.warning("could not count a throttle on job %s (%s)", job.id, type(exc).__name__)
 
 
-async def language_hint(media: Any) -> list[str]:
-    metadata = _value(media, "extraMetadata")
-    if isinstance(metadata, dict):
-        hint = metadata.get("languageHint")
-        if isinstance(hint, str) and hint.strip():
-            return [hint.strip()]
-        if isinstance(hint, list):
-            return [str(item).strip() for item in hint if str(item).strip()]
-    location_id = _value(media, "locationId")
-    if location_id:
+async def spoken_language(media: Any) -> str:
+    chosen = languages.from_metadata(_value(media, "extraMetadata"))
+    if chosen is not None:
+        return chosen
+    media_id = _value(media, "id")
+    if media_id:
         try:
-            location = await db.location.find_unique(where={"id": location_id})
-        except Exception:  # noqa: BLE001 - a hint is never worth failing a job over
-            location = None
-        if location is not None:
-            return languages.bias_for_state(getattr(location, "state", None))
-    return []
+            rows = await db.query_raw(
+                'SELECT "languageCode" FROM "QuestionnaireRecording" WHERE "mediaFileId" = $1 LIMIT 1',
+                str(media_id),
+            )
+        except Exception:  # noqa: BLE001
+            rows = []
+        if rows:
+            recorded = languages.choice_of(rows[0].get("languageCode"))
+            if recorded is not None:
+                return recorded
+    return languages.AUTO
+
+
+def _accepts(transcribe: Any, name: str) -> bool:
+    import inspect
+
+    try:
+        parameters = inspect.signature(transcribe).parameters
+    except TypeError, ValueError:
+        return False
+    return name in parameters or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values())
 
 
 async def _sha256(media: Any, audio: AudioInput) -> str | None:
@@ -157,11 +168,14 @@ async def transcribe_recording(
     media_id = str(_value(media, "id"))
     filename = _value(media, "originalFilename") or "recording.webm"
     mime_type = _value(media, "mimeType") or "audio/webm"
-    bias = await language_hint(media)
+    spoken = await spoken_language(media)
+    bias = languages.bias(spoken)
     store = PrismaTranscriptionStore()
     audio = AudioInput(None if source_path else content, source_path, filename, mime_type)
     sha = await _sha256(media, audio)
-    options_hash = dedup.options_hash(ai.transcription_options(settings, language_bias=bias))
+    options_hash = dedup.options_hash(
+        ai.transcription_options(settings, language_bias=bias, spoken_language=spoken)
+    )
     if sha:
         try:
             hit = await store.cache_get(sha, options_hash)
@@ -170,6 +184,7 @@ async def transcribe_recording(
         if hit is not None:
             result = service.result_dict(cached_result(hit))
             result["cacheHit"] = True
+            result["spokenLanguage"] = spoken
             from app.services import transcript_pipeline
 
             await transcript_pipeline.store_transcription(media, result)
@@ -188,6 +203,8 @@ async def transcribe_recording(
     from app.services import transcript_pipeline
 
     extra: dict[str, Any] = {}
+    if _accepts(transcribe, "spoken_language"):
+        extra["spoken_language"] = spoken
     terms: list[str] = []
     if transcript_pipeline.accepts_keyterms(transcribe):
         terms = await transcript_pipeline.keyterms_for(media)
@@ -219,6 +236,8 @@ async def transcribe_recording(
         if extracted is not None:
             with contextlib.suppress(OSError):
                 os.remove(extracted)
+    if isinstance(result, dict):
+        result["spokenLanguage"] = spoken
     if result.get("status") == "COMPLETED":
         await transcript_pipeline.store_transcription(media, result, keyterm_count=len(terms))
         await transcript_pipeline.check_budget()

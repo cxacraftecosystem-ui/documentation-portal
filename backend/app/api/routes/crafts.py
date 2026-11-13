@@ -37,6 +37,8 @@ from app.services.workshop_access import (
 router = APIRouter(prefix="/crafts", tags=["crafts"])
 
 RELATIONS = (Relation("workshop", "workshop", "workshopId"),)
+
+_CLEARABLE_COLUMNS = ("localName", "description", "place", "giStatus")
 INCLUDE = include_of(RELATIONS)
 
 
@@ -218,7 +220,7 @@ async def update_craft(
         raise HTTPException(
             status_code=422, detail={"code": "SUB_CATEGORY_REQUIRED", "message": "Pick a sub-category."}
         )
-    data = clean_data(payload.model_dump(exclude_unset=True))
+    data = clean_data(payload.model_dump(exclude_unset=True), clearable=_CLEARABLE_COLUMNS)
     await _master_list_update(craft, data)
     check = None
     if "workshopId" in data and data.get("workshopId") != craft.workshopId:

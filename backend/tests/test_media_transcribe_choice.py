@@ -96,11 +96,11 @@ def offline_chain(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         async def record_usage(self, *_a: Any, **_k: Any) -> None:
             return None
 
-    async def no_hint(_media: Any) -> list[str]:
-        return []
+    async def no_hint(_media: Any) -> str:
+        return "auto"
 
     monkeypatch.setattr(transcription_jobs, "PrismaTranscriptionStore", _Store)
-    monkeypatch.setattr(transcription_jobs, "language_hint", no_hint)
+    monkeypatch.setattr(transcription_jobs, "spoken_language", no_hint)
     monkeypatch.setattr(transcription_jobs.ai, "transcription_options", lambda *_a, **_k: None)
     monkeypatch.setattr(transcription_jobs.dedup, "options_hash", lambda _opts: "options")
     monkeypatch.setattr(transcript_pipeline, "accepts_keyterms", lambda _fn: False)

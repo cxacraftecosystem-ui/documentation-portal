@@ -662,7 +662,7 @@ async def complete(payload: Any, user: Any, *, client: Any = None, provenance: s
                 uuid4().hex, media_id, user.id,
             )
             await tx.execute_raw(
-                'UPDATE "QuestionnaireInterview" SET "version" = "version" + 1, "updatedAt" = now()'
+                'UPDATE "QuestionnaireInterview" SET "updatedAt" = now()'
                 + (', "pendingChangesAt" = COALESCE("pendingChangesAt", now())' if approved_session else "")
                 + ' WHERE "id" = $1',
                 session_id,
@@ -889,7 +889,7 @@ async def move_to_session(tx: Any, row: dict[str, Any], target_session: str, act
     await titles.regenerate_title(tx, target_session)
     if row.get("sessionId"):
         await titles.regenerate_title(tx, str(row["sessionId"]))
-    await sessions.bump_session(tx, target_session)
+    await sessions.touch_session(tx, target_session)
 
 
 async def relink_take(recording_id: str, session_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
