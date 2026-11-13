@@ -489,6 +489,8 @@ object QuestionnaireCopy {
         "error.needsSignal" to "That needs a signal. Try again when you're online.",
         "error.saveOnPhone" to "Couldn't save that on this phone.",
         "error.changedElsewhere" to "This session changed on another device. It has been reloaded.",
+        "session.conflictTitle" to "Not saved",
+        "session.conflictBody" to "Someone changed these on another device while you were editing. Check them, then edit again.",
         "tray.title" to "Not sent",
         "tray.notAllowed" to "The server won't take this answer from you.",
         "tray.theirs" to "On the server",

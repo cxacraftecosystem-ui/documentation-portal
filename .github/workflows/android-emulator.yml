@@ -14,6 +14,14 @@ on:
           - google_apis
           - google_apis_ps16k
         default: google_apis
+      unit-tests:
+        description: "Only these JVM test classes (space-separated --tests patterns); skips the smoke"
+        type: string
+        default: ""
+      device-tests:
+        description: "Only these instrumented test classes (comma-separated); skips the smoke"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -23,7 +31,90 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  targeted:
+    name: Targeted tests on an API ${{ inputs.api-level || '37.0' }} emulator
+    if: ${{ inputs.unit-tests != '' || inputs.device-tests != '' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+
+      - name: Make the Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Ensure the required Android SDK packages are installed
+        run: |
+          set -euo pipefail
+          sdkmanager="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-37.2" "build-tools;37.0.0" > /dev/null
+
+      - name: Run the named JVM tests
+        if: ${{ inputs.unit-tests != '' }}
+        env:
+          UNIT_TESTS: ${{ inputs.unit-tests }}
+        run: |
+          set -euo pipefail
+          args=()
+          for pattern in $UNIT_TESTS; do args+=(--tests "$pattern"); done
+          ./gradlew :app:testDebugUnitTest "${args[@]}" --console=plain
+
+      - name: Enable KVM for the emulator
+        if: ${{ inputs.device-tests != '' }}
+        working-directory: .
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - name: Run the named instrumented tests on the emulator
+        if: ${{ inputs.device-tests != '' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          DEVICE_TESTS: ${{ inputs.device-tests }}
+        with:
+          api-level: ${{ inputs.api-level || '37.0' }}
+          target: ${{ inputs.target || 'google_apis' }}
+          arch: x86_64
+          profile: pixel_7
+          cores: 4
+          ram-size: 4096M
+          emulator-boot-timeout: 900
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -no-boot-anim
+            -no-snapshot-save -no-snapshot-load -camera-back none -camera-front none
+          disable-animations: true
+          working-directory: android
+          script: ./gradlew :app:connectedDebugAndroidTest --console=plain -Pandroid.testInstrumentationRunnerArguments.class="$DEVICE_TESTS"
+
+      - name: Upload the test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-targeted-test-report
+          path: |
+            android/app/build/reports/tests/
+            android/app/build/reports/androidTests/
+            android/app/build/outputs/androidTest-results/
+          if-no-files-found: warn
+          retention-days: 14
+
   smoke:
+    if: ${{ inputs.unit-tests == '' && inputs.device-tests == '' }}
     name: Debug APK on an API ${{ inputs.api-level || '37.0' }} emulator (${{ inputs.target || 'google_apis' }}, ${{ matrix.part }})
     runs-on: ubuntu-26.04
     timeout-minutes: 60
