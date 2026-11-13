@@ -75,12 +75,12 @@ def _words(text: str) -> list[dict[str, Any]]:
     return words
 
 
-async def _seed() -> dict[str, Any]:
+async def _seed(made: dict[str, Any]) -> None:
     from app.core.db import db
 
     tag = uuid4().hex[:10]
     user = await db.user.create(data={"email": f"odia-{tag}@example.org", "name": "Odia", "role": "RESEARCHER"})
-    made: dict[str, Any] = {"user": user, "media": []}
+    made["user"] = user
 
     async def media(name: str, metadata: Any) -> Any:
         data: dict[str, Any] = {
@@ -125,7 +125,7 @@ async def _seed() -> dict[str, Any]:
                 "machineText": text,
                 "editedText": edited,
                 "words": Json(_words(text)),
-                "lowConfidence": Json([[text.index("m"), text.index("m") + 5]]),
+                "lowConfidence": Json([[text.index("m"), text.index("m") + 5]] if "m" in text else [[0, 1]]),
             }
         )
         return v
@@ -137,14 +137,15 @@ async def _seed() -> dict[str, Any]:
     made["hinted"] = await version(hinted, 2, "hi", DEVANAGARI)
     hindi = await media("hindi", {"languageHint": "hi"})
     made["hindi"] = await version(hindi, 1, "hi", HINDI)
-    return made
 
 
 async def _cleanup(made: dict[str, Any]) -> None:
     from app.core.db import db
 
-    await db.mediafile.delete_many(where={"id": {"in": [m.id for m in made["media"]]}})
-    await db.user.delete(where={"id": made["user"].id})
+    if made["media"]:
+        await db.mediafile.delete_many(where={"id": {"in": [m.id for m in made["media"]]}})
+    if made.get("user") is not None:
+        await db.user.delete(where={"id": made["user"].id})
 
 
 async def _turn(version_id: str) -> Any:
@@ -161,8 +162,9 @@ def test_dry_run_counts_then_apply_converts_only_odia() -> None:
 
     async def scenario() -> None:
         await db.connect()
-        made = await _seed()
+        made: dict[str, Any] = {"media": []}
         try:
+            await _seed(made)
             counts = await script.run(False)
             assert counts["versions"] >= 2 and counts["turns"] >= 2 and counts["edited"] >= 1 and counts["media"] >= 2
             assert counts["skipped"] >= 1
@@ -194,7 +196,9 @@ def test_dry_run_counts_then_apply_converts_only_odia() -> None:
             assert all((await _turn(v)).machineText == ODIA for v in mine)
             assert again["skipped"] >= 1
         finally:
-            await _cleanup(made)
-            await db.disconnect()
+            try:
+                await _cleanup(made)
+            finally:
+                await db.disconnect()
 
     asyncio.run(scenario())
