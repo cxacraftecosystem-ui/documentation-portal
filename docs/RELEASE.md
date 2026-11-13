@@ -71,6 +71,19 @@ How to add a check, the same in both repositories:
 - Environment: `GATE_API`, `GATE_WEB`, `GATE_PORTAL`, `GATE_SHA`, `GATE_OUT`, `GATE_EMAIL` and `GATE_PASSWORD`. The account comes from `RELEASE_GATE_EMAIL` and `RELEASE_GATE_PASSWORD`, falling back to the publishing account.
 - The harness files are byte-identical in both repositories, and Checks compares them. The checks under `checks/` and `release-gate/` may differ per portal.
 
+## Hotfix deploy (targeted tests)
+
+A server-only fix that installed apps can use deploys without waiting for the full Checks suite.
+
+1. List the test files that cover the change in `backend/tests/targeted.txt`, one per line.
+2. Push the fix to a `hotfix/<name>` branch. The `Targeted backend tests` workflow runs those files against a database. It can also be dispatched on any ref with a different list.
+3. When it passes, fast-forward both portals' `main` to the branch together (parity), then dispatch the deploy with that run's id:
+   `gh workflow run deploy-backend.yml --ref main -f targeted_run=<run id>`
+4. The gate accepts the run only if it is that workflow, it passed, and it tested this commit or an ancestor that differs from it only under `docs/`. Otherwise it refuses and nothing ships.
+5. Cancel the push-triggered deploy that waits for the full Checks, or let it run; it ships the same commit.
+
+Releases that change Android or the web keep the full Checks gate.
+
 ## Clearing earlier versions (0.0.1)
 
 When 0.0.1 is out, only 0.0.1 stays downloadable, and each box keeps only its live slot and the one slot a rollback flips to. Git tags are never deleted. Every script here prints its plan and deletes nothing unless it is given `--apply`, and a second run finds nothing left to do. Run them from the repository root, in git-bash, with an AWS profile that may use SSM and delete objects in the media bucket (`designrepo-operator` may), and `export GH_TOKEN=$(gh auth token --user ankits1802)` for the GitHub step. Each script refuses rather than guess.

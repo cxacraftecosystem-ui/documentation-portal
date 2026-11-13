@@ -1,15 +1,21 @@
-name: Hotfix 0.0.3 server tests
+name: Targeted backend tests
 
 on:
   push:
-    branches: ["hotfix/0.0.3-server"]
+    branches: ["hotfix/**"]
+  workflow_dispatch:
+    inputs:
+      list:
+        description: "File under backend/ listing the test files to run, one per line"
+        required: false
+        default: "tests/targeted.txt"
 
 permissions:
   contents: read
 
 jobs:
   targeted:
-    name: The tests for the server hotfix, against a database
+    name: Targeted backend tests, against a database
     runs-on: ubuntu-26.04
     timeout-minutes: 40
     defaults:
@@ -77,11 +83,13 @@ jobs:
           PEER_ENV_NAMES: CROSS_PORTAL_PEER_REPO SIBLING_REPO DESIGNER_PORTAL_DIR
         run: bash scripts/ci/peer_checkout.sh
       - name: Run the targeted tests
+        env:
+          LIST: ${{ inputs.list || 'tests/targeted.txt' }}
         run: |
           set -uo pipefail
-          mapfile -t files < tests/hotfix-0.0.3-server.txt
+          mapfile -t files < <(grep -v '^[[:space:]]*$' "${LIST}")
           echo "Running ${#files[@]} test files:"
           for f in "${files[@]}"; do echo "  $f"; done
-          python -m pytest -rfs -v "${files[@]}" | tee pytest-hotfix.log
+          python -m pytest -rfs -v "${files[@]}" | tee pytest-targeted.log
           status=${PIPESTATUS[0]}
           exit "$status"

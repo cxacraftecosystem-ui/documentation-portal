@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      targeted_run:
+        description: "Id of a passed Targeted backend tests run for this commit (or an ancestor that differs only in docs/). Replaces the full Checks gate for a hotfix."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -144,8 +149,37 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHA: ${{ github.sha }}
           GATING_JOBS: '["Backend tests","Web typecheck, lint and unit specs","Docs check"]'
+          TARGETED_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.targeted_run || '' }}
         run: |
           set -euo pipefail
+          if [ -n "${TARGETED_RUN}" ]; then
+            if ! grep -Eq '^[0-9]+$' <<< "${TARGETED_RUN}"; then
+              echo "::error::targeted_run must be a numeric run id"; exit 1
+            fi
+            run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${TARGETED_RUN}")"
+            path="$(jq -r .path <<< "$run")"
+            concl="$(jq -r .conclusion <<< "$run")"
+            rsha="$(jq -r .head_sha <<< "$run")"
+            if [ "$path" != ".github/workflows/targeted-tests.yml" ]; then
+              echo "::error::run ${TARGETED_RUN} is ${path}, not the Targeted backend tests workflow"; exit 1
+            fi
+            if [ "$concl" != "success" ]; then
+              echo "::error::Targeted run ${TARGETED_RUN} ended ${concl}. Not deploying."; exit 1
+            fi
+            if [ "$rsha" != "$SHA" ]; then
+              cmp="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${rsha}...${SHA}")"
+              if [ "$(jq -r .status <<< "$cmp")" != "ahead" ]; then
+                echo "::error::the targeted run tested ${rsha}, which is not an ancestor of ${SHA}"; exit 1
+              fi
+              other="$(jq -r '[.files[].filename | select(startswith("docs/") | not)] | join(", ")' <<< "$cmp")"
+              if [ -n "$other" ]; then
+                echo "::error::${SHA} changes more than docs/ since the targeted run's ${rsha}: ${other}"; exit 1
+              fi
+            fi
+            echo "Targeted tests passed for ${rsha} — run ${TARGETED_RUN}; deploying ${SHA} without the full Checks gate"
+            echo "Gate: targeted run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${TARGETED_RUN} (tested ${rsha})" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           api="repos/${GITHUB_REPOSITORY}/actions"
           last=""
           for attempt in $(seq 1 60); do
