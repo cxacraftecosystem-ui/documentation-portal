@@ -8,10 +8,12 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+from app.core import odia_script
 from app.core.db import db
 from app.services import transcript_insights, transcript_portal, transcript_store
 from app.transcription import audio as transcription_audio, languages as spoken_languages, schedule
 from app.transcription.contract import ApiKey
+from app.transcription.languages import from_metadata as chosen_language
 from app.transcription.transcript import (
     PROMPT_VERSION,
     citations,
@@ -133,6 +135,7 @@ async def store_transcription(media: Any, result: dict[str, Any], *, keyterm_cou
     if result.get("status") != "COMPLETED":
         return None
     try:
+        odia_script.apply_to_result(result, chosen_language(_value(media, "extraMetadata")))
         turns = turns_from_result(result, duration_ms=result.get("audioMs"))
         if not turns:
             return None
