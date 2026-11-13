@@ -210,7 +210,13 @@ def validation_body(errors: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
 def route_template(request: Request) -> str:
     route = request.scope.get("route")
     path = getattr(route, "path_format", None) or getattr(route, "path", None)
-    return str(path) if path else "<unmatched>"
+    if not path:
+        return "<unmatched>"
+    path = str(path)
+    concrete = str(request.scope.get("path") or "").rstrip("/").split("/")
+    depth = path.rstrip("/").count("/")
+    prefix = "/".join(concrete[: max(len(concrete) - depth, 1)])
+    return path if path.startswith(prefix + "/") else prefix + path
 
 
 def logged_problems(errors: Iterable[Mapping[str, Any]]) -> str:
