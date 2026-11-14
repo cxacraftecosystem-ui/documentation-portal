@@ -485,42 +485,31 @@ async def session_answers(client: Any, session_ids: list[str]) -> dict[str, dict
     out: dict[str, dict[str, Any]] = {sid: {"sectionTakes": set(), "done": set(), "touched": set()} for sid in session_ids}
     if not session_ids:
         return out
-    takes = await client.query_raw(
-        'SELECT DISTINCT tv."sessionId" AS sid, tv."sectionId", tv."questionLineageId", tv."filing"::text AS filing, '
+    rows = await client.query_raw(
+        'SELECT DISTINCT tv."sessionId" AS sid, \'A\' AS kind, tv."sectionId", tv."questionLineageId", tv."filing"::text AS filing, '
         'q."sectionId" AS "questionSectionId" FROM questionnaire_take_v tv '
-        'LEFT JOIN "QuestionnaireQuestion" q ON q."id" = tv."questionLineageId" WHERE tv."sessionId" = ANY($1::text[])',
-        session_ids,
-    )
-    guests = await client.query_raw(
-        'SELECT DISTINCT m."questionnaireInterviewId" AS sid, t."sectionId", t."questionLineageId", r."filing"::text AS filing '
+        'LEFT JOIN "QuestionnaireQuestion" q ON q."id" = tv."questionLineageId" WHERE tv."sessionId" = ANY($1::text[]) '
+        'UNION ALL SELECT DISTINCT m."questionnaireInterviewId", \'G\', t."sectionId", t."questionLineageId", r."filing"::text, NULL '
         'FROM "QuestionnaireRecordingRespondent" g JOIN "QuestionnaireRecording" r ON r."id" = g."recordingId" '
         'JOIN "MediaFile" m ON m."id" = r."mediaFileId" JOIN "QuestionnaireRecordingTarget" t ON t."recordingId" = r."id" '
         "WHERE m.\"questionnaireInterviewId\" = ANY($1::text[]) AND g.\"role\" = 'ANSWERED' "
-        'AND r."removedAt" IS NULL AND m."removedAt" IS NULL',
-        session_ids,
-    )
-    typed = await client.query_raw(
-        'SELECT DISTINCT x."sessionId" AS sid, a."questionLineageId" FROM "QuestionnaireAnswerRevision" x '
+        'AND r."removedAt" IS NULL AND m."removedAt" IS NULL '
+        'UNION ALL SELECT DISTINCT x."sessionId", \'T\', NULL, a."questionLineageId", NULL, NULL FROM "QuestionnaireAnswerRevision" x '
         'JOIN "QuestionnaireAnswer" a ON a."id" = x."answerId" '
         'JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
         'WHERE x."sessionId" = ANY($1::text[]) AND btrim(rv."text") <> \'\'',
         session_ids,
     )
-    for t in takes:
-        one = out[str(t["sid"])]
-        home = t.get("sectionId") or t.get("questionSectionId")
-        if home:
-            one["touched"].add(str(home))
-    for t in [*takes, *guests]:
-        one = out[str(t["sid"])]
-        if t.get("filing") == "NEEDS_DECISION":
+    for r in rows:
+        one = out[str(r["sid"])]
+        if r["kind"] == "A" and (r.get("sectionId") or r.get("questionSectionId")):
+            one["touched"].add(str(r.get("sectionId") or r.get("questionSectionId")))
+        if r.get("filing") == "NEEDS_DECISION":
             continue
-        if t.get("sectionId"):
-            one["sectionTakes"].add(str(t["sectionId"]))
-        elif t.get("questionLineageId"):
-            one["done"].add(str(t["questionLineageId"]))
-    for a in typed:
-        out[str(a["sid"])]["done"].add(str(a["questionLineageId"]))
+        if r.get("sectionId"):
+            one["sectionTakes"].add(str(r["sectionId"]))
+        elif r.get("questionLineageId"):
+            one["done"].add(str(r["questionLineageId"]))
     return out
 
 

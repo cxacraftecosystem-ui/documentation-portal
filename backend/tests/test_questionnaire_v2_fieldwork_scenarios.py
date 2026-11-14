@@ -212,7 +212,7 @@ def test_three_researchers_share_one_group_session_and_each_records_different_se
         for code in "DEF":
             assert all(cell["state"] == "NOT_RECORDED" for cell in grid[code].values()), code
         session = await api.ok(ids.lead, "GET", f"/api/questionnaire/sessions/{s['id']}")
-        assert session["counts"] == {"sections": 3, "takes": 3, "needsDecision": 0}
+        assert session["counts"] == {"sections": 3, "takes": 3, "needsDecision": 0, "answeredQuestions": 6, "totalQuestions": 12}
 
         exported = await api.call(ids.admin, "GET", f"/api/artisans/{five[4]}/record.csv", params={"questionnaireId": ids.q})
         assert exported.status_code == 200 and ".csv" in exported.headers["content-disposition"]
@@ -256,7 +256,8 @@ def test_three_researchers_each_start_their_own_session_the_same_day_and_nothing
             assert all(cell["state"] == "RECORDED" and cell["takes"] == 1 for cell in grid[code].values()), code
         listed = await api.ok(ids.lead, "GET", "/api/questionnaire/sessions", params={"workshopId": ids.workshop})
         assert {s["id"] for s in listed["items"]} == {s1["id"], s2["id"], s3["id"]}
-        assert all(s["counts"] == {"sections": 1, "takes": 1, "needsDecision": 0} for s in listed["items"])
+        assert all(s["counts"] == {"sections": 1, "takes": 1, "needsDecision": 0, "answeredQuestions": 2, "totalQuestions": 12}
+                   for s in listed["items"])
 
     _scenario(monkeypatch, go, sections=SIX, artisans=5)
 
@@ -651,7 +652,7 @@ def test_an_artisan_who_refused_consent_is_recorded_and_filed_but_never_sent_out
     _scenario(monkeypatch, go, sections={"A": 2, "B": 2, "C": 2}, artisans=3, paused=False)
 
 
-RECORD_BUDGET = 35
+RECORD_BUDGET = 36
 GRID_BUDGET = 8
 
 

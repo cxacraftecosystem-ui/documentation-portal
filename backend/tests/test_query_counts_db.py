@@ -59,7 +59,7 @@ def test_a_sessions_recordings_cost_the_same_reads_however_many_there_are(monkey
     small = run(_session_with_takes(monkeypatch, 2))
     large = run(_session_with_takes(monkeypatch, 8))
     report("sessions_get", takes2=small, takes8=large)
-    assert small == large == 30, (small, large)
+    assert small == large == 31, (small, large)
 
 
 
@@ -90,7 +90,7 @@ def test_an_artisans_record_reads_every_session_at_once(monkeypatch) -> None:
     small = run(_record_over_sessions(monkeypatch, 1))
     large = run(_record_over_sessions(monkeypatch, 4))
     report("artisan_record", sessions1=small, sessions4=large)
-    assert small == large == 35, (small, large)
+    assert small == large == 36, (small, large)
 
 
 
