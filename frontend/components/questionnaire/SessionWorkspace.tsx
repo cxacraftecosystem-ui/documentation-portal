@@ -65,7 +65,7 @@ import {
   type SessionReview
 } from "@/lib/questionnaire/api";
 import { durationLabel, prompts, shortDate, type P2Input, type PromptSpec } from "@/lib/questionnaire/prompts";
-import { clipUploadState, queuedRecordBy, sendDetails, sessionUnitKey, stepKey, type ClipStep, type SessionUnit } from "@/lib/questionnaire/queue";
+import { clipUploadState, isPermanent, queuedRecordBy, sendDetails, sessionUnitKey, stepKey, type ClipStep, type SessionUnit } from "@/lib/questionnaire/queue";
 import { consentSubject, pickedFileMeta, rosterArtisans, takesFor, takeSubjects } from "@/lib/questionnaire/view";
 import { assembleTake, recorderStore, recoverable, recoveredMinutes, type TakeChunk, type TakeDraft } from "@/lib/questionnaire/recorderStore";
 import { settleBatch, type UploadRow } from "@/lib/questionnaire/uploads";
@@ -532,9 +532,9 @@ export function SessionWorkspace({ id }: { id: string }) {
         setDetail((current) => (current ? { ...current, recordBy: saved.recordBy ?? next, version: saved.version ?? current.version } : current));
         return;
       } catch (error) {
-        if (error instanceof ApiError && error.status !== 409 && error.status < 500) {
+        if (isPermanent(error)) {
           setRecordByLocal(null);
-          setTakeError(error.message);
+          setTakeError(error instanceof Error ? error.message : String(error));
           return;
         }
       }

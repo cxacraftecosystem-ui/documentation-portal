@@ -126,7 +126,7 @@ test("@qf:Q4 the upload dialog flags and skips a file already uploaded, counts o
   const now = new Date("2026-11-15T12:00:00Z");
   expect(recordedAtOf({ lastModified: Date.parse("2026-11-14T10:42:00Z") }, "2026-11-15", now)).toEqual({ at: "2026-11-14T10:42:00.000Z", source: "FILE_METADATA" });
   expect(recordedAtOf({ lastModified: 0 }, "2026-11-15", now)).toEqual({ at: "2026-11-15T06:30:00.000Z", source: "SESSION_DATE" });
-  expect(read("components", "questionnaire", "UploadSheet.tsx")).toContain("questionnaireApi.shaLookup(");
+  expect(read("components", "questionnaire", "UploadSheet.tsx")).toContain(".shaLookup(");
   expect(prompts.micOff().buttons.map((b) => b.label)).toEqual(["Upload instead", "Open Settings"]);
 });
 
