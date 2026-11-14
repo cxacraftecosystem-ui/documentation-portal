@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Web session workspace</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700&display=swap">
+<style>
+body{margin:0;background:#F7F6FB;color:#1E1B2E}
+a{color:#762CB1;text-decoration:none}a:hover{color:#5F1C93}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+</style>
+</helmet>
+<div style="min-height: 2440px; box-sizing: border-box; background: #F7F6FB; color: #1E1B2E; font-family: Inter, system-ui, sans-serif; padding: 20px 24px 40px">
+<div style="max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px">
+
+<nav aria-label="Main" style="align-self: center; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px; border-radius: 999px; background: #FFFFFF; border: 1px solid #E4E2EF; box-shadow: 0 1px 2px rgba(46,16,101,.06)">
+<span aria-hidden="true" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 22px; background: #762CB1; color: #FFFFFF; font: 700 15px/1 'Plus Jakarta Sans', system-ui, sans-serif">FR</span>
+<button style="min-height: 44px; padding: 0 16px; border: 0; border-radius: 22px; background: none; color: #3A3651; font-size: 14px; font-weight: 500">Home</button>
+<button style="min-height: 44px; padding: 0 16px; border: 0; border-radius: 22px; background: none; color: #3A3651; font-size: 14px; font-weight: 500">Tour</button>
+<a href="interview-WebSessions.dc.html" aria-current="page" style="display: flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 22px; background: #F2E9FE; color: #5F1C93; font-size: 14px; font-weight: 600">Record</a>
+<button style="min-height: 44px; padding: 0 16px; border: 0; border-radius: 22px; background: none; color: #3A3651; font-size: 14px; font-weight: 500">Browse</button>
+<button style="min-height: 44px; padding: 0 16px; border: 0; border-radius: 22px; background: none; color: #3A3651; font-size: 14px; font-weight: 500">Account</button>
+</nav>
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px">
+<a href="interview-WebSessions.dc.html" aria-label="Back to sessions" style="flex: none; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 22px; background: #FFFFFF; border: 1px solid #E4E2EF; color: #1E1B2E"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"></path></svg></a>
+<div style="flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+<h1 style="margin: 0; font: 700 32px/40px 'Plus Jakarta Sans', system-ui, sans-serif; color: #1E1B2E">Meera Devi</h1>
+<span style="font-size: 14px; line-height: 20px; color: #615D7A">Stone carving · Odia · 15 Nov 2026</span>
+</div>
+<div style="flex: 1 1 280px; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px">
+<span style="font-size: 14px; font-weight: 600; color: #1E1B2E">18 of 108 questions</span>
+<button style="display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 0; background: #DCFCE7; color: #166534; font-size: 12px; font-weight: 600"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5"></path><path d="M7 10l5-5 5 5"></path><path d="M5 19h14"></path></svg>Saved · 2 takes uploading</button>
+</div>
+<div role="progressbar" aria-label="Questions answered" aria-valuemin="0" aria-valuemax="108" aria-valuenow="18" style="height: 6px; border-radius: 3px; background: #E9E6F5; overflow: hidden"><div style="width: 17%; height: 100%; background: #762CB1"></div></div>
+</div>
+<div style="flex: 0 1 auto; display: flex; align-items: center; gap: 10px">
+<a href="interview-WebReview.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 20px; border-radius: 12px; background: #762CB1; color: #FFFFFF; font-size: 14px; font-weight: 600">Review and finish</a>
+<div style="position: relative; flex: none">
+<button aria-label="Session options" aria-expanded="true" aria-controls="session-menu" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 22px; border: 1px solid #DCD7EE; background: #F2E9FE; color: #5F1C93"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg></button>
+<div id="session-menu" style="position: absolute; top: 52px; right: 0; z-index: 10; width: 300px; box-sizing: border-box; border-radius: 16px; background: #FFFFFF; border: 1px solid #E4E2EF; box-shadow: 0 16px 40px rgba(46,16,101,.16), 0 2px 6px rgba(46,16,101,.08); padding: 8px; display: flex; flex-direction: column; gap: 2px">
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 8px 8px 10px">
+<span id="recordby" style="font: 500 12px/16px Inter, sans-serif; letter-spacing: 0.025em; text-transform: uppercase; color: #615D7A">Record by</span>
+<div role="group" aria-labelledby="recordby" style="display: inline-flex; width: fit-content; max-width: 100%; overflow: hidden; border-radius: 12px; border: 1px solid #E4E2EF; background: #FFFFFF">
+<button type="button" aria-pressed="true" style="min-height: 44px; padding: 0 16px; border: 0; background: #762CB1; color: #FFFFFF; font-size: 14px; font-weight: 500">Section</button>
+<button type="button" aria-pressed="false" style="min-height: 44px; padding: 0 16px; border: 0; background: transparent; color: #3A3651; font-size: 14px; font-weight: 500">Question</button>
+</div>
+<span style="font-size: 12px; line-height: 16px; color: #615D7A">Applies to this session</span>
+</div>
+<div aria-hidden="true" style="height: 1px; background: #E4E2EF; margin: 2px 8px"></div>
+<sc-for list="{{menu}}" as="m" hint-placeholder-count="5">
+<button style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: #1E1B2E; font-size: 14px; font-weight: 500; text-align: left">{{m.label}}</button>
+</sc-for>
+<div aria-hidden="true" style="height: 1px; background: #E4E2EF; margin: 4px 8px"></div>
+<sc-for list="{{danger}}" as="d" hint-placeholder-count="3">
+<button style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: #B91C1C; font-size: 14px; font-weight: 500; text-align: left">{{d.label}}</button>
+</sc-for>
+</div>
+</div>
+</div>
+</div>
+
+<div style="width: 100%; max-width: 880px; align-self: center; display: flex; flex-direction: column; gap: 8px">
+
+<sc-for list="{{before}}" as="r" hint-placeholder-count="4">
+<button aria-expanded="false" aria-label="{{r.label}}" style="display: flex; align-items: center; gap: 14px; min-height: 64px; padding: 10px 16px; box-sizing: border-box; border-radius: 16px; border: 1px solid #E4E2EF; background: #FFFFFF; color: #1E1B2E; text-align: left">
+<span style="{{r.badge}}">{{r.code}}</span>
+<span style="flex: 1; min-width: 0; font-size: 15px; line-height: 20px; font-weight: 600; color: #1E1B2E">{{r.title}}</span>
+<span style="{{r.subStyle}}">{{r.sub}}</span>
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#615D7A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
+</button>
+</sc-for>
+
+<section aria-labelledby="sec-e" style="border-radius: 16px; border: 1px solid #DCD7EE; background: #FFFFFF; box-shadow: 0 1px 2px rgba(46,16,101,.06); overflow: hidden">
+<button id="sec-e" aria-expanded="true" aria-controls="sec-e-body" style="width: 100%; display: flex; align-items: center; gap: 14px; min-height: 72px; padding: 12px 16px; box-sizing: border-box; border: 0; background: #F2E9FE; color: #5F1C93; text-align: left">
+<span style="flex: none; width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: #762CB1; color: #FFFFFF; font: 700 15px/1 'Plus Jakarta Sans', sans-serif">E</span>
+<span style="flex: 1; min-width: 0; font: 700 20px/28px 'Plus Jakarta Sans', system-ui, sans-serif; color: #2A0F47">Process of making and workflow</span>
+<span style="flex: none; font-size: 14px; line-height: 20px; font-weight: 600; color: #5F1C93">2 of 10</span>
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5F1C93" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"></path></svg>
+</button>
+<div id="sec-e-body" style="padding: 20px 24px 8px; display: flex; flex-direction: column; gap: 16px">
+
+<div style="display: flex; gap: 12px">
+<a href="interview-WebWorkspaceDark.dc.html" style="flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 0 20px; border-radius: 12px; background: #762CB1; color: #FFFFFF; font-size: 15px; font-weight: 600"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0"></path><path d="M12 18v3"></path></svg>Record section</a>
+<a href="interview-WebUpload.dc.html" style="flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 0 20px; border-radius: 12px; background: #F2E9FE; color: #5F1C93; font-size: 15px; font-weight: 600"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5"></path><path d="M7 10l5-5 5 5"></path><path d="M5 19h14"></path></svg>Upload</a>
+</div>
+
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid #E4E2EF">
+
+<li style="display: flex; gap: 16px; padding: 18px 0; border-bottom: 1px solid #E4E2EF">
+<span style="flex: none; width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: #DCFCE7; color: #166534; font: 700 14px/1 'Plus Jakarta Sans', sans-serif">E1</span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+<p style="margin: 0; font-size: 16px; line-height: 24px; color: #1E1B2E">Please describe the complete process from raw material to finished product, including the stages that contribute most to quality.</p>
+<button aria-label="Open typed answer for E1" style="align-self: flex-start; max-width: 100%; display: flex; align-items: center; min-height: 44px; padding: 0; border: 0; background: transparent; color: #615D7A; font-size: 14px; text-align: left"><span style="min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><span style="font-weight: 600; color: #166534">Typed</span> · Rough cutting takes about four days, then shaping with the chisel</span></button>
+</div>
+<button aria-label="More for E1" style="flex: none; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 22px; border: 0; background: transparent; color: #615D7A"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg></button>
+</li>
+
+<li style="display: flex; gap: 16px; padding: 18px 0; border-bottom: 1px solid #E4E2EF">
+<span style="flex: none; width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: #DCFCE7; color: #166534; font: 700 14px/1 'Plus Jakarta Sans', sans-serif">E2</span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+<p style="margin: 0; font-size: 16px; line-height: 24px; color: #1E1B2E">Which stages require the highest level of skill, precision or are hardest for beginners to learn, and why?</p>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; font-weight: 600; color: #166534"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0"></path></svg>Question take · 3:12</span>
+</div>
+<button aria-label="More for E2" style="flex: none; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 22px; border: 0; background: transparent; color: #615D7A"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg></button>
+</li>
+
+<sc-for list="{{pending}}" as="q" hint-placeholder-count="8">
+<li style="display: flex; gap: 16px; padding: 18px 0; border-bottom: 1px solid #E4E2EF">
+<span style="flex: none; width: 40px; height: 40px; box-sizing: border-box; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: #FFFFFF; border: 1px solid #DCD7EE; color: #3A3651; font: 700 14px/1 'Plus Jakarta Sans', sans-serif">{{q.code}}</span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+<p style="margin: 0; font-size: 16px; line-height: 24px; color: #1E1B2E">{{q.text}}</p>
+<span style="font-size: 13px; line-height: 18px; color: #615D7A">Not asked</span>
+</div>
+<button aria-label="{{q.more}}" style="flex: none; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 22px; border: 0; background: transparent; color: #615D7A"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg></button>
+</li>
+</sc-for>
+
+</ol>
+</div>
+</section>
+
+<sc-for list="{{after}}" as="r" hint-placeholder-count="8">
+<button aria-expanded="false" aria-label="{{r.label}}" style="display: flex; align-items: center; gap: 14px; min-height: 64px; padding: 10px 16px; box-sizing: border-box; border-radius: 16px; border: 1px solid #E4E2EF; background: #FFFFFF; color: #1E1B2E; text-align: left">
+<span style="{{r.badge}}">{{r.code}}</span>
+<span style="flex: 1; min-width: 0; font-size: 15px; line-height: 20px; font-weight: 600; color: #1E1B2E">{{r.title}}</span>
+<span style="{{r.subStyle}}">{{r.sub}}</span>
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#615D7A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
+</button>
+</sc-for>
+
+<div style="display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 14px; padding-top: 8px">
+<span style="font-size: 13px; line-height: 18px; color: #615D7A">Showing 13 of 23 sections</span>
+<button style="min-height: 44px; padding: 0 18px; border-radius: 12px; border: 1px solid #E4E2EF; background: #FFFFFF; color: #1E1B2E; font-size: 14px; font-weight: 600">Show all 23</button>
+</div>
+
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2440}}'>
+class Component extends DCLogic {
+renderVals() {
+var done = { bg: '#DCFCE7', fg: '#166534', bd: '#DCFCE7', sub: '#166534' };
+var started = { bg: '#E9E6F5', fg: '#1E1B2E', bd: '#E9E6F5', sub: '#3A3651' };
+var blank = { bg: '#FFFFFF', fg: '#3A3651', bd: '#DCD7EE', sub: '#615D7A' };
+function row(d) {
+return {
+code: d[0], title: d[1], sub: d[2],
+badge: "flex: none; width: 40px; height: 40px; box-sizing: border-box; border-radius: 12px; display: flex; align-items: center; justify-content: center; font: 700 15px/1 'Plus Jakarta Sans', sans-serif; background: " + d[3].bg + "; color: " + d[3].fg + "; border: 1px solid " + d[3].bd,
+subStyle: 'flex: none; font-size: 13px; line-height: 18px; color: ' + d[3].sub,
+label: 'Section ' + d[0] + ', ' + d[1] + ', ' + d[2]
+};
+}
+var before = [
+['A', 'Origin, history, place and personal journey', '5 of 5 · In the section take', done],
+['B', 'Family, community, gender and knowledge transfer', '4 of 4 · In the section take', done],
+['C', 'Migration, mobility and changing livelihoods', '1 of 1 · Typed', done],
+['D', 'Raw materials, procurement and resource security', '6 of 9', started]
+].map(row);
+var after = [
+['F', 'Tools, equipment, ergonomics and technological improvement', '5 questions', blank],
+['G', 'Science, indigenous knowledge and technology', '8 questions', blank],
+['H', 'Economics, market, sales, profit and livelihood', '7 questions', blank],
+['I', 'Marketing, value chains and digital commerce', '4 questions', blank],
+['J', 'Digital technology, AI and future platforms', '4 questions', blank],
+['K', 'Sustainability, environment, pollution and waste', '6 questions', blank],
+['L', 'Rituals, beliefs and intangible heritage', '2 questions', blank],
+['M', 'Health, occupational hazards and reasons for leaving', '3 questions', blank]
+].map(row);
+var qs = [
+['E3', 'Which part of the work takes the most time or creates the greatest difficulty, and what change in the tool or process would make it easier, faster or safer?'],
+['E4', 'Which stage causes the most wastage, and what happens to the waste generated there?'],
+['E5', 'How do experienced artisans identify and correct mistakes during the making process?'],
+['E6', 'Which stages should remain manual, and which could be mechanized without harming authenticity or craftsmanship?'],
+['E7', 'How do you decide the direction in which a stone should be cut or carved? Are there particular natural lines, layers or weak points that must be considered to prevent breakage?'],
+['E8', 'How is a design transferred onto the stone before carving? Do you use freehand drawing, measurements, grids, templates, reference objects or digital designs?'],
+['E9', 'What are the different stages of rough cutting, shaping, detailed carving, smoothing and polishing? Which stages are most difficult to correct if a mistake occurs?'],
+['E10', 'If a stone cracks, chips or breaks during production, how do you decide whether it can be repaired, redesigned or reused? What traditional repair methods are used?']
+];
+var pending = qs.map(function (q) { return { code: q[0], text: q[1], more: 'More for ' + q[0] }; });
+var menu = ['Edit details', 'Add researcher', 'Join code and QR', 'Read view', 'Continue another day'].map(function (l) { return { label: l }; });
+var danger = ['Remove artisan', 'Merge into another session', 'Delete session'].map(function (l) { return { label: l }; });
+return { before: before, after: after, pending: pending, menu: menu, danger: danger };
+}
+}
+</script>
+</body>
+</html>

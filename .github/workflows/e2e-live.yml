@@ -11,6 +11,13 @@ on:
         description: "Specs to run, space-separated (empty: the session-join spec)"
         required: false
         default: ""
+      suite:
+        description: "interview runs the take-interview flow against its own seeded stack instead of the specs"
+        type: choice
+        options:
+          - specs
+          - interview
+        default: specs
 
 permissions:
   contents: read
@@ -22,6 +29,7 @@ concurrency:
 jobs:
   e2e:
     name: Browser specs against a live stack
+    if: ${{ inputs.suite != 'interview' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 40
 
@@ -149,3 +157,103 @@ jobs:
         run: |
           echo "=== api log (tail) ==="; tail -120 "$RUNNER_TEMP/api.log" || true
           echo "=== web log (tail) ==="; tail -60 "$RUNNER_TEMP/web.log" || true
+
+  interview:
+    name: Take-interview flow against a seeded stack
+    if: ${{ inputs.suite == 'interview' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: field_repository
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PYTHONUTF8: "1"
+      DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
+      JWT_SECRET: "e2e-live-not-a-secret-0123456789abcdefgh"
+      MASTER_ADMIN_EMAIL: "ci@example.invalid"
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin"
+      AWS_S3_BUCKET: "field-repository"
+      AWS_S3_ENDPOINT: "http://127.0.0.1:9000"
+      AWS_S3_PUBLIC_BASE_URL: "http://127.0.0.1:9000/field-repository"
+      AWS_REGION: "us-east-1"
+      AWS_S3_SSE_ALGORITHM: ""
+      BACKEND_CORS_ORIGINS: "http://localhost:3000"
+      MEDIA_QUEUE_WORKER_ENABLED: "false"
+      QUESTIONNAIRE_V2: "true"
+      INTERVIEW_SEED: ${{ github.workspace }}/interview-seed.json
+      E2E_BASE_URL: "http://localhost:3000"
+      E2E_API_URL: "http://localhost:8000"
+      NEXT_PUBLIC_API_URL: "http://localhost:8000"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15.2"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/pyproject.toml
+
+      - name: Start the API, a bucket and the seeded interview form
+        run: bash scripts/ci/interview_stack.sh "$INTERVIEW_SEED"
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build and start the web app
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm install --global npm@12
+          npm ci
+          npx next build
+          nohup npx next start -p 3000 > "$RUNNER_TEMP/web.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://localhost:3000/login; then echo "web up after ${i} polls"; break; fi
+            if [ "$i" = "60" ]; then echo "::error::the web app never served /login"; tail -100 "$RUNNER_TEMP/web.log"; exit 1; fi
+            sleep 3
+          done
+          npx playwright install --with-deps chromium
+
+      - name: Run the take-interview flow
+        working-directory: frontend
+        env:
+          INTERVIEW_FILES: ${{ runner.temp }}
+        run: npx playwright test e2e/questionnaire-interview-live.spec.ts --reporter=list,html
+
+      - name: Upload the Playwright report and traces
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-interview
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: The API and web logs
+        if: ${{ failure() }}
+        run: |
+          tail -n 200 "$RUNNER_TEMP/interview-api.log" || true
+          tail -n 60 "$RUNNER_TEMP/web.log" || true

@@ -18,6 +18,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       android: ${{ steps.diff.outputs.android }}
+      interview: ${{ steps.diff.outputs.interview }}
     steps:
       - name: Checkout
         if: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release/') }}
@@ -36,6 +37,7 @@ jobs:
         run: |
           set -uo pipefail
           verdict=true
+          interview=true
           if [ "$EVENT" != "pull_request" ]; then
             echo "${EVENT} runs every job."
           elif [[ "$HEAD_REF" == release/* ]]; then
@@ -47,10 +49,15 @@ jobs:
               verdict=false
               echo "Nothing under android/ changed: the Android screens job skips."
             fi
+            if ! printf '%s\n' "$files" | grep -qE '^(android/|frontend/(app|components|lib)/|frontend/e2e/(fidelity-interview\.spec\.ts|support/interviewStack\.ts)$|backend/app/questionnaire/|shared/|docs/design-fidelity/boards/interview-|scripts/ci/(interview_|seed_interview_)|\.github/workflows/design-fidelity\.yml$)'; then
+              interview=false
+              echo "Nothing the take-interview screens draw from changed: the interview jobs skip."
+            fi
           else
             echo "::warning::could not diff ${BASE_SHA:-<none>}...${HEAD_SHA:-<none>}, so every job runs."
           fi
           echo "android=${verdict}" >> "$GITHUB_OUTPUT"
+          echo "interview=${interview}" >> "$GITHUB_OUTPUT"
 
   web:
     name: Boards and the web build at board size
@@ -213,9 +220,250 @@ jobs:
           path: design-fidelity
           if-no-files-found: warn
 
+  interview-web:
+    name: Take-interview screens on the web at 360, 768 and 1280
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.interview != 'false' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: field_repository
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PYTHONUTF8: "1"
+      DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
+      JWT_SECRET: "ci-interview-not-a-secret-0123456789abcdef"
+      MASTER_ADMIN_EMAIL: "ci@example.invalid"
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin"
+      AWS_S3_BUCKET: "field-repository"
+      AWS_S3_ENDPOINT: "http://127.0.0.1:9000"
+      AWS_S3_PUBLIC_BASE_URL: "http://127.0.0.1:9000/field-repository"
+      AWS_REGION: "us-east-1"
+      AWS_S3_SSE_ALGORITHM: ""
+      BACKEND_CORS_ORIGINS: "http://localhost:3000"
+      MEDIA_QUEUE_WORKER_ENABLED: "false"
+      QUESTIONNAIRE_V2: "true"
+      INTERVIEW_SEED: ${{ github.workspace }}/interview-seed.json
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15.2"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/pyproject.toml
+
+      - name: Start the API, a bucket and the seeded interview form
+        run: bash scripts/ci/interview_stack.sh "$INTERVIEW_SEED"
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install npm 12, the web dependencies and Chromium
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm install --global npm@12
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
+
+      - name: Capture each take-interview screen in light and dark
+        working-directory: frontend
+        env:
+          DESIGN_OUT: ${{ github.workspace }}/design-fidelity
+          E2E_BASE_URL: http://localhost:3000
+          E2E_API_URL: http://localhost:8000
+          INTERVIEW_FILES: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          npx next start --port 3000 > "$RUNNER_TEMP/next.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://localhost:3000/login; then break; fi
+            sleep 2
+          done
+          curl -fsS -o /dev/null http://localhost:3000/login || { cat "$RUNNER_TEMP/next.log"; exit 1; }
+          npx playwright test e2e/fidelity-interview.spec.ts --workers=2
+
+      - name: The API log
+        if: ${{ failure() }}
+        run: tail -n 300 "$RUNNER_TEMP/interview-api.log" || true
+
+      - name: Keep the take-interview web screens
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: design-fidelity-interview-web
+          path: |
+            design-fidelity
+            frontend/test-results
+          if-no-files-found: warn
+
+  interview-android:
+    name: Take-interview screens on Android phone and tablet
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.android != 'false' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 75
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: field_repository
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PYTHONUTF8: "1"
+      DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
+      JWT_SECRET: "ci-interview-not-a-secret-0123456789abcdef"
+      MASTER_ADMIN_EMAIL: "ci@example.invalid"
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin"
+      AWS_S3_BUCKET: "field-repository"
+      AWS_S3_ENDPOINT: "http://127.0.0.1:9000"
+      AWS_S3_PUBLIC_BASE_URL: "http://127.0.0.1:9000/field-repository"
+      AWS_REGION: "us-east-1"
+      AWS_S3_SSE_ALGORITHM: ""
+      MEDIA_QUEUE_WORKER_ENABLED: "false"
+      QUESTIONNAIRE_V2: "true"
+      INTERVIEW_SEED: ${{ github.workspace }}/interview-seed.json
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15.2"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/pyproject.toml
+
+      - name: Start the API, a bucket and the seeded interview form
+        run: bash scripts/ci/interview_stack.sh "$INTERVIEW_SEED"
+
+      - name: Prepare the sessions the screens open
+        run: python scripts/ci/interview_sessions.py "$INTERVIEW_SEED" "$RUNNER_TEMP/interview-sessions.json"
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+
+      - name: Build the app against the runner's API, and the device tests
+        working-directory: android
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sdkmanager="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-37.2" "build-tools;37.0.0" > /dev/null
+          printf 'apiBaseUrl=http://127.0.0.1:8000/api/\n' > local.properties
+          ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --console=plain --stacktrace
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/app-debug.apk"
+          cp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk "$RUNNER_TEMP/app-debug-androidTest.apk"
+
+      - name: Enable KVM for the emulator
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Render each take-interview screen on a phone and a tablet
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          SHOTS: ${{ github.workspace }}/design-fidelity
+          INTERVIEW_OUT: ${{ github.workspace }}/interview-device
+          APP_ID: com.fieldrepository.app
+        with:
+          api-level: "37.0"
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          cores: 4
+          ram-size: 4096M
+          disk-size: 8G
+          emulator-boot-timeout: 900
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -no-boot-anim
+            -no-snapshot-save -no-snapshot-load -camera-back none -camera-front none
+          disable-animations: true
+          script: bash scripts/ci/interview_device.sh
+
+      - name: Every take-interview screen was drawn on both devices in both themes
+        run: |
+          set -uo pipefail
+          missing=0
+          for board in Main New SessionClosed Sections Question Menu SectionRecording Upload AnsweredBy Already Review; do
+            for device in phone tablet; do
+              for theme in "" "-dark"; do
+                test -s "design-fidelity/interview-$board/impl-android-$device$theme.png" || { echo "::error::missing interview-$board/impl-android-$device$theme.png"; missing=1; }
+              done
+            done
+          done
+          for device in phone tablet; do
+            for theme in "" "-dark"; do
+              test -s "design-fidelity/interview-States/impl-android-read-only-$device$theme.png" || { echo "::error::missing interview-States/impl-android-read-only-$device$theme.png"; missing=1; }
+            done
+          done
+          exit "$missing"
+
+      - name: The API log
+        if: ${{ failure() }}
+        run: tail -n 300 "$RUNNER_TEMP/interview-api.log" || true
+
+      - name: Keep the take-interview Android screens
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: design-fidelity-interview-android
+          path: |
+            design-fidelity
+            interview-device
+          if-no-files-found: warn
+
   pairs:
     name: Board and build side by side
-    needs: [web, android]
+    needs: [web, android, interview-web, interview-android]
     if: always()
     runs-on: ubuntu-26.04
     timeout-minutes: 20
@@ -255,12 +503,29 @@ jobs:
           name: design-fidelity-android
           path: android-shots
 
+      - name: Fetch the take-interview web screens
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: design-fidelity-interview-web
+          path: interview-web
+
+      - name: Fetch the take-interview Android screens
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: design-fidelity-interview-android
+          path: interview-android
+
       - name: Put each pair side by side
         env:
           DESIGN_OUT: ${{ github.workspace }}/design-fidelity
         run: |
           set -euo pipefail
           if [ -d ../android-shots ]; then cp -r ../android-shots/. ../design-fidelity/; fi
+          for extra in ../interview-web/design-fidelity ../interview-android/design-fidelity; do
+            if [ -d "$extra" ]; then cp -r "$extra"/. ../design-fidelity/; fi
+          done
           npx playwright test e2e/fidelity-pairs.spec.ts --workers=4
 
       - name: Keep every pair

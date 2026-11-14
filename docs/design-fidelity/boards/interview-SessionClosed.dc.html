@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Session</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700&display=swap">
+<style>
+body{margin:0;background:#14121F}
+a{color:#C090F5;text-decoration:none}a:hover{color:#D9BDFA}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #14121F; color: #F2F0F9; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+
+<header style="flex: none; z-index: 2; background: #14121F; display: flex; align-items: center; gap: 4px; padding: 12px 8px 4px; border-bottom: 1px solid #2F2B45">
+<a href="interview-Main.dc.html" aria-label="Back to sessions" style="flex: none; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; color: #C090F5"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"></path></svg></a>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+<h1 style="margin: 0; font: 700 20px/28px 'Plus Jakarta Sans', system-ui, sans-serif; color: #F2F0F9">Meera Devi</h1>
+<span style="font-size: 13px; line-height: 16px; color: #9E98B2">Stone carving · Odia · today</span>
+</div>
+<a href="interview-Review.dc.html" style="flex: none; height: 48px; padding: 0 12px; display: flex; align-items: center; font-size: 15px; font-weight: 600; color: #C090F5">Review</a>
+<a href="interview-Menu.dc.html" aria-label="Session options" aria-haspopup="dialog" style="flex: none; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; color: #D0CBDF"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg></a>
+</header>
+
+<div style="flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column">
+
+<div style="flex: none; padding: 14px 16px 0; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px">
+<span style="font-size: 15px; line-height: 20px; font-weight: 600; color: #F2F0F9">18 of 108 questions</span>
+<span style="font-size: 13px; line-height: 16px; color: #9E98B2">3 of 23 sections</span>
+</div>
+<div role="progressbar" aria-label="Questions answered" aria-valuemin="0" aria-valuemax="108" aria-valuenow="18" style="height: 6px; border-radius: 3px; background: #2E2840; overflow: hidden"><div style="width: 17%; height: 100%; border-radius: 3px; background: #C090F5"></div></div>
+</div>
+<a href="interview-Upload.dc.html" aria-label="Saved on this phone, 2 takes uploading. Open uploads" style="align-self: flex-start; display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 12px 0 14px; border-radius: 24px; background: #262135; color: #D0CBDF; font-size: 14px">
+<span aria-hidden="true" style="flex: none; width: 8px; height: 8px; border-radius: 4px; background: #4ADE80"></span>
+<span style="color: #D0CBDF">Saved on this phone · 2 takes uploading</span>
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9E98B2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"></path></svg>
+</a>
+</div>
+
+<nav aria-label="Sections" style="flex: none; padding: 8px 16px 0; display: flex; flex-direction: column">
+
+<sc-for list="{{before}}" as="s" hint-placeholder-count="4">
+<a href="interview-SessionClosed.dc.html" aria-expanded="false" aria-label="{{s.label}}" style="display: flex; align-items: center; gap: 14px; min-height: 64px; padding: 10px 0; box-sizing: border-box; border-bottom: 1px solid #2F2B45; color: #F2F0F9">
+<span aria-hidden="true" style="{{s.badge}}">{{s.letter}}</span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; line-height: 20px; font-weight: 600; color: #F2F0F9">{{s.title}}</span><span style="font-size: 13px; line-height: 16px; color: #9E98B2">{{s.meta}}</span></span>
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9E98B2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><path d="M6 9l6 6 6-6"></path></svg>
+</a>
+</sc-for>
+
+<a href="interview-Sections.dc.html" aria-expanded="false" aria-label="E, Process of making and workflow, 2 of 10" style="display: flex; align-items: center; gap: 14px; min-height: 64px; padding: 10px 0; box-sizing: border-box; border-bottom: 1px solid #2F2B45; color: #F2F0F9">
+<span aria-hidden="true" style="flex: none; width: 40px; height: 40px; box-sizing: border-box; border-radius: 12px; background: #2E2840; color: #F2F0F9; display: flex; align-items: center; justify-content: center; font: 700 16px 'Plus Jakarta Sans', sans-serif">E</span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; line-height: 20px; font-weight: 600; color: #F2F0F9">Process of making and workflow</span><span style="font-size: 13px; line-height: 16px; color: #9E98B2">2 of 10</span></span>
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9E98B2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><path d="M6 9l6 6 6-6"></path></svg>
+</a>
+
+<sc-for list="{{after}}" as="s" hint-placeholder-count="6">
+<a href="interview-SessionClosed.dc.html" aria-expanded="false" aria-label="{{s.label}}" style="display: flex; align-items: center; gap: 14px; min-height: 64px; padding: 10px 0; box-sizing: border-box; border-bottom: 1px solid #2F2B45; color: #F2F0F9">
+<span aria-hidden="true" style="{{s.badge}}">{{s.letter}}</span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; line-height: 20px; font-weight: 600; color: #F2F0F9">{{s.title}}</span><span style="font-size: 13px; line-height: 16px; color: #9E98B2">{{s.meta}}</span></span>
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9E98B2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><path d="M6 9l6 6 6-6"></path></svg>
+</a>
+</sc-for>
+
+</nav>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+var box = "flex: none; width: 40px; height: 40px; box-sizing: border-box; border-radius: 12px; display: flex; align-items: center; justify-content: center; font: 700 16px 'Plus Jakarta Sans', sans-serif; ";
+var done = box + "background: #14532D; color: #4ADE80";
+var partial = box + "background: #2E2840; color: #F2F0F9";
+var fresh = box + "border: 1px solid #3A3350; color: #D0CBDF";
+function sec(letter, title, meta, badge) { return { letter: letter, title: title, meta: meta, badge: badge, label: letter + ", " + title + ", " + meta }; }
+return {
+before: [
+sec("A", "Origin, history, place and personal journey", "5 of 5 · In the section take", done),
+sec("B", "Family, community, gender and knowledge transfer", "4 of 4 · In the section take", done),
+sec("C", "Migration, mobility and changing livelihoods", "1 of 1 · Typed", done),
+sec("D", "Raw materials, procurement and resource security", "6 of 9", partial)
+],
+after: [
+sec("F", "Tools, equipment, ergonomics and technological improvement", "5 questions", fresh),
+sec("G", "Science, indigenous knowledge and technology", "8 questions", fresh),
+sec("H", "Economics, market, sales, profit and livelihood", "7 questions", fresh),
+sec("I", "Marketing, value chains and digital commerce", "4 questions", fresh),
+sec("J", "Digital technology, AI and future platforms", "4 questions", fresh),
+sec("K", "Sustainability, environment, pollution and waste", "6 questions", fresh)
+]
+};
+}
+}
+</script>
+</body>
+</html>

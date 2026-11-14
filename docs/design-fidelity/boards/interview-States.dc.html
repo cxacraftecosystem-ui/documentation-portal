@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>States</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700&display=swap">
+<style>
+body{margin:0}
+a{color:#C090F5;text-decoration:none}a:hover{color:#D9BDFA}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 2360px; box-sizing: border-box; background: #14121F; color: #F2F0F9; font-family: Inter, system-ui, sans-serif; overflow: hidden; padding: 20px 16px 0; display: flex; flex-direction: column; gap: 16px">
+
+<h1 style="margin: 0; font: 700 24px/32px 'Plus Jakarta Sans', system-ui, sans-serif; color: #F2F0F9">States and edge cases</h1>
+
+<section aria-labelledby="s-a" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-a" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; text-transform: uppercase; letter-spacing: .025em; color: #9E98B2">Save state</h2>
+<div style="display: flex; flex-direction: column; align-items: flex-start; gap: 8px">
+<button aria-label="Saved on this phone. Open uploads" style="height: 48px; padding: 0 12px 0 14px; border: 0; border-radius: 24px; background: #262135; color: #D0CBDF; font-size: 14px; display: flex; align-items: center; gap: 8px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 4px; background: #4ADE80"></span>Saved on this phone<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9E98B2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+<button aria-label="2 takes uploading, 40 percent. Open uploads" style="height: 48px; padding: 0 12px 0 14px; border: 0; border-radius: 24px; background: #262135; color: #D0CBDF; font-size: 14px; display: flex; align-items: center; gap: 8px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 4px; background: #C090F5"></span>2 takes uploading · 40%<span aria-hidden="true" style="width: 40px; height: 4px; border-radius: 2px; background: #3A3350; overflow: hidden; display: flex"><span style="width: 40%; height: 100%; background: #C090F5"></span></span><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9E98B2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+<button aria-label="Waiting for signal. Open uploads" style="height: 48px; padding: 0 12px 0 14px; border: 0; border-radius: 24px; background: #262135; color: #D0CBDF; font-size: 14px; display: flex; align-items: center; gap: 8px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 4px; background: #F59E0B"></span>Waiting for signal<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9E98B2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+<div style="display: flex; align-items: center; gap: 4px">
+<button aria-label="Upload failed. Retrying. Open uploads" style="height: 48px; padding: 0 12px 0 14px; border: 0; border-radius: 24px; background: #262135; color: #D0CBDF; font-size: 14px; display: flex; align-items: center; gap: 8px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 4px; background: #F87171"></span>Upload failed. Retrying.<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9E98B2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+<button style="height: 48px; min-width: 48px; padding: 0 12px; border: 0; background: none; color: #C090F5; font-size: 14px; font-weight: 600">Retry</button>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="s-b" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-b" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; text-transform: uppercase; letter-spacing: .025em; color: #9E98B2">Recovered a recording</h2>
+<div role="dialog" aria-labelledby="t-b" style="background: #1E1B2E; border: 1px solid #2F2B45; border-radius: 28px 28px 0 0; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h3 id="t-b" style="margin: 0; font: 700 20px/28px 'Plus Jakarta Sans', system-ui, sans-serif; color: #F2F0F9">Recovered a recording</h3>
+<p style="margin: 0; font-size: 15px; line-height: 20px; color: #D0CBDF">A 14-minute take of E was saved before the app closed.</p>
+</div>
+<div style="display: flex; gap: 12px">
+<button style="flex: 1; height: 56px; border-radius: 28px; border: 1px solid #3A3350; background: none; color: #F2F0F9; font-size: 16px; font-weight: 600">Discard</button>
+<button style="flex: 1; height: 56px; border-radius: 28px; border: 0; background: #C090F5; color: #2A0F47; font-size: 16px; font-weight: 600">Keep</button>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="s-c" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-c" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; text-transform: uppercase; letter-spacing: .025em; color: #9E98B2">Stop the current recording</h2>
+<div role="dialog" aria-labelledby="t-c" style="background: #1E1B2E; border: 1px solid #2F2B45; border-radius: 28px 28px 0 0; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h3 id="t-c" style="margin: 0; font: 700 20px/28px 'Plus Jakarta Sans', system-ui, sans-serif; color: #F2F0F9">Stop the E recording?</h3>
+<p style="margin: 0; font-size: 15px; line-height: 20px; color: #D0CBDF">It's 07:42 long and will be kept.</p>
+</div>
+<div style="display: flex; gap: 12px">
+<button style="flex: 1; height: 56px; border-radius: 28px; border: 1px solid #3A3350; background: none; color: #F2F0F9; font-size: 16px; font-weight: 600">Keep recording</button>
+<a href="interview-SectionRecording.dc.html" style="flex: 1; height: 56px; border-radius: 28px; background: #C090F5; color: #2A0F47; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center">Stop and record F</a>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="s-d" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-d" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; text-transform: uppercase; letter-spacing: .025em; color: #9E98B2">Microphone off</h2>
+<div role="alertdialog" aria-label="Microphone off" aria-describedby="t-d" style="background: #1E1B2E; border: 1px solid #2F2B45; border-radius: 28px 28px 0 0; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; gap: 12px; align-items: flex-start">
+<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 1px"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3M3 3l18 18"/></svg>
+<p id="t-d" style="margin: 0; font-size: 15px; line-height: 20px; color: #D0CBDF">Microphone access is off. Allow it in Settings, or pick a recording instead.</p>
+</div>
+<div style="display: flex; gap: 12px">
+<a href="interview-Upload.dc.html" style="flex: 1; height: 56px; box-sizing: border-box; border-radius: 28px; border: 1px solid #3A3350; color: #F2F0F9; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center">Upload instead</a>
+<button style="flex: 1; height: 56px; border-radius: 28px; border: 0; background: #C090F5; color: #2A0F47; font-size: 16px; font-weight: 600">Open Settings</button>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="s-e" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-e" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; text-transform: uppercase; letter-spacing: .025em; color: #9E98B2">Low space while recording</h2>
+<div style="background: #1E1B2E; border: 1px solid #2F2B45; border-radius: 16px; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: center; justify-content: space-between">
+<span style="display: flex; align-items: center; gap: 8px; font-size: 14px; line-height: 20px; color: #D0CBDF"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 5px; background: #F87171"></span>Recording E</span>
+<span style="font: 700 28px/32px 'Plus Jakarta Sans', system-ui, sans-serif; color: #F2F0F9">07:42</span>
+</div>
+<p role="status" style="margin: 0; font-size: 14px; line-height: 20px; color: #F59E0B">About 12 min of space left.</p>
+<div style="display: flex; gap: 12px">
+<button style="flex: 1; height: 56px; border-radius: 28px; border: 1px solid #3A3350; background: none; color: #F2F0F9; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 5v14M15 5v14"/></svg>Pause</button>
+<button style="flex: 1; height: 56px; border-radius: 28px; border: 0; background: #C090F5; color: #2A0F47; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Stop</button>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="s-f" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-f" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; text-transform: uppercase; letter-spacing: .025em; color: #9E98B2">Session already open</h2>
+<div role="dialog" aria-labelledby="t-f" style="background: #1E1B2E; border: 1px solid #2F2B45; border-radius: 28px 28px 0 0; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h3 id="t-f" style="margin: 0; font: 700 20px/28px 'Plus Jakarta Sans', system-ui, sans-serif; color: #F2F0F9">Session already open</h3>
+<p style="margin: 0; font-size: 15px; line-height: 20px; color: #D0CBDF">Anita Rout started one with Meera Devi at 10:42.</p>
+</div>
+<div style="display: flex; gap: 12px">
+<a href="interview-New.dc.html" style="flex: 1; height: 56px; box-sizing: border-box; border-radius: 28px; border: 1px solid #3A3350; color: #F2F0F9; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center">New session</a>
+<a href="interview-Sections.dc.html" style="flex: 1; height: 56px; border-radius: 28px; background: #C090F5; color: #2A0F47; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center">Join</a>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="s-g" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-g" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; text-transform: uppercase; letter-spacing: .025em; color: #9E98B2">Changed on another device</h2>
+<div role="dialog" aria-labelledby="t-g" style="background: #1E1B2E; border: 1px solid #2F2B45; border-radius: 28px 28px 0 0; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h3 id="t-g" style="margin: 0; font: 700 20px/28px 'Plus Jakarta Sans', system-ui, sans-serif; color: #F2F0F9">Changed on another device</h3>
+<p style="margin: 0; font-size: 15px; line-height: 20px; color: #D0CBDF">Anita Rout changed E1 on another phone.</p>
+</div>
+<div style="display: flex; gap: 12px">
+<button style="flex: 1; height: 56px; border-radius: 28px; border: 1px solid #3A3350; background: none; color: #F2F0F9; font-size: 16px; font-weight: 600">Keep theirs</button>
+<button style="flex: 1; height: 56px; border-radius: 28px; border: 0; background: #C090F5; color: #2A0F47; font-size: 16px; font-weight: 600">Keep mine</button>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="s-h" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-h" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; text-transform: uppercase; letter-spacing: .025em; color: #9E98B2">Locked answer</h2>
+<div style="background: #1E1B2E; border: 1px solid #2F2B45; border-radius: 16px; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 10px">
+<button aria-expanded="true" aria-controls="h-body" style="height: 48px; padding: 0; border: 0; background: none; color: #F2F0F9; font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: space-between">E1 · Typed<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9E98B2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>
+<div id="h-body" style="display: flex; flex-direction: column; gap: 10px">
+<label for="h-answer" style="font-size: 12px; line-height: 16px; font-weight: 500; text-transform: uppercase; letter-spacing: .025em; color: #9E98B2">Answer to E1</label>
+<textarea id="h-answer" readonly="readonly" rows="2" style="box-sizing: border-box; width: 100%; min-height: 56px; resize: none; padding: 12px 14px; border-radius: 12px; border: 1px solid #2F2B45; background: #262135; color: #D0CBDF; font-size: 15px; line-height: 20px">Rough cutting takes about four days.</textarea>
+<p style="margin: 0; display: flex; gap: 8px; align-items: flex-start; font-size: 14px; line-height: 20px; color: #D0CBDF"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9E98B2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 1px"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>Answered by Anita Rout. Only they or a lead can change it.</p>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="s-i" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-i" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; text-transform: uppercase; letter-spacing: .025em; color: #9E98B2">Remove an artisan with takes</h2>
+<div role="alertdialog" aria-labelledby="t-i" style="background: #1E1B2E; border: 1px solid #2F2B45; border-radius: 28px 28px 0 0; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h3 id="t-i" style="margin: 0; font: 700 20px/28px 'Plus Jakarta Sans', system-ui, sans-serif; color: #F2F0F9">Remove Sarojini Das from this session?</h3>
+<p style="margin: 0; font-size: 15px; line-height: 20px; color: #D0CBDF">Their 4 takes here will no longer count for them.</p>
+</div>
+<div style="display: flex; gap: 12px">
+<button style="flex: 1; height: 56px; border-radius: 28px; border: 1px solid #3A3350; background: none; color: #F2F0F9; font-size: 16px; font-weight: 600">Cancel</button>
+<button style="flex: 1; height: 56px; border-radius: 28px; border: 0; background: #F87171; color: #14121F; font-size: 16px; font-weight: 600">Remove</button>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="s-j" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-j" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; text-transform: uppercase; letter-spacing: .025em; color: #9E98B2">Leave with uploads</h2>
+<div role="dialog" aria-labelledby="t-j" style="background: #1E1B2E; border: 1px solid #2F2B45; border-radius: 28px 28px 0 0; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h3 id="t-j" style="margin: 0; font: 700 20px/28px 'Plus Jakarta Sans', system-ui, sans-serif; color: #F2F0F9">Leave this session?</h3>
+<p style="margin: 0; font-size: 15px; line-height: 20px; color: #D0CBDF">2 takes will keep uploading in the background.</p>
+</div>
+<div style="display: flex; gap: 12px">
+<button style="flex: 1; height: 56px; border-radius: 28px; border: 1px solid #3A3350; background: none; color: #F2F0F9; font-size: 16px; font-weight: 600">Stay</button>
+<a href="interview-Main.dc.html" style="flex: 1; height: 56px; border-radius: 28px; background: #C090F5; color: #2A0F47; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center">Leave</a>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="s-k" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-k" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; text-transform: uppercase; letter-spacing: .025em; color: #9E98B2">Finished session</h2>
+<div role="status" style="min-height: 48px; box-sizing: border-box; padding: 12px 14px; border-radius: 12px; background: #262135; display: flex; align-items: center; gap: 10px; font-size: 14px; line-height: 20px; color: #D0CBDF"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Finished on 12 Nov. Read only.</div>
+</section>
+
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":2360}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

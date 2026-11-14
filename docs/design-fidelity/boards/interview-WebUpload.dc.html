@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Upload recordings on the web</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700&display=swap">
+<style>
+body{margin:0}
+a{color:#762CB1;text-decoration:none}a:hover{color:#5F1C93}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+</style>
+</helmet>
+<div style="position: relative; min-height: 900px; box-sizing: border-box; background: #F7F6FB; color: #1E1B2E; font-family: Inter, system-ui, sans-serif; overflow: hidden">
+
+<div aria-hidden="true" style="padding: 20px 24px 32px">
+<div style="max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; align-items: center; gap: 16px">
+<span style="flex: none; width: 44px; height: 44px; border-radius: 22px; background: #FFFFFF; border: 1px solid #E4E2EF"></span>
+<span style="font: 700 24px/32px 'Plus Jakarta Sans', system-ui, sans-serif; color: #1E1B2E">Meera Devi</span>
+</div>
+<div style="width: 100%; max-width: 880px; align-self: center; display: flex; flex-direction: column; gap: 8px">
+<div style="min-width: 0; border-radius: 16px; background: #FFFFFF; border: 1px solid #E4E2EF; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+<sc-for list="{{rail}}" as="r" hint-placeholder-count="9">
+<div style="display: flex; align-items: center; gap: 12px; min-height: 48px">
+<span style="flex: none; width: 34px; height: 34px; border-radius: 10px; background: #E9E6F5"></span>
+<span style="flex: 1; display: flex; flex-direction: column; gap: 6px"><span style="{{r.bar}}"></span><span style="height: 8px; width: 30%; border-radius: 4px; background: #F2F0F7"></span></span>
+</div>
+</sc-for>
+</div>
+<div style="min-width: 0; min-height: 320px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E4E2EF; padding: 28px; display: flex; flex-direction: column; gap: 16px">
+<span style="height: 12px; width: 180px; border-radius: 6px; background: #E9E6F5"></span>
+<span style="height: 20px; width: 80%; border-radius: 6px; background: #E9E6F5"></span>
+<span style="height: 20px; width: 60%; border-radius: 6px; background: #E9E6F5"></span>
+<span style="height: 132px; border-radius: 12px; border: 1px solid #E4E2EF"></span>
+</div>
+</div>
+</div>
+</div>
+
+<div style="position: absolute; inset: 0; background: rgba(30,27,46,.55); display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box">
+<div role="dialog" aria-modal="true" aria-labelledby="up-title" style="width: 100%; max-width: 560px; box-sizing: border-box; border-radius: 24px; background: #FFFFFF; border: 1px solid #E4E2EF; box-shadow: 0 24px 48px rgba(46,16,101,.18); padding: 28px; display: flex; flex-direction: column; gap: 20px">
+
+<div style="display: flex; align-items: center; gap: 12px">
+<h2 id="up-title" style="flex: 1; margin: 0; font: 700 24px/32px 'Plus Jakarta Sans', system-ui, sans-serif; color: #1E1B2E">Upload recordings</h2>
+<a href="interview-WebWorkspace.dc.html" aria-label="Close" style="flex: none; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 22px; color: #3A3651"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></a>
+</div>
+
+<div style="display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px 16px; border-radius: 16px; border: 2px dashed #DCD7EE; background: #FAF9FD; text-align: center">
+<svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#762CB1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7 9l5-5 5 5M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4"/></svg>
+<span style="font-size: 15px; line-height: 22px; font-weight: 500; color: #3A3651">Drop audio or video here</span>
+<label for="up-files" style="display: flex; align-items: center; min-height: 44px; padding: 0 20px; border-radius: 12px; border: 1px solid #E4E2EF; background: #FFFFFF; color: #1E1B2E; font-size: 14px; font-weight: 600; cursor: pointer">Choose files</label>
+<input id="up-files" type="file" multiple="multiple" accept="audio/*,video/*" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 12px; padding: 12px 8px 12px 14px; border-radius: 12px; border: 1px solid #E4E2EF">
+<span aria-hidden="true" style="flex: none; width: 36px; height: 36px; border-radius: 10px; background: #DCFCE7; color: #166534; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; line-height: 20px; font-weight: 600; color: #1E1B2E">Meera_part1.m4a</span><span style="font-size: 13px; line-height: 18px; color: #615D7A">42:10 · recorded 14 Nov, 4:12 pm</span></span>
+<button aria-label="Remove Meera_part1.m4a" style="flex: none; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 22px; background: none; color: #3A3651"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 12px 8px 12px 14px; border-radius: 12px; border: 1px solid #E4E2EF">
+<div style="display: flex; align-items: center; gap: 12px">
+<span aria-hidden="true" style="flex: none; width: 36px; height: 36px; border-radius: 10px; background: #FEF3C7; color: #92400E; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; line-height: 20px; font-weight: 600; color: #1E1B2E">Meera_part2.m4a</span><span style="font-size: 13px; line-height: 18px; color: #615D7A">18:03 · recorded 14 Nov, 5:01 pm</span></span>
+<button style="flex: none; min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid #E4E2EF; background: #FFFFFF; color: #1E1B2E; font-size: 14px; font-weight: 600">Remove</button>
+</div>
+<span style="align-self: flex-start; margin-left: 48px; padding: 4px 10px; border-radius: 8px; background: #FEF3C7; color: #92400E; font-size: 13px; line-height: 18px; font-weight: 600">Already uploaded on 14 Nov</span>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span id="attach-label" style="font: 500 12px/16px Inter, sans-serif; letter-spacing: 0.025em; text-transform: uppercase; color: #615D7A">Attach to</span>
+<div role="radiogroup" aria-labelledby="attach-label" style="display: flex; padding: 3px; gap: 3px; border-radius: 12px; background: #FAF9FD; border: 1px solid #E4E2EF">
+<button role="radio" aria-checked="true" style="flex: 1 1 0; min-height: 44px; padding: 0 6px; border: 0; border-radius: 9px; background: #762CB1; color: #FFFFFF; font-size: 14px; font-weight: 600">Section E</button>
+<button role="radio" aria-checked="false" style="flex: 1 1 0; min-height: 44px; padding: 0 6px; border: 0; border-radius: 9px; background: none; color: #3A3651; font-size: 14px; font-weight: 500">A question</button>
+<button role="radio" aria-checked="false" style="flex: 1 1 0; min-height: 44px; padding: 0 6px; border: 0; border-radius: 9px; background: none; color: #3A3651; font-size: 14px; font-weight: 500">Whole session</button>
+</div>
+<span style="font-size: 14px; line-height: 20px; color: #615D7A">Counts for all 10 questions in E</span>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; padding-top: 4px">
+<a href="interview-WebWorkspace.dc.html" style="display: flex; align-items: center; justify-content: center; flex: 1 1 0; min-height: 44px; min-width: 140px; padding: 0 20px; box-sizing: border-box; border-radius: 12px; border: 1px solid #E4E2EF; background: #FFFFFF; color: #1E1B2E; font-size: 15px; font-weight: 600">Cancel</a>
+<a href="interview-WebWorkspace.dc.html" style="display: flex; align-items: center; justify-content: center; flex: 1 1 0; min-height: 44px; min-width: 140px; padding: 0 20px; box-sizing: border-box; border-radius: 12px; background: #762CB1; color: #FFFFFF; font-size: 15px; font-weight: 600">Upload 1 file</a>
+</div>
+
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+var widths = ['70%', '82%', '64%', '88%', '76%', '60%', '72%', '84%', '66%'];
+return { rail: widths.map(function (w) { return { bar: 'height: 10px; border-radius: 5px; background: #E9E6F5; width: ' + w }; }) };
+}
+}
+</script>
+</body>
+</html>
