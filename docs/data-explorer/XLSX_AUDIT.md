@@ -6,7 +6,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 
 ## Design Prototype Workshop
 
-142 models, 1775 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+142 models, 1776 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
 
 ### Models and fields
 
@@ -793,6 +793,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `version`: Questionnaire sittings › Version
   - `pendingChangesAt`: Questionnaire sittings › Pending changes on
   - `source`: Questionnaire sittings › Source
+  - `recordBy`: Questionnaire sittings › Record by
 - **QuestionnaireInterviewArtisan**
   - `interviewId`: Sitting artisans › Interview; Sitting artisans › Interview ID
   - `artisanId`: Answers › Artisan; Sitting artisans › Artisan; Sitting artisans › Artisan ID
@@ -1365,7 +1366,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 
 ## Field Repository
 
-99 models, 1221 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+99 models, 1222 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
 
 ### Models and fields
 
@@ -1801,6 +1802,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `deletedAt`: Questionnaire sittings › Deleted on
   - `deletedById`: Questionnaire sittings › Deleted by; Questionnaire sittings › Deleted by ID
   - `source`: Questionnaire sittings › Source
+  - `recordBy`: Questionnaire sittings › Record by
 - **QuestionnaireInterviewArtisan**
   - `interviewId`: Sitting artisans › Interview; Sitting artisans › Interview ID
   - `artisanId`: Answers › Artisan; Sitting artisans › Artisan; Sitting artisans › Artisan ID
