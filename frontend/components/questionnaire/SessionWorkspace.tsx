@@ -1,39 +1,51 @@
 "use client";
 
+import { ChevronDown, ChevronUp, Mic } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
+import { FieldDialog } from "@/components/dialogs/FieldDialog";
+import { useAppReducedMotion } from "@/components/guide/useAppReducedMotion";
 import { AlreadyRecordedDialog, type P2Choice } from "@/components/questionnaire/AlreadyRecordedDialog";
+import { AnsweredBySheet, answeredByCaption } from "@/components/questionnaire/AnsweredBySheet";
 import { AnswerBox, sessionSubjects, type AnswerProposal } from "@/components/questionnaire/AnswerBox";
 import { ConsentQuestion } from "@/components/questionnaire/ConsentQuestion";
-import { CoverageGrid } from "@/components/questionnaire/CoverageGrid";
 import { PromptDialog } from "@/components/questionnaire/Prompts";
+import { QuestionOverflow, type OverflowAction } from "@/components/questionnaire/QuestionOverflow";
 import { activeRecording, Recorder, recorderClock, takesInHand, type FinishedTake, type RecorderTarget } from "@/components/questionnaire/Recorder";
+import { RecordUploadPair } from "@/components/questionnaire/RecordUploadPair";
+import { ReviewFinish, stillToAsk, type FailedUpload } from "@/components/questionnaire/ReviewFinish";
+import { SavePill, saveState } from "@/components/questionnaire/SavePill";
 import { SessionHeader } from "@/components/questionnaire/SessionHeader";
 import { TakeSheet } from "@/components/questionnaire/TakeSheet";
+import { UploadSheet, type UploadTarget } from "@/components/questionnaire/UploadSheet";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
-import { enqueue, onRecordingLanded, onSessionLanded, resolveQueuedAnswer, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
-import { SpokenLanguagePicker, useSpokenLanguageChoice } from "@/components/transcript/SpokenLanguagePicker";
+import { enqueue, onRecordingLanded, onSessionLanded, queueRecordBy, resolveQueuedAnswer, trayAct, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
+import { useSpokenLanguageChoice } from "@/components/transcript/SpokenLanguagePicker";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
-import { Toggle } from "@/components/ui/Toggle";
 import { ApiError, clockOffset, listResource } from "@/lib/api";
 import { loadInstrumentQuestions, requiredUnanswered, type InstrumentQuestion, type InstrumentSection } from "@/components/questionnaire/instrumentQuestions";
-import { SessionActions } from "@/components/questionnaire/SessionActions";
+import { SessionActions, SessionPeople } from "@/components/questionnaire/SessionActions";
+import { OutboxTray } from "@/components/questionnaire/OutboxTray";
 import {
   offlineCheck,
   overlayFromUnits,
+  pendingTakes,
   preselectReason,
   questionKey,
+  questionProgress,
   readSnapshot,
   refreshSnapshot,
   sectionKey,
   shortName,
   takesFromRecordings,
-  withTakes
+  withTakes,
+  type QuestionMark,
+  type SectionQuestionProgress
 } from "@/lib/questionnaire/coverageCache";
 import { sha256Hex } from "@/lib/questionnaire/hashFile";
 import { prefillItems } from "@/lib/questionnaire/prefill";
@@ -45,23 +57,25 @@ import {
   toGridView,
   type GridQuestion,
   type GridView as Grid,
+  type RecordBy,
   type Recording,
   type RepeatReason,
   type Session,
-  type SessionDetail
+  type SessionDetail,
+  type SessionReview
 } from "@/lib/questionnaire/api";
-import { prompts, shortDate, type P2Input, type PromptSpec } from "@/lib/questionnaire/prompts";
-import { clipUploadState, sessionUnitKey, type ClipStep, type SessionUnit } from "@/lib/questionnaire/queue";
+import { durationLabel, prompts, shortDate, type P2Input, type PromptSpec } from "@/lib/questionnaire/prompts";
+import { clipUploadState, queuedRecordBy, sendDetails, sessionUnitKey, stepKey, type ClipStep, type SessionUnit } from "@/lib/questionnaire/queue";
 import { consentSubject, pickedFileMeta, rosterArtisans, takesFor, takeSubjects } from "@/lib/questionnaire/view";
 import { assembleTake, recorderStore, recoverable, recoveredMinutes, type TakeChunk, type TakeDraft } from "@/lib/questionnaire/recorderStore";
-import { OutboxTray } from "@/components/questionnaire/OutboxTray";
+import { settleBatch, type UploadRow } from "@/lib/questionnaire/uploads";
 import { qs } from "@/lib/questionnaire/qs";
 import { sessionSpokenLanguage } from "@/lib/transcript/spokenLanguage";
 import { artisanFilter } from "@/lib/questionnairePortal";
 import type { Artisan } from "@/lib/types";
 
 type Target = { sectionId: string } | { questionLineageId: string };
-type Pending = { targets: Target[]; label: string; code: string; file?: File | null; roster: string[] };
+type Pending = { targets: Target[]; label: string; code: string; file?: File | null; files?: UploadRow[]; roster: string[] };
 type TakeContext = {
   pending: Pending;
   reasons: Record<string, RepeatReason>;
@@ -71,6 +85,9 @@ type TakeContext = {
   sha: string | null;
   source: string;
 };
+type HeldTake = { take: FinishedTake; context: TakeContext };
+
+export const SECTIONS_SHOWN = 12;
 
 function localSession(body: import("@/lib/questionnaire/api").SessionCreate, title: string): Session {
   return {
@@ -104,6 +121,7 @@ function localSession(body: import("@/lib/questionnaire/api").SessionCreate, tit
     submittedAt: null,
     reviewReasons: [],
     counts: { sections: 0, takes: 0, needsDecision: 0 },
+    recordBy: body.recordBy ?? "SECTION",
     respondents: (body.respondents ?? []).map((r, i) => ({ id: `local-${i}`, sessionId: body.clientKey, name: r.name, kind: r.kind, notes: r.notes ?? null, userId: null }))
   };
 }
@@ -116,21 +134,70 @@ function queuedClipKeys(units: SessionUnit[]): Set<string> {
   return new Set(units.flatMap((u) => u.steps.filter((s): s is ClipStep => s.kind === "clip").map((s) => s.clientClipKey)));
 }
 
+export function sectionSubline(p: Pick<SectionQuestionProgress, "answered" | "total" | "inSectionTake" | "typedOnly"> | undefined): string {
+  if (!p || p.total === 0) return qs("questionCount", { count: 0 });
+  if (p.answered === 0) return qs("questionCount", { count: p.total });
+  const base = qs("answeredOfTotal", { answered: p.answered, total: p.total });
+  if (p.inSectionTake) return `${base} · ${qs("inSectionTake")}`;
+  if (p.typedOnly) return `${base} · ${qs("stateTyped")}`;
+  return base;
+}
+
+export type SectionTone = "done" | "started" | "current" | "blank";
+
+export function sectionTone(p: Pick<SectionQuestionProgress, "answered" | "total"> | undefined, open: boolean): SectionTone {
+  if (open) return "current";
+  if (!p || p.answered === 0) return "blank";
+  return p.total > 0 && p.answered >= p.total ? "done" : "started";
+}
+
+const TILE: Record<SectionTone, string> = {
+  done: "bg-success-100 text-success-600 dark:bg-success-600/25 dark:text-green-400",
+  started: "bg-field-100 text-ink-900",
+  current: "bg-purple-700 text-white",
+  blank: "border border-line-200 bg-card text-ink-700"
+};
+
+const SUB: Record<SectionTone, string> = {
+  done: "text-success-600 dark:text-green-400",
+  started: "text-ink-700",
+  current: "text-purple-800 dark:text-purple-200",
+  blank: "text-ink-500"
+};
+
+export function sectionsToShow(count: number, openIndex: number, all: boolean): number {
+  if (all) return count;
+  return Math.min(count, Math.max(SECTIONS_SHOWN, openIndex + 1));
+}
+
+export function scrollSectionIntoView(node: { scrollIntoView: (options: ScrollIntoViewOptions) => void } | null, reduce: boolean) {
+  node?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+}
+
 export function SessionWorkspace({ id }: { id: string }) {
   const router = useRouter();
   const { user } = useAuth();
   const { canDeleteRecords } = useAdminView();
   const config = useQuestionnaireConfig();
+  const reduce = useAppReducedMotion();
   const paused = config?.transcriptionPaused ?? true;
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [grid, setGrid] = useState<Grid | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<{ sectionId: string; artisanId: string | null } | null>(null);
   const [activeSection, setActiveSection] = useState<string | null>(null);
-  const [typeAnswers, setTypeAnswers] = useState(false);
+  const [scrollTo, setScrollTo] = useState<{ id: string; at: number } | null>(null);
+  const [allSections, setAllSections] = useState(false);
+  const [typing, setTyping] = useState<Record<string, true>>({});
+  const [view, setView] = useState<"session" | "review">("session");
+  const [review, setReview] = useState<SessionReview | null>(null);
+  const [uploadFor, setUploadFor] = useState<UploadTarget | null>(null);
+  const [trayOpen, setTrayOpen] = useState(false);
+  const [micOff, setMicOff] = useState<UploadTarget | null>(null);
+  const [recordByLocal, setRecordByLocal] = useState<RecordBy | null>(null);
   const [p2, setP2] = useState<{ pending: Pending; input: P2Input; reason: RepeatReason; check: CoverageCheckResponse } | null>(null);
   const [recording, setRecording] = useState<{ target: RecorderTarget; context: TakeContext } | null>(null);
-  const [answering, setAnswering] = useState<{ take: FinishedTake; context: TakeContext; chosen: string[] } | null>(null);
+  const [answering, setAnswering] = useState<{ takes: HeldTake[]; chosen: string[]; caption: string } | null>(null);
   const [lastAnswered, setLastAnswered] = useState<Record<string, string[]>>({});
   const [p3, setP3] = useState<Pending | null>(null);
   const [p5, setP5] = useState<{ spec: PromptSpec; act: ((choice: string) => Promise<void>) | null } | null>(null);
@@ -147,13 +214,43 @@ export function SessionWorkspace({ id }: { id: string }) {
   const [proposals, setProposals] = useState<Record<string, AnswerProposal>>({});
   const [proposalNote, setProposalNote] = useState<string | null>(null);
   const [revealLineage, setRevealLineage] = useState<string | null>(null);
+  const [dockHeight, setDockHeight] = useState(0);
+  const dockRef = useRef<HTMLDivElement | null>(null);
+  const wantedSection = useRef<string | null>(null);
+
+  const openSection = useCallback((sectionId: string | null) => {
+    setActiveSection(sectionId);
+    if (sectionId) setScrollTo({ id: sectionId, at: Date.now() });
+  }, []);
+
   useEffect(() => {
     if (!revealLineage || !grid) return;
     const section = grid.sections.find((s) => s.questions?.some((q) => q.lineageId === revealLineage));
     if (!section) return;
-    setActiveSection(section.id);
+    openSection(section.id);
     setRevealLineage(null);
-  }, [revealLineage, grid]);
+  }, [revealLineage, grid, openSection]);
+
+  useEffect(() => {
+    if (!scrollTo || view !== "session") return;
+    const frame = requestAnimationFrame(() => scrollSectionIntoView(document.getElementById(`section-${scrollTo.id}`), reduce));
+    return () => cancelAnimationFrame(frame);
+  }, [scrollTo, reduce, view]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    wantedSection.current = new URLSearchParams(window.location.search).get("section");
+  }, []);
+
+  useEffect(() => {
+    const wanted = wantedSection.current;
+    if (!wanted || !grid) return;
+    const match = grid.sections.find((s) => s.id === wanted || s.code === wanted);
+    if (!match) return;
+    wantedSection.current = null;
+    openSection(match.id);
+  }, [grid, openSection]);
+
   const queue = useSessionQueue(detail ?? id);
   const unitsRef = useRef<SessionUnit[]>(queue.units);
   useEffect(() => {
@@ -276,6 +373,24 @@ export function SessionWorkspace({ id }: { id: string }) {
     });
   }, [detail, questions, userId, load]);
 
+  const reviewFor = view === "review" && detail && detail.version > 0 ? detail.id : null;
+  useEffect(() => {
+    if (!reviewFor) return;
+    let cancelled = false;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    questionnaireApi
+      .review(reviewFor)
+      .then((r) => {
+        if (!cancelled) setReview(r && Array.isArray(r.stillToAsk) ? r : null);
+      })
+      .catch(() => {
+        if (!cancelled) setReview(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reviewFor]);
+
   const pendingCount = queue.pendingClips.length;
   const inHand = recording !== null || answering !== null ? 1 : 0;
   const guarded = pendingCount + inHand;
@@ -289,26 +404,30 @@ export function SessionWorkspace({ id }: { id: string }) {
     return () => window.removeEventListener("beforeunload", warn);
   }, [guarded]);
 
-  const shownGrid = useMemo<Grid | null>(() => {
-    if (!grid) return null;
-    const cells = [...grid.cells];
-    for (const step of queue.pendingClips as ClipStep[]) {
-      for (const subject of step.recording.subjects) {
-        if (subject.role !== "ANSWERED") continue;
-        const column = subject.artisanId ?? (subject.respondentId ? `R:${subject.respondentId}` : null);
-        if (!column) continue;
-        for (const t of step.recording.targets) {
-          const key = "sectionId" in t ? sectionKey(t.sectionId) : null;
-          if (!key) continue;
-          const existing = cells.findIndex((c) => c.artisanId === column && c.targetKey === key);
-          const state = queue.online ? "UPLOADING" : "ON_DEVICE";
-          if (existing < 0) cells.push({ artisanId: column, targetKey: key, state, count: 1 });
-          else if (cells[existing].state === "NOT_RECORDED") cells[existing] = { ...cells[existing], state };
-        }
-      }
+  const showDock = Boolean(recording) || Boolean(activeSection && detail?.state === "OPEN" && (recordByLocal ?? queuedRecordBy(queue.unit) ?? detail?.recordBy ?? "SECTION") === "SECTION");
+  useEffect(() => {
+    const node = dockRef.current;
+    if (!node || typeof ResizeObserver === "undefined") {
+      setDockHeight(0);
+      return;
     }
-    return { ...grid, cells };
-  }, [grid, queue.pendingClips, queue.online]);
+    const set = () => setDockHeight(Math.ceil(node.getBoundingClientRect().height));
+    set();
+    const observer = new ResizeObserver(set);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [showDock, view]);
+
+  const progress = useMemo(
+    () =>
+      questionProgress({
+        sections: grid?.sections ?? [],
+        recordings: detail?.recordings ?? [],
+        answers: detail?.answers ?? [],
+        pending: pendingTakes(queue.unit ? [queue.unit] : [])
+      }),
+    [grid, detail, queue.unit]
+  );
 
   const spoken = useSpokenLanguageChoice(detail?.participants.map((p) => p.artisanId) ?? [], {
     preset: sessionSpokenLanguage(detail?.clientKey, detail?.id, id),
@@ -327,9 +446,12 @@ export function SessionWorkspace({ id }: { id: string }) {
       </div>
     );
   }
-  if (!detail || !shownGrid) return <div className="panel p-4 text-sm text-ink-500">{qs("loading")}</div>;
+  if (!detail || !grid) return <div className="panel p-4 text-sm text-ink-500">{qs("loading")}</div>;
 
+  const shownGrid = grid;
   const session = detail;
+  const live = session.state === "OPEN";
+  const recordBy: RecordBy = recordByLocal ?? queuedRecordBy(queue.unit) ?? session.recordBy ?? "SECTION";
   const unitSession = { id: session.id, clientKey: session.clientKey };
   const guests = (session.respondents ?? []).filter((r) => !r.artisanId);
   const roster = [...session.participants.filter((p) => !p.leftAt).map((p) => p.artisanId), ...guests.map((g) => `R:${g.id}`)];
@@ -341,6 +463,7 @@ export function SessionWorkspace({ id }: { id: string }) {
   const me = user?.id ?? null;
   const mayOverride = Boolean(user && (canDeleteRecords || session.researchers.some((r) => r.userId === user.id && r.role === "LEAD")));
   const unanswered = requiredUnanswered(questions, detail.answers.map((a) => ({ ...a, text: a.text ?? "" })), subjects.map((s) => s.key), detail.recordings);
+  const soloArtisan = session.participants.length === 1 ? session.participants[0].artisanId : null;
   const sectionOf = (lineageId: string) => shownGrid.sections.find((s) => s.questions?.some((q) => q.lineageId === lineageId))?.id ?? null;
   const sectionOfTargets = (targets: Target[]) => {
     const t = targets[0];
@@ -397,6 +520,26 @@ export function SessionWorkspace({ id }: { id: string }) {
       participantCount: detail!.participantCount + 1,
       participants: [...detail!.participants, { artisanId: artisan.id, name: artisan.name, joinedAt: new Date().toISOString(), leftAt: null, consent: null }]
     });
+  }
+
+  async function changeRecordBy(next: RecordBy) {
+    if (next === recordBy) return;
+    setRecordByLocal(next);
+    const online = typeof navigator === "undefined" || navigator.onLine !== false;
+    if (online && session.version > 0) {
+      try {
+        const saved = await sendDetails(questionnaireApi, session.id, { version: session.version, recordBy: next });
+        setDetail((current) => (current ? { ...current, recordBy: saved.recordBy ?? next, version: saved.version ?? current.version } : current));
+        return;
+      } catch (error) {
+        if (error instanceof ApiError && error.status !== 409 && error.status < 500) {
+          setRecordByLocal(null);
+          setTakeError(error.message);
+          return;
+        }
+      }
+    }
+    await queueRecordBy(unitSession, next, session.version).catch(() => undefined);
   }
 
   async function identicalPrompt(other: NonNullable<CoverageCheckResponse["identical"]>, pending: Pending) {
@@ -471,7 +614,7 @@ export function SessionWorkspace({ id }: { id: string }) {
           names,
           targetLabel: pending.label,
           code: pending.code,
-          filePick: Boolean(pending.file),
+          filePick: Boolean(pending.file || pending.files?.length),
           part2Allowed: Boolean(last && last.sameSession),
           replaceAllowed: Boolean(last && last.sameSession && last.mine)
         }
@@ -486,6 +629,26 @@ export function SessionWorkspace({ id }: { id: string }) {
   }
 
   function proceed(pending: Pending, reasons: Record<string, RepeatReason>, acked: string[], replaces: string | null, continuation: string | null, sha: string | null) {
+    if (pending.files?.length) {
+      finishTakes(
+        pending.files.map((row) => {
+          const meta = pickedFileMeta(row.file, session.sessionDate);
+          return {
+            take: {
+              takeKey: mintKey("file"),
+              clientClipKey: mintKey("clip"),
+              blob: row.file,
+              mimeType: meta.contentType,
+              extension: meta.extension,
+              durationMs: row.durationMs ?? 0,
+              deviceCapturedAt: row.recordedAt
+            },
+            context: { pending: { ...pending, files: undefined }, reasons, acked, replaces, continuation, sha: row.sha, source: row.source }
+          };
+        })
+      );
+      return;
+    }
     if (pending.file) {
       const meta = pickedFileMeta(pending.file, session.sessionDate);
       finishTake(
@@ -509,15 +672,39 @@ export function SessionWorkspace({ id }: { id: string }) {
   }
 
   function finishTake(take: FinishedTake, context: TakeContext) {
-    if (context.pending.roster.length > 1) {
-      const remembered = lastAnswered[sectionOfTargets(context.pending.targets)]?.filter((a) => context.pending.roster.includes(a));
-      setAnswering({ take, context, chosen: remembered?.length ? remembered : context.pending.roster });
-      return;
-    }
-    void queueClip(take, context, new Set(context.pending.roster));
+    finishTakes([{ take, context }]);
   }
 
-  async function queueClip(take: FinishedTake, context: TakeContext, answered: ReadonlySet<string>) {
+  function finishTakes(takes: HeldTake[]) {
+    const first = takes[0];
+    if (!first) return;
+    if (first.context.pending.roster.length > 1) {
+      const remembered = lastAnswered[sectionOfTargets(first.context.pending.targets)]?.filter((a) => first.context.pending.roster.includes(a));
+      setAnswering({
+        takes,
+        chosen: remembered?.length ? remembered : first.context.pending.roster,
+        caption: answeredByCaption(first.context.pending.label, takes.reduce((n, t) => n + (t.take.durationMs || 0), 0))
+      });
+      return;
+    }
+    void queueTakes(takes, new Set(first.context.pending.roster));
+  }
+
+  async function queueTakes(takes: HeldTake[], answered: ReadonlySet<string>) {
+    const files = takes.map((t) => (t.take.blob instanceof File ? t.take.blob : new File([t.take.blob], t.take.takeKey)));
+    const outcome = await settleBatch(files, async () => {
+      const uploaded: string[] = [];
+      const failed: { name: string; error: string }[] = [];
+      for (const [index, held] of takes.entries()) {
+        if (await queueClip(held.take, held.context, answered)) uploaded.push(held.take.takeKey);
+        else failed.push({ name: files[index].name, error: qs("takeNotSaved") });
+      }
+      return { uploaded, failed };
+    });
+    if (takes.length > 1 && outcome.left.length) setTakeError(`${qs("takeNotSaved")} ${outcome.left.map((f) => f.name).join(", ")}`);
+  }
+
+  async function queueClip(take: FinishedTake, context: TakeContext, answered: ReadonlySet<string>): Promise<boolean> {
     setTakeError(null);
     try {
       const sha = context.sha ?? (await sha256Hex(take.blob));
@@ -550,8 +737,10 @@ export function SessionWorkspace({ id }: { id: string }) {
       };
       await enqueue(unitSession, step, { key: take.takeKey, blob: take.blob });
       await recorderStore.discard(take.takeKey).catch(() => undefined);
+      return true;
     } catch {
       setTakeError(qs("takeNotSaved"));
+      return false;
     } finally {
       takesInHand.delete(take.takeKey);
       void checkRecovery();
@@ -584,6 +773,25 @@ export function SessionWorkspace({ id }: { id: string }) {
 
   const press = (targets: Target[], label: string, code: string, file?: File) => void begin({ targets, label, code, file, roster });
 
+  function targetOf(upload: UploadTarget): { targets: Target[]; label: string; code: string } {
+    if (upload.kind === "SECTION") {
+      const s = shownGrid.sections.find((x) => x.id === upload.sectionId);
+      return { targets: [{ sectionId: upload.sectionId }], label: `Section ${s?.code ?? ""}`.trim(), code: s?.code ?? "" };
+    }
+    if (upload.kind === "QUESTION") {
+      const code = labelOf(questionKey(upload.lineageId));
+      return { targets: [{ questionLineageId: upload.lineageId }], label: code, code };
+    }
+    return { targets: [], label: qs("wholeSession"), code: "" };
+  }
+
+  function uploadFiles(rows: UploadRow[], upload: UploadTarget) {
+    setUploadFor(null);
+    if (!rows.length) return;
+    const t = targetOf(upload);
+    void begin({ ...t, roster, files: rows });
+  }
+
   async function offerAnswers(recording: Recording) {
     setProposalNote(null);
     try {
@@ -600,12 +808,19 @@ export function SessionWorkspace({ id }: { id: string }) {
         }
         return next;
       });
-      setTypeAnswers(true);
+      setTyping((held) => ({ ...held, ...Object.fromEntries(found.map((p) => [p.questionLineageId, true] as const)) }));
       setProposalNote(found.length ? qs("proposalsReady", { count: found.length }) : qs("noProposals"));
       if (found[0]) setRevealLineage(found[0].questionLineageId);
     } catch (error) {
       setProposalNote(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  function questionAction(sectionId: string, q: GridQuestion, action: OverflowAction) {
+    if (action === "record") press([{ questionLineageId: q.lineageId }], q.displayCode, q.displayCode);
+    else if (action === "upload") setUploadFor({ kind: "QUESTION", lineageId: q.lineageId });
+    else setTyping((held) => ({ ...held, [q.lineageId]: true }));
+    if (activeSection !== sectionId) openSection(sectionId);
   }
 
   const sheetSection = sheet ? shownGrid.sections.find((s) => s.id === sheet.sectionId) ?? null : null;
@@ -623,62 +838,35 @@ export function SessionWorkspace({ id }: { id: string }) {
   const activeGridSection = activeSection ? shownGrid.sections.find((s) => s.id === activeSection) ?? null : null;
   const myClips = (queue.unit?.steps ?? []).filter((s): s is ClipStep => s.kind === "clip" && s.status !== "DONE");
   const conflict = queue.conflicts[0] ?? null;
+  const save = saveState(queue.unit?.steps ?? [], queue.progress, queue.online);
+  const queuedShas: Record<string, string> = Object.fromEntries(
+    queue.units.flatMap((u) => u.steps.filter((s): s is ClipStep => s.kind === "clip").map((s) => [s.presign.contentSha256 ?? "", s.recording.deviceCapturedAt] as const)).filter(([sha]) => sha)
+  );
+  const openIndex = activeSection ? shownGrid.sections.findIndex((s) => s.id === activeSection) : -1;
+  const shownCount = sectionsToShow(shownGrid.sections.length, openIndex, allSections);
+  const uploadSections = shownGrid.sections.map((s) => ({ id: s.id, code: s.code, title: s.title, questions: s.questions ?? [] }));
+  const typedText = (lineageId: string) => detail.answers.find((a) => a.questionLineageId === lineageId && (a.text ?? "").trim())?.text?.trim() ?? null;
+  const recordingHeading = recording
+    ? recording.context.pending.targets.length === 1 && "sectionId" in recording.context.pending.targets[0]
+      ? qs("recordingSection", { code: recording.context.pending.code })
+      : qs("recordingTarget", { target: recording.context.pending.label })
+    : "";
+  const failedUploads: FailedUpload[] = myClips
+    .filter((s) => s.error !== "MISSING_FILE" && (s.status === "FAILED" || Boolean(s.error)))
+    .map((s) => ({
+      key: s.clientClipKey,
+      code: s.label ?? qs("wholeSession"),
+      onRetry: () => {
+        if (s.status === "FAILED" && queue.unit) void trayAct(queue.unit.id, stepKey(s), "again");
+        else queue.retry();
+      }
+    }));
+  const decisions = detail.recordings.filter((r) => !r.removedAt && r.filing === "NEEDS_DECISION");
+  const firstNames = session.participants.map((p) => shortName(p.name)).filter(Boolean);
+  const awayPeople = session.participants.filter((p) => p.leftAt);
 
-  return (
-    <div className="grid gap-4" data-session-workspace>
-      <OutboxTray sessionId={session.id} />
-      <SessionHeader
-        session={session}
-        pendingTakes={pendingCount}
-        onFinish={() => setFinishOpen(true)}
-        onPresence={(artisanId, present) => {
-          const at = new Date().toISOString();
-          void enqueue(unitSession, { kind: "participant", status: "PENDING", op: present ? "join" : "leave", artisanId, at, idempotencyKey: mintKey("part") });
-          setDetail({ ...detail, participants: detail.participants.map((p) => (p.artisanId === artisanId ? { ...p, leftAt: present ? null : at } : p)) });
-        }}
-        onRemove={
-          session.version > 0
-            ? (artisanId) => {
-                const count = takesFor(detail.recordings, artisanId);
-                const name = shortName(names[artisanId] ?? "");
-                if (count > 0) setP10({ artisanId, name, count });
-                else void dropParticipant(artisanId, false);
-              }
-            : undefined
-        }
-        onAddArtisan={session.state === "OPEN" ? () => setAdding(!adding) : undefined}
-      />
-
-      {adding ? (
-        <AddArtisan exclude={session.participants.map((p) => p.artisanId)} scope={session.designWorkshopId ?? session.workshop?.id ?? null} onPick={(a) => void addArtisan(a)} />
-      ) : null}
-
-      {session.version > 0 ? <SessionActions session={session} onChanged={() => void load()} /> : null}
-
-      {session.state === "OPEN" ? (
-        <div className="panel p-3 sm:max-w-sm" data-session-spoken-language>
-          <SpokenLanguagePicker value={spoken.value} onChange={spoken.choose} suggestion={spoken.suggestion} />
-        </div>
-      ) : null}
-
-      {proposalNote ? (
-        <p role="status" className="panel p-3 text-sm text-ink-700" data-proposal-note>
-          {proposalNote}
-        </p>
-      ) : null}
-
-      {myClips.filter((s) => s.error === "MISSING_FILE").map((s) => (
-        <p key={s.clientClipKey} role="status" className="panel border-error-600/30 p-3 text-sm text-error-600">
-          {qs("missingOutboxFile", { target: s.label ?? qs("wholeSession"), date: shortDate(s.recording.deviceCapturedAt) })}
-        </p>
-      ))}
-
-      {takeError ? (
-        <p role="alert" className="panel border-error-600/30 p-3 text-sm text-error-600">
-          {takeError}
-        </p>
-      ) : null}
-
+  const dialogs = (
+    <>
       {p13.length ? (
         <PromptDialog
           spec={prompts.p13({ minutes: recoveredMinutes(p13[0].draft, p13[0].chunks), target: p13[0].draft.targetLabel })}
@@ -717,173 +905,30 @@ export function SessionWorkspace({ id }: { id: string }) {
         />
       ) : null}
 
-      {recording ? (
-        <div className="panel p-4">
-          <Recorder
-            target={recording.target}
-            onCancel={() => setRecording(null)}
-            onFinished={(take) => {
-              const r = recording;
-              setRecording(null);
-              finishTake(take, r.context);
-            }}
-          />
-        </div>
-      ) : null}
-
       {answering ? (
-        <section className="panel grid gap-3 p-4" data-answered-by>
-          <h2 className="field-label">{qs("answeredBy")}</h2>
-          <div className="flex flex-wrap gap-2" role="group" aria-label={qs("answeredBy")}>
-            {answering.context.pending.roster.map((artisanId) => {
-              const on = answering.chosen.includes(artisanId);
-              return (
-                <button
-                  key={artisanId}
-                  type="button"
-                  role="checkbox"
-                  aria-checked={on}
-                  data-answered={artisanId}
-                  className={`min-h-10 rounded-full border px-3 text-sm ${on ? "border-purple-700 bg-purple-700 text-white" : "border-line-200 bg-card text-ink-700"}`}
-                  onClick={() =>
-                    setAnswering({ ...answering, chosen: on ? answering.chosen.filter((a) => a !== artisanId) : [...answering.chosen, artisanId] })
-                  }
-                >
-                  {shortName(names[artisanId] ?? "")}
-                </button>
-              );
-            })}
-          </div>
-          <ButtonRow>
-            <button
-              type="button"
-              className="field-button"
-              disabled={answering.chosen.length === 0}
-              onClick={() => {
-                const current = answering;
-                setAnswering(null);
-                setLastAnswered({ ...lastAnswered, [sectionOfTargets(current.context.pending.targets)]: current.chosen });
-                void queueClip(current.take, current.context, new Set(current.chosen));
-              }}
-            >
-              {qs("saveTake")}
-            </button>
-          </ButtonRow>
-        </section>
-      ) : null}
-
-      <section className="panel grid gap-3 p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          {shownGrid.sections.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              aria-pressed={activeSection === s.id}
-              className={`min-h-10 min-w-10 rounded-md border px-2 text-sm font-semibold ${activeSection === s.id ? "border-purple-700 bg-purple-700 text-white" : "border-line-200 bg-card text-ink-700"}`}
-              onClick={() => {
-                setRevealLineage(null);
-                setActiveSection(activeSection === s.id ? null : s.id);
-              }}
-            >
-              {s.code}
-            </button>
-          ))}
-          {pendingCount ? <span className="ml-auto text-xs text-purple-700">{qs("takesUploading", { count: pendingCount })}</span> : null}
-        </div>
-        {myClips.length ? (
-          <ul className="grid gap-1" data-upload-states>
-            {myClips
-              .filter((s) => s.error !== "MISSING_FILE")
-              .map((s) => {
-                const state = clipUploadState(s, queue.progress[s.clientClipKey], queue.online);
-                const words =
-                  state.kind === "UPLOADING"
-                    ? qs("uploadingPercent", { percent: state.percent })
-                    : state.kind === "WAITING"
-                      ? qs("waitingForSignal")
-                      : state.kind === "UPLOADED"
-                        ? qs("uploaded")
-                        : qs("uploadFailedRetrying");
-                const bad = state.kind === "RETRYING" || state.kind === "FAILED";
-                return (
-                  <li key={s.clientClipKey} className="flex flex-wrap items-center justify-between gap-2 text-xs" data-upload-state={state.kind}>
-                    <span className="text-ink-700">{[s.label ?? qs("wholeSession"), shortDate(s.recording.deviceCapturedAt)].filter(Boolean).join(" · ")}</span>
-                    <span className={bad ? "text-error-600" : "text-ink-500"}>{words}</span>
-                    {bad && queue.online ? (
-                      <button type="button" className="text-xs font-semibold text-purple-700 underline dark:text-purple-300" onClick={queue.retry}>
-                        {qs("retry")}
-                      </button>
-                    ) : null}
-                  </li>
-                );
-              })}
-          </ul>
-        ) : null}
-        {shownGrid.sections.length ? (
-          <CoverageGrid
-            grid={shownGrid}
-            artisans={[...session.participants.map((p) => ({ id: p.artisanId, name: p.name })), ...guests.map((g) => ({ id: `R:${g.id}`, name: g.name }))]}
-            activeSectionId={activeSection}
-            onOpen={(sectionId, artisanId) => setSheet({ sectionId, artisanId })}
-          />
-        ) : (
-          <ButtonRow>
-            <button type="button" className="field-button" onClick={() => press([], qs("wholeSession"), "")}>
-              {qs("record")}
-            </button>
-          </ButtonRow>
-        )}
-      </section>
-
-      {activeGridSection ? (
-        <section className="panel grid gap-3 p-4" data-section-body={activeGridSection.code}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="display-title text-lg">
-              {activeGridSection.code} {activeGridSection.title}
-            </h2>
-            <Toggle label={qs("typeAnswers")} checked={typeAnswers} onChange={setTypeAnswers} />
-          </div>
-          <ButtonRow>
-            <button type="button" className="field-button" onClick={() => press([{ sectionId: activeGridSection.id }], `Section ${activeGridSection.code}`, activeGridSection.code)}>
-              {qs("recordSection")}
-            </button>
-          </ButtonRow>
-          <ol className="grid gap-3">
-            {(activeGridSection.questions ?? []).map((q) => (
-              <li key={q.lineageId} className="rounded-md border border-line-200 p-3">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <p className="text-sm text-ink-900">
-                    <span className="mr-2 font-semibold">{q.displayCode}</span>
-                    {q.prompt}
-                    {questions[activeGridSection.id]?.find((x) => x.lineageId === q.lineageId)?.required ? (
-                      <span className="ml-1 text-error-600" aria-label={qs("required")}>
-                        *
-                      </span>
-                    ) : null}
-                  </p>
-                  <button type="button" className="field-button-secondary" onClick={() => press([{ questionLineageId: q.lineageId }], q.displayCode, q.displayCode)}>
-                    {qs("record")}
-                  </button>
-                </div>
-                {typeAnswers ? (
-                  <AnswerBox
-                    key={`${q.lineageId}:${proposals[q.lineageId]?.sourceRecordingId ?? ""}`}
-                    session={session}
-                    lineageId={q.lineageId}
-                    code={q.displayCode}
-                    subjects={subjects}
-                    answers={detail.answers.filter((a) => a.questionLineageId === q.lineageId)}
-                    recordings={detail.recordings}
-                    me={me}
-                    mayOverride={mayOverride}
-                    proposal={proposals[q.lineageId] ?? null}
-                    required={Boolean(questions[activeGridSection.id]?.find((x) => x.lineageId === q.lineageId)?.required)}
-                  />
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        </section>
+        <AnsweredBySheet
+          people={[
+            ...answering.takes[0].context.pending.roster.map((a) => ({ id: a, name: names[a] ?? "", away: false })),
+            ...awayPeople.filter((p) => !answering.takes[0].context.pending.roster.includes(p.artisanId)).map((p) => ({ id: p.artisanId, name: p.name, away: true }))
+          ]}
+          chosen={answering.chosen}
+          caption={answering.caption}
+          onToggle={(who) => setAnswering({ ...answering, chosen: answering.chosen.includes(who) ? answering.chosen.filter((a) => a !== who) : [...answering.chosen, who] })}
+          onLater={() => {
+            const current = answering;
+            setAnswering(null);
+            void queueTakes(current.takes, new Set());
+          }}
+          onSave={() => {
+            const current = answering;
+            setAnswering(null);
+            const first = current.takes[0].context.pending;
+            setLastAnswered({ ...lastAnswered, [sectionOfTargets(first.targets)]: current.chosen });
+            const extra = current.chosen.filter((a) => !first.roster.includes(a));
+            const takes = extra.length ? current.takes.map((t) => ({ ...t, context: { ...t.context, pending: { ...t.context.pending, roster: [...t.context.pending.roster, ...extra] } } })) : current.takes;
+            void queueTakes(takes, new Set(current.chosen));
+          }}
+        />
       ) : null}
 
       {sheet && sheetSection ? (
@@ -893,7 +938,7 @@ export function SessionWorkspace({ id }: { id: string }) {
           recordings={sheetRecordings}
           artisanId={sheet.artisanId}
           paused={paused}
-          canRecord={session.state === "OPEN"}
+          canRecord={live}
           onClose={() => setSheet(null)}
           onRecord={() => {
             setSheet(null);
@@ -927,9 +972,72 @@ export function SessionWorkspace({ id }: { id: string }) {
       ) : null}
 
       {consentFor ? (
-        <div className="panel p-4">
+        <FieldDialog open onClose={() => setConsentFor(null)} title={consentFor.name}>
           <ConsentQuestion artisanId={consentFor.artisanId} name={consentFor.name} refused onRecorded={() => setConsentFor(null)} onDismiss={() => setConsentFor(null)} />
-        </div>
+        </FieldDialog>
+      ) : null}
+
+      {uploadFor ? (
+        <UploadSheet
+          sessionDate={session.sessionDate}
+          sections={uploadSections}
+          sectionId={uploadFor.kind === "SECTION" ? uploadFor.sectionId : uploadFor.kind === "QUESTION" ? sectionOf(uploadFor.lineageId) : activeSection}
+          defaultTarget={uploadFor}
+          queuedShas={queuedShas}
+          onClose={() => setUploadFor(null)}
+          onUpload={uploadFiles}
+        />
+      ) : null}
+
+      {micOff ? (
+        <PromptDialog
+          spec={prompts.micOff()}
+          open
+          onChoose={(choice) => {
+            const target = micOff;
+            setMicOff(null);
+            if (choice === "upload") setUploadFor(target);
+          }}
+        />
+      ) : null}
+
+      {trayOpen ? (
+        <FieldDialog open onClose={() => setTrayOpen(false)} title={qs("outboxTitle")}>
+          <div className="grid gap-3" data-tray-dialog>
+            {myClips.length ? (
+              <ul className="grid gap-1.5" data-upload-states>
+                {myClips.map((s) => {
+                  const state = clipUploadState(s, queue.progress[s.clientClipKey], queue.online);
+                  const words =
+                    s.error === "MISSING_FILE"
+                      ? qs("missingOutboxFile", { target: s.label ?? qs("wholeSession"), date: shortDate(s.recording.deviceCapturedAt) })
+                      : state.kind === "UPLOADING"
+                        ? qs("uploadingPercent", { percent: state.percent })
+                        : state.kind === "WAITING"
+                          ? qs("waitingForSignal")
+                          : state.kind === "UPLOADED"
+                            ? qs("uploaded")
+                            : qs("uploadFailedRetrying");
+                  const bad = state.kind === "RETRYING" || state.kind === "FAILED";
+                  return (
+                    <li key={s.clientClipKey} className="flex flex-wrap items-center justify-between gap-2 text-sm" data-upload-state={state.kind}>
+                      <span className="text-ink-700">{[s.label ?? qs("wholeSession"), shortDate(s.recording.deviceCapturedAt)].filter(Boolean).join(" · ")}</span>
+                      <span className={bad ? "text-error-600" : "text-ink-500"}>{words}</span>
+                      {bad && queue.online ? (
+                        <button type="button" className="min-h-11 text-sm font-semibold text-purple-700 underline dark:text-purple-300" onClick={queue.retry}>
+                          {qs("retry")}
+                        </button>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-sm text-ink-500">{qs("saved")}</p>
+            )}
+            <OutboxTray sessionId={session.id} />
+          </div>
+        </FieldDialog>
       ) : null}
 
       {p2 ? <AlreadyRecordedDialog open input={p2.input} preselected={p2.reason} otherTargets={otherTargets} onChoose={chooseP2} /> : null}
@@ -1019,6 +1127,7 @@ export function SessionWorkspace({ id }: { id: string }) {
             setFinishOpen(false);
             if (choice === "finish") {
               await questionnaireApi.finish(session.id).catch(() => undefined);
+              setView("session");
               void load();
             }
           }}
@@ -1035,6 +1144,340 @@ export function SessionWorkspace({ id }: { id: string }) {
           }}
         />
       ) : null}
+    </>
+  );
+
+  if (view === "review") {
+    return (
+      <div className="grid gap-4" data-session-workspace>
+        <ReviewFinish
+          answered={review ? review.answered : progress.answered}
+          total={review ? review.total : progress.total}
+          sectionsDone={progress.sectionsDone}
+          names={firstNames.join(", ")}
+          pending={pendingCount}
+          decisions={decisions}
+          failed={failedUploads}
+          still={stillToAsk(shownGrid.sections, progress, review)}
+          open={live}
+          onChoose={(r) => {
+            const sectionId = r.targets[0]?.sectionId ?? (r.targets[0]?.questionLineageId ? sectionOf(r.targets[0].questionLineageId) : null);
+            if (sectionId) setSheet({ sectionId, artisanId: soloArtisan });
+          }}
+          onOpenSection={(sectionId) => {
+            setView("session");
+            openSection(sectionId);
+          }}
+          onKeepGoing={() => setView("session")}
+          onFinish={() => setFinishOpen(true)}
+        />
+        {dialogs}
+      </div>
+    );
+  }
+
+  const statusLine = (sectionId: string, q: GridQuestion, mark: QuestionMark | undefined) => {
+    const text = typedText(q.lineageId);
+    const openTakes = () => setSheet({ sectionId, artisanId: soloArtisan });
+    return (
+      <>
+        {mark?.kind === "SECTION_TAKE" ? (
+          <button type="button" className="min-h-8 w-fit text-left text-[0.8125rem] font-semibold text-success-600 dark:text-green-400" onClick={openTakes} data-question-state="SECTION_TAKE">
+            {qs("inSectionTake")}
+          </button>
+        ) : null}
+        {mark?.kind === "QUESTION_TAKE" ? (
+          <button
+            type="button"
+            className="flex min-h-8 w-fit items-center gap-1.5 text-left text-[0.8125rem] font-semibold text-success-600 dark:text-green-400"
+            onClick={openTakes}
+            data-question-state="QUESTION_TAKE"
+          >
+            <Mic className="h-4 w-4" aria-hidden />
+            {qs("questionTake", { duration: durationLabel(mark.durationMs) || "—" })}
+          </button>
+        ) : null}
+        {text && !typing[q.lineageId] ? (
+          <button
+            type="button"
+            aria-label={`${qs("typeAnAnswer")}: ${q.displayCode}`}
+            className="flex min-h-11 max-w-full items-center text-left text-sm text-ink-500"
+            onClick={() => setTyping((held) => ({ ...held, [q.lineageId]: true }))}
+            data-typed-preview={q.lineageId}
+          >
+            <span className="min-w-0 truncate">{qs("typedPreview", { text })}</span>
+          </button>
+        ) : null}
+        {!mark || mark.kind === "NONE" ? (
+          !text ? (
+            <span className="text-[0.8125rem] text-ink-500" data-question-state="NONE">
+              {qs("notAsked")}
+            </span>
+          ) : null
+        ) : null}
+      </>
+    );
+  };
+
+  return (
+    <div className="grid gap-4" data-session-workspace>
+      <SessionHeader
+        session={session}
+        answered={progress.answered}
+        total={progress.total}
+        sectionsDone={progress.sectionsDone}
+        sectionsTotal={shownGrid.sections.length}
+        savePill={<SavePill state={save} onOpen={() => setTrayOpen(true)} onRetry={queue.retry} />}
+        onReview={() => setView("review")}
+        menu={
+          <SessionActions
+            session={session}
+            onChanged={() => void load()}
+            recordBy={recordBy}
+            onRecordBy={(next) => void changeRecordBy(next)}
+            spoken={spoken}
+            onRemoveArtisan={
+              session.version > 0
+                ? (artisanId) => {
+                    const count = takesFor(detail.recordings, artisanId);
+                    const name = shortName(names[artisanId] ?? "");
+                    if (count > 0) setP10({ artisanId, name, count });
+                    else void dropParticipant(artisanId, false);
+                  }
+                : undefined
+            }
+          />
+        }
+      />
+
+      <SessionPeople
+        session={session}
+        onChanged={() => void load()}
+        onPresence={(artisanId, present) => {
+          const at = new Date().toISOString();
+          void enqueue(unitSession, { kind: "participant", status: "PENDING", op: present ? "join" : "leave", artisanId, at, idempotencyKey: mintKey("part") });
+          setDetail({ ...detail, participants: detail.participants.map((p) => (p.artisanId === artisanId ? { ...p, leftAt: present ? null : at } : p)) });
+        }}
+        onAddArtisan={session.state === "OPEN" ? () => setAdding(!adding) : undefined}
+      />
+
+      {adding ? (
+        <AddArtisan exclude={session.participants.map((p) => p.artisanId)} scope={session.designWorkshopId ?? session.workshop?.id ?? null} onPick={(a) => void addArtisan(a)} />
+      ) : null}
+
+      {!live ? (
+        <p role="status" className="rounded-md border border-line-200 bg-surface-50 px-4 py-3 text-sm font-medium text-ink-700" data-finished-banner>
+          {qs("finishedReadOnly", { date: shortDate(session.closedAt ?? session.endedAt ?? session.sessionDate) })}
+        </p>
+      ) : null}
+
+      {proposalNote ? (
+        <p role="status" className="panel p-3 text-sm text-ink-700" data-proposal-note>
+          {proposalNote}
+        </p>
+      ) : null}
+
+      {myClips.filter((s) => s.error === "MISSING_FILE").map((s) => (
+        <p key={s.clientClipKey} role="status" className="panel border-error-600/30 p-3 text-sm text-error-600">
+          {qs("missingOutboxFile", { target: s.label ?? qs("wholeSession"), date: shortDate(s.recording.deviceCapturedAt) })}
+        </p>
+      ))}
+
+      {takeError ? (
+        <p role="alert" className="panel border-error-600/30 p-3 text-sm text-error-600">
+          {takeError}
+        </p>
+      ) : null}
+
+      {shownGrid.sections.length ? (
+        <div className="mx-auto grid w-full max-w-[55rem] gap-2" data-sections>
+          {shownGrid.sections.slice(0, shownCount).map((s) => {
+            const p = progress.sections[s.id];
+            const open = activeSection === s.id;
+            const tone = sectionTone(p, open);
+            const sub = open && p && p.answered > 0 ? qs("answeredOfTotal", { answered: p.answered, total: p.total }) : sectionSubline(p);
+            const required = (lineageId: string) => Boolean(questions[s.id]?.find((x) => x.lineageId === lineageId)?.required);
+            return (
+              <section
+                key={s.id}
+                id={`section-${s.id}`}
+                className={`scroll-mt-[var(--session-header-h,0px)] lg:scroll-mt-[calc(var(--session-header-h,0px)+4.25rem)] ${
+                  open ? "overflow-hidden rounded-lg border border-purple-300 bg-card shadow-sm dark:border-purple-700/60" : ""
+                }`}
+                data-section={s.code}
+                data-section-open={open ? "" : undefined}
+              >
+                <button
+                  type="button"
+                  id={`section-head-${s.id}`}
+                  aria-expanded={open}
+                  aria-controls={`section-body-${s.id}`}
+                  aria-label={open ? `${s.code}, ${s.title}, ${sub}. ${qs("closeSection")}` : `${qs("chipSection", { code: s.code })}, ${s.title}, ${sub}`}
+                  className={`flex w-full items-center gap-3.5 text-left transition ${
+                    open
+                      ? "min-h-18 bg-purple-100 px-4 py-3 dark:bg-purple-700/22"
+                      : "min-h-16 rounded-lg border border-line-200 bg-card px-4 py-2.5 hover:border-purple-300"
+                  }`}
+                  onClick={() => openSection(open ? null : s.id)}
+                >
+                  <span aria-hidden className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md font-display text-[0.9375rem] font-bold ${TILE[tone]}`}>
+                    {s.code}
+                  </span>
+                  <span
+                    className={`min-w-0 flex-1 ${open ? "font-display text-lg font-bold leading-6 text-purple-950 sm:text-xl sm:leading-7 dark:text-ink-900" : "text-[0.9375rem] font-semibold leading-5 text-ink-900"}`}
+                  >
+                    {s.title}
+                  </span>
+                  <span className={`shrink-0 text-[0.8125rem] leading-[1.125rem] ${open ? "text-sm font-semibold" : ""} ${SUB[tone]}`}>{sub}</span>
+                  {open ? (
+                    <ChevronUp className="h-4.5 w-4.5 shrink-0 text-purple-800 dark:text-purple-200" aria-hidden />
+                  ) : (
+                    <ChevronDown className="h-4.5 w-4.5 shrink-0 text-ink-500" aria-hidden />
+                  )}
+                </button>
+                {open ? (
+                  <div id={`section-body-${s.id}`} className="grid gap-4 px-4 pb-2 pt-5 sm:px-6" data-section-body={s.code}>
+                    {live && recordBy === "SECTION" && !recording ? (
+                      <RecordUploadPair
+                        recordLabel={qs("recordSection")}
+                        onRecord={() => press([{ sectionId: s.id }], `Section ${s.code}`, s.code)}
+                        onUpload={() => setUploadFor({ kind: "SECTION", sectionId: s.id })}
+                      />
+                    ) : null}
+                    <ol className="grid border-t border-line-200">
+                      {(s.questions ?? []).map((q) => {
+                        const mark = p?.marks[q.lineageId];
+                        const done = Boolean(mark && mark.kind !== "NONE");
+                        return (
+                          <li key={q.lineageId} className="flex gap-3 border-b border-line-200 py-4 sm:gap-4" data-question={q.displayCode}>
+                            <span
+                              aria-hidden
+                              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md font-display text-sm font-bold ${
+                                done ? TILE.done : TILE.blank
+                              }`}
+                            >
+                              {q.displayCode}
+                            </span>
+                            <div className="grid min-w-0 flex-1 gap-2">
+                              <p className="text-base leading-6 text-ink-900">
+                                {q.prompt}
+                                {required(q.lineageId) ? (
+                                  <span className="ml-1 text-error-600" aria-label={qs("required")}>
+                                    *
+                                  </span>
+                                ) : null}
+                              </p>
+                              {statusLine(s.id, q, mark)}
+                              {live && recordBy === "QUESTION" && !recording ? (
+                                <RecordUploadPair
+                                  size="sm"
+                                  recordLabel={qs("record")}
+                                  onRecord={() => press([{ questionLineageId: q.lineageId }], q.displayCode, q.displayCode)}
+                                  onUpload={() => setUploadFor({ kind: "QUESTION", lineageId: q.lineageId })}
+                                />
+                              ) : null}
+                              {typing[q.lineageId] ? (
+                                <AnswerBox
+                                  key={`${q.lineageId}:${proposals[q.lineageId]?.sourceRecordingId ?? ""}`}
+                                  session={session}
+                                  lineageId={q.lineageId}
+                                  code={q.displayCode}
+                                  subjects={subjects}
+                                  answers={detail.answers.filter((a) => a.questionLineageId === q.lineageId)}
+                                  recordings={detail.recordings}
+                                  me={me}
+                                  mayOverride={mayOverride}
+                                  proposal={proposals[q.lineageId] ?? null}
+                                  required={required(q.lineageId)}
+                                  onDone={() => {
+                                    setTyping((held) => {
+                                      const next = { ...held };
+                                      delete next[q.lineageId];
+                                      return next;
+                                    });
+                                    void load();
+                                  }}
+                                />
+                              ) : null}
+                            </div>
+                            {live ? (
+                              <QuestionOverflow
+                                code={q.displayCode}
+                                recordBy={recordBy}
+                                hide={recording ? ["record", "upload"] : []}
+                                onAction={(action) => questionAction(s.id, q, action)}
+                              />
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </div>
+                ) : null}
+              </section>
+            );
+          })}
+          {shownCount < shownGrid.sections.length ? (
+            <div className="flex flex-wrap items-center justify-center gap-x-3.5 gap-y-2 pt-2" data-sections-capped>
+              <span className="text-[0.8125rem] text-ink-500">{qs("showingSections", { shown: shownCount, total: shownGrid.sections.length })}</span>
+              <button type="button" className="field-button-secondary min-h-11 font-semibold" onClick={() => setAllSections(true)}>
+                {qs("showAll", { count: shownGrid.sections.length })}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : live ? (
+        <ButtonRow>
+          <button type="button" className="field-button" onClick={() => press([], qs("wholeSession"), "")}>
+            {qs("record")}
+          </button>
+        </ButtonRow>
+      ) : null}
+
+      {showDock ? (
+        <>
+          <div aria-hidden style={{ height: dockHeight }} />
+          <div
+            ref={dockRef}
+            className="pointer-events-none fixed inset-x-0 z-40 pl-4 pr-[calc(1rem+var(--nav-scroll-gutter,0px))]"
+            style={{ bottom: "var(--bottom-nav-h, 0px)" }}
+            data-dock
+          >
+            <div className="pointer-events-auto mx-auto grid max-w-[55rem] gap-2.5 rounded-t-xl border border-b-0 border-line-200 bg-card px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-3 shadow-lg">
+              {recording ? (
+                <Recorder
+                  target={recording.target}
+                  autoStart
+                  heading={recordingHeading}
+                  onCancel={() => setRecording(null)}
+                  onMicOff={() => {
+                    const r = recording;
+                    setRecording(null);
+                    const t = r.context.pending.targets[0];
+                    setMicOff(!t ? { kind: "SESSION" } : "sectionId" in t ? { kind: "SECTION", sectionId: t.sectionId } : { kind: "QUESTION", lineageId: t.questionLineageId });
+                  }}
+                  onFinished={(take) => {
+                    const r = recording;
+                    setRecording(null);
+                    finishTake(take, r.context);
+                  }}
+                />
+              ) : activeGridSection ? (
+                <div role="region" aria-label={qs("sectionActions", { code: activeGridSection.code })} className="grid gap-2.5">
+                  <span className="text-[0.8125rem] font-medium text-ink-500">{qs("chipSection", { code: activeGridSection.code })}</span>
+                  <RecordUploadPair
+                    recordLabel={qs("recordSection")}
+                    onRecord={() => press([{ sectionId: activeGridSection.id }], `Section ${activeGridSection.code}`, activeGridSection.code)}
+                    onUpload={() => setUploadFor({ kind: "SECTION", sectionId: activeGridSection.id })}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {dialogs}
     </div>
   );
 }

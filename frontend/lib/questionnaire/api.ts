@@ -3,6 +3,7 @@ import { ApiError, apiFetch, buildQuery } from "@/lib/api";
 import type { RecordingChips } from "@/lib/questionnaire/chips";
 import { filtersToQuery, type Filters } from "@/lib/questionnaire/filters";
 import {
+  RecordByValues,
   RepeatReasonValues,
   SessionPurposeValues,
   type AnswerAttribution,
@@ -10,6 +11,7 @@ import {
   type ConsentBasis,
   type ConsentState,
   type ConsentVerdict,
+  type RecordBy,
   type RepeatReason,
   type SessionPurpose,
   type SubjectRole
@@ -86,7 +88,8 @@ export const CONFIG_FALLBACK: QuestionnaireConfig = {
   minAppVersionForCreate: null
 };
 
-export type { AnswerOrigin, ConsentBasis, ConsentState, ConsentVerdict, RepeatReason, SessionPurpose, SubjectRole } from "@/lib/questionnaire/enums";
+export type { AnswerOrigin, ConsentBasis, ConsentState, ConsentVerdict, RecordBy, RepeatReason, SessionPurpose, SubjectRole } from "@/lib/questionnaire/enums";
+export const RECORD_BY: readonly RecordBy[] = RecordByValues;
 export type Attribution = AnswerAttribution;
 export const SESSION_PURPOSES: readonly SessionPurpose[] = SessionPurposeValues;
 export const REPEAT_REASONS: readonly RepeatReason[] = RepeatReasonValues;
@@ -113,6 +116,7 @@ export type SessionCreate = {
   location?: SessionLocation | null;
   crafts?: string[];
   craftsByHand?: string[];
+  recordBy?: RecordBy;
 };
 
 export type SessionLocation = {
@@ -156,6 +160,7 @@ export type SessionPatch = {
   location?: SessionLocation | null;
   crafts?: string[];
   craftsByHand?: string[];
+  recordBy?: RecordBy;
 };
 
 export type SessionParticipant = {
@@ -199,12 +204,26 @@ export type Session = {
   status: string;
   submittedAt: string | null;
   reviewReasons: string[];
-  counts: { sections: number; takes: number; needsDecision: number };
+  counts: { sections: number; takes: number; needsDecision: number; answeredQuestions?: number; totalQuestions?: number };
+  recordBy?: RecordBy;
+  progress?: SessionProgress | null;
   respondents?: Respondent[];
   source?: "APP" | "UPLOAD" | "HANDOFF" | string;
   deletedAt?: string | null;
   chips?: RecordingChips | null;
 };
+
+export type SectionProgress = { sectionId: string; answeredQuestions: number; totalQuestions: number; inSectionTake: boolean };
+export type SessionProgress = { answeredQuestions: number; totalQuestions: number; sections: SectionProgress[] };
+
+export type SessionReview = {
+  answered: number;
+  total: number;
+  needsDecision?: { recordingId: string }[];
+  stillToAsk: { sectionId: string; code: string; title: string; lineages: string[] }[];
+};
+
+export type ShaMatch = { sha: string; recordingId: string | null; sessionId: string | null; sameSession?: boolean; capturedAt?: string | null };
 
 export type RecordingTarget = {
   targetKey: string;
@@ -696,6 +715,9 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
       ),
     getSession: (id: string) => fetchJson<SessionDetail>(`${Q}/sessions/${encodeURIComponent(id)}`),
     patchSession: (id: string, body: SessionPatch) => fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}`, json("PATCH", body)),
+    review: (id: string) => fetchJson<SessionReview>(`${Q}/sessions/${encodeURIComponent(id)}/review`),
+    shaLookup: (sha256s: string[]) =>
+      fetchJson<ShaMatch[] | { items: ShaMatch[] }>(`/media/sha-lookup`, json("POST", { sha256s: sha256s.slice(0, 50) })).then((out) => (Array.isArray(out) ? out : (out?.items ?? []))),
     addParticipant: (id: string, artisanId: string, key = mintKey("part")) =>
       fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}/participants`, json("POST", { artisanId }, key)),
     patchParticipant: (id: string, artisanId: string, body: { joinedAt?: string | null; leftAt?: string | null }) =>

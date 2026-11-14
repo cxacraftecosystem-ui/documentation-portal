@@ -4,7 +4,7 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { loadQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
-import { questionnaireApi, type Recording, type Session } from "@/lib/questionnaire/api";
+import { questionnaireApi, type RecordBy, type Recording, type Session } from "@/lib/questionnaire/api";
 import {
   answerConflicts,
   claimUnits,
@@ -26,6 +26,7 @@ import {
   sessionUnitKey,
   stampOwner,
   unitsOwnedBy,
+  withRecordBy,
   type HeldUnits,
   type QueueStore,
   type SessionUnit,
@@ -158,6 +159,13 @@ export async function enqueue(session: Pick<Session, "id" | "clientKey"> | Sessi
   const s = getStore();
   if (blob) await s.putBlob(blob.key, blob.blob);
   await enqueueStep(s, stampOwner(baseUnit(session), owner), step);
+  await refresh();
+  void drainQueue();
+}
+
+export async function queueRecordBy(session: Pick<Session, "id" | "clientKey"> | SessionUnit, recordBy: RecordBy, version: number) {
+  const base = stampOwner(baseUnit(session), owner);
+  await mutateUnit(getStore(), base.id, (current) => withRecordBy(current ?? base, recordBy, version));
   await refresh();
   void drainQueue();
 }

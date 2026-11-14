@@ -3,6 +3,7 @@
 import { Mic, Pause, Play, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Waveform } from "@/components/media/Waveform";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { mintKey } from "@/lib/questionnaire/api";
 import { assembleTake, pickRecorderMime, recorderStore, TIMESLICE_MS, type TakeDraft } from "@/lib/questionnaire/recorderStore";
@@ -37,18 +38,39 @@ function clock(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+export const BYTES_PER_MINUTE = 1_000_000;
+
+export function minutesOfSpace(estimate: { quota?: number; usage?: number } | null | undefined): number | null {
+  if (!estimate || typeof estimate.quota !== "number" || typeof estimate.usage !== "number") return null;
+  return Math.max(0, Math.floor((estimate.quota - estimate.usage) / BYTES_PER_MINUTE));
+}
+
+export function micBlocked(error: unknown): boolean {
+  const name = error instanceof Error || (typeof DOMException !== "undefined" && error instanceof DOMException) ? (error as { name: string }).name : "";
+  return name === "NotAllowedError" || name === "SecurityError" || name === "PermissionDeniedError";
+}
+
 export function Recorder({
   target,
   onFinished,
-  onCancel
+  onCancel,
+  autoStart = false,
+  heading,
+  onMicOff
 }: {
   target: RecorderTarget;
   onFinished: (take: FinishedTake) => void;
   onCancel?: () => void;
+  autoStart?: boolean;
+  heading?: string;
+  onMicOff?: () => void;
 }) {
   const [state, setState] = useState<"idle" | "recording" | "paused" | "saving">("idle");
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [spaceMinutes, setSpaceMinutes] = useState<number | null>(null);
+  const started = useRef(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const draftRef = useRef<TakeDraft | null>(null);
   const indexRef = useRef(0);
@@ -75,10 +97,37 @@ export function Recorder({
     [target.label]
   );
 
+  useEffect(() => {
+    if (!autoStart || started.current) return;
+    started.current = true;
+    void start();
+  });
+
+  useEffect(() => {
+    if (state !== "recording") return;
+    let cancelled = false;
+    const check = () => {
+      const storage = (navigator as Navigator & { storage?: { estimate?: () => Promise<{ quota?: number; usage?: number }> } }).storage;
+      void storage
+        ?.estimate?.()
+        .then((estimate) => {
+          if (!cancelled) setSpaceMinutes(minutesOfSpace(estimate));
+        })
+        .catch(() => undefined);
+    };
+    check();
+    const timer = window.setInterval(check, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [state]);
+
   async function start() {
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setStream(stream);
       const { mimeType, extension } = pickRecorderMime((t) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t));
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       const draft: TakeDraft = {
@@ -105,6 +154,7 @@ export function Recorder({
       };
       recorder.onstop = () => {
         stream.getTracks().forEach((track) => track.stop());
+        setStream(null);
         void (async () => {
           await writes.current;
           const chunks = await recorderStore.chunks(draft.takeKey);
@@ -147,6 +197,10 @@ export function Recorder({
         wakeRef.current = null;
       }
     } catch (err) {
+      if (onMicOff && micBlocked(err)) {
+        onMicOff();
+        return;
+      }
       setError(err instanceof Error ? err.message : String(err));
     }
   }
@@ -167,6 +221,61 @@ export function Recorder({
     pausedAt.current = null;
     setState("saving");
     recorderRef.current?.stop();
+  }
+
+  const lowSpace = spaceMinutes !== null && spaceMinutes < 30;
+
+  if (heading) {
+    return (
+      <div className="grid gap-2.5" data-recorder-state={state} role="region" aria-label={heading}>
+        <div className="flex items-center gap-3">
+          <span aria-hidden className={`h-2.5 w-2.5 shrink-0 rounded-full ${state === "recording" ? "bg-error-600 motion-safe:animate-pulse" : "border-2 border-error-600"}`} />
+          <span className="min-w-0 flex-1 truncate text-[0.8125rem] font-medium text-ink-500">{heading}</span>
+          <span className="font-display text-2xl font-bold tabular-nums text-ink-900" role="timer" aria-live="off">
+            {clock(elapsed)}
+          </span>
+        </div>
+        {state === "recording" || state === "paused" ? <Waveform stream={stream} height={32} label={heading} /> : null}
+        {lowSpace ? (
+          <p className="text-[0.8125rem] font-medium text-amber-800 dark:text-amber-100" data-low-space>
+            {qs("spaceLeft", { minutes: spaceMinutes })}
+          </p>
+        ) : null}
+        {state === "idle" ? (
+          <ButtonRow fill>
+            {onCancel ? (
+              <button type="button" className="field-button-secondary min-h-12!" onClick={onCancel}>
+                {qs("cancel")}
+              </button>
+            ) : null}
+            <button type="button" className="field-button min-h-12!" onClick={() => void start()}>
+              <Mic className="h-4 w-4" aria-hidden />
+              {qs("record")}
+            </button>
+          </ButtonRow>
+        ) : (
+          <ButtonRow fill>
+            {state === "paused" ? (
+              <button type="button" className="field-button-secondary min-h-12!" onClick={resume}>
+                <Play className="h-4 w-4" aria-hidden />
+                {qs("resume")}
+              </button>
+            ) : (
+              <button type="button" className="field-button-secondary min-h-12!" disabled={state === "saving"} onClick={pause}>
+                <Pause className="h-4 w-4" aria-hidden />
+                {qs("pause")}
+              </button>
+            )}
+            <button type="button" className="field-button min-h-12!" disabled={state === "saving"} onClick={stop}>
+              <Square className="h-4 w-4" aria-hidden />
+              {qs("stop")}
+            </button>
+          </ButtonRow>
+        )}
+        {error ? <p className="text-center text-sm text-error-600">{error}</p> : null}
+        <p className="text-center text-xs text-ink-500 sm:hidden">{qs("keepTabOpen")}</p>
+      </div>
+    );
   }
 
   if (state === "idle") {

@@ -248,3 +248,101 @@ export function agoLabel(fromIso: string, now = new Date()): string {
   if (hours < 48) return `${hours} h ago`;
   return `${Math.round(hours / 24)} days ago`;
 }
+
+export type QuestionMark =
+  | { kind: "SECTION_TAKE" }
+  | { kind: "QUESTION_TAKE"; durationMs: number | null; recordingId: string | null }
+  | { kind: "TYPED"; text: string }
+  | { kind: "NONE" };
+
+export type SectionQuestionProgress = {
+  sectionId: string;
+  answered: number;
+  total: number;
+  inSectionTake: boolean;
+  typedOnly: boolean;
+  marks: Record<string, QuestionMark>;
+};
+
+export type QuestionProgress = { answered: number; total: number; sectionsDone: number; sections: Record<string, SectionQuestionProgress> };
+
+type ProgressTake = {
+  id?: string;
+  removedAt?: string | null;
+  durationMs?: number | null;
+  targets: { sectionId?: string | null; questionLineageId?: string | null }[];
+  subjects: { role: string }[];
+};
+
+function answers(take: ProgressTake): boolean {
+  return take.subjects.length === 0 || take.subjects.some((s) => s.role === "ANSWERED");
+}
+
+export function questionProgress(input: {
+  sections: { id: string; questions?: { lineageId: string }[] }[];
+  recordings: ProgressTake[];
+  answers: { questionLineageId?: string | null; text?: string | null }[];
+  pending?: ProgressTake[];
+}): QuestionProgress {
+  const live = [...input.recordings.filter((r) => !r.removedAt), ...(input.pending ?? [])].filter(answers);
+  const sectionTakes = new Set<string>();
+  const questionTakes = new Map<string, { durationMs: number | null; recordingId: string | null }>();
+  for (const take of live) {
+    for (const t of take.targets) {
+      if (t.questionLineageId) {
+        if (!questionTakes.has(t.questionLineageId)) questionTakes.set(t.questionLineageId, { durationMs: take.durationMs ?? null, recordingId: take.id ?? null });
+      } else if (t.sectionId) sectionTakes.add(t.sectionId);
+    }
+  }
+  const typed = new Map<string, string>();
+  for (const a of input.answers) {
+    const text = (a.text ?? "").trim();
+    if (a.questionLineageId && text && !typed.has(a.questionLineageId)) typed.set(a.questionLineageId, text);
+  }
+  const sections: Record<string, SectionQuestionProgress> = {};
+  let answered = 0;
+  let total = 0;
+  let sectionsDone = 0;
+  for (const section of input.sections) {
+    const lineages = (section.questions ?? []).map((q) => q.lineageId);
+    const inSectionTake = sectionTakes.has(section.id);
+    const marks: Record<string, QuestionMark> = {};
+    let count = 0;
+    let typedCount = 0;
+    for (const lineage of lineages) {
+      const take = questionTakes.get(lineage);
+      const text = typed.get(lineage);
+      if (inSectionTake) marks[lineage] = { kind: "SECTION_TAKE" };
+      else if (take) marks[lineage] = { kind: "QUESTION_TAKE", ...take };
+      else if (text) marks[lineage] = { kind: "TYPED", text };
+      else marks[lineage] = { kind: "NONE" };
+      if (inSectionTake || take || text) count += 1;
+      if (!inSectionTake && !take && text) typedCount += 1;
+    }
+    const sectionAnswered = inSectionTake ? lineages.length : count;
+    sections[section.id] = {
+      sectionId: section.id,
+      answered: sectionAnswered,
+      total: lineages.length,
+      inSectionTake,
+      typedOnly: !inSectionTake && lineages.length > 0 && typedCount === lineages.length,
+      marks
+    };
+    answered += sectionAnswered;
+    total += lineages.length;
+    if (lineages.length > 0 && sectionAnswered === lineages.length) sectionsDone += 1;
+  }
+  return { answered, total, sectionsDone, sections };
+}
+
+export function pendingTakes(units: SessionUnit[]): ProgressTake[] {
+  return units.flatMap((unit) =>
+    unit.steps
+      .filter((s): s is ClipStep => s.kind === "clip" && s.status !== "DONE")
+      .map((s) => ({
+        durationMs: s.recording.durationMs ?? null,
+        targets: s.recording.targets.map((t) => ("sectionId" in t ? { sectionId: t.sectionId } : { questionLineageId: t.questionLineageId })),
+        subjects: s.recording.subjects.map((x) => ({ role: x.role }))
+      }))
+  );
+}

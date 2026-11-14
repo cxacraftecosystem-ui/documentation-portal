@@ -8,6 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { PageHeader } from "@/components/PageHeader";
 import { PromptDialog } from "@/components/questionnaire/Prompts";
 import { TranscriptStatus } from "@/components/questionnaire/TranscriptStatus";
+import { CoverageGrid } from "@/components/questionnaire/CoverageGrid";
 import { takeRow } from "@/components/questionnaire/TakeSheet";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 import { ButtonRow } from "@/components/ui/ButtonRow";
@@ -196,6 +197,23 @@ export function SessionReadView({ id }: { id: string }) {
         <Row label={qs("fieldCrafts")} value={(detail.crafts ?? []).join(", ")} />
         <Row label={qs("fieldLanguage")} value={languageLabel(detail.languageCode, detail.languageOther)} />
       </section>
+
+      {detail.grid.sections.length ? (
+        <section className="panel mb-4 p-4" data-read-coverage>
+          <CoverageGrid
+            grid={toGridView(detail.grid, questions)}
+            artisans={[
+              ...detail.participants.map((p) => ({ id: p.artisanId, name: p.name })),
+              ...(detail.respondents ?? []).filter((r) => !r.artisanId).map((r) => ({ id: `R:${r.id}`, name: r.name }))
+            ]}
+            onOpen={(sectionId) =>
+              Array.from(document.querySelectorAll<HTMLElement>("[data-answers-section]"))
+                .find((node) => node.dataset.answersSection === sectionId)
+                ?.scrollIntoView({ block: "start" })
+            }
+          />
+        </section>
+      ) : null}
 
       {groupBySection({ recordings: detail.recordings, grid: toGridView(detail.grid, questions) }).map((group) => (
         <section key={group.key} className="panel mb-3 grid gap-2 p-4">

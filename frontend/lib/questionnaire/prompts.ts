@@ -191,6 +191,13 @@ export const prompts = {
     buttons: two({ id: "notNow", label: qs("notNow"), tone: "secondary" }, { id: "add", label: qs("add"), tone: "primary" }),
     dismiss: "notNow"
   }),
+  micOff: (): PromptSpec => ({
+    id: "MIC_OFF",
+    title: qs("micOff"),
+    body: qs("micOffBody"),
+    buttons: two({ id: "upload", label: qs("uploadInstead"), tone: "secondary" }, { id: "settings", label: qs("openSettings"), tone: "primary" }),
+    dismiss: "cancel"
+  }),
   leave: (v: { count: number }): PromptSpec => ({
     id: "LEAVE",
     title: qs("leaveTitle"),

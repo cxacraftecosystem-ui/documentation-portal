@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 
 import { expect, test, type Page } from "@playwright/test";
@@ -9,6 +10,21 @@ const SHOTS = process.env.E2E_SHOT_DIR ?? "test-results/questionnaire-fr-web";
 async function open(page: Page, fake: QuestionnaireFake, path: string) {
   await fake.install(page);
   await page.goto(path);
+}
+
+async function openSection(page: Page, code: string) {
+  await page.locator(`[data-section='${code}'] > button[aria-expanded]`).click();
+  await expect(page.locator(`[data-section-body='${code}']`)).toBeVisible();
+}
+
+async function sessionMenu(page: Page, item: string) {
+  await page.getByRole("button", { name: "Session options" }).click();
+  await page.locator("[data-session-actions]").getByRole("menuitem", { name: item, exact: true }).click();
+}
+
+async function typeAnswer(page: Page, code: string) {
+  await page.getByRole("button", { name: `More for ${code}` }).click();
+  await page.getByRole("menuitem", { name: "Type an answer" }).click();
 }
 
 test.describe.configure({ mode: "serial" });
@@ -47,23 +63,27 @@ test("a form's Start session opens the start sheet on that form", async ({ page 
   await expect.poll(() => fake.calledWith("GET", "/questionnaire/form-for").some((c) => c.query.get("questionnaireId") === "f2")).toBe(true);
 });
 
-test("@qf:D4 @qf:C5 @qf:B13 @qf:D1 the grid marks recorded, typed and overridden cells, and an admin sets an override", async ({ page }) => {
+test("@qf:D4 @qf:C5 @qf:B13 @qf:D1 the read view's grid marks recorded, typed and overridden cells, and an admin sets an override from the take sheet", async ({ page }) => {
   const fake = new QuestionnaireFake();
-  await open(page, fake, "/questionnaire/sessions/s-1");
+  await open(page, fake, "/questionnaire/sessions/s-1/view");
   const grid = page.locator("[data-coverage-grid]");
   await expect(grid.getByRole("button", { name: "A Giriraj Prasad Chhipa: Recorded" })).toHaveText("●");
   await expect(grid.getByRole("button", { name: "A Shopper at Johari Bazaar: Typed · Add a recording?" })).toHaveText("✎ 1/2");
   await expect(grid.getByRole("button", { name: "B Giriraj Prasad Chhipa: Needs review" })).toHaveText("?");
-  await grid.getByRole("button", { name: "B Giriraj Prasad Chhipa: Needs review" }).click();
-  await page.locator("[data-section-override]").getByRole("button", { name: "Marked complete" }).click();
+  await page.goto("/questionnaire/sessions/s-1");
+  await expect(page.locator("[data-coverage-grid]")).toHaveCount(0);
+  await openSection(page, "A");
+  await page.locator("[data-question='A1'] [data-question-state='SECTION_TAKE']").click();
+  const override = page.locator("[data-section-override]");
+  await override.getByRole("button", { name: "Marked complete" }).click();
   await expect.poll(() => fake.calledWith("PUT", "/questionnaire/completion").length).toBe(1);
-  expect(fake.calledWith("PUT", "/questionnaire/completion")[0].body).toMatchObject({ artisanId: "a1", sectionId: "s2" });
+  expect(fake.calledWith("PUT", "/questionnaire/completion")[0].body).toEqual({ artisanId: "a1", sectionId: "s1", status: "COMPLETED" });
 });
 
 test("@qf:C7 a content admin merges one sitting into another session", async ({ page }) => {
   const fake = new QuestionnaireFake();
   await open(page, fake, "/questionnaire/sessions/s-1");
-  await page.locator("[data-session-actions]").getByRole("button", { name: "Merge into…" }).click();
+  await sessionMenu(page, "Merge into another session");
   const dialog = page.getByRole("dialog");
   await dialog.locator("[data-searchable-select]").first().click();
   await page.getByRole("option", { name: "Interview_2026-10-21_Bagru_Second-Sitting" }).click();
@@ -89,8 +109,9 @@ test("@qf:A11 @qf:A20 @qf:B21 someone else's answer is locked with who answered;
     { userId: ME.id, name: ME.name, role: "CONTRIBUTOR" }
   ];
   await open(page, fake, "/questionnaire/sessions/s-1");
-  await page.getByRole("button", { name: "A", exact: true }).click();
-  await page.getByRole("switch", { name: "Type answers" }).click();
+  await openSection(page, "A");
+  await typeAnswer(page, "A1");
+  await typeAnswer(page, "A2");
   const a1 = page.locator("[data-answer-box='l1']");
   await a1.locator("[data-searchable-select]").first().click();
   await page.getByRole("option", { name: "Giriraj Prasad Chhipa" }).click();
@@ -116,7 +137,8 @@ test("@qf:A11 @qf:A20 @qf:B21 someone else's answer is locked with who answered;
 test("@qf:B22 @qf:C2 @qf:B23 @qf:C3 @qf:B18 @qf:B40 a take's transcript is offered as an answer; removed takes restore; a take has a history", async ({ page }) => {
   const fake = new QuestionnaireFake();
   await open(page, fake, "/questionnaire/sessions/s-1");
-  await page.locator("[data-coverage-grid]").getByRole("button", { name: "A Giriraj Prasad Chhipa: Recorded" }).click();
+  await openSection(page, "A");
+  await page.locator("[data-question='A1'] [data-question-state='SECTION_TAKE']").click();
   const sheet = page.locator("[data-take-sheet]");
   await expect(sheet).toContainText("Nandini");
   await page.getByRole("button", { name: "History" }).first().click();
@@ -139,7 +161,9 @@ test("@qf:B22 @qf:C2 @qf:B23 @qf:C3 @qf:B18 @qf:B40 a take's transcript is offer
 test("@qf:A19 @qf:B7 Finish reports the required questions unanswered and still finishes", async ({ page }) => {
   const fake = new QuestionnaireFake();
   await open(page, fake, "/questionnaire/sessions/s-1");
-  await page.locator("[data-session-header]").getByRole("button", { name: "Finish" }).click();
+  await page.locator("[data-review-link]").click();
+  await expect(page.locator("[data-review-summary]")).toContainText("questions answered");
+  await page.locator("[data-review-finish-button]").click();
   const prompt = page.locator("[data-prompt='FINISH']");
   await expect(page.getByRole("dialog")).toContainText("required questions unanswered.");
   await prompt.getByRole("button", { name: "Finish" }).click();
@@ -149,8 +173,7 @@ test("@qf:A19 @qf:B7 Finish reports the required questions unanswered and still 
 test("@qf:B6 @qf:A17 @qf:B9 a researcher is added, a guest's name corrected, and a content admin deletes the session", async ({ page }) => {
   const fake = new QuestionnaireFake();
   await open(page, fake, "/questionnaire/sessions/s-1");
-  const actions = page.locator("[data-session-actions]");
-  await actions.getByRole("button", { name: "Add researcher" }).click();
+  await sessionMenu(page, "Add researcher");
   const dialog = page.getByRole("dialog");
   await dialog.locator("[data-searchable-select]").first().click();
   await page.getByRole("option", { name: "Ravi Kumar" }).click();
@@ -158,12 +181,12 @@ test("@qf:B6 @qf:A17 @qf:B9 a researcher is added, a guest's name corrected, and
   await expect.poll(() => fake.calledWith("POST", "/questionnaire/sessions/s-1/researchers").length).toBe(1);
   expect(fake.calledWith("POST", "/questionnaire/sessions/s-1/researchers")[0].body).toEqual({ userId: "u-third", role: "CONTRIBUTOR" });
 
-  await actions.locator("[data-guest='r1']").getByRole("button", { name: "Edit" }).click();
+  await page.locator("[data-session-people] [data-guest='r1']").getByRole("button", { name: "Edit" }).click();
   await page.locator("[data-guest-name-edit]").fill("");
   await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
   await expect.poll(() => fake.calledWith("PATCH", "/questionnaire/sessions/s-1/respondents/r1").length).toBe(1);
 
-  await actions.getByRole("button", { name: "Delete session" }).click();
+  await sessionMenu(page, "Delete session");
   await expect(page.getByRole("alertdialog")).toContainText("Admins can restore it from Deleted.");
   await page.locator("[data-confirm-delete]").click();
   await expect.poll(() => fake.calledWith("DELETE", "/questionnaire/sessions/s-1").length).toBe(1);
@@ -173,7 +196,7 @@ test("@qf:B6 @qf:A17 @qf:B9 a researcher is added, a guest's name corrected, and
 test("@qf:B8 continue another day opens the next session", async ({ page }) => {
   const fake = new QuestionnaireFake();
   await open(page, fake, "/questionnaire/sessions/s-1");
-  await page.locator("[data-session-actions]").getByRole("button", { name: "Continue another day" }).click();
+  await sessionMenu(page, "Continue another day");
   await page.getByRole("dialog").getByRole("button", { name: "Start" }).click();
   await expect.poll(() => fake.calledWith("POST", "/questionnaire/sessions/continue").length).toBe(1);
   expect(fake.calledWith("POST", "/questionnaire/sessions/continue")[0].body).toMatchObject({ fromSessionId: "s-1", artisanIds: ["a1"], split: "ONE" });
@@ -282,8 +305,9 @@ test("@qf:B24 a question mapped to an artisan column is prefilled from the artis
 test("@qf:C8 a formatted answer is written as the document and its plain text", async ({ page }) => {
   const fake = new QuestionnaireFake();
   await open(page, fake, "/questionnaire/sessions/s-1");
-  await page.getByRole("button", { name: "A", exact: true }).click();
-  await page.getByRole("switch", { name: "Type answers" }).click();
+  await openSection(page, "A");
+  await typeAnswer(page, "A1");
+  await typeAnswer(page, "A2");
   const box = page.locator("[data-answer-box='l2'] [role=textbox]");
   await box.click();
   await page.keyboard.type("Indigo");
@@ -365,7 +389,8 @@ test("@qf:E1 @qf:E2 @qf:E5 @qf:E6 the recordings list shows each take's chips, a
 test("@qf:E1 @qf:E2 a take's chips show on the take sheet and the read view, and lead to the recordings list", async ({ page }) => {
   const fake = new QuestionnaireFake();
   await open(page, fake, "/questionnaire/sessions/s-1");
-  await page.locator("[data-coverage-grid]").getByRole("button", { name: "A Giriraj Prasad Chhipa: Recorded" }).click();
+  await openSection(page, "A");
+  await page.locator("[data-question='A1'] [data-question-state='SECTION_TAKE']").click();
   await expect(page.locator("[data-take-row='rec-1'] [data-recording-chips]")).toContainText("A · Tools");
   await page.goto("/questionnaire/sessions/s-1/view");
   const chips = page.locator("[data-recording-chips]").first();
@@ -426,3 +451,114 @@ test("an old interview link the session API does not know renders the interview 
   await expect(page.getByText("Couldn't load the session.")).toHaveCount(0);
   expect(fake.calledWith("GET", `/questionnaire/sessions/${id}`)).toHaveLength(1);
 });
+
+test("@qf:Q2 @qf:Q5 the session is an accordion of sections that counts questions, and opening one scrolls its header under the session header", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await page.setViewportSize({ width: 360, height: 640 });
+  await open(page, fake, "/questionnaire/sessions/s-1");
+  await expect(page.locator("[data-question-progress]")).toHaveText("2 of 3 questions");
+  await expect(page.locator("[data-section='A'] > button")).toHaveAttribute("aria-label", "Section A, Tools, 2 of 2 · In the section take");
+  await expect(page.locator("[data-section-body]")).toHaveCount(0);
+  await openSection(page, "B");
+  await expect(page.locator("[data-question='B1'] [data-question-state='NONE']")).toHaveText("Not asked");
+  await openSection(page, "A");
+  await expect(page.locator("[data-section-body='B']")).toHaveCount(0);
+  await expect(page.locator("[data-question='A1'] [data-question-state='SECTION_TAKE']")).toHaveText("In the section take");
+  await expect(page.locator("[data-question='A2'] [data-question-state='SECTION_TAKE']")).toHaveText("In the section take");
+  await expect(page.getByRole("switch", { name: "Type answers" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Section A actions" })).toBeVisible();
+  const offsets = await page.evaluate(() => {
+    const header = document.querySelector("[data-session-header]")!.getBoundingClientRect().height;
+    const margin = parseFloat(getComputedStyle(document.querySelector("[data-section='A']")!).scrollMarginTop);
+    return { header: Math.ceil(header), margin };
+  });
+  expect(offsets.margin).toBe(offsets.header);
+  const row = page.getByRole("region", { name: "Section A actions" }).locator("[data-button-row]");
+  const [record, upload] = [row.locator("[data-record-button]"), row.locator("[data-upload-button]")];
+  const [r, u] = [await record.boundingBox(), await upload.boundingBox()];
+  expect(Math.round(r!.width)).toBe(Math.round(u!.width));
+  expect(Math.round(r!.height)).toBe(Math.round(u!.height));
+  expect(Math.round(r!.y)).toBe(Math.round(u!.y));
+});
+
+test("@qf:Q1 @qf:Q8 the session menu leads with Record by, keeps its order, and a change is saved on the session", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaire/sessions/s-1");
+  await page.getByRole("button", { name: "Session options" }).click();
+  const menu = page.locator("[data-session-actions]");
+  await expect(menu.locator("[data-record-by]")).toContainText("Applies to this session");
+  await expect(menu.getByRole("menuitem")).toHaveText([
+    "Edit details",
+    "Add researcher",
+    "Join code and QR",
+    "Read view",
+    "Continue another day",
+    "Merge into another session",
+    "Delete session"
+  ]);
+  await menu.getByRole("button", { name: "Question" }).click();
+  await expect.poll(() => fake.calledWith("PATCH", "/questionnaire/sessions/s-1").length).toBe(1);
+  expect(fake.calledWith("PATCH", "/questionnaire/sessions/s-1")[0].body).toEqual({ version: 2, recordBy: "QUESTION" });
+  await page.keyboard.press("Escape");
+  await openSection(page, "B");
+  const b1 = page.locator("[data-question='B1']");
+  await expect(b1.locator("[data-record-button]")).toHaveText("Record");
+  await expect(b1.locator("[data-upload-button]")).toHaveText("Upload");
+  await expect(page.locator("[data-dock]")).toHaveCount(0);
+  await b1.getByRole("button", { name: "More for B1" }).click();
+  await expect(page.locator("[data-question-menu='B1']").getByRole("menuitem")).toHaveText(["Type an answer"]);
+});
+
+test("@qf:Q3 @qf:Q4 the upload dialog takes several files, flags and skips one already uploaded, and attaches to the open section", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  const kept = Buffer.from("first-take-bytes");
+  const again = Buffer.from("second-take-bytes");
+  fake.uploadedShas = { [createHash("sha256").update(again).digest("hex")]: "2026-10-21T10:00:00Z" };
+  await open(page, fake, "/questionnaire/sessions/s-1");
+  await openSection(page, "B");
+  await page.locator("[data-section-body='B'] [data-upload-button]").click();
+  const sheet = page.getByRole("dialog", { name: "Upload recordings" });
+  await expect(sheet.getByRole("radio", { name: "Section B" })).toHaveAttribute("aria-checked", "true");
+  await expect(sheet).toContainText("Counts for all 1 questions in B");
+  await sheet.locator("[data-upload-input]").setInputFiles([
+    { name: "Giriraj_part1.m4a", mimeType: "audio/mp4", buffer: kept },
+    { name: "Giriraj_part2.m4a", mimeType: "audio/mp4", buffer: again }
+  ]);
+  await expect(sheet.locator("[data-upload-row='Giriraj_part2.m4a'] [data-already-uploaded]")).toHaveText("Already uploaded on 21 Oct");
+  await expect(sheet.getByRole("button", { name: "Remove Giriraj_part1.m4a" })).toBeVisible();
+  await expect(sheet.locator("[data-upload-confirm]")).toHaveText("Upload 1 file");
+  await sheet.locator("[data-upload-confirm]").click();
+  const who = page.getByRole("dialog", { name: "Who answered in this take?" });
+  await expect(who).toContainText("Present artisans are picked.");
+  await expect(who.getByRole("checkbox", { name: /Giriraj Prasad Chhipa/ })).toHaveAttribute("aria-checked", "true");
+  await who.getByRole("button", { name: "Save take" }).click();
+  await expect.poll(() => fake.calledWith("POST", "/media/presign").length).toBe(1);
+  expect(fake.calledWith("POST", "/media/presign")[0].body).toMatchObject({ targets: [{ sectionId: "s2" }] });
+});
+
+test("@qf:Q6 Review lists what is still to ask and Keep going returns to the session", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaire/sessions/s-1");
+  await page.locator("[data-review-link]").click();
+  const review = page.locator("[data-review-finish]");
+  await expect(review.locator("[data-review-summary]")).toContainText("2 of 3 questions answered");
+  await expect(review.locator("[data-still-to-ask]")).toContainText("Still to ask · 1 sections");
+  await expect(review.locator("[data-still-to-ask]")).toContainText("Not asked · 1");
+  await review.locator("[data-still-to-ask]").getByRole("button", { name: /Dyes/ }).click();
+  await expect(page.locator("[data-section-body='B']")).toBeVisible();
+});
+
+for (const theme of ["light", "dark"] as const) {
+  test(`@qf:Q2 @qf:Q3 the session at 360 px in ${theme}: no sideways scroll, the dock clears the bottom navigation`, async ({ page }) => {
+    const fake = new QuestionnaireFake();
+    await page.setViewportSize({ width: 360, height: 720 });
+    await page.emulateMedia({ colorScheme: theme });
+    await open(page, fake, "/questionnaire/sessions/s-1");
+    await openSection(page, "A");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    const dock = await page.locator("[data-dock] > div").boundingBox();
+    expect(dock).not.toBeNull();
+    expect(dock!.y + dock!.height).toBeLessThanOrEqual(721);
+    await page.screenshot({ path: `${SHOTS}/session-360-${theme}.png`, fullPage: false });
+  });
+}

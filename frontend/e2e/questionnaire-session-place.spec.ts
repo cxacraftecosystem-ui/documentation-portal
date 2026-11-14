@@ -44,7 +44,8 @@ for (const width of WIDTHS) {
     });
     await fake.install(page);
     await page.goto("/questionnaire/sessions/s-1");
-    await page.locator("[data-session-actions]").getByRole("button", { name: "Edit details" }).click();
+    await page.getByRole("button", { name: "Session options" }).click();
+    await page.locator("[data-session-actions]").getByRole("menuitem", { name: "Edit details" }).click();
     const dialog = page.getByRole("dialog");
     const place = dialog.locator("[data-session-place]");
     await expect(place.getByLabel("Place", { exact: true })).toHaveValue("Sanganer");

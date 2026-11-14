@@ -8,6 +8,7 @@ import type {
   PresignRequest,
   QuestionnaireApi,
   Recording,
+  RecordBy,
   Session,
   SessionCreate,
   UploadPart
@@ -53,7 +54,8 @@ export type AnswersStep = {
   error?: string;
   conflicts?: AnswerResult[];
 };
-export type Step = SessionStep | ParticipantStep | ClipStep | AnswersStep;
+export type DetailsStep = { kind: "details"; status: StepStatus; key: string; version: number; recordBy: RecordBy; error?: string };
+export type Step = SessionStep | ParticipantStep | ClipStep | AnswersStep | DetailsStep;
 
 export type SessionUnit = {
   id: string;
@@ -89,7 +91,8 @@ export type QueueApi = Pick<
   | "uploadState"
   | "complete"
   | "putAnswers"
->;
+> &
+  Partial<Pick<QuestionnaireApi, "patchSession" | "getSession">>;
 
 export type QueueOptions = {
   multipartThresholdBytes: number;
@@ -186,6 +189,8 @@ export function stepKey(step: Step): string {
       return `participant:${step.idempotencyKey}`;
     case "clip":
       return `clip:${step.clientClipKey}`;
+    case "details":
+      return `details:${step.key}`;
     default:
       return `answers:${step.key ?? JSON.stringify(step.items)}`;
   }
@@ -196,6 +201,7 @@ function rank(step: Step): number {
     case "session":
       return 0;
     case "participant":
+    case "details":
       return 1;
     case "clip":
       return 2;
@@ -215,6 +221,34 @@ export function appendStep(unit: SessionUnit, step: Step): SessionUnit {
     return a.index - b.index;
   });
   return { ...unit, steps: indexed.map((x) => x.s) };
+}
+
+export function withRecordBy(unit: SessionUnit, recordBy: RecordBy, version: number, key: string = freshKey("details")): SessionUnit {
+  const first = unit.steps.find((s): s is SessionStep => s.kind === "session");
+  if (first && first.status === "PENDING") {
+    return { ...unit, steps: unit.steps.map((s) => (s === first ? { ...first, body: { ...first.body, recordBy } } : s)) };
+  }
+  const kept = unit.steps.filter((s) => !(s.kind === "details" && s.status !== "DONE"));
+  return appendStep({ ...unit, steps: kept }, { kind: "details", status: "PENDING", key, version, recordBy });
+}
+
+export function queuedRecordBy(unit: SessionUnit | null | undefined): RecordBy | null {
+  if (!unit) return null;
+  const details = unit.steps.filter((s): s is DetailsStep => s.kind === "details" && s.status !== "DONE");
+  if (details.length) return details[details.length - 1].recordBy;
+  const first = unit.steps.find((s): s is SessionStep => s.kind === "session" && s.status === "PENDING");
+  return first?.body.recordBy ?? null;
+}
+
+export async function sendDetails(api: Pick<QueueApi, "patchSession" | "getSession">, sessionId: string, step: Pick<DetailsStep, "version" | "recordBy">): Promise<Session> {
+  if (!api.patchSession) throw new Error("PATCH is not available.");
+  try {
+    return await api.patchSession(sessionId, { version: step.version, recordBy: step.recordBy });
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 409 || !api.getSession) throw error;
+    const fresh = await api.getSession(sessionId);
+    return api.patchSession(sessionId, { version: fresh.version, recordBy: step.recordBy });
+  }
 }
 
 export function pendingSteps(unit: SessionUnit): Step[] {
@@ -532,6 +566,19 @@ export async function runUnit(
   }
   if (!unit.sessionId) return unit;
   const sessionId = unit.sessionId;
+
+  for (const step of unit.steps) {
+    if (step.kind !== "details" || step.status !== "PENDING") continue;
+    try {
+      await sendDetails(api, sessionId, step);
+      step.status = "DONE";
+      step.error = undefined;
+    } catch (error) {
+      step.error = describe(error);
+      if (isPermanent(error)) step.status = "FAILED";
+    }
+    await persist(step);
+  }
 
   for (const step of unit.steps) {
     if (step.kind !== "participant" || step.status !== "PENDING") continue;
