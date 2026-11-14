@@ -60,10 +60,10 @@ fun QuestionnairePrompt(title: String, body: String, buttons: List<PromptButton>
     PromptSheet(onDismiss, dismissible) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (title.isNotBlank()) Text(
-                title, style = MaterialTheme.typography.headlineSmall.copy(fontSize = 20.sp, lineHeight = 28.sp),
+                title, style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            if (body.isNotBlank()) Text(body, style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp), color = MaterialTheme.field.body)
+            if (body.isNotBlank()) Text(body, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.field.body)
         }
         PromptButtons(buttons)
     }
@@ -78,12 +78,12 @@ fun PromptButtons(buttons: List<PromptButton>, modifier: Modifier = Modifier) {
                     onClick = b.onClick,
                     modifier = Modifier.heightIn(min = 56.dp),
                     colors = if (b.destructive) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.background) else ButtonDefaults.buttonColors()
-                ) { Text(b.label, textAlign = TextAlign.Center, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                ) { Text(b.label, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold) }
             } else {
                 OutlinedButton(
                     onClick = b.onClick, modifier = Modifier.heightIn(min = 56.dp),
                     border = BorderStroke(1.dp, MaterialTheme.field.surface300)
-                ) { Text(b.label, textAlign = TextAlign.Center, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface) }
+                ) { Text(b.label, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface) }
             }
         }
     }
@@ -137,7 +137,7 @@ fun MicOffPrompt(onUploadInstead: () -> Unit, onOpenSettings: () -> Unit, onDism
             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top
         ) {
             Icon(Icons.Filled.MicOff, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(22.dp))
-            Text(QuestionnaireCopy.t("micOffBody"), style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp), color = MaterialTheme.field.body)
+            Text(QuestionnaireCopy.t("micOffBody"), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.field.body)
         }
         PromptButtons(listOf(
             PromptButton(QuestionnaireCopy.t("uploadInstead"), onClick = onUploadInstead),

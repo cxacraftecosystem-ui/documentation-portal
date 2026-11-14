@@ -148,7 +148,7 @@ fun UploadSheet(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     QuestionnaireCopy.t("uploadRecordings"), modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = 20.sp, lineHeight = 28.sp), color = MaterialTheme.colorScheme.onSurface
+                    style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface
                 )
                 IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Filled.Close, contentDescription = QuestionnaireCopy.t("cancel"), tint = MaterialTheme.field.body)
@@ -168,9 +168,9 @@ fun UploadSheet(
                 ) {
                     Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text(QuestionnaireCopy.t("chooseFiles"), fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    Text(QuestionnaireCopy.t("chooseFiles"), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
                 }
-                Text(QuestionnaireCopy.t("uploadPickHint"), style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp), color = MaterialTheme.field.muted)
+                Text(QuestionnaireCopy.t("uploadPickHint"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
             }
             if (rows.isNotEmpty() || checking) Column(Modifier.fillMaxWidth()) {
                 rows.forEach { row -> UploadFileRow(row, sessionDate) { onRemove(row) } }
@@ -192,7 +192,7 @@ fun UploadSheet(
                     AttachKind.SECTION -> sectionCode?.let {
                         Text(
                             QuestionnaireCopy.t("countsForAllQuestions", "count" to sectionQuestions, "code" to it),
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), color = MaterialTheme.field.muted
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted
                         )
                     }
                     AttachKind.QUESTION -> SearchableSelectField(
@@ -208,7 +208,7 @@ fun UploadSheet(
             ) {
                 Icon(Icons.Filled.FileUpload, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(10.dp))
-                Text(UploadPlan.button(count), fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text(UploadPlan.button(count), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
             }
         }
     }
@@ -230,10 +230,10 @@ private fun UploadFileRow(row: UploadRow, sessionDate: LocalDate?, onRemove: () 
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    row.file.name, style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp), fontWeight = FontWeight.SemiBold,
+                    row.file.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
-                Text(UploadPlan.meta(row.file, sessionDate), style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp), color = MaterialTheme.field.muted)
+                Text(UploadPlan.meta(row.file, sessionDate), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
             }
             if (row.skipped) TextButton(onClick = onRemove, modifier = Modifier.heightIn(min = 48.dp)) {
                 Text(QuestionnaireCopy.t("remove"), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
@@ -248,7 +248,7 @@ private fun UploadFileRow(row: UploadRow, sessionDate: LocalDate?, onRemove: () 
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(Icons.Filled.WarningAmber, contentDescription = null, tint = MaterialTheme.field.onWarningContainer, modifier = Modifier.size(18.dp))
-                Text(UploadPlan.duplicateLine(on), style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), fontWeight = FontWeight.Medium, color = MaterialTheme.field.onWarningContainer)
+                Text(UploadPlan.duplicateLine(on), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.field.onWarningContainer)
             }
         }
         HorizontalDivider(color = MaterialTheme.field.hairline)
@@ -272,7 +272,7 @@ private fun AttachChoice(options: List<Pair<AttachKind, String>>, selected: Atta
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    label, fontSize = 14.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 1,
+                    label, style = MaterialTheme.typography.bodyMedium, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 1,
                     overflow = TextOverflow.Ellipsis, color = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.field.body
                 )
             }

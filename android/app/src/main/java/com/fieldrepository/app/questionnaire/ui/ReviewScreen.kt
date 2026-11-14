@@ -108,9 +108,9 @@ fun ReviewScreen(
         ) {
             OutlinedButton(
                 onClick = onBack, modifier = Modifier.weight(1f).height(56.dp), border = BorderStroke(1.dp, MaterialTheme.field.surface300)
-            ) { Text(QuestionnaireCopy.t("keepGoing"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground) }
+            ) { Text(QuestionnaireCopy.t("keepGoing"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground) }
             if (!locked) Button(onClick = onFinish, modifier = Modifier.weight(1f).height(56.dp).testTag("questionnaire.review.finish")) {
-                Text(QuestionnaireCopy.t("finish"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(QuestionnaireCopy.t("finish"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -134,8 +134,8 @@ private fun NeedsYouLine(row: NeedsYouRow, onAction: () -> Unit) {
                 tint = if (decide) MaterialTheme.field.warning else MaterialTheme.colorScheme.error, modifier = Modifier.size(22.dp)
             )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(row.title, style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-                Text(row.detail, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp), color = MaterialTheme.field.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(row.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
+                Text(row.detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             if (decide) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = row.action, tint = MaterialTheme.field.muted)
             else if (row.action.isNotBlank()) TextButton(onClick = onAction, modifier = Modifier.height(48.dp)) {
@@ -155,10 +155,10 @@ private fun StillToAskLine(row: StillToAskRow, onOpen: () -> Unit) {
         ) {
             SectionLetter(row.section.code, if (row.status.answered == 0) SectionTile.FRESH else SectionTile.STARTED, size = 36.dp, corner = 10.dp)
             Text(
-                row.section.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp),
+                row.section.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
-            Text(row.trailing, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp), color = MaterialTheme.field.muted)
+            Text(row.trailing, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.field.muted)
         }
         HorizontalDivider(color = MaterialTheme.field.hairline)

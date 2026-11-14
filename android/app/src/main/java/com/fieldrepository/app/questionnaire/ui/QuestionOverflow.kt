@@ -40,7 +40,7 @@ fun QuestionOverflow(code: String, items: List<OverflowItem>, modifier: Modifier
         ) {
             items.forEach { item ->
                 DropdownMenuItem(
-                    text = { Text(item.label, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface) },
+                    text = { Text(item.label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface) },
                     leadingIcon = { Icon(item.icon, contentDescription = null, tint = MaterialTheme.field.body) },
                     onClick = { open = false; item.onClick() },
                     modifier = Modifier.size(width = 232.dp, height = 52.dp)

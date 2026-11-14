@@ -38,7 +38,7 @@ fun RecordUploadPair(
     showUpload: Boolean = true,
     trailing: @Composable () -> Unit = {}
 ) {
-    val text = if (height >= 52.dp) 16.sp else 15.sp
+    val text = MaterialTheme.typography.bodyLarge
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(if (height >= 52.dp) 12.dp else 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Button(
             onClick = onRecord,
@@ -48,7 +48,7 @@ fun RecordUploadPair(
         ) {
             Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
-            Text(recordLabel, fontSize = text, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(recordLabel, style = text, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (showUpload) FilledTonalButton(
             onClick = onUpload,
@@ -61,7 +61,7 @@ fun RecordUploadPair(
         ) {
             Icon(Icons.Filled.FileUpload, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
-            Text(uploadLabel, fontSize = text, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(uploadLabel, style = text, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         trailing()
     }

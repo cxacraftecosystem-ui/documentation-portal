@@ -118,7 +118,7 @@ fun RecorderControl(state: RecordingService.State.Recording, modifier: Modifier 
                     }
                     Text(
                         clockText(state.elapsedMs(now)),
-                        style = MaterialTheme.typography.headlineMedium.copy(fontSize = 32.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.headlineSmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.semantics { contentDescription = QuestionnaireCopy.elapsed(state.elapsedMs(now)) }
                     )
@@ -194,12 +194,12 @@ fun AnsweredBySheet(
                 Text(QuestionnaireCopy.s("workspace.answeredBy").uppercase(), style = FieldTextStyles.FieldLabel, color = MaterialTheme.field.muted)
                 Text(
                     QuestionnaireCopy.t("whoAnsweredTitle"),
-                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = 22.sp, lineHeight = 30.sp),
+                    style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(takeLine, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.body)
             }
-            Text(QuestionnaireCopy.t("presentArePicked"), style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 18.sp), color = MaterialTheme.field.muted)
+            Text(QuestionnaireCopy.t("presentArePicked"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 participants.forEach { p ->
                     val on = p.artisanId in chosen
@@ -223,12 +223,12 @@ fun AnsweredBySheet(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                initials(p.name), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
+                                initials(p.name), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium,
                                 color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.field.body
                             )
                         }
                         Text(
-                            p.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp),
+                            p.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
                             fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
                             color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.field.body
                         )

@@ -90,16 +90,16 @@ fun SessionTopBar(
             }
             Column(Modifier.weight(1f)) {
                 Text(
-                    title, style = MaterialTheme.typography.headlineSmall.copy(fontSize = 20.sp, lineHeight = 28.sp),
+                    title, style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
                 if (subline.isNotBlank()) Text(
-                    subline, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                    subline, style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.field.muted, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
             if (showReview) TextButton(onClick = onReview, modifier = Modifier.height(48.dp)) {
-                Text(QuestionnaireCopy.t("review"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                Text(QuestionnaireCopy.t("review"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             }
             Box {
                 IconButton(onClick = onMenu, modifier = Modifier.size(48.dp).testTag("questionnaire.session.menu")) {
@@ -119,12 +119,12 @@ fun SessionProgressBlock(tally: SessionTally, pill: SavePillState, onOpenUploads
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     QuestionnaireCopy.t("questionsOfTotal", "answered" to tally.answered, "total" to tally.total), modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp), fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
                     QuestionnaireCopy.t("sectionsOfTotal", "done" to tally.sectionsDone, "total" to tally.sectionsTotal),
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 16.sp), color = MaterialTheme.field.muted
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted
                 )
             }
             FieldLinearProgressIndicator(
@@ -146,7 +146,6 @@ fun PeopleRow(
     onAddArtisan: () -> Unit,
     onAddGuest: () -> Unit
 ) {
-    var adding by remember { mutableStateOf(false) }
     FlowRow(
         Modifier.fillMaxWidth().padding(top = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -160,16 +159,16 @@ fun PeopleRow(
                 label = { Text(QuestionnaireCopy.firstName(p.name) + if (p.present) "" else " · ${QuestionnaireCopy.s("workspace.away")}") }
             )
         }
-        if (!locked) Box {
+        if (!locked) {
             FilterChip(
-                selected = false, onClick = { adding = true },
-                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                label = { Text(QuestionnaireCopy.t("add")) }
+                selected = false, onClick = onAddArtisan,
+                label = { Text(QuestionnaireCopy.s("workspace.addArtisan")) }
             )
-            DropdownMenu(expanded = adding, onDismissRequest = { adding = false }) {
-                DropdownMenuItem(text = { Text(QuestionnaireCopy.s("workspace.addArtisan")) }, onClick = { adding = false; onAddArtisan() })
-                DropdownMenuItem(text = { Text(QuestionnaireCopy.s("guest.add")) }, onClick = { adding = false; onAddGuest() })
-            }
+            FilterChip(
+                selected = false, onClick = onAddGuest,
+                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                label = { Text(QuestionnaireCopy.s("guest.add")) }
+            )
         }
     }
 }
@@ -216,7 +215,7 @@ fun SessionMenuSheet(
                     ),
                     selectedValue = recordBy, enabled = recordByEnabled, onSelect = onRecordBy
                 )
-                Text(QuestionnaireCopy.t("recordByHelper"), style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), color = MaterialTheme.field.muted)
+                Text(QuestionnaireCopy.t("recordByHelper"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
             }
             val (danger, plain) = items.partition { it.destructive }
             if (plain.isNotEmpty()) {
@@ -242,7 +241,7 @@ private fun MenuRow(item: SessionMenuItem, onDismiss: () -> Unit) {
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Icon(item.icon, contentDescription = null, tint = if (item.destructive) color else MaterialTheme.field.body)
-            Text(item.label, fontSize = 16.sp, color = color, fontWeight = FontWeight.Normal)
+            Text(item.label, style = MaterialTheme.typography.bodyLarge, color = color, fontWeight = FontWeight.Normal)
         }
     }
 }

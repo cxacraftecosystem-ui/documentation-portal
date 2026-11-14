@@ -1184,7 +1184,7 @@ internal fun SectionDock(code: String, onRecord: () -> Unit, onUpload: () -> Uni
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
-                QuestionnaireCopy.t("chipSection", "code" to code), style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                QuestionnaireCopy.t("chipSection", "code" to code), style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium, color = MaterialTheme.field.muted
             )
             RecordUploadPair(
@@ -1208,7 +1208,7 @@ internal fun SectionLetter(code: String, tile: SectionTile, open: Boolean = fals
         Modifier.size(size).clip(shape).background(bg).then(if (!open && tile == SectionTile.FRESH) Modifier.border(1.dp, MaterialTheme.field.surface300, shape) else Modifier),
         contentAlignment = Alignment.Center
     ) {
-        Text(code, style = MaterialTheme.typography.titleMedium.copy(fontSize = if (size >= 40.dp) 16.sp else 15.sp), fontWeight = FontWeight.Bold, color = fg, maxLines = 1)
+        Text(code, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = fg, maxLines = 1)
     }
 }
 
@@ -1242,9 +1242,9 @@ internal fun SectionCard(
             ) {
                 SectionLetter(section.code, status.tile, open = true)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(section.title, style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp, lineHeight = 22.sp), color = MaterialTheme.colorScheme.onSurface)
+                    Text(section.title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                     Text(
-                        status.subline(), style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 16.sp), fontWeight = FontWeight.SemiBold,
+                        status.subline(), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
                         color = if (status.done) MaterialTheme.field.success else MaterialTheme.colorScheme.primary
                     )
                 }
@@ -1261,10 +1261,10 @@ internal fun SectionCard(
                 SectionLetter(section.code, status.tile)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        section.title, style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp), fontWeight = FontWeight.SemiBold,
+                        section.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
-                    Text(status.subline(), style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 16.sp), color = MaterialTheme.field.muted)
+                    Text(status.subline(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
                 }
                 Icon(Icons.Filled.ExpandMore, contentDescription = null, tint = MaterialTheme.field.muted)
             }
@@ -1311,7 +1311,7 @@ internal fun QuestionRow(
                     pop()
                     append(" · " + status.line())
                 },
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                style = MaterialTheme.typography.bodyMedium,
                 color = if (answered) MaterialTheme.field.success else MaterialTheme.field.muted,
                 modifier = if (tappable) Modifier.clickable(onClick = onOpenTakes) else Modifier
             )
@@ -1320,19 +1320,19 @@ internal fun QuestionRow(
                 question.displayCode,
                 modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (answered) MaterialTheme.field.successContainer else MaterialTheme.field.surface200)
                     .padding(horizontal = 8.dp, vertical = 2.dp),
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
                 color = if (answered) MaterialTheme.field.success else MaterialTheme.field.body
             )
             Text(
                 status.line(), modifier = Modifier.weight(1f).then(if (tappable) Modifier.clickable(onClick = onOpenTakes) else Modifier),
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                style = MaterialTheme.typography.bodyMedium,
                 color = if (answered) MaterialTheme.field.success else MaterialTheme.field.muted, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
             QuestionOverflow(question.displayCode, overflow, Modifier.offset(x = 12.dp))
         }
         Text(
             question.prompt + if (question.required) " *" else "",
-            style = MaterialTheme.typography.bodyLarge.copy(fontSize = if (byQuestion) 15.sp else 16.sp, lineHeight = if (byQuestion) 22.sp else 24.sp),
+            style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onBackground
         )
         question.helpText?.ifBlank { null }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted) }
@@ -1437,7 +1437,7 @@ internal fun OutboxTraySheet(
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 24.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(QuestionnaireCopy.t("openUploads"), style = MaterialTheme.typography.headlineSmall.copy(fontSize = 20.sp, lineHeight = 28.sp), color = MaterialTheme.colorScheme.onSurface)
+            Text(QuestionnaireCopy.t("openUploads"), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
             SavePill(pill, onOpen = {}, onRetry = { rows.filter { it.sendAgain }.forEach(onSendAgain) })
             if (rows.isNotEmpty()) OutboxTray(rows, onSendAgain, onDiscard, onKeepTheirs, onKeepMine, onSendWithoutConflicts)
         }
