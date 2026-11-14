@@ -39,3 +39,12 @@ def test_clearing_a_location_conflicts_only_when_one_is_set() -> None:
 
 def test_crafts_differ_when_the_set_differs() -> None:
     assert field_diff({"crafts": ["Dabu"]}, CURRENT) == {"crafts": {"current": CURRENT["crafts"], "yours": ["Dabu"]}}
+
+
+def test_a_stale_record_by_conflicts_only_when_another_device_chose_differently() -> None:
+    current = {**CURRENT, "recordBy": "QUESTION"}
+    assert details_conflict({"recordBy": "QUESTION"}, current, 3, 5) is None
+    assert details_conflict({"recordBy": "SECTION", "note": "First visit"}, current, 3, 5) == {
+        "recordBy": {"current": "QUESTION", "yours": "SECTION"}
+    }
+    assert details_conflict({"recordBy": "SECTION"}, current, 5, 5) is None

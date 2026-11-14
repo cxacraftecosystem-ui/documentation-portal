@@ -65,3 +65,33 @@ def test_a_session_carries_its_artisans_crafts_and_keeps_a_craft_set_by_hand(mon
             await client.disconnect()
 
     run(go())
+
+
+def test_record_by_is_set_on_start_read_back_changed_on_edit_and_carried_into_a_continuation(monkeypatch) -> None:
+    from app.questionnaire import schemas as S, sessions
+
+    async def go() -> None:
+        client = await connect()
+        patch_db(monkeypatch, client)
+        no_outside_calls(monkeypatch)
+        try:
+            ids = await seed(client)
+            plain, _ = await sessions.create_session(session_create(ids, ids.artisans[:1]), ids.lead)
+            assert plain["recordBy"] == "SECTION"
+            s, _ = await sessions.create_session(session_create(ids, ids.artisans[1:2], recordBy="QUESTION"), ids.lead)
+            assert s["recordBy"] == "QUESTION"
+            stored = await client.query_raw('SELECT "recordBy"::text AS r FROM "QuestionnaireInterview" WHERE "id" = $1', s["id"])
+            assert stored[0]["r"] == "QUESTION"
+            back = await sessions.patch_session(s["id"], S.SessionPatch(version=s["version"], recordBy="SECTION"), ids.lead)
+            assert back["recordBy"] == "SECTION"
+            kept = await sessions.patch_session(s["id"], S.SessionPatch(version=back["version"], note="Second sitting", recordBy=None), ids.lead)
+            assert kept["recordBy"] == "SECTION" and kept["note"] == "Second sitting"
+            again = await sessions.patch_session(s["id"], S.SessionPatch(version=kept["version"], recordBy="QUESTION"), ids.lead)
+            cont = await sessions.continue_sessions(
+                S.ContinueRequest(fromSessionId=again["id"], artisanIds=ids.artisans[1:2], split="ONE", sessionDate="2026-06-22"), ids.lead
+            )
+            assert [x["recordBy"] for x in cont["sessions"]] == ["QUESTION"]
+        finally:
+            await client.disconnect()
+
+    run(go())

@@ -188,3 +188,33 @@ def test_the_snapshot_carries_edits_and_removals_since_a_sequence(monkeypatch) -
         await client.disconnect()
 
     run(go())
+
+
+def test_a_grid_cell_counts_answered_questions_and_a_section_take_answers_them_all(monkeypatch) -> None:
+    from app.questionnaire import answers, coverage, sessions
+    from app.questionnaire.schemas import AnswersPut
+
+    async def go() -> None:
+        client = await connect()
+        patch_db(monkeypatch, client)
+        no_outside_calls(monkeypatch)
+        try:
+            ids = await seed(client)
+            a, b = ids.artisans[0], ids.artisans[1]
+            s, _ = await sessions.create_session(session_create(ids, [a, b]), ids.lead)
+            await record_take(client, ids, s["id"], ids.lead, targets=[{"sectionId": ids.sections["D"]}], at=t(0),
+                              subjects=[{"artisanId": a, "role": "ANSWERED"}])
+            await record_take(client, ids, s["id"], ids.lead, targets=[{"questionLineageId": ids.questions["F2"]}], at=t(1),
+                              subjects=[{"artisanId": b, "role": "ANSWERED"}])
+            typed = lambda artisan, code: {"artisanId": artisan, "questionLineageId": ids.questions[code], "text": "Teak", "sessionId": s["id"]}
+            await answers.put_answers(AnswersPut.model_validate({"items": [typed(a, "D1"), typed(b, "F2"), typed(b, "F3")]}), ids.lead)
+            grid = await coverage.grid(ids.q, artisan_ids=[a, b], client=client)
+            cell = {(c["artisanId"], sec["code"]): c for sec in grid["sections"] for c in sec["cells"]}
+            assert (cell[(a, "D")]["answeredQuestions"], cell[(a, "D")]["inSectionTake"], cell[(a, "D")]["covered"]) == (4, True, 1)
+            assert (cell[(b, "D")]["answeredQuestions"], cell[(b, "D")]["inSectionTake"]) == (0, False)
+            assert (cell[(b, "F")]["answeredQuestions"], cell[(b, "F")]["covered"], cell[(b, "F")]["state"]) == (2, 2, "PARTIAL")
+            assert cell[(a, "F")]["answeredQuestions"] == 0 and cell[(a, "B")]["answeredQuestions"] == 0
+        finally:
+            await client.disconnect()
+
+    run(go())

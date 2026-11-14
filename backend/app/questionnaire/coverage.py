@@ -327,6 +327,7 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
             recorded_q = question_lineages.get((a, sid), set()) & asked
             typed_q = {x for x in typed.get(a, set()) if lineage_home.get(x) == sid} & asked
             covered = len(recorded_q | typed_q)
+            done = answered(total, bool(st), recorded_q | typed_q, asked)
             if st:
                 state = "RECORDED"
             elif covered:
@@ -339,6 +340,7 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
             source = SOURCE_RECORDED if (st or recorded_q) else (SOURCE_TYPED if typed_q else None)
             cells.append({
                 "artisanId": a, "subjectKey": f"A:{a}", "state": state, "takes": distinct_takes, "covered": covered, "total": total,
+                "answeredQuestions": done, "inSectionTake": bool(st),
                 "needsDecision": bool(nd.get((a, sid))), "override": override_by.get((a, sid)),
                 "source": source, "recordedCount": len(recorded_q), "typedOnlyCount": len(typed_q - recorded_q),
                 "addRecording": source == SOURCE_TYPED,
@@ -420,7 +422,8 @@ async def _guest_cells(db: Any, questionnaire_id: str, respondent_ids: list[str]
             source = SOURCE_RECORDED if (whole or rec_q) else (SOURCE_TYPED if typed_q else None)
             cells.append({
                 "respondentId": g, "subjectKey": f"R:{g}", "state": state, "takes": len(takes_in.get((g, sid), set())),
-                "covered": covered, "total": total, "needsDecision": (g, sid) in waiting, "override": None,
+                "covered": covered, "total": total, "answeredQuestions": answered(total, whole, rec_q | typed_q, asked),
+                "inSectionTake": whole, "needsDecision": (g, sid) in waiting, "override": None,
                 "source": source, "recordedCount": len(rec_q), "typedOnlyCount": len(typed_q - rec_q),
                 "addRecording": source == SOURCE_TYPED,
                 "recordings": cell_recordings(guest_takes.get((g, sid), [])),
@@ -430,6 +433,108 @@ async def _guest_cells(db: Any, questionnaire_id: str, respondent_ids: list[str]
 
 def section_covered(cell: dict[str, Any]) -> bool:
     return cell["state"] == "RECORDED" or (cell["total"] > 0 and cell["covered"] >= cell["total"])
+
+
+def answered(total: int, section_take: bool, done: set[str], asked: set[str]) -> int:
+    return total if section_take else len(done & asked)
+
+
+def progress_of(sections: list[dict[str, Any]], section_takes: set[str], done: set[str]) -> dict[str, Any]:
+    rows = []
+    for s in sections:
+        asked = set(s["lineages"])
+        whole = s["sectionId"] in section_takes
+        rows.append({
+            "sectionId": s["sectionId"], "answeredQuestions": answered(len(asked), whole, done, asked),
+            "totalQuestions": len(asked), "inSectionTake": whole,
+        })
+    return {
+        "answeredQuestions": sum(r["answeredQuestions"] for r in rows),
+        "totalQuestions": sum(r["totalQuestions"] for r in rows),
+        "sections": rows,
+    }
+
+
+async def instrument_sections(client: Any, questionnaire_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    if not questionnaire_ids:
+        return {}
+    rows = await client.query_raw(
+        'SELECT s."questionnaireId", s."id", s."code", s."title", COALESCE(q."lineageId", q."id") AS lineage '
+        'FROM "QuestionnaireSection" s LEFT JOIN "QuestionnaireQuestion" q ON q."sectionId" = s."id" AND q."isActive" '
+        '  AND q."retiredAt" IS NULL AND q."supersededById" IS NULL '
+        'WHERE s."questionnaireId" = ANY($1::text[]) AND s."isActive" '
+        'ORDER BY s."questionnaireId", s."sortOrder", s."id", q."sortOrder", q."id"',
+        sorted(set(questionnaire_ids)),
+    )
+    out: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    index: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        sid = str(r["id"])
+        section = index.get(sid)
+        if section is None:
+            section = {"sectionId": sid, "code": r["code"], "title": r["title"], "lineages": []}
+            index[sid] = section
+            out[str(r["questionnaireId"])].append(section)
+        lineage = r.get("lineage")
+        if lineage and str(lineage) not in section["lineages"]:
+            section["lineages"].append(str(lineage))
+    return out
+
+
+async def session_answers(client: Any, session_ids: list[str]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {sid: {"sectionTakes": set(), "done": set(), "touched": set()} for sid in session_ids}
+    if not session_ids:
+        return out
+    takes = await client.query_raw(
+        'SELECT DISTINCT tv."sessionId" AS sid, tv."sectionId", tv."questionLineageId", tv."filing"::text AS filing, '
+        'q."sectionId" AS "questionSectionId" FROM questionnaire_take_v tv '
+        'LEFT JOIN "QuestionnaireQuestion" q ON q."id" = tv."questionLineageId" WHERE tv."sessionId" = ANY($1::text[])',
+        session_ids,
+    )
+    guests = await client.query_raw(
+        'SELECT DISTINCT m."questionnaireInterviewId" AS sid, t."sectionId", t."questionLineageId", r."filing"::text AS filing '
+        'FROM "QuestionnaireRecordingRespondent" g JOIN "QuestionnaireRecording" r ON r."id" = g."recordingId" '
+        'JOIN "MediaFile" m ON m."id" = r."mediaFileId" JOIN "QuestionnaireRecordingTarget" t ON t."recordingId" = r."id" '
+        "WHERE m.\"questionnaireInterviewId\" = ANY($1::text[]) AND g.\"role\" = 'ANSWERED' "
+        'AND r."removedAt" IS NULL AND m."removedAt" IS NULL',
+        session_ids,
+    )
+    typed = await client.query_raw(
+        'SELECT DISTINCT x."sessionId" AS sid, a."questionLineageId" FROM "QuestionnaireAnswerRevision" x '
+        'JOIN "QuestionnaireAnswer" a ON a."id" = x."answerId" '
+        'JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
+        'WHERE x."sessionId" = ANY($1::text[]) AND btrim(rv."text") <> \'\'',
+        session_ids,
+    )
+    for t in takes:
+        one = out[str(t["sid"])]
+        home = t.get("sectionId") or t.get("questionSectionId")
+        if home:
+            one["touched"].add(str(home))
+    for t in [*takes, *guests]:
+        one = out[str(t["sid"])]
+        if t.get("filing") == "NEEDS_DECISION":
+            continue
+        if t.get("sectionId"):
+            one["sectionTakes"].add(str(t["sectionId"]))
+        elif t.get("questionLineageId"):
+            one["done"].add(str(t["questionLineageId"]))
+    for a in typed:
+        out[str(a["sid"])]["done"].add(str(a["questionLineageId"]))
+    return out
+
+
+async def session_progress(client: Any, questionnaire_of: dict[str, str]) -> dict[str, dict[str, Any]]:
+    sids = list(questionnaire_of)
+    sections = await instrument_sections(client, list(questionnaire_of.values()))
+    found = await session_answers(client, sids)
+    return {
+        sid: {
+            **progress_of(sections.get(questionnaire_of[sid], []), found[sid]["sectionTakes"], found[sid]["done"]),
+            "touchedSections": len(found[sid]["touched"]),
+        }
+        for sid in sids
+    }
 
 
 HORIZON_SQL = (

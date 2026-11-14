@@ -566,6 +566,57 @@ class Snapshot(Strict):
     changedRecordingIds: list[str] = Field(default_factory=list)
 
 
+class ShaLookupRequest(Strict):
+    sha256s: list[str] = Field(min_length=1, max_length=50)
+    sessionId: str | None = None
+
+    @field_validator("sha256s")
+    @classmethod
+    def _hex(cls, values: list[str]) -> list[str]:
+        out = [value.strip().lower() for value in values]
+        if any(len(value) != 64 or any(c not in "0123456789abcdef" for c in value) for value in out):
+            raise ValueError("every sha256 is 64 hex characters")
+        return out
+
+
+class ShaMatch(Strict):
+    sha: str
+    recordingId: str | None
+    sessionId: str | None
+    sameSession: bool
+    uploadedAt: datetime | None
+    pending: bool
+
+
+class ShaLookup(Strict):
+    items: list[ShaMatch]
+
+
+class ReviewDecision(Strict):
+    recordingId: str
+    capturedAt: datetime | None
+    codes: list[str]
+
+
+class ReviewSection(Strict):
+    sectionId: str
+    code: str
+    title: str
+    answered: int
+    total: int
+    lineages: list[str]
+
+
+class SessionReview(Strict):
+    sessionId: str
+    answered: int
+    total: int
+    sectionsDone: int
+    pendingUploads: int
+    needsDecision: list[ReviewDecision]
+    stillToAsk: list[ReviewSection]
+
+
 class PresignRequest(Strict):
     linkedRecordType: Literal["questionnaire_session"]
     sessionId: str = Field(min_length=1)
@@ -816,6 +867,9 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "CoverageCheckResponse": CoverageCheckResponse,
     "CoverageGrid": CoverageGrid,
     "Snapshot": Snapshot,
+    "SessionReview": SessionReview,
+    "ShaLookupRequest": ShaLookupRequest,
+    "ShaLookup": ShaLookup,
     "PresignRequest": PresignRequest,
     "PresignResponse": PresignResponse,
     "MultipartCreateRequest": MultipartCreateRequest,

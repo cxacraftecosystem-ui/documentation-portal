@@ -352,6 +352,38 @@ async def upload_state(client_clip_key: str, user: Any, *, client: Any = None) -
     }
 
 
+async def sha_lookup(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
+    db = _db(client)
+    shas = list(dict.fromkeys(payload.sha256s))
+    media = await db.query_raw(
+        'SELECT m."contentSha256" AS sha, r."id" AS "recordingId", m."questionnaireInterviewId" AS "sessionId", m."createdAt" AS at '
+        'FROM "MediaFile" m JOIN "QuestionnaireInterview" i ON i."id" = m."questionnaireInterviewId" '
+        'LEFT JOIN "QuestionnaireRecording" r ON r."mediaFileId" = m."id" AND r."removedAt" IS NULL '
+        'WHERE m."contentSha256" = ANY($1::text[]) AND m."removedAt" IS NULL AND i."deletedAt" IS NULL '
+        'ORDER BY m."shaVerifiedAt" IS NULL, r."id" IS NULL, m."createdAt", m."id"',
+        shas,
+    )
+    intents = await db.query_raw(
+        'SELECT u."contentSha256" AS sha, u."sessionId", u."createdAt" AS at FROM "MediaUploadIntent" u '
+        'JOIN "QuestionnaireInterview" i ON i."id" = u."sessionId" '
+        'WHERE u."contentSha256" = ANY($1::text[]) AND u."closedAt" IS NULL AND u."expiresAt" > (now() AT TIME ZONE \'UTC\') '
+        'AND i."deletedAt" IS NULL ORDER BY u."createdAt", u."id"',
+        shas,
+    )
+    found: dict[str, dict[str, Any]] = {}
+    for row, pending in [*((m, False) for m in media), *((u, True) for u in intents)]:
+        sha = str(row["sha"])
+        if sha in found:
+            continue
+        session_id = str(row["sessionId"]) if row.get("sessionId") else None
+        found[sha] = {
+            "sha": sha, "recordingId": None if pending or not row.get("recordingId") else str(row["recordingId"]),
+            "sessionId": session_id, "sameSession": bool(payload.sessionId) and session_id == payload.sessionId,
+            "uploadedAt": iso(row.get("at")), "pending": pending,
+        }
+    return {"items": [found[sha] for sha in shas if sha in found]}
+
+
 async def sweep_expired_intents(*, client: Any = None, limit: int = 200) -> int:
     from app.questionnaire.ports import s3
 
