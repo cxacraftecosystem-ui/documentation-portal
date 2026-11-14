@@ -299,6 +299,8 @@ jobs:
         working-directory: frontend
         env:
           DESIGN_OUT: ${{ github.workspace }}/design-fidelity
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
           E2E_BASE_URL: http://localhost:3000
           E2E_API_URL: http://localhost:8000
           INTERVIEW_FILES: ${{ runner.temp }}

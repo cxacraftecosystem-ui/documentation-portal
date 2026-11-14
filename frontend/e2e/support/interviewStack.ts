@@ -194,18 +194,23 @@ export async function uploadTake(session: Session, target: Target | null, option
 
 export async function typeAnswers(session: Session, answers: Record<string, string>, options: { who?: Who; artisan?: string } = {}) {
   const owner = artisan(options.artisan ?? MEERA);
-  const out = await as(options.who ?? "lead").putAnswers(
-    Object.entries(answers).map(([code, text]) => ({
-      artisanId: owner,
-      questionLineageId: lineage(code),
-      text,
-      origin: "TYPED" as const,
-      attribution: "INDIVIDUAL" as const,
-      sessionId: session.id,
-      sourceRecordingId: null
-    }))
-  );
-  expect(out.results.every((r) => r.status === "SAVED" || r.status === "UNCHANGED"), "every typed answer saved").toBe(true);
+  const api = as(options.who ?? "lead");
+  const items = Object.entries(answers).map(([code, text]) => ({
+    artisanId: owner,
+    questionLineageId: lineage(code),
+    text,
+    origin: "TYPED" as const,
+    attribution: "INDIVIDUAL" as const,
+    sessionId: session.id,
+    sourceRecordingId: null
+  }));
+  const first = await api.putAnswers(items);
+  const stale = first.results.filter((r) => r.status === "CONFLICT" && r.current);
+  const retried = stale.length
+    ? await api.putAnswers(stale.map((r) => ({ ...items.find((i) => i.questionLineageId === r.questionLineageId)!, baseVersion: r.current!.version })))
+    : { results: [] };
+  const results = [...first.results.filter((r) => !stale.includes(r)), ...retried.results];
+  expect(results.map((r) => `${r.questionLineageId}:${r.status}`).filter((s) => !/:(SAVED|UNCHANGED)$/.test(s)), "every typed answer saved").toEqual([]);
 }
 
 export const E1_TYPED = "Rough cutting takes about four days, then shaping with the chisel";
