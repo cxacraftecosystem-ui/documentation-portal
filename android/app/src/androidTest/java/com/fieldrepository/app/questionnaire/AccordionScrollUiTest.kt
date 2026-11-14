@@ -34,6 +34,7 @@ import com.fieldrepository.app.questionnaire.ui.QuestionStatus
 import com.fieldrepository.app.questionnaire.ui.ScrollOpenSectionToTop
 import com.fieldrepository.app.questionnaire.ui.SectionCard
 import com.fieldrepository.app.questionnaire.ui.SectionStatus
+import com.fieldrepository.app.questionnaire.ui.accordionTail
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -79,6 +80,7 @@ class AccordionScrollUiTest {
                             }
                         }
                     }
+                    accordionTail(list, opened != null)
                 }
             }
         }
