@@ -2,14 +2,19 @@ package com.fieldrepository.app.questionnaire.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.InputChip
@@ -27,9 +32,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.data.Naming
 import com.fieldrepository.app.questionnaire.data.QArtisanOption
 import com.fieldrepository.app.questionnaire.data.QArtisanRef
@@ -44,6 +51,7 @@ import com.fieldrepository.app.questionnaire.data.QWorkshopOption
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireKind
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
+import com.fieldrepository.app.questionnaire.data.RecordBy
 import com.fieldrepository.app.questionnaire.data.RespondentKind
 import com.fieldrepository.app.questionnaire.data.SessionOutbox
 import com.fieldrepository.app.questionnaire.data.SessionPurpose
@@ -87,7 +95,8 @@ data class StartForm(
     val languageOther: String = "",
     val note: String = "",
     val crafts: List<String> = emptyList(),
-    val craftsByHand: List<String> = emptyList()
+    val craftsByHand: List<String> = emptyList(),
+    val recordBy: String = RecordBy.SECTION.wire
 ) {
     val canStart: Boolean get() = questionnaireId.isNotBlank() && date != null && (artisanIds.isNotEmpty() || guests.any { it.input().name != null || it.kind == RespondentKind.SELF.wire })
 
@@ -124,7 +133,8 @@ data class StartForm(
         respondents = guests.map { it.input() },
         location = location,
         crafts = crafts,
-        craftsByHand = craftsByHand
+        craftsByHand = craftsByHand,
+        recordBy = recordBy
     )
 }
 
@@ -152,6 +162,43 @@ internal fun startFormFor(resolved: String?, current: String, forms: List<QFormO
     resolved != null && forms.any { it.id == resolved } -> resolved
     current.isNotBlank() && forms.any { it.id == current } -> current
     else -> forms.firstOrNull { it.isDefault }?.id ?: forms.firstOrNull()?.id.orEmpty()
+}
+
+internal fun recordByOptions(): List<SelectOption> = listOf(
+    SelectOption(RecordBy.SECTION.wire, QuestionnaireCopy.t("recordBySection")),
+    SelectOption(RecordBy.QUESTION.wire, QuestionnaireCopy.t("recordByQuestion"))
+)
+
+internal fun placeFromWorkshop(form: StartForm, workshop: QWorkshopOption?): Boolean {
+    val auto = workshop?.place?.trim().orEmpty()
+    return auto.isNotEmpty() && form.place.trim() == auto
+}
+
+internal fun formFromWorkshop(form: StartForm, resolved: String?, touched: Boolean): Boolean =
+    !touched && form.workshopId.isNotBlank() && resolved != null && resolved == form.questionnaireId
+
+internal fun craftsRecordOwner(form: StartForm, crafts: Map<String, String?>, names: Map<String, String>): String? {
+    if (form.crafts.isEmpty() || form.craftsByHand.isNotEmpty()) return null
+    val owners = form.artisanIds.filter { !crafts[it].isNullOrBlank() }
+    if (owners.isEmpty() || craftsFor(owners.map { crafts[it] }, emptyList()) != form.crafts) return null
+    val shown = owners.mapNotNull { names[it]?.trim()?.ifBlank { null } }.distinct()
+    return when (shown.size) {
+        0 -> null
+        1 -> shown[0]
+        else -> shown.dropLast(1).joinToString(", ") + " and " + shown.last()
+    }
+}
+
+@Composable
+internal fun ProvenanceTag(text: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier.padding(start = 4.dp).testTag("q-provenance"),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Filled.Link, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(14.dp))
+        Text(text, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp))
+    }
 }
 
 internal fun formOptions(forms: List<QFormOption>, bound: Set<String>): List<SelectOption> =
@@ -196,6 +243,7 @@ fun SessionStartSheet(
         ))
     }
     var bound by remember { mutableStateOf(emptySet<String>()) }
+    var resolvedForm by remember { mutableStateOf<String?>(null) }
     val consent = remember { mutableStateMapOf<String, String?>() }
     var openMatch by remember { mutableStateOf<QSession?>(null) }
     var starting by remember { mutableStateOf(false) }
@@ -215,6 +263,7 @@ fun SessionStartSheet(
             }.getOrNull()
         }
         bound = resolution?.bound?.map { it.questionnaireId }?.toSet().orEmpty()
+        resolvedForm = resolution?.questionnaireId
         if (!formTouched) form = form.copy(questionnaireId = startFormFor(resolution?.questionnaireId, form.questionnaireId, forms))
     }
 
@@ -282,13 +331,16 @@ fun SessionStartSheet(
                 val w = workshops.firstOrNull { it.id == id }
                 form = if (w != null) form.withWorkshop(w) else form.copy(workshopId = id)
             }
-            SearchableSelectField(
-                label = QuestionnaireCopy.s("start.instrument"),
-                options = formOptions(forms, bound),
-                selectedValue = form.questionnaireId,
-                includeNone = false,
-                searchable = true
-            ) { formTouched = true; form = form.copy(questionnaireId = it) }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SearchableSelectField(
+                    label = QuestionnaireCopy.s("start.instrument"),
+                    options = formOptions(forms, bound),
+                    selectedValue = form.questionnaireId,
+                    includeNone = false,
+                    searchable = true
+                ) { formTouched = true; form = form.copy(questionnaireId = it) }
+                if (formFromWorkshop(form, resolvedForm, formTouched)) ProvenanceTag(QuestionnaireCopy.t("fromThisWorkshop"))
+            }
             CalendarField(label = QuestionnaireCopy.s("start.date"), value = form.date, onValueChange = { form = form.copy(date = it) }, clearable = false)
             SegmentedChoice(
                 label = QuestionnaireCopy.s("start.mode"),
@@ -349,14 +401,18 @@ fun SessionStartSheet(
                     }
                 })
             }
-            SearchableMultiSelectField(
-                label = QuestionnaireCopy.s("start.crafts"),
-                options = craftsFor(craftCatalog + autoCrafts, form.crafts).map { SelectOption(it, it) },
-                selected = form.crafts.toSet(),
-                modifier = Modifier.testTag("q-crafts")
-            ) { chosen ->
-                val ordered = form.crafts.filter { it in chosen } + chosen.filter { it !in form.crafts }
-                form = form.copy(crafts = ordered, craftsByHand = ordered.filter { c -> autoCrafts.none { it.equals(c, ignoreCase = true) } })
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SearchableMultiSelectField(
+                    label = QuestionnaireCopy.s("start.crafts"),
+                    options = craftsFor(craftCatalog + autoCrafts, form.crafts).map { SelectOption(it, it) },
+                    selected = form.crafts.toSet(),
+                    modifier = Modifier.testTag("q-crafts")
+                ) { chosen ->
+                    val ordered = form.crafts.filter { it in chosen } + chosen.filter { it !in form.crafts }
+                    form = form.copy(crafts = ordered, craftsByHand = ordered.filter { c -> autoCrafts.none { it.equals(c, ignoreCase = true) } })
+                }
+                craftsRecordOwner(form, form.artisanIds.associateWith { byId[it]?.craft }, form.artisanIds.associateWith { byId[it]?.name.orEmpty() })
+                    ?.let { ProvenanceTag(QuestionnaireCopy.t("fromRecordOf", "name" to it)) }
             }
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(QuestionnaireCopy.s("start.purpose"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
@@ -370,7 +426,8 @@ fun SessionStartSheet(
                 value = SessionWhere(form.place, form.location),
                 label = QuestionnaireCopy.s("start.place"),
                 onChange = { where -> form = form.copy(place = where.place, location = where.location) },
-                trailingIcon = { PlaceFromDevice(onPlace = { form = form.copy(place = it) }, onError = onError) }
+                trailingIcon = { PlaceFromDevice(onPlace = { form = form.copy(place = it) }, onError = onError) },
+                provenance = QuestionnaireCopy.t("fromThisWorkshop").takeIf { placeFromWorkshop(form, workshop) }
             )
             SearchableSelectField(
                 label = QuestionnaireCopy.s("start.language"),
@@ -392,6 +449,12 @@ fun SessionStartSheet(
                 supportingText = { Text("${form.note.length}/80") },
                 singleLine = true, modifier = Modifier.fillMaxWidth()
             )
+            SegmentedChoice(
+                label = QuestionnaireCopy.t("fieldRecordBy"),
+                options = recordByOptions(),
+                selectedValue = form.recordBy,
+                modifier = Modifier.testTag("q-record-by")
+            ) { form = form.copy(recordBy = it) }
             Text(QuestionnaireCopy.s("start.titlePreview"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted)
             Text(form.titlePreview(workshop, byId, meName), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.field.body)
             ActionRow(Modifier.fillMaxWidth()) {

@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,17 +18,25 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -55,8 +64,12 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.BuildConfig
 import com.fieldrepository.app.data.Naming
 import com.fieldrepository.app.questionnaire.data.ChipFilter
@@ -65,6 +78,8 @@ import com.fieldrepository.app.questionnaire.data.QArtisanOption
 import com.fieldrepository.app.questionnaire.data.QFormOption
 import com.fieldrepository.app.questionnaire.data.QSession
 import com.fieldrepository.app.questionnaire.data.QSessionCreate
+import com.fieldrepository.app.questionnaire.data.QSessionProgress
+import com.fieldrepository.app.questionnaire.data.SessionState
 import com.fieldrepository.app.questionnaire.data.QWorkshopOption
 import com.fieldrepository.app.questionnaire.data.QuestionnaireFilters
 import com.fieldrepository.app.questionnaire.data.KeptPages
@@ -80,10 +95,13 @@ import com.fieldrepository.app.recording.RecordingDrafts
 import com.fieldrepository.app.recording.RecordingService
 import com.fieldrepository.app.recording.RecoveryScanner
 import com.fieldrepository.app.ui.FieldLinearProgressIndicator
+import com.fieldrepository.app.ui.FieldTextStyles
 import com.fieldrepository.app.ui.LocalMayDelete
 import com.fieldrepository.app.ui.SelectOption
 import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import java.time.Instant
 import java.time.LocalDate
 
 private sealed interface QRoute {
@@ -96,37 +114,128 @@ private sealed interface QRoute {
     data class Recordings(val initial: QuestionnaireFilters? = null) : QRoute
 }
 
-data class SessionListRow(val key: String, val title: String, val note: String?, val meta: String, val local: Boolean, val session: QSession?)
+data class SessionListRow(
+    val key: String,
+    val title: String,
+    val note: String?,
+    val meta: String,
+    val local: Boolean,
+    val session: QSession?,
+    val people: String = title,
+    val crafts: List<String> = emptyList(),
+    val sessionDate: LocalDate? = null,
+    val finished: Boolean = false,
+    val answered: Int = 0,
+    val total: Int = 0,
+    val questionnaireId: String? = session?.questionnaire?.id,
+    val workshopId: String? = null
+)
+
+enum class SessionStatus { ALL, OPEN, FINISHED }
+
+data class ContinueAt(val sectionId: String?, val code: String?)
+
+private fun parseDay(value: String?): LocalDate? = value?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() }
 
 internal fun localRow(unit: SessionUnit, names: Map<String, String>): SessionListRow? {
     val body = unit.steps.firstOrNull { it.kind == StepKind.SESSION }?.bodyJson
         ?.let { runCatching { outboxJson.decodeFromString(QSessionCreate.serializer(), it) }.getOrNull() } ?: return null
     val ids = body.participants.map { it.artisanId }
+    val day = parseDay(body.sessionDate)
     val title = Naming.sessionTitle(
         Naming.SessionFields(
-            sessionDate = runCatching { LocalDate.parse(body.sessionDate) }.getOrNull(), place = body.place,
+            sessionDate = day, place = body.place,
             participantNames = ids.map { names[it].orEmpty() } + body.respondents.map { it.name.orEmpty() }
         )
     )
-    return SessionListRow(unit.clientKey, title, body.note, listOf(QuestionnaireCopy.mode(ids.size + body.respondents.size), QuestionnaireCopy.s("upload.onDevice")).joinToString(" · "), true, null)
+    val people = (ids.mapNotNull { names[it]?.trim()?.ifBlank { null } } + body.respondents.mapNotNull { it.name?.trim()?.ifBlank { null } }).joinToString(", ")
+    val crafts = body.crafts.orEmpty()
+    return SessionListRow(
+        key = unit.clientKey,
+        title = title,
+        note = body.note,
+        meta = listOfNotNull(crafts.joinToString(", ").ifBlank { null }, day?.let(QuestionnaireCopy::day), QuestionnaireCopy.s("upload.onDevice")).joinToString(" · "),
+        local = true,
+        session = null,
+        people = people.ifBlank { title },
+        crafts = crafts,
+        sessionDate = day,
+        questionnaireId = unit.questionnaireId,
+        workshopId = unit.workshopId
+    )
 }
 
-internal fun serverRow(s: QSession): SessionListRow = SessionListRow(
-    key = s.clientKey ?: s.id,
-    title = s.title,
-    note = s.note,
-    meta = listOfNotNull(
-        s.sessionDate?.let { runCatching { QuestionnaireCopy.day(LocalDate.parse(it.take(10))) }.getOrNull() },
-        QuestionnaireCopy.mode(s.participantCount.coerceAtLeast(s.participants.size) + s.respondents.count { it.artisanId == null }),
-        s.questionnaire?.title,
-        s.crafts.joinToString(", ").ifBlank { null },
-        s.researchers.joinToString(", ") { QuestionnaireCopy.firstName(it.name) }.ifBlank { null },
-        "${s.counts.sections} ${if (s.counts.sections == 1) "section" else "sections"} · ${s.counts.takes} ${if (s.counts.takes == 1) "take" else "takes"}",
-        s.status.lowercase().replaceFirstChar { it.uppercase() }
-    ).joinToString(" · "),
-    local = false,
-    session = s
+internal fun serverRow(s: QSession): SessionListRow {
+    val day = parseDay(s.sessionDate)
+    val answered = s.progress?.answeredQuestions ?: s.counts.answeredQuestions
+    val total = s.progress?.totalQuestions ?: s.counts.totalQuestions
+    val people = (s.participants.mapNotNull { it.name.trim().ifBlank { null } } +
+        s.respondents.filter { it.artisanId == null }.mapNotNull { it.name.trim().ifBlank { null } }).joinToString(", ")
+    return SessionListRow(
+        key = s.clientKey ?: s.id,
+        title = s.title,
+        note = s.note,
+        meta = listOfNotNull(
+            s.crafts.joinToString(", ").ifBlank { null },
+            day?.let(QuestionnaireCopy::day),
+            QuestionnaireCopy.t("answeredOfTotal", "answered" to answered, "total" to total).takeIf { total > 0 }
+        ).joinToString(" · "),
+        local = false,
+        session = s,
+        people = people.ifBlank { s.title },
+        crafts = s.crafts,
+        sessionDate = day,
+        finished = s.state == SessionState.CLOSED.wire,
+        answered = answered,
+        total = total,
+        workshopId = s.workshop?.id
+    )
+}
+
+internal fun statusOf(row: SessionListRow): SessionStatus = if (row.finished) SessionStatus.FINISHED else SessionStatus.OPEN
+
+internal fun statusCounts(rows: List<SessionListRow>): Map<SessionStatus, Int> = mapOf(
+    SessionStatus.ALL to rows.size,
+    SessionStatus.OPEN to rows.count { statusOf(it) == SessionStatus.OPEN },
+    SessionStatus.FINISHED to rows.count { statusOf(it) == SessionStatus.FINISHED }
 )
+
+internal fun byStatus(rows: List<SessionListRow>, status: SessionStatus): List<SessionListRow> =
+    if (status == SessionStatus.ALL) rows else rows.filter { statusOf(it) == status }
+
+internal fun statusLabel(status: SessionStatus, count: Int?): String {
+    val word = QuestionnaireCopy.t(
+        when (status) {
+            SessionStatus.ALL -> "sessionsAll"
+            SessionStatus.OPEN -> "sessionsOpen"
+            SessionStatus.FINISHED -> "sessionsFinished"
+        }
+    )
+    return if (count == null) word else "$word $count"
+}
+
+internal fun openToday(rows: List<SessionListRow>, today: LocalDate): SessionListRow? =
+    rows.firstOrNull { !it.finished && it.sessionDate == today }
+
+internal fun lastTarget(worked: List<Pair<String?, String>>): String? =
+    worked.mapNotNull { (at, key) -> at?.let { runCatching { Instant.parse(it) }.getOrNull() }?.let { it to key } }
+        .maxByOrNull { it.first }?.second
+
+internal fun continueAt(target: String?, instrument: Instrument?, progress: QSessionProgress?): ContinueAt? {
+    if (instrument == null || instrument.sections.isEmpty()) return null
+    when {
+        target?.startsWith("Q:") == true -> instrument.question(target.removePrefix("Q:"))?.let { return ContinueAt(it.sectionId, it.displayCode) }
+        target?.startsWith("S:") == true -> instrument.section(target.removePrefix("S:"))?.let { return ContinueAt(it.id, it.code) }
+    }
+    val next = instrument.sections.firstOrNull { sec ->
+        val p = progress?.section(sec.id)
+        p == null || p.answeredQuestions < p.totalQuestions
+    } ?: instrument.sections.first()
+    return ContinueAt(next.id, next.code)
+}
+
+internal fun sectionsDone(progress: QSessionProgress?): Int =
+    progress?.sections?.count { it.totalQuestions > 0 && it.answeredQuestions >= it.totalQuestions } ?: 0
 
 internal fun sessionsMenu(): List<String> = listOf("recordings", "sessions.join", "coverage.title")
 
@@ -184,6 +293,11 @@ fun QuestionnaireHome(
     val (filters, setFilters) = rememberKeptFilters(v2, FilterStore.SESSIONS)
     var offline by remember { mutableStateOf(false) }
     var showDeleted by remember { mutableStateOf(false) }
+    var status by rememberKept("q.sessions.status") { SessionStatus.ALL }
+    var today by remember { mutableStateOf<SessionListRow?>(null) }
+    var todayAt by remember { mutableStateOf<ContinueAt?>(null) }
+    var todayUploading by remember { mutableIntStateOf(0) }
+    var todaySections by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(true) }
     var loadingMore by remember { mutableStateOf(false) }
     var inboxCount by remember { mutableIntStateOf(0) }
@@ -214,6 +328,8 @@ fun QuestionnaireHome(
 
     suspend fun page(after: String?) = v2.sessionsPage(filters, after)
 
+    suspend fun loadInstrument(qid: String): Instrument? = v2.form(qid)?.let(Instrument::from)
+
     LaunchedEffect(refresh, route, filters, tab) {
         if (route != QRoute.List || tab != QuestionnaireTab.SESSIONS) return@LaunchedEffect
         loading = true
@@ -225,11 +341,27 @@ fun QuestionnaireHome(
         kept = ListPaging.arrive(kept, filters, appendPage(local, result?.items.orEmpty()), result?.nextCursor) { it.key }
         offline = result?.offline == true
         unsent = units.filter { it.failedSteps.isNotEmpty() }.map { it.clientKey }
-        inboxCount = runCatching { v2.api.inbox().counts.total }.getOrDefault(0)
         loading = false
+        val card = openToday(kept.rows, LocalDate.now(Naming.IST))
+        today = card
+        todayAt = null
+        todayUploading = 0
+        todaySections = 0
+        if (card != null) {
+            val unit = units.firstOrNull { it.clientKey == card.key }
+            todayUploading = unit?.pendingClips?.size ?: 0
+            val qid = card.questionnaireId ?: unit?.questionnaireId
+            val form = qid?.let { id -> withTimeoutOrNull(4_000) { runCatching { loadInstrument(id) }.getOrNull() } }
+            val workshopKey = (card.workshopId ?: unit?.workshopId).takeUnless { QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP }
+            val mine = unit?.steps.orEmpty().mapNotNull { st -> st.clip?.let { c -> c.recording.targets.map { st.deviceTime to it.targetKey } } }.flatten()
+            val sessionId = card.session?.id ?: unit?.sessionId
+            val theirs = if (qid == null || sessionId == null) emptyList() else
+                v2.coverage.get(qid, workshopKey)?.snapshot?.takes.orEmpty().filter { it.sessionId == sessionId }.map { it.capturedAt to it.targetKey }
+            todayAt = continueAt(lastTarget(mine + theirs), form, card.session?.progress)
+            todaySections = form?.sections?.size ?: card.session?.progress?.sections?.size ?: 0
+        }
+        inboxCount = runCatching { v2.api.inbox().counts.total }.getOrDefault(0)
     }
-
-    suspend fun loadInstrument(qid: String): Instrument? = v2.form(qid)?.let(Instrument::from)
 
     fun noteOrigin() = origin.note(route, tab, inSession = route is QRoute.Workspace || route is QRoute.ReadView)
 
@@ -253,6 +385,15 @@ fun QuestionnaireHome(
         instrument = loadInstrument(qid)
         noteOrigin()
         route = QRoute.Workspace(clientKey)
+    }
+
+    fun openRow(row: SessionListRow, section: String? = null) {
+        scope.launch {
+            val s = row.session
+            if (s != null && v2.outbox.unit(row.key) == null) v2.outbox.adoptSession(s, s.questionnaire?.id.orEmpty(), meId)
+            QuestionnaireV2Nav.openSection.value = section
+            openUnit(row.key)
+        }
     }
 
     suspend fun openServer(session: QSession) {
@@ -342,34 +483,43 @@ fun QuestionnaireHome(
                         }
                     }
                     if (unsent.isNotEmpty()) UnsentBanner(unsent.size) { scope.launch { openUnit(unsent.first()) } }
+                    if (!showDeleted) today?.let { card ->
+                        OpenTodayCard(
+                            row = card,
+                            uploading = todayUploading,
+                            sectionsDone = sectionsDone(card.session?.progress),
+                            sectionsTotal = todaySections,
+                            workshopName = card.session?.workshop?.name ?: card.session?.chips?.workshop?.name
+                                ?: workshops.firstOrNull { it.id == (card.workshopId ?: card.session?.designWorkshopId) }?.title,
+                            at = todayAt,
+                            onContinue = { openRow(card, todayAt?.sectionId) }
+                        )
+                    }
+                    val counts = statusCounts(rows)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SessionStatus.entries.forEach { st ->
+                            StatusPill(statusLabel(st, counts.getValue(st).takeIf { cursor == null }), selected = !showDeleted && status == st) {
+                                showDeleted = false
+                                status = st
+                            }
+                        }
+                        if (mayDelete) StatusPill(QuestionnaireCopy.s("sessions.deleted"), selected = showDeleted) { showDeleted = !showDeleted }
+                    }
                     FilterBar(
                         filters, setFilters, QuestionnaireCopy.t("filterSearchSessions"),
                         options = { facet, q, ids -> v2.filterOptions(facet, q, ids) }, offline = offline
                     )
-                    if (mayDelete) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = showDeleted, onClick = { showDeleted = !showDeleted }, label = { Text(QuestionnaireCopy.s("sessions.deleted")) })
-                    }
                     if (showDeleted) {
                         DeletedSessionsList(v2, onRestored = { onError(QuestionnaireCopy.s("session.restored")); refresh++ }, onError = onError)
                     } else {
                         if (loading || (starting && !listsLoaded)) FieldLinearProgressIndicator(Modifier.fillMaxWidth())
-                        if (!loading && rows.isEmpty()) Text(QuestionnaireCopy.s("sessions.empty"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
-                        rows.forEach { row ->
-                            Column(Modifier.fillMaxWidth().clickable {
-                                scope.launch {
-                                    val s = row.session
-                                    if (s != null && v2.outbox.unit(row.key) == null) v2.outbox.adoptSession(s, s.questionnaire?.id.orEmpty(), meId)
-                                    openUnit(row.key)
-                                }
-                            }.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(row.title, style = MaterialTheme.typography.bodyLarge)
-                                row.note?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted) }
-                                Text(row.meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body)
-                                row.session?.chips?.let { chips ->
-                                    RecordingChips(chips, session = true, filters = filters, onChip = { f, label -> setFilters(filters.applyChip(f, label)) })
-                                }
+                        val shown = byStatus(rows, status)
+                        if (!loading && shown.isEmpty()) Text(QuestionnaireCopy.s("sessions.empty"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
+                        Column {
+                            shown.forEach { row ->
+                                SessionRow(row) { openRow(row) }
+                                HorizontalDivider(color = MaterialTheme.field.hairline)
                             }
-                            HorizontalDivider(color = MaterialTheme.field.hairline)
                         }
                         if (cursor != null) PromptButtons(listOf(PromptButton(QuestionnaireCopy.s("sessions.loadMore"), primary = true) {
                             if (loadingMore) return@PromptButton
@@ -490,6 +640,111 @@ fun QuestionnaireHome(
 }
 
 @Composable
+internal fun StatusPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(8.dp)
+    Surface(
+        shape = shape,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.background,
+        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.field.body,
+        border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.heightIn(min = 48.dp).selectable(selected = selected, role = Role.Tab, onClick = onClick).testTag("q-status-pill")
+    ) {
+        Box(Modifier.heightIn(min = 48.dp).padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+            Text(label, style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp, fontWeight = FontWeight.Medium))
+        }
+    }
+}
+
+@Composable
+internal fun SessionStatusTag(finished: Boolean) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (finished) MaterialTheme.field.successContainer else MaterialTheme.colorScheme.primaryContainer,
+        contentColor = if (finished) MaterialTheme.field.onSuccessContainer else MaterialTheme.colorScheme.onPrimaryContainer
+    ) {
+        Text(
+            QuestionnaireCopy.t(if (finished) "sessionsFinished" else "sessionsOpen"),
+            style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold),
+            modifier = Modifier.padding(horizontal = 10.dp)
+        )
+    }
+}
+
+@Composable
+internal fun SessionRow(row: SessionListRow, onOpen: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 68.dp).clickable(onClick = onOpen).padding(vertical = 8.dp).testTag("q-session-row"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                row.people, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onBackground,
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
+            )
+            if (row.meta.isNotBlank()) Text(row.meta, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 16.sp))
+        }
+        SessionStatusTag(row.finished)
+    }
+}
+
+@Composable
+internal fun OpenTodayCard(
+    row: SessionListRow,
+    uploading: Int,
+    sectionsDone: Int,
+    sectionsTotal: Int,
+    workshopName: String?,
+    at: ContinueAt?,
+    onContinue: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.field.hairline),
+        modifier = Modifier.fillMaxWidth().testTag("q-open-today")
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(QuestionnaireCopy.t("openToday").uppercase(), style = FieldTextStyles.Eyebrow, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                if (uploading > 0) Text(QuestionnaireCopy.takesUploading(uploading), style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp), color = MaterialTheme.field.muted)
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(row.people, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                listOfNotNull(row.crafts.joinToString(", ").ifBlank { null }, workshopName?.ifBlank { null }).joinToString(" · ").ifBlank { null }?.let {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.body)
+                }
+            }
+            if (row.total > 0) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                FieldLinearProgressIndicator(
+                    progress = { (row.answered.toFloat() / row.total).coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().height(6.dp)
+                )
+                Text(
+                    listOfNotNull(
+                        QuestionnaireCopy.t("questionsOfTotal", "answered" to row.answered, "total" to row.total),
+                        QuestionnaireCopy.t("sectionsOfTotal", "done" to sectionsDone, "total" to sectionsTotal).takeIf { sectionsTotal > 0 }
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 16.sp), color = MaterialTheme.field.muted
+                )
+            }
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Button(
+                    onClick = onContinue,
+                    contentPadding = PaddingValues(horizontal = 28.dp),
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("q-continue-at")
+                ) {
+                    Text(at?.code?.let { QuestionnaireCopy.t("continueAt", "code" to it) } ?: QuestionnaireCopy.t("continueSession"), fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun UnsentBanner(sessions: Int, onOpen: () -> Unit) {
     Surface(color = MaterialTheme.field.surface100, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
         Text(
@@ -526,6 +781,8 @@ object QuestionnaireV2Nav {
     val openSession = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
     val openServerSession = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
+    val openSection = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
     val startOnForm = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 

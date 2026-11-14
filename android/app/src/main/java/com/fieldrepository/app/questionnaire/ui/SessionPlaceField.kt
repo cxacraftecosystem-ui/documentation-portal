@@ -79,7 +79,8 @@ fun SessionPlaceField(
     modifier: Modifier = Modifier,
     label: String = QuestionnaireCopy.s("start.place"),
     trailingIcon: (@Composable () -> Unit)? = null,
-    editing: Boolean = false
+    editing: Boolean = false,
+    provenance: String? = null
 ) {
     val card = LocalSessionLocationCard.current
     if (card != null) {
@@ -93,6 +94,7 @@ fun SessionPlaceField(
                 modifier = Modifier.fillMaxWidth().testTag("q-place-text"),
                 trailingIcon = trailingIcon
             )
+            provenance?.let { ProvenanceTag(it) }
             card(value.location, editing) { next -> onChange(current.copy(location = next)) }
         }
         return
@@ -110,6 +112,7 @@ fun SessionPlaceField(
             modifier = Modifier.fillMaxWidth().testTag("q-place-text"),
             trailingIcon = trailingIcon
         )
+        provenance?.let { ProvenanceTag(it) }
         PlaceSearchOverlay(
             apiKey = BuildConfig.MAPTILER_API_KEY,
             getProximity = { current.location?.let { it.longitude to it.latitude } },
