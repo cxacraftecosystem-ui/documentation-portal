@@ -18,9 +18,8 @@ test("mode and coverage cells", () => {
   expect(LIST).not.toMatch(/answers\b/);
 });
 
-test("@qf:B28 the list shows the generated title with the note under it, and search matches the legacy title", () => {
-  expect(LIST).toContain("{s.title}");
-  expect(LIST).toContain("{s.note ? ");
+test("@qf:B28 @qf:Q7 the list names who was interviewed, and search matches the generated and the legacy title", () => {
+  expect(LIST).toContain("namesLine(s) || s.title");
   expect(LIST).not.toContain("legacyTitle}");
   const legacy = { ...session, legacyTitle: "section F Bankura old" };
   expect(sessionMatches(legacy, "section f")).toBe(true);

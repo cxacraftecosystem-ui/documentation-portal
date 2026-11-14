@@ -1,5 +1,7 @@
 "use client";
 
+import { Link as LinkIcon } from "lucide-react";
+
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import { locationFromForm } from "@/lib/forms";
 import type { SessionLocation } from "@/lib/questionnaire/api";
@@ -55,7 +57,8 @@ export function SessionPlaceField({
   saved,
   editing = false,
   disabled,
-  onDirty
+  onDirty,
+  provenance = null
 }: {
   id: string;
   place: string;
@@ -64,6 +67,7 @@ export function SessionPlaceField({
   editing?: boolean;
   disabled?: boolean;
   onDirty?: () => void;
+  provenance?: string | null;
 }) {
   return (
     <div className="grid min-w-0 gap-3" data-session-place>
@@ -78,8 +82,15 @@ export function SessionPlaceField({
           maxLength={PLACE_MAX}
           autoComplete="off"
           disabled={disabled}
+          aria-describedby={provenance ? `${id}-from` : undefined}
           onChange={(e) => onPlace(e.target.value)}
         />
+        {provenance ? (
+          <span id={`${id}-from`} className="flex items-center gap-1 text-xs text-ink-500" data-provenance>
+            <LinkIcon className="h-3 w-3 shrink-0" aria-hidden />
+            {provenance}
+          </span>
+        ) : null}
       </div>
       <LocationFields initial={editing ? locationInitial(saved) : undefined} required={false} subjectLabel="this session" onDirty={onDirty} />
     </div>

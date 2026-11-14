@@ -87,7 +87,8 @@ export class ListBackNavFake {
     const [baseRecording] = this.questionnaire.recordings;
     this.sessions = Array.from({ length: ROWS }, (_, i) => {
       const copy = JSON.parse(JSON.stringify(baseSession)) as Json;
-      return { ...copy, id: `s-${i + 1}`, clientKey: `ck-s-${i + 1}`, title: rowName(i + 1) };
+      const [participant] = copy.participants as Json[];
+      return { ...copy, id: `s-${i + 1}`, clientKey: `ck-s-${i + 1}`, title: rowName(i + 1), participants: [{ ...participant, name: rowName(i + 1) }], respondents: [] };
     });
     this.recordings = Array.from({ length: ROWS }, (_, i) => {
       const copy = JSON.parse(JSON.stringify(baseRecording)) as Json;

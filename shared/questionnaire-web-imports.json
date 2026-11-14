@@ -37,6 +37,8 @@
     "@/components/ui/CalendarField",
     "@/components/ui/SearchableSelect",
     "@/components/ui/SegmentedChoice",
+    "@/components/ui/ProgressBar",
+    "@/components/ui/AnchoredPopover",
     "@/components/ui/Toggle",
     "@/components/forms/PlaceSearchBox",
     "@/components/forms/MapPointPicker",

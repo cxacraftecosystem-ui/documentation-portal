@@ -259,7 +259,7 @@ function StatusField({
 
 const ARTISAN_DRAFT_FORM_FIELDS = ["gender", "dateOfBirth", "craftStartDate", "experienceYears", "experienceMonths", "phone", "phoneCountryCode", "address", "notes", "dos", "donts"];
 
-export function ArtisanForm({ initial }: { initial?: Artisan }) {
+export function ArtisanForm({ initial, onCreated, onQueued }: { initial?: Artisan; onCreated?: (saved: Artisan) => void; onQueued?: () => void }) {
   const router = useRouter();
   const { user } = useAuth();
   const canSetStatus = hasRank(user, "PROFESSOR");
@@ -527,6 +527,10 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       if (outcome.queued) {
         draft.clear();
         resetDirty();
+        if (onQueued) {
+          onQueued();
+          return;
+        }
         if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
         setSaving(false);
         return;
@@ -558,6 +562,10 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       }
       draft.clear();
       resetDirty();
+      if (!initial && onCreated) {
+        onCreated(saved);
+        return;
+      }
       if (initial) {
         router.push("/artisans");
         router.refresh();

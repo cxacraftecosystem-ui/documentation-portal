@@ -3,6 +3,7 @@ import { ApiError, apiFetch, buildQuery } from "@/lib/api";
 import type { RecordingChips } from "@/lib/questionnaire/chips";
 import { filtersToQuery, type Filters } from "@/lib/questionnaire/filters";
 import {
+  RecordByValues,
   RepeatReasonValues,
   SessionPurposeValues,
   type AnswerAttribution,
@@ -10,6 +11,7 @@ import {
   type ConsentBasis,
   type ConsentState,
   type ConsentVerdict,
+  type RecordBy,
   type RepeatReason,
   type SessionPurpose,
   type SubjectRole
@@ -90,6 +92,8 @@ export type { AnswerOrigin, ConsentBasis, ConsentState, ConsentVerdict, RepeatRe
 export type Attribution = AnswerAttribution;
 export const SESSION_PURPOSES: readonly SessionPurpose[] = SessionPurposeValues;
 export const REPEAT_REASONS: readonly RepeatReason[] = RepeatReasonValues;
+export const RECORD_BY: readonly RecordBy[] = RecordByValues;
+export type { RecordBy };
 
 export type Person = { id: string; name: string };
 
@@ -113,6 +117,7 @@ export type SessionCreate = {
   location?: SessionLocation | null;
   crafts?: string[];
   craftsByHand?: string[];
+  recordBy?: RecordBy;
 };
 
 export type SessionLocation = {
@@ -199,12 +204,18 @@ export type Session = {
   status: string;
   submittedAt: string | null;
   reviewReasons: string[];
-  counts: { sections: number; takes: number; needsDecision: number };
+  counts: { sections: number; takes: number; needsDecision: number; answeredQuestions?: number; totalQuestions?: number };
+  recordBy?: RecordBy;
+  progress?: SessionProgress | null;
   respondents?: Respondent[];
   source?: "APP" | "UPLOAD" | "HANDOFF" | string;
   deletedAt?: string | null;
   chips?: RecordingChips | null;
 };
+
+export type SectionProgress = { sectionId: string; answeredQuestions: number; totalQuestions: number; inSectionTake: boolean };
+
+export type SessionProgress = { answeredQuestions: number; totalQuestions: number; sections: SectionProgress[] };
 
 export type RecordingTarget = {
   targetKey: string;

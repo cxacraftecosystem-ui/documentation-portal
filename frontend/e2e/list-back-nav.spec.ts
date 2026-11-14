@@ -33,8 +33,8 @@ const PAGED = [
 ] as const;
 
 const CURSOR = [
-  { name: "sessions", route: "/questionnaire", search: /^Search sessions/ },
-  { name: "recordings", route: "/questionnaire/recordings", search: /^Search recordings/ }
+  { name: "sessions", route: "/questionnaire", search: /^Search sessions/, more: /^Show all \d+$/, opens: /\/questionnaire\/sessions\/s-30(\/view)?(\?|$)/ },
+  { name: "recordings", route: "/questionnaire/recordings", search: /^Search recordings/, more: /^Show more$/, opens: /\/questionnaire\/sessions\/s-30\/view/ }
 ] as const;
 
 const visible = (locator: Locator) => locator.filter({ visible: true }).first();
@@ -105,12 +105,12 @@ for (const viewport of VIEWPORTS) {
         await box.fill("Record");
         await expect(page).toHaveURL(/[?&]q=Record\b/);
         await expect(row(page, 1)).toBeVisible();
-        await press(visible(page.getByRole("button", { name: "Show more", exact: true })));
+        await press(visible(page.getByRole("button", { name: list.more })));
         await expect(row(page, 30)).toBeVisible();
 
         const saved = await settleOn(page, 30);
         await link(page, 30).click();
-        await expect(page).toHaveURL(/\/questionnaire\/sessions\/s-30\/view/);
+        await expect(page).toHaveURL(list.opens);
 
         await page.goBack();
         await expect(page).toHaveURL(/[?&]q=Record\b/);

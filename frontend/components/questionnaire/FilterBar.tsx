@@ -188,7 +188,7 @@ export function FilterBar({ filters, onChange, placeholder, hide = [], labels = 
               aria-pressed={on}
               onClick={() => toggle(key, v)}
               className={`rounded-full border px-3 py-1 text-xs transition ${
-                on ? "border-purple-300 bg-purple-50 text-purple-800" : "border-line-200 bg-card text-ink-700 hover:border-purple-300"
+                on ? "border-purple-300 bg-purple-50 text-purple-800 dark:border-purple-700 dark:bg-purple-950/40 dark:text-purple-200" : "border-line-200 bg-card text-ink-700 hover:border-purple-300"
               }`}
               data-filter-pill={`${key}=${v}`}
             >
@@ -227,7 +227,7 @@ export function FilterBar({ filters, onChange, placeholder, hide = [], labels = 
               <button
                 type="button"
                 onClick={() => removePill(pill)}
-                className="inline-flex items-center gap-1 rounded-full border border-purple-300 bg-purple-50 px-2.5 py-0.5 text-xs text-purple-800 hover:bg-purple-100"
+                className="inline-flex items-center gap-1 rounded-full border border-purple-300 bg-purple-50 px-2.5 py-0.5 text-xs text-purple-800 hover:bg-purple-100 dark:border-purple-700 dark:bg-purple-950/40 dark:text-purple-200 dark:hover:bg-purple-900/60"
                 aria-label={`${pill.label} ×`}
                 data-active-filter={pill.key === "date" ? "date" : `${pill.key}=${pill.value}`}
               >

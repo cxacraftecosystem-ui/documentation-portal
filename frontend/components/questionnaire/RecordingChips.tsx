@@ -62,8 +62,8 @@ export function RecordingChips({ chips, onChip, filters, variant = "recording", 
                 }}
                 className={`${base} transition ${
                   active
-                    ? "border-purple-300 bg-purple-50 text-purple-800"
-                    : "border-line-200 bg-card text-ink-700 hover:border-purple-300 hover:bg-purple-50"
+                    ? "border-purple-300 bg-purple-50 text-purple-800 dark:border-purple-700 dark:bg-purple-950/40 dark:text-purple-200"
+                    : "border-line-200 bg-card text-ink-700 hover:border-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40"
                 }`}
                 {...data}
               >

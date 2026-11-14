@@ -31,7 +31,7 @@ export function SegmentedChoice({
               if (!on) onChange(option.value);
             }}
             className={`min-h-10 px-3 text-sm font-medium transition-colors pointer-coarse:min-h-11 disabled:opacity-60 ${
-              on ? "bg-purple-700 text-white" : "text-ink-700 hover:bg-purple-50 hover:text-purple-700"
+              on ? "bg-purple-700 text-white" : "text-ink-700 hover:bg-purple-50 hover:text-purple-700 dark:hover:bg-purple-950/40 dark:hover:text-purple-200"
             }`}
           >
             {option.label}
