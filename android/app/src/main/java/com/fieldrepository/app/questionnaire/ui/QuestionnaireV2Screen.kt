@@ -69,7 +69,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.BuildConfig
 import com.fieldrepository.app.data.Naming
 import com.fieldrepository.app.questionnaire.data.ChipFilter
@@ -650,7 +649,7 @@ internal fun StatusPill(label: String, selected: Boolean, onClick: () -> Unit) {
         modifier = Modifier.heightIn(min = 48.dp).selectable(selected = selected, role = Role.Tab, onClick = onClick).testTag("q-status-pill")
     ) {
         Box(Modifier.heightIn(min = 48.dp).padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
-            Text(label, style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp, fontWeight = FontWeight.Medium))
+            Text(label, style = MaterialTheme.typography.labelLarge)
         }
     }
 }
@@ -664,8 +663,8 @@ internal fun SessionStatusTag(finished: Boolean) {
     ) {
         Text(
             QuestionnaireCopy.t(if (finished) "sessionsFinished" else "sessionsOpen"),
-            style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold),
-            modifier = Modifier.padding(horizontal = 10.dp)
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
         )
     }
 }
@@ -680,9 +679,9 @@ internal fun SessionRow(row: SessionListRow, onOpen: () -> Unit) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 row.people, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onBackground,
-                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
+                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
             )
-            if (row.meta.isNotBlank()) Text(row.meta, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 16.sp))
+            if (row.meta.isNotBlank()) Text(row.meta, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         }
         SessionStatusTag(row.finished)
     }
@@ -708,7 +707,7 @@ internal fun OpenTodayCard(
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(QuestionnaireCopy.t("openToday").uppercase(), style = FieldTextStyles.Eyebrow, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
-                if (uploading > 0) Text(QuestionnaireCopy.takesUploading(uploading), style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp), color = MaterialTheme.field.muted)
+                if (uploading > 0) Text(QuestionnaireCopy.takesUploading(uploading), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
             }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(row.people, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -726,7 +725,7 @@ internal fun OpenTodayCard(
                         QuestionnaireCopy.t("questionsOfTotal", "answered" to row.answered, "total" to row.total),
                         QuestionnaireCopy.t("sectionsOfTotal", "done" to sectionsDone, "total" to sectionsTotal).takeIf { sectionsTotal > 0 }
                     ).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 16.sp), color = MaterialTheme.field.muted
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted
                 )
             }
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -735,7 +734,7 @@ internal fun OpenTodayCard(
                     contentPadding = PaddingValues(horizontal = 28.dp),
                     modifier = Modifier.heightIn(min = 48.dp).testTag("q-continue-at")
                 ) {
-                    Text(at?.code?.let { QuestionnaireCopy.t("continueAt", "code" to it) } ?: QuestionnaireCopy.t("continueSession"), fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    Text(at?.code?.let { QuestionnaireCopy.t("continueAt", "code" to it) } ?: QuestionnaireCopy.t("continueSession"), style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold))
                     Spacer(Modifier.width(8.dp))
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, modifier = Modifier.size(18.dp))
                 }

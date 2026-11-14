@@ -36,7 +36,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.data.Naming
 import com.fieldrepository.app.questionnaire.data.QArtisanOption
 import com.fieldrepository.app.questionnaire.data.QArtisanRef
@@ -197,7 +196,7 @@ internal fun ProvenanceTag(text: String, modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(Icons.Filled.Link, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(14.dp))
-        Text(text, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp))
+        Text(text, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
     }
 }
 
