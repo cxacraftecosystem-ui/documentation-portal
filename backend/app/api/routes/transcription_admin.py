@@ -17,6 +17,7 @@ from app.services import (
     managed_secrets,
     transcribe_choice,
     transcript_backfill,
+    transcript_pipeline,
     transcription_store,
 )
 from app.transcription.contract import PROVIDER_IDS
@@ -45,6 +46,7 @@ class TranscriptionSettingsUpdate(BaseModel):
     autoTranscribeAudio: bool | None = None
     transcriptBackfill: bool | None = None
     confirmBackfill: bool = False
+    transcribeOnly: bool | None = None
 
 
 class RetryFailedIn(BaseModel):
@@ -91,6 +93,7 @@ async def _state() -> dict[str, Any]:
             else app_settings.DEFAULT_TIMEZONE,
         },
         "mode": app_settings.transcription_mode(row),
+        "transcribeOnly": not app_settings.translation_on(row),
         "audioIsolation": {
             "enabled": bool(getattr(row, "audioIsolationEnabled", False)) if row is not None else False,
             "keyConfigured": bool(managed_secrets.peek_secret(audio_isolation.KEY_NAME)),
@@ -121,6 +124,12 @@ async def update_transcription_settings(
             else None,
             updated_by_id=current_user.id,
         )
+    stopped = 0
+    if payload.transcribeOnly is not None:
+        await app_settings.save_translation(not payload.transcribeOnly, current_user.id)
+        transcript_backfill.forget_estimate()
+        if payload.transcribeOnly:
+            stopped = await transcript_pipeline.stop_automatic_translation()
     if payload.audioIsolation is not None:
         await audio_isolation.set_enabled(payload.audioIsolation, current_user.id)
     if payload.autoTranscribeVideo is not None or payload.autoTranscribeAudio is not None:
@@ -143,9 +152,11 @@ async def update_transcription_settings(
             budget.provider, budget.period, budget.minutesCap, budget.spendCapUsd, current_user.id
         )
     logger.warning(
-        "AUDIT transcription-settings: paused=%s audioIsolation=%s autoVideo=%s autoAudio=%s "
-        "backfill=%s disabled=%s budgets=%s by=%s",
+        "AUDIT transcription-settings: paused=%s transcribeOnly=%s stoppedTranslations=%s "
+        "audioIsolation=%s autoVideo=%s autoAudio=%s backfill=%s disabled=%s budgets=%s by=%s",
         payload.paused,
+        payload.transcribeOnly,
+        stopped,
         payload.audioIsolation,
         payload.autoTranscribeVideo,
         payload.autoTranscribeAudio,

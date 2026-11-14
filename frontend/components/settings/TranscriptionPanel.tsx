@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import { Toggle } from "@/components/ui/Toggle";
 import { ApiError, apiErrorMessage, apiFetch } from "@/lib/api";
-import { ts } from "@/lib/transcript/strings";
+import { ts, type TranscriptStringKey } from "@/lib/transcript/strings";
 
 type ProviderRow = {
   id: string;
@@ -34,6 +34,7 @@ type TranscriptionState = {
   providers: ProviderRow[];
   window: { enabled: boolean; start: string; end: string; timezone: string };
   mode: string;
+  transcribeOnly?: boolean;
   audioIsolation?: { enabled: boolean; keyConfigured: boolean };
   autoTranscribe?: { video: boolean; audio: boolean };
   backfill?: BackfillProgress;
@@ -46,7 +47,18 @@ type TranscriptionState = {
 
 type BackfillProgress = { enabled: boolean; queued: number; done: number; waiting: number; lastRunAt: string | null };
 
-type BackfillEstimate = { recordings: number; hours: number; costUsd: number; leftOutForConsent?: number };
+type BackfillEstimate = {
+  recordings: number;
+  hours: number;
+  costUsd: number;
+  leftOutForConsent?: number;
+  includesTranslation?: boolean;
+};
+
+const MODES: Array<{ transcribeOnly: boolean; label: TranscriptStringKey; hint: TranscriptStringKey }> = [
+  { transcribeOnly: false, label: "settingsModeTranslate", hint: "settingsModeTranslateHint" },
+  { transcribeOnly: true, label: "settingsModeTranscribeOnly", hint: "settingsModeTranscribeOnlyHint" }
+];
 
 type RetryAnswer = { dryRun: boolean; failed: number; wouldRequeue: number; requeued: number };
 
@@ -81,6 +93,14 @@ export function TranscriptionPanel({ canChange }: { canChange: boolean }) {
   const [estimate, setEstimate] = useState<BackfillEstimate | null>(null);
   const [confirmingBackfill, setConfirmingBackfill] = useState(false);
 
+  function loadEstimate(isCancelled: () => boolean = () => false) {
+    apiFetch<{ estimate: BackfillEstimate }>("/settings/transcription/backfill")
+      .then((next) => {
+        if (!isCancelled()) setEstimate(next.estimate);
+      })
+      .catch(() => undefined);
+  }
+
   useEffect(() => {
     let cancelled = false;
     apiFetch<TranscriptionState>("/settings/transcription")
@@ -90,17 +110,13 @@ export function TranscriptionPanel({ canChange }: { canChange: boolean }) {
       .catch((caught) => {
         if (!cancelled) setError(errorText(caught, "Couldn't load transcription settings."));
       });
-    apiFetch<{ estimate: BackfillEstimate }>("/settings/transcription/backfill")
-      .then((next) => {
-        if (!cancelled) setEstimate(next.estimate);
-      })
-      .catch(() => undefined);
+    loadEstimate(() => cancelled);
     return () => {
       cancelled = true;
     };
   }, []);
 
-  async function save(key: string, body: Record<string, unknown>) {
+  async function save(key: string, body: Record<string, unknown>): Promise<boolean> {
     setSaving(key);
     try {
       const next = await apiFetch<TranscriptionState>("/settings/transcription", {
@@ -109,11 +125,23 @@ export function TranscriptionPanel({ canChange }: { canChange: boolean }) {
       });
       setState(next);
       setError(null);
+      return true;
     } catch (caught) {
       setError(errorText(caught, "Couldn't save."));
+      return false;
     } finally {
       setSaving(null);
     }
+  }
+
+  function chooseMode(transcribeOnly: boolean) {
+    if (!state || state.transcribeOnly === transcribeOnly) return;
+    void save("mode", { transcribeOnly }).then((saved) => {
+      if (saved) {
+        setEstimate(null);
+        loadEstimate();
+      }
+    });
   }
 
   function toggleProvider(id: string, enabled: boolean) {
@@ -192,6 +220,39 @@ export function TranscriptionPanel({ canChange }: { canChange: boolean }) {
             onChange={(on) => void save("pause", { paused: !on })}
           />
 
+          {typeof state.transcribeOnly === "boolean" ? (
+            <fieldset className="grid gap-2" data-testid="transcription-mode">
+              <legend className="field-label mb-2">{ts("settingsModeTitle")}</legend>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {MODES.map((mode) => {
+                  const active = state.transcribeOnly === mode.transcribeOnly;
+                  return (
+                    <label
+                      key={mode.label}
+                      className={`flex items-start gap-3 rounded-md border p-3 ${
+                        active ? "border-purple-300 bg-purple-50 dark:border-purple-700 dark:bg-purple-950/40" : "border-line-200 bg-card"
+                      } ${canChange ? "cursor-pointer" : "cursor-not-allowed opacity-70"}`}
+                      data-testid={mode.transcribeOnly ? "transcription-mode-only" : "transcription-mode-translate"}
+                    >
+                      <input
+                        type="radio"
+                        name="transcription-mode"
+                        className="mt-1 accent-purple-700"
+                        checked={active}
+                        disabled={!canChange || saving === "mode"}
+                        onChange={() => chooseMode(mode.transcribeOnly)}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-ink-900">{ts(mode.label)}</span>
+                        <span className="block text-xs leading-5 text-ink-500">{ts(mode.hint)}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+          ) : null}
+
           {state.audioIsolation ? (
             <Toggle
               label="Remove background noise"
@@ -212,7 +273,7 @@ export function TranscriptionPanel({ canChange }: { canChange: boolean }) {
           {state.autoTranscribe ? (
             <>
               <Toggle
-                label={ts("settingsAutoVideo")}
+                label={state.transcribeOnly ? ts("settingsAutoVideoOnly") : ts("settingsAutoVideo")}
                 description={state.autoTranscribe.video ? ts("settingsAutoVideoOn") : ts("settingsAutoVideoOff")}
                 checked={state.autoTranscribe.video}
                 disabled={!canChange}
@@ -220,7 +281,7 @@ export function TranscriptionPanel({ canChange }: { canChange: boolean }) {
                 onChange={(on) => void save("autoVideo", { autoTranscribeVideo: on })}
               />
               <Toggle
-                label={ts("settingsAutoAudio")}
+                label={state.transcribeOnly ? ts("settingsAutoAudioOnly") : ts("settingsAutoAudio")}
                 description={state.autoTranscribe.audio ? ts("settingsAutoAudioOn") : ts("settingsAutoAudioOff")}
                 checked={state.autoTranscribe.audio}
                 disabled={!canChange}
@@ -233,7 +294,7 @@ export function TranscriptionPanel({ canChange }: { canChange: boolean }) {
           {state.backfill ? (
             <div className="grid gap-1" data-testid="transcript-backfill">
               <Toggle
-                label={ts("settingsBackfill")}
+                label={state.transcribeOnly ? ts("settingsBackfillOnly") : ts("settingsBackfill")}
                 description={state.backfill.enabled ? ts("settingsBackfillOn") : ts("settingsBackfillOff")}
                 checked={state.backfill.enabled}
                 disabled={!canChange || (!state.backfill.enabled && !estimate)}

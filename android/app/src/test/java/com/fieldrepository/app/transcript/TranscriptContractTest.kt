@@ -207,7 +207,7 @@ class TranscriptContractTest {
         assertEquals(EnglishNotice.DECLINED, v.englishNotice)
         assertTrue(v.permissions.addEnglish)
         val notices = contract["enums"]!!.jsonObject["englishNotice"]!!.jsonArray.map { (it as? JsonPrimitive)?.contentOrNull }
-        assertEquals(listOf(EnglishNotice.DECLINED, EnglishNotice.UNAVAILABLE, null), notices)
+        assertEquals(listOf(EnglishNotice.DECLINED, EnglishNotice.UNAVAILABLE, EnglishNotice.NOT_AUTOMATIC, null), notices)
         val routes = contract["routes"]!!.jsonArray.map { it.jsonObject }
         assertTrue(routes.any { it["method"]!!.jsonPrimitive.content == "POST" && it["path"]!!.jsonPrimitive.content == "/api/transcripts/{mediaId}/english" })
     }

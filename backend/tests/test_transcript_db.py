@@ -717,3 +717,156 @@ def test_the_sweep_leaves_refused_consent_and_a_declined_recording_alone(wired: 
             await _cleanup(seed)
 
     _run(scenario)
+
+
+async def _set_mode(value: str) -> str:
+    from app.core.db import db
+    from app.services import app_settings
+
+    row = await app_settings.get_or_create_app_settings()
+    before = getattr(row, "transcriptionMode", None) or app_settings.DEFAULT_TRANSCRIPTION_MODE
+    await db.appsetting.update(where={"id": app_settings.SINGLETON_ID}, data={"transcriptionMode": value})
+    return before
+
+
+def test_transcribe_only_reads_ready_queues_nothing_and_people_still_add_english(wired: Any) -> None:
+    from app.core.db import db
+    from app.services import transcript_insights, transcript_pipeline as pipeline, transcript_store
+
+    async def scenario() -> None:
+        seed = await _seed()
+        media = seed["media"]
+        before = await _set_mode("RAW")
+        try:
+            version = await pipeline.store_transcription(media, _scribe_result())
+            assert version is not None
+            assert await transcript_insights.enqueue_after_transcript(media.id) is None
+            assert await pipeline.queue_translation(media) is None
+            assert await _insight_jobs(media.id) == [], "no English, summary or quotes are queued"
+
+            mine = await pipeline.build_view(media, seed["researcher"])
+            assert set(mine) == set(CONTRACT["types"]["TranscriptView"])
+            assert mine["status"] == "READY" and mine["englishNotice"] == "NOT_AUTOMATIC"
+            assert [t["translation"]["status"] for t in mine["turns"]] == [
+                "NOT_REQUESTED", "NOT_REQUESTED", "ALREADY_ENGLISH", "NOT_REQUESTED"
+            ]
+            assert mine["permissions"]["addEnglish"] is True
+            other = await pipeline.build_view(media, _stranger())
+            assert other["englishNotice"] == "NOT_AUTOMATIC" and other["status"] == "READY"
+            assert await db.transcriptspend.find_many(where={"mediaFileId": media.id}) == []
+
+            rows = await transcript_store.turns_of(version.id)
+            wired.gemini(_reply({"translations": [{"id": "t1", "english": "How do you make these colours?", "alreadyEnglish": False}]}))
+            again = await pipeline.retranslate_turn(media, seed["researcher"], rows[0].id)
+            assert again["translation"]["status"] == "TRANSLATED", "a person can still translate a turn"
+
+            typed = await pipeline.edit_turn(
+                media, seed["researcher"], rows[1].id, base_revision=rows[1].revision, text=None, english="We mix clay and gum."
+            )
+            assert typed["translation"]["status"] == "TRANSLATED" and typed["translation"]["source"] == "EDITED"
+            view = await pipeline.build_view(media, seed["researcher"])
+            assert [t["translation"]["status"] for t in view["turns"]] == [
+                "TRANSLATED", "TRANSLATED", "ALREADY_ENGLISH", "NOT_REQUESTED"
+            ]
+            assert await pipeline.add_english(
+                media, seed["researcher"], base_revision=view["revision"], text="One.\n\nTwo.\n\nThree."
+            ) == "TURNS"
+            done = await pipeline.build_view(media, seed["researcher"])
+            assert done["englishNotice"] is None and done["status"] == "READY"
+            assert "NOT_REQUESTED" not in [t["translation"]["status"] for t in done["turns"]]
+            assert await _insight_jobs(media.id) == []
+        finally:
+            await _set_mode(before)
+            await db.transcriptinsight.delete_many(where={"mediaFileId": media.id})
+            await _cleanup(seed)
+
+    _run(scenario)
+
+
+def test_an_old_transcript_under_transcribe_only_queues_nothing_and_turning_it_back_on_is_not_retroactive(
+    wired: Any,
+) -> None:
+    from app.scripts import queue_pending_translations as sweep
+    from app.services import transcript_pipeline as pipeline
+
+    async def scenario() -> None:
+        seed = await _seed()
+        before = await _set_mode("RAW")
+        try:
+            media = await _legacy(seed)
+            view = await pipeline.build_view(media, seed["researcher"])
+            assert view["version"] == 1 and view["status"] == "READY"
+            assert view["englishNotice"] == "NOT_AUTOMATIC"
+            assert await _insight_jobs(media.id) == [], "ensure_version queues nothing while transcribe only"
+            held = await sweep.sweep(apply=True, ids=[media.id])
+            assert held[sweep.TRANSLATION_OFF] == 1 and held[sweep.QUEUED] == 0
+            assert await _insight_jobs(media.id) == []
+
+            await _set_mode("REFINED_TRANSLATED")
+            await pipeline.build_view(media, seed["researcher"])
+            await pipeline.render_doc(media)
+            assert await _insight_jobs(media.id) == [], "turning translation back on translates nothing by itself"
+            applied = await sweep.sweep(apply=True, ids=[media.id])
+            assert applied[sweep.QUEUED] == 1 and len(await _insight_jobs(media.id)) == 1, "the sweep is the deliberate way"
+        finally:
+            await _set_mode(before)
+            await _cleanup(seed)
+
+    _run(scenario)
+
+
+def test_the_settings_route_switches_transcribe_only_and_stands_down_queued_automatic_translations(
+    wired: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import httpx
+    from fastapi import FastAPI
+
+    from app.api.router import api_router
+    from app.core import deps
+    from app.core.db import db
+    from app.services import app_settings, managed_secrets
+
+    async def fresh(force: bool = False) -> None:
+        return None
+
+    monkeypatch.setattr(managed_secrets, "refresh_if_stale", fresh)
+
+    async def scenario() -> None:
+        seed = await _seed()
+        media = seed["media"]
+        before = await _set_mode("REFINED_TRANSLATED")
+        app = FastAPI()
+        app.include_router(api_router)
+        app.dependency_overrides[deps.require_master_admin] = lambda: seed["admin"]
+        app.dependency_overrides[deps.require_admin] = lambda: seed["admin"]
+        app.dependency_overrides[deps.get_current_user] = lambda: seed["admin"]
+        try:
+            automatic = await db.mediaprocessingjob.create(data={
+                "jobType": "TRANSCRIPT_INSIGHTS", "status": "QUEUED", "mediaFileId": media.id, "priority": 80,
+            })
+            asked = await db.mediaprocessingjob.create(data={
+                "jobType": "TRANSCRIPT_INSIGHTS", "status": "QUEUED", "mediaFileId": media.id, "priority": 80,
+                "requestedById": seed["researcher"].id,
+            })
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+                start = (await client.get("/api/settings/transcription")).json()
+                assert start["transcribeOnly"] is False
+                off = await client.put("/api/settings/transcription", json={"transcribeOnly": True})
+                assert off.status_code == 200 and off.json()["transcribeOnly"] is True
+                assert app_settings.transcription_mode(await app_settings.load_app_settings()) == "RAW"
+                stood_down = await db.mediaprocessingjob.find_unique(where={"id": automatic.id})
+                assert str(stood_down.status).endswith("CANCELLED")
+                kept = await db.mediaprocessingjob.find_unique(where={"id": asked.id})
+                assert str(kept.status).endswith("QUEUED"), "a person's request is never stood down"
+                estimate = (await client.get("/api/settings/transcription/backfill")).json()["estimate"]
+                assert estimate["includesTranslation"] is False
+                back = await client.put("/api/settings/transcription", json={"transcribeOnly": False})
+                assert back.json()["transcribeOnly"] is False
+                assert app_settings.transcription_mode(await app_settings.load_app_settings()) == "REFINED_TRANSLATED"
+                assert len(await _insight_jobs(media.id)) == 2, "turning it back on queues nothing"
+        finally:
+            await _set_mode(before)
+            await _cleanup(seed)
+
+    _run(scenario)

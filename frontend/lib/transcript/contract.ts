@@ -8,7 +8,7 @@ export type TranscriptStatus =
 
 export type QueueReason = "PAUSED" | "BUDGET_PAUSED" | "WINDOW" | "WAITING" | null;
 
-export type TranslationStatus = "TRANSLATED" | "ALREADY_ENGLISH" | "STALE" | "PENDING" | "FAILED";
+export type TranslationStatus = "TRANSLATED" | "ALREADY_ENGLISH" | "STALE" | "PENDING" | "FAILED" | "NOT_REQUESTED";
 
 export type TextSource = "MACHINE" | "EDITED";
 
@@ -84,7 +84,7 @@ export type SpokenLanguageSuggestion = {
   uncertainBelow?: number;
 };
 
-export type EnglishNotice = "DECLINED" | "UNAVAILABLE" | null;
+export type EnglishNotice = "DECLINED" | "UNAVAILABLE" | "NOT_AUTOMATIC" | null;
 
 export type Transcript = {
   mediaId: string;

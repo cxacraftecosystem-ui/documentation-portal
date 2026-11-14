@@ -720,11 +720,15 @@ private fun EnglishPane(turn: TranscriptTurn, active: Boolean, canEdit: Boolean,
             TranslationStatus.STALE -> TranscriptStrings.translationStale
             TranslationStatus.PENDING -> TranscriptStrings.translationPending
             TranslationStatus.FAILED -> TranscriptStrings.translationFailed
+            TranslationStatus.NOT_REQUESTED -> TranscriptStrings.translationNotRequested
             else -> null
         }
         note?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted) }
-        if (canEdit && (turn.translation.status == TranslationStatus.STALE || turn.translation.status == TranslationStatus.FAILED)) {
-            TextButton(onClick = onRetranslate, contentPadding = PaddingValues(horizontal = 0.dp)) { Text(TranscriptStrings.retranslateTurn) }
+        val notRequested = turn.translation.status == TranslationStatus.NOT_REQUESTED
+        if (canEdit && (turn.translation.status == TranslationStatus.STALE || turn.translation.status == TranslationStatus.FAILED || notRequested)) {
+            TextButton(onClick = onRetranslate, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                Text(if (notRequested) TranscriptStrings.translateTurn else TranscriptStrings.retranslateTurn)
+            }
         }
     }
 }

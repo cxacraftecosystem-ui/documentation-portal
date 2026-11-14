@@ -18,11 +18,12 @@ DECLINED = "declined"
 EDITED = "edited-insight-skipped"
 ALREADY_RUN = "already-run"
 FEATURE_OFF = "feature-off"
+TRANSLATION_OFF = "transcribe-only"
 CONSENT_REFUSED = "consent-refused"
 
 BUCKETS = (
-    SCANNED, CANDIDATES, ALREADY_ACTIVE, DECLINED, EDITED, ALREADY_RUN, FEATURE_OFF, CONSENT_REFUSED,
-    WOULD_QUEUE, QUEUED, NOT_QUEUED,
+    SCANNED, CANDIDATES, ALREADY_ACTIVE, DECLINED, EDITED, ALREADY_RUN, FEATURE_OFF, TRANSLATION_OFF,
+    CONSENT_REFUSED, WOULD_QUEUE, QUEUED, NOT_QUEUED,
 )
 
 PAGE_SQL = (
@@ -56,7 +57,9 @@ def is_candidate(row: dict[str, Any]) -> bool:
     return row.get("versionId") is None or bool(row.get("untranslated"))
 
 
-def classify(row: dict[str, Any], *, enabled: bool, declined_message: str) -> str | None:
+def classify(
+    row: dict[str, Any], *, enabled: bool, declined_message: str, translating: bool = True
+) -> str | None:
     if row.get("active"):
         return ALREADY_ACTIVE
     if row.get("versionStatus") == "DECLINED" or (
@@ -69,16 +72,24 @@ def classify(row: dict[str, Any], *, enabled: bool, declined_message: str) -> st
         return ALREADY_RUN
     if not enabled:
         return FEATURE_OFF
+    if not translating:
+        return TRANSLATION_OFF
     return None
 
 
 async def sweep(*, apply: bool, page: int = PAGE, ids: list[str] | None = None, client: Any = None) -> Counter[str]:
     from app.core.db import db
-    from app.services import transcript_insights, transcript_pipeline, transcript_portal
+    from app.services import (
+        app_settings,
+        transcript_insights,
+        transcript_pipeline,
+        transcript_portal,
+    )
     from app.transcription.transcript import gemini
 
     conn = client if client is not None else db
     enabled = transcript_pipeline.enabled()
+    translating = await app_settings.load_translation_on()
     declined_message = gemini.MESSAGES[gemini.DECLINED]
     counts: Counter[str] = Counter(dict.fromkeys(BUCKETS, 0))
     after = ""
@@ -95,7 +106,9 @@ async def sweep(*, apply: bool, page: int = PAGE, ids: list[str] | None = None, 
             if not is_candidate(row):
                 continue
             counts[CANDIDATES] += 1
-            stop = classify(row, enabled=enabled, declined_message=declined_message)
+            stop = classify(
+                row, enabled=enabled, declined_message=declined_message, translating=translating
+            )
             if stop is not None:
                 counts[stop] += 1
                 continue

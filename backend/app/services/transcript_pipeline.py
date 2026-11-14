@@ -58,6 +58,8 @@ DECLINED = "DECLINED"
 MANUAL = "manual"
 NOTICE_DECLINED = "DECLINED"
 NOTICE_UNAVAILABLE = "UNAVAILABLE"
+NOTICE_NOT_AUTOMATIC = "NOT_AUTOMATIC"
+NOT_REQUESTED = "NOT_REQUESTED"
 MANUAL_ENGLISH_MAX_CHARS = transcript_insights.TRANSLATION_MAX_CHARS
 
 
@@ -199,6 +201,31 @@ async def queue_translation(media: Any) -> Any | None:
         logger.warning("could not queue the translation of media %s (%s)", media_id, type(exc).__name__)
         return None
 
+
+
+def translates_automatically(row: Any) -> bool:
+    from app.services.app_settings import translation_on
+
+    return translation_on(row)
+
+
+async def stop_automatic_translation(*, job_id: str | None = None) -> int:
+    where: dict[str, Any] = {"jobType": transcript_insights.JOB_TYPE, "requestedById": None}
+    if job_id is None:
+        where["status"] = "QUEUED"
+    else:
+        where["id"] = job_id
+    return await db.mediaprocessingjob.update_many(
+        where=where,
+        data={
+            "status": "CANCELLED",
+            "lockedAt": None,
+            "lockedBy": None,
+            "openKey": None,
+            "completedAt": datetime.now(UTC),
+            "error": None,
+        },
+    )
 
 
 def holds_translation(row: Any) -> bool:
@@ -567,12 +594,16 @@ def _iso(value: Any) -> str | None:
     return str(value)
 
 
-def turn_json(row: Any, labels: dict[str, str], *, declined: bool = False) -> dict[str, Any]:
+def turn_json(
+    row: Any, labels: dict[str, str], *, declined: bool = False, manual: bool = False
+) -> dict[str, Any]:
     edited = row.editedText is not None
     english = _current_english(row)
     status = row.translationStatus
     if declined and status == "PENDING" and not english:
         status = "FAILED"
+    elif manual and status == "PENDING" and not english:
+        status = NOT_REQUESTED
     return {
         "id": row.id,
         "index": row.position,
@@ -673,13 +704,21 @@ def _missing_english(turn_rows: list[Any]) -> list[Any]:
 
 
 def english_state(
-    version: Any, turn_rows: list[Any], insight_row: Any, *, declined: bool, may_add: bool
+    version: Any,
+    turn_rows: list[Any],
+    insight_row: Any,
+    *,
+    declined: bool,
+    may_add: bool,
+    manual_only: bool = False,
 ) -> dict[str, Any]:
     missing = _missing_english(turn_rows)
     manual = manual_english(insight_row, getattr(version, "id", None)) if missing else None
     notice = None
     if declined and missing and manual is None:
         notice = NOTICE_DECLINED if may_add else NOTICE_UNAVAILABLE
+    elif manual_only and missing and manual is None:
+        notice = NOTICE_NOT_AUTOMATIC
     return {"notice": notice, "manual": manual, "missing": len(missing)}
 
 
@@ -801,9 +840,15 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
         stt, gem = await transcript_store.media_cost(media_id)
         cost = {"sttUsd": round(stt, 4), "translationUsd": round(gem, 4), "totalUsd": round(stt + gem, 4)}
     languages = list(version.languages or []) if version is not None else []
-    spoken = await spoken_language_view(media, version, sees_spend=sees_spend)
+    translating = translates_automatically(settings_row)
+    spoken = await spoken_language_view(
+        media, version, sees_spend=sees_spend, translate=translating
+    )
     declined = is_declined(version, tr_job)
-    english = english_state(version, turn_rows, row, declined=declined, may_add=edit)
+    manual = not translating and _job_status(tr_job) not in _OPEN_JOB_STATUSES
+    english = english_state(
+        version, turn_rows, row, declined=declined, may_add=edit, manual_only=manual
+    )
     current = version is not None and version_number is None
     return {
         "mediaId": media_id,
@@ -830,7 +875,7 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
             }
             for key in labels
         ],
-        "turns": [turn_json(r, labels, declined=declined) for r in turn_rows],
+        "turns": [turn_json(r, labels, declined=declined, manual=manual) for r in turn_rows],
         "summary": list(getattr(row, "summaryLines", None) or []),
         "quotes": quotes,
         "cost": cost,
@@ -1030,23 +1075,31 @@ def version_language(media: Any, number: int | None) -> dict[str, Any]:
     return entry if isinstance(entry, dict) else {}
 
 
-def retranscribe_estimate(media: Any, version: Any, *, sees_spend: bool) -> tuple[float, float | None]:
+def retranscribe_estimate(
+    media: Any, version: Any, *, sees_spend: bool, translate: bool = True
+) -> tuple[float, float | None]:
     from app.services import transcript_backfill
 
     duration = getattr(version, "durationMs", None) if version is not None else None
-    minutes = transcript_backfill.minutes_of(duration, _value(media, "sizeBytes"))
-    rate = transcript_backfill.stt_usd_per_minute() + transcript_backfill.GEMINI_USD_PER_MINUTE
+    minutes = transcript_backfill.minutes_of(
+        duration,
+        _value(media, "sizeBytes"),
+        video=transcription_audio.is_video(_value(media, "mediaType"), _value(media, "mimeType")),
+    )
+    rate = transcript_backfill.usd_per_minute(translate)
     return round(minutes, 2), (round(minutes * rate, 4) if sees_spend else None)
 
 
-async def spoken_language_view(media: Any, version: Any, *, sees_spend: bool) -> dict[str, Any]:
+async def spoken_language_view(
+    media: Any, version: Any, *, sees_spend: bool, translate: bool = True
+) -> dict[str, Any]:
     entry = version_language(media, getattr(version, "version", None))
     requested = spoken_languages.choice_of(entry.get("requested"))
     detected = getattr(version, "detectedLanguage", None) if version is not None else None
     probability = _probability(entry.get("probability"))
     chosen = spoken_languages.from_metadata(_value(media, "extraMetadata")) or spoken_languages.AUTO
     job = await _latest_job(str(_value(media, "id")), "TRANSCRIPTION")
-    minutes, usd = retranscribe_estimate(media, version, sees_spend=sees_spend)
+    minutes, usd = retranscribe_estimate(media, version, sees_spend=sees_spend, translate=translate)
     return {
         "chosen": chosen,
         "chosenLabel": spoken_languages.label(chosen),

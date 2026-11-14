@@ -98,13 +98,19 @@ export const TurnRow = memo(function TurnRow(props: Props) {
           ) : null}
         </>
       ) : (
-        <p className="text-sm italic text-ink-500">{status === "FAILED" ? ts("translationFailed") : ts("translationPending")}</p>
+        <p className="text-sm italic text-ink-500">
+          {status === "FAILED"
+            ? ts("translationFailed")
+            : status === "NOT_REQUESTED"
+              ? ts("translationNotRequested")
+              : ts("translationPending")}
+        </p>
       )}
-      {canEdit && (status === "STALE" || status === "FAILED") ? (
+      {canEdit && (status === "STALE" || status === "FAILED" || status === "NOT_REQUESTED") ? (
         <div className="mt-2">
           <button type="button" className={SECONDARY} disabled={props.retranslating} onClick={() => props.onRetranslate(turn)} data-retranslate={turn.id}>
             <Languages className="h-4 w-4" aria-hidden />
-            {props.retranslating ? ts("saving") : ts("retranslateTurn")}
+            {props.retranslating ? ts("saving") : status === "NOT_REQUESTED" ? ts("translateTurn") : ts("retranslateTurn")}
           </button>
         </div>
       ) : null}

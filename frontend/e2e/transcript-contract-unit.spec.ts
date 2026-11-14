@@ -12,6 +12,7 @@ import { copyAll, copySelected, copySingle } from "../lib/transcript/markdown";
 import { downloadWhat, nameForView, QUOTE_CARD_WHAT } from "../lib/transcript/names";
 import { safeUrl } from "../lib/transcript/sanitize";
 import { statusAction, statusLabel } from "../lib/transcript/status";
+import { ts } from "../lib/transcript/strings";
 
 const REPO = join(__dirname, "..", "..");
 const CONTRACT = JSON.parse(readFileSync(join(REPO, "shared", "transcript-contract.json"), "utf8"));
@@ -146,11 +147,20 @@ test("the view carries the contract 3 English fields and the plan follows the se
   expect(VIEW).toHaveProperty("englishNotice", null);
   expect(VIEW).toHaveProperty("manualEnglish", null);
   expect(VIEW.permissions).toHaveProperty("addEnglish");
-  expect(CONTRACT.enums.englishNotice).toEqual(["DECLINED", "UNAVAILABLE", null]);
+  expect(CONTRACT.enums.englishNotice).toEqual(["DECLINED", "UNAVAILABLE", "NOT_AUTOMATIC", null]);
   expect(CONTRACT.routes.some((route: { method: string; path: string }) => route.method === "POST" && route.path === "/api/transcripts/{mediaId}/english")).toBe(true);
   const turns = [{ translation: { status: "FAILED" } }, { translation: { status: "ALREADY_ENGLISH" } }, { translation: { status: "FAILED" } }];
   expect(englishPlan(turns, "One.\r\n\r\nTwo.")).toEqual({ paragraphs: 2, turns: 2, aligned: true });
   expect(englishPlan(turns, "One.\n\nTwo.\n\nThree.")).toEqual({ paragraphs: 3, turns: 2, aligned: true });
   expect(englishPlan(turns, "Just one.")).toEqual({ paragraphs: 1, turns: 2, aligned: false });
   expect(englishPlan(turns, "  \n\n ").aligned).toBe(false);
+});
+
+test("contract 5: transcribe only brings a neutral notice and a not-translated turn, worded by the shared strings", () => {
+  expect(CONTRACT.contractVersion).toBeGreaterThanOrEqual(5);
+  const statuses = CONTRACT.enums.translationStatus as { value: string; label: string | null }[];
+  expect(statuses.find((status) => status.value === "NOT_REQUESTED")?.label).toBe(ts("translationNotRequested"));
+  expect(ts("settingsModeTranslate")).toBe("Transcribe and translate");
+  expect(ts("settingsModeTranscribeOnly")).toBe("Transcribe only");
+  expect(ts("englishNotAutomatic")).not.toMatch(/gemini|declined/i);
 });

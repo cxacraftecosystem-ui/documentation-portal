@@ -205,7 +205,7 @@ def test_the_english_route_body_and_the_view_fields_are_in_the_contract() -> Non
         EnglishBody.model_validate({"baseRevision": 3, "text": ""})
     assert CONTRACT["contractVersion"] >= 3
     assert {"englishNotice", "manualEnglish"} <= set(CONTRACT["types"]["TranscriptView"])
-    assert CONTRACT["enums"]["englishNotice"] == ["DECLINED", "UNAVAILABLE", None]
+    assert CONTRACT["enums"]["englishNotice"] == ["DECLINED", "UNAVAILABLE", "NOT_AUTOMATIC", None]
     assert "addEnglish" in VIEW["permissions"] and "addEnglish" in CONTRACT["types"]["TranscriptView"]["permissions"]
     assert "english" in CONTRACT["dataBrowser"]["DataRecording"]
 

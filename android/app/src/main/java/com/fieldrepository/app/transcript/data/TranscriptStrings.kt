@@ -53,10 +53,14 @@ object TranscriptStrings {
     const val translationStale = "Out of date"
     const val translationPending = "Translating"
     const val translationFailed = "Couldn't translate"
+    const val translationNotRequested = "Not translated"
+    const val translateTurn = "Translate this turn"
     const val retranslateTurn = "Re-translate this turn"
     const val englishDeclined = "Gemini declined to translate this recording"
     const val englishDeclinedHint = "Add the English yourself: edit a turn, or paste the whole translation."
     const val englishUnavailable = "English isn't available for this recording."
+    const val englishNotAutomatic = "English isn't made automatically for this transcript."
+    const val englishNotAutomaticHint = "Translate a turn, or add the English yourself."
     const val addEnglish = "Add English"
     const val addEnglishTitle = "Add the English"
     const val addEnglishHint = "One paragraph per turn, separated by a blank line, lines up with the turns. Anything else is kept as one English text."
@@ -117,6 +121,14 @@ object TranscriptStrings {
     const val uploadAutoVideo = "Every new video is transcribed and translated. An admin set this."
     const val uploadAutoAudio = "Every new recording is transcribed and translated. An admin set this."
     const val uploadAutoBoth = "Every new recording and video is transcribed and translated. An admin set this."
+    const val settingsModeTitle = "After transcription"
+    const val settingsModeTranslate = "Transcribe and translate"
+    const val settingsModeTranslateHint = "English, a summary and quotes are made for every transcript."
+    const val settingsModeTranscribeOnly = "Transcribe only"
+    const val settingsModeTranscribeOnlyHint = "No English is made automatically, so no Gemini cost. People can still translate a turn or add English."
+    const val settingsAutoVideoOnly = "Transcribe all new videos"
+    const val settingsAutoAudioOnly = "Transcribe all new audio"
+    const val settingsBackfillOnly = "Transcribe all previously uploaded media"
     const val settingsAutoVideo = "Transcribe and translate all new videos"
     const val settingsAutoVideoOn = "On. Every new video is queued, whatever the box at upload says."
     const val settingsAutoVideoOff = "Off. Only videos ticked at upload are queued."
@@ -205,10 +217,14 @@ object TranscriptStrings {
         "translationStale" to "Out of date",
         "translationPending" to "Translating",
         "translationFailed" to "Couldn't translate",
+        "translationNotRequested" to "Not translated",
+        "translateTurn" to "Translate this turn",
         "retranslateTurn" to "Re-translate this turn",
         "englishDeclined" to "Gemini declined to translate this recording",
         "englishDeclinedHint" to "Add the English yourself: edit a turn, or paste the whole translation.",
         "englishUnavailable" to "English isn't available for this recording.",
+        "englishNotAutomatic" to "English isn't made automatically for this transcript.",
+        "englishNotAutomaticHint" to "Translate a turn, or add the English yourself.",
         "addEnglish" to "Add English",
         "addEnglishTitle" to "Add the English",
         "addEnglishHint" to "One paragraph per turn, separated by a blank line, lines up with the turns. Anything else is kept as one English text.",
@@ -269,6 +285,14 @@ object TranscriptStrings {
         "uploadAutoVideo" to "Every new video is transcribed and translated. An admin set this.",
         "uploadAutoAudio" to "Every new recording is transcribed and translated. An admin set this.",
         "uploadAutoBoth" to "Every new recording and video is transcribed and translated. An admin set this.",
+        "settingsModeTitle" to "After transcription",
+        "settingsModeTranslate" to "Transcribe and translate",
+        "settingsModeTranslateHint" to "English, a summary and quotes are made for every transcript.",
+        "settingsModeTranscribeOnly" to "Transcribe only",
+        "settingsModeTranscribeOnlyHint" to "No English is made automatically, so no Gemini cost. People can still translate a turn or add English.",
+        "settingsAutoVideoOnly" to "Transcribe all new videos",
+        "settingsAutoAudioOnly" to "Transcribe all new audio",
+        "settingsBackfillOnly" to "Transcribe all previously uploaded media",
         "settingsAutoVideo" to "Transcribe and translate all new videos",
         "settingsAutoVideoOn" to "On. Every new video is queued, whatever the box at upload says.",
         "settingsAutoVideoOff" to "Off. Only videos ticked at upload are queued.",

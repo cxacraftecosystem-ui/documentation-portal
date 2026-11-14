@@ -3,8 +3,12 @@ package com.fieldrepository.app.transcript.ui
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -17,9 +21,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.transcript.data.AudioIsolationSetting
 import com.fieldrepository.app.transcript.data.BackfillView
@@ -32,6 +38,7 @@ import com.fieldrepository.app.transcript.data.TranscriptUiText
 import com.fieldrepository.app.transcript.portal.TranscriptPortal
 import com.fieldrepository.app.ui.AppToggle
 import com.fieldrepository.app.ui.FieldLinearProgressIndicator
+import com.fieldrepository.app.ui.FieldRadioButton
 import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -171,15 +178,45 @@ fun TranscriptAutoSwitchesCard(canChange: Boolean, modifier: Modifier = Modifier
                 null
             }
             if (updated != null) switches = updated
+            if (updated != null && body.transcribeOnly != null) {
+                backfill = null
+                backfill = try {
+                    server.backfill()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
+            }
             busy = null
         }
     }
 
     val estimate = backfill?.estimate
     val progress = current.backfill
+    val transcribeOnly = current.transcribeOnly == true
     Column(modifier.fillMaxWidth().testTag("transcript.autoSwitches"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (current.transcribeOnly != null) {
+            Text(TranscriptStrings.settingsModeTitle, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+            Column(Modifier.selectableGroup().testTag("transcript.mode")) {
+                TranscriptModeRow(
+                    title = TranscriptStrings.settingsModeTranslate,
+                    hint = TranscriptStrings.settingsModeTranslateHint,
+                    selected = !transcribeOnly,
+                    enabled = canChange && busy != "mode",
+                    tag = "transcript.mode.translate",
+                ) { if (transcribeOnly) save("mode", TranscriptionSwitchBody(transcribeOnly = false)) }
+                TranscriptModeRow(
+                    title = TranscriptStrings.settingsModeTranscribeOnly,
+                    hint = TranscriptStrings.settingsModeTranscribeOnlyHint,
+                    selected = transcribeOnly,
+                    enabled = canChange && busy != "mode",
+                    tag = "transcript.mode.only",
+                ) { if (!transcribeOnly) save("mode", TranscriptionSwitchBody(transcribeOnly = true)) }
+            }
+        }
         AppToggle(
-            label = TranscriptStrings.settingsAutoVideo,
+            label = if (transcribeOnly) TranscriptStrings.settingsAutoVideoOnly else TranscriptStrings.settingsAutoVideo,
             description = if (current.autoTranscribe.video) TranscriptStrings.settingsAutoVideoOn else TranscriptStrings.settingsAutoVideoOff,
             checked = current.autoTranscribe.video,
             enabled = canChange,
@@ -188,7 +225,7 @@ fun TranscriptAutoSwitchesCard(canChange: Boolean, modifier: Modifier = Modifier
             modifier = Modifier.testTag("transcript.autoVideo"),
         )
         AppToggle(
-            label = TranscriptStrings.settingsAutoAudio,
+            label = if (transcribeOnly) TranscriptStrings.settingsAutoAudioOnly else TranscriptStrings.settingsAutoAudio,
             description = if (current.autoTranscribe.audio) TranscriptStrings.settingsAutoAudioOn else TranscriptStrings.settingsAutoAudioOff,
             checked = current.autoTranscribe.audio,
             enabled = canChange,
@@ -197,7 +234,7 @@ fun TranscriptAutoSwitchesCard(canChange: Boolean, modifier: Modifier = Modifier
             modifier = Modifier.testTag("transcript.autoAudio"),
         )
         AppToggle(
-            label = TranscriptStrings.settingsBackfill,
+            label = if (transcribeOnly) TranscriptStrings.settingsBackfillOnly else TranscriptStrings.settingsBackfill,
             description = if (current.backfill.enabled) TranscriptStrings.settingsBackfillOn else TranscriptStrings.settingsBackfillOff,
             checked = current.backfill.enabled,
             enabled = canChange && (current.backfill.enabled || estimate != null),
@@ -251,6 +288,25 @@ fun TranscriptAutoSwitchesCard(canChange: Boolean, modifier: Modifier = Modifier
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun TranscriptModeRow(title: String, hint: String, selected: Boolean, enabled: Boolean, tag: String, onSelect: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onSelect)
+            .testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        FieldRadioButton(selected = selected, onClick = null, enabled = enabled)
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
+        }
     }
 }
 

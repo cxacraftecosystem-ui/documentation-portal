@@ -36,6 +36,7 @@ data class AudioIsolationEnvelope(
     val audioIsolation: AudioIsolationSetting? = null,
     val autoTranscribe: AutoTranscribeSetting? = null,
     val backfill: BackfillProgress? = null,
+    val transcribeOnly: Boolean? = null,
 )
 
 @Serializable
@@ -72,11 +73,13 @@ data class TranscriptionSwitchBody(
     val autoTranscribeAudio: Boolean? = null,
     val transcriptBackfill: Boolean? = null,
     val confirmBackfill: Boolean = false,
+    val transcribeOnly: Boolean? = null,
 )
 
 data class TranscriptionSwitches(
     val autoTranscribe: AutoTranscribeSetting = AutoTranscribeSetting(),
     val backfill: BackfillProgress = BackfillProgress(),
+    val transcribeOnly: Boolean? = null,
 )
 
 @Serializable
@@ -145,6 +148,7 @@ data class TranscriptPermissions(
 object EnglishNotice {
     const val DECLINED = "DECLINED"
     const val UNAVAILABLE = "UNAVAILABLE"
+    const val NOT_AUTOMATIC = "NOT_AUTOMATIC"
 }
 
 @Serializable
@@ -215,6 +219,7 @@ object TranslationStatus {
     const val STALE = "STALE"
     const val PENDING = "PENDING"
     const val FAILED = "FAILED"
+    const val NOT_REQUESTED = "NOT_REQUESTED"
 }
 
 object TextSource {
