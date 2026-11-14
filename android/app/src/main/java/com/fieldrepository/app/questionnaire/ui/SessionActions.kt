@@ -30,6 +30,7 @@ import com.fieldrepository.app.questionnaire.data.QSessionLocation
 import com.fieldrepository.app.questionnaire.data.QSessionPatch
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
+import com.fieldrepository.app.questionnaire.data.RecordBy
 import com.fieldrepository.app.questionnaire.data.SessionOutbox
 import com.fieldrepository.app.questionnaire.data.SessionPurpose
 import com.fieldrepository.app.ui.AppToggle
@@ -51,7 +52,8 @@ data class SessionEdit(
     val note: String,
     val location: QSessionLocation? = null,
     val crafts: List<String> = emptyList(),
-    val craftsByHand: List<String> = emptyList()
+    val craftsByHand: List<String> = emptyList(),
+    val recordBy: String = RecordBy.SECTION.wire
 ) {
     fun patch(version: Int, before: SessionEdit): QSessionPatch = QSessionPatch(
         version = version,
@@ -64,7 +66,8 @@ data class SessionEdit(
         location = location?.takeIf { it != before.location },
         clearLocation = true.takeIf { location == null && before.location != null },
         crafts = crafts.takeIf { it != before.crafts },
-        craftsByHand = crafts.filter { it in before.craftsByHand || it !in before.crafts }.takeIf { crafts != before.crafts }
+        craftsByHand = crafts.filter { it in before.craftsByHand || it !in before.crafts }.takeIf { crafts != before.crafts },
+        recordBy = recordBy.takeIf { it != before.recordBy }
     )
 
     fun applyTo(create: QSessionCreate): QSessionCreate = create.copy(
@@ -76,25 +79,28 @@ data class SessionEdit(
         note = note.trim().take(80).ifBlank { null },
         location = location,
         crafts = crafts,
-        craftsByHand = craftsByHand
+        craftsByHand = craftsByHand,
+        recordBy = recordBy
     )
 
     companion object {
         fun of(
             date: String?, purpose: String?, place: String?, languageCode: String?, languageOther: String?, note: String?,
-            location: QSessionLocation? = null, crafts: List<String> = emptyList(), craftsByHand: List<String> = emptyList()
+            location: QSessionLocation? = null, crafts: List<String> = emptyList(), craftsByHand: List<String> = emptyList(),
+            recordBy: String? = null
         ) = SessionEdit(
             date = date?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() },
             purpose = purpose ?: SessionPurpose.FIRST_SITTING.wire,
             place = place.orEmpty(), languageCode = languageCode.orEmpty(), languageOther = languageOther.orEmpty(), note = note.orEmpty(),
-            location = location, crafts = crafts, craftsByHand = craftsByHand
+            location = location, crafts = crafts, craftsByHand = craftsByHand,
+            recordBy = RecordBy.fromWire(recordBy)?.wire ?: RecordBy.SECTION.wire
         )
     }
 }
 
 enum class SessionEditField(val labelKey: String) {
     DATE("start.date"), PURPOSE("start.purpose"), PLACE("start.place"), LOCATION("start.place"),
-    LANGUAGE("start.language"), NOTE("start.note"), CRAFTS("start.crafts")
+    LANGUAGE("start.language"), NOTE("start.note"), CRAFTS("start.crafts"), RECORD_BY("fieldRecordBy")
 }
 
 data class SessionFieldDiff(val field: SessionEditField, val mine: String, val theirs: String)
@@ -120,7 +126,8 @@ object SessionStaleRetry {
         languageCode = if (SessionEditField.LANGUAGE in edited) mine.languageCode else server.languageCode,
         languageOther = if (SessionEditField.LANGUAGE in edited) mine.languageOther else server.languageOther,
         note = if (SessionEditField.NOTE in edited) mine.note else server.note,
-        crafts = if (SessionEditField.CRAFTS in edited) mine.crafts else server.crafts
+        crafts = if (SessionEditField.CRAFTS in edited) mine.crafts else server.crafts,
+        recordBy = if (SessionEditField.RECORD_BY in edited) mine.recordBy else server.recordBy
     )
 
     fun resolve(initial: SessionEdit, mine: SessionEdit, server: SessionEdit, serverVersion: Int): StaleOutcome {
@@ -176,6 +183,7 @@ fun SessionEdit.valueOf(field: SessionEditField): String = when (field) {
     SessionEditField.LANGUAGE -> if (languageCode == "other") languageOther.trim() else languageCode
     SessionEditField.NOTE -> note.trim()
     SessionEditField.CRAFTS -> crafts.joinToString(", ")
+    SessionEditField.RECORD_BY -> QuestionnaireCopy.t(if (recordBy == RecordBy.QUESTION.wire) "recordByQuestion" else "recordBySection")
 }
 
 fun Throwable.isStaleVersion(): Boolean {
@@ -187,7 +195,7 @@ fun Throwable.isStaleVersion(): Boolean {
     }.getOrNull() == com.fieldrepository.app.questionnaire.data.QErrorCodes.STALE_VERSION
 }
 
-fun QSessionDetail.asEdit(): SessionEdit = SessionEdit.of(sessionDate, purpose, place, languageCode, languageOther, note, location, crafts, craftsByHand)
+fun QSessionDetail.asEdit(): SessionEdit = SessionEdit.of(sessionDate, purpose, place, languageCode, languageOther, note, location, crafts, craftsByHand, recordBy)
 
 @Composable
 fun SessionConflictPrompt(fields: List<SessionFieldDiff>, onDismiss: () -> Unit) {
@@ -212,7 +220,7 @@ fun SessionConflictPrompt(fields: List<SessionFieldDiff>, onDismiss: () -> Unit)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun EditSessionDialog(initial: SessionEdit, onDismiss: () -> Unit, onSave: (SessionEdit) -> Unit) {
+fun EditSessionDialog(initial: SessionEdit, onDismiss: () -> Unit, extra: @Composable () -> Unit = {}, onSave: (SessionEdit) -> Unit) {
     var form by remember { mutableStateOf(initial) }
     QuestionnairePromptContent(
         title = QuestionnaireCopy.s("session.edit"),
@@ -244,6 +252,7 @@ fun EditSessionDialog(initial: SessionEdit, onDismiss: () -> Unit, onSave: (Sess
                     value = form.languageOther, onValueChange = { form = form.copy(languageOther = it.take(40)) },
                     label = { Text(QuestionnaireCopy.s("start.languageOther")) }, singleLine = true, modifier = Modifier.fillMaxWidth()
                 )
+                extra()
                 OutlinedTextField(
                     value = form.note, onValueChange = { form = form.copy(note = it.take(80)) },
                     label = { Text(QuestionnaireCopy.s("start.note")) }, supportingText = { Text("${form.note.length}/80") },

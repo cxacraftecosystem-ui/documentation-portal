@@ -131,7 +131,8 @@ data class QSessionCreate(
     @EncodeDefault val source: String = SessionSource.APP.wire,
     val location: QSessionLocation? = null,
     val crafts: List<String>? = null,
-    val craftsByHand: List<String>? = null
+    val craftsByHand: List<String>? = null,
+    @EncodeDefault val recordBy: String = RecordBy.SECTION.wire
 )
 
 @Serializable
@@ -182,7 +183,8 @@ data class QSessionPatch(
     val location: QSessionLocation? = null,
     val clearLocation: Boolean? = null,
     val crafts: List<String>? = null,
-    val craftsByHand: List<String>? = null
+    val craftsByHand: List<String>? = null,
+    val recordBy: String? = null
 )
 
 @Serializable
@@ -204,7 +206,19 @@ data class QParticipant(
 data class QResearcher(val userId: String, val name: String = "", val role: String = "CONTRIBUTOR")
 
 @Serializable
-data class QSessionCounts(val sections: Int = 0, val takes: Int = 0, val needsDecision: Int = 0)
+data class QSessionCounts(
+    val sections: Int = 0,
+    val takes: Int = 0,
+    val needsDecision: Int = 0,
+    val answeredQuestions: Int = 0,
+    val totalQuestions: Int = 0
+)
+
+@Serializable
+data class QSectionProgress(val sectionId: String, val answeredQuestions: Int = 0, val totalQuestions: Int = 0, val inSectionTake: Boolean = false)
+
+@Serializable
+data class QSessionProgress(val answeredQuestions: Int = 0, val totalQuestions: Int = 0, val sections: List<QSectionProgress> = emptyList())
 
 @Serializable
 data class QSession(
@@ -244,7 +258,9 @@ data class QSession(
     val source: String = SessionSource.APP.wire,
     val deletedAt: String? = null,
     val respondents: List<QRespondent> = emptyList(),
-    val chips: QChips? = null
+    val chips: QChips? = null,
+    val recordBy: String = RecordBy.SECTION.wire,
+    val progress: QSessionProgress? = null
 )
 
 @Serializable
@@ -283,7 +299,9 @@ data class QSessionDetail(
     val reviewReasons: List<String> = emptyList(),
     val source: String = SessionSource.APP.wire,
     val deletedAt: String? = null,
-    val respondents: List<QRespondent> = emptyList()
+    val respondents: List<QRespondent> = emptyList(),
+    val recordBy: String = RecordBy.SECTION.wire,
+    val progress: QSessionProgress? = null
 ) {
     val subjectIds: List<String> get() =
         participants.map { it.artisanId } + respondents.filter { it.artisanId == null }.map { it.subjectId }

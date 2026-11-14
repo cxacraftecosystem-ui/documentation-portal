@@ -150,10 +150,10 @@ object CoverageGridModel {
         val own = answered.filter { it.targetKey == "Q:${question.lineageId}" }
         val local = overlay.filter { it.artisanId == artisanId && it.targetKey == "Q:${question.lineageId}" }
         return when {
+            answered.any { it.targetKey == "S:${question.sectionId}" } -> GridCell(artisanId, CellMark.VIA_SECTION)
             own.any { it.filing == "NEEDS_DECISION" } -> GridCell(artisanId, CellMark.NEEDS_DECISION, own.size)
             own.isNotEmpty() -> GridCell(artisanId, CellMark.RECORDED, own.size + local.size)
             local.isNotEmpty() -> GridCell(artisanId, if (local.any { it.uploading }) CellMark.UPLOADING else CellMark.ON_DEVICE, local.size)
-            answered.any { it.targetKey == "S:${question.sectionId}" } -> GridCell(artisanId, CellMark.VIA_SECTION)
             (artisanId to question.lineageId) in typed -> GridCell(artisanId, CellMark.TYPED)
             else -> GridCell(artisanId, CellMark.NONE)
         }
@@ -177,6 +177,111 @@ object CoverageGridModel {
     }
 
     private fun keyOf(t: QTarget) = if (t.questionLineageId != null) "Q:${t.questionLineageId}" else if (t.sectionId != null) "S:${t.sectionId}" else ""
+}
+
+enum class QuestionState { NOT_ASKED, IN_SECTION_TAKE, QUESTION_TAKE, ON_DEVICE, NEEDS_DECISION, TYPED }
+
+data class QuestionStatus(val state: QuestionState, val durationMs: Long = 0) {
+    val answered: Boolean get() = state != QuestionState.NOT_ASKED
+    val hasTake: Boolean get() = state == QuestionState.QUESTION_TAKE || state == QuestionState.ON_DEVICE || state == QuestionState.NEEDS_DECISION
+
+    fun line(): String = when (state) {
+        QuestionState.NOT_ASKED -> QuestionnaireCopy.t("notAsked")
+        QuestionState.IN_SECTION_TAKE -> QuestionnaireCopy.t("inSectionTake")
+        QuestionState.TYPED -> QuestionnaireCopy.t("stateTyped")
+        else -> QuestionnaireCopy.t("questionTake", "duration" to QuestionnaireCopy.elapsed(durationMs))
+    }
+}
+
+enum class SectionTile { DONE, STARTED, FRESH }
+
+data class SectionStatus(val sectionId: String, val answered: Int, val total: Int, val inSectionTake: Boolean, val typedOnly: Boolean) {
+    val done: Boolean get() = total > 0 && answered >= total
+    val left: Int get() = (total - answered).coerceAtLeast(0)
+    val tile: SectionTile get() = when {
+        done -> SectionTile.DONE
+        answered > 0 -> SectionTile.STARTED
+        else -> SectionTile.FRESH
+    }
+
+    fun subline(): String {
+        if (answered == 0) return QuestionnaireCopy.t("questionCount", "count" to total)
+        val count = QuestionnaireCopy.t("answeredOfTotal", "answered" to answered, "total" to total)
+        return when {
+            inSectionTake -> count + " · " + QuestionnaireCopy.t("inSectionTake")
+            done && typedOnly -> count + " · " + QuestionnaireCopy.t("stateTyped")
+            else -> count
+        }
+    }
+}
+
+data class SessionTally(val answered: Int, val total: Int, val sectionsDone: Int, val sectionsTotal: Int) {
+    val fraction: Float get() = if (total <= 0) 0f else answered.toFloat() / total
+}
+
+data class SessionEvidence(
+    val subjects: Set<String>,
+    val takes: List<QSnapshotTake>,
+    val overlay: List<OverlayTake>,
+    val typed: Set<Pair<String, String>>
+) {
+    private val answered = takes.filter { it.role == SubjectRole.ANSWERED.wire && mine(it.artisanId) }
+    private val local = overlay.filter { mine(it.artisanId) }
+
+    private fun mine(id: String) = subjects.isEmpty() || id in subjects
+
+    fun sectionTaken(sectionId: String): Boolean =
+        answered.any { it.targetKey == "S:$sectionId" } || local.any { it.targetKey == "S:$sectionId" }
+
+    fun question(question: InstrumentQuestion): QuestionStatus {
+        if (sectionTaken(question.sectionId)) return QuestionStatus(QuestionState.IN_SECTION_TAKE)
+        val key = "Q:${question.lineageId}"
+        val own = answered.filter { it.targetKey == key }
+        if (own.isNotEmpty()) {
+            val latest = own.maxBy { it.capturedAt.orEmpty() }
+            val state = if (own.any { it.filing == "NEEDS_DECISION" }) QuestionState.NEEDS_DECISION else QuestionState.QUESTION_TAKE
+            return QuestionStatus(state, latest.durationMs)
+        }
+        local.filter { it.targetKey == key }.maxByOrNull { it.capturedAt }?.let { return QuestionStatus(QuestionState.ON_DEVICE, it.durationMs) }
+        if (typed.any { (who, lineage) -> lineage == question.lineageId && mine(who) }) return QuestionStatus(QuestionState.TYPED)
+        return QuestionStatus(QuestionState.NOT_ASKED)
+    }
+
+    fun section(section: InstrumentSection): SectionStatus {
+        val statuses = section.questions.map(::question)
+        val answeredOnes = statuses.filter { it.answered }
+        return SectionStatus(
+            section.id, answeredOnes.size, section.questions.size,
+            inSectionTake = sectionTaken(section.id),
+            typedOnly = answeredOnes.isNotEmpty() && answeredOnes.all { it.state == QuestionState.TYPED }
+        )
+    }
+
+    fun tally(instrument: Instrument): SessionTally {
+        val sections = instrument.sections.map(::section)
+        return SessionTally(sections.sumOf { it.answered }, sections.sumOf { it.total }, sections.count { it.done }, sections.size)
+    }
+
+    fun decisions(instrument: Instrument): List<String> =
+        answered.filter { it.filing == "NEEDS_DECISION" }.map { it.targetKey }.distinct().mapNotNull { key ->
+            when {
+                key.startsWith("Q:") -> instrument.question(key.removePrefix("Q:"))?.displayCode
+                key.startsWith("S:") -> instrument.section(key.removePrefix("S:"))?.code
+                else -> null
+            }
+        }
+
+    companion object {
+        fun forSession(
+            subjects: Collection<String>, sessionKeys: Set<String>, known: List<QSnapshotTake>,
+            overlay: List<OverlayTake>, typed: Set<Pair<String, String>>
+        ): SessionEvidence = SessionEvidence(
+            subjects.toSet(),
+            known.filter { it.sessionId != null && it.sessionId in sessionKeys },
+            overlay.filter { it.sessionKey in sessionKeys },
+            typed
+        )
+    }
 }
 
 data class P2TakeLine(val artisanId: String, val text: String)
@@ -215,7 +320,9 @@ object AlreadyRecorded {
         val latestDate = latest?.session?.date?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() }
             ?: latest?.capturedAt?.let { runCatching { Instant.parse(it).atZone(Naming.IST).toLocalDate() }.getOrNull() }
         val viaSection = covered.all { it.viaSection }
-        val body = QuestionnaireCopy.p2Body(
+        val body = if (artisanIds.size == 1 && latestDate != null) {
+            QuestionnaireCopy.t("recordedForOn", "name" to names[covered.single().artisanId].orEmpty(), "date" to QuestionnaireCopy.day(latestDate))
+        } else QuestionnaireCopy.p2Body(
             targetLabel, covered.map { names[it.artisanId].orEmpty().let(QuestionnaireCopy::firstName) },
             artisanIds.size, latestDate, viaSection
         )
@@ -237,7 +344,7 @@ object AlreadyRecorded {
         }
         val partTwo = latest != null && latest.sameSession && coveredIds == artisanIds.toSet()
         return P2Model(
-            title = QuestionnaireCopy.s("p2.title"),
+            title = targetCode.ifBlank { null }?.let { QuestionnaireCopy.t("alreadyRecordedCode", "code" to it) } ?: QuestionnaireCopy.s("p2.title"),
             body = body,
             lines = lines,
             firstTakes = firsts,

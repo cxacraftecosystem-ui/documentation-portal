@@ -79,6 +79,10 @@ class QuestionnaireTransport(
     override suspend fun finish(sessionId: String) {
         call { api.finish(sessionId) }
     }
+    override suspend fun sessionRecordBy(sessionId: String): Pair<Int, String> = call { api.session(sessionId).let { it.version to it.recordBy } }
+    override suspend fun patchSession(sessionId: String, body: QSessionPatch) {
+        call { api.patchSession(sessionId, body) }
+    }
 
     override suspend fun put(url: String, headers: Map<String, String>, file: File, offset: Long, length: Long, contentType: String): String =
         withContext(Dispatchers.IO) {

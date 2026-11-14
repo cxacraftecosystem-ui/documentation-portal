@@ -53,6 +53,7 @@ object OutboxTrayModel {
             }
             StepKind.SESSION -> listOf(TrayRow(step.id, step.kind, QuestionnaireCopy.s("tray.session"), reason))
             StepKind.ARTISAN -> listOf(TrayRow(step.id, step.kind, QuestionnaireCopy.s("tray.newArtisan"), reason))
+            StepKind.SESSION_PATCH -> listOf(TrayRow(step.id, step.kind, QuestionnaireCopy.t("fieldRecordBy"), reason))
             StepKind.PARTICIPANT -> listOf(
                 TrayRow(step.id, step.kind, listOfNotNull(QuestionnaireCopy.s("tray.participant"), step.participant?.artisanId?.let { QuestionnaireCopy.firstName(nameOf(unit.resolve(it))) }?.ifBlank { null }).joinToString(" · "), reason)
             )
@@ -64,6 +65,65 @@ object OutboxTrayModel {
         rows.filter { it.kind == StepKind.ANSWERS && (it.conflict != null || !it.sendAgain) }.map { it.stepId }.distinct()
 
     fun uploadLine(percent: Int): String = if (percent <= 0) QuestionnaireCopy.s("upload.waiting") else QuestionnaireCopy.uploading(percent)
+}
+
+enum class SaveTone { SAVED, ON_PHONE, UPLOADING, WAITING, FAILED }
+
+data class SavePillState(val tone: SaveTone, val text: String, val percent: Int = 0, val failedSteps: List<String> = emptyList())
+
+object SavePillModel {
+    fun of(unit: SessionUnit?): SavePillState {
+        if (unit == null) return SavePillState(SaveTone.SAVED, QuestionnaireCopy.t("saved"))
+        val failed = unit.failedSteps
+        if (failed.isNotEmpty()) return SavePillState(SaveTone.FAILED, QuestionnaireCopy.s("upload.failed"), failedSteps = failed.map { it.id })
+        val uploading = unit.uploadingClips
+        if (uploading.isNotEmpty()) {
+            val percent = uploading.mapNotNull { it.clip?.uploadedPercent }.let { if (it.isEmpty()) 0 else it.sum() / it.size }
+            val line = OutboxTrayModel.uploadLine(percent)
+            return if (percent <= 0) SavePillState(SaveTone.WAITING, line)
+            else SavePillState(SaveTone.UPLOADING, QuestionnaireCopy.t("takesUploadingPercent", "count" to uploading.size, "percent" to percent), percent)
+        }
+        if (unit.steps.any { it.state == StepState.PENDING }) return SavePillState(SaveTone.ON_PHONE, QuestionnaireCopy.t("savedOnThisPhone"))
+        return SavePillState(SaveTone.SAVED, QuestionnaireCopy.t("saved"))
+    }
+}
+
+data class NeedsYouRow(val key: String, val title: String, val detail: String, val action: String, val stepId: String? = null, val code: String? = null)
+
+data class StillToAskRow(val section: InstrumentSection, val status: SectionStatus) {
+    val trailing: String get() =
+        if (status.answered == 0) QuestionnaireCopy.t("notAskedCount", "count" to status.total) else QuestionnaireCopy.t("leftCount", "count" to status.left)
+}
+
+data class ReviewModel(
+    val tally: SessionTally,
+    val summary: String,
+    val needsYou: List<NeedsYouRow>,
+    val stillToAsk: List<StillToAskRow>
+) {
+    companion object {
+        const val FIRST_ROWS = 3
+
+        fun of(instrument: Instrument, evidence: SessionEvidence, names: List<String>, pending: Int, tray: List<TrayRow>): ReviewModel {
+            val tally = evidence.tally(instrument)
+            val decisions = evidence.decisions(instrument).map { code ->
+                NeedsYouRow("decide:$code", QuestionnaireCopy.t("hasTwoTakes", "code" to code), QuestionnaireCopy.t("chooseWhichToKeep"), QuestionnaireCopy.t("choose"), code = code)
+            }
+            val failed = tray.distinctBy { it.stepId }.map { row ->
+                if (row.kind == StepKind.CLIP) {
+                    val code = row.title.substringBefore(" (").removePrefix("Section ")
+                    NeedsYouRow("step:${row.stepId}", QuestionnaireCopy.t("takeDidNotUpload", "code" to code), QuestionnaireCopy.t("uploadFailed"), QuestionnaireCopy.t("retry"), stepId = row.stepId)
+                } else {
+                    NeedsYouRow("step:${row.stepId}", row.title, row.reason, if (row.sendAgain) QuestionnaireCopy.t("retry") else "", stepId = row.stepId)
+                }
+            }
+            val still = instrument.sections.map { it to evidence.section(it) }.filter { !it.second.done }.map { StillToAskRow(it.first, it.second) }
+            val summary = QuestionnaireCopy.t(
+                "reviewSummary", "sections" to tally.sectionsDone, "names" to names.joinToString(", ").ifBlank { "—" }, "pending" to pending
+            )
+            return ReviewModel(tally, summary, decisions + failed, still)
+        }
+    }
 }
 
 data class AnswerLine(

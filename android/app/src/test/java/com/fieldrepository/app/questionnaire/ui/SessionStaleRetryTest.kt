@@ -101,4 +101,21 @@ class SessionStaleRetryTest {
         }.exceptionOrNull()
         assertTrue(thrown is HttpException)
     }
+
+    @com.fieldrepository.app.questionnaire.QFeature("Q1")
+    @Test fun `a stale Record by change and another person's place change both survive, and only the same field clashes`() {
+        val mine = base.copy(recordBy = "QUESTION")
+        val server = base.copy(place = "Sanganer")
+        val retry = SessionStaleRetry.resolve(base, mine, server, serverVersion = 7) as StaleOutcome.Retry
+        val patch = retry.patch!!
+        assertEquals(7, patch.version)
+        assertEquals("QUESTION", patch.recordBy)
+        assertNull(patch.place)
+        val clash = SessionStaleRetry.resolve(base, mine, base.copy(recordBy = "SECTION_ELSEWHERE"), serverVersion = 8)
+        assertTrue(clash is StaleOutcome.Conflict)
+        assertEquals(listOf(SessionEditField.RECORD_BY), (clash as StaleOutcome.Conflict).fields.map { it.field })
+        assertEquals("Question", clash.fields.single().mine)
+        assertEquals("QUESTION", mine.patch(3, base).recordBy)
+        assertNull(base.patch(3, base).recordBy)
+    }
 }

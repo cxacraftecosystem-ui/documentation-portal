@@ -141,4 +141,55 @@ class OutboxOrderTest {
         val subjects = outbox.unit("c-8")!!.steps.single { it.kind == StepKind.CLIP }.clip!!.recording.subjects
         assertEquals(listOf("a1" to SubjectRole.ANSWERED.wire, "a2" to SubjectRole.PRESENT.wire), subjects.map { it.artisanId to it.role })
     }
+
+    @QFeature("Q1")
+    @Test
+    fun `Record by set before the session reaches the server rides in the create body`() = runBlocking {
+        val outbox = SessionOutbox(InMemorySessionUnitStore(), clock = { t0 })
+        outbox.startSession(body("c-r1", listOf("a1")), "u3")
+        outbox.setRecordBy("c-r1", "QUESTION", before = "SECTION")
+        assertEquals("QUESTION", outbox.queuedRecordBy(outbox.unit("c-r1")))
+        val server = FakeSessionTransport()
+        outbox.sync(server, "u3")
+        assertTrue(server.bodies.first().contains("\"recordBy\":\"QUESTION\""))
+        assertTrue(server.calls.none { it.startsWith("session-patch") })
+    }
+
+    @QFeature("Q1")
+    @Test
+    fun `Record by changed offline queues one SESSION_PATCH that replays with the fresh version`() = runBlocking {
+        val outbox = SessionOutbox(InMemorySessionUnitStore(), clock = { t0 })
+        outbox.startSession(body("c-r2", listOf("a1")), "u3")
+        val server = FakeSessionTransport()
+        outbox.sync(server, "u3")
+        outbox.setRecordBy("c-r2", "QUESTION", before = "SECTION")
+        outbox.setRecordBy("c-r2", "SECTION", before = "QUESTION")
+        outbox.setRecordBy("c-r2", "QUESTION", before = "SECTION")
+        assertEquals(1, outbox.unit("c-r2")!!.steps.count { it.kind == StepKind.SESSION_PATCH })
+        server.serverVersion = 4
+        server.staleOnce = true
+        outbox.sync(server, "u3")
+        assertEquals("QUESTION", server.serverRecordBy)
+        assertEquals(listOf("session-patch:QUESTION", "session-patch:QUESTION"), server.calls.filter { it.startsWith("session-patch") })
+        assertTrue(outbox.unit("c-r2")!!.steps.all { it.state == StepState.DONE })
+    }
+
+    @QFeature("Q1")
+    @Test
+    fun `Record by changed on another device in the meantime waits in the tray, and Send again keeps mine`() = runBlocking {
+        val outbox = SessionOutbox(InMemorySessionUnitStore(), clock = { t0 })
+        outbox.startSession(body("c-r3", listOf("a1")), "u3")
+        val server = FakeSessionTransport()
+        outbox.sync(server, "u3")
+        outbox.setRecordBy("c-r3", "QUESTION", before = "SECTION")
+        server.serverRecordBy = "QUESTION_ELSEWHERE"
+        outbox.sync(server, "u3")
+        val step = outbox.unit("c-r3")!!.steps.single { it.kind == StepKind.SESSION_PATCH }
+        assertEquals(StepState.FAILED, step.state)
+        assertEquals(SessionOutbox.RECORD_BY_CONFLICT, step.failureCode)
+        assertTrue(server.calls.none { it.startsWith("session-patch") })
+        outbox.retryStep("c-r3", step.id)
+        outbox.sync(server, "u3")
+        assertEquals("QUESTION", server.serverRecordBy)
+    }
 }

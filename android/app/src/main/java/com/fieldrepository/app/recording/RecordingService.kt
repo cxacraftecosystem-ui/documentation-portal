@@ -51,6 +51,14 @@ class RecordingService : Service() {
         }
     }
 
+    private val sampler = object : Runnable {
+        override fun run() {
+            val s = state.value as? State.Recording ?: run { _level.value = 0f; return }
+            _level.value = if (s.pausedAt != null) 0f else ((recorder?.amplitude() ?: 0) / 32767f).coerceIn(0f, 1f)
+            handler.postDelayed(this, LEVEL_EVERY_MS)
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -91,6 +99,7 @@ class RecordingService : Service() {
         requestFocus()
         _state.value = initial
         handler.post(ticker)
+        handler.post(sampler)
     }
 
     private fun pause() {
@@ -111,6 +120,8 @@ class RecordingService : Service() {
     private fun finish(reason: String) {
         val s = state.value as? State.Recording ?: run { stopSelf(); return }
         handler.removeCallbacks(ticker)
+        handler.removeCallbacks(sampler)
+        _level.value = 0f
         handler.removeCallbacks(endAfterLongLoss)
         pausedForFocus = false
         recorder?.stop()
@@ -255,6 +266,9 @@ class RecordingService : Service() {
 
         private val _state = MutableStateFlow<State>(State.Idle)
         val state: StateFlow<State> = _state
+        private const val LEVEL_EVERY_MS = 120L
+        private val _level = MutableStateFlow(0f)
+        val level: StateFlow<Float> = _level
 
         fun start(context: Context, draft: RecordingDraft) {
             ContextCompat.startForegroundService(context, Intent(context, RecordingService::class.java).setAction(ACTION_START).putExtra(EXTRA_CLIP, draft.clientClipKey))

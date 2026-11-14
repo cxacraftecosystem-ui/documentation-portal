@@ -29,6 +29,8 @@ class AdtsRecorder(private val context: Context, private val output: File, priva
         recorder = r
     }
 
+    fun amplitude(): Int = recorder?.let { runCatching { it.maxAmplitude }.getOrDefault(0) } ?: 0
+
     fun pause() {
         recorder?.let { runCatching { it.pause() }.onSuccess { paused = true } }
     }
