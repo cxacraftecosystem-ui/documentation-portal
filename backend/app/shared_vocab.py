@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-ENUMS_VERSION = 1
+ENUMS_VERSION = 2
 LANGUAGES_VERSION = 1
 
 AnswerOrigin: tuple[str, ...] = ("TYPED", "TRANSCRIPT", "MACHINE_SUGGESTED", "MACHINE_SUGGESTED_EDITED", "PREFILL", "WORKBOOK")
@@ -22,6 +22,7 @@ SessionPurpose: tuple[str, ...] = ("FIRST_SITTING", "FOLLOW_UP", "REDO")
 SessionState: tuple[str, ...] = ("OPEN", "CLOSED")
 SessionOrigin: tuple[str, ...] = ("NATIVE", "LEGACY_RECONSTRUCTED")
 SessionMode: tuple[str, ...] = ("INDIVIDUAL", "GROUP")
+RecordBy: tuple[str, ...] = ("SECTION", "QUESTION")
 ResearcherRole: tuple[str, ...] = ("LEAD", "CONTRIBUTOR", "VOLUNTEER")
 CapturedAtSource: tuple[str, ...] = ("DEVICE", "FILE_METADATA", "SESSION_DATE", "UPLOAD_TIME", "UPLOAD_TIME_OUT_OF_WINDOW")
 RecordingFiling: tuple[str, ...] = ("FILED", "NEEDS_DECISION")

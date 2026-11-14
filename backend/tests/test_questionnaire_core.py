@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app import shared_vocab
 from app.questionnaire import answer_lock, authoring, bindings, kinds, subjects
 
 SHARED = Path(__file__).resolve().parents[2] / "shared"
@@ -155,6 +156,7 @@ def test_the_unify_vocabularies_match_the_shared_json() -> None:
     assert enums["SectionStatus"] == list(kinds.SECTION_STATUSES)
     assert enums["RespondentKind"] == list(schemas.RESPONDENT_KINDS)
     assert enums["SessionSource"] == list(schemas.SESSION_SOURCES)
+    assert enums["RecordBy"] == list(shared_vocab.RecordBy) == ["SECTION", "QUESTION"]
     assert enums["CoverageSource"] == [coverage.SOURCE_RECORDED, coverage.SOURCE_TYPED]
     assert enums["SubjectKeyPrefix"] == list(subjects.PREFIXES)
     assert enums["FormResolution"] == list(bindings.ORDER)

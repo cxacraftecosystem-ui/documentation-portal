@@ -79,12 +79,13 @@
       "clientKey": "c-2f6e9a", "questionnaireId": "q_ctw3", "workshopId": "w_bankura", "designWorkshopId": null,
       "sessionDate": "2026-07-01", "startedAt": "2026-07-01T12:54:00Z", "purpose": "FIRST_SITTING",
       "place": "Bagru, Jaipur", "languageCode": "hi", "languageOther": null, "note": "Under the neem tree",
-      "participants": [{"artisanId": "a1"}], "researchers": [{"userId": "u3", "role": "CONTRIBUTOR"}]
+      "participants": [{"artisanId": "a1"}], "researchers": [{"userId": "u3", "role": "CONTRIBUTOR"}],
+      "recordBy": "SECTION"
     },
     "SessionPatch": {
       "version": 3, "place": "Bagru, Jaipur", "languageCode": "hi", "languageOther": null,
       "note": null, "sessionDate": "2026-07-01", "workshopId": "w_bankura", "designWorkshopId": null,
-      "purpose": "FOLLOW_UP"
+      "purpose": "FOLLOW_UP", "recordBy": "QUESTION"
     },
     "Session": {
       "id": "s1", "clientKey": "c-2f6e9a", "version": 3,
@@ -102,7 +103,11 @@
                         "consent": {"state": "GRANTED", "source": "researcher"}}],
       "researchers": [{"userId": "u3", "name": "Nandini", "role": "LEAD"}],
       "status": "PENDING", "submittedAt": "2026-07-01T12:54:00Z", "reviewReasons": [],
-      "counts": {"sections": 6, "takes": 9, "needsDecision": 0}
+      "counts": {"sections": 6, "takes": 9, "needsDecision": 0, "answeredQuestions": 18, "totalQuestions": 108},
+      "recordBy": "SECTION",
+      "progress": {"answeredQuestions": 18, "totalQuestions": 108,
+                   "sections": [{"sectionId": "secA", "answeredQuestions": 5, "totalQuestions": 5, "inSectionTake": true},
+                                {"sectionId": "secD", "answeredQuestions": 6, "totalQuestions": 9, "inSectionTake": false}]}
     },
     "SessionList": {"items": [], "nextCursor": null, "capped": false},
     "OpenMatch": {"items": [{"id": "s0", "title": "Group-Interview_2026-07-01_Bagru-Jaipur_Hand-Block-Printing_2-Artisans",
@@ -150,7 +155,8 @@
     "CoverageGrid": {"questionnaireId": "q_ctw3", "artisans": [{"artisanId": "a1", "name": "Giriraj Prasad Chhipa"}],
                      "sections": [{"sectionId": "secD", "code": "D", "title": "Process",
                                    "cells": [{"artisanId": "a1", "state": "PARTIAL", "takes": 1, "covered": 4, "total": 10,
-                                              "needsDecision": false, "override": null}]}]},
+                                              "needsDecision": false, "override": null,
+                                              "answeredQuestions": 4, "inSectionTake": false}]}]},
     "Snapshot": {"asOfSeq": "1042", "takes": [{"recordingId": "r9", "sessionId": "s1", "artisanId": "a1", "targetKey": "Q:lin_d3",
                  "role": "ANSWERED", "capturedAt": "2026-07-01T12:54:00Z", "estimated": false, "filing": "FILED", "position": 1}],
                  "removedRecordingIds": []},

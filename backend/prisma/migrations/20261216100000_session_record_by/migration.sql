@@ -1,0 +1,2 @@
+DO $$ BEGIN CREATE TYPE "RecordBy" AS ENUM ('SECTION', 'QUESTION'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+ALTER TABLE "QuestionnaireInterview" ADD COLUMN IF NOT EXISTS "recordBy" "RecordBy" NOT NULL DEFAULT 'SECTION';

@@ -170,10 +170,12 @@ class SessionCreate(Strict):
     location: SessionLocation | None = None
     crafts: list[str] | None = Field(default=None, max_length=50)
     craftsByHand: list[str] = Field(default_factory=list, max_length=50)
+    recordBy: str = "SECTION"
 
     _purpose = field_validator("purpose")(_one_of(V.SessionPurpose))
     _lang = field_validator("languageCode")(_language)
     _source = field_validator("source")(_one_of(SESSION_SOURCES))
+    _record_by = field_validator("recordBy")(_one_of(V.RecordBy))
 
     @model_validator(mode="after")
     def _one_workshop_kind(self) -> SessionCreate:
@@ -199,9 +201,11 @@ class SessionPatch(Strict):
     clearLocation: bool | None = None
     crafts: list[str] | None = Field(default=None, max_length=50)
     craftsByHand: list[str] | None = Field(default=None, max_length=50)
+    recordBy: str | None = None
 
     _purpose = field_validator("purpose")(_one_of(V.SessionPurpose))
     _lang = field_validator("languageCode")(_language)
+    _record_by = field_validator("recordBy")(_one_of(V.RecordBy))
 
 
 class ParticipantAdd(Strict):
@@ -257,6 +261,21 @@ class SessionCounts(Strict):
     sections: int
     takes: int
     needsDecision: int
+    answeredQuestions: int = 0
+    totalQuestions: int = 0
+
+
+class SectionProgress(Strict):
+    sectionId: str
+    answeredQuestions: int
+    totalQuestions: int
+    inSectionTake: bool
+
+
+class SessionProgress(Strict):
+    answeredQuestions: int
+    totalQuestions: int
+    sections: list[SectionProgress]
 
 
 class Session(Strict):
@@ -290,6 +309,8 @@ class Session(Strict):
     submittedAt: datetime | None
     reviewReasons: list[str]
     counts: SessionCounts
+    recordBy: str = "SECTION"
+    progress: SessionProgress | None = None
 
 
 class SessionList(Strict):
@@ -504,6 +525,8 @@ class GridCell(Strict):
     total: int
     needsDecision: bool
     override: str | None
+    answeredQuestions: int = 0
+    inSectionTake: bool = False
 
 
 class GridSection(Strict):

@@ -1,6 +1,6 @@
 {
   "contract": "shared-enums",
-  "version": 1,
+  "version": 2,
   "owner": "feature/q-backend (written once; WEB and ANDROID copy this file verbatim)",
   "generatedBy": "scripts/generate_shared.py writes backend/app/shared_vocab.py, frontend/lib/shared/enums.ts and android/app/src/main/java/com/fieldrepository/app/data/SharedEnums.kt from this file",
   "rule": "Values are the merged platform's names (UPPER_SNAKE, except ArtisanFieldKey, which is spelled as in shared/artisan-form-contract.json, and LinkedRecordType, which is lowercase). Both portals keep these lists identical. Adding a value is a contract change: bump `version` and regenerate.",
@@ -25,6 +25,7 @@
     "SessionState": ["OPEN", "CLOSED"],
     "SessionOrigin": ["NATIVE", "LEGACY_RECONSTRUCTED"],
     "SessionMode": ["INDIVIDUAL", "GROUP"],
+    "RecordBy": ["SECTION", "QUESTION"],
     "ResearcherRole": ["LEAD", "CONTRIBUTOR", "VOLUNTEER"],
     "CapturedAtSource": ["DEVICE", "FILE_METADATA", "SESSION_DATE", "UPLOAD_TIME", "UPLOAD_TIME_OUT_OF_WINDOW"],
     "RecordingFiling": ["FILED", "NEEDS_DECISION"],

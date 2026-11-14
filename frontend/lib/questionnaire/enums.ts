@@ -51,6 +51,9 @@ export type SessionOrigin = (typeof SessionOriginValues)[number];
 export const SessionModeValues = ["INDIVIDUAL", "GROUP"] as const;
 export type SessionMode = (typeof SessionModeValues)[number];
 
+export const RecordByValues = ["SECTION", "QUESTION"] as const;
+export type RecordBy = (typeof RecordByValues)[number];
+
 export const ResearcherRoleValues = ["LEAD", "CONTRIBUTOR", "VOLUNTEER"] as const;
 export type ResearcherRole = (typeof ResearcherRoleValues)[number];
 
