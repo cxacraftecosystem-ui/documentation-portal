@@ -96,7 +96,8 @@ class AccordionScrollUiTest {
         assertEquals("secH", open)
         val top = compose.onNodeWithTag("list").fetchSemanticsNode().boundsInRoot.top
         val header = compose.onNodeWithTag("questionnaire.section.H").fetchSemanticsNode().boundsInRoot.top
-        assertEquals(top, header, 2f)
+        val margin = with(compose.density) { 8.dp.toPx() }
+        assertEquals(top + margin, header, 2f)
         compose.onNodeWithText("Question H1?").assertIsDisplayed()
 
         compose.onNodeWithTag("list").performScrollToNode(hasTestTag("questionnaire.section.C"))
