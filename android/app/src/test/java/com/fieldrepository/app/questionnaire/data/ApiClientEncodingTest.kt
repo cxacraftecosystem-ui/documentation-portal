@@ -46,6 +46,29 @@ class ApiClientEncodingTest {
         assertTrue("title" !in body.keys)
     }
 
+    @QFeature("Q1")
+    @Test fun `session create sends record by section unless told otherwise, and a patch sends it only when it changes`() {
+        val create = keys(QSessionCreate.serializer(), QSessionCreate(clientKey = "c", questionnaireId = "q", sessionDate = "2026-07-01", startedAt = "x"))
+        assertEquals(RecordBy.SECTION.wire, create["recordBy"]!!.jsonPrimitive.content)
+        val byQuestion = keys(QSessionCreate.serializer(), QSessionCreate(clientKey = "c", questionnaireId = "q", sessionDate = "2026-07-01", startedAt = "x", recordBy = RecordBy.QUESTION.wire))
+        assertEquals("QUESTION", byQuestion["recordBy"]!!.jsonPrimitive.content)
+        assertTrue("recordBy" !in keys(QSessionPatch.serializer(), QSessionPatch(version = 2, note = "n")).keys)
+        assertEquals("QUESTION", keys(QSessionPatch.serializer(), QSessionPatch(version = 2, recordBy = "QUESTION"))["recordBy"]!!.jsonPrimitive.content)
+    }
+
+    @QFeature("Q5")
+    @Test fun `a session reads its record by and its question progress`() {
+        val session = QuestionnairePortal.json.decodeFromString(
+            QSession.serializer(),
+            """{"id": "s1", "recordBy": "QUESTION", "counts": {"sections": 3, "takes": 4, "needsDecision": 0, "answeredQuestions": 18, "totalQuestions": 108},
+               "progress": {"answeredQuestions": 18, "totalQuestions": 108, "sections": [{"sectionId": "secA", "answeredQuestions": 5, "totalQuestions": 5, "inSectionTake": true}]}}"""
+        )
+        assertEquals("QUESTION", session.recordBy)
+        assertEquals(108, session.counts.totalQuestions)
+        assertTrue(session.progress!!.section("secA")!!.inSectionTake)
+        assertEquals(RecordBy.SECTION.wire, QuestionnairePortal.json.decodeFromString(QSession.serializer(), """{"id": "s2"}""").recordBy)
+    }
+
     @Test fun `answers, consent and continue carry their defaults`() {
         val answer = keys(QAnswerItem.serializer(), QAnswerItem("a1", "lin", "text", sessionId = "s1"))
         assertEquals("TYPED", answer["origin"]!!.jsonPrimitive.content)

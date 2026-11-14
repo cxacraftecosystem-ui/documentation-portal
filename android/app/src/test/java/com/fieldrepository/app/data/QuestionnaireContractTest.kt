@@ -36,8 +36,13 @@ class QuestionnaireContractTest {
             "participants": [{"artisanId": "a1", "name": "Giriraj Prasad Chhipa", "joinedAt": null, "leftAt": null, "consent": {"state": "GRANTED", "source": "researcher"}}],
             "researchers": [{"userId": "u3", "name": "Nandini", "role": "LEAD"}],
             "status": "PENDING", "submittedAt": "…", "reviewReasons": [],
-            "counts": {"sections": 6, "takes": 9, "needsDecision": 0}}""")
+            "counts": {"sections": 6, "takes": 9, "needsDecision": 0, "answeredQuestions": 18, "totalQuestions": 108},
+            "recordBy": "QUESTION",
+            "progress": {"answeredQuestions": 18, "totalQuestions": 108, "sections": [{"sectionId": "secA", "answeredQuestions": 5, "totalQuestions": 5, "inSectionTake": true}]}}""")
         assertEquals("K7Q2MX", s.joinCode)
+        assertEquals("QUESTION", s.recordBy)
+        assertEquals(18, s.counts.answeredQuestions)
+        assertTrue(s.progress!!.section("secA")!!.inSectionTake)
         assertEquals("c-2f6e9a", JoinQr.decode(s.joinQr!!)!!.clientKey)
         assertEquals("GRANTED", s.participants.single().consent?.state)
     }
@@ -114,6 +119,11 @@ class QuestionnaireContractTest {
             assertEquals(listed.toSet(), QErrorCodes.ALL.toSet())
         }
         (root["Session"] as? JsonObject)?.let { json.decodeFromJsonElement(QSession.serializer(), it) }
+        (root["examples"] as? JsonObject)?.let { examples ->
+            (examples["Session"] as? JsonObject)?.let { assertEquals(it["recordBy"]?.let { v -> json.decodeFromJsonElement(String.serializer(), v) }, json.decodeFromJsonElement(QSession.serializer(), it).recordBy) }
+            (examples["SessionCreate"] as? JsonObject)?.let { assertEquals(RecordBy.SECTION.wire, json.decodeFromJsonElement(QSessionCreate.serializer(), it).recordBy) }
+            (examples["SessionPatch"] as? JsonObject)?.let { assertEquals(RecordBy.QUESTION.wire, json.decodeFromJsonElement(QSessionPatch.serializer(), it).recordBy) }
+        }
         (root["Recording"] as? JsonObject)?.let { json.decodeFromJsonElement(QRecording.serializer(), it) }
     }
 }
