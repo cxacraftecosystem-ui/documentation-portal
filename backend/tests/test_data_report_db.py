@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import tracemalloc
 import uuid
@@ -44,6 +45,18 @@ async def _seed(client: Any) -> dict[str, Any]:
     return {"admin": admin, "media": media}
 
 
+async def _settled_version(client: Any) -> None:
+    from app.services.data_explorer.report_cache import data_version
+
+    seen = await data_version(client)
+    for _ in range(10):
+        await asyncio.sleep(1.2)
+        now = await data_version(client)
+        if now == seen:
+            return
+        seen = now
+
+
 async def _cleanup(client: Any, seed: dict[str, Any]) -> None:
     await client.mediafile.delete_many(where={"id": {"in": [m.id for m in seed["media"]]}})
     await client.user.delete_many(where={"id": seed["admin"].id})
@@ -57,6 +70,7 @@ async def _ten_reports(monkeypatch: Any) -> dict[str, Any]:
     patch_db(monkeypatch, client)
     seed = await _seed(client)
     try:
+        await _settled_version(client)
         statements: list[int] = []
         peaks: list[int] = []
         currents: list[int] = []
