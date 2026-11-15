@@ -26,7 +26,6 @@ import {
 } from "./support/interviewStack";
 
 test.skip(Boolean(INTERVIEW_SEED_MISSING), INTERVIEW_SEED_MISSING);
-test.describe.configure({ mode: "serial" });
 test.use({
   viewport: { width: 1280, height: 900 },
   permissions: ["microphone"],
