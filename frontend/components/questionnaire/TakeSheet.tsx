@@ -1,16 +1,19 @@
 "use client";
 
 import { Download, Mic, Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import { TakeRegion, TakeRow, type TakePlayer } from "@/components/questionnaire/TakeInPlace";
 import { TranscriptStatus } from "@/components/questionnaire/TranscriptStatus";
+import { FillFromRecording } from "@/components/transcript/FillFromRecording";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { questionnaireApi, type Recording, type RecordingEvent, type SectionOverride } from "@/lib/questionnaire/api";
 import { shortDate, takeRowLabel } from "@/lib/questionnaire/prompts";
 import { qs } from "@/lib/questionnaire/qs";
+import { regionId } from "@/lib/questionnaire/takeInPlace";
+import { fetchTranscript } from "@/lib/transcript/api";
 import { RecordingChips } from "@/components/questionnaire/RecordingChips";
 import { useChipNavigator } from "@/components/questionnaire/useUrlFilters";
 
@@ -39,6 +42,43 @@ const OVERRIDE_KEY: Record<SectionOverride | "", "overrideNone" | "stateMarkedCo
 };
 
 const SHEET_SLOT = "sheet";
+
+const SEEK_TRIES = 40;
+
+function seekInPlace(player: TakePlayer, key: string, ms: number) {
+  if (!player.isOpen(SHEET_SLOT, key)) player.show(SHEET_SLOT, key);
+  let tries = 0;
+  const attempt = () => {
+    const media = document.getElementById(regionId(SHEET_SLOT, key))?.querySelector<HTMLMediaElement>("audio, video");
+    if (!media) {
+      if (++tries < SEEK_TRIES) window.requestAnimationFrame(attempt);
+      return;
+    }
+    media.currentTime = Math.max(0, ms / 1000);
+    void media.play().catch(() => undefined);
+  };
+  attempt();
+}
+
+function TakeFill({ recording, player, itemKey, onReview }: { recording: Recording; player: TakePlayer; itemKey: string; onReview?: () => void }) {
+  const mediaId = recording.mediaFileId;
+  const [allowed, setAllowed] = useState<{ mediaId: string; ok: boolean } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchTranscript(mediaId)
+      .then((loaded) => {
+        if (!cancelled) setAllowed({ mediaId, ok: Boolean(loaded && loaded.permissions.autodraft && loaded.status === "READY") });
+      })
+      .catch(() => {
+        if (!cancelled) setAllowed({ mediaId, ok: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mediaId]);
+  if (!allowed || allowed.mediaId !== mediaId || !allowed.ok) return null;
+  return <FillFromRecording mediaId={mediaId} onSeek={(ms) => seekInPlace(player, itemKey, ms)} onReview={onReview} />;
+}
 
 export function TakeSheet({
   open,
@@ -142,6 +182,9 @@ export function TakeSheet({
               </div>
               <RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />
               <TakeRegion player={player} slot={SHEET_SLOT} item={item} className="-mx-3 sm:mx-0" />
+              {player.isOpen(SHEET_SLOT, item.key) ? (
+                <TakeFill recording={r} player={player} itemKey={item.key} onReview={onUseAsAnswer ? () => onUseAsAnswer(r) : undefined} />
+              ) : null}
               <ButtonRow
                 size="sm"
                 align="start"

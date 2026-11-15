@@ -285,11 +285,13 @@ class InterviewShotsTest {
         waitTag("questionnaire.take.preview")
         waitTag("explorer.audio.card")
         compose.waitUntil(30_000) { compose.onAllNodes(hasText(ExplorerUiText.loadingTranscript, substring = true), useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
+        waitTag("explorer.audio.lines")
         check(compose.onAllNodes(hasTestTag("explorer.preview.close"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty()) { "the take plays in place, without the explorer's own header" }
         shot(board, dark, "live", prefix = "takes-")
         tap(t("openFullView"))
         waitTag("explorer.preview.close")
         waitTag("explorer.audio.card")
+        waitTag("explorer.audio.lines")
         shot(board, dark, "live-explorer", prefix = "takes-")
         compose.onAllNodes(hasTestTag("explorer.preview.close"), useUnmergedTree = true).onFirst().performClick()
         compose.waitForIdle()

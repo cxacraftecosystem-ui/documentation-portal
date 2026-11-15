@@ -4,6 +4,7 @@ import { gzipSync } from "node:zlib";
 import { expect, test, type Page } from "@playwright/test";
 
 import { ME, OTHER, QuestionnaireFake } from "./support/qv2Fake";
+import { silentWav, TranscriptFake } from "./support/transcriptFake";
 
 const SHOTS = process.env.E2E_SHOT_DIR ?? "test-results/questionnaire-fr-web";
 
@@ -622,6 +623,72 @@ test("a recorded take plays in place in the Data explorer's own preview, one tak
   await expect(sheetRegion.getByTestId("preview-controls")).toBeVisible();
   await expect(sheetRegion.locator("audio")).toHaveAttribute("src", /\/api\/data\/media\/m-rec-1\/preview$/);
   await expect(page.locator("[data-take-region]")).toHaveCount(1);
+});
+
+test("the take sheet offers 0.0.5's fill from recording beside the explorer's preview: drafts with citations that seek the take, and Review in the form proposes them", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  const view = { ...new TranscriptFake().view, mediaId: "m-rec-1", status: "READY" };
+  let drafted = 0;
+  await fake.install(page);
+  await page.route(/\/api\/transcripts\/m-rec-1(\?.*)?$/, (route) =>
+    route.request().method() === "GET" ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(view) }) : route.fallback()
+  );
+  await page.route(/\/api\/transcripts\/m-rec-1\/autodraft$/, (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    drafted += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        drafted: [{ questionId: "l2", answerOriginal: "Pethapur mein mere chacha blocks banate hain.", answerEnglish: "My uncle carves them in Pethapur.", citations: [{ turnId: "turn_a", startMs: 64_000, quote: null }] }],
+        skipped: [{ questionId: "l3", reason: "LOCKED" }],
+        draftsUrl: "/questionnaire/sessions/s-1"
+      })
+    });
+  });
+  await page.route(/\/api\/data\/media\/m-rec-1\/preview(\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: "audio/wav", body: silentWav(120) }));
+  await page.goto("/questionnaire/sessions/s-1");
+  await openSection(page, "A");
+  await page.locator("[data-question='A1'] [data-question-state='SECTION_TAKE']").click();
+  const row = page.locator("[data-take-sheet] [data-take-row='rec-1']");
+  await expect(row).toBeVisible();
+  await expect(row.locator("[data-fill-from-recording]")).toHaveCount(0);
+  await row.locator("[data-take-play]").click();
+  const panel = row.locator("[data-fill-from-recording]");
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "Fill the questionnaire" })).toBeVisible();
+  await expect(row.locator("[data-take-region='clip-rec-1'] [data-testid='preview-controls']")).toBeVisible();
+  await panel.getByTestId("fill-from-recording").click();
+  await expect.poll(() => drafted).toBe(1);
+  await expect(panel.getByRole("status")).toBeVisible();
+  await expect(panel.locator("[data-draft='l2']")).toContainText("My uncle carves them in Pethapur.");
+  await expect(panel.locator("[data-skipped]")).toBeVisible();
+  await panel.locator("[data-draft='l2']").getByRole("button", { name: /00:01:04/ }).click();
+  await expect.poll(() => row.locator("[data-take-region='clip-rec-1'] audio").evaluate((audio: HTMLAudioElement) => Math.round(audio.currentTime))).toBe(64);
+  await panel.getByTestId("review-drafts").click();
+  await expect.poll(() => fake.calledWith("POST", "/questionnaire/recordings/rec-1/answer-proposals").length).toBe(1);
+  await expect(page.locator("[data-answer-box='l2'] [data-use-as-answer]")).toContainText("My uncle carves them in Pethapur.");
+});
+
+test("the take sheet leaves fill from recording out when the reader may not draft from the transcript", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  const view: Record<string, unknown> = { ...new TranscriptFake().view, mediaId: "m-rec-1", status: "READY" };
+  view.permissions = { ...(view.permissions as Record<string, boolean>), autodraft: false };
+  let read = 0;
+  await fake.install(page);
+  await page.route(/\/api\/transcripts\/m-rec-1(\?.*)?$/, (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    read += 1;
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(view) });
+  });
+  await page.goto("/questionnaire/sessions/s-1");
+  await openSection(page, "A");
+  await page.locator("[data-question='A1'] [data-question-state='SECTION_TAKE']").click();
+  const row = page.locator("[data-take-sheet] [data-take-row='rec-1']");
+  await row.locator("[data-take-play]").click();
+  await expect(row.locator("[data-take-region='clip-rec-1'] [data-testid='preview-controls']")).toBeVisible();
+  await expect.poll(() => read).toBeGreaterThan(1);
+  await expect(row.locator("[data-fill-from-recording]")).toHaveCount(0);
 });
 
 test("the read view plays each take in place with the explorer's preview and opens the take a link points at", async ({ page }) => {

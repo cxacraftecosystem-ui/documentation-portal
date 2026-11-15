@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import struct
+import subprocess
 import sys
 import uuid
 import urllib.error
@@ -130,6 +132,15 @@ def board(seed: dict, record_by: str, note: str) -> dict:
     return session
 
 
+def transcribe(seed: dict, sessions: list[dict]) -> None:
+    media = []
+    for session in sessions:
+        detail = call(seed["tokens"]["lead"], "GET", f"/questionnaire/sessions/{session['id']}")
+        media += [r["mediaFileId"] for r in detail["recordings"] if r.get("mediaFileId")]
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    subprocess.run([sys.executable, os.path.join(root, "scripts", "ci", "seed_take_transcripts.py"), *media], cwd=os.path.join(root, "backend"), check=True)
+
+
 def main(seed_path: str, out_path: str) -> None:
     with open(seed_path, encoding="utf-8") as handle:
         seed = json.load(handle)
@@ -137,6 +148,7 @@ def main(seed_path: str, out_path: str) -> None:
     by_section = board(seed, "SECTION", "CI board by section")
     by_question = board(seed, "QUESTION", "CI board by question")
     finished = board(seed, "SECTION", "CI board finished")
+    transcribe(seed, [by_section, by_question, finished])
     call(seed["tokens"]["lead"], "POST", f"/questionnaire/sessions/{finished['id']}/finish", {})
     fresh = create(seed, ["Meera Devi"], "SECTION", "CI fresh")
     grouped = create(seed, group, "SECTION", "CI group")

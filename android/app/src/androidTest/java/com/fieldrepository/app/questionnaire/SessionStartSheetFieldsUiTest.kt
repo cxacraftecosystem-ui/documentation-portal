@@ -6,7 +6,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.and
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -48,6 +50,8 @@ class SessionStartSheetFieldsUiTest {
     @Test fun theStartSheetFillsTheCapturedAtCardAndBothCraftsAndSendsThem() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val v2 = QuestionnaireV2.get(context)
+        val held = listOf("a1", "a2").associateWith { v2.knownConsent[it] }
+        listOf("a1", "a2").forEach { v2.knownConsent[it] = "GRANTED" }
         var started: String? = null
         compose.setContent {
             MaterialTheme {
@@ -74,6 +78,7 @@ class SessionStartSheetFieldsUiTest {
         compose.onNodeWithTag("q-record-by").performScrollTo()
         compose.onNodeWithText("Record by").assertExists()
         compose.onNodeWithText("Question").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Question") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Start session").performScrollTo().performClick()
         compose.waitUntil(15_000) { started != null }
         val unit = runBlocking { v2.outbox.unit(started!!) }!!
@@ -83,5 +88,6 @@ class SessionStartSheetFieldsUiTest {
         assertTrue(body.craftsByHand.orEmpty().isEmpty())
         assertEquals("QUESTION", body.recordBy)
         runBlocking { v2.outbox.forget(started!!) }
+        held.forEach { (id, state) -> if (state == null) v2.knownConsent.remove(id) else v2.knownConsent[id] = state }
     }
 }
