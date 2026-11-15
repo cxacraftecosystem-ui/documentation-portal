@@ -179,6 +179,7 @@ capture("States", "waiting for signal", async (page, width, theme) => {
   const session = await boardSession();
   await openSession(page, session);
   await page.context().setOffline(true);
+  await page.getByRole("alertdialog").getByRole("button", { name: "Continue offline" }).click();
   await page.getByRole("button", { name: S.sessionOptions }).click();
   await page.getByRole("group", { name: S.fieldRecordBy }).getByRole("button", { name: S.recordByQuestion, exact: true }).click();
   await page.keyboard.press("Escape");

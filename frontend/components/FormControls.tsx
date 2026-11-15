@@ -19,7 +19,7 @@ export function Field({
   fieldKey?: string;
 }) {
   return (
-    <label className="grid min-w-0 gap-1" data-field={fieldKey}>
+    <label className="grid min-w-0 content-start gap-1" data-field={fieldKey}>
       <span className="field-label">
         {label}
         <RequiredMark when={required} />

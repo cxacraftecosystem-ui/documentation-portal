@@ -65,7 +65,7 @@ import {
   type SessionDetail,
   type SessionReview
 } from "@/lib/questionnaire/api";
-import { durationLabel, prompts, shortDate, type P2Input, type PromptSpec } from "@/lib/questionnaire/prompts";
+import { prompts, shortDate, type P2Input, type PromptSpec } from "@/lib/questionnaire/prompts";
 import { clipUploadState, isPermanent, queuedRecordBy, sendDetails, sessionUnitKey, stepKey, type ClipStep, type SessionUnit } from "@/lib/questionnaire/queue";
 import { consentSubject, pickedFileMeta, rosterArtisans, takesFor, takeSubjects } from "@/lib/questionnaire/view";
 import { assembleTake, recorderStore, recoverable, recoveredMinutes, type TakeChunk, type TakeDraft } from "@/lib/questionnaire/recorderStore";
@@ -902,7 +902,6 @@ export function SessionWorkspace({ id }: { id: string }) {
       }
     }));
   const decisions = detail.recordings.filter((r) => !r.removedAt && r.filing === "NEEDS_DECISION");
-  const firstNames = session.participants.map((p) => shortName(p.name)).filter(Boolean);
   const awayPeople = session.participants.filter((p) => p.leftAt);
 
   const dialogs = (
@@ -1195,7 +1194,7 @@ export function SessionWorkspace({ id }: { id: string }) {
           answered={review ? review.answered : progress.answered}
           total={review ? review.total : progress.total}
           sectionsDone={progress.sectionsDone}
-          names={firstNames.join(", ")}
+          names={session.participants.map((p) => p.name.trim()).filter(Boolean).join(", ")}
           pending={pendingCount}
           decisions={decisions}
           failed={failedUploads}
@@ -1235,7 +1234,7 @@ export function SessionWorkspace({ id }: { id: string }) {
             data-question-state="QUESTION_TAKE"
           >
             <Mic className="h-4 w-4" aria-hidden />
-            {qs("questionTake", { duration: durationLabel(mark.durationMs) || "—" })}
+            {qs("questionTake", { duration: mark.durationMs ? recorderClock(mark.durationMs) : "—" })}
           </button>
         ) : null}
         {text && !typing[q.lineageId] ? (
@@ -1246,7 +1245,10 @@ export function SessionWorkspace({ id }: { id: string }) {
             onClick={() => setTyping((held) => ({ ...held, [q.lineageId]: true }))}
             data-typed-preview={q.lineageId}
           >
-            <span className="min-w-0 truncate">{qs("typedPreview", { text })}</span>
+            <span className="min-w-0 truncate">
+              <span className="font-semibold text-success-600 dark:text-green-400">{qs("stateTyped")}</span>
+              {qs("typedPreview", { text }).slice(qs("stateTyped").length)}
+            </span>
           </button>
         ) : null}
         {!mark || mark.kind === "NONE" ? (

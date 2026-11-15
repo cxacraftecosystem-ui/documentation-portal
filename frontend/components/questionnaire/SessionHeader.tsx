@@ -64,7 +64,7 @@ export function SessionHeader({
   }, []);
   const percent = total > 0 ? Math.round((answered / total) * 100) : 0;
   return (
-    <header ref={ref} className="sticky top-0 z-10 -mx-4 grid gap-3 border-b border-line-200 bg-bg-0 px-4 py-3 lg:top-17" data-session-header>
+    <header ref={ref} className="sticky top-0 z-10 -mx-4 grid gap-3 border-b border-line-200 bg-bg-0 px-4 py-3 lg:top-17 lg:before:pointer-events-none lg:before:absolute lg:before:inset-x-0 lg:before:bottom-full lg:before:h-17 lg:before:bg-bg-0 lg:before:content-['']" data-session-header>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <Link
           href="/questionnaire"

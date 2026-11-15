@@ -89,11 +89,11 @@ export function ReviewFinish({
           <span className="text-sm text-ink-700">{qs("reviewSummary", { sections: sectionsDone, names, pending })}</span>
         </div>
         <ButtonRow className="max-sm:w-full">
-          <button type="button" className="field-button-secondary min-h-12 px-6 font-semibold" onClick={onKeepGoing}>
+          <button type="button" className="field-button-secondary min-h-12 rounded-full px-6 font-semibold" onClick={onKeepGoing}>
             {qs("keepGoing")}
           </button>
           {open ? (
-            <button type="button" className="field-button min-h-12 px-7 font-semibold" onClick={onFinish} data-review-finish-button>
+            <button type="button" className="field-button min-h-12 rounded-full px-7 font-semibold" onClick={onFinish} data-review-finish-button>
               {qs("finish")}
             </button>
           ) : null}

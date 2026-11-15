@@ -157,6 +157,7 @@ test("@qf:Q1 a Record by change made offline is queued and reaches the server wh
   const session = await createSession({ recordBy: "QUESTION" });
   await openSession(page, session);
   await context.setOffline(true);
+  await page.getByRole("alertdialog").getByRole("button", { name: "Continue offline" }).click();
   const menu = await sessionMenu(page);
   await menu.getByRole("group", { name: S.fieldRecordBy }).getByRole("button", { name: S.recordBySection, exact: true }).click();
   await page.keyboard.press("Escape");

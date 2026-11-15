@@ -225,7 +225,7 @@ export function coverageLine(artisans: ArtisanCoverage[], checkedAgo?: string | 
   let line: string;
   if (artisans.length === 1) {
     const a = artisans[0];
-    line = qs("coverageOne", { name: shortName(a.name), covered: a.covered, total: a.total });
+    line = qs("coverageOne", { name: a.name.trim(), covered: a.covered, total: a.total });
   } else if (artisans.length <= 3) {
     line = `${artisans
       .map((a) =>
