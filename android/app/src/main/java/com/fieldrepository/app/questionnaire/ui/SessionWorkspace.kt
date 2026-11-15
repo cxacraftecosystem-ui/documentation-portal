@@ -348,7 +348,7 @@ fun SessionWorkspace(
         typed
     )
     val tally = instrument?.let(evidence::tally) ?: SessionTally(0, 0, 0, 0)
-    val leadOrAdmin = isAdmin || detail?.researchers.orEmpty().any { it.userId == meId && it.role == "LEAD" }
+    val leadOrAdmin = isAdmin || detail?.mayOverrideAnswers == true || detail?.researchers.orEmpty().any { it.userId == meId && it.role == "LEAD" }
     val recordBy = v2.outbox.queuedRecordBy(unit) ?: detail?.recordBy ?: v2.outbox.offlineRecordBy(unit) ?: frozen?.recordBy ?: RecordBy.SECTION.wire
     val byQuestion = recordBy == RecordBy.QUESTION.wire
     val title = detail?.title?.ifBlank { null } ?: frozen?.let { f ->

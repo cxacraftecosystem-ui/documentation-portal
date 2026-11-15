@@ -38,13 +38,13 @@ from app.schemas.records import (
     drop_masked_identity_numbers,
 )
 from app.services import aadhaar_fingerprint, email_outbox, review_reasons
-from app.services.access import record_revision
+from app.services.access import record_revision, record_workshop_id
 from app.services.records import clean_data, decimal_to_string, jsonify_metadata, merge_field_provenance
 from app.services.records import review_update
 from app.services.records import public_encode
 from app.services.review_reasons import reason_label
 from app.services.review_queue import reviewable_creator_roles
-from app.services.workshop_access import record_needs_admin_approval, stamp_workshop_submission
+from app.services.workshop_access import edit_workshop_ids, record_needs_admin_approval, stamp_workshop_submission
 
 logger = logging.getLogger(__name__)
 
@@ -319,6 +319,22 @@ def _pending_item(
     }
 
 
+async def _holds_workshop_edit(reviewer: Any, workshop_id: str | None) -> bool:
+    return bool(workshop_id) and workshop_id in await edit_workshop_ids(reviewer)
+
+
+async def _mark_editable(reviewer: Any, items: list[dict[str, Any]]) -> None:
+    editable: set[str] | None = None
+    for item in items:
+        creator = item.get("createdBy") or {}
+        item["canEdit"] = can_edit_others_record(reviewer, creator.get("role"))
+        if item["canEdit"] or not item.get("workshopId"):
+            continue
+        if editable is None:
+            editable = await edit_workshop_ids(reviewer)
+        item["canEdit"] = item["workshopId"] in editable
+
+
 @router.get("/reasons")
 async def list_review_reasons(_: Any = Depends(require_reviewer)) -> list[dict[str, Any]]:
     return review_reasons.as_payload()
@@ -381,6 +397,7 @@ async def list_pending_reviews(
             for t, row, labels in loaded
         ]
         items.sort(key=_sort_moment, reverse=filters.newest_first)
+        await _mark_editable(reviewer, items)
         return {"items": items, "total": len(items), "truncated": truncated}
 
     total = 0
@@ -404,6 +421,7 @@ async def list_pending_reviews(
     counts = await pending_media_counts([key for key, _ in ordered], reviewer)
     for item, (key, _) in zip(items, ordered, strict=True):
         item["pendingMediaCount"] = counts.get(key, 0)
+    await _mark_editable(reviewer, items)
     return {"items": items, "total": total, "page": page, "pageSize": page_size}
 
 
@@ -1004,13 +1022,15 @@ async def edit_reviewed_record(
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
     creator = get_value(record, creator_relation)
-    if not can_edit_others_record(reviewer, get_value(creator, "role") if creator else None):
+    if not can_edit_others_record(
+        reviewer, get_value(creator, "role") if creator else None
+    ) and not await _holds_workshop_edit(reviewer, record_workshop_id(record, key)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                "Editing someone else's record needs Professor access or above, and only for a "
-                "record created below your own tier. Approve, reject, or send it back for revision "
-                "with your comments instead."
+                "Editing someone else's record needs Professor access or above over a record created "
+                "below your own tier, or Edit access to its workshop. Approve, reject, or send it back "
+                "for revision with your comments instead."
             ),
         )
     if record_needs_admin_approval(record) and not is_admin(reviewer):

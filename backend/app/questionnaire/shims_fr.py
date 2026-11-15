@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.questionnaire import legacy_resolver, ports, sessions, titles
-from app.questionnaire.common import IST, aware, naive_utc, now, today_ist
+from app.questionnaire.common import IST, aware, fail, naive_utc, now, today_ist
 from app.questionnaire.errors import http_error
 from app.questionnaire.ports import get_settings
 
@@ -159,12 +159,18 @@ async def create_interview_shim(payload: Any, user: Any, questionnaire_id: str, 
     return await db.questionnaireinterview.find_unique(where={"id": created.id})
 
 
-async def responses_to_answers(session_id: str, questionnaire_id: str, responses: list[Any], user: Any) -> None:
+async def responses_to_answers(
+    session_id: str, questionnaire_id: str, responses: list[Any], user: Any, *, strict: bool = False
+) -> None:
     db = ports.db()
     from app.questionnaire import answers
     from app.questionnaire.schemas import AnswerItem, AnswersPut
 
     artisans = await sessions.participant_ids(db, session_id)
+    override = False
+    if strict:
+        session_row = await sessions.load_session_row(db, session_id)
+        override = bool(session_row) and await sessions.may_override_answers(user, session_row, client=db)
     wanted = [r for r in responses if (getattr(r, "answerText", None) or "").strip()] if artisans else []
     lineage_of: dict[str, str] = {}
     if wanted:
@@ -176,7 +182,7 @@ async def responses_to_answers(session_id: str, questionnaire_id: str, responses
     currents: dict[tuple[str, str], dict[str, Any]] = {}
     if lineage_of:
         for row in await db.query_raw(
-            'SELECT a."artisanId", a."questionLineageId", a."version", rv."sessionId", rv."actorId" FROM "QuestionnaireAnswer" a '
+            'SELECT a."artisanId", a."questionLineageId", a."version", rv."sessionId", rv."actorId", rv."text" FROM "QuestionnaireAnswer" a '
             'LEFT JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
             'WHERE a."artisanId" = ANY($1::text[]) AND a."questionLineageId" = ANY($2::text[])',
             list(artisans), sorted(set(lineage_of.values())),
@@ -192,18 +198,22 @@ async def responses_to_answers(session_id: str, questionnaire_id: str, responses
             continue
         for artisan_id in artisans:
             current = currents.get((str(artisan_id), lineage_id))
+            if current and (current.get("text") or "").strip() == text:
+                continue
             own = bool(current) and str(current.get("sessionId")) == session_id and str(current.get("actorId")) == str(user.id)
             items.append(AnswerItem(
                 artisanId=artisan_id, questionLineageId=lineage_id, text=text,
                 origin="TRANSCRIPT" if getattr(response, "answerSource", None) == "TRANSCRIPT" else "TYPED",
                 attribution="GROUP_SHARED" if len(artisans) > 1 else "INDIVIDUAL", sessionId=session_id,
-                baseVersion=int(current["version"]) if own else None,
+                baseVersion=int(current["version"]) if current and (own or override) else None,
             ))
     if items:
         result = await answers.put_answers(AnswersPut(items=items), user)
         refused = [r for r in result["results"] if r["status"] in ("CONFLICT", "FORBIDDEN")]
         if refused:
             logger.info("old-build answers: %d of %d items not written (%s)", len(refused), len(items), session_id)
+            if strict:
+                fail("FORBIDDEN", refused_answers_message(refused), refused=len(refused))
 
 
 async def patch_interview_shim(interview: Any, payload: Any, user: Any) -> dict[str, Any]:
@@ -233,8 +243,13 @@ async def patch_interview_shim(interview: Any, payload: Any, user: Any) -> dict[
         if kept:
             logger.info("old-build edit kept %d participant(s) with takes on %s", len(kept), session_id)
     if payload.responses:
-        await responses_to_answers(session_id, questionnaire_id, payload.responses, user)
+        await responses_to_answers(session_id, questionnaire_id, payload.responses, user, strict=True)
     return changes
+
+
+def refused_answers_message(refused: list[dict[str, Any]]) -> str:
+    noun = "answer was" if len(refused) == 1 else "answers were"
+    return f"{len(refused)} {noun} not saved. Someone else answered first. Reload to see their answer."
 
 
 def legacy_title_change(data: dict[str, Any]) -> dict[str, Any]:

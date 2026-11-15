@@ -67,6 +67,10 @@ class RequestGate(
             else -> return@Interceptor guarded(origin) { chain.proceed(request) }
         }
         val key = "${identity()?.hashCode() ?: 0}|${request.url}"
+        if (request.cacheControl.noCache) {
+            cache.remove(key)
+            return@Interceptor guarded(origin) { chain.proceed(request) }
+        }
         cache[key]?.let { hit ->
             if (now() - hit.at < hit.ttl) return@Interceptor hit.toResponse(request)
             cache.remove(key, hit)

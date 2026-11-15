@@ -201,10 +201,17 @@ async def create_craft(payload: CraftCreate, current_user: Any = Depends(require
 
 
 @router.get("/{craft_id}")
-async def get_craft(craft_id: str, _: Any = Depends(get_current_user)) -> dict[str, Any]:
+async def get_craft(craft_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from app.core.deps import can_manage_crafts
+    from app.services.access import record_edit_access
+
     craft = await require_record(db.craft, craft_id)
     await hydrate_relations([craft], RELATIONS)
-    return await _with_taxonomy(public_encode(craft))
+    payload = await _with_taxonomy(public_encode(craft))
+    payload["editAccess"] = (
+        await record_edit_access(craft, current_user, "craft") if can_manage_crafts(current_user) else "NONE"
+    )
+    return payload
 
 
 @router.patch("/{craft_id}")

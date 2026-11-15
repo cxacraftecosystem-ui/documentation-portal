@@ -163,7 +163,8 @@ data class CraftDto(
     val createdById: String? = null,
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
-    val extraMetadata: JsonObject? = null
+    val extraMetadata: JsonObject? = null,
+    val editAccess: String? = null
 )
 
 @Serializable
@@ -928,7 +929,8 @@ data class ArtisanDetailDto(
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
     val extraMetadata: JsonObject? = null,
-    val completeness: CompletenessDto? = null
+    val completeness: CompletenessDto? = null,
+    val editAccess: String? = null
 )
 
 @Serializable
@@ -980,7 +982,8 @@ data class ProductDetailDto(
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
     val extraMetadata: JsonObject? = null,
-    val completeness: CompletenessDto? = null
+    val completeness: CompletenessDto? = null,
+    val editAccess: String? = null
 )
 
 @Serializable
@@ -1033,7 +1036,8 @@ data class ToolDetailDto(
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
     val extraMetadata: JsonObject? = null,
-    val completeness: CompletenessDto? = null
+    val completeness: CompletenessDto? = null,
+    val editAccess: String? = null
 )
 
 @Serializable
@@ -1070,7 +1074,8 @@ data class WorkshopDetailDto(
     val questionnaireId: String? = null,
     val questionnaire: QuestionnaireDto? = null,
     val extraMetadata: JsonObject? = null,
-    val completeness: CompletenessDto? = null
+    val completeness: CompletenessDto? = null,
+    val editAccess: String? = null
 )
 
 @Serializable
@@ -1189,7 +1194,8 @@ data class ProcessDetailDto(
     val createdById: String? = null,
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
-    val extraMetadata: JsonObject? = null
+    val extraMetadata: JsonObject? = null,
+    val editAccess: String? = null
 )
 
 @Serializable
@@ -1506,7 +1512,9 @@ data class WorkshopSubmissionCheckDto(
     val outOfWindow: Boolean = false,
     val needsAdminApproval: Boolean = false,
     val assigned: Boolean = true,
-    val canSubmit: Boolean = true
+    val canSubmit: Boolean = true,
+    val accessLevel: String? = null,
+    val requestStatus: String? = null
 )
 
 @Serializable

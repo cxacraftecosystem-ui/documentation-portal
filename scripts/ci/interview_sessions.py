@@ -5,10 +5,11 @@ import json
 import math
 import struct
 import sys
-import uuid
 import urllib.error
 import urllib.request
-from datetime import UTC, date, datetime
+import uuid
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 API = "http://127.0.0.1:8000/api"
 
@@ -56,7 +57,7 @@ def create(seed: dict, artisans: list[str], record_by: str, note: str) -> dict:
         "questionnaireId": seed["questionnaireId"],
         "workshopId": seed["workshopId"] if seed["workshopField"] == "workshopId" else None,
         "designWorkshopId": seed["workshopId"] if seed["workshopField"] == "designWorkshopId" else None,
-        "sessionDate": date.today().isoformat(),
+        "sessionDate": datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat(),
         "startedAt": datetime.now(UTC).isoformat(),
         "purpose": "FIRST_SITTING",
         "place": seed["place"],

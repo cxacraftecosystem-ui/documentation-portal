@@ -40,10 +40,10 @@ from app.services import credential_links
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-async def may_edit_lower_ranked_record(user: Any, creator_id: str | None) -> bool:
+async def may_edit_lower_ranked_record(user: Any, creator_id: str | None, *, client: Any = None) -> bool:
     if not creator_id or not has_rank(user, "PROFESSOR"):
         return False
-    creator = await db.user.find_unique(where={"id": creator_id})
+    creator = await (client or db).user.find_unique(where={"id": creator_id})
     return can_edit_others_record(user, get_value(creator, "role") if creator else None)
 
 
@@ -374,31 +374,44 @@ async def require_workshop_manager(current_user: Any = Depends(get_current_user)
     return current_user
 
 
-def assert_can_contribute_fields(record: Any, user: Any, data: dict[str, Any], owner_field: str = "createdById") -> None:
+def assert_can_contribute_fields(
+    record: Any,
+    user: Any,
+    data: dict[str, Any],
+    owner_field: str = "createdById",
+    *,
+    unchanged: Any = (),
+) -> None:
     if is_content_admin(user) or get_value(record, owner_field) == get_value(user, "id"):
         return
+    from app.services.record_changes import locked_fields, locked_fields_sentence
 
-    locked_fields = [
-        field
-        for field, next_value in data.items()
-        if not is_empty_value(get_value(record, field))
-        and (is_empty_value(next_value) or not values_match(get_value(record, field), next_value))
-    ]
-    if locked_fields:
+    locked = locked_fields(record, data, unchanged=unchanged)
+    if locked:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Only the original contributor or an admin can change or clear populated {'field' if len(locked_fields) == 1 else 'fields'}: {', '.join(sorted(locked_fields))}",
+            detail=locked_fields_sentence(locked),
         )
 
 
 def assert_can_contribute_relation(record: Any, user: Any, populated: bool, field_name: str, owner_field: str = "createdById") -> None:
     if is_content_admin(user) or get_value(record, owner_field) == get_value(user, "id"):
         return
+    from app.services.record_changes import field_words
+
     if populated:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Only the original contributor or an admin can change populated relation: {field_name}",
+            detail=(
+                "Only the person who recorded this, an admin, or someone with Edit access to its "
+                f"workshop can change these filled-in links: {field_words(field_name)}."
+            ),
         )
+
+
+def removes_links(stored: Any, wanted: Any) -> bool:
+    kept = {str(value) for value in (wanted or []) if value}
+    return any(str(value) not in kept for value in (stored or []) if value)
 
 
 def assert_owner_or_admin(record: Any, user: Any, owner_field: str = "createdById") -> None:

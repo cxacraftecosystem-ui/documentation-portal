@@ -27,10 +27,10 @@ def tier_at_least(tier: str | None, minimum: str) -> bool:
     return TIER_ORDER.get(tier, 0) >= TIER_ORDER.get(minimum, 99)
 
 
-async def active_grant(grantee_id: str, owner_id: str) -> Any:
+async def active_grant(grantee_id: str, owner_id: str, *, client: Any = None) -> Any:
     if not grantee_id or not owner_id:
         return None
-    return await db.dataaccessgrant.find_unique(
+    return await (client or db).dataaccessgrant.find_unique(
         where={"ownerId_granteeId": {"ownerId": owner_id, "granteeId": grantee_id}},
         include={"scopeItems": True},
     )
@@ -46,7 +46,7 @@ def _grant_covers(grant: Any, record_type: str, record_id: str) -> bool:
 
 
 async def effective_tier_for_record(
-    user: Any, owner_id: str | None, record_type: str, record_id: str | None
+    user: Any, owner_id: str | None, record_type: str, record_id: str | None, *, client: Any = None
 ) -> str | None:
     from app.core.roles import get_value, is_content_admin
 
@@ -55,7 +55,7 @@ async def effective_tier_for_record(
     uid = get_value(user, "id")
     if owner_id and uid == owner_id:
         return "EDIT"
-    grant = await active_grant(uid, owner_id) if owner_id else None
+    grant = (await active_grant(uid, owner_id, client=client) if client is not None else await active_grant(uid, owner_id)) if owner_id else None
     if not grant or _enum_str(grant.status) != "GRANTED":
         return None
     if record_id is not None and not _grant_covers(grant, record_type, record_id):
@@ -109,16 +109,62 @@ async def record_revision(record: Any, user: Any, data: dict[str, Any], record_t
     )
 
 
-async def record_edit_privilege(record: Any, user: Any, record_type: str) -> bool:
-    from app.core.deps import get_value, is_content_admin, may_edit_lower_ranked_record
+def record_workshop_id(record: Any, record_type: str) -> str | None:
+    from app.core.deps import get_value
 
+    if record_type.lower() == "workshop":
+        return get_value(record, "id")
+    return get_value(record, "workshopId")
+
+
+async def record_edit_privilege(record: Any, user: Any, record_type: str, *, client: Any = None) -> bool:
+    from app.core.deps import get_value, is_content_admin, may_edit_lower_ranked_record
+    from app.services import workshop_access
+
+    via = {"client": client} if client is not None else {}
     owner_id = get_value(record, "createdById")
     uid = get_value(user, "id")
     if is_content_admin(user) or (owner_id is not None and uid == owner_id):
         return True
-    if await may_edit_lower_ranked_record(user, owner_id):
+    if await may_edit_lower_ranked_record(user, owner_id, **via):
         return True
-    return await effective_tier_for_record(user, owner_id, record_type, get_value(record, "id")) == "EDIT"
+    if await effective_tier_for_record(user, owner_id, record_type, get_value(record, "id"), **via) == "EDIT":
+        return True
+    return await workshop_access.workshop_edit_privilege(user, record_workshop_id(record, record_type), **via)
+
+
+async def may_change_others_answers(record: Any, user: Any, record_type: str, *, client: Any = None) -> bool:
+    from app.core.deps import get_value, is_content_admin
+    from app.services import workshop_access
+
+    via = {"client": client} if client is not None else {}
+    if is_content_admin(user):
+        return True
+    owner_id = get_value(record, "createdById")
+    if owner_id and get_value(user, "id") != owner_id:
+        tier = await effective_tier_for_record(user, owner_id, record_type, get_value(record, "id"), **via)
+        if tier == "EDIT":
+            return True
+    return await workshop_access.workshop_edit_privilege(user, record_workshop_id(record, record_type), **via)
+
+
+async def record_edit_access(record: Any, user: Any, record_type: str) -> str:
+    from app.services import workshop_access
+
+    if await record_edit_privilege(record, user, record_type):
+        return "FULL"
+    workshop_id = record_workshop_id(record, record_type)
+    if workshop_id and not (
+        await workshop_access.resolve_workshop_access(user, workshop_id)
+    ).at_least("CONTRIBUTE"):
+        return "NONE"
+    return "FILL_EMPTY"
+
+
+async def with_edit_access(payload: Any, record: Any, user: Any, record_type: str) -> Any:
+    if isinstance(payload, dict):
+        payload["editAccess"] = await record_edit_access(record, user, record_type)
+    return payload
 
 
 async def guard_record_edit(
@@ -130,11 +176,17 @@ async def guard_record_edit(
     privileged: bool | None = None,
 ) -> bool:
     from app.core.deps import assert_can_contribute_fields
+    from app.services import workshop_access
+    from app.services.record_changes import settle_location
 
     if privileged is None:
         privileged = await record_edit_privilege(record, user, record_type)
     if not privileged:
-        assert_can_contribute_fields(record, user, data)
+        await workshop_access.assert_workshop_access(
+            user, record_workshop_id(record, record_type), "CONTRIBUTE"
+        )
+        unchanged = await settle_location(record, data)
+        assert_can_contribute_fields(record, user, data, unchanged=unchanged)
     await record_revision(record, user, data, record_type)
     return privileged
 

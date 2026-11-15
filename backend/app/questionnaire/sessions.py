@@ -88,7 +88,24 @@ async def can_work_in(client: Any, user: Any, session: dict[str, Any]) -> bool:
         return True
     if str(session.get("createdById")) == str(user.id):
         return True
-    return str(user.id) in await researcher_ids(client, str(session["id"]))
+    if str(user.id) in await researcher_ids(client, str(session["id"])):
+        return True
+    return bool(await ports.access.record_edit_privilege(session, user, "questionnaire", client=client))
+
+
+async def may_override_answers(user: Any, session: dict[str, Any], *, client: Any = None) -> bool:
+    via = {"client": client} if client is not None else {}
+    return bool(await ports.access.may_change_others_answers(session, user, "questionnaire", **via))
+
+
+async def can_add_answers_in(client: Any, user: Any, session: dict[str, Any]) -> bool:
+    if await can_work_in(client, user, session):
+        return True
+    workshop_id = session.get("workshopId")
+    if not workshop_id:
+        return False
+    access = await ports.workshop_access.resolve_workshop_access(user, str(workshop_id), client=client)
+    return bool(access.at_least("CONTRIBUTE"))
 
 
 async def assert_can_work_in(client: Any, user: Any, session: dict[str, Any]) -> None:
@@ -304,6 +321,10 @@ async def session_payload(client: Any, session_id: str, viewer: Any = None) -> d
     row = await require_session(client, session_id)
     out = (await serialize_sessions(client, [row], viewer, with_progress=True))[0]
     out["respondents"] = await respondents.list_for(client, session_id)
+    leads = {str(r["userId"]) for r in out.get("researchers") or [] if r.get("role") == "LEAD"}
+    out["mayOverrideAnswers"] = bool(viewer) and (
+        str(getattr(viewer, "id", "")) in leads or await may_override_answers(viewer, row, client=client)
+    )
     return out
 
 

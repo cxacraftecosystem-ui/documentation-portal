@@ -6,6 +6,7 @@ import { uploadMediaBatch } from "@/lib/media";
 import { setSpokenLanguages, spokenLanguagesOf, transcribeFlags } from "@/lib/transcript/uploadChoice";
 import { writeBody } from "@/lib/writeBody";
 import { countNoun } from "@/lib/format";
+import { editedFields } from "@/lib/recordDiff";
 
 const DB_NAME = "field-repo-outbox";
 const DB_VERSION = 1;
@@ -459,14 +460,17 @@ export async function saveOrQueue<T extends { id: string }>({
   endpoint,
   method,
   body,
-  media
+  media,
+  base
 }: {
   label: string;
   endpoint: string;
   method: "POST" | "PATCH";
   body: unknown;
   media?: OutboxMediaBatch[];
+  base?: object | null;
 }): Promise<SaveOutcome<T>> {
+  if (method === "PATCH" && base && body && typeof body === "object") body = editedFields(body as Record<string, unknown>, base);
   const payload = JSON.stringify(bodyWithClientKey(endpoint, method, writeBody(body, method)));
   const queue = async () => {
     await queueOffline({ label, endpoint, method, body: payload, media: (media ?? []).filter((batch) => batch.files.length) });

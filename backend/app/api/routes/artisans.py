@@ -15,7 +15,7 @@ from app.core.deps import (
 )
 from app.schemas.records import ArtisanCreate, ArtisanUpdate, drop_masked_identity_numbers
 from app.services import craft_master
-from app.services.access import guard_record_edit
+from app.services.access import guard_record_edit, with_edit_access
 from app.services.artisan_merge import created_merged_record, survivor_of
 from app.services.artisan_form_contract import assert_form_contract, take_form_contract
 from app.services import aadhaar_fingerprint, artisan_card, artisan_card_store, artisan_duplicates, identity_probe
@@ -433,7 +433,12 @@ async def get_artisan(artisan_id: str, current_user: Any = Depends(get_current_u
     artisan_id = await survivor_of(artisan_id) or artisan_id
     artisan = await require_record(db.artisan, artisan_id)
     await hydrate_relations([artisan], RELATIONS)
-    return await completeness_module.attach("artisan", public_encode(artisan, current_user), client=db)
+    return await with_edit_access(
+        await completeness_module.attach("artisan", public_encode(artisan, current_user), client=db),
+        artisan,
+        current_user,
+        "artisan",
+    )
 
 
 @router.patch("/{artisan_id}")

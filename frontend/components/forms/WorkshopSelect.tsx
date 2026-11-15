@@ -7,6 +7,7 @@ import { Field } from "@/components/FormControls";
 import { LateSubmissionDialog } from "@/components/LateSubmissionDialog";
 import { ComboBox } from "@/components/ui/Dropdown";
 import { apiFetch } from "@/lib/api";
+import { submissionRefusal } from "@/lib/recordDiff";
 import type { Workshop, WorkshopSubmissionCheck } from "@/lib/types";
 import { loadWorkshopList } from "@/lib/workshopList";
 import { hasTypedTitle, workshopDisplayTitle } from "@/lib/workshopTitle";
@@ -130,6 +131,7 @@ export type WorkshopSelection = {
   check: WorkshopSubmissionCheck | null;
   setWorkshopId: (workshopId: string) => void;
   confirmSubmission: () => Promise<boolean>;
+  recheck: () => Promise<WorkshopSubmissionCheck | null>;
   dialog: { open: boolean; check: WorkshopSubmissionCheck | null; confirm: () => void; cancel: () => void };
 };
 
@@ -179,9 +181,9 @@ export function useWorkshopSelection({
     setWorkshopIdState(initialWorkshopId ?? "");
   }, [resetKey, initialWorkshopId]);
 
-  const fetchCheck = useCallback(async (id: string): Promise<WorkshopSubmissionCheck | null> => {
+  const fetchCheck = useCallback(async (id: string, fresh = false): Promise<WorkshopSubmissionCheck | null> => {
     if (!id) return null;
-    const cached = checkCache.current.get(id);
+    const cached = fresh ? undefined : checkCache.current.get(id);
     if (cached) return cached;
     try {
       const result = await apiFetch<WorkshopSubmissionCheck>(`/workshops/${id}/submission-check`);
@@ -230,11 +232,39 @@ export function useWorkshopSelection({
     };
   }, [workshopId, fetchCheck]);
 
+  const workshopIdRef = useRef(workshopId);
+  useEffect(() => {
+    workshopIdRef.current = workshopId;
+  }, [workshopId]);
+
+  const recheck = useCallback(async (): Promise<WorkshopSubmissionCheck | null> => {
+    checkCache.current.clear();
+    const id = workshopIdRef.current;
+    if (!id) return null;
+    const result = await fetchCheck(id, true);
+    if (workshopIdRef.current === id) setCheck(result);
+    return result;
+  }, [fetchCheck]);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") void recheck();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [recheck]);
+
   const setWorkshopId = useCallback((next: string) => {
     touchedRef.current = true;
     setTouched(true);
+    if (next) checkCache.current.delete(next);
+    if (next && next === workshopIdRef.current) void recheck();
     setWorkshopIdState(next);
-  }, []);
+  }, [recheck]);
 
   const settleDialog = useCallback((confirmed: boolean) => {
     setDialogOpen(false);
@@ -245,7 +275,8 @@ export function useWorkshopSelection({
 
   const confirmSubmission = useCallback(async (): Promise<boolean> => {
     if (!workshopId) return true;
-    const result = await fetchCheck(workshopId);
+    const result = await fetchCheck(workshopId, true);
+    setCheck(result);
     if (!result || (!result.outOfWindow && !result.isOver)) return true;
     setDialogCheck(result);
     setDialogOpen(true);
@@ -266,6 +297,7 @@ export function useWorkshopSelection({
     check,
     setWorkshopId,
     confirmSubmission,
+    recheck,
     dialog: {
       open: dialogOpen,
       check: dialogCheck,
@@ -320,8 +352,8 @@ export function WorkshopSelect({
         />
       </Field>
       {blocked ? (
-        <p className="text-xs font-medium text-error-600">
-          You’re not assigned to this workshop. Ask an admin, or pick another.
+        <p className="text-xs font-medium text-error-600" data-testid="workshop-refusal">
+          {submissionRefusal(check)}
         </p>
       ) : null}
       {notice && !blocked ? <p className="text-xs font-medium text-amber-800 dark:text-amber-200">{notice}</p> : null}

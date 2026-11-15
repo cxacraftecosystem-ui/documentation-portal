@@ -8,6 +8,7 @@ from app.services.artisan_merge import created_merged_record, merged_redirects, 
 from app.core.deps import (
     require_record_creator,
     assert_can_contribute_relation,
+    removes_links,
     assert_can_delete,
     get_current_user,
 )
@@ -18,7 +19,7 @@ from app.schemas.records import (
     ToolUpdate,
 )
 from app.services import craft_master
-from app.services.access import guard_record_edit, record_edit_privilege
+from app.services.access import guard_record_edit, record_edit_privilege, with_edit_access
 from app.services.concurrency import gather_reads
 from app.services.standard_values import StandardValueError, apply_tool_values, retired_tradition_codes
 from app.services.workshop_access import (
@@ -114,10 +115,11 @@ def _pop_link_ids(data: dict[str, Any], key: str) -> list[str] | None:
 class _LinkSet(NamedTuple):
     stored_is_populated: bool = False
     changed: bool = False
+    removes: bool = False
 
     @property
     def replaces_populated(self) -> bool:
-        return self.changed and self.stored_is_populated
+        return self.changed and self.removes
 
 
 class _ToolLinks(NamedTuple):
@@ -153,10 +155,12 @@ async def _resolve_tool_links(
         crafts=_LinkSet(
             stored_is_populated=bool(stored_crafts),
             changed=craft_ids is not None and set(craft_ids) != stored_crafts,
+            removes=craft_ids is not None and removes_links(stored_crafts, craft_ids),
         ),
         artisans=_LinkSet(
             stored_is_populated=bool(stored_artisans),
             changed=artisan_ids is not None and set(artisan_ids) != stored_artisans,
+            removes=artisan_ids is not None and removes_links(stored_artisans, artisan_ids),
         ),
     )
 
@@ -425,7 +429,12 @@ async def create_tool(
 async def get_tool(tool_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     tool = await require_record(db.tooldocumentation, tool_id)
     await hydrate_relations([tool], RELATIONS)
-    return await completeness_module.attach("tool", _tool_payload(tool), client=db)
+    return await with_edit_access(
+        await completeness_module.attach("tool", _tool_payload(tool), client=db),
+        tool,
+        current_user,
+        "tool",
+    )
 
 
 @router.patch("/{tool_id}")

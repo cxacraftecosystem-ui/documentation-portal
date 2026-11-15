@@ -15,6 +15,7 @@ _MODULES = {
     "records": "app.services.records",
     "answer_drafts": "app.services.answer_drafts",
     "codes": "app.services.cross_portal_codes",
+    "access": "app.services.access",
 }
 
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -39,7 +39,7 @@ import { RichTextField } from "@/components/richtext/RichTextField";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { statusLabel } from "@/components/StatusBadge";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 import {
   locationFromForm,
   recordedAtFromForm,
@@ -50,12 +50,16 @@ import {
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
+import { FILL_EMPTY_NOTE, FILLED_FIELD_REASON, fillsOnly, isBlankValue, KEPT_AFTER_REFUSAL, lockFilledFields, VIEW_ONLY_NOTE, viewOnly } from "@/lib/recordDiff";
 import { productBody } from "@/lib/recordPayloads";
 import { canManageCrafts, hasRank } from "@/lib/permissions";
 import type { Artisan, ProductDocumentation, RecordStatus } from "@/lib/types";
 import { marketDemandOptions, productTypes } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { countNoun } from "@/lib/format";
+
+
+const FILLED_PRODUCT_FIELDS = ["place", "artisanName", "productName", "localName", "productType", "timeTakenToCompleteProduct", "size", "costOfMaking", "sellingPrice", "marketDemand"] as const;
 
 export function artisanPickerLabel(artisan: Artisan) {
   return [artisan.name?.trim() || "Unnamed artisan", artisan.craft?.name?.trim(), artisan.place?.trim()]
@@ -115,6 +119,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
   useFocusField();
   const completenessCounts = useMemo(() => ({ photos: photosPicked(mediaFiles) }), [mediaFiles]);
   const [error, setError] = useState<string | null>(null);
+  const [keptAfterRefusal, setKeptAfterRefusal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
   const [craftId, setCraftId] = useState(initial?.craftId ?? searchParams.get("craftId") ?? "");
@@ -128,6 +133,9 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
   const artisanSearch = useServerSearchList<Artisan>("/artisans", "artisans");
   const [savedProduct, setSavedProduct] = useState<ProductDocumentation | null>(null);
   const [formKey, setFormKey] = useState(0);
+  useEffect(() => {
+    return lockFilledFields(formRef.current, initial, FILLED_PRODUCT_FIELDS, FILLED_FIELD_REASON);
+  }, [initial, formKey]);
   const [retry, setRetry] = useState<{ files: File[]; upload: (files: File[]) => Promise<{ failed: Array<{ name: string; error?: string }> }> } | null>(null);
   const [productName, setProductName] = useState(initial?.productName ?? "");
   const [localName, setLocalName] = useState(initial?.localName ?? "");
@@ -300,6 +308,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
     setMeasurePhoto(null);
     setRestored({});
     setError(null);
+    setKeptAfterRefusal(false);
     resetDirty();
     setFormKey((key) => key + 1);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -332,11 +341,12 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
     if (!(await workshop.confirmSubmission())) return;
     setSaving(true);
     setError(null);
+    setKeptAfterRefusal(false);
     try {
       const exifItems = await collectExifMetadata(
         [...Object.values(gridFiles), measurePhoto?.file, ...mediaFiles].filter(Boolean) as File[]
       );
-      const exifRemark = exifMetadataToRemark(exifItems);
+      const exifRemark = fillsOnly(initial) && !isBlankValue(initial?.remarks) ? "" : exifMetadataToRemark(exifItems);
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
       const location = locationFromForm(form);
@@ -361,6 +371,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         endpoint: initial ? `/products/${initial.id}` : "/products",
         method: initial ? "PATCH" : "POST",
         body: payload,
+        base: initial ?? null,
         media: [
           ...(Object.entries(gridFiles) as [GridGroup, File][]).map(([group, file]) => ({
             files: [file],
@@ -475,6 +486,8 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
       finishSave(saved, addAnother);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save product record");
+      setKeptAfterRefusal(true);
+      if (err instanceof ApiError && err.status === 403) void workshop.recheck();
     } finally {
       setSaving(false);
       setUploadProgress(null);
@@ -528,7 +541,12 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         onKeyDown={handleFormEnter}
         className="panel grid gap-4 p-4"
       >
-        {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        {error && !keptAfterRefusal ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        {viewOnly(initial) ? (
+          <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700">{VIEW_ONLY_NOTE}</p>
+        ) : fillsOnly(initial) ? (
+          <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700">{FILL_EMPTY_NOTE}</p>
+        ) : null}
         <DraftOfferCard draft={draft} />
         <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
         <LiveCompleteness kind="product" formRef={formRef} stored={initial} counts={completenessCounts} />
@@ -868,6 +886,12 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           onDirty={markDirty}
           prefillFrom={initial || offRecord ? null : artisanStatedSource(pickedArtisan)}
         />
+        {error && keptAfterRefusal ? (
+          <div role="alert" data-testid="save-refusal" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p>{error}</p>
+            <p className="mt-1 text-xs">{KEPT_AFTER_REFUSAL}</p>
+          </div>
+        ) : null}
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}
         <ButtonRow align="end">
           <button type="button" className="field-button-secondary" onClick={handleBack}>

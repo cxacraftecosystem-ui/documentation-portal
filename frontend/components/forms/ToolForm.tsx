@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -41,7 +41,7 @@ import { MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { statusLabel } from "@/components/StatusBadge";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 import {
   locationFromForm,
   recordedAtFromForm,
@@ -53,6 +53,7 @@ import {
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
+import { FILL_EMPTY_NOTE, FILLED_FIELD_REASON, fillsOnly, isBlankValue, KEPT_AFTER_REFUSAL, lockFilledFields, VIEW_ONLY_NOTE, viewOnly } from "@/lib/recordDiff";
 import { toolBody } from "@/lib/recordPayloads";
 import { canManageCrafts, hasRank } from "@/lib/permissions";
 import type { Artisan, RecordStatus, ToolDocumentation } from "@/lib/types";
@@ -140,6 +141,9 @@ function StatusField({
 type ToolRetry = { files: File[]; upload: (files: File[]) => Promise<{ failed: FailedUpload[] }> };
 
 const TOOL_DRAFT_FORM_FIELDS = ["yearsInUse", "thickness", "weight", "radius", "maker", "traditionType", "materialFamily", "replacementCost", "suggestionsForToolImprovement", "remarks"];
+
+
+const FILLED_TOOL_FIELDS = ["place", "artisanName", "toolkitName", "localName", "englishName", "processUsedIn", "material", "materialFamily", "yearsInUse", "thickness", "weight", "radius", "maker", "traditionType", "replacementCost"] as const;
 
 export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
   const router = useRouter();
@@ -232,6 +236,14 @@ function ToolFormBody({
   const formRef = useRef<HTMLFormElement>(null);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [keptAfterRefusal, setKeptAfterRefusal] = useState(false);
+  const attachForm = useCallback(
+    (node: HTMLFormElement | null) => {
+      formRef.current = node;
+      return lockFilledFields(node, initial, FILLED_TOOL_FIELDS, FILLED_FIELD_REASON);
+    },
+    [initial]
+  );
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
   const [craftIds, setCraftIds] = useState<string[]>(() => {
@@ -471,11 +483,12 @@ function ToolFormBody({
     if (!(await workshop.confirmSubmission())) return;
     setSaving(true);
     setError(null);
+    setKeptAfterRefusal(false);
     try {
       const exifItems = await collectExifMetadata(
         [...Object.values(gridFiles), measurePhoto?.file, ...stageFiles, ...mediaFiles].filter(Boolean) as File[]
       );
-      const exifRemark = exifMetadataToRemark(exifItems);
+      const exifRemark = fillsOnly(initial) && !isBlankValue(initial?.remarks) ? "" : exifMetadataToRemark(exifItems);
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
       const location = locationFromForm(form);
@@ -504,6 +517,7 @@ function ToolFormBody({
         endpoint: initial ? `/tools/${initial.id}` : "/tools",
         method: initial ? "PATCH" : "POST",
         body: payload,
+        base: initial ?? null,
         media: [
           ...(Object.entries(gridFiles) as [GridGroup, File][]).map(([group, file]) => ({
             files: [file],
@@ -643,6 +657,8 @@ function ToolFormBody({
       onSaved(saved, null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save tool record");
+      setKeptAfterRefusal(true);
+      if (err instanceof ApiError && err.status === 403) void workshop.recheck();
     } finally {
       setSaving(false);
       setUploadProgress(null);
@@ -653,7 +669,7 @@ function ToolFormBody({
     <>
       <form
         key={formKey}
-        ref={formRef}
+        ref={attachForm}
         onSubmit={submit}
         onInput={() => {
           markDirty();
@@ -662,7 +678,12 @@ function ToolFormBody({
         onKeyDown={handleFormEnter}
         className="panel grid gap-4 p-4"
       >
-        {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        {error && !keptAfterRefusal ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        {viewOnly(initial) ? (
+          <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700">{VIEW_ONLY_NOTE}</p>
+        ) : fillsOnly(initial) ? (
+          <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700">{FILL_EMPTY_NOTE}</p>
+        ) : null}
         <DraftOfferCard draft={draft} />
         <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
         <LiveCompleteness kind="tool" formRef={formRef} stored={initial} values={completenessValues} counts={completenessCounts} />
@@ -1028,6 +1049,12 @@ function ToolFormBody({
           onDirty={markDirty}
           prefillFrom={initial ? null : artisanStatedSource(artisans.find((artisan) => artisan.id === artisanIds[0]))}
         />
+        {error && keptAfterRefusal ? (
+          <div role="alert" data-testid="save-refusal" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p>{error}</p>
+            <p className="mt-1 text-xs">{KEPT_AFTER_REFUSAL}</p>
+          </div>
+        ) : null}
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}
         <ButtonRow align="end">
           <button type="button" className="field-button-secondary" onClick={handleBack}>

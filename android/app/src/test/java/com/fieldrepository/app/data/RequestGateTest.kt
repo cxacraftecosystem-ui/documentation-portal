@@ -81,6 +81,22 @@ class RequestGateTest {
     }
 
     @Test
+    fun aRecheckOfTheSubmissionCheckNeverReusesTheCachedAnswer() {
+        val gate = RequestGate(now = { clock.get() })
+        val client = client(gate)
+        client.get("/workshops/w1/submission-check")
+        client.get("/workshops/w1/submission-check")
+        assertEquals(1, wireCount("/workshops/w1/submission-check"))
+        client.newCall(
+            Request.Builder().url("https://api.test/api/workshops/w1/submission-check")
+                .header("Cache-Control", "no-cache").build()
+        ).execute().close()
+        assertEquals(2, wireCount("/workshops/w1/submission-check"))
+        client.get("/workshops/w1/submission-check")
+        assertEquals(3, wireCount("/workshops/w1/submission-check"))
+    }
+
+    @Test
     fun theArtisanEditFormLoadsEachRecordOnce() {
         val gate = RequestGate(now = { clock.get() })
         val client = client(gate)

@@ -508,7 +508,7 @@ export function SessionWorkspace({ id }: { id: string }) {
   ]);
   const subjects = sessionSubjects(session);
   const me = user?.id ?? null;
-  const mayOverride = Boolean(user && (canDeleteRecords || session.researchers.some((r) => r.userId === user.id && r.role === "LEAD")));
+  const mayOverride = Boolean(user && (canDeleteRecords || session.mayOverrideAnswers || session.researchers.some((r) => r.userId === user.id && r.role === "LEAD")));
   const unanswered = requiredUnanswered(questions, detail.answers.map((a) => ({ ...a, text: a.text ?? "" })), subjects.map((s) => s.key), detail.recordings);
   const soloArtisan = session.participants.length === 1 ? session.participants[0].artisanId : null;
   const sectionOf = (lineageId: string) => shownGrid.sections.find((s) => s.questions?.some((q) => q.lineageId === lineageId))?.id ?? null;

@@ -66,6 +66,7 @@ import {
   type BatchProgress
 } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
+import { changedResponses } from "@/lib/recordDiff";
 import { interviewBody, interviewTitle as interviewTitleFor } from "@/lib/recordPayloads";
 import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import { canManageQuestionnaire, hasRank, isContentAdmin, mayDeleteQuestionnaire, mayEditQuestionnaire } from "@/lib/permissions";
@@ -903,20 +904,24 @@ function QuestionnairePageBody() {
       const recordedTimezone = recordedTimezoneFromForm(form);
       const interviewTitle = interviewTitleFor(form, automaticTitle);
       const editingId = editing?.id ?? null;
+      const sentResponses = editing ? changedResponses(responses, editing.responses) : responses;
       const interviewPayload = interviewBody(form, {
         editingId,
         automaticTitle,
         canPickStatus,
         workshopId: workshop.workshopId,
         artisanIds,
-        responses,
+        responses: sentResponses,
         questionnaireId
       });
+      const { responses: sentList, ...withoutResponses } = interviewPayload;
+      const sentBody = editing && !sentList.length ? withoutResponses : interviewPayload;
       const outcome = await saveOrQueue<QuestionnaireInterview>({
         label: editingId ? `Interview (edit) · ${interviewTitle}` : `Interview · ${interviewTitle}`,
         endpoint: editingId ? `/questionnaire/interviews/${editingId}` : "/questionnaire/interviews",
         method: editingId ? "PATCH" : "POST",
-        body: interviewPayload,
+        body: sentBody,
+        base: editing,
         media: [
           {
             files: mediaFiles,
@@ -1040,6 +1045,7 @@ function QuestionnairePageBody() {
     } catch (err) {
       const handled = editing && isContentAdmin(user) ? await offerMergeOnConflict(err, editing.id) : false;
       if (!handled) setError(err instanceof Error ? err.message : "Unable to save interview");
+      if (err instanceof ApiError && err.status === 403) void workshop.recheck();
     } finally {
       setSaving(false);
       setInterviewProgress(null);

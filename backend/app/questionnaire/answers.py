@@ -192,6 +192,22 @@ def _locked_for(item: Any, user: Any, current: dict[str, Any] | None) -> bool:
     return answer_lock.locked_for(current, user, text=item.text, origin=item.origin)
 
 
+def _added_only(item: Any, user: Any, session: dict[str, Any], current: dict[str, Any] | None) -> bool:
+    if session.get("_canWork") or not current or not str(current.get("text") or "").strip():
+        return False
+    if current.get("origin") == "PREFILL" or str(current.get("actorId") or "") == str(user.id):
+        return False
+    return not ((current.get("text") or "") == item.text and (current.get("origin") or "") == item.origin)
+
+
+async def _may_override(client: Any, session: dict[str, Any], user: Any) -> bool:
+    if await _is_lead(client, session, user):
+        return True
+    if "_override" not in session:
+        session["_override"] = await sessions.may_override_answers(user, session, client=client)
+    return bool(session["_override"])
+
+
 async def _is_lead(client: Any, session: dict[str, Any], user: Any) -> bool:
     if "_lead" not in session:
         rows = await client.query_raw(
@@ -235,8 +251,9 @@ async def _write_one(
         if session is None or session.get("deletedAt") is not None:
             return {**base, "status": "FORBIDDEN"}
         session["_canWork"] = await sessions.can_work_in(client, user, session)
+        session["_canAdd"] = session["_canWork"] or await sessions.can_add_answers_in(client, user, session)
         session_cache[item.sessionId] = session
-    if not session["_canWork"] or str(session["questionnaireId"]) != str(question["questionnaireId"]):
+    if not session["_canAdd"] or str(session["questionnaireId"]) != str(question["questionnaireId"]):
         return {**base, "status": "FORBIDDEN"}
     if "_people" not in session:
         session["_people"] = await session_people(client, str(session["id"]))
@@ -256,8 +273,10 @@ async def _write_one(
         if snapshot and settled is None:
             current = await current_answer(client, item.artisanId, item.questionLineageId)
             settled = _settled_without_write(item, user, base, current)
-        if _locked_for(item, user, current) and not await _is_lead(client, session, user):
+        if _locked_for(item, user, current) and not await _may_override(client, session, user):
             return {**base, "status": "FORBIDDEN", "code": ANSWER_LOCKED, "current": answer_out(current)}
+    if _added_only(item, user, session, current):
+        return {**base, "status": "FORBIDDEN", "code": ANSWER_LOCKED, "current": answer_out(current)}
     if settled is not None:
         return settled
     field_value = None
@@ -338,8 +357,9 @@ async def _write_respondent(item: Any, user: Any, client: Any, session_cache: di
         if session is None or session.get("deletedAt") is not None:
             return {**base, "status": "FORBIDDEN"}
         session["_canWork"] = await sessions.can_work_in(client, user, session)
+        session["_canAdd"] = session["_canWork"] or await sessions.can_add_answers_in(client, user, session)
         session_cache[item.sessionId] = session
-    if not session["_canWork"] or str(session["questionnaireId"]) != str(question["questionnaireId"]):
+    if not session["_canAdd"] or str(session["questionnaireId"]) != str(question["questionnaireId"]):
         return {**base, "status": "FORBIDDEN"}
     owner = await client.query_raw(
         'SELECT 1 AS ok FROM "QuestionnaireRespondent" WHERE "id" = $1 AND "sessionId" = $2 AND "artisanId" IS NULL',
@@ -349,7 +369,9 @@ async def _write_respondent(item: Any, user: Any, client: Any, session_cache: di
         return {**base, "status": "FORBIDDEN"}
     current = await current_respondent_answer(client, item.respondentId, item.questionLineageId)
     settled = _settled_without_write(item, user, base, current)
-    if _locked_for(item, user, current) and not await _is_lead(client, session, user):
+    if _locked_for(item, user, current) and not await _may_override(client, session, user):
+        return {**base, "status": "FORBIDDEN", "code": ANSWER_LOCKED, "current": answer_out(current)}
+    if _added_only(item, user, session, current):
         return {**base, "status": "FORBIDDEN", "code": ANSWER_LOCKED, "current": answer_out(current)}
     if settled is not None:
         return settled

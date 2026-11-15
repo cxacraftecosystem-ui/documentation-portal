@@ -23,6 +23,7 @@ from app.api.routes.export import csv_response
 from app.core.db import db
 from app.core.deps import (
     assert_can_contribute_relation,
+    removes_links,
     assert_can_create_records,
     assert_can_delete,
     can_access_review,
@@ -65,6 +66,7 @@ from app.services import answer_drafts, cross_portal_codes, csv_safe, naming, qu
 from app.services import completeness as completeness_module
 from app.services.access import (
     guard_record_edit,
+    may_change_others_answers,
     owner_download_scope,
     record_edit_privilege,
 )
@@ -343,7 +345,12 @@ def source_of(response: Any) -> str | None:
 
 
 async def upsert_responses(
-    interview_id: str, responses: list[Any], current_user: Any, questionnaire_id: str
+    interview_id: str,
+    responses: list[Any],
+    current_user: Any,
+    questionnaire_id: str,
+    *,
+    privileged: bool = False,
 ) -> None:
     if not responses:
         return
@@ -384,17 +391,18 @@ async def upsert_responses(
                 }
             )
             continue
+        if existing.answerText == response.answerText and existing.notes == response.notes:
+            continue
         if (
             existing.answerText
             and existing.answeredById != current_user.id
+            and not privileged
             and not is_content_admin(current_user)
         ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only the original answer contributor or an admin can change this response",
             )
-        if existing.answerText == response.answerText and existing.notes == response.notes:
-            continue
         to_update.append(
             (
                 existing.id,
@@ -1231,14 +1239,23 @@ async def update_interview(
     if data:
         await db.questionnaireinterview.update(where={"id": interview_id}, data=data)
     if payload.artisanIds is not None:
-        link_count = await db.questionnaireinterviewartisan.count(where={"interviewId": interview_id})
         if not privileged:
-            assert_can_contribute_relation(interview, current_user, link_count > 0, "artisanIds")
+            linked = await db.questionnaireinterviewartisan.find_many(where={"interviewId": interview_id})
+            assert_can_contribute_relation(
+                interview,
+                current_user,
+                removes_links([row.artisanId for row in linked], payload.artisanIds),
+                "artisanIds",
+            )
         if not v2_on:
             await replace_interview_artisans(interview_id, payload.artisanIds)
     if payload.responses is not None and not v2_on:
         await upsert_responses(
-            interview_id, payload.responses, current_user, get_value(interview, "questionnaireId")
+            interview_id,
+            payload.responses,
+            current_user,
+            get_value(interview, "questionnaireId"),
+            privileged=await may_change_others_answers(interview, current_user, "questionnaire"),
         )
     if v2_on:
         await v2_shims.patch_interview_shim(interview, payload, current_user)
