@@ -736,9 +736,9 @@ jobs:
           CLIENT_REFUSALS_WEBHOOK: ${{ secrets.CLIENT_REFUSALS_WEBHOOK }}
         run: |
           set -euo pipefail
-          ssh ubuntu@${{ secrets.EC2_HOST }} 'sudo install -D -m 755 -o root -g root /dev/stdin /opt/client-refusals/client_refusals.py' < backend/deploy/client_refusals.py
+          ssh ubuntu@${{ secrets.EC2_HOST }} 'sudo install -d -m 755 -o root -g root /opt/client-refusals && sudo tee /opt/client-refusals/client_refusals.py > /dev/null && sudo chmod 755 /opt/client-refusals/client_refusals.py' < backend/deploy/client_refusals.py
           printf 'CLIENT_REFUSALS_PORTAL=field-repository\nCLIENT_REFUSALS_WEBHOOK=%s\n' "${CLIENT_REFUSALS_WEBHOOK:-}" \
-            | ssh ubuntu@${{ secrets.EC2_HOST }} 'sudo install -m 600 -o root -g root /dev/stdin /etc/default/client-refusals'
+            | ssh ubuntu@${{ secrets.EC2_HOST }} 'sudo touch /etc/default/client-refusals && sudo chmod 600 /etc/default/client-refusals && sudo tee /etc/default/client-refusals > /dev/null'
           ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
           set -euo pipefail
           printf '%s\n' '[Unit]' 'Description=Report client write refusals and staged-clip delete bursts from the nginx log' \
