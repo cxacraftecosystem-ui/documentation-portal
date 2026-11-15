@@ -99,6 +99,22 @@ def take(seed: dict, session: dict, target: dict | None, artisans: list[str], du
     }, clip)
 
 
+def save_typed(token: str, items: list[dict]) -> None:
+    out = call(token, "PUT", "/questionnaire/answers", {"items": items})
+    for item, result in zip(items, out["results"], strict=True):
+        if result["status"] == "SAVED":
+            continue
+        current = result.get("current") or result.get("answer")
+        if result["status"] not in ("CONFLICT", "UNCHANGED") or not current:
+            raise SystemExit(f"typed answer {item['questionLineageId']} -> {result['status']}")
+        version = int(current["version"])
+        for text in (f"{item['text']} (earlier)", item["text"]):
+            saved = call(token, "PUT", "/questionnaire/answers", {"items": [{**item, "text": text, "baseVersion": version}]})["results"][0]
+            if saved["status"] != "SAVED":
+                raise SystemExit(f"typed answer {item['questionLineageId']} -> {saved['status']}")
+            version = int(saved["answer"]["version"])
+
+
 def board(seed: dict, record_by: str, note: str) -> dict:
     meera = "Meera Devi"
     session = create(seed, [meera], record_by, note)
@@ -109,7 +125,7 @@ def board(seed: dict, record_by: str, note: str) -> dict:
          "attribution": "INDIVIDUAL", "sessionId": session["id"], "sourceRecordingId": None}
         for code, text in TYPED.items()
     ]
-    call(seed["tokens"]["lead"], "PUT", "/questionnaire/answers", {"items": items})
+    save_typed(seed["tokens"]["lead"], items)
     take(seed, session, {"questionLineageId": seed["questions"]["E2"]}, [meera], 192000)
     return session
 

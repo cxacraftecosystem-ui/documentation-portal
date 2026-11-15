@@ -63,8 +63,8 @@ async function serverRecordBy(id: string): Promise<string | undefined> {
 test("@qf:Q1 a session started by section sends recordBy SECTION and opens at no questions answered", async ({ page }) => {
   await page.goto("/questionnaire/sessions/new");
   const sheet = await fillStartSheet(page, [MEERA]);
-  const group = sheet.getByRole("radiogroup", { name: S.fieldRecordBy });
-  await expect(group.getByRole("radio", { name: S.recordBySection })).toBeChecked();
+  const group = sheet.getByRole("group", { name: S.fieldRecordBy });
+  await expect(group.getByRole("button", { name: S.recordBySection, exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(sheet.getByText(S.fromThisWorkshop).first()).toBeVisible();
   const created = page.waitForResponse((r) => r.request().method() === "POST" && /\/questionnaire\/sessions$/.test(new URL(r.url()).pathname));
   await sheet.getByRole("button", { name: S.startSession }).click();
@@ -80,7 +80,7 @@ test("@qf:Q1 a session started by section sends recordBy SECTION and opens at no
 test("@qf:Q1 @qf:Q3 a session started by question sends recordBy QUESTION and every question carries Record and Upload", async ({ page }) => {
   await page.goto("/questionnaire/sessions/new");
   const sheet = await fillStartSheet(page, [MEERA]);
-  await sheet.getByRole("radiogroup", { name: S.fieldRecordBy }).getByRole("radio", { name: S.recordByQuestion }).click();
+  await sheet.getByRole("group", { name: S.fieldRecordBy }).getByRole("button", { name: S.recordByQuestion, exact: true }).click();
   const created = page.waitForResponse((r) => r.request().method() === "POST" && /\/questionnaire\/sessions$/.test(new URL(r.url()).pathname));
   await sheet.getByRole("button", { name: S.startSession }).click();
   const response = await created;
@@ -141,7 +141,7 @@ test("@qf:Q1 @qf:Q8 the session menu leads with Record by, keeps its order, and 
   expect(labels.filter((l) => order.includes(l))).toEqual(order.filter((l) => labels.includes(l)));
   expect(labels.slice(-1)[0]).toBe(S.deleteSession);
   const patched = page.waitForResponse((r) => r.request().method() === "PATCH" && r.url().includes(`/questionnaire/sessions/${session.id}`));
-  await menu.getByRole("radio", { name: S.recordByQuestion }).click();
+  await menu.getByRole("group", { name: S.fieldRecordBy }).getByRole("button", { name: S.recordByQuestion, exact: true }).click();
   expect((await patched).ok()).toBe(true);
   await expect.poll(() => serverRecordBy(session.id)).toBe("QUESTION");
   await page.keyboard.press("Escape");
@@ -155,7 +155,7 @@ test("@qf:Q1 a Record by change made offline is queued and reaches the server wh
   await openSession(page, session);
   await context.setOffline(true);
   const menu = await sessionMenu(page);
-  await menu.getByRole("radio", { name: S.recordBySection }).click();
+  await menu.getByRole("group", { name: S.fieldRecordBy }).getByRole("button", { name: S.recordBySection, exact: true }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByText(S.waitingForSignal).first()).toBeVisible();
   expect(await serverRecordBy(session.id)).toBe("QUESTION");

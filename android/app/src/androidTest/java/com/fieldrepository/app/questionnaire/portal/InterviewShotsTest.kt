@@ -23,6 +23,7 @@ import com.fieldrepository.app.questionnaire.QFeature
 import com.fieldrepository.app.questionnaire.data.QArtisanOption
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.ui.QuestionnaireHome
+import com.fieldrepository.app.questionnaire.ui.QuestionnaireV2Nav
 import com.fieldrepository.app.ui.FieldRepositoryTheme
 import java.io.File
 import org.junit.Assume.assumeTrue
@@ -76,7 +77,13 @@ class InterviewShotsTest {
         }
     }
 
-    private fun shown(text: String) = hasText(text, substring = true) or hasContentDescription(text, substring = true)
+    private val sessionIds: Map<String, String>
+        get() = arg("interviewSessions").orEmpty().split(";").filter { it.contains("|") }.associate {
+            val (note, id) = it.split("|", limit = 2)
+            note to id
+        }
+
+    private fun shown(text: String) = hasText(text, substring = true, ignoreCase = true) or hasContentDescription(text, substring = true, ignoreCase = true)
 
     private fun waitFor(text: String, timeout: Long = 30_000) {
         compose.waitUntil(timeout) { compose.onAllNodes(shown(text), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
@@ -111,9 +118,13 @@ class InterviewShotsTest {
     }
 
     private fun openSession(note: String, dark: Boolean, fallback: String? = null) {
+        val id = sessionIds[note]
+        if (id != null) QuestionnaireV2Nav.openServerSession.value = id
         home(dark)
-        val found = runCatching { waitFor(note, 15_000) }.isSuccess
-        tap(if (found || fallback == null) note else fallback)
+        if (id == null) {
+            val found = runCatching { waitFor(note, 15_000) }.isSuccess
+            tap(if (found || fallback == null) note else fallback)
+        }
         waitFor(t("review"))
     }
 

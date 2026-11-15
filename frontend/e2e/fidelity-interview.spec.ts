@@ -77,7 +77,7 @@ capture("WebSessions", "sessions list", async (page, width, theme) => {
 capture("WebNew", "new session", async (page, width, theme) => {
   await page.goto("/questionnaire/sessions/new");
   const sheet = await fillStartSheet(page, [MEERA]);
-  await expect(sheet.getByRole("radiogroup", { name: S.fieldRecordBy })).toBeVisible();
+  await expect(sheet.getByRole("group", { name: S.fieldRecordBy })).toBeVisible();
   await shoot(page, "WebNew", width, theme, "", true);
   await shoot(page, "New", width, theme, "", true);
 });
@@ -180,7 +180,7 @@ capture("States", "waiting for signal", async (page, width, theme) => {
   await openSession(page, session);
   await page.context().setOffline(true);
   await page.getByRole("button", { name: S.sessionOptions }).click();
-  await page.getByRole("radio", { name: S.recordByQuestion }).click();
+  await page.getByRole("group", { name: S.fieldRecordBy }).getByRole("button", { name: S.recordByQuestion, exact: true }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByText(S.waitingForSignal).first()).toBeVisible();
   await shoot(page, "States", width, theme, "offline");

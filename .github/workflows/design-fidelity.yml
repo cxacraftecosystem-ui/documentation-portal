@@ -415,6 +415,7 @@ jobs:
         env:
           SHOTS: ${{ github.workspace }}/design-fidelity
           INTERVIEW_OUT: ${{ github.workspace }}/interview-device
+          INTERVIEW_SESSIONS: ${{ runner.temp }}/interview-sessions.json
           APP_ID: com.fieldrepository.app
         with:
           api-level: "37.0"

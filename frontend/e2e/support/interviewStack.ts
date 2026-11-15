@@ -205,12 +205,19 @@ export async function typeAnswers(session: Session, answers: Record<string, stri
     sourceRecordingId: null
   }));
   const first = await api.putAnswers(items);
-  const stale = first.results.filter((r) => r.status === "CONFLICT" && r.current);
-  const retried = stale.length
-    ? await api.putAnswers(stale.map((r) => ({ ...items.find((i) => i.questionLineageId === r.questionLineageId)!, baseVersion: r.current!.version })))
-    : { results: [] };
-  const results = [...first.results.filter((r) => !stale.includes(r)), ...retried.results];
-  expect(results.map((r) => `${r.questionLineageId}:${r.status}`).filter((s) => !/:(SAVED|UNCHANGED)$/.test(s)), "every typed answer saved").toEqual([]);
+  const results = first.results.filter((r) => r.status === "SAVED");
+  for (const r of first.results.filter((x) => x.status !== "SAVED")) {
+    const item = items.find((i) => i.questionLineageId === r.questionLineageId)!;
+    const current = r.current ?? r.answer;
+    if ((r.status !== "CONFLICT" && r.status !== "UNCHANGED") || !current) {
+      results.push(r);
+      continue;
+    }
+    const earlier = await api.putAnswers([{ ...item, text: `${item.text} (earlier)`, baseVersion: current.version }]);
+    const again = await api.putAnswers([{ ...item, baseVersion: (earlier.results[0]?.answer?.version ?? current.version + 1) }]);
+    results.push(...again.results);
+  }
+  expect(results.map((r) => `${r.questionLineageId}:${r.status}`).filter((s) => !/:SAVED$/.test(s)), "every typed answer saved in this session").toEqual([]);
 }
 
 export const E1_TYPED = "Rough cutting takes about four days, then shaping with the chisel";
@@ -242,7 +249,7 @@ export async function openSession(page: Page, session: Pick<Session, "id">) {
 
 export async function openSection(page: Page, code: string) {
   const title = seed().sectionTitles[code];
-  await page.getByRole("button", { name: new RegExp(`^${code},? ${escape(title)}`) }).first().click();
+  await page.getByRole("button", { name: new RegExp(`^(Section )?${code},? ${escape(title)}`) }).first().click();
 }
 
 async function chooseIfUnset(page: Page, trigger: Locator, wanted: RegExp) {
