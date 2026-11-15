@@ -321,7 +321,10 @@ async def session_payload(client: Any, session_id: str, viewer: Any = None) -> d
     row = await require_session(client, session_id)
     out = (await serialize_sessions(client, [row], viewer, with_progress=True))[0]
     out["respondents"] = await respondents.list_for(client, session_id)
-    out["mayOverrideAnswers"] = bool(viewer) and await may_override_answers(viewer, row, client=client)
+    leads = {str(r["userId"]) for r in out.get("researchers") or [] if r.get("role") == "LEAD"}
+    out["mayOverrideAnswers"] = bool(viewer) and (
+        str(getattr(viewer, "id", "")) in leads or await may_override_answers(viewer, row, client=client)
+    )
     return out
 
 

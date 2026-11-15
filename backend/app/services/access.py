@@ -134,15 +134,13 @@ async def record_edit_privilege(record: Any, user: Any, record_type: str, *, cli
 
 
 async def may_change_others_answers(record: Any, user: Any, record_type: str, *, client: Any = None) -> bool:
-    from app.core.deps import get_value, is_content_admin, may_edit_lower_ranked_record
+    from app.core.deps import get_value, is_content_admin
     from app.services import workshop_access
 
     via = {"client": client} if client is not None else {}
     if is_content_admin(user):
         return True
     owner_id = get_value(record, "createdById")
-    if await may_edit_lower_ranked_record(user, owner_id, **via):
-        return True
     if owner_id and get_value(user, "id") != owner_id:
         tier = await effective_tier_for_record(user, owner_id, record_type, get_value(record, "id"), **via)
         if tier == "EDIT":
