@@ -402,7 +402,9 @@ cooldown — they are lighter and hit a different provider.
 
 **Refinement is separate from transcription.** Rewriting a raw transcript into clean
 interviewer/interviewee dialogue (and translating it, per the master-admin `transcriptionMode`
-setting, `RAW` / `REFINED` / `REFINED_TRANSLATED`) is a text job, and since 0.0.10 every text job on
+setting: "Transcribe and translate" is `REFINED_TRANSLATED`, the default, and "Transcribe only" is
+`RAW`, wire field `transcribeOnly` on `/settings/transcription`; anything but `REFINED_TRANSLATED`
+skips refinement and every automatic `TRANSCRIPT_INSIGHTS` job) is a text job, and since 0.0.10 every text job on
 the deployment's key runs on Gemini 3.8 Flash, falling back to 3.7 Flash on a 404. OpenAI and
 Anthropic run it only when `AI_TEXT_PROVIDER` says so or a person brings their own key. The OpenAI
 key only *transcribes* when Whisper is reached as the third link in the chain.

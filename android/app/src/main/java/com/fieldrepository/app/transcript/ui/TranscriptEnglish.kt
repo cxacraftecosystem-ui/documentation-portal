@@ -54,21 +54,31 @@ internal fun EnglishNoticeCard(view: Transcript, host: TranscriptHost) {
                 .padding(12.dp)
                 .testTag("transcript.english.unavailable")
         )
-        EnglishNotice.DECLINED -> Column(
+        EnglishNotice.DECLINED, EnglishNotice.NOT_AUTOMATIC -> Column(
             Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
                 .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
                 .padding(14.dp)
-                .testTag("transcript.english.declined"),
+                .testTag(if (view.englishNotice == EnglishNotice.NOT_AUTOMATIC) "transcript.english.notAutomatic" else "transcript.english.declined"),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
                 Icon(Icons.Filled.Translate, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(TranscriptStrings.englishDeclined, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    val automatic = view.englishNotice == EnglishNotice.NOT_AUTOMATIC
+                    Text(
+                        if (automatic) TranscriptStrings.englishNotAutomatic else TranscriptStrings.englishDeclined,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                     if (view.permissions.addEnglish) {
-                        Text(TranscriptStrings.englishDeclinedHint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.body)
+                        Text(
+                            if (automatic) TranscriptStrings.englishNotAutomaticHint else TranscriptStrings.englishDeclinedHint,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.field.body,
+                        )
                     }
                 }
             }

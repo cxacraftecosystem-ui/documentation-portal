@@ -14,7 +14,13 @@ from app.ai_features.settings import get_ai_settings
 from app.ai_features.types import Capability
 from app.core.config import get_settings
 from app.core.db import db
-from app.services import anthropic_verbs, job_supersede, recording_consent, user_ai_keys
+from app.services import (
+    anthropic_verbs,
+    app_settings,
+    job_supersede,
+    recording_consent,
+    user_ai_keys,
+)
 from app.services.ai_providers import (
     AiProvider,
     AiTask,
@@ -503,6 +509,8 @@ async def enqueue(
 
 async def enqueue_after_transcript(media_id: str) -> Any | None:
     if not enabled():
+        return None
+    if not await app_settings.load_translation_on():
         return None
     try:
         current = await current_insight(media_id)

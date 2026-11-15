@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 GEMINI_USD_PER_MINUTE = 0.002
 ASSUMED_BYTES_PER_SECOND = 8_000
+ASSUMED_VIDEO_BYTES_PER_SECOND = 500_000
 QUEUED = "queued"
 FAILED = "failed"
 UNTRANSCRIBED = "untranscribed"
@@ -44,22 +45,28 @@ def stt_usd_per_minute() -> float:
     return hourly_rate(ElevenLabs, keyterms=bool(ai.craft_keyterms())) / 60
 
 
+def usd_per_minute(translate: bool) -> float:
+    return stt_usd_per_minute() + (GEMINI_USD_PER_MINUTE if translate else 0.0)
+
+
 @dataclass
 class Candidate:
     media_id: str
     kind: str
     recorded_at: Any
     minutes: float
+    translate: bool = True
 
     @property
     def estimate_usd(self) -> float:
-        return round(self.minutes * (stt_usd_per_minute() + GEMINI_USD_PER_MINUTE), 6)
+        return round(self.minutes * usd_per_minute(self.translate), 6)
 
 
-def minutes_of(duration_ms: Any, size_bytes: Any) -> float:
+def minutes_of(duration_ms: Any, size_bytes: Any, *, video: bool = False) -> float:
     if duration_ms:
         return max(0.0, float(duration_ms) / 60_000)
-    return max(0.0, float(size_bytes or 0) / ASSUMED_BYTES_PER_SECOND / 60)
+    rate = ASSUMED_VIDEO_BYTES_PER_SECOND if video else ASSUMED_BYTES_PER_SECOND
+    return max(0.0, float(size_bytes or 0) / rate / 60)
 
 
 def next_batch(
@@ -80,9 +87,14 @@ def next_batch(
 
 CANDIDATES_SQL = (
     'SELECT m."id", m."recordedAt", m."sizeBytes"::float8 AS size, m."transcriptStatus", '
+    'm."mediaType"::text AS "mediaType", m."mimeType", '
     '(SELECT j."status"::text FROM "MediaProcessingJob" j WHERE j."mediaFileId" = m."id" '
     "AND j.\"jobType\" = 'TRANSCRIPTION' ORDER BY j.\"createdAt\" DESC LIMIT 1) AS job, "
-    '(SELECT r."durationMs" FROM "QuestionnaireRecording" r WHERE r."mediaFileId" = m."id") '
+    'coalesce((SELECT r."durationMs" FROM "QuestionnaireRecording" r '
+    'WHERE r."mediaFileId" = m."id"), '
+    '(SELECT w."durationMs" FROM "MediaWaveform" w WHERE w."mediaFileId" = m."id"), '
+    '(SELECT v."durationMs" FROM "TranscriptVersion" v WHERE v."mediaFileId" = m."id" '
+    'AND v."durationMs" IS NOT NULL ORDER BY v."version" DESC LIMIT 1)) '
     'AS duration FROM "MediaFile" m WHERE m."mediaType"::text IN (\'AUDIO\', \'VIDEO\') '
     "AND m.\"removedAt\" IS NULL AND btrim(coalesce(m.\"transcriptText\", '')) = ''"
 )
@@ -90,7 +102,9 @@ CANDIDATES_SQL = (
 
 async def collect() -> tuple[list[Candidate], int]:
     from app.services import transcript_portal
+    from app.transcription.audio import is_video
 
+    translate = app_settings.translation_on(await app_settings.load_app_settings())
     rows = await db.query_raw(CANDIDATES_SQL)
     candidates: list[Candidate] = []
     refused = 0
@@ -111,15 +125,23 @@ async def collect() -> tuple[list[Candidate], int]:
                 str(row["id"]),
                 kind,
                 row.get("recordedAt"),
-                minutes_of(row.get("duration"), row.get("size")),
+                minutes_of(
+                    row.get("duration"),
+                    row.get("size"),
+                    video=is_video(row.get("mediaType"), row.get("mimeType")),
+                ),
+                translate,
             )
         )
     return candidates, refused
 
 
-def summarise(candidates: list[Candidate], refused: int) -> dict[str, Any]:
+def summarise(
+    candidates: list[Candidate], refused: int, *, translate: bool = True
+) -> dict[str, Any]:
     minutes = sum(c.minutes for c in candidates)
     return {
+        "includesTranslation": translate,
         "recordings": len(candidates),
         "queued": sum(1 for c in candidates if c.kind == QUEUED),
         "failed": sum(1 for c in candidates if c.kind == FAILED),
@@ -137,13 +159,21 @@ async def estimate(*, fresh: bool = False, now: float | None = None) -> dict[str
     if not fresh and cached is not None and now - _estimate_cache["at"] < ESTIMATE_TTL_SECONDS:
         return cached
     candidates, refused = await collect()
-    value = {**summarise(candidates, refused), "computedAt": datetime.now(UTC).isoformat()}
+    translate = app_settings.translation_on(await app_settings.load_app_settings())
+    value = {
+        **summarise(candidates, refused, translate=translate),
+        "computedAt": datetime.now(UTC).isoformat(),
+    }
     _estimate_cache.update(value=value, at=now)
     return value
 
 
 def enabled_of(row: Any) -> bool:
     return bool(getattr(row, "transcriptBackfillEnabled", False)) if row is not None else False
+
+
+def forget_estimate() -> None:
+    _estimate_cache.clear()
 
 
 async def progress(row: Any | None = None) -> dict[str, Any]:

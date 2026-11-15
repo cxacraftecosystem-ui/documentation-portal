@@ -1,10 +1,11 @@
 {
   "contract": "transcript-v1-api",
-  "contractVersion": 4,
+  "contractVersion": 5,
   "changes": [
     "2 (0.0.6, 1 Nov 2026): Speaker.colorKey and Turn.colorKey (speakerPalette, fixtures.speakerColor); TranscriptPreview on list rows (questionnaire Recording.transcript.preview, media list rows' transcriptPreview; fixtures.preview); coverage cells list their recordings (questionnaire coverage cell.recordings: [CoverageRecording]). Additive: a v1 client ignores them.",
     "3 (0.0.9, 3 Nov 2026, D38): TranscriptView.englishNotice and TranscriptView.manualEnglish, permissions.addEnglish, POST /api/transcripts/{mediaId}/english (EnglishBody), DataRecording.english, fixtures.manualEnglish. Additive: a v2 client ignores them.",
-    "4 (0.0.3, 13 Nov 2026): TranscriptView.spokenLanguage (SpokenLanguage), permissions.retranscribe, POST /api/transcripts/{mediaId}/retranscribe (RetranscribeBody), GET /api/transcripts/spoken-language (SpokenLanguageSuggestion). The spoken language is never read from a state or place. Additive: a v3 client ignores them."
+    "4 (0.0.3, 13 Nov 2026): TranscriptView.spokenLanguage (SpokenLanguage), permissions.retranscribe, POST /api/transcripts/{mediaId}/retranscribe (RetranscribeBody), GET /api/transcripts/spoken-language (SpokenLanguageSuggestion). The spoken language is never read from a state or place. Additive: a v3 client ignores them.",
+    "5 (0.0.5, 15 Nov 2026): englishNotice NOT_AUTOMATIC and translation status NOT_REQUESTED, both only while an administrator has chosen Transcribe only (GET/PUT /settings/transcription transcribeOnly). A v4 client shows no notice and no per-turn note for them."
   ],
   "owner": "feature/transcript-pipeline stream T1 (backend). WEB (T2) and ANDROID (T3) copy this file verbatim and load their mocks from `examples` and `fixtures`.",
   "source": "C:/dev/IIT/docs/transcription/DESIGN_2026-10-31_Scribe-Gemini-Pipeline.md sections 2-4, 9, 10",
@@ -45,7 +46,8 @@
       {"value": "ALREADY_ENGLISH", "label": "Already in English"},
       {"value": "STALE", "label": "Out of date"},
       {"value": "PENDING", "label": "Translating"},
-      {"value": "FAILED", "label": "Couldn't translate"}
+      {"value": "FAILED", "label": "Couldn't translate"},
+      {"value": "NOT_REQUESTED", "label": "Not translated"}
     ],
     "textSource": [
       {"value": "MACHINE", "label": "Machine"},
@@ -55,8 +57,8 @@
     "copyTrack": ["original", "english", "both"],
     "downloadFormat": ["md", "docx", "srt", "vtt"],
     "budgetState": ["OK", "ALERT", "PAUSED", "UNSET"],
-    "englishNotice": ["DECLINED", "UNAVAILABLE", null],
-    "englishNoticeNotes": "Set only when Gemini declined to translate this recording (a SAFETY / PROHIBITED_CONTENT refusal) and no English stands in yet. DECLINED goes to whoever may add the English (permissions.addEnglish: the edit rule); UNAVAILABLE, a neutral notice that names no provider, to every other reader. null once every turn that needs English has it, or a person pasted the English whole (manualEnglish)."
+    "englishNotice": ["DECLINED", "UNAVAILABLE", "NOT_AUTOMATIC", null],
+    "englishNoticeNotes": "Set only when Gemini declined to translate this recording (a SAFETY / PROHIBITED_CONTENT refusal) and no English stands in yet. DECLINED goes to whoever may add the English (permissions.addEnglish: the edit rule); UNAVAILABLE, a neutral notice that names no provider, to every other reader. NOT_AUTOMATIC, to every reader, while Transcribe only is chosen and no translation is running: English is not made automatically, and turns still without English carry translation.status NOT_REQUESTED. null once every turn that needs English has it, or a person pasted the English whole (manualEnglish)."
   },
 
   "dataBrowser": {

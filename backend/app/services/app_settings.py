@@ -8,6 +8,8 @@ from app.core.db import db
 SINGLETON_ID = "singleton"
 DEFAULT_TRANSCRIPTION_MODE = "REFINED_TRANSLATED"
 VALID_TRANSCRIPTION_MODES = {"RAW", "REFINED", "REFINED_TRANSLATED"}
+TRANSLATING_MODE = "REFINED_TRANSLATED"
+TRANSCRIBE_ONLY_MODE = "RAW"
 DEFAULT_TIMEZONE = "Asia/Kolkata"
 
 DEFAULT_STT_PROVIDER_ORDER = ("elevenlabs", "deepgram", "whisper", "muse")
@@ -33,6 +35,25 @@ def transcription_mode(row: Any | None) -> str:
         return DEFAULT_TRANSCRIPTION_MODE
     mode = getattr(row, "transcriptionMode", None)
     return mode if mode in VALID_TRANSCRIPTION_MODES else DEFAULT_TRANSCRIPTION_MODE
+
+
+def translation_on(row: Any | None) -> bool:
+    return transcription_mode(row) == TRANSLATING_MODE
+
+
+async def load_translation_on() -> bool:
+    return translation_on(await load_app_settings())
+
+
+async def save_translation(on: bool, updated_by_id: str | None = None) -> Any:
+    await get_or_create_app_settings(updated_by_id)
+    return await db.appsetting.update(
+        where={"id": SINGLETON_ID},
+        data={
+            "transcriptionMode": TRANSLATING_MODE if on else TRANSCRIBE_ONLY_MODE,
+            "updatedById": updated_by_id,
+        },
+    )
 
 
 def stt_provider_order(row: Any | None) -> list[str]:

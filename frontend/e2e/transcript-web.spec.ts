@@ -501,6 +501,29 @@ test.describe("desktop actions", () => {
     await expect(viewer.getByText(/declined/i)).toHaveCount(0);
   });
 
+  test("Transcribe only: the transcript reads ready with a neutral note and a person can still translate", async ({ page }) => {
+    const fake = new TranscriptFake();
+    const view = fake.view as unknown as Transcript;
+    view.turns = view.turns.map((turn) => ({ ...turn, translation: { ...turn.translation, text: null, status: "NOT_REQUESTED" } }));
+    view.englishNotice = "NOT_AUTOMATIC";
+    view.manualEnglish = null;
+    view.permissions = { ...view.permissions, addEnglish: true, edit: true };
+    view.badges = [];
+    const viewer = await open(page, fake);
+    const notice = viewer.locator('[data-english-notice="NOT_AUTOMATIC"]');
+    await expect(notice).toContainText("English isn't made automatically for this transcript.");
+    await expect(notice).toContainText("Translate a turn, or add the English yourself.");
+    await expect(notice.getByTestId("add-english-open")).toBeVisible();
+    await expect(viewer.getByText(/declined|gemini/i)).toHaveCount(0);
+    await viewer.locator('[data-tab="english"]').click();
+    const turn = viewer.locator('[data-turn-id="turn_b"]');
+    await expect(turn).toContainText("Not translated");
+    await expect(turn).not.toContainText("Translating");
+    await expect(turn.locator("[data-retranslate]")).toHaveText("Translate this turn");
+    await turn.locator("[data-retranslate]").click();
+    await expect.poll(() => fake.calledWith("POST", `/transcripts/${MEDIA_ID}/turns/turn_b/retranslate`).length).toBe(1);
+  });
+
   test("with the pipeline off the stored transcript shows as before", async ({ page }) => {
     const fake = new TranscriptFake();
     fake.off = true;
@@ -591,7 +614,7 @@ test.describe("media transcription choice", () => {
     const video = choices.locator('[data-file="loom-demo.mp4"]');
     await expect(video).toBeChecked();
     await expect(video).toBeDisabled();
-    await expect(choices.getByTestId("transcribe-auto-note")).toHaveText("Every new video is transcribed and translated. An admin set this.");
+    await expect(choices.getByTestId("transcribe-auto-note")).toHaveText("Every new video is transcribed. An admin set this.");
     const audio = choices.locator('[data-file="artisan-talk.m4a"]');
     await expect(audio).not.toBeChecked();
     await expect(audio).toBeEnabled();

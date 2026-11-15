@@ -31,6 +31,7 @@ from app.services.app_settings import (
     load_app_settings,
     transcription_mode,
     transcription_paused,
+    translation_on,
     within_processing_window,
 )
 from app.services.s3 import ObjectTooLarge, discard_temp, download_to_temp, get_object_bytes
@@ -397,7 +398,7 @@ async def transcribe_media_now(media: Any, settings: Settings | None = None) -> 
     finally:
         discard_temp(source_path)
     mode = transcription_mode(await load_app_settings())
-    if result.get("status") == "COMPLETED" and mode in {"REFINED", "REFINED_TRANSLATED"} and result.get("text"):
+    if result.get("status") == "COMPLETED" and mode == "REFINED_TRANSLATED" and result.get("text"):
         refined = await refine_transcript_text(result.get("text"), mode == "REFINED_TRANSLATED", settings)
         if refined.get("status") == "COMPLETED" and refined.get("refined"):
             result = {
@@ -614,7 +615,7 @@ async def _process_job(job: Any, settings: Settings) -> None:
         finally:
             discard_temp(source_path)
         mode = transcription_mode(await load_app_settings())
-        if result.get("status") == "COMPLETED" and mode in {"REFINED", "REFINED_TRANSLATED"} and result.get("text"):
+        if result.get("status") == "COMPLETED" and mode == "REFINED_TRANSLATED" and result.get("text"):
             refined = await refine_transcript_text(result.get("text"), mode == "REFINED_TRANSLATED", settings)
             if refined.get("status") == "COMPLETED" and refined.get("refined"):
                 result = {
@@ -709,6 +710,9 @@ async def _apply_transcription_result(job: Any, result: dict[str, Any]) -> None:
 
 async def _process_insights_job(job: Any, media: Any) -> None:
     requested_by = await transcript_insights.job_requester(job)
+    if requested_by is None and not translation_on(await load_app_settings()):
+        await transcript_pipeline.stop_automatic_translation(job_id=job.id)
+        return
     if requested_by is None:
         current = await transcript_insights.current_insight(job.mediaFileId)
         if current is not None and current.editedAt is not None:

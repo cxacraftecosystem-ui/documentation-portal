@@ -190,7 +190,7 @@ class RetrofitTranscriptBackend(private val api: TranscriptApi) : TranscriptBack
 }
 
 fun AudioIsolationEnvelope.switches(): TranscriptionSwitches =
-    TranscriptionSwitches(autoTranscribe ?: AutoTranscribeSetting(), backfill ?: BackfillProgress())
+    TranscriptionSwitches(autoTranscribe ?: AutoTranscribeSetting(), backfill ?: BackfillProgress(), transcribeOnly)
 
 fun HttpException.transcriptError(json: Json): TranscriptErrorDetail? = runCatching {
     val body = response()?.errorBody()?.string() ?: return null

@@ -23,9 +23,11 @@ def _languages(rec: dict[str, Any]) -> str:
 
 async def _queue_missing(ctx: ReportContext, media_ids: list[str]) -> int:
     from app.core.db import db
-    from app.services import transcript_insights, transcript_portal
+    from app.services import app_settings, transcript_insights, transcript_portal
 
     if not media_ids or not transcript_insights.enabled():
+        return 0
+    if not await app_settings.load_translation_on():
         return 0
     try:
         stored = await transcript_insights.current_insights(media_ids)

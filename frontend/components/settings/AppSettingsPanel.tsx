@@ -14,11 +14,9 @@ type AppSettings = {
   batchTimezone: string;
 };
 
-const TRANSCRIPTION_MODES: Array<{ value: string; label: string; helper: string }> = [
-  { value: "RAW", label: "Raw transcript only", helper: "Fastest and cheapest." },
-  { value: "REFINED", label: "Refined conversation", helper: "A clean, readable dialogue." },
-  { value: "REFINED_TRANSLATED", label: "Refined + translated to English", helper: "Refined, then translated to English (default)." }
-];
+function windowOnly({ batchWindowEnabled, batchWindowStart, batchWindowEnd, batchTimezone }: AppSettings) {
+  return { batchWindowEnabled, batchWindowStart, batchWindowEnd, batchTimezone };
+}
 
 function minutesOfDay(value: string) {
   const [hours, minutes] = value.split(":");
@@ -58,7 +56,7 @@ export function AppSettingsPanel() {
     setSuccess(null);
     setError(null);
     try {
-      const updated = await apiFetch<AppSettings>("/settings", { method: "PUT", body: JSON.stringify(settings) });
+      const updated = await apiFetch<AppSettings>("/settings", { method: "PUT", body: JSON.stringify(windowOnly(settings)) });
       setSettings(updated);
       setSuccess("Settings saved");
     } catch (err) {
@@ -80,39 +78,6 @@ export function AppSettingsPanel() {
         <div className="panel p-4 text-sm text-ink-500">Loading settings...</div>
       ) : (
         <form className="grid gap-4" onSubmit={save}>
-          <section className="panel p-5">
-            <h2 className="font-display font-bold text-ink-900">Transcription mode</h2>
-            <p className="mt-1 text-xs leading-5 text-ink-500">
-              AI refinement and translation always wait for your approval.
-            </p>
-            <div className="mt-3 grid gap-2 md:grid-cols-3">
-              {TRANSCRIPTION_MODES.map((mode) => {
-                const active = settings.transcriptionMode === mode.value;
-                return (
-                  <label
-                    className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 transition ${
-                      active ? "border-purple-300 bg-purple-50" : "border-line-200 bg-card hover:border-purple-300"
-                    }`}
-                    key={mode.value}
-                  >
-                    <input
-                      checked={active}
-                      className="mt-1 accent-purple-700"
-                      name="transcriptionMode"
-                      onChange={() => setSettings({ ...settings, transcriptionMode: mode.value })}
-                      type="radio"
-                      value={mode.value}
-                    />
-                    <span>
-                      <span className="block text-sm font-medium text-ink-900">{mode.label}</span>
-                      <span className="block text-xs leading-5 text-ink-500">{mode.helper}</span>
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          </section>
-
           <section className="panel p-5">
             <h2 className="font-display font-bold text-ink-900">Off-peak processing</h2>
             <Toggle

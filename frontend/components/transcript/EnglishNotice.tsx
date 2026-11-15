@@ -37,6 +37,9 @@ export function EnglishNotice({
   }
 
   const canAdd = Boolean(transcript.permissions.addEnglish);
+  const automatic = notice === "NOT_AUTOMATIC";
+  const title = automatic ? ts("englishNotAutomatic") : ts("englishDeclined");
+  const hint = automatic ? ts("englishNotAutomaticHint") : ts("englishDeclinedHint");
   const plan = englishPlan(transcript.turns, text);
   const planLine =
     plan.paragraphs === 0
@@ -47,17 +50,21 @@ export function EnglishNotice({
 
   return (
     <section
-      className="grid gap-3 rounded-md border border-purple-200 bg-purple-50 px-4 py-3 dark:border-purple-800 dark:bg-purple-950/40"
-      aria-label={ts("englishDeclined")}
-      data-english-notice="DECLINED"
+      className={
+        automatic
+          ? "grid gap-3 rounded-md border border-line-200 bg-surface-50 px-4 py-3"
+          : "grid gap-3 rounded-md border border-purple-200 bg-purple-50 px-4 py-3 dark:border-purple-800 dark:bg-purple-950/40"
+      }
+      aria-label={title}
+      data-english-notice={automatic ? "NOT_AUTOMATIC" : "DECLINED"}
     >
       <div className="flex items-start gap-3">
         <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md bg-card text-purple-700 dark:text-purple-300" aria-hidden>
           <Languages className="h-4 w-4" />
         </span>
         <div className="grid gap-0.5">
-          <p className="text-sm font-semibold text-ink-900">{ts("englishDeclined")}</p>
-          {canAdd ? <p className="text-sm text-ink-700">{ts("englishDeclinedHint")}</p> : null}
+          <p className="text-sm font-semibold text-ink-900">{title}</p>
+          {canAdd ? <p className="text-sm text-ink-700">{hint}</p> : null}
         </div>
       </div>
       {canAdd && !writing ? (
