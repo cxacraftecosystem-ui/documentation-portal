@@ -499,7 +499,11 @@ export function toGridView(grid: CoverageGrid | null | undefined, questions: Rec
 export type OpenMatchItem = { id: string; title: string; startedAt: string | null; researcher: Person | null; artisanNames: string[] };
 
 export type SessionDetail = Session & { recordings: Recording[]; answers: Answer[]; grid: CoverageGrid };
-export type SessionList = { items: Session[]; nextCursor: string | null; capped: boolean };
+export type SessionTotals = { all: number; open: number; finished: number };
+
+export type SessionListState = "all" | "open" | "finished";
+
+export type SessionList = { items: Session[]; nextCursor: string | null; capped: boolean; state?: SessionListState; totals?: SessionTotals | null };
 
 export type CoverageTake = {
   recordingId: string;
@@ -712,8 +716,15 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
     createSession: (body: SessionCreate) => fetchJson<Session>(`${Q}/sessions`, json("POST", writeBody(body, "POST"), body.clientKey)),
     listSessions: (params: Record<string, string | number | undefined | null>) =>
       fetchJson<SessionList>(`${Q}/sessions${buildQuery(params)}`),
-    sessions: (filters: Filters, extra: { cursor?: string | null; limit?: number; deleted?: boolean } = {}) =>
-      fetchJson<SessionList>(`${Q}/sessions${withQuery(filtersToQuery(filters), extra.cursor, extra.limit, extra.deleted ? "deleted=true" : "")}`),
+    sessions: (filters: Filters, extra: { cursor?: string | null; limit?: number; deleted?: boolean; state?: SessionListState } = {}) =>
+      fetchJson<SessionList>(
+        `${Q}/sessions${withQuery(
+          filtersToQuery(filters),
+          extra.cursor,
+          extra.limit,
+          [extra.deleted ? "deleted=true" : "", extra.state && extra.state !== "all" ? `state=${extra.state}` : ""].filter(Boolean).join("&")
+        )}`
+      ),
     listRecordings: (filters: Filters, cursor?: string | null, sessionId?: string | null, limit?: number) =>
       fetchJson<RecordingList>(
         `${Q}/recordings${withQuery(filtersToQuery(filters), cursor, limit, sessionId ? `sessionId=${encodeURIComponent(sessionId)}` : "")}`

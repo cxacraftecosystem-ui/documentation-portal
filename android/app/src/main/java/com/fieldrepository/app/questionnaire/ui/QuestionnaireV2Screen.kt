@@ -78,6 +78,7 @@ import com.fieldrepository.app.questionnaire.data.QFormOption
 import com.fieldrepository.app.questionnaire.data.QSession
 import com.fieldrepository.app.questionnaire.data.QSessionCreate
 import com.fieldrepository.app.questionnaire.data.QSessionProgress
+import com.fieldrepository.app.questionnaire.data.QSessionTotals
 import com.fieldrepository.app.questionnaire.data.SessionState
 import com.fieldrepository.app.questionnaire.data.QWorkshopOption
 import com.fieldrepository.app.questionnaire.data.QuestionnaireFilters
@@ -147,7 +148,7 @@ internal fun localRow(unit: SessionUnit, names: Map<String, String>): SessionLis
             participantNames = ids.map { names[it].orEmpty() } + body.respondents.map { it.name.orEmpty() }
         )
     )
-    val people = (ids.mapNotNull { names[it]?.trim()?.ifBlank { null } } + body.respondents.mapNotNull { it.name?.trim()?.ifBlank { null } }).joinToString(", ")
+    val people = QuestionnaireCopy.namesLine(ids.mapNotNull { names[it]?.trim()?.ifBlank { null } } + body.respondents.mapNotNull { it.name?.trim()?.ifBlank { null } })
     val crafts = body.crafts.orEmpty()
     return SessionListRow(
         key = unit.clientKey,
@@ -168,8 +169,8 @@ internal fun serverRow(s: QSession): SessionListRow {
     val day = parseDay(s.sessionDate)
     val answered = s.progress?.answeredQuestions ?: s.counts.answeredQuestions
     val total = s.progress?.totalQuestions ?: s.counts.totalQuestions
-    val people = (s.participants.mapNotNull { it.name.trim().ifBlank { null } } +
-        s.respondents.filter { it.artisanId == null }.mapNotNull { it.name.trim().ifBlank { null } }).joinToString(", ")
+    val people = QuestionnaireCopy.namesLine(s.participants.mapNotNull { it.name.trim().ifBlank { null } } +
+        s.respondents.filter { it.artisanId == null }.mapNotNull { it.name.trim().ifBlank { null } })
     return SessionListRow(
         key = s.clientKey ?: s.id,
         title = s.title,
@@ -197,6 +198,18 @@ internal fun statusCounts(rows: List<SessionListRow>): Map<SessionStatus, Int> =
     SessionStatus.ALL to rows.size,
     SessionStatus.OPEN to rows.count { statusOf(it) == SessionStatus.OPEN },
     SessionStatus.FINISHED to rows.count { statusOf(it) == SessionStatus.FINISHED }
+)
+
+internal fun SessionStatus.wire(): String = when (this) {
+    SessionStatus.ALL -> "all"
+    SessionStatus.OPEN -> "open"
+    SessionStatus.FINISHED -> "finished"
+}
+
+internal fun totalsCounts(totals: QSessionTotals, localOpen: Int): Map<SessionStatus, Int> = mapOf(
+    SessionStatus.ALL to totals.all + localOpen,
+    SessionStatus.OPEN to totals.open + localOpen,
+    SessionStatus.FINISHED to totals.finished
 )
 
 internal fun byStatus(rows: List<SessionListRow>, status: SessionStatus): List<SessionListRow> =
@@ -293,6 +306,8 @@ fun QuestionnaireHome(
     var offline by remember { mutableStateOf(false) }
     var showDeleted by remember { mutableStateOf(false) }
     var status by rememberKept("q.sessions.status") { SessionStatus.ALL }
+    var keptStatus by rememberKept("q.sessions.pagesStatus") { status }
+    var totals by rememberKept("q.sessions.totals") { null as QSessionTotals? }
     var today by remember { mutableStateOf<SessionListRow?>(null) }
     var todayAt by remember { mutableStateOf<ContinueAt?>(null) }
     var todayUploading by remember { mutableIntStateOf(0) }
@@ -325,22 +340,31 @@ fun QuestionnaireHome(
     }
     LaunchedEffect(Unit) { batteryAsk = shouldAskBattery(context) }
 
-    suspend fun page(after: String?) = v2.sessionsPage(filters, after)
+    suspend fun page(after: String?) = v2.sessionsPage(filters, after, state = status.wire())
 
     suspend fun loadInstrument(qid: String): Instrument? = v2.form(qid)?.let(Instrument::from)
 
-    LaunchedEffect(refresh, route, filters, tab) {
+    LaunchedEffect(refresh, route, filters, tab, status) {
         if (route != QRoute.List || tab != QuestionnaireTab.SESSIONS) return@LaunchedEffect
         loading = true
+        if (keptStatus != status) {
+            kept = KeptPages(filters = filters)
+            keptStatus = status
+        }
         val units = v2.outbox.units()
         val search = filters.q
-        val local = if (!filters.without("q").isEmpty) emptyList() else units.filter { it.sessionId == null }.mapNotNull { localRow(it, names) }
+        val local = if (!filters.without("q").isEmpty || status == SessionStatus.FINISHED) emptyList() else units.filter { it.sessionId == null }.mapNotNull { localRow(it, names) }
             .filter { search.isBlank() || it.title.contains(search, ignoreCase = true) || it.note.orEmpty().contains(search, ignoreCase = true) }
         val result = runCatching { page(null) }.getOrNull()
         kept = ListPaging.arrive(kept, filters, appendPage(local, result?.items.orEmpty()), result?.nextCursor) { it.key }
+        totals = result?.totals
         offline = result?.offline == true
         unsent = units.filter { it.failedSteps.isNotEmpty() }.map { it.clientKey }
         loading = false
+        if (status == SessionStatus.FINISHED) {
+            inboxCount = runCatching { v2.api.inbox().counts.total }.getOrDefault(0)
+            return@LaunchedEffect
+        }
         val card = openToday(kept.rows, LocalDate.now(Naming.IST))
         today = card
         todayAt = null
@@ -494,10 +518,11 @@ fun QuestionnaireHome(
                             onContinue = { openRow(card, todayAt?.sectionId) }
                         )
                     }
-                    val counts = statusCounts(rows)
+                    val localOpen = rows.count { it.local }
+                    val counts = totals?.let { totalsCounts(it, localOpen) } ?: statusCounts(rows).takeIf { cursor == null }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         SessionStatus.entries.forEach { st ->
-                            StatusPill(statusLabel(st, counts.getValue(st).takeIf { cursor == null }), selected = !showDeleted && status == st) {
+                            StatusPill(statusLabel(st, counts?.getValue(st)), selected = !showDeleted && status == st) {
                                 showDeleted = false
                                 status = st
                             }
@@ -520,13 +545,24 @@ fun QuestionnaireHome(
                                 HorizontalDivider(color = MaterialTheme.field.hairline)
                             }
                         }
-                        if (cursor != null) PromptButtons(listOf(PromptButton(QuestionnaireCopy.s("sessions.loadMore"), primary = true) {
+                        val total = counts?.getValue(status) ?: shown.size
+                        if (shown.isNotEmpty() && cursor != null) Text(
+                            QuestionnaireCopy.t("showingOf", "shown" to shown.size, "total" to total),
+                            modifier = Modifier.padding(top = 8.dp).testTag("questionnaire.showing"),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted
+                        )
+                        if (cursor != null) PromptButtons(listOf(PromptButton(QuestionnaireCopy.t("showAll", "count" to total), primary = true) {
                             if (loadingMore) return@PromptButton
                             loadingMore = true
                             scope.launch {
-                                runCatching { page(cursor) }
-                                    .onSuccess { next -> kept = ListPaging.more(kept, next.items.map(::serverRow), next.nextCursor) { it.key } }
-                                    .onFailure { onError(QuestionnaireCopy.s("error.needsSignal")) }
+                                var next: String? = cursor
+                                while (next != null) {
+                                    val after = next
+                                    val got = runCatching { page(after) }
+                                        .onSuccess { more -> kept = ListPaging.more(kept, more.items.map(::serverRow), more.nextCursor) { it.key } }
+                                        .onFailure { onError(QuestionnaireCopy.s("error.needsSignal")) }
+                                    next = got.getOrNull()?.nextCursor
+                                }
                                 loadingMore = false
                             }
                         }))
@@ -534,14 +570,18 @@ fun QuestionnaireHome(
                     Spacer(Modifier.height(fabClearance).testTag("questionnaire.listEnd"))
                 }
             }
-            is QRoute.Workspace -> SessionWorkspace(
-                v2 = v2, clientKey = r.clientKey, instrument = instrument, artisans = artisans, meId = meId,
-                canMakePrimary = canMakePrimary, isAdmin = isAdmin,
-                onBack = { backFromSession() },
-                onOpenSession = { session -> scope.launch { openServer(session) } },
-                onOpenReadView = { id -> noteOrigin(); route = QRoute.ReadView(id) },
-                onError = onError
-            )
+            is QRoute.Workspace -> {
+                val startSection = remember(r.clientKey) { QuestionnaireV2Nav.openSection.value.also { QuestionnaireV2Nav.openSection.value = null } }
+                SessionWorkspace(
+                    v2 = v2, clientKey = r.clientKey, instrument = instrument, artisans = artisans, meId = meId,
+                    canMakePrimary = canMakePrimary, isAdmin = isAdmin,
+                    initialSection = startSection,
+                    onBack = { backFromSession() },
+                    onOpenSession = { session -> scope.launch { openServer(session) } },
+                    onOpenReadView = { id -> noteOrigin(); route = QRoute.ReadView(id) },
+                    onError = onError
+                )
+            }
             is QRoute.ReadView -> SessionReadView(
                 v2 = v2, sessionId = r.sessionId, canReview = canReview,
                 loadInstrument = { loadInstrument(it) },

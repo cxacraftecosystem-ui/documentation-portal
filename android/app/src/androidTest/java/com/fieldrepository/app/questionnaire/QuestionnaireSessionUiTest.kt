@@ -87,7 +87,7 @@ class QuestionnaireSessionUiTest {
             }
         }
         assertEquals(2, compose.onAllNodesWithText(p15).fetchSemanticsNodes().size)
-        assertEquals("no answer box to type over it", 0, compose.onAllNodesWithText("Add a note").fetchSemanticsNodes().size)
+        assertEquals("no answer box to type over it", 0, compose.onAllNodesWithText("Add note").fetchSemanticsNodes().size)
         compose.onNodeWithText("History").assertIsDisplayed()
     }
 

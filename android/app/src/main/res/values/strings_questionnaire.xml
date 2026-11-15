@@ -52,7 +52,7 @@
     <string name="q_whole_session">Whole session</string>
     <string name="q_answered_by">Answered by</string>
     <string name="q_just_these">Just these…</string>
-    <string name="q_answer_for">Answer for:</string>
+    <string name="q_answer_for">Answer for</string>
     <string name="q_answer_for_all">All %1$s</string>
     <string name="q_group_answer">Group answer (%1$s)</string>
     <string name="q_space_left">About %1$s min of space left.</string>
@@ -225,7 +225,7 @@
     <string name="q_proposals_ready">%1$s answers suggested from the take. Review them below.</string>
     <string name="q_no_proposals">Nothing to suggest from this take yet.</string>
     <string name="q_answer_note">Note</string>
-    <string name="q_add_note">Add a note</string>
+    <string name="q_add_note">Add note</string>
     <string name="q_current_answer">Current</string>
     <string name="q_required">Required</string>
     <string name="q_required_unanswered">%1$s required questions unanswered.</string>
@@ -401,7 +401,6 @@
     <string name="q_sections_of_total">%1$s of %2$s sections</string>
     <string name="q_answered_of_total">%1$s of %2$s</string>
     <string name="q_question_count">%1$s questions</string>
-    <string name="q_for_artisans_of_total">for %1$s of %2$s artisans</string>
     <string name="q_in_section_take">In the section take</string>
     <string name="q_not_asked">Not asked</string>
     <string name="q_question_take">Question take · %1$s</string>
@@ -466,4 +465,15 @@
     <string name="q_already_recorded_code">%1$s is already recorded</string>
     <string name="q_recorded_for_on">Recorded for %1$s on %2$s.</string>
     <string name="q_finished_read_only">Finished on %1$s. Read only.</string>
+    <string name="q_people">People</string>
+    <string name="q_back_to_interview">Back to the interview</string>
+    <string name="q_add_people">+ Add</string>
+    <string name="q_today">Today</string>
+    <string name="q_and_others">%1$s and %2$s others</string>
+    <string name="q_answer_to">Answer to %1$s</string>
+    <string name="q_question_count_one">1 question</string>
+    <string name="q_open_typed_answer">Open typed answer for %1$s</string>
+    <string name="q_register_artisan">Register artisan</string>
+    <string name="q_more">More</string>
+    <string name="q_fill_from_profile">Fill from profile</string>
 </resources>

@@ -230,6 +230,37 @@ def test_the_sessions_list_takes_every_filter(monkeypatch: pytest.MonkeyPatch) -
     _run(monkeypatch, body)
 
 
+def test_the_sessions_list_filters_by_state_and_counts_every_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import HTTPException
+
+    from app.questionnaire import filters, sessions
+
+    async def body(c: Any, ids: SimpleNamespace) -> None:
+        await c.execute_raw("""UPDATE "QuestionnaireInterview" SET "state" = 'CLOSED' WHERE "id" = $1""", ids.s2)
+        f = filters.parse({"questionnaireId": ids.form})
+
+        async def listed(state: str | None, **kw: Any) -> dict[str, Any]:
+            return await sessions.list_sessions(client=c, filters=f, limit=100, state=state, **kw)
+
+        every = await listed(None)
+        assert {s["id"] for s in every["items"]} == {ids.s1, ids.s2}
+        assert every["state"] == "all" and every["totals"] == {"all": 2, "open": 1, "finished": 1}
+        opened = await listed("open")
+        assert [s["id"] for s in opened["items"]] == [ids.s1]
+        assert opened["totals"] == {"all": 2, "open": 1, "finished": 1}, "totals count every state, not just the one shown"
+        assert [s["id"] for s in (await listed("FINISHED"))["items"]] == [ids.s2]
+        first = await listed("all", cursor=None)
+        assert first["totals"] is not None
+        one = await sessions.list_sessions(client=c, filters=f, limit=1)
+        assert one["nextCursor"] and len(one["items"]) == 1
+        rest = await sessions.list_sessions(client=c, filters=f, limit=1, cursor=one["nextCursor"])
+        assert rest["totals"] is None and len(rest["items"]) == 1, "the last record is reachable by paging"
+        with pytest.raises(HTTPException):
+            await listed("closed")
+
+    _run(monkeypatch, body)
+
+
 def test_the_recordings_list_filters_pages_and_carries_chips(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.questionnaire import filters
 

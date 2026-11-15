@@ -113,6 +113,9 @@ object UploadPlan {
     fun meta(file: PickedFile, sessionDate: LocalDate?): String =
         QuestionnaireCopy.t("uploadFileMeta", "duration" to QuestionnaireCopy.elapsed(file.durationMs), "date" to recordedText(file.recordedAt, sessionDate))
 
+    fun uploadedDay(uploadedAt: String?): LocalDate? =
+        uploadedAt?.let { runCatching { Instant.parse(it).atZone(Naming.IST).toLocalDate() }.getOrNull() ?: runCatching { LocalDate.parse(it.take(10)) }.getOrNull() }
+
     fun duplicateLine(on: LocalDate): String = QuestionnaireCopy.t("alreadyUploadedOn", "date" to QuestionnaireCopy.day(on))
 }
 

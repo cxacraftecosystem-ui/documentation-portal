@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
@@ -146,8 +145,30 @@ fun PeopleRow(
     onAddArtisan: () -> Unit,
     onAddGuest: () -> Unit
 ) {
+    var adding by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            QuestionnaireCopy.t("people"), modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground
+        )
+        if (!locked) Box {
+            TextButton(onClick = { adding = true }) {
+                Text(QuestionnaireCopy.t("addPeople"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
+            DropdownMenu(expanded = adding, onDismissRequest = { adding = false }) {
+                DropdownMenuItem(
+                    text = { Text(QuestionnaireCopy.s("workspace.addArtisan"), color = MaterialTheme.colorScheme.onSurface) },
+                    onClick = { adding = false; onAddArtisan() }
+                )
+                DropdownMenuItem(
+                    text = { Text(QuestionnaireCopy.s("guest.add"), color = MaterialTheme.colorScheme.onSurface) },
+                    onClick = { adding = false; onAddGuest() }
+                )
+            }
+        }
+    }
     FlowRow(
-        Modifier.fillMaxWidth().padding(top = 12.dp),
+        Modifier.fillMaxWidth().padding(top = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         participants.forEach { p ->
@@ -157,17 +178,6 @@ fun PeopleRow(
             ) else FilterChip(
                 selected = p.present, enabled = !locked, onClick = { onTogglePresent(p.artisanId, !p.present) },
                 label = { Text(QuestionnaireCopy.firstName(p.name) + if (p.present) "" else " · ${QuestionnaireCopy.s("workspace.away")}") }
-            )
-        }
-        if (!locked) {
-            FilterChip(
-                selected = false, onClick = onAddArtisan,
-                label = { Text(QuestionnaireCopy.s("workspace.addArtisan")) }
-            )
-            FilterChip(
-                selected = false, onClick = onAddGuest,
-                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                label = { Text(QuestionnaireCopy.s("guest.add")) }
             )
         }
     }

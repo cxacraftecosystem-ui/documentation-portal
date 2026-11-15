@@ -17,25 +17,25 @@ API lags the tree by however many commits have not been deployed; see
 | | Count |
 |---|---|
 | Prisma models | **99** |
-| Prisma enums | **41** |
+| Prisma enums | **42** |
 | `@@index` declarations | 193 |
 | `@@unique` declarations | 38 |
 
 Models: `User`, `PasswordResetToken`, `PasswordResetRequest`, `AccessRoster`, `AssignedTask`, `Feedback`, `UserPreference`, `AppRelease`, `AppClientVersion`, `CraftCategory`, `CraftSubCategory`, `Craft`, `CraftCode`, `CraftSpelling`, `ArtisanSharingConsent`, `CrossPortalArtisanLink`, `ArtisanCard`, `ArtisanCardEvent`, `CrossPortalAccessLog`, `GeoAlias`, `Location`, `Artisan`, `Workshop`, `WorkshopArtisan`, `WorkshopCraft`, `ProductDocumentation`, `ToolDocumentation`, `ToolArtisan`, `ToolCraft`, `MediaFile`, `TranscriptInsight`, `MediaProcessingJob`, `Questionnaire`, `QuestionnaireSection`, `QuestionnaireSectionStatus`, `QuestionnaireQuestion`, `QuestionnaireInterview`, `QuestionnaireInterviewArtisan`, `QuestionnaireInterviewResearcher`, `QuestionnaireRecording`, `QuestionnaireRecordingTarget`, `QuestionnaireRecordingSubject`, `QuestionnaireRecordingEvent`, `QuestionnaireAnswer`, `QuestionnaireAnswerRevision`, `QuestionnaireTakeDraft`, `QuestionnaireRespondent`, `QuestionnaireRecordingRespondent`, `QuestionnaireBinding`, `QuestionnaireTypeDefault`, `MediaUploadIntent`, `Consent`, `QuestionnaireResponse`, `QuestionnaireAnswerDraft`, `Process`, `ProcessStep`, `ReviewLog`, `AppSetting`, `ArtisanMerge`, `WorkshopAssignment`, `ManagedSecret`, `SecretTestResult`, `DataAccessGrant`, `DataAccessScopeItem`, `EntryComment`, `RecordRevision`, `UserAiCredential`, `EmailMessage`, `TwoFactorChallenge`, `IdempotencyKey`, `Notification`, `WeeklyDigest`, `SearchDocument`, `SearchIndexQueue`, `ArtisanDuplicateCandidate`, `SttProviderState`, `SttUsage`, `SttBudget`, `TranscriptionChunk`, `TranscriptCache`, `RecordingConsent`, `TranscriptVersion`, `TranscriptTurn`, `TranscriptTurnEdit`, `TranscriptSpeaker`, `TranscriptSpend`, `PaidAiSpend`, `TranscriptGlossaryTerm`, `TranscriptGlossarySighting`, `TranscriptDraftCitation`, `UsageEvent`, `DataReportPreference`, `DataFolderVisit`, `DataSavedView`, `DataReportShare`, `DataReportShareView`, `DataReportSchedule`, `MediaWaveform`, `DataBundle`.
 
-Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType`, `MediaType`, `ProductType`, `MarketDemand`, `MakerType`, `TraditionType`, `ReviewRecordType`, `MediaProcessingJobType`, `ConsentState`, `ConsentSubjectType`, `ConsentPurpose`, `ConsentBasis`, `SessionState`, `SessionPurpose`, `SessionOrigin`, `ResearcherRole`, `SubjectRole`, `RepeatReason`, `TakeFlag`, `CapturedAtSource`, `RecordingFiling`, `RecordingProvenance`, `AnswerOrigin`, `AnswerAttribution`, `SectionStatus`, `RespondentKind`, `SessionSource`, `MediaProcessingJobStatus`, `ProcessStepType`, `DataAccessTier`, `DataAccessStatus`, `CredentialLinkPurpose`, `GiStatus`, `CraftStatus`, `DuplicateKind`, `DuplicateStatus`, `DuplicateSource`.
+Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType`, `MediaType`, `ProductType`, `MarketDemand`, `MakerType`, `TraditionType`, `ReviewRecordType`, `MediaProcessingJobType`, `ConsentState`, `ConsentSubjectType`, `ConsentPurpose`, `ConsentBasis`, `SessionState`, `SessionPurpose`, `SessionOrigin`, `ResearcherRole`, `SubjectRole`, `RepeatReason`, `TakeFlag`, `CapturedAtSource`, `RecordingFiling`, `RecordingProvenance`, `AnswerOrigin`, `AnswerAttribution`, `SectionStatus`, `RespondentKind`, `SessionSource`, `RecordBy`, `MediaProcessingJobStatus`, `ProcessStepType`, `DataAccessTier`, `DataAccessStatus`, `CredentialLinkPurpose`, `GiStatus`, `CraftStatus`, `DuplicateKind`, `DuplicateStatus`, `DuplicateSource`.
 
 ## API surface
 
-**384 operations** in the working tree — 183 GET, 126 POST, 30 DELETE,
+**386 operations** in the working tree — 184 GET, 127 POST, 30 DELETE,
 22 PATCH, 23 PUT. 2 of them (`/health`, `/health/ready`) are declared
 on the app rather than on a router; the rest are spread across `backend/app/api/routes/`:
 
 | Route module | Operations |
 |---|---|
-| `questionnaire_v2.py` | 52 |
+| `questionnaire_v2.py` | 53 |
 | `data_explorer.py` | 26 |
-| `media.py` | 21 |
+| `media.py` | 22 |
 | `transcripts.py` | 21 |
 | `workshops.py` | 21 |
 | `data_access.py` | 13 |
@@ -128,10 +128,10 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 281 | 3139 `def test_` | `python -m pytest -q` from `backend/` |
-| Web end-to-end (`frontend/e2e/`) | 180 | 1814 `test(` | Playwright, `frontend/playwright.config.ts` |
-| Android unit (`android/app/src/test/`) | 235 | 1762 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
-| Android instrumented | 61 | 286 `@Test` | not run in CI |
+| Backend unit (`backend/tests/`) | 283 | 3153 `def test_` | `python -m pytest -q` from `backend/` |
+| Web end-to-end (`frontend/e2e/`) | 186 | 1860 `test(` | Playwright, `frontend/playwright.config.ts` |
+| Android unit (`android/app/src/test/`) | 238 | 1787 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
+| Android instrumented | 67 | 298 `@Test` | not run in CI |
 
 The backend case count is `def test_` occurrences; pytest reports a larger number because
 parametrised cases expand. Neither the backend suite nor the e2e suite is a CI gate today — see
@@ -141,11 +141,11 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 357 | 93,175 | 357 | 93,175 |
+| `backend/app` | 357 | 93,499 | 357 | 93,499 |
 | `frontend/app` | 95 | 17,282 | 95 | 17,282 |
-| `frontend/components` | 360 | 71,258 | 360 | 71,258 |
-| `frontend/lib` | 209 | 40,118 | 209 | 40,118 |
-| `android/app/src/main/java` | 344 | 105,678 | 344 | 105,678 |
+| `frontend/components` | 367 | 73,370 | 367 | 73,370 |
+| `frontend/lib` | 210 | 40,661 | 210 | 40,661 |
+| `android/app/src/main/java` | 349 | 108,048 | 349 | 108,048 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is
 uncommitted. **Tracked** is `git ls-files`, which is the figure to use in a write-up — it is

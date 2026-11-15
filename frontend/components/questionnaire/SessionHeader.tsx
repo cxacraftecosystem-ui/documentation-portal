@@ -9,18 +9,24 @@ import type { Session } from "@/lib/questionnaire/api";
 import { languageLabel } from "@/lib/questionnaire/languages";
 import { shortDate } from "@/lib/questionnaire/prompts";
 import { qs } from "@/lib/questionnaire/qs";
+import { todayLocal } from "@/lib/questionnaire/sessionsList";
 
 export function headerNames(session: Pick<Session, "participants" | "respondents" | "title">): string {
   const names = [...session.participants.map((p) => p.name), ...(session.respondents ?? []).filter((r) => !r.artisanId).map((r) => r.name)].filter(Boolean);
   if (!names.length) return session.title;
   if (names.length === 1) return names[0];
   if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  return `${names[0]} and ${names.length - 1} others`;
+  return qs("andOthers", { name: names[0], count: names.length - 1 });
+}
+
+function dayLabel(sessionDate: string | null, today: string = todayLocal()): string {
+  if (!sessionDate) return "";
+  return sessionDate.slice(0, 10) === today ? qs("today") : shortDate(sessionDate);
 }
 
 export function headerLine(session: Pick<Session, "crafts" | "languageCode" | "languageOther" | "sessionDate">): string {
   const language = session.languageCode ? languageLabel(session.languageCode) || session.languageOther || "" : (session.languageOther ?? "");
-  return [session.crafts?.[0] ?? "", language, shortDate(session.sessionDate)].filter(Boolean).join(" · ");
+  return [session.crafts?.[0] ?? "", language, dayLabel(session.sessionDate)].filter(Boolean).join(" · ");
 }
 
 export function SessionHeader({

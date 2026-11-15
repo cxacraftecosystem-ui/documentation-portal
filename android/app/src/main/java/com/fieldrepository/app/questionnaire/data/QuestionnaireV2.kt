@@ -140,11 +140,11 @@ class QuestionnaireV2 private constructor(context: Context) {
 
     val offlineRows: OfflineRows by lazy { OfflineRows(cacheDir, ::meId) }
 
-    data class Paged<T>(val items: List<T>, val nextCursor: String?, val offline: Boolean)
+    data class Paged<T>(val items: List<T>, val nextCursor: String?, val offline: Boolean, val totals: QSessionTotals? = null)
 
-    suspend fun sessionsPage(filters: QuestionnaireFilters, cursor: String? = null, limit: Int = 30): Paged<QSession> =
-        runCatching { api.sessionsFiltered(filters.toParams(), cursor, limit) }.fold(
-            { page -> runCatching { offlineRows.keepSessions(page.items) }; Paged(page.items, page.nextCursor, false) },
+    suspend fun sessionsPage(filters: QuestionnaireFilters, cursor: String? = null, limit: Int = 30, state: String? = null): Paged<QSession> =
+        runCatching { api.sessionsFiltered(filters.toParams(), cursor, limit, state?.takeIf { it != "all" }) }.fold(
+            { page -> runCatching { offlineRows.keepSessions(page.items) }; Paged(page.items, page.nextCursor, false, page.totals) },
             { if (cursor != null) throw it else Paged(offlineRows.sessions(filters), null, true) }
         )
 

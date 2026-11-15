@@ -111,7 +111,7 @@
                    "sections": [{"sectionId": "secA", "answeredQuestions": 5, "totalQuestions": 5, "inSectionTake": true},
                                 {"sectionId": "secD", "answeredQuestions": 6, "totalQuestions": 9, "inSectionTake": false}]}
     },
-    "SessionList": {"items": [], "nextCursor": null, "capped": false},
+    "SessionList": {"items": [], "nextCursor": null, "capped": false, "state": "open", "totals": {"all": 12, "open": 3, "finished": 9}},
     "OpenMatch": {"items": [{"id": "s0", "title": "Group-Interview_2026-07-01_Bagru-Jaipur_Hand-Block-Printing_2-Artisans",
                              "startedAt": "2026-07-01T04:42:00Z", "researcher": {"id": "u3", "name": "Nandini"},
                              "artisanNames": ["Giriraj", "Meena"]}]},

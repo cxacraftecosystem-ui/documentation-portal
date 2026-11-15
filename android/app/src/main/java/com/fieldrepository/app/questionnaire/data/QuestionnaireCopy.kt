@@ -60,7 +60,7 @@ object QuestionnaireCopy {
         "wholeSession" to "Whole session",
         "answeredBy" to "Answered by",
         "justThese" to "Just these…",
-        "answerFor" to "Answer for:",
+        "answerFor" to "Answer for",
         "answerForAll" to "All {count}",
         "groupAnswer" to "Group answer ({count})",
         "spaceLeft" to "About {minutes} min of space left.",
@@ -210,7 +210,7 @@ object QuestionnaireCopy {
         "modeSomeoneElse" to "Someone else",
         "fieldGuestName" to "Their name",
         "guestBadge" to "Guest",
-        "addNote" to "Add a note",
+        "addNote" to "Add note",
         "currentAnswer" to "Current",
         "stateTyped" to "Typed",
         "addRecordingPrompt" to "Add a recording?",
@@ -289,7 +289,6 @@ object QuestionnaireCopy {
         "sectionsOfTotal" to "{done} of {total} sections",
         "answeredOfTotal" to "{answered} of {total}",
         "questionCount" to "{count} questions",
-        "forArtisansOfTotal" to "for {answered} of {count} artisans",
         "inSectionTake" to "In the section take",
         "notAsked" to "Not asked",
         "questionTake" to "Question take · {duration}",
@@ -353,7 +352,18 @@ object QuestionnaireCopy {
         "showingOf" to "Showing {shown} of {total}",
         "alreadyRecordedCode" to "{code} is already recorded",
         "recordedForOn" to "Recorded for {name} on {date}.",
-        "finishedReadOnly" to "Finished on {date}. Read only."
+        "finishedReadOnly" to "Finished on {date}. Read only.",
+        "people" to "People",
+        "backToInterview" to "Back to the interview",
+        "addPeople" to "+ Add",
+        "today" to "Today",
+        "andOthers" to "{name} and {count} others",
+        "answerTo" to "Answer to {code}",
+        "questionCountOne" to "1 question",
+        "openTypedAnswer" to "Open typed answer for {code}",
+        "registerArtisan" to "Register artisan",
+        "more" to "More",
+        "fillFromProfile" to "Fill from profile"
     )
 
     val sharedKeyOf: Map<String, String> = linkedMapOf(
@@ -546,7 +556,10 @@ object QuestionnaireCopy {
         "session.merge" to "mergeIntoAnotherSession",
         "artisan.new" to "newArtisan",
         "guest.myself" to "myself",
-        "session.read" to "readView"
+        "session.read" to "readView",
+        "session.more" to "more",
+        "artisan.register" to "registerArtisan",
+        "answer.prefill" to "fillFromProfile"
     )
 
     val androidOnly: Map<String, String> = linkedMapOf(
@@ -585,7 +598,6 @@ object QuestionnaireCopy {
         "tray.participant" to "A change to who was there",
         "tray.answers" to "Typed answers",
         "tray.finish" to "Finishing the session",
-        "session.more" to "More",
         "session.edit" to "Edit session",
         "session.removeArtisan" to "Remove an artisan",
         "session.deleteBody" to "This can't be undone.",
@@ -613,7 +625,6 @@ object QuestionnaireCopy {
         "artisan.aadhaarNotShared" to "Aadhaar not shared by the artisan",
         "artisan.dos" to "Do's",
         "artisan.donts" to "Don'ts",
-        "artisan.register" to "Register artisan",
         "artisan.onPhone" to "Registered on this phone",
         "csv.saved" to "Saved to Downloads.",
         "csv.failed" to "Couldn't export the CSV.",
@@ -624,7 +635,6 @@ object QuestionnaireCopy {
         "guest.registerPick" to "Which artisan is this?",
         "guest.registered" to "Their answers and takes moved to the artisan.",
         "guest.needsName" to "Give their name.",
-        "answer.prefill" to "Fill from profile",
         "answer.noHistory" to "No earlier versions.",
         "answer.locked" to "Only its author, a lead or an admin can change it.",
         "override.COMPLETED" to "Marked complete",
@@ -678,6 +688,14 @@ object QuestionnaireCopy {
     }
 
     fun day(date: LocalDate): String = date.format(DAY_MONTH)
+    fun dayOrToday(date: LocalDate, today: LocalDate = LocalDate.now(Naming.IST)): String = if (date == today) t("today") else day(date)
+    fun namesLine(names: List<String>): String = when (names.size) {
+        0 -> ""
+        1 -> names[0]
+        2 -> "${names[0]} and ${names[1]}"
+        else -> t("andOthers", "name" to names[0], "count" to names.size - 1)
+    }
+    fun questionCount(count: Int): String = if (count == 1) t("questionCountOne") else t("questionCount", "count" to count)
     fun clock(instant: Instant): String = instant.atZone(Naming.IST).format(CLOCK)
 
     fun reasonLabel(reason: String) = strings["reason.$reason"] ?: reason

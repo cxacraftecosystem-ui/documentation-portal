@@ -62,7 +62,7 @@ fun ReviewScreen(
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).testTag("questionnaire.review")) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = QuestionnaireCopy.t("keepGoing"), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = QuestionnaireCopy.t("backToInterview"), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
             }
             Text(QuestionnaireCopy.t("review"), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
         }

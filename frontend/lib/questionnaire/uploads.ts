@@ -65,11 +65,11 @@ export function recordedAtOf(file: { lastModified?: number }, sessionDate: strin
 
 export function flagDuplicates<T extends { key: string; sha: string | null }>(
   rows: T[],
-  found: { sha: string; capturedAt?: string | null }[],
+  found: { sha: string; uploadedAt?: string | null }[],
   queued: Record<string, string>,
   fallbackDate: string | null
 ): Record<string, string> {
-  const byServer = new Map(found.map((f) => [f.sha, f.capturedAt ?? fallbackDate ?? ""] as const));
+  const byServer = new Map(found.map((f) => [f.sha, f.uploadedAt ?? fallbackDate ?? ""] as const));
   const out: Record<string, string> = {};
   const seen = new Set<string>();
   for (const row of rows) {

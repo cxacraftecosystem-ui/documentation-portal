@@ -20,8 +20,8 @@ export function stillToAsk(
 ): StillToAsk[] {
   if (review) {
     return review.stillToAsk
-      .filter((s) => s.lineages.length > 0)
-      .map((s) => ({ sectionId: s.sectionId, code: s.code, title: s.title, left: s.lineages.length, total: progress.sections[s.sectionId]?.total ?? s.lineages.length }));
+      .filter((s) => s.total > s.answered)
+      .map((s) => ({ sectionId: s.sectionId, code: s.code, title: s.title, left: s.total - s.answered, total: s.total }));
   }
   return sections
     .map((s) => ({ s, p: progress.sections[s.id] }))
@@ -73,7 +73,7 @@ export function ReviewFinish({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          aria-label={qs("keepGoing")}
+          aria-label={qs("backToInterview")}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line-200 bg-card text-ink-900 transition hover:border-purple-300"
           onClick={onKeepGoing}
         >

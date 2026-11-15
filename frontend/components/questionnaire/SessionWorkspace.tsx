@@ -55,6 +55,7 @@ import {
   questionnaireApi,
   type CoverageCheckResponse,
   toGridView,
+  type AnswerItem,
   type GridQuestion,
   type GridView as Grid,
   type RecordBy,
@@ -134,9 +135,34 @@ function queuedClipKeys(units: SessionUnit[]): Set<string> {
   return new Set(units.flatMap((u) => u.steps.filter((s): s is ClipStep => s.kind === "clip").map((s) => s.clientClipKey)));
 }
 
+export function profileFillItems(
+  detail: Pick<SessionDetail, "id" | "participants" | "answers">,
+  lineageId: string
+): AnswerItem[] {
+  return detail.participants.flatMap((p) => {
+    const current = detail.answers.find((a) => a.artisanId === p.artisanId && a.questionLineageId === lineageId);
+    if (current && (current.text ?? "").trim() && current.origin !== "PREFILL") return [];
+    const item: AnswerItem = {
+      sessionId: detail.id,
+      artisanId: p.artisanId,
+      questionLineageId: lineageId,
+      text: "",
+      origin: "PREFILL",
+      attribution: "INDIVIDUAL",
+      sourceRecordingId: null,
+      ...(current ? { baseVersion: current.version } : {})
+    };
+    return [item];
+  });
+}
+
+export function questionCountLabel(count: number): string {
+  return count === 1 ? qs("questionCountOne") : qs("questionCount", { count });
+}
+
 export function sectionSubline(p: Pick<SectionQuestionProgress, "answered" | "total" | "inSectionTake" | "typedOnly"> | undefined): string {
-  if (!p || p.total === 0) return qs("questionCount", { count: 0 });
-  if (p.answered === 0) return qs("questionCount", { count: p.total });
+  if (!p || p.total === 0) return questionCountLabel(0);
+  if (p.answered === 0) return questionCountLabel(p.total);
   const base = qs("answeredOfTotal", { answered: p.answered, total: p.total });
   if (p.inSectionTake) return `${base} · ${qs("inSectionTake")}`;
   if (p.typedOnly) return `${base} · ${qs("stateTyped")}`;
@@ -211,6 +237,7 @@ export function SessionWorkspace({ id }: { id: string }) {
   const [p10, setP10] = useState<{ artisanId: string; name: string; count: number } | null>(null);
   const [adding, setAdding] = useState(false);
   const [questions, setQuestions] = useState<Record<string, InstrumentQuestion[]>>({});
+  const profileFields = useMemo(() => new Set(Object.values(questions).flat().filter((q) => q.artisanField).map((q) => q.lineageId)), [questions]);
   const [proposals, setProposals] = useState<Record<string, AnswerProposal>>({});
   const [proposalNote, setProposalNote] = useState<string | null>(null);
   const [revealLineage, setRevealLineage] = useState<string | null>(null);
@@ -816,9 +843,22 @@ export function SessionWorkspace({ id }: { id: string }) {
     }
   }
 
+  async function fillFromProfile(lineageId: string) {
+    if (!detail || detail.version === 0) return;
+    const items = profileFillItems(detail, lineageId);
+    if (!items.length) return;
+    try {
+      await questionnaireApi.putAnswers(items);
+      void load();
+    } catch (error) {
+      setTakeError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   function questionAction(sectionId: string, q: GridQuestion, action: OverflowAction) {
     if (action === "record") press([{ questionLineageId: q.lineageId }], q.displayCode, q.displayCode);
     else if (action === "upload") setUploadFor({ kind: "QUESTION", lineageId: q.lineageId });
+    else if (action === "prefill") void fillFromProfile(q.lineageId);
     else setTyping((held) => ({ ...held, [q.lineageId]: true }));
     if (activeSection !== sectionId) openSection(sectionId);
   }
@@ -979,6 +1019,7 @@ export function SessionWorkspace({ id }: { id: string }) {
 
       {uploadFor ? (
         <UploadSheet
+          sessionId={session.id}
           sessionDate={session.sessionDate}
           sections={uploadSections}
           sectionId={uploadFor.kind === "SECTION" ? uploadFor.sectionId : uploadFor.kind === "QUESTION" ? sectionOf(uploadFor.lineageId) : activeSection}
@@ -1200,7 +1241,7 @@ export function SessionWorkspace({ id }: { id: string }) {
         {text && !typing[q.lineageId] ? (
           <button
             type="button"
-            aria-label={`${qs("typeAnAnswer")}: ${q.displayCode}`}
+            aria-label={qs("openTypedAnswer", { code: q.displayCode })}
             className="flex min-h-11 max-w-full items-center text-left text-sm text-ink-500"
             onClick={() => setTyping((held) => ({ ...held, [q.lineageId]: true }))}
             data-typed-preview={q.lineageId}
@@ -1405,6 +1446,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                                 code={q.displayCode}
                                 recordBy={recordBy}
                                 hide={recording ? ["record", "upload"] : []}
+                                extra={profileFields.has(q.lineageId) && session.participants.length > 0 ? ["prefill"] : []}
                                 onAction={(action) => questionAction(s.id, q, action)}
                               />
                             ) : null}

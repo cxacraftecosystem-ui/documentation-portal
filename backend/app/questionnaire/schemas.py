@@ -313,10 +313,18 @@ class Session(Strict):
     progress: SessionProgress | None = None
 
 
+class SessionTotals(Strict):
+    all: int
+    open: int
+    finished: int
+
+
 class SessionList(Strict):
     items: list[Session]
     nextCursor: str | None
     capped: bool
+    state: str = "all"
+    totals: SessionTotals | None = None
 
 
 class OpenMatchItem(Strict):

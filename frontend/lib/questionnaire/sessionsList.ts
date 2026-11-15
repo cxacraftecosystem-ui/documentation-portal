@@ -1,4 +1,4 @@
-import type { Session, SessionDetail } from "@/lib/questionnaire/api";
+import type { Session, SessionDetail, SessionListState, SessionTotals } from "@/lib/questionnaire/api";
 import { languageLabel } from "@/lib/questionnaire/languages";
 import { qs } from "@/lib/questionnaire/qs";
 
@@ -7,6 +7,8 @@ export type SessionStatus = "ALL" | "OPEN" | "FINISHED";
 export const SESSION_STATUSES: readonly SessionStatus[] = ["ALL", "OPEN", "FINISHED"];
 
 export const STATUS_KEY = { ALL: "sessionsAll", OPEN: "sessionsOpen", FINISHED: "sessionsFinished" } as const;
+
+export const STATUS_PARAM: Record<SessionStatus, SessionListState> = { ALL: "all", OPEN: "open", FINISHED: "finished" };
 
 export const LIST_SHOWN = 20;
 
@@ -19,6 +21,10 @@ export function isFinished(session: Listed): boolean {
 export function statusCounts(items: Listed[]): Record<SessionStatus, number> {
   const finished = items.filter(isFinished).length;
   return { ALL: items.length, OPEN: items.length - finished, FINISHED: finished };
+}
+
+export function totalsCounts(totals: SessionTotals): Record<SessionStatus, number> {
+  return { ALL: totals.all, OPEN: totals.open, FINISHED: totals.finished };
 }
 
 export function byStatus<T extends Listed>(items: T[], status: SessionStatus): T[] {

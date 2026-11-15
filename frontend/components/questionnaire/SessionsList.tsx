@@ -12,7 +12,7 @@ import { AnchoredPopover } from "@/components/ui/AnchoredPopover";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { formatDate } from "@/lib/format";
-import { questionnaireApi, type Session } from "@/lib/questionnaire/api";
+import { questionnaireApi, type Session, type SessionTotals } from "@/lib/questionnaire/api";
 import { coverageCell } from "@/lib/questionnaire/view";
 import { FilterBar } from "@/components/questionnaire/FilterBar";
 import { OutboxTray } from "@/components/questionnaire/OutboxTray";
@@ -34,7 +34,9 @@ import {
   sectionsDone,
   sessionHref,
   STATUS_KEY,
+  STATUS_PARAM,
   statusCounts,
+  totalsCounts,
   subLine,
   todayLocal,
   type ContinuePoint,
@@ -43,7 +45,6 @@ import {
 import { FORMS_HREF, listWorkshops } from "@/lib/questionnairePortal";
 
 const PAGE_LIMIT = 100;
-const MAX_PAGES = 20;
 
 const PILL = "inline-flex min-h-11 items-center rounded-md border px-4 text-sm font-medium transition-colors";
 const PILL_ON = "border-purple-700 bg-purple-50 text-purple-800 dark:border-purple-400 dark:bg-purple-950/40 dark:text-purple-200";
@@ -57,7 +58,10 @@ export function SessionsList({ fixed, embedded = false }: { fixed?: Filters; emb
   const [deleted, setDeleted] = useState(false);
   const [items, setItems] = useState<Session[] | null>(null);
   const [done, setDone] = useState(false);
-  const [capped, setCapped] = useState(false);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [totals, setTotals] = useState<SessionTotals | null>(null);
+  const [loadingRest, setLoadingRest] = useState(false);
+  const [todayPool, setTodayPool] = useState<Session[]>([]);
   const [status, setStatus] = useState<SessionStatus>("ALL");
   const [expanded, setExpanded] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -69,35 +73,58 @@ export function SessionsList({ fixed, embedded = false }: { fixed?: Filters; emb
   const fixedKey = JSON.stringify(fixed ?? {});
   const hidden = Object.keys(fixed ?? {}) as FilterKey[];
 
+  const query = useCallback((current: Filters) => cleanFilters({ ...current, ...(JSON.parse(fixedKey) as Filters) }), [fixedKey]);
+
   const load = useCallback(
-    async (current: Filters) => {
+    async (current: Filters, wanted: SessionStatus) => {
       const mine = (generation.current += 1);
       setError(null);
       setDone(false);
       setExpanded(false);
-      let cursor: string | null = null;
-      let all: Session[] = [];
+      setLoadingRest(false);
       try {
-        for (let page = 0; page < MAX_PAGES; page += 1) {
-          const result = await questionnaireApi.sessions(cleanFilters({ ...current, ...(JSON.parse(fixedKey) as Filters) }), { cursor, limit: PAGE_LIMIT, deleted });
-          if (mine !== generation.current) return;
-          all = page === 0 ? result.items : [...all, ...result.items];
-          cursor = result.nextCursor;
-          setItems(all);
-          if (!cursor) break;
-        }
-        setCapped(Boolean(cursor));
+        const result = await questionnaireApi.sessions(query(current), { limit: LIST_SHOWN, deleted, state: STATUS_PARAM[wanted] });
+        if (mine !== generation.current) return;
+        setItems(result.items);
+        setCursor(result.nextCursor);
+        setTotals(result.totals ?? null);
+        if (wanted !== "FINISHED") setTodayPool(result.items);
         setDone(true);
       } catch {
         if (mine === generation.current) setError(qs("listLoadError"));
       }
     },
-    [deleted, fixedKey]
+    [deleted, query]
+  );
+
+  const loadRest = useCallback(
+    async (current: Filters, wanted: SessionStatus, from: string | null, have: Session[]) => {
+      if (!from) return;
+      const mine = generation.current;
+      setLoadingRest(true);
+      let next: string | null = from;
+      let all = have;
+      try {
+        while (next) {
+          const result = await questionnaireApi.sessions(query(current), { cursor: next, limit: PAGE_LIMIT, deleted, state: STATUS_PARAM[wanted] });
+          if (mine !== generation.current) return;
+          all = [...all, ...result.items];
+          next = result.nextCursor;
+          setItems(all);
+          setCursor(next);
+        }
+      } catch {
+        if (mine === generation.current) setError(qs("listLoadError"));
+      } finally {
+        if (mine === generation.current) setLoadingRest(false);
+      }
+    },
+    [deleted, query]
   );
 
   useEffect(() => {
-    if (ready) void load(filters);
-  }, [ready, filters, load]);
+    if (ready) void load(filters, status);
+  }, [ready, filters, status, load]);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,16 +139,21 @@ export function SessionsList({ fixed, embedded = false }: { fixed?: Filters; emb
   }, []);
 
   const all = useMemo(() => items ?? [], [items]);
-  const counts = statusCounts(all);
+  const counts = totals ? totalsCounts(totals) : statusCounts(all);
   const filtered = byStatus(all, status);
-  const hasHidden = filtered.length > LIST_SHOWN;
+  const total = totals ? counts[status] : filtered.length;
+  const hasHidden = total > LIST_SHOWN || Boolean(cursor);
   const shown = expanded ? filtered : filtered.slice(0, LIST_SHOWN);
-  const { wantsMore } = useListPlace(expanded ? 2 : 1, items !== null && done, !hasHidden || expanded);
+  const showAll = useCallback(() => {
+    setExpanded(true);
+    void loadRest(filters, status, cursor, all);
+  }, [loadRest, filters, status, cursor, all]);
+  const { wantsMore } = useListPlace(expanded ? 2 : 1, items !== null && done && !loadingRest, !hasHidden || (expanded && !cursor));
   useEffect(() => {
-    if (done && !expanded && hasHidden && wantsMore(1)) setExpanded(true);
-  }, [done, expanded, hasHidden, wantsMore]);
+    if (done && !expanded && hasHidden && wantsMore(1)) showAll();
+  }, [done, expanded, hasHidden, wantsMore, showAll]);
 
-  const today = useMemo(() => (deleted ? null : openToday(all, todayLocal(), user?.id ?? null)), [all, deleted, user?.id]);
+  const today = useMemo(() => (deleted ? null : openToday(todayPool, todayLocal(), user?.id ?? null)), [todayPool, deleted, user?.id]);
   const filtering = Object.keys(cleanFilters({ ...filters })).length > 0 || status !== "ALL";
 
   return (
@@ -208,7 +240,7 @@ export function SessionsList({ fixed, embedded = false }: { fixed?: Filters; emb
           </div>
           {filtered.length ? (
             <span className="text-[13px] text-ink-500" data-showing>
-              {qs("showingOf", { shown: shown.length, total: filtered.length })}
+              {qs("showingOf", { shown: shown.length, total })}
             </span>
           ) : null}
         </div>
@@ -218,7 +250,7 @@ export function SessionsList({ fixed, embedded = false }: { fixed?: Filters; emb
         <div className="panel grid gap-3 p-4 text-center">
           <p className="text-sm text-ink-700">{error}</p>
           <ButtonRow>
-            <button type="button" className="field-button" onClick={() => void load(filters)}>
+            <button type="button" className="field-button" onClick={() => void load(filters, status)}>
               {qs("tryAgain")}
             </button>
           </ButtonRow>
@@ -235,16 +267,15 @@ export function SessionsList({ fixed, embedded = false }: { fixed?: Filters; emb
               session={s}
               workshopNames={workshopNames}
               deleted={deleted}
-              onRestore={() => void questionnaireApi.restoreSession(s.id).then(() => load(filters))}
+              onRestore={() => void questionnaireApi.restoreSession(s.id).then(() => load(filters, status))}
             />
           ))}
         </ul>
       )}
-      {capped ? <p className="mt-2 text-sm text-ink-500">{qs("listCapped", { count: all.length })}</p> : null}
       {hasHidden && !expanded ? (
         <ButtonRow className="mt-4">
-          <button type="button" className="field-button-secondary rounded-full" onClick={() => setExpanded(true)} data-show-all-sessions>
-            {qs("showAll", { count: filtered.length })}
+          <button type="button" className="field-button-secondary rounded-full" onClick={showAll} data-show-all-sessions>
+            {qs("showAll", { count: total })}
           </button>
         </ButtonRow>
       ) : null}

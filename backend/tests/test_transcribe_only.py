@@ -336,3 +336,45 @@ def test_the_neutral_notice_shows_only_while_english_is_missing() -> None:
 )
 def test_turns_read_not_translated_whenever_no_translation_is_coming(translating, job, expected) -> None:
     assert transcript_pipeline.manual_only(translating, job) is expected
+
+
+def test_the_general_settings_route_audits_a_mode_change_and_stops_queued_translations(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from app.api.routes import settings as settings_route
+
+    current = {"mode": "REFINED_TRANSLATED"}
+    stopped: list[Any] = []
+
+    async def load(_by: Any = None) -> Any:
+        return _row(current["mode"])
+
+    async def update(*, where: Any, data: dict[str, Any]) -> Any:
+        current["mode"] = data.get("transcriptionMode", current["mode"])
+        return _row(current["mode"])
+
+    async def stop(*, job_id: Any = None) -> int:
+        stopped.append(job_id)
+        return 4
+
+    monkeypatch.setattr(settings_route, "get_or_create_app_settings", load)
+    monkeypatch.setattr(settings_route, "db", SimpleNamespace(appsetting=SimpleNamespace(update=update)))
+    monkeypatch.setattr(transcript_pipeline, "stop_automatic_translation", stop)
+    transcript_backfill._estimate_cache.update(value={"costUsd": 9.0}, at=0.0)
+    user = SimpleNamespace(id="admin1", email="admin@example.org")
+    with caplog.at_level(logging.WARNING):
+        asyncio.run(settings_route.update_app_settings(settings_route.AppSettingUpdate(transcriptionMode="RAW"), user))
+    assert stopped == [None], "an old app switching to transcribe only stops queued automatic translations at once"
+    assert transcript_backfill._estimate_cache == {}
+    assert any(
+        "transcriptionMode=REFINED_TRANSLATED->RAW" in r.getMessage() and "stoppedTranslations=4" in r.getMessage() and "admin@example.org" in r.getMessage()
+        for r in caplog.records
+    )
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        asyncio.run(settings_route.update_app_settings(settings_route.AppSettingUpdate(transcriptionMode="RAW"), user))
+    assert stopped == [None] and not any("AUDIT transcription-settings" in r.getMessage() for r in caplog.records), "saving the same mode is not a change"
+
+    asyncio.run(settings_route.update_app_settings(settings_route.AppSettingUpdate(transcriptionMode="REFINED_TRANSLATED"), user))
+    assert stopped == [None], "switching translation back on stops nothing"

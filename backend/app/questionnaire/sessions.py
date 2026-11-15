@@ -1021,11 +1021,14 @@ async def restore_session(session_id: str, user: Any, *, client: Any = None) -> 
     return await session_payload(db, session_id, user)
 
 
+SESSION_STATES = {"all": None, "open": "OPEN", "finished": "CLOSED"}
+
+
 async def list_sessions(
     *, client: Any = None, workshopId: str | None = None, questionnaireId: str | None = None,
     artisanId: str | None = None, researcherId: str | None = None, dateFrom: Any = None, dateTo: Any = None,
     search: str | None = None, cursor: str | None = None, limit: int = 20, deleted: bool = False,
-    filters: Any = None, viewer: Any = None,
+    filters: Any = None, viewer: Any = None, state: str | None = None,
 ) -> dict[str, Any]:
     from app.questionnaire import filters as F
 
@@ -1040,6 +1043,21 @@ async def list_sessions(
     b = F.Sql()
     where = ['i."mergedIntoId" IS NULL', 'i."deletedAt" IS NOT NULL' if deleted else 'i."deletedAt" IS NULL']
     where += F.session_where(filters, b, alias="i")
+    wanted = (state or "all").strip().lower()
+    if wanted not in SESSION_STATES:
+        fail("VALIDATION_FAILED", "state must be one of all, open, finished.")
+    totals = None
+    if not cursor:
+        counted = await db.query_raw(
+            """SELECT count(*) AS "all", count(*) FILTER (WHERE i."state"::text = 'OPEN') AS "open", """
+            """count(*) FILTER (WHERE i."state"::text = 'CLOSED') AS "finished" FROM "QuestionnaireInterview" i WHERE """
+            + " AND ".join(where),
+            *b.params,
+        )
+        first = counted[0] if counted else {}
+        totals = {k: int(first.get(k) or 0) for k in ("all", "open", "finished")}
+    if SESSION_STATES[wanted]:
+        where.append(f'i."state"::text = {b.p(SESSION_STATES[wanted])}')
     if cursor:
         try:
             day, created, cid = cursor.split("|")
@@ -1061,7 +1079,10 @@ async def list_sessions(
         last = rows[-1]
         day = as_date(last.get("sessionDate"))
         next_cursor = f"{day.isoformat() if day else '1900-01-01'}|{naive_utc(aware(last['createdAt']))}|{last['id']}"
-    return {"items": await serialize_sessions(db, rows, viewer), "nextCursor": next_cursor, "capped": False, "filters": filters.echo()}
+    return {
+        "items": await serialize_sessions(db, rows, viewer), "nextCursor": next_cursor, "capped": False,
+        "filters": filters.echo(), "state": wanted, "totals": totals,
+    }
 
 
 async def open_match(*, questionnaire_id: str, workshop_id: str | None, artisan_ids: list[str], day: Any, client: Any = None) -> dict[str, Any]:

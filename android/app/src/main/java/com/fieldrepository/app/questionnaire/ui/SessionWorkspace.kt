@@ -105,6 +105,8 @@ import com.fieldrepository.app.questionnaire.data.QRespondentRegister
 import com.fieldrepository.app.questionnaire.data.QSession
 import com.fieldrepository.app.questionnaire.data.QSessionCreate
 import com.fieldrepository.app.questionnaire.data.QSessionDetail
+import com.fieldrepository.app.questionnaire.data.QSessionReview
+import com.fieldrepository.app.questionnaire.data.QShaLookupRequest
 import com.fieldrepository.app.questionnaire.data.QSnapshotTake
 import com.fieldrepository.app.questionnaire.data.QSubjects
 import com.fieldrepository.app.questionnaire.data.QTargetRef
@@ -351,8 +353,7 @@ fun SessionWorkspace(
     }.orEmpty()
     val people = headerParticipants.map { it.name }.filter { it.isNotBlank() }
     val headerTitle = when {
-        people.size == 1 -> people.single()
-        people.isNotEmpty() -> people.joinToString(", ") { QuestionnaireCopy.firstName(it) }
+        people.isNotEmpty() -> QuestionnaireCopy.namesLine(people)
         else -> title
     }
     val sessionDay = (detail?.sessionDate ?: frozen?.sessionDate)?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() }
@@ -360,7 +361,7 @@ fun SessionWorkspace(
     val language = (detail?.languageCode ?: frozen?.languageCode)?.let { code ->
         if (code == "other") detail?.languageOther ?: frozen?.languageOther else SharedLanguages.labels[code] ?: code
     }
-    val headerSubline = listOfNotNull(crafts.joinToString(", ").ifBlank { null }, language?.ifBlank { null }, sessionDay?.let(QuestionnaireCopy::day)).joinToString(" · ")
+    val headerSubline = listOfNotNull(crafts.joinToString(", ").ifBlank { null }, language?.ifBlank { null }, sessionDay?.let { QuestionnaireCopy.dayOrToday(it) }).joinToString(" · ")
     val joinQr = detail?.joinQr ?: unit?.let { u ->
         frozen?.let { f -> JoinQr.encode(JoinQrPayload(clientKey = u.clientKey, questionnaireId = u.questionnaireId, workshopId = u.workshopId, sessionDate = f.sessionDate, participants = QSubjects.artisans(participantIds))) }
     }
@@ -474,16 +475,11 @@ fun SessionWorkspace(
             return body?.sessionDate?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() } ?: LocalDate.now(Naming.IST)
         }
         if (uploadRows.any { it.file.sha256 == picked.sha256 }) return LocalDate.now(Naming.IST)
-        val u = unit ?: return null
-        val ids = QSubjects.artisans(participantIds)
-        val probe = instrument?.sections?.firstOrNull()?.let { QTargetRef(sectionId = it.id) } ?: return null
-        if (ids.isEmpty()) return null
         val response = withTimeoutOrNull(6_000) {
-            runCatching { v2.api.coverageCheck(QCoverageCheckRequest(u.questionnaireId, ids, listOf(probe), u.sessionId, picked.sha256)) }.getOrNull()
+            runCatching { v2.api.shaLookup(QShaLookupRequest(listOf(picked.sha256), unit?.sessionId)) }.getOrNull()
         } ?: return null
-        val identical = response.identical ?: return null
-        val elsewhere = identical.sessionId?.let { id -> runCatching { v2.api.sessionSummary(id) }.getOrNull() }
-        return elsewhere?.sessionDate?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() } ?: LocalDate.now(Naming.IST)
+        val match = response.items.firstOrNull { it.sha == picked.sha256 && !it.pending } ?: return null
+        return UploadPlan.uploadedDay(match.uploadedAt) ?: LocalDate.now(Naming.IST)
     }
 
     val pickLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -533,8 +529,16 @@ fun SessionWorkspace(
 
     ScrollOpenSectionToTop(listState, openSection, instrument?.sections?.indexOfFirst { it.id == openSection }?.takeIf { it >= 0 }?.let { WORKSPACE_LEAD_ITEMS + it })
 
+    var served by remember(clientKey) { mutableStateOf<QSessionReview?>(null) }
+    val reviewId = detail?.id ?: unit?.sessionId
+    LaunchedEffect(reviewing, reviewId) {
+        served = null
+        if (!reviewing || reviewId == null) return@LaunchedEffect
+        served = withTimeoutOrNull(6_000) { runCatching { v2.api.review(reviewId) }.getOrNull() }
+    }
+
     if (reviewing && instrument != null) {
-        val model = ReviewModel.of(instrument, evidence, people, pendingCount, trayRows)
+        val model = ReviewModel.of(instrument, evidence, people, pendingCount, trayRows, served)
         ReviewScreen(
             model = model, locked = locked,
             onBack = { reviewing = false },
@@ -1350,7 +1354,7 @@ internal fun QuestionRow(
         question.helpText?.ifBlank { null }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted) }
         if (typedPreview != null && !typing) Row(
             Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onOpenTyped)
-                .semantics(mergeDescendants = true) { contentDescription = QuestionnaireCopy.t("typedPreview", "text" to typedPreview) },
+                .semantics(mergeDescendants = true) { contentDescription = QuestionnaireCopy.t("openTypedAnswer", "code" to question.displayCode) },
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(Icons.Filled.Keyboard, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(18.dp))
@@ -1388,6 +1392,10 @@ internal fun AnswerEditor(
     var note by remember(question.lineageId, answerFor) { mutableStateOf("") }
     var noting by remember(question.lineageId) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).testTag("questionnaire.answer.${question.displayCode}"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            QuestionnaireCopy.t("answerTo", "code" to question.displayCode),
+            style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.field.body
+        )
         answerLines.forEach { a ->
             Text(
                 listOfNotNull(QuestionnaireCopy.firstName(nameOf(a.artisanId)) + ": " + a.text, a.badge).joinToString(" · "),

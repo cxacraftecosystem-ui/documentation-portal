@@ -56,6 +56,7 @@ export function uploadButtonLabel(count: number): string {
 }
 
 export function UploadSheet({
+  sessionId,
   sessionDate,
   sections,
   sectionId,
@@ -64,6 +65,7 @@ export function UploadSheet({
   onClose,
   onUpload
 }: {
+  sessionId: string | null;
   sessionDate: string | null;
   sections: UploadSection[];
   sectionId: string | null;
@@ -89,9 +91,9 @@ export function UploadSheet({
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
     let cancelled = false;
     questionnaireApi
-      .shaLookup(shaKey.split(","))
+      .shaLookup(shaKey.split(","), sessionId)
       .then((matches) => {
-        if (!cancelled) setFound({ key: shaKey, matches: matches.filter((m) => m.recordingId) });
+        if (!cancelled) setFound({ key: shaKey, matches: matches.filter((m) => !m.pending) });
       })
       .catch(() => undefined);
     return () => {

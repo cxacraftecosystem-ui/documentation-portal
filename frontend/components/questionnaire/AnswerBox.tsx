@@ -253,6 +253,9 @@ export function AnswerBox({
 
   return (
     <div className="mt-2 grid gap-2" data-answer-box={lineageId}>
+      <span className="text-xs font-semibold text-ink-700" data-answer-to>
+        {qs("answerTo", { code })}
+      </span>
       {subjects.length > 1 ? (
         <div className="flex flex-wrap items-center gap-2 text-sm text-ink-700">
           <span>{qs("answerFor")}</span>

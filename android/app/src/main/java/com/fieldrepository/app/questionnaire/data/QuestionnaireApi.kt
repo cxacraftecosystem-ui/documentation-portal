@@ -49,7 +49,8 @@ interface QuestionnaireApi {
     suspend fun sessionsFiltered(
         @QueryMap(encoded = true) filters: Map<String, String>,
         @Query("cursor") cursor: String? = null,
-        @Query("limit") limit: Int? = null
+        @Query("limit") limit: Int? = null,
+        @Query("state") state: String? = null
     ): QSessionList
 
     @GET("questionnaire/recordings")
@@ -155,6 +156,12 @@ interface QuestionnaireApi {
 
     @POST("questionnaire/sessions/continue")
     suspend fun continueSessions(@Header("Idempotency-Key") idempotencyKey: String, @Body body: QContinueRequest): QContinueResponse
+
+    @GET("questionnaire/sessions/{id}/review")
+    suspend fun review(@Path("id") id: String): QSessionReview
+
+    @POST("media/sha-lookup")
+    suspend fun shaLookup(@Body body: QShaLookupRequest): QShaLookup
 
     @POST("questionnaire/coverage/check")
     suspend fun coverageCheck(@Body body: QCoverageCheckRequest): QCoverageCheckResponse

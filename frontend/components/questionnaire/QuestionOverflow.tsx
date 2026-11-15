@@ -7,16 +7,17 @@ import { AnchoredPopover } from "@/components/ui/AnchoredPopover";
 import type { RecordBy } from "@/lib/questionnaire/api";
 import { qs } from "@/lib/questionnaire/qs";
 
-export type OverflowAction = "record" | "upload" | "type";
+export type OverflowAction = "record" | "upload" | "type" | "prefill";
 
 export function overflowActions(recordBy: RecordBy): OverflowAction[] {
   return recordBy === "QUESTION" ? ["type"] : ["record", "upload", "type"];
 }
 
-const LABEL: Record<OverflowAction, "recordThisQuestion" | "uploadForThisQuestion" | "typeAnAnswer"> = {
+const LABEL: Record<OverflowAction, "recordThisQuestion" | "uploadForThisQuestion" | "typeAnAnswer" | "fillFromProfile"> = {
   record: "recordThisQuestion",
   upload: "uploadForThisQuestion",
-  type: "typeAnAnswer"
+  type: "typeAnAnswer",
+  prefill: "fillFromProfile"
 };
 
 export function QuestionOverflow({
@@ -24,17 +25,19 @@ export function QuestionOverflow({
   recordBy,
   onAction,
   disabled = false,
-  hide = []
+  hide = [],
+  extra = []
 }: {
   code: string;
   recordBy: RecordBy;
   onAction: (action: OverflowAction) => void;
   disabled?: boolean;
   hide?: OverflowAction[];
+  extra?: OverflowAction[];
 }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement | null>(null);
-  const actions = overflowActions(recordBy).filter((a) => !hide.includes(a));
+  const actions = [...overflowActions(recordBy), ...extra].filter((a) => !hide.includes(a));
   if (!actions.length) return null;
   return (
     <>

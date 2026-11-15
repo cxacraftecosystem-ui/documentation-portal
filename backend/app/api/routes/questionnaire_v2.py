@@ -96,12 +96,12 @@ async def sessions_create(request: Request, user: Any = Depends(get_current_user
 @router.get("/sessions", dependencies=V2)
 async def sessions_list(
     request: Request, cursor: str | None = None, limit: int = Query(20, ge=1, le=100), deleted: bool = False,
-    user: Any = Depends(get_current_user),
+    state: str | None = None, user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     if deleted and not authoring.may_list_deleted_sessions(user):
         fail("FORBIDDEN", "Only an admin can see deleted sessions.")
     return await sessions.list_sessions(
-        filters=filters.parse(request.query_params), cursor=cursor, limit=limit, deleted=deleted, viewer=user,
+        filters=filters.parse(request.query_params), cursor=cursor, limit=limit, deleted=deleted, viewer=user, state=state,
     )
 
 

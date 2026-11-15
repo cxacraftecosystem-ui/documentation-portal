@@ -62,7 +62,7 @@ test("@qf:Q5 progress counts questions: a section take answers every question on
   expect(p.sections.sB.marks.b2).toMatchObject({ kind: "QUESTION_TAKE", durationMs: 192_000 });
   expect(p.sections.sC).toMatchObject({ answered: 0, total: 1, inSectionTake: false });
   expect(sectionSubline(p.sections.sA)).toBe("3 of 3 · In the section take");
-  expect(sectionSubline(p.sections.sC)).toBe("1 questions");
+  expect(sectionSubline(p.sections.sC)).toBe("1 question");
   expect(sectionTone(p.sections.sA, false)).toBe("done");
   expect(sectionTone(p.sections.sC, true)).toBe("current");
 });
@@ -116,7 +116,7 @@ test("@qf:Q4 the upload dialog flags and skips a file already uploaded, counts o
     { key: "k2", sha: "bbb", duplicateOn: null as string | null },
     { key: "k3", sha: "ccc", duplicateOn: null as string | null }
   ];
-  const flagged = flagDuplicates(rows, [{ sha: "bbb", capturedAt: "2026-11-14T10:00:00Z" }], { ccc: "2026-11-13T09:00:00Z" }, "2026-11-15");
+  const flagged = flagDuplicates(rows, [{ sha: "bbb", uploadedAt: "2026-11-14T10:00:00Z" }], { ccc: "2026-11-13T09:00:00Z" }, "2026-11-15");
   expect(flagged).toEqual({ k2: "2026-11-14T10:00:00Z", k3: "2026-11-13T09:00:00Z" });
   const marked = rows.map((r) => ({ ...r, duplicateOn: flagged[r.key] ?? null }));
   expect(toUpload(marked).map((r) => r.key)).toEqual(["k1"]);
@@ -225,7 +225,7 @@ test("@qf:Q6 Review lists what is left per section and caps the list", () => {
     ["C", "Not asked · 1"]
   ]);
   expect(STILL_TO_ASK_SHOWN).toBe(5);
-  const served = stillToAsk([], p, { answered: 1, total: 6, stillToAsk: [{ sectionId: "sB", code: "B", title: "Family", lineages: ["b1"] }] });
+  const served = stillToAsk([], p, { sessionId: "s-1", answered: 1, total: 6, sectionsDone: 0, pendingUploads: 0, needsDecision: [], stillToAsk: [{ sectionId: "sB", code: "B", title: "Family", answered: 1, total: 2, lineages: ["b1"] }] });
   expect(served).toEqual([{ sectionId: "sB", code: "B", title: "Family", left: 1, total: 2 }]);
   expect(qs("reviewSummary", { sections: 3, names: "Meera", pending: 2 })).toBe("3 sections done for Meera. 2 takes still uploading.");
 });

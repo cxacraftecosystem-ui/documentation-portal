@@ -6,6 +6,7 @@ import com.fieldrepository.app.questionnaire.data.QAnswerResult
 import com.fieldrepository.app.questionnaire.data.QAnswersPut
 import com.fieldrepository.app.questionnaire.data.QRecording
 import com.fieldrepository.app.questionnaire.data.QSessionDetail
+import com.fieldrepository.app.questionnaire.data.QSessionReview
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.SessionStep
 import com.fieldrepository.app.questionnaire.data.SessionUnit
@@ -104,9 +105,20 @@ data class ReviewModel(
     companion object {
         const val FIRST_ROWS = 3
 
-        fun of(instrument: Instrument, evidence: SessionEvidence, names: List<String>, pending: Int, tray: List<TrayRow>): ReviewModel {
-            val tally = evidence.tally(instrument)
-            val decisions = evidence.decisions(instrument).map { code ->
+        fun of(
+            instrument: Instrument,
+            evidence: SessionEvidence,
+            names: List<String>,
+            pending: Int,
+            tray: List<TrayRow>,
+            served: QSessionReview? = null
+        ): ReviewModel {
+            val local = evidence.tally(instrument)
+            val tally = served?.let { s ->
+                if (s.answered >= local.answered) local.copy(answered = s.answered, total = s.total.takeIf { it > 0 } ?: local.total, sectionsDone = s.sectionsDone) else local
+            } ?: local
+            val codes = (evidence.decisions(instrument) + served?.needsDecision.orEmpty().flatMap { it.codes }).distinct()
+            val decisions = codes.map { code ->
                 NeedsYouRow("decide:$code", QuestionnaireCopy.t("hasTwoTakes", "code" to code), QuestionnaireCopy.t("chooseWhichToKeep"), QuestionnaireCopy.t("choose"), code = code)
             }
             val failed = tray.distinctBy { it.stepId }.map { row ->
@@ -117,9 +129,18 @@ data class ReviewModel(
                     NeedsYouRow("step:${row.stepId}", row.title, row.reason, if (row.sendAgain) QuestionnaireCopy.t("retry") else "", stepId = row.stepId)
                 }
             }
-            val still = instrument.sections.map { it to evidence.section(it) }.filter { !it.second.done }.map { StillToAskRow(it.first, it.second) }
+            val still = if (served != null) {
+                served.stillToAsk.mapNotNull { row ->
+                    val section = instrument.section(row.sectionId) ?: return@mapNotNull null
+                    if (evidence.section(section).done) return@mapNotNull null
+                    StillToAskRow(section, SectionStatus(section.id, row.answered, row.total, inSectionTake = false, typedOnly = false))
+                }
+            } else {
+                instrument.sections.map { it to evidence.section(it) }.filter { !it.second.done }.map { StillToAskRow(it.first, it.second) }
+            }
             val summary = QuestionnaireCopy.t(
-                "reviewSummary", "sections" to tally.sectionsDone, "names" to names.joinToString(", ").ifBlank { "—" }, "pending" to pending
+                "reviewSummary", "sections" to tally.sectionsDone, "names" to names.joinToString(", ").ifBlank { "—" },
+                "pending" to maxOf(pending, served?.pendingUploads ?: 0)
             )
             return ReviewModel(tally, summary, decisions + failed, still)
         }

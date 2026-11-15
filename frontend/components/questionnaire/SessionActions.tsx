@@ -300,27 +300,68 @@ export function SessionPeople({
   onAddArtisan?: () => void;
 }) {
   const { panel, setPanel, error, busy, run } = useRunner(onChanged);
+  const [adding, setAdding] = useState(false);
+  const addRef = useRef<HTMLButtonElement | null>(null);
   const guests = (session.respondents ?? []).filter((r) => !r.artisanId);
   const saved = session.version > 0;
   const live = session.state === "OPEN";
+  const canAddArtisan = live && Boolean(onAddArtisan);
+  const canAddGuest = live && saved;
   return (
-    <section className="grid gap-2" aria-label={qs("present")} data-session-people>
+    <section className="grid gap-2" aria-label={qs("people")} data-session-people>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="field-label">{qs("people")}</h2>
+        {canAddArtisan || canAddGuest ? (
+          <button
+            ref={addRef}
+            type="button"
+            className="min-h-11 text-sm font-semibold text-purple-700 dark:text-purple-300"
+            aria-haspopup="menu"
+            aria-expanded={adding}
+            onClick={() => setAdding((v) => !v)}
+            data-add-people
+          >
+            {qs("addPeople")}
+          </button>
+        ) : null}
+      </div>
+      <AnchoredPopover open={adding} onClose={() => setAdding(false)} anchorRef={addRef} label={qs("addPeople")} className="w-56 p-1">
+        <div role="menu" aria-label={qs("addPeople")} className="grid">
+          {canAddArtisan ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="flex min-h-11 w-full items-center rounded-md px-3 text-left text-sm text-ink-900 hover:bg-field-100"
+              onClick={() => {
+                setAdding(false);
+                onAddArtisan?.();
+              }}
+              data-add-artisan-link
+            >
+              {qs("addArtisan")}
+            </button>
+          ) : null}
+          {canAddGuest ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="flex min-h-11 w-full items-center rounded-md px-3 text-left text-sm text-ink-900 hover:bg-field-100"
+              onClick={() => {
+                setAdding(false);
+                setPanel("guest");
+              }}
+            >
+              {qs("addGuest")}
+            </button>
+          ) : null}
+        </div>
+      </AnchoredPopover>
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         {session.participants.map((p) => (
           <div key={p.artisanId} className="min-w-0">
             <Toggle label={p.name} description={p.leftAt ? qs("away") : qs("present")} checked={!p.leftAt} disabled={!live} onChange={(present) => onPresence?.(p.artisanId, present)} />
           </div>
         ))}
-        {live && onAddArtisan ? (
-          <button type="button" className="min-h-11 text-sm font-semibold text-purple-700 underline dark:text-purple-300" onClick={onAddArtisan} data-add-artisan-link>
-            {qs("addArtisan")}
-          </button>
-        ) : null}
-        {live && saved ? (
-          <button type="button" className="min-h-11 text-sm font-semibold text-purple-700 underline dark:text-purple-300" onClick={() => setPanel("guest")}>
-            {qs("addGuest")}
-          </button>
-        ) : null}
       </div>
       {guests.length ? (
         <ul className="grid gap-2" aria-label={qs("guests")}>

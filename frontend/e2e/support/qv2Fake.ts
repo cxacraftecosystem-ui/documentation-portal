@@ -442,14 +442,19 @@ export class QuestionnaireFake {
       const typed = new Set(this.answers.filter((a) => String(a.text ?? "").trim()).map((a) => String(a.questionLineageId)));
       const sectionTaken = new Set(this.recordings.filter((r) => !r.removedAt).flatMap((r) => (r.targets as Json[]).map((t) => t.sectionId)).filter(Boolean));
       const stillToAsk = FORM.sections
-        .map((sec) => ({ sectionId: sec.id, code: sec.code, title: sec.title, lineages: sectionTaken.has(sec.id) ? [] : sec.questions.map((q) => q.lineageId).filter((l) => !typed.has(l)) }))
+        .map((sec) => {
+          const lineages = sectionTaken.has(sec.id) ? [] : sec.questions.map((q) => q.lineageId).filter((l) => !typed.has(l));
+          return { sectionId: sec.id, code: sec.code, title: sec.title, answered: sec.questions.length - lineages.length, total: sec.questions.length, lineages };
+        })
         .filter((row) => row.lineages.length);
       const total = FORM.sections.reduce((n, sec) => n + sec.questions.length, 0);
-      return { status: 200, json: { answered: total - stillToAsk.reduce((n, row) => n + row.lineages.length, 0), total, needsDecision: [], stillToAsk } };
+      const sectionsDone = FORM.sections.length - stillToAsk.length;
+      return { status: 200, json: { sessionId: m[1], answered: total - stillToAsk.reduce((n, row) => n + row.lineages.length, 0), total, sectionsDone, pendingUploads: 0, needsDecision: [], stillToAsk } };
     }
     if (path === "/media/sha-lookup" && method === "POST") {
       const shas = ((body as Json)?.sha256s as string[]) ?? [];
-      return { status: 200, json: shas.filter((sha) => this.uploadedShas[sha]).map((sha) => ({ sha, recordingId: "rec-1", sessionId: "s-1", sameSession: true, capturedAt: this.uploadedShas[sha] })) };
+      const sessionId = ((body as Json)?.sessionId as string | null) ?? null;
+      return { status: 200, json: { items: shas.filter((sha) => this.uploadedShas[sha]).map((sha) => ({ sha, recordingId: "rec-1", sessionId: "s-1", sameSession: sessionId === "s-1", uploadedAt: this.uploadedShas[sha], pending: false })) } };
     }
     if (path === "/questionnaire/sessions/continue") return { status: 200, json: { sessions: [session("s-next")], firstGap: {} } };
     if (path === "/questionnaire/coverage/snapshot") return { status: 200, json: { asOfSeq: "1", takes: [], removedRecordingIds: [] } };

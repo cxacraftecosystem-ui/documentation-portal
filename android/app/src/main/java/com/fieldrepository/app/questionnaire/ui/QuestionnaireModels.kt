@@ -205,7 +205,7 @@ data class SectionStatus(val sectionId: String, val answered: Int, val total: In
     }
 
     fun subline(): String {
-        if (answered == 0) return QuestionnaireCopy.t("questionCount", "count" to total)
+        if (answered == 0) return QuestionnaireCopy.questionCount(total)
         val count = QuestionnaireCopy.t("answeredOfTotal", "answered" to answered, "total" to total)
         return when {
             inSectionTake -> count + " · " + QuestionnaireCopy.t("inSectionTake")

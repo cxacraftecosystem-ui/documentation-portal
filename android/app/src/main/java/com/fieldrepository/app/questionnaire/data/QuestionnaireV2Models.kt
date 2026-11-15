@@ -215,7 +215,6 @@ data class QSessionCounts(
 )
 
 @Serializable
-<<<<<<< HEAD
 data class QSectionProgress(
     val sectionId: String,
     val answeredQuestions: Int = 0,
@@ -231,12 +230,6 @@ data class QSessionProgress(
 ) {
     fun section(sectionId: String): QSectionProgress? = sections.firstOrNull { it.sectionId == sectionId }
 }
-=======
-data class QSectionProgress(val sectionId: String, val answeredQuestions: Int = 0, val totalQuestions: Int = 0, val inSectionTake: Boolean = false)
-
-@Serializable
-data class QSessionProgress(val answeredQuestions: Int = 0, val totalQuestions: Int = 0, val sections: List<QSectionProgress> = emptyList())
->>>>>>> origin/qv5/android-session
 
 @Serializable
 data class QSession(
@@ -330,7 +323,56 @@ data class QSessionDetail(
 }
 
 @Serializable
-data class QSessionList(val items: List<QSession> = emptyList(), val nextCursor: String? = null, val capped: Boolean = false)
+data class QSessionList(
+    val items: List<QSession> = emptyList(),
+    val nextCursor: String? = null,
+    val capped: Boolean = false,
+    val state: String = "all",
+    val totals: QSessionTotals? = null
+)
+
+@Serializable
+data class QSessionTotals(val all: Int = 0, val open: Int = 0, val finished: Int = 0)
+
+@Serializable
+data class QShaLookupRequest(val sha256s: List<String>, val sessionId: String? = null)
+
+@Serializable
+data class QShaMatch(
+    val sha: String,
+    val recordingId: String? = null,
+    val sessionId: String? = null,
+    val sameSession: Boolean = false,
+    val uploadedAt: String? = null,
+    val pending: Boolean = false
+)
+
+@Serializable
+data class QShaLookup(val items: List<QShaMatch> = emptyList())
+
+@Serializable
+data class QReviewDecision(val recordingId: String, val capturedAt: String? = null, val codes: List<String> = emptyList())
+
+@Serializable
+data class QReviewSection(
+    val sectionId: String,
+    val code: String = "",
+    val title: String = "",
+    val answered: Int = 0,
+    val total: Int = 0,
+    val lineages: List<String> = emptyList()
+)
+
+@Serializable
+data class QSessionReview(
+    val sessionId: String = "",
+    val answered: Int = 0,
+    val total: Int = 0,
+    val sectionsDone: Int = 0,
+    val pendingUploads: Int = 0,
+    val needsDecision: List<QReviewDecision> = emptyList(),
+    val stillToAsk: List<QReviewSection> = emptyList()
+)
 
 @Serializable
 data class QOpenMatch(val items: List<QSession> = emptyList())
