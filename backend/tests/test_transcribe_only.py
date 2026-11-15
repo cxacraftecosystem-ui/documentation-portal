@@ -318,3 +318,21 @@ def test_the_neutral_notice_shows_only_while_english_is_missing() -> None:
     assert on["notice"] is None
     declined = transcript_pipeline.english_state(None, rows, None, declined=True, may_add=True, manual_only=True)
     assert declined["notice"] == transcript_pipeline.NOTICE_DECLINED
+
+
+@pytest.mark.parametrize(
+    ("translating", "job", "expected"),
+    [
+        (False, None, True),
+        (False, "COMPLETED", True),
+        (False, "QUEUED", False),
+        (False, "PROCESSING", False),
+        (True, None, True),
+        (True, "CANCELLED", True),
+        (True, "QUEUED", False),
+        (True, "COMPLETED", False),
+        (True, "FAILED", False),
+    ],
+)
+def test_turns_read_not_translated_whenever_no_translation_is_coming(translating, job, expected) -> None:
+    assert transcript_pipeline.manual_only(translating, job) is expected

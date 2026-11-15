@@ -614,7 +614,7 @@ test.describe("media transcription choice", () => {
     const video = choices.locator('[data-file="loom-demo.mp4"]');
     await expect(video).toBeChecked();
     await expect(video).toBeDisabled();
-    await expect(choices.getByTestId("transcribe-auto-note")).toHaveText("Every new video is transcribed and translated. An admin set this.");
+    await expect(choices.getByTestId("transcribe-auto-note")).toHaveText("Every new video is transcribed. An admin set this.");
     const audio = choices.locator('[data-file="artisan-talk.m4a"]');
     await expect(audio).not.toBeChecked();
     await expect(audio).toBeEnabled();

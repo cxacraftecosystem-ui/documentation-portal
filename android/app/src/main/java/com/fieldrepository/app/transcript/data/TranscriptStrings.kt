@@ -118,9 +118,9 @@ object TranscriptStrings {
     const val offlineCached = "Saved for offline reading"
     const val uploadTranscribe = "Transcribe and translate"
     const val uploadTranscribeAll = "Transcribe and translate all"
-    const val uploadAutoVideo = "Every new video is transcribed and translated. An admin set this."
-    const val uploadAutoAudio = "Every new recording is transcribed and translated. An admin set this."
-    const val uploadAutoBoth = "Every new recording and video is transcribed and translated. An admin set this."
+    const val uploadAutoVideo = "Every new video is transcribed. An admin set this."
+    const val uploadAutoAudio = "Every new recording is transcribed. An admin set this."
+    const val uploadAutoBoth = "Every new recording and video is transcribed. An admin set this."
     const val settingsModeTitle = "After transcription"
     const val settingsModeTranslate = "Transcribe and translate"
     const val settingsModeTranslateHint = "English, a summary and quotes are made for every transcript."
@@ -282,9 +282,9 @@ object TranscriptStrings {
         "offlineCached" to "Saved for offline reading",
         "uploadTranscribe" to "Transcribe and translate",
         "uploadTranscribeAll" to "Transcribe and translate all",
-        "uploadAutoVideo" to "Every new video is transcribed and translated. An admin set this.",
-        "uploadAutoAudio" to "Every new recording is transcribed and translated. An admin set this.",
-        "uploadAutoBoth" to "Every new recording and video is transcribed and translated. An admin set this.",
+        "uploadAutoVideo" to "Every new video is transcribed. An admin set this.",
+        "uploadAutoAudio" to "Every new recording is transcribed. An admin set this.",
+        "uploadAutoBoth" to "Every new recording and video is transcribed. An admin set this.",
         "settingsModeTitle" to "After transcription",
         "settingsModeTranslate" to "Transcribe and translate",
         "settingsModeTranslateHint" to "English, a summary and quotes are made for every transcript.",

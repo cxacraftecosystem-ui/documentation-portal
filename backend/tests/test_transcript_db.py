@@ -181,7 +181,9 @@ def test_the_pipeline_end_to_end_on_a_real_database(wired: Any) -> None:
             assert set(view) == set(CONTRACT["types"]["TranscriptView"])
             assert all(set(t) == set(CONTRACT["types"]["Turn"]) for t in view["turns"])
             assert view["status"] == "READY" and view["cost"] is None, "cost is for admins"
-            assert [t["translation"]["status"] for t in view["turns"]] == ["PENDING", "PENDING", "ALREADY_ENGLISH", "PENDING"]
+            assert [t["translation"]["status"] for t in view["turns"]] == [
+                "NOT_REQUESTED", "NOT_REQUESTED", "ALREADY_ENGLISH", "NOT_REQUESTED"
+            ], "no translation job, so never 'Translating'"
             assert view["badges"] == [], "the model names are for administrators only"
             assert all(s["sample"] and s["sample"]["endMs"] - s["sample"]["startMs"] <= 8000 for s in view["speakers"])
             assert view["turns"][1]["lowConfidence"] == [[3, 7], [25, 29]]
@@ -803,11 +805,15 @@ def test_an_old_transcript_under_transcribe_only_queues_nothing_and_turning_it_b
             assert await _insight_jobs(media.id) == []
 
             await _set_mode("REFINED_TRANSLATED")
-            await pipeline.build_view(media, seed["researcher"])
+            back_on = await pipeline.build_view(media, seed["researcher"])
             await pipeline.render_doc(media)
             assert await _insight_jobs(media.id) == [], "turning translation back on translates nothing by itself"
+            assert back_on["status"] == "READY" and back_on["englishNotice"] == "NOT_AUTOMATIC"
+            assert "PENDING" not in [t["translation"]["status"] for t in back_on["turns"]], "never 'Translating' for ever"
             applied = await sweep.sweep(apply=True, ids=[media.id])
             assert applied[sweep.QUEUED] == 1 and len(await _insight_jobs(media.id)) == 1, "the sweep is the deliberate way"
+            swept = await pipeline.build_view(media, seed["researcher"])
+            assert swept["status"] == "TRANSLATING" and swept["englishNotice"] is None
         finally:
             await _set_mode(before)
             await _cleanup(seed)

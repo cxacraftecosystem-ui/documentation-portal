@@ -398,7 +398,7 @@ async def transcribe_media_now(media: Any, settings: Settings | None = None) -> 
     finally:
         discard_temp(source_path)
     mode = transcription_mode(await load_app_settings())
-    if result.get("status") == "COMPLETED" and mode in {"REFINED", "REFINED_TRANSLATED"} and result.get("text"):
+    if result.get("status") == "COMPLETED" and mode == "REFINED_TRANSLATED" and result.get("text"):
         refined = await refine_transcript_text(result.get("text"), mode == "REFINED_TRANSLATED", settings)
         if refined.get("status") == "COMPLETED" and refined.get("refined"):
             result = {
@@ -615,7 +615,7 @@ async def _process_job(job: Any, settings: Settings) -> None:
         finally:
             discard_temp(source_path)
         mode = transcription_mode(await load_app_settings())
-        if result.get("status") == "COMPLETED" and mode in {"REFINED", "REFINED_TRANSLATED"} and result.get("text"):
+        if result.get("status") == "COMPLETED" and mode == "REFINED_TRANSLATED" and result.get("text"):
             refined = await refine_transcript_text(result.get("text"), mode == "REFINED_TRANSLATED", settings)
             if refined.get("status") == "COMPLETED" and refined.get("refined"):
                 result = {

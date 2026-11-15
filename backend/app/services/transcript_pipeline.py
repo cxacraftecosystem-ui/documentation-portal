@@ -845,7 +845,7 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
         media, version, sees_spend=sees_spend, translate=translating
     )
     declined = is_declined(version, tr_job)
-    manual = not translating and _job_status(tr_job) not in _OPEN_JOB_STATUSES
+    manual = manual_only(translating, _job_status(tr_job))
     english = english_state(
         version, turn_rows, row, declined=declined, may_add=edit, manual_only=manual
     )
@@ -1023,6 +1023,12 @@ def download_name(media: Any, context: dict[str, Any], fmt: str, track: str, *, 
 
 VERSION_LANGUAGES_KEY = "transcriptLanguages"
 _OPEN_JOB_STATUSES = {"QUEUED", "PROCESSING"}
+
+
+def manual_only(translating: bool, job_status: str | None) -> bool:
+    if job_status in _OPEN_JOB_STATUSES:
+        return False
+    return not translating or job_status in {None, "CANCELLED"}
 
 
 async def _merge_metadata(media_id: str, change: Any) -> None:
