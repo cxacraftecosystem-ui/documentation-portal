@@ -210,7 +210,7 @@ private fun TakeLine(r: QRecording, open: Boolean, name: String, full: Boolean, 
         if (r.mediaFileId != null) TextButton(onClick = { transcript = true }) { Text(TranscriptUiText.open, style = MaterialTheme.typography.labelSmall) }
         if (r.mediaFileId != null) TakePlayDot(active = open)
     }
-    val take = r.mediaFileId?.let { InPlaceTake(r.id, it, r.id, ArtisanTimeline.targetsLabel(r.targets), dayAndTime(r.capturedAt), r.durationMs) }
+    val take = r.mediaFileId?.let { InPlaceTake(r.id, it, r.id, ArtisanTimeline.targetsLabel(r.targets), dayAndTime(r.capturedAt), r.durationMs, mediaType = r.mediaType) }
     if (open && take != null) TakePreview(take, name, full, onFull, fullButton = true)
     r.transcript?.shownPreview()?.let { com.fieldrepository.app.transcript.ui.TranscriptPreviewText(it, maxLines = 2) }
     RecordingChips(r.chips, onChip = QuestionnaireV2Nav::openRecordings)

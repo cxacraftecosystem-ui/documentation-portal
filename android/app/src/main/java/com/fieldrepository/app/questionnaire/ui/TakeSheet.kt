@@ -48,12 +48,13 @@ data class TakeRow(
     val canPropose: Boolean = false,
     val mediaFileId: String? = null,
     val localPath: String? = null,
-    val durationMs: Long = 0
+    val durationMs: Long = 0,
+    val mediaType: String = "AUDIO"
 ) {
     fun inPlace(): InPlaceTake? = when {
         removed -> null
-        local -> if (localPath == null) null else InPlaceTake(recordingId, recordingId, null, first, second.ifBlank { null }, durationMs, localPath)
-        mediaFileId != null -> InPlaceTake(recordingId, mediaFileId, recordingId, first, second.ifBlank { null }, durationMs)
+        local -> if (localPath == null) null else InPlaceTake(recordingId, recordingId, null, first, second.ifBlank { null }, durationMs, localPath, mediaType)
+        mediaFileId != null -> InPlaceTake(recordingId, mediaFileId, recordingId, first, second.ifBlank { null }, durationMs, mediaType = mediaType)
         else -> null
     }
 }

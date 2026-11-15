@@ -104,6 +104,20 @@ class TakesInPlaceTest {
         assertFalse(entry.transcriptAvailable)
     }
 
+    @Test fun `a video take opens in the explorer's video stage, uploaded, on the phone or from the take sheet`() {
+        val server = InPlaceTakes.question("q1", listOf(rec("r1", "Q:q1", "2026-11-15T05:12:00Z", 60_000).copy(mediaType = "VIDEO")), emptyList()).single()
+        val entry = InPlaceTakes.entry(server, "E2")
+        assertEquals(ExplorerAudioExpand.entry("m-r1", "E2").copy(mediaType = "VIDEO"), entry)
+        assertEquals("/api/data/media/m-r1/preview", ExplorerPaths.preview(entry))
+        val onPhone = InPlaceTakes.section("s1", emptyList(), listOf(clip("c1", "S:s1", "2026-11-15T05:12:00Z", 30_000).copy(contentType = "video/mp4"))).single()
+        assertEquals("VIDEO", InPlaceTakes.entry(onPhone, "Section E").mediaType)
+        assertEquals("AUDIO", InPlaceTakes.entry(InPlaceTakes.section("s1", emptyList(), listOf(clip("c2", "S:s1", "2026-11-15T05:12:00Z", 30_000).copy(contentType = "audio/mp4"))).single(), "Section E").mediaType)
+        val row = TakeRow("r1", 1, "Take 1  1 min", "Solo", null, local = false, removable = false, mediaFileId = "m1", durationMs = 60_000, mediaType = "VIDEO")
+        assertEquals("VIDEO", InPlaceTakes.entry(row.inPlace()!!, "E2").mediaType)
+        assertEquals("VIDEO", InPlaceTakes.mediaTypeOf("Video/MP4"))
+        assertEquals("AUDIO", InPlaceTakes.mediaTypeOf(null))
+    }
+
     @Test fun `one take is open at a time and the open key names its place`() {
         val takes = InPlaceTakes.section(
             "s1",

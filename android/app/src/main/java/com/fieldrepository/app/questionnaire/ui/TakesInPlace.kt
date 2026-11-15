@@ -68,17 +68,20 @@ data class InPlaceTake(
     val title: String,
     val subtitle: String?,
     val durationMs: Long,
-    val localPath: String? = null
+    val localPath: String? = null,
+    val mediaType: String = "AUDIO"
 ) {
     val local: Boolean get() = recordingId == null
 }
 
-data class LocalClip(val take: OverlayTake, val line: String, val path: String?)
+data class LocalClip(val take: OverlayTake, val line: String, val path: String?, val contentType: String? = null)
 
 object InPlaceTakes {
     private const val LOCAL = "local:"
 
     fun localKey(clientClipKey: String): String = LOCAL + clientClipKey
+
+    fun mediaTypeOf(contentType: String?): String = if (contentType?.lowercase()?.startsWith("video/") == true) "VIDEO" else "AUDIO"
 
     fun whenLine(capturedAt: String?): String? = capturedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }?.let {
         QuestionnaireCopy.day(it.atZone(Naming.IST).toLocalDate()) + " · " + QuestionnaireCopy.clock(it)
@@ -98,10 +101,10 @@ object InPlaceTakes {
 
     private fun build(f: Found, title: String, subtitle: String?): InPlaceTake {
         val r = f.recording
-        if (r != null) return InPlaceTake(r.id, r.mediaFileId!!, r.id, title, subtitle, r.durationMs)
+        if (r != null) return InPlaceTake(r.id, r.mediaFileId!!, r.id, title, subtitle, r.durationMs, mediaType = r.mediaType)
         val clip = f.clip!!
         val key = localKey(clip.take.clientClipKey)
-        return InPlaceTake(key, key, null, title, subtitle, clip.take.durationMs, clip.path)
+        return InPlaceTake(key, key, null, title, subtitle, clip.take.durationMs, clip.path, mediaTypeOf(clip.contentType))
     }
 
     private fun duration(f: Found): Long = f.recording?.durationMs ?: f.clip?.take?.durationMs ?: 0L
@@ -127,8 +130,8 @@ object InPlaceTakes {
     }
 
     fun entry(take: InPlaceTake, name: String): ExplorerEntry =
-        if (!take.local) ExplorerAudioExpand.entry(take.mediaKey, name)
-        else ExplorerEntry(name = name, path = take.mediaKey, mediaId = take.mediaKey, mediaType = "AUDIO", previewPath = take.localPath?.let { File(it).toURI().toString() })
+        if (!take.local) ExplorerAudioExpand.entry(take.mediaKey, name).copy(mediaType = take.mediaType)
+        else ExplorerEntry(name = name, path = take.mediaKey, mediaId = take.mediaKey, mediaType = take.mediaType, previewPath = take.localPath?.let { File(it).toURI().toString() })
 
     fun openKey(scope: String, take: InPlaceTake): String = "$scope|${take.key}"
 

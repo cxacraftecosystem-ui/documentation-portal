@@ -381,7 +381,7 @@ fun SessionWorkspace(
     val localClips = remember(overlay, unit, sessionKeys) {
         overlay.filter { it.sessionKey in sessionKeys }.map { o ->
             val clip = unit?.steps?.firstOrNull { it.clip?.clientClipKey == o.clientClipKey }?.clip
-            LocalClip(o, if (o.uploading) OutboxTrayModel.uploadLine(clip?.uploadedPercent ?: 0) else QuestionnaireCopy.s("upload.onDevice"), clip?.localPath?.takeIf { File(it).isFile })
+            LocalClip(o, if (o.uploading) OutboxTrayModel.uploadLine(clip?.uploadedPercent ?: 0) else QuestionnaireCopy.s("upload.onDevice"), clip?.localPath?.takeIf { File(it).isFile }, clip?.contentType)
         }
     }
     val openMedia = InPlaceTakes.openMedia(openTake, liveRecordings, localClips)
@@ -890,7 +890,7 @@ fun SessionWorkspace(
                     val clip = unit?.steps?.firstOrNull { it.clip?.clientClipKey == o.clientClipKey }?.clip
                     TakeRow("local:${o.clientClipKey}", 0, QuestionnaireCopy.minutes(o.durationMs),
                         if (o.uploading) OutboxTrayModel.uploadLine(clip?.uploadedPercent ?: 0) else QuestionnaireCopy.s("upload.onDevice"), null, local = true, removable = false,
-                        localPath = clip?.localPath?.takeIf { File(it).isFile }, durationMs = o.durationMs)
+                        localPath = clip?.localPath?.takeIf { File(it).isFile }, durationMs = o.durationMs, mediaType = InPlaceTakes.mediaTypeOf(clip?.contentType))
                 } +
             removed.filter { r -> r.targets.any { it.targetKey in keys } && (artisanId == null || r.allSubjects.any { it.artisanId == artisanId }) }.map { r ->
                 TakeRow(r.id, 0, listOfNotNull(QuestionnaireCopy.minutes(r.durationMs), r.recordedBy?.name?.ifBlank { null }).joinToString("  "), "", null, local = false, removable = mayDelete, removed = true)
@@ -1566,7 +1566,8 @@ private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, 
         canMakePrimary = mayMakePrimary,
         canPropose = rec?.transcript?.status == "COMPLETED",
         mediaFileId = rec?.mediaFileId ?: foreignMedia,
-        durationMs = rec?.durationMs ?: t.durationMs
+        durationMs = rec?.durationMs ?: t.durationMs,
+        mediaType = rec?.mediaType ?: "AUDIO"
     )
 }
 

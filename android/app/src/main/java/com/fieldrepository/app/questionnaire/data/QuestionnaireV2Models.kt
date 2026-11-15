@@ -430,6 +430,7 @@ data class QConsentVerdict(val verdict: String = "AWAITING", val source: String?
 data class QRecording(
     val id: String,
     val mediaFileId: String? = null,
+    val mediaType: String = "AUDIO",
     val clientClipKey: String? = null,
     val sessionId: String? = null,
     val version: Int = 1,
