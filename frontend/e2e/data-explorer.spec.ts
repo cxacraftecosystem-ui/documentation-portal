@@ -1623,6 +1623,125 @@ test.describe("search reaches every record", () => {
   });
 });
 
+async function freshExplorer(browser: Browser) {
+  const context = await browser.newContext({ viewport: { width: DESKTOP.width, height: DESKTOP.height }, colorScheme: "light", serviceWorkers: "block" });
+  const fake = new DataExplorerFake();
+  await fake.install(context);
+  return { context, fake };
+}
+
+test.describe("a typed search is never lost", () => {
+  test("typing the moment Data opens, while the folders still load, still runs the search", async ({ browser }) => {
+    const { context, fake } = await freshExplorer(browser);
+    fake.searchCorpus = [{ type: "artisans", label: "Artisans", singular: "Artisan", total: 31 }];
+    const page = await context.newPage();
+    let openFolders: () => void = () => undefined;
+    const folders = new Promise<void>((resolve) => (openFolders = () => resolve()));
+    let openAddress: () => void = () => undefined;
+    const address = new Promise<void>((resolve) => (openAddress = () => resolve()));
+    let heldAddress = false;
+    const isSearchAddress = (url: URL) => url.pathname === "/data" && url.searchParams.get("sq") === "artisan" && url.searchParams.has("_rsc");
+    await page.route(
+      (url) => url.pathname.endsWith("/api/data/tree") || url.pathname.endsWith("/api/data/stats"),
+      async (route) => {
+        await folders;
+        await route.fallback();
+      }
+    );
+    await page.route(isSearchAddress, async (route) => {
+      if (heldAddress) return route.fallback();
+      heldAddress = true;
+      await address;
+      await route.fallback();
+    });
+    try {
+      await page.goto("/data");
+      const box = page.getByRole("searchbox", { name: "Search all data" });
+      const addressAsked = page.waitForRequest((request) => isSearchAddress(new URL(request.url())), { timeout: 10_000 }).catch(() => null);
+      await box.fill("artisan");
+      await addressAsked;
+      openFolders();
+      await expect(page).toHaveURL(/path=workshops/);
+      openAddress();
+      await expect(page.getByTestId("search-group-artisans")).toBeVisible();
+      await expect(box).toHaveValue("artisan");
+      await expect(page).toHaveURL(/sq=artisan/);
+      await expect(page).toHaveURL(/path=workshops/);
+      expect(fake.calls.some((call) => call.path === "/search/unified" && call.query.get("q") === "artisan")).toBe(true);
+    } finally {
+      openFolders();
+      openAddress();
+      await context.close();
+    }
+  });
+
+  test("text already in the box before the page took it over is kept and searched", async ({ browser }) => {
+    const { context, fake } = await freshExplorer(browser);
+    fake.searchCorpus = [{ type: "artisans", label: "Artisans", singular: "Artisan", total: 31 }];
+    await context.addInitScript(() => {
+      const wanted = 'input[aria-label="Search all data"]';
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      let done = false;
+      for (const name of ["appendChild", "insertBefore"] as const) {
+        const original = Node.prototype[name] as (...args: unknown[]) => unknown;
+        Object.defineProperty(Node.prototype, name, {
+          configurable: true,
+          writable: true,
+          value: function (this: Node, ...args: unknown[]) {
+            const out = original.apply(this, args);
+            const node = args[0];
+            if (!done && setValue && node instanceof Element) {
+              const box = node.matches(wanted) ? node : node.querySelector(wanted);
+              if (box) {
+                done = true;
+                setValue.call(box, "artisan");
+              }
+            }
+            return out;
+          }
+        });
+      }
+    });
+    const page = await context.newPage();
+    try {
+      await page.goto("/data");
+      const box = page.getByRole("searchbox", { name: "Search all data" });
+      await expect(page.getByTestId("search-group-artisans")).toBeVisible();
+      await expect(box).toHaveValue("artisan");
+      await expect(page).toHaveURL(/sq=artisan/);
+      expect(fake.calls.some((call) => call.path === "/search/unified" && call.query.get("q") === "artisan")).toBe(true);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("Back and Forward bring back the search each entry had", async ({ browser }) => {
+    const { context, page } = await openExplorer(browser, { path: "workshops/bagru" });
+    try {
+      const box = page.getByRole("searchbox", { name: "Search all data" });
+      await box.fill("kamla");
+      await expect(page).toHaveURL(/sq=kamla/);
+      await expect(page.getByTestId("search-results").getByText("Kamla Devi")).toBeVisible();
+      await page.getByRole("tab", { name: /Tables/ }).click();
+      await expect(page).toHaveURL(/view=tables/);
+      await expect(page).toHaveURL(/sq=kamla/);
+      await box.fill("indigo");
+      await expect(page).toHaveURL(/sq=indigo/);
+      await page.goBack();
+      await expect(page).not.toHaveURL(/view=tables/);
+      await expect(page).toHaveURL(/sq=kamla/);
+      await expect(box).toHaveValue("kamla");
+      await expect(page.getByTestId("search-results").getByText("Kamla Devi")).toBeVisible();
+      await page.goForward();
+      await expect(page).toHaveURL(/view=tables/);
+      await expect(page).toHaveURL(/sq=indigo/);
+      await expect(box).toHaveValue("indigo");
+    } finally {
+      await context.close();
+    }
+  });
+});
+
 test.describe("@qf:X1 navigation keeps its place", () => {
   test("a preview and a tab are history entries: Back closes the preview, then returns to Files", async ({ browser }) => {
     const { context, page } = await openExplorer(browser, { path: "workshops/bagru" });
