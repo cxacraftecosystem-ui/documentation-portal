@@ -301,6 +301,7 @@
     "outboxStepTake": "Take: {label}",
     "outboxStepAnswers": "Answers: {count}",
     "outboxStepParticipant": "Artisan change",
+    "outboxStepRecordBy": "Record by change",
     "outboxDiscardTitle": "Discard this?",
     "outboxDiscardBody": "It was never sent and can't be brought back.",
     "outboxKeep": "Keep",

@@ -164,7 +164,7 @@ function sessionHref(unit: SessionUnit | undefined): string | null {
   return id ? `/questionnaire/sessions/${encodeURIComponent(id)}` : null;
 }
 
-function stepLabel(step: Step): string {
+export function stepLabel(step: Step): string {
   switch (step.kind) {
     case "session":
       return qs("outboxStepSession");
@@ -172,6 +172,8 @@ function stepLabel(step: Step): string {
       return qs("outboxStepTake", { label: step.label || step.extension });
     case "answers":
       return qs("outboxStepAnswers", { count: step.items.length });
+    case "details":
+      return qs("outboxStepRecordBy");
     default:
       return qs("outboxStepParticipant");
   }

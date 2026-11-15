@@ -1,5 +1,5 @@
 import { ApiError, apiErrorMessage } from "@/lib/api";
-import { ownerKey } from "@/lib/questionnaire/api";
+import { contractError, ownerKey } from "@/lib/questionnaire/api";
 import type {
   AnswerItem,
   AnswerOwner,
@@ -54,7 +54,7 @@ export type AnswersStep = {
   error?: string;
   conflicts?: AnswerResult[];
 };
-export type DetailsStep = { kind: "details"; status: StepStatus; key: string; version: number; recordBy: RecordBy; error?: string };
+export type DetailsStep = { kind: "details"; status: StepStatus; key: string; version: number; recordBy: RecordBy; force?: boolean; error?: string };
 export type Step = SessionStep | ParticipantStep | ClipStep | AnswersStep | DetailsStep;
 
 export type SessionUnit = {
@@ -234,18 +234,29 @@ export function withRecordBy(unit: SessionUnit, recordBy: RecordBy, version: num
 
 export function queuedRecordBy(unit: SessionUnit | null | undefined): RecordBy | null {
   if (!unit) return null;
-  const details = unit.steps.filter((s): s is DetailsStep => s.kind === "details" && s.status !== "DONE");
+  const details = unit.steps.filter((s): s is DetailsStep => s.kind === "details" && s.status === "PENDING");
   if (details.length) return details[details.length - 1].recordBy;
   const first = unit.steps.find((s): s is SessionStep => s.kind === "session" && s.status === "PENDING");
   return first?.body.recordBy ?? null;
 }
 
-export async function sendDetails(api: Pick<QueueApi, "patchSession" | "getSession">, sessionId: string, step: Pick<DetailsStep, "version" | "recordBy">): Promise<Session> {
+export function dropQueuedRecordBy(unit: SessionUnit): SessionUnit | null {
+  const steps = unit.steps.filter((s) => !(s.kind === "details" && s.status !== "DONE"));
+  return steps.some((s) => s.status !== "DONE") ? { ...unit, steps } : null;
+}
+
+export function isRecordByConflict(error: unknown): boolean {
+  const detail = contractError(error);
+  return detail?.code === "STALE_VERSION" && Boolean(detail.diff && "recordBy" in detail.diff);
+}
+
+export async function sendDetails(api: Pick<QueueApi, "patchSession" | "getSession">, sessionId: string, step: Pick<DetailsStep, "version" | "recordBy" | "force">): Promise<Session> {
   if (!api.patchSession) throw new Error("PATCH is not available.");
   try {
     return await api.patchSession(sessionId, { version: step.version, recordBy: step.recordBy });
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 409 || !api.getSession) throw error;
+    if (isRecordByConflict(error) && !step.force) throw error;
     const fresh = await api.getSession(sessionId);
     return api.patchSession(sessionId, { version: fresh.version, recordBy: step.recordBy });
   }
@@ -387,6 +398,7 @@ export function sendStepAgain(store: QueueStore, unitId: string, key: string): P
       step.status = "PENDING";
       step.error = undefined;
       if (step.kind === "clip") step.attempts = 0;
+      if (step.kind === "details") step.force = true;
     }
     return current;
   });

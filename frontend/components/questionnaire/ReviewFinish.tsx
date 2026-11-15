@@ -29,6 +29,21 @@ export function stillToAsk(
     .map(({ s, p }) => ({ sectionId: s.id, code: s.code, title: s.title, left: p.total - p.answered, total: p.total }));
 }
 
+export function reviewSummary(
+  sections: { id: string; code: string; title: string }[],
+  progress: QuestionProgress,
+  review: SessionReview | null,
+  pendingTakes: number
+): { answered: number; total: number; sectionsDone: number; still: StillToAsk[] } {
+  const server = pendingTakes > 0 ? null : review;
+  return {
+    answered: server ? server.answered : progress.answered,
+    total: server ? server.total : progress.total,
+    sectionsDone: progress.sectionsDone,
+    still: stillToAsk(sections, progress, server)
+  };
+}
+
 export function stillToAskLine(row: Pick<StillToAsk, "left" | "total">): string {
   return row.left >= row.total ? qs("notAskedCount", { count: row.total }) : qs("leftCount", { count: row.left });
 }

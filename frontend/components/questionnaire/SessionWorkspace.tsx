@@ -16,13 +16,13 @@ import { PromptDialog } from "@/components/questionnaire/Prompts";
 import { QuestionOverflow, type OverflowAction } from "@/components/questionnaire/QuestionOverflow";
 import { activeRecording, Recorder, recorderClock, takesInHand, type FinishedTake, type RecorderTarget } from "@/components/questionnaire/Recorder";
 import { RecordUploadPair } from "@/components/questionnaire/RecordUploadPair";
-import { ReviewFinish, stillToAsk, type FailedUpload } from "@/components/questionnaire/ReviewFinish";
+import { ReviewFinish, reviewSummary, type FailedUpload } from "@/components/questionnaire/ReviewFinish";
 import { SavePill, saveState } from "@/components/questionnaire/SavePill";
 import { SessionHeader } from "@/components/questionnaire/SessionHeader";
 import { TakeSheet } from "@/components/questionnaire/TakeSheet";
 import { UploadSheet, type UploadTarget } from "@/components/questionnaire/UploadSheet";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
-import { enqueue, onRecordingLanded, onSessionLanded, queueRecordBy, resolveQueuedAnswer, trayAct, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
+import { clearQueuedRecordBy, enqueue, onRecordingLanded, onSessionLanded, queueRecordBy, resolveQueuedAnswer, trayAct, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
 import { useSpokenLanguageChoice } from "@/components/transcript/SpokenLanguagePicker";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { ButtonRow } from "@/components/ui/ButtonRow";
@@ -66,7 +66,7 @@ import {
   type SessionReview
 } from "@/lib/questionnaire/api";
 import { durationLabel, prompts, shortDate, type P2Input, type PromptSpec } from "@/lib/questionnaire/prompts";
-import { clipUploadState, isPermanent, queuedRecordBy, sendDetails, sessionUnitKey, stepKey, type ClipStep, type SessionUnit } from "@/lib/questionnaire/queue";
+import { clipUploadState, isPermanent, isRecordByConflict, queuedRecordBy, sendDetails, sessionUnitKey, stepKey, type ClipStep, type SessionUnit } from "@/lib/questionnaire/queue";
 import { consentSubject, pickedFileMeta, rosterArtisans, takesFor, takeSubjects } from "@/lib/questionnaire/view";
 import { assembleTake, recorderStore, recoverable, recoveredMinutes, type TakeChunk, type TakeDraft } from "@/lib/questionnaire/recorderStore";
 import { settleBatch, type UploadRow } from "@/lib/questionnaire/uploads";
@@ -416,7 +416,7 @@ export function SessionWorkspace({ id }: { id: string }) {
     return () => {
       cancelled = true;
     };
-  }, [reviewFor]);
+  }, [reviewFor, detail?.recordings, detail?.answers]);
 
   const pendingCount = queue.pendingClips.length;
   const inHand = recording !== null || answering !== null ? 1 : 0;
@@ -445,16 +445,25 @@ export function SessionWorkspace({ id }: { id: string }) {
     return () => observer.disconnect();
   }, [showDock, view]);
 
+  const localTakes = useMemo(() => pendingTakes(queue.unit ? [queue.unit] : []), [queue.unit]);
   const progress = useMemo(
     () =>
       questionProgress({
         sections: grid?.sections ?? [],
         recordings: detail?.recordings ?? [],
         answers: detail?.answers ?? [],
-        pending: pendingTakes(queue.unit ? [queue.unit] : [])
+        pending: localTakes
       }),
-    [grid, detail, queue.unit]
+    [grid, detail, localTakes]
   );
+
+  const queuedMode = queuedRecordBy(queue.unit);
+  const hadQueuedMode = useRef<RecordBy | null>(null);
+  useEffect(() => {
+    const was = hadQueuedMode.current;
+    hadQueuedMode.current = queuedMode;
+    if (was && !queuedMode) void load();
+  }, [queuedMode, load]);
 
   const spoken = useSpokenLanguageChoice(detail?.participants.map((p) => p.artisanId) ?? [], {
     preset: sessionSpokenLanguage(detail?.clientKey, detail?.id, id),
@@ -553,20 +562,25 @@ export function SessionWorkspace({ id }: { id: string }) {
     if (next === recordBy) return;
     setRecordByLocal(next);
     const online = typeof navigator === "undefined" || navigator.onLine !== false;
-    if (online && session.version > 0) {
-      try {
-        const saved = await sendDetails(questionnaireApi, session.id, { version: session.version, recordBy: next });
-        setDetail((current) => (current ? { ...current, recordBy: saved.recordBy ?? next, version: saved.version ?? current.version } : current));
-        return;
-      } catch (error) {
-        if (isPermanent(error)) {
-          setRecordByLocal(null);
-          setTakeError(error instanceof Error ? error.message : String(error));
+    try {
+      if (online && session.version > 0) {
+        try {
+          const saved = await sendDetails(questionnaireApi, session.id, { version: session.version, recordBy: next });
+          setDetail((current) => (current ? { ...current, recordBy: saved.recordBy ?? next, version: saved.version ?? current.version } : current));
+          await clearQueuedRecordBy(unitSession).catch(() => undefined);
           return;
+        } catch (error) {
+          if (isPermanent(error)) {
+            setTakeError(error instanceof Error ? error.message : String(error));
+            if (isRecordByConflict(error)) void load();
+            return;
+          }
         }
       }
+      await queueRecordBy(unitSession, next, session.version).catch(() => undefined);
+    } finally {
+      setRecordByLocal(null);
     }
-    await queueRecordBy(unitSession, next, session.version).catch(() => undefined);
   }
 
   async function identicalPrompt(other: NonNullable<CoverageCheckResponse["identical"]>, pending: Pending) {
@@ -1189,17 +1203,18 @@ export function SessionWorkspace({ id }: { id: string }) {
   );
 
   if (view === "review") {
+    const summary = reviewSummary(shownGrid.sections, progress, review, localTakes.length);
     return (
       <div className="grid gap-4" data-session-workspace>
         <ReviewFinish
-          answered={review ? review.answered : progress.answered}
-          total={review ? review.total : progress.total}
-          sectionsDone={progress.sectionsDone}
+          answered={summary.answered}
+          total={summary.total}
+          sectionsDone={summary.sectionsDone}
           names={firstNames.join(", ")}
           pending={pendingCount}
           decisions={decisions}
           failed={failedUploads}
-          still={stillToAsk(shownGrid.sections, progress, review)}
+          still={summary.still}
           open={live}
           onChoose={(r) => {
             const sectionId = r.targets[0]?.sectionId ?? (r.targets[0]?.questionLineageId ? sectionOf(r.targets[0].questionLineageId) : null);
