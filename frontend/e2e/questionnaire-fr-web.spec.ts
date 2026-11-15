@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { ME, OTHER, QuestionnaireFake } from "./support/qv2Fake";
 import { silentWav, TranscriptFake } from "./support/transcriptFake";
@@ -30,6 +30,14 @@ async function typeAnswer(page: Page, code: string) {
 }
 
 test.describe.configure({ mode: "serial" });
+
+async function tapIgnoredWhileSettling(page: Page, sheet: Locator, question: Locator) {
+  await expect(sheet.locator("[data-settling]").first()).toBeAttached();
+  const box = await question.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await expect(question).toHaveAttribute("aria-pressed", "false");
+}
 
 test("@qf:B28 @qf:A14 @qf:Q7 the sessions list names artisans and guests, counts by status, and a content admin restores a deleted session", async ({ page }) => {
   const fake = new QuestionnaireFake();
@@ -105,6 +113,42 @@ test("@qf:C7 a content admin merges one sitting into another session", async ({ 
   await expect(page).toHaveURL(/\/questionnaire\/sessions\/s-2$/);
 });
 
+test("@qf:Q1 a tap on Record by while consent loads is ignored, and once the granted artisan's placeholder collapses the next tap selects Question", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await fake.install(page);
+  await page.route(/\/api\/artisans\/a1\/consent$/, async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await held;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ artisanId: "a1", purpose: "EXTERNAL_PROCESSING", state: "GRANTED", basis: "VERBAL_RECORDED", source: null, recordedAt: null })
+    });
+  });
+  await page.goto("/questionnaire/sessions/new?artisanId=a1");
+  const sheet = page.locator("[data-start-sheet]");
+  const question = sheet.getByRole("group", { name: "Record by" }).getByRole("button", { name: "Question" });
+  const start = sheet.getByRole("button", { name: "Start session" });
+  await expect(question).toBeVisible();
+  await expect(sheet.locator("[data-consent-pending='a1']")).toHaveCount(1);
+  await expect(start).toBeDisabled();
+  await tapIgnoredWhileSettling(page, sheet, question);
+  release();
+  await expect(sheet.locator("[data-consent-pending]")).toHaveCount(0);
+  await expect(sheet.locator("[data-consent-question]")).toHaveCount(0);
+  await expect(sheet.locator("[data-settling]")).toHaveCount(0);
+  await expect(question).toHaveAttribute("aria-pressed", "false");
+  await question.click();
+  await expect(question).toHaveAttribute("aria-pressed", "true");
+  await start.click();
+  await expect.poll(() => fake.calledWith("POST", "/questionnaire/sessions").length, { timeout: 15_000 }).toBe(1);
+  expect(fake.calledWith("POST", "/questionnaire/sessions")[0].body).toMatchObject({ recordBy: "QUESTION" });
+});
+
 test("@qf:Q1 the start sheet keeps Record by in place while an artisan's consent loads late, and holds Start until it arrives", async ({ page }) => {
   const fake = new QuestionnaireFake();
   let release: () => void = () => undefined;
@@ -130,6 +174,7 @@ test("@qf:Q1 the start sheet keeps Record by in place while an artisan's consent
   await expect(start).toBeDisabled();
   await expect(sheet.locator("[data-coverage-pending]")).toHaveCount(0);
   await expect(sheet.locator("[data-provenance-pending]")).toHaveCount(0);
+  await tapIgnoredWhileSettling(page, sheet, question);
   const before = await question.boundingBox();
   release();
   await expect(sheet.locator("[data-consent-pending]")).toHaveCount(0);

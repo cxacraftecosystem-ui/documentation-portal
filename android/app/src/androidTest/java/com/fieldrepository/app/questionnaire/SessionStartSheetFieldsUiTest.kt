@@ -33,6 +33,7 @@ import com.fieldrepository.app.questionnaire.ui.SessionStartSheet
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -77,6 +78,17 @@ class SessionStartSheetFieldsUiTest {
         compose.waitUntil(15_000) { pending("q-coverage-pending") == 0 && pending("q-provenance-pending") == 0 }
     }
 
+    private fun settled() = compose.onAllNodesWithTag("q-start-settled").fetchSemanticsNodes().isNotEmpty()
+
+    private fun questionSelected() = compose.onAllNodes(hasText("Question") and isSelected()).fetchSemanticsNodes().isNotEmpty()
+
+    private fun tapIgnoredWhileSettling() {
+        assertTrue(compose.onAllNodesWithTag("q-start-settling").fetchSemanticsNodes().isNotEmpty())
+        compose.onNodeWithText("Question").performClick()
+        compose.waitForIdle()
+        assertFalse(questionSelected())
+    }
+
     private fun startAndRead(v2: QuestionnaireV2, started: () -> String?): QSessionCreate {
         compose.waitUntil(30_000) { compose.onAllNodes(hasText("Start session") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Start session").performScrollTo().performClick()
@@ -100,8 +112,9 @@ class SessionStartSheetFieldsUiTest {
             compose.onNodeWithText("From this workshop").assertExists()
             compose.onNodeWithTag("q-record-by").performScrollTo()
             compose.onNodeWithText("Record by").assertExists()
+            compose.waitUntil(30_000) { settled() }
             compose.onNodeWithText("Question").performClick()
-            compose.waitUntil(5_000) { compose.onAllNodes(hasText("Question") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(5_000) { questionSelected() }
             val body = startAndRead(v2) { started }
             assertEquals(here, body.location)
             assertEquals(listOf("Hand Block Printing", "Dokra"), body.crafts)
@@ -124,14 +137,43 @@ class SessionStartSheetFieldsUiTest {
             assertEquals(2, pending("q-consent-pending"))
             compose.onNodeWithTag("q-record-by").performScrollTo()
             compose.onNodeWithText("Start session").assertIsNotEnabled()
+            tapIgnoredWhileSettling()
             val before = compose.onNodeWithText("Question").fetchSemanticsNode().boundsInRoot
             consentArrives.complete(Unit)
             compose.waitUntil(10_000) { pending("q-consent-pending") == 0 }
             compose.waitUntil(10_000) { compose.onAllNodes(hasText(QuestionnaireCopy.consentNotice("Giriraj"))).fetchSemanticsNodes().isNotEmpty() }
             compose.waitForIdle()
             assertEquals(before, compose.onNodeWithText("Question").fetchSemanticsNode().boundsInRoot)
+            compose.waitUntil(5_000) { settled() }
             compose.onNodeWithText("Question").performClick()
-            compose.waitUntil(5_000) { compose.onAllNodes(hasText("Question") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(5_000) { questionSelected() }
+            assertEquals("QUESTION", startAndRead(v2) { started }.recordBy)
+        } finally {
+            started?.let { runBlocking { v2.outbox.forget(it) } }
+        }
+    }
+
+    @QFeature("Q1")
+    @Test fun aTapOnRecordByWhileConsentLoadsIsIgnoredAndTheTapAfterTheGrantedPromptsCollapseSelectsQuestion() {
+        val v2 = QuestionnaireV2.get(InstrumentationRegistry.getInstrumentation().targetContext)
+        val consentArrives = CompletableDeferred<Unit>()
+        var started: String? = null
+        sheet(v2, onStarted = { started = it }, consentOf = { consentArrives.await(); "GRANTED" })
+        try {
+            compose.waitUntil(10_000) { compose.onAllNodes(hasText("Dokra", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+            waitForLateSlots()
+            assertEquals(2, pending("q-consent-pending"))
+            compose.onNodeWithTag("q-record-by").performScrollTo()
+            compose.onNodeWithText("Start session").assertIsNotEnabled()
+            tapIgnoredWhileSettling()
+            consentArrives.complete(Unit)
+            compose.waitUntil(10_000) { pending("q-consent-pending") == 0 }
+            assertTrue(compose.onAllNodes(hasText(QuestionnaireCopy.consentNotice("Giriraj"))).fetchSemanticsNodes().isEmpty())
+            compose.waitUntil(5_000) { settled() }
+            assertFalse(questionSelected())
+            compose.onNodeWithTag("q-record-by").performScrollTo()
+            compose.onNodeWithText("Question").performClick()
+            compose.waitUntil(5_000) { questionSelected() }
             assertEquals("QUESTION", startAndRead(v2) { started }.recordBy)
         } finally {
             started?.let { runBlocking { v2.outbox.forget(it) } }
