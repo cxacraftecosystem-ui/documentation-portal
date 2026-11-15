@@ -1,105 +1,99 @@
 "use client";
 
-import { useMemo } from "react";
+import Link from "next/link";
+import { ChevronLeft } from "lucide-react";
+import { useEffect, useRef, type ReactNode } from "react";
 
-import { Toggle } from "@/components/ui/Toggle";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import type { Session } from "@/lib/questionnaire/api";
-import { modeLabel } from "@/lib/questionnaire/view";
+import { languageLabel } from "@/lib/questionnaire/languages";
+import { shortDate } from "@/lib/questionnaire/prompts";
 import { qs } from "@/lib/questionnaire/qs";
-import { encodeQr, qrSvgPath } from "@/lib/qrEncode";
+
+export function headerNames(session: Pick<Session, "participants" | "respondents" | "title">): string {
+  const names = [...session.participants.map((p) => p.name), ...(session.respondents ?? []).filter((r) => !r.artisanId).map((r) => r.name)].filter(Boolean);
+  if (!names.length) return session.title;
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names[0]} and ${names.length - 1} others`;
+}
+
+export function headerLine(session: Pick<Session, "crafts" | "languageCode" | "languageOther" | "sessionDate">): string {
+  const language = session.languageCode ? languageLabel(session.languageCode) || session.languageOther || "" : (session.languageOther ?? "");
+  return [session.crafts?.[0] ?? "", language, shortDate(session.sessionDate)].filter(Boolean).join(" · ");
+}
 
 export function SessionHeader({
   session,
-  pendingTakes,
-  onFinish,
-  onPresence,
-  onRemove,
-  onAddArtisan
+  answered,
+  total,
+  sectionsDone,
+  sectionsTotal,
+  savePill,
+  menu,
+  onReview
 }: {
   session: Session;
-  pendingTakes: number;
-  onFinish?: () => void;
-  onPresence?: (artisanId: string, present: boolean) => void;
-  onRemove?: (artisanId: string) => void;
-  onAddArtisan?: () => void;
+  answered: number;
+  total: number;
+  sectionsDone: number;
+  sectionsTotal: number;
+  savePill: ReactNode;
+  menu: ReactNode;
+  onReview?: () => void;
 }) {
-  const qr = useMemo(() => {
-    if (!session.joinQr) return null;
-    try {
-      return qrSvgPath(encodeQr(session.joinQr, "M"));
-    } catch {
-      return null;
-    }
-  }, [session.joinQr]);
-
+  const ref = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const root = document.documentElement;
+    const set = () => root.style.setProperty("--session-header-h", `${Math.ceil(node.getBoundingClientRect().height)}px`);
+    set();
+    const observer = new ResizeObserver(set);
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--session-header-h");
+    };
+  }, []);
+  const percent = total > 0 ? Math.round((answered / total) * 100) : 0;
   return (
-    <header className="panel grid gap-3 p-4" data-session-header>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="display-title break-all text-xl md:text-2xl" data-session-title>
-            {session.title}
+    <header ref={ref} className="sticky top-0 z-10 -mx-4 grid gap-3 border-b border-line-200 bg-bg-0 px-4 py-3 lg:top-17" data-session-header>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        <Link
+          href="/questionnaire"
+          aria-label={qs("backToSessions")}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line-200 bg-card text-ink-900 transition hover:border-purple-300"
+        >
+          <ChevronLeft className="h-5 w-5" aria-hidden />
+        </Link>
+        <div className="grid min-w-0 flex-[1_1_14rem] gap-0.5">
+          <h1 className="display-title truncate text-xl leading-7 md:text-[2rem] md:leading-10" data-session-title title={session.title}>
+            {headerNames(session)}
           </h1>
-          {session.note ? <p className="mt-1 text-sm text-ink-500">{session.note}</p> : null}
-          <p className="mt-1 text-sm text-ink-700">
-            {[session.participants.map((p) => p.name.split(" ")[0]).join(", "), modeLabel(session), session.joinCode ? qs("joinCode", { code: session.joinCode }) : ""]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-          {session.crafts?.length ? (
-            <p className="mt-1 text-sm text-ink-500" data-session-crafts>
-              {session.crafts.join(", ")}
-            </p>
-          ) : null}
-          {pendingTakes > 0 ? <p className="mt-1 text-xs text-purple-700">{qs("takesUploading", { count: pendingTakes })}</p> : null}
+          <span className="truncate text-sm text-ink-500">{headerLine(session)}</span>
         </div>
-        <div className="flex items-start gap-3">
-          {qr ? (
-            <svg
-              viewBox={`0 0 ${qr.extent} ${qr.extent}`}
-              role="img"
-              aria-label={session.joinCode ? qs("joinCode", { code: session.joinCode }) : qs("joinCode", { code: "" })}
-              className="h-20 w-20 rounded-md border border-line-200 bg-white"
-              data-join-qr
-            >
-              <path d={qr.path} fill="#000" shapeRendering="crispEdges" />
-            </svg>
-          ) : null}
-          {onFinish && session.state === "OPEN" ? (
-            <button type="button" className="field-button" onClick={onFinish}>
-              {qs("finish")}
+        <div className="flex shrink-0 items-center gap-2.5 md:order-last">
+          {onReview ? (
+            <button type="button" className="field-button min-h-11 px-4 font-semibold sm:px-5" onClick={onReview} data-review-link>
+              <span className="sm:hidden">{qs("review")}</span>
+              <span className="hidden sm:inline">{qs("reviewAndFinish")}</span>
             </button>
           ) : null}
+          {menu}
         </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-2" aria-label={qs("present")}>
-        {session.participants.map((p) => (
-          <div key={p.artisanId} className="flex w-full items-center gap-2 sm:w-auto">
-            <div className="min-w-0 flex-1">
-              <Toggle
-                label={p.name}
-                description={p.leftAt ? qs("away") : qs("present")}
-                checked={!p.leftAt}
-                onChange={(present) => onPresence?.(p.artisanId, present)}
-              />
-            </div>
-            {onRemove && session.participants.length > 1 ? (
-              <button
-                type="button"
-                className="text-xs font-medium text-ink-500 underline hover:text-error-600"
-                aria-label={qs("p10Title", { name: p.name })}
-                data-remove-participant={p.artisanId}
-                onClick={() => onRemove(p.artisanId)}
-              >
-                {qs("remove")}
-              </button>
-            ) : null}
+        <div className="grid min-w-0 flex-[1_1_100%] gap-2 md:flex-[1_1_18rem]">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm text-ink-900">
+              <span className="font-semibold" data-question-progress>
+                {qs("questionsOfTotal", { answered, total })}
+              </span>
+              {sectionsTotal > 0 ? <span className="text-ink-500"> · {qs("sectionsOfTotal", { done: sectionsDone, total: sectionsTotal })}</span> : null}
+            </span>
+            {savePill}
           </div>
-        ))}
-        {onAddArtisan ? (
-          <button type="button" className="text-sm font-medium text-purple-700 underline" onClick={onAddArtisan}>
-            {qs("addArtisan")}
-          </button>
-        ) : null}
+          <ProgressBar percent={percent} role="progressbar" aria-label={qs("questionsAnswered", { answered, total })} aria-valuemin={0} aria-valuemax={total} aria-valuenow={answered} />
+        </div>
       </div>
     </header>
   );

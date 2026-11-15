@@ -88,12 +88,11 @@ export const CONFIG_FALLBACK: QuestionnaireConfig = {
   minAppVersionForCreate: null
 };
 
-export type { AnswerOrigin, ConsentBasis, ConsentState, ConsentVerdict, RepeatReason, SessionPurpose, SubjectRole } from "@/lib/questionnaire/enums";
+export type { AnswerOrigin, ConsentBasis, ConsentState, ConsentVerdict, RecordBy, RepeatReason, SessionPurpose, SubjectRole } from "@/lib/questionnaire/enums";
+export const RECORD_BY: readonly RecordBy[] = RecordByValues;
 export type Attribution = AnswerAttribution;
 export const SESSION_PURPOSES: readonly SessionPurpose[] = SessionPurposeValues;
 export const REPEAT_REASONS: readonly RepeatReason[] = RepeatReasonValues;
-export const RECORD_BY: readonly RecordBy[] = RecordByValues;
-export type { RecordBy };
 
 export type Person = { id: string; name: string };
 
@@ -161,6 +160,7 @@ export type SessionPatch = {
   location?: SessionLocation | null;
   crafts?: string[];
   craftsByHand?: string[];
+  recordBy?: RecordBy;
 };
 
 export type SessionParticipant = {
@@ -842,7 +842,7 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
       fetchJson<{ objectKey: string }>(`/media/multipart/complete`, json("POST", body)),
     uploadState: (clientClipKey: string) => fetchJson<UploadState>(`/media/uploads/${encodeURIComponent(clientClipKey)}`),
     shaLookup: (sha256s: string[], sessionId?: string | null) =>
-      fetchJson<{ items: ShaMatch[] }>(`/media/sha-lookup`, json("POST", { sha256s, sessionId: sessionId ?? null })),
+      fetchJson<{ items: ShaMatch[] }>(`/media/sha-lookup`, json("POST", { sha256s: sha256s.slice(0, 50), sessionId: sessionId ?? null })).then((out) => out?.items ?? []),
     complete: (body: CompleteRequest) => fetchJson<Recording>(`/media/complete`, json("POST", body, body.clientClipKey))
   };
 }

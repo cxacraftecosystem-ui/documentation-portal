@@ -110,7 +110,8 @@ export function AnswerBox({
   me,
   mayOverride = false,
   proposal = null,
-  required = false
+  required = false,
+  onDone
 }: {
   session: Session;
   lineageId: string;
@@ -122,6 +123,7 @@ export function AnswerBox({
   mayOverride?: boolean;
   proposal?: AnswerProposal | null;
   required?: boolean;
+  onDone?: () => void;
 }) {
   const [forWhom, setForWhom] = useState(subjects.length > 1 ? ALL : (subjects[0]?.key ?? ALL));
   const [existing, setExisting] = useState<Answer[]>(answers);
@@ -168,7 +170,7 @@ export function AnswerBox({
     setLockedFor([]);
   }
 
-  async function save(approved: Set<string> = confirmed, skip: Set<string> = skipped) {
+  async function save(approved: Set<string> = confirmed, skip: Set<string> = skipped): Promise<boolean> {
     const open = subjects.filter((s) => !answerLocked(current(s.key), me, mayOverride));
     const items = answerItems({
       sessionId: session.id,
@@ -182,7 +184,7 @@ export function AnswerBox({
       origin: origin?.origin,
       sourceRecordingId: origin?.sourceRecordingId ?? null
     }).filter((i) => !skip.has(ownerKey(i)));
-    if (!items.length || !plain.trim()) return;
+    if (!items.length || !plain.trim()) return !plain.trim();
     const fromTakes = answersFromTakes(
       existing.filter((a) => a.artisanId).map((a) => ({ artisanId: a.artisanId ?? undefined, text: a.text, sourceRecordingId: a.sourceRecordingId })),
       items.filter((i) => i.artisanId).map((i) => i.artisanId as string),
@@ -190,14 +192,14 @@ export function AnswerBox({
     ).filter((a) => !approved.has(`A:${a.artisanId}`));
     if (fromTakes.length && !origin) {
       setP8(fromTakes);
-      return;
+      return false;
     }
     setError(null);
     try {
       if (navigator.onLine === false || session.version === 0) {
         await keep({ kind: "answers", status: "PENDING", items: forQueue(items) });
         setSaved(true);
-        return;
+        return true;
       }
       let results: AnswerResult[];
       try {
@@ -207,7 +209,7 @@ export function AnswerBox({
         if (!step) throw failure;
         await keep(step);
         setSaved(true);
-        return;
+        return true;
       }
       const next = [...existing];
       for (const r of results) {
@@ -223,9 +225,12 @@ export function AnswerBox({
       setLockedFor(results.filter((r) => r.code === "ANSWER_LOCKED").map((r) => ownerKey(r)));
       const held = answerFallback(items, { results });
       if (held) await keep(held);
-      setSaved(results.some((r) => r.status === "SAVED" || r.status === "UNCHANGED"));
+      const ok = results.some((r) => r.status === "SAVED" || r.status === "UNCHANGED");
+      setSaved(ok);
+      return ok;
     } catch (failure) {
       setError(failure instanceof ApiError || failure instanceof Error ? failure.message : String(failure));
+      return false;
     }
   }
 
@@ -333,6 +338,27 @@ export function AnswerBox({
         <p role="alert" className="text-xs text-error-600">
           {error}
         </p>
+      ) : null}
+      {onDone ? (
+        <ButtonRow size="sm" align="end">
+          <button type="button" className="field-button-secondary" onClick={onDone}>
+            {qs("cancel")}
+          </button>
+          {!locked ? (
+            <button
+              type="button"
+              className="field-button"
+              data-answer-save
+              onClick={() =>
+                void save().then((ok) => {
+                  if (ok) onDone();
+                })
+              }
+            >
+              {qs("save")}
+            </button>
+          ) : null}
+        </ButtonRow>
       ) : null}
       {history ? (
         <FieldDialog open onClose={() => setHistory(null)} title={`${qs("history")} · ${code}`}>

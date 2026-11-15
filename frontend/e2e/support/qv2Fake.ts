@@ -89,7 +89,8 @@ function session(id: string, over: Json = {}): Json {
     status: "PENDING",
     submittedAt: null,
     reviewReasons: [],
-    counts: { sections: 1, takes: 1, needsDecision: 0 },
+    counts: { sections: 1, takes: 1, needsDecision: 0, answeredQuestions: 2, totalQuestions: 3 },
+    recordBy: "SECTION",
     respondents: [{ id: "r1", sessionId: id, name: "Shopper at Johari Bazaar", kind: "GUEST", notes: null, userId: null, artisanId: null }],
     source: "APP",
     deletedAt: null,
@@ -248,6 +249,8 @@ export class QuestionnaireFake {
   prefill: Record<string, string> = {};
   consent: Record<string, string> = { a2: "REFUSED" };
   openMatch: Json | null = null;
+  uploadedShas: Record<string, string> = {};
+  reviewServed = true;
 
   private answer(method: string, path: string, query: URLSearchParams, body: Json | null): { status: number; json?: unknown } | null {
     const one = (re: RegExp) => re.exec(path);
@@ -433,6 +436,21 @@ export class QuestionnaireFake {
     if (m) return { status: 200, json: m[2] === "respondents" ? { respondents: [] } : this.sessions[0] };
     m = one(/^\/questionnaire\/sessions\/([^/]+)\/respondents\/([^/]+)$/);
     if (m) return { status: 200, json: { id: m[2], sessionId: m[1], name: (body as Json)?.name ?? "", kind: "GUEST", notes: (body as Json)?.notes ?? null, userId: null } };
+    m = one(/^\/questionnaire\/sessions\/([^/]+)\/review$/);
+    if (m && method === "GET") {
+      if (!this.reviewServed) return { status: 404, json: { detail: "Not Found" } };
+      const typed = new Set(this.answers.filter((a) => String(a.text ?? "").trim()).map((a) => String(a.questionLineageId)));
+      const sectionTaken = new Set(this.recordings.filter((r) => !r.removedAt).flatMap((r) => (r.targets as Json[]).map((t) => t.sectionId)).filter(Boolean));
+      const stillToAsk = FORM.sections
+        .map((sec) => ({ sectionId: sec.id, code: sec.code, title: sec.title, lineages: sectionTaken.has(sec.id) ? [] : sec.questions.map((q) => q.lineageId).filter((l) => !typed.has(l)) }))
+        .filter((row) => row.lineages.length);
+      const total = FORM.sections.reduce((n, sec) => n + sec.questions.length, 0);
+      return { status: 200, json: { answered: total - stillToAsk.reduce((n, row) => n + row.lineages.length, 0), total, needsDecision: [], stillToAsk } };
+    }
+    if (path === "/media/sha-lookup" && method === "POST") {
+      const shas = ((body as Json)?.sha256s as string[]) ?? [];
+      return { status: 200, json: shas.filter((sha) => this.uploadedShas[sha]).map((sha) => ({ sha, recordingId: "rec-1", sessionId: "s-1", sameSession: true, capturedAt: this.uploadedShas[sha] })) };
+    }
     if (path === "/questionnaire/sessions/continue") return { status: 200, json: { sessions: [session("s-next")], firstGap: {} } };
     if (path === "/questionnaire/coverage/snapshot") return { status: 200, json: { asOfSeq: "1", takes: [], removedRecordingIds: [] } };
     if (path === "/questionnaire/coverage") return { status: 200, json: this.grid() };

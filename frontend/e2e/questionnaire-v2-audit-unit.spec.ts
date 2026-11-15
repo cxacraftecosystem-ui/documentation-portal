@@ -149,7 +149,8 @@ test("M22: Answered by — an unticked artisan is PRESENT, never dropped", () =>
   expect(takeSubjects(["a1"], new Set(["a1"]), {})[0]).toEqual({ artisanId: "a1", role: "ANSWERED", named: false, repeatReason: null });
   const ws = read("components", "questionnaire", "SessionWorkspace.tsx");
   expect(ws).toContain("subjects: takeSubjects(roster, answered, context.reasons)");
-  expect(ws).toContain("data-answered-by");
+  expect(read("components", "questionnaire", "AnsweredBySheet.tsx")).toContain("data-answered-by");
+  expect(ws).toContain("<AnsweredBySheet");
   expect(ws, "+ Add artisan is wired").toContain("onAddArtisan={session.state === \"OPEN\" ? () => setAdding(!adding) : undefined}");
   expect(ws).toContain('op: "add", artisanId: artisan.id');
 });
