@@ -130,7 +130,7 @@ test("@qf:Q5 a section take answers every question in it and the header counts q
   await expect(sectionHeader(page, "D")).toContainText(S.answeredOfTotal({ answered: 6, total: 9 }));
   await expect(sectionHeader(page, "F")).toContainText(S.questionCount({ count: 5 }));
   await openSection(page, "A");
-  await expect(page.getByText(S.inSectionTake)).toHaveCount(5);
+  await expect(page.getByText(S.inSectionTake, { exact: true })).toHaveCount(5);
 });
 
 test("@qf:Q1 @qf:Q8 the session menu leads with Record by, keeps its order, and switches online", async ({ page, context }) => {
@@ -171,6 +171,7 @@ test("@qf:Q4 @qf:Q3 several files upload at once, a file already uploaded is fla
   const session = await createSession({ recordBy: "SECTION" });
   const dup = audioFile(FILES, "E-take-already.wav", 2);
   await uploadTake(session, { sectionId: section("E") }, { bytes: new Uint8Array(readFileSync(dup.path)) });
+  const original = (await as().getSession(session.id)).recordings[0]?.id;
   const first = audioFile(FILES, "E-take-1.wav", 1);
   const second = audioFile(FILES, "E-take-2.wav", 1);
   await openSession(page, session);
@@ -193,8 +194,14 @@ test("@qf:Q4 @qf:Q3 several files upload at once, a file already uploaded is fla
   await expect
     .poll(async () => (await as().getSession(session.id)).recordings.length, { timeout: 90_000 })
     .toBe(3);
-  const shas = (await as().getSession(session.id)).recordings.map((x) => (x as unknown as { contentSha256?: string }).contentSha256);
-  expect(shas.filter((sha) => sha === dup.sha256)).toHaveLength(1);
+  const takes = (await as().getSession(session.id)).recordings.map((x) => x.id);
+  const found = await as().shaLookup([dup.sha256, first.sha256, second.sha256], session.id);
+  expect(found.find((m) => m.sha === dup.sha256)?.recordingId, "the duplicate stays the earlier take").toBe(original);
+  for (const file of [first, second]) {
+    const match = found.find((m) => m.sha === file.sha256);
+    expect(match?.sameSession, `${file.path} landed in this session`).toBe(true);
+    expect(takes).toContain(match?.recordingId);
+  }
 });
 
 test("@qf:Q3 a typed answer opens from the question's overflow and shows as a one-line preview", async ({ page }) => {
@@ -266,8 +273,12 @@ test("@qf:Q6 Finish lives on Review, and a finished session opens read only", as
   const finished = page.waitForResponse((r) => r.request().method() === "POST" && r.url().endsWith(`/questionnaire/sessions/${session.id}/finish`));
   await page.getByRole("button", { name: S.finish, exact: true }).click();
   const confirm = page.getByRole("dialog").getByRole("button", { name: S.finish, exact: true });
-  if (await confirm.isVisible().catch(() => false)) await confirm.click();
-  expect((await finished).ok()).toBe(true);
+  const confirmed = confirm
+    .waitFor({ state: "visible" })
+    .then(() => confirm.click())
+    .catch(() => undefined);
+  const response = await Promise.race([finished, confirmed.then(() => finished)]);
+  expect(response.ok()).toBe(true);
   await openSession(page, session);
   await expect(page.getByText(/^Finished on .+\. Read only\.$/)).toBeVisible();
   await openSection(page, "E");

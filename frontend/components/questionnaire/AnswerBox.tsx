@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Check } from "lucide-react";
 
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
@@ -147,6 +147,7 @@ export function AnswerBox({
   const [p8, setP8] = useState<{ artisanId: string; sourceRecordingId: string }[]>([]);
   const [confirmed, setConfirmed] = useState<Set<string>>(() => new Set());
   const [skipped, setSkipped] = useState<Set<string>>(() => new Set());
+  const inFlight = useRef<Promise<boolean> | null>(null);
 
   const nameOf = (key: string) => subjects.find((s) => s.key === key)?.name ?? "";
   const researcherName = (id: string | null | undefined) =>
@@ -234,6 +235,15 @@ export function AnswerBox({
     }
   }
 
+  function commit(): Promise<boolean> {
+    if (!inFlight.current) {
+      inFlight.current = save().finally(() => {
+        inFlight.current = null;
+      });
+    }
+    return inFlight.current;
+  }
+
   async function openHistory() {
     const target = focused;
     if (!target) return;
@@ -275,7 +285,7 @@ export function AnswerBox({
           setConfirmed(new Set());
           setSkipped(new Set());
         }}
-        onCommit={() => void (locked ? undefined : save())}
+        onCommit={() => void (locked ? undefined : commit())}
       />
       {focused?.origin === "PREFILL" && plain === (focused.text ?? "") ? (
         <p className="text-xs text-ink-500" data-prefilled>
@@ -320,7 +330,7 @@ export function AnswerBox({
             setNote(e.target.value);
             setSaved(false);
           }}
-          onBlur={() => void (locked ? undefined : save())}
+          onBlur={() => void (locked ? undefined : commit())}
           data-answer-note
         />
       ) : null}
@@ -353,7 +363,7 @@ export function AnswerBox({
               className="field-button"
               data-answer-save
               onClick={() =>
-                void save().then((ok) => {
+                void commit().then((ok) => {
                   if (ok) onDone();
                 })
               }
