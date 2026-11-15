@@ -680,7 +680,7 @@ fun SessionWorkspace(
             if (serverSessionId != null && participantIds.any { !QSubjects.isGuest(it) }) SessionMenuItem(QuestionnaireCopy.s("session.continue"), SessionMenuIcons.continueDay) { continuing = true } else null,
             if (!locked && participantIds.size > 1) SessionMenuItem(QuestionnaireCopy.t("removeArtisan"), SessionMenuIcons.removeArtisan, destructive = true) { removingArtisan = true } else null,
             if (mayDelete && serverSessionId != null) SessionMenuItem(QuestionnaireCopy.t("mergeIntoAnotherSession"), SessionMenuIcons.merge, destructive = true) { merging = true } else null,
-            if (mayDelete && serverSessionId != null) SessionMenuItem(QuestionnaireCopy.s("session.delete"), SessionMenuIcons.delete, destructive = true) { deleting = true } else null
+            if (mayDelete && serverSessionId != null) SessionMenuItem(QuestionnaireCopy.t("deleteSession"), SessionMenuIcons.delete, destructive = true) { deleting = true } else null
         ),
         onDismiss = { menu = false }
     )

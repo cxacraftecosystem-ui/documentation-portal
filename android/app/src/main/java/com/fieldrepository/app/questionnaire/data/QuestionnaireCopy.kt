@@ -283,6 +283,7 @@ object QuestionnaireCopy {
         "recordByHelper" to "Applies to this session",
         "sessionOptions" to "Session options",
         "editSession" to "Edit details",
+        "deleteSession" to "Delete session",
         "backToSessions" to "Back to sessions",
         "review" to "Review",
         "reviewAndFinish" to "Review and finish",
