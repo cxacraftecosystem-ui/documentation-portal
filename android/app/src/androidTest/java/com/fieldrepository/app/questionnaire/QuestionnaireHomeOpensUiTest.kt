@@ -25,6 +25,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
+@QFeature("Q7")
 class QuestionnaireHomeOpensUiTest {
     @get:Rule
     val compose = createComposeRule()
@@ -70,7 +71,8 @@ class QuestionnaireHomeOpensUiTest {
                 compose.waitUntil(10_000) { !shown("Not now") }
                 assertTrue("Not now remembers the answer", prefs().getBoolean("batteryAsked", false))
             }
-            compose.waitUntil(20_000) { shown("Fourth workshop sitting", substring = true) || shown("Bagru", substring = true) }
+            compose.waitUntil(20_000) { shown("Visitor") }
+            assertTrue(compose.onAllNodes(hasTestTag("q-status-pill")).fetchSemanticsNodes().size >= 3)
             compose.onNodeWithText("New session", useUnmergedTree = true).assertIsDisplayed().performClick()
             compose.waitUntil(20_000) { shown("Start session") }
             compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag("q-place"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }

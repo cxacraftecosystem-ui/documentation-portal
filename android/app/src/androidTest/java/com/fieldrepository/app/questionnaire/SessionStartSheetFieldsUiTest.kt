@@ -44,6 +44,7 @@ class SessionStartSheetFieldsUiTest {
         LaunchedEffect(Unit) { if (!editing && value == null) onChange(here) }
     }
 
+    @QFeature("Q1")
     @Test fun theStartSheetFillsTheCapturedAtCardAndBothCraftsAndSendsThem() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val v2 = QuestionnaireV2.get(context)
@@ -68,6 +69,11 @@ class SessionStartSheetFieldsUiTest {
         compose.waitUntil(10_000) { compose.onAllNodes(hasText("Dokra", substring = true)).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("q-crafts").performScrollTo()
         compose.onNodeWithText("Hand Block Printing", substring = true).assertExists()
+        compose.onNodeWithText("From Giriraj and Meena's record").assertExists()
+        compose.onNodeWithText("From this workshop").assertExists()
+        compose.onNodeWithTag("q-record-by").performScrollTo()
+        compose.onNodeWithText("Record by").assertExists()
+        compose.onNodeWithText("Question").performClick()
         compose.onNodeWithText("Start session").performScrollTo().performClick()
         compose.waitUntil(15_000) { started != null }
         val unit = runBlocking { v2.outbox.unit(started!!) }!!
@@ -75,6 +81,7 @@ class SessionStartSheetFieldsUiTest {
         assertEquals(here, body.location)
         assertEquals(listOf("Hand Block Printing", "Dokra"), body.crafts)
         assertTrue(body.craftsByHand.orEmpty().isEmpty())
+        assertEquals("QUESTION", body.recordBy)
         runBlocking { v2.outbox.forget(started!!) }
     }
 }

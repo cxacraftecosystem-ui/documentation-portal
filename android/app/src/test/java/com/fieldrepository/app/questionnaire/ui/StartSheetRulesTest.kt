@@ -94,4 +94,38 @@ class StartSheetRulesTest {
         }
         assertEquals(QuestionnaireCopy.s("guest.someoneElse"), "Someone else")
     }
+
+    @QFeature("Q1")
+    @Test fun `record by is section unless chosen, and the create body carries the choice`() {
+        val form = StartForm(questionnaireId = "f1", date = LocalDate.parse("2026-11-15"), artisanIds = listOf("a1"))
+        assertEquals("SECTION", form.toCreate("c1", "u1", Instant.parse("2026-11-15T05:00:00Z")).recordBy)
+        assertEquals("QUESTION", form.copy(recordBy = "QUESTION").toCreate("c1", "u1", Instant.parse("2026-11-15T05:00:00Z")).recordBy)
+        assertEquals(listOf("SECTION" to "Section", "QUESTION" to "Question"), recordByOptions().map { it.value to it.label })
+        assertEquals("Record by", QuestionnaireCopy.t("fieldRecordBy"))
+    }
+
+    @Test fun `a provenance tag shows only while the value is still the one filled in for the researcher`() {
+        val workshop = QWorkshopOption("w1", "4th Craft Toolkit Workshop", place = "Lalitgiri, Cuttack")
+        val filled = StartForm(questionnaireId = "f1").withWorkshop(workshop)
+        assertTrue(placeFromWorkshop(filled, workshop))
+        assertFalse(placeFromWorkshop(filled.copy(place = "Bhubaneswar"), workshop))
+        assertFalse(placeFromWorkshop(filled, null))
+        assertTrue(formFromWorkshop(filled, resolved = "f1", touched = false))
+        assertFalse("a form the researcher picked is theirs", formFromWorkshop(filled, resolved = "f1", touched = true))
+        assertFalse("the default form is not the workshop's", formFromWorkshop(filled, resolved = null, touched = false))
+        assertFalse(formFromWorkshop(filled.copy(workshopId = ""), resolved = "f1", touched = false))
+        assertEquals("From this workshop", QuestionnaireCopy.t("fromThisWorkshop"))
+    }
+
+    @Test fun `crafts name the artisans whose record filled them, until the researcher changes them`() {
+        val crafts = mapOf("a1" to "Stone carving", "a2" to "Stone carving", "a3" to null)
+        val names = mapOf("a1" to "Meera Devi", "a2" to "Ramesh Maharana", "a3" to "Sita")
+        val one = StartForm(artisanIds = listOf("a1"), crafts = listOf("Stone carving"))
+        assertEquals("Meera Devi", craftsRecordOwner(one, crafts, names))
+        assertEquals("From Meera Devi's record", QuestionnaireCopy.t("fromRecordOf", "name" to "Meera Devi"))
+        assertEquals("Meera Devi and Ramesh Maharana", craftsRecordOwner(one.copy(artisanIds = listOf("a1", "a2", "a3")), crafts, names))
+        assertNull("a craft added by hand", craftsRecordOwner(one.copy(crafts = listOf("Stone carving", "Weaving"), craftsByHand = listOf("Weaving")), crafts, names))
+        assertNull("the record's craft was removed", craftsRecordOwner(one.copy(crafts = emptyList()), crafts, names))
+        assertNull(craftsRecordOwner(one.copy(artisanIds = listOf("a3")), crafts, names))
+    }
 }
