@@ -442,10 +442,14 @@ jobs:
           retention-days: 14
 
   interview:
-    name: Take-interview flow on a phone and a tablet against a CI backend
+    name: Take-interview flow on a ${{ matrix.device }} against a CI backend
     if: ${{ inputs.unit-tests == '' && inputs.device-tests == '' && inputs.parts != 'stack' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [phone, tablet]
     services:
       postgres:
         image: pgvector/pgvector:pg17
@@ -522,11 +526,13 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run the take-interview flow on a phone and a tablet
+      - name: Run the take-interview flow on the ${{ matrix.device }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         env:
           SHOTS: ${{ github.workspace }}/design-fidelity
           INTERVIEW_OUT: ${{ github.workspace }}/interview-device
+          INTERVIEW_SESSIONS: ${{ runner.temp }}/interview-sessions.json
+          INTERVIEW_DEVICES: ${{ matrix.device }}
           APP_ID: com.fieldrepository.app
         with:
           api-level: ${{ inputs.api-level || '37.0' }}
@@ -551,7 +557,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: android-emulator-interview
+          name: android-emulator-interview-${{ matrix.device }}
           path: |
             design-fidelity
             interview-device

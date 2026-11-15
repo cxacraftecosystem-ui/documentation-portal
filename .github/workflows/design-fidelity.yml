@@ -329,11 +329,15 @@ jobs:
           if-no-files-found: warn
 
   interview-android:
-    name: Take-interview screens on Android phone and tablet
+    name: Take-interview screens on an Android ${{ matrix.device }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.android != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [phone, tablet]
     services:
       postgres:
         image: pgvector/pgvector:pg17
@@ -410,12 +414,13 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Render each take-interview screen on a phone and a tablet
+      - name: Render each take-interview screen on the ${{ matrix.device }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         env:
           SHOTS: ${{ github.workspace }}/design-fidelity
           INTERVIEW_OUT: ${{ github.workspace }}/interview-device
           INTERVIEW_SESSIONS: ${{ runner.temp }}/interview-sessions.json
+          INTERVIEW_DEVICES: ${{ matrix.device }}
           APP_ID: com.fieldrepository.app
         with:
           api-level: "37.0"
@@ -432,18 +437,20 @@ jobs:
           disable-animations: true
           script: bash scripts/ci/interview_device.sh
 
-      - name: Every take-interview screen was drawn on both devices in both themes
+      - name: Every take-interview screen was drawn on the ${{ matrix.device }} in both themes
+        env:
+          DEVICE: ${{ matrix.device }}
         run: |
           set -uo pipefail
           missing=0
           for board in Main New SessionClosed Sections Question Menu SectionRecording Upload AnsweredBy Already Review; do
-            for device in phone tablet; do
+            for device in "$DEVICE"; do
               for theme in "" "-dark"; do
                 test -s "design-fidelity/interview-$board/impl-android-$device$theme.png" || { echo "::error::missing interview-$board/impl-android-$device$theme.png"; missing=1; }
               done
             done
           done
-          for device in phone tablet; do
+          for device in "$DEVICE"; do
             for theme in "" "-dark"; do
               test -s "design-fidelity/interview-States/impl-android-read-only-$device$theme.png" || { echo "::error::missing interview-States/impl-android-read-only-$device$theme.png"; missing=1; }
             done
@@ -458,7 +465,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: design-fidelity-interview-android
+          name: design-fidelity-interview-android-${{ matrix.device }}
           path: |
             design-fidelity
             interview-device
@@ -517,7 +524,8 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: design-fidelity-interview-android
+          pattern: design-fidelity-interview-android-*
+          merge-multiple: true
           path: interview-android
 
       - name: Put each pair side by side
