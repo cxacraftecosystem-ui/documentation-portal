@@ -82,7 +82,7 @@ const MARK_AMBER = "rounded bg-[#fde68a] px-0.5 text-[#78350f] dark:bg-amber-900
 
 const MARK_PURPLE = "rounded bg-[#f2e9fe] px-0.5 text-[#5f2491] dark:bg-purple-900 dark:text-purple-100";
 
-const EMBED_HEIGHT = "h-[min(36rem,calc(100dvh-10rem))]";
+const EMBED_HEIGHT = "h-[clamp(20rem,calc(100dvh-24rem),36rem)]";
 
 const EMBED_WIDE = `flex ${EMBED_HEIGHT} flex-col`;
 

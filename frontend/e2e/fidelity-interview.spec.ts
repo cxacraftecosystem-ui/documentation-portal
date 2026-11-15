@@ -309,7 +309,6 @@ capture("TakeOpen", "question take open in place", async (page, width, theme) =>
   await e2.locator("[data-take-play]").click();
   const region = e2.locator("[data-take-region]");
   await previewReady(region);
-  await e2.evaluate((node) => window.scrollBy(0, node.getBoundingClientRect().top - (document.querySelector("[data-session-header]")?.getBoundingClientRect().bottom ?? 0) - 8));
   await settle(page);
   const boards = ["WebTakeOpen", ...(theme === "dark" ? ["WebTakeDark"] : []), ...(width === 360 ? ["WebTakePhone"] : [])];
   for (const board of boards) {
@@ -337,7 +336,6 @@ capture("TakeSection", "section take open in place, side by side", async (page, 
   await previewReady(region);
   const side = region.getByRole("tab", { name: "Side by side" });
   if (await side.count()) await side.click();
-  await takes.evaluate((node) => window.scrollBy(0, node.getBoundingClientRect().top - (document.querySelector("[data-session-header]")?.getBoundingClientRect().bottom ?? 0) - 8));
   await settle(page);
   await takeShot(page, "WebTakeSideBySide", width, theme);
   await takeShot(region.getByTestId("preview-controls"), "WebTakeSideBySide", width, theme, "controls");
@@ -345,7 +343,6 @@ capture("TakeSection", "section take open in place, side by side", async (page, 
   await a1.locator("[data-take-play]").click();
   await previewReady(a1.locator("[data-take-region]"));
   await expect(region).toHaveCount(0);
-  await a1.evaluate((node) => window.scrollBy(0, node.getBoundingClientRect().top - (document.querySelector("[data-session-header]")?.getBoundingClientRect().bottom ?? 0) - 8));
   await settle(page);
   await takeShot(page, "WebTakeSideBySide", width, theme, "question");
   await a1.locator("[data-take-full]").click();

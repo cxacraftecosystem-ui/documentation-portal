@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronUp, Expand, Play } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { PreviewDialog, PreviewInline } from "@/components/dataExplorer/PreviewDialog";
 import { queuedBlob } from "@/components/questionnaire/useSessionQueue";
@@ -92,55 +92,72 @@ export function TakeRow({ player, slot, item, lead, playLabel }: { player: TakeP
   const region = regionId(slot, item.key);
   const full = fullEntry(item);
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1" data-take-row-in-place={item.key} data-take-open={open ? "" : undefined}>
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1" data-take-row-in-place={item.key} data-take-open={open ? "" : undefined}>
       <div className="min-w-0">{lead}</div>
-      <span className="flex-auto" />
-      {open ? (
-        <>
-          {full ? (
-            <button type="button" className="field-button-secondary min-h-11 font-semibold" onClick={() => player.showFull(full)} data-take-full>
-              <Expand className="h-4 w-4" aria-hidden />
-              {qs("openFullView")}
+      <div className="flex shrink-0 items-center gap-2">
+        {open ? (
+          <>
+            {full ? (
+              <button type="button" className="field-button-secondary min-h-11 font-semibold" onClick={() => player.showFull(full)} data-take-full>
+                <Expand className="h-4 w-4" aria-hidden />
+                {qs("openFullView")}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line-200 bg-card text-ink-700 transition hover:border-purple-300"
+              aria-label={qs("collapseTake")}
+              aria-expanded
+              aria-controls={region}
+              onClick={() => player.toggle(slot, item.key)}
+              data-take-collapse
+            >
+              <ChevronUp className="h-4.5 w-4.5" aria-hidden />
             </button>
-          ) : null}
+          </>
+        ) : (
           <button
             type="button"
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line-200 bg-card text-ink-700 transition hover:border-purple-300"
-            aria-label={qs("collapseTake")}
-            aria-expanded
+            className="field-button-secondary min-h-11 font-semibold"
+            aria-expanded={false}
             aria-controls={region}
+            aria-label={playLabel ? `${qs("playTake")} · ${playLabel}` : undefined}
             onClick={() => player.toggle(slot, item.key)}
-            data-take-collapse
+            data-take-play
           >
-            <ChevronUp className="h-4.5 w-4.5" aria-hidden />
+            <Play className="h-4 w-4" aria-hidden />
+            {qs("playTake")}
           </button>
-        </>
-      ) : (
-        <button
-          type="button"
-          className="field-button-secondary min-h-11 font-semibold"
-          aria-expanded={false}
-          aria-controls={region}
-          aria-label={playLabel ? `${qs("playTake")} · ${playLabel}` : undefined}
-          onClick={() => player.toggle(slot, item.key)}
-          data-take-play
-        >
-          <Play className="h-4 w-4" aria-hidden />
-          {qs("playTake")}
-        </button>
-      )}
+        )}
+      </div>
     </div>
   );
 }
 
+const REGION_MARGINS = { scrollMarginTop: "calc(var(--session-header-h, 0px) + 1rem)", scrollMarginBottom: "calc(var(--bottom-nav-h, 0px) + 9rem)" };
+
+function lessMotion(): boolean {
+  return document.documentElement.dataset.reducedMotion === "true" || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+}
+
 export function TakeRegion({ player, slot, item, className = "" }: { player: TakePlayer; slot: string; item: TakeItem; className?: string }) {
   if (!player.isOpen(slot, item.key)) return null;
+  return <OpenRegion player={player} slot={slot} item={item} className={className} />;
+}
+
+function OpenRegion({ player, slot, item, className }: { player: TakePlayer; slot: string; item: TakeItem; className: string }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView({ block: "nearest", behavior: lessMotion() ? "auto" : "smooth" });
+  }, []);
   return (
     <div
+      ref={ref}
       id={regionId(slot, item.key)}
       role="region"
       aria-label={item.label}
       className={`min-w-0 overflow-hidden rounded-lg border border-line-200 bg-card ${className}`}
+      style={REGION_MARGINS}
       data-take-region={item.key}
     >
       <TakePreview item={item} player={player} />
