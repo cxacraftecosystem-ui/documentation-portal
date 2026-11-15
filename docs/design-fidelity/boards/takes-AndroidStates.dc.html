@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Take states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700&amp;family=Noto+Sans+Oriya:wght@400;600&amp;display=swap">
+<style>
+body{margin:0;background:#F7F6FB}
+a{color:#762CB1;text-decoration:none}a:hover{color:#5F1C93}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+.seg{display:flex;gap:10px;padding:10px 12px;border-radius:12px;font-size:15px;line-height:1.55;color:#1e1b2e}
+.ts{flex:none;width:40px;font-size:12px;font-weight:600;color:#762cb1;padding-top:2px}
+.sp{font-size:12px;font-weight:700}
+.wv{display:flex;align-items:center;gap:2px;height:48px}
+.wv i{display:block;flex:none;width:3px;border-radius:2px}
+.card{background:#FFFFFF;border:1px solid #DCD7EE;border-radius:20px;padding:8px 14px 14px;display:flex;flex-direction:column;gap:4px}
+.h2{margin:0;font-size:12px;line-height:16px;font-weight:500;text-transform:uppercase;letter-spacing:.025em;color:#615D7A}
+.player{padding:14px;border-radius:20px;background:linear-gradient(160deg,#f2e9fe,#fff7ed);display:flex;flex-direction:column;gap:10px}
+.sm{width:48px;height:48px;border-radius:24px;border:1px solid #e4e2ef;background:#fff;color:#1e1b2e;font-size:13px;display:flex;align-items:center;justify-content:center;gap:1px}
+.spd{min-width:44px;min-height:40px;padding:0 10px;border-radius:999px;border:1px solid #e4e2ef;background:#fff;color:#1e1b2e;font-size:12px}
+.big{width:64px;height:64px;border-radius:32px;border:0;background:#762cb1;color:#fff;display:flex;align-items:center;justify-content:center}
+.tabs{display:flex;padding:3px;border-radius:12px;background:#faf9fd;border:1px solid #e4e2ef}
+.tab{flex:1;min-height:40px;border-radius:9px;border:0;background:transparent;color:#1e1b2e;font-size:13px;display:flex;align-items:center;justify-content:center;gap:5px}
+.tab[aria-selected="true"]{background:#762cb1;color:#fff;font-weight:600}
+.chip{flex:none;min-height:28px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:5px}
+.qrow{display:flex;align-items:center;gap:8px;height:32px}
+.badge{flex:none;padding:2px 8px;border-radius:6px;background:#DCFCE7;color:#166534;font-size:13px;line-height:18px;font-weight:600}
+.kebab{flex:none;width:48px;height:48px;margin:-8px -12px -8px 0;border:0;border-radius:24px;background:none;color:#615D7A;display:flex;align-items:center;justify-content:center}
+.q{margin:0;font-size:16px;line-height:24px;color:#1E1B2E}
+.trow{display:flex;align-items:center;gap:8px;min-height:56px;margin-top:4px}
+.rplay{flex:none;width:48px;height:48px;border:0;border-radius:24px;background:#F2E9FE;color:#5F1C93;display:flex;align-items:center;justify-content:center}
+.full{flex:none;min-height:48px;padding:0 8px;border:0;border-radius:24px;background:none;color:#762CB1;font-size:14px;font-weight:600}
+.chev{flex:none;width:48px;height:48px;margin-right:-12px;border:0;border-radius:24px;background:none;color:#5F1C93;display:flex;align-items:center;justify-content:center}
+.note{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:12px;background:#faf9fd;border:1px solid #e4e2ef;font-size:14px;line-height:20px;color:#615d7a}
+</style>
+</helmet>
+<div style="width: 390px; height: 2380px; box-sizing: border-box; background: #F7F6FB; color: #1E1B2E; font-family: Inter, system-ui, sans-serif; overflow: hidden; padding: 20px 16px 0; display: flex; flex-direction: column; gap: 16px">
+
+<h1 style="margin: 0; font: 700 24px/32px 'Plus Jakarta Sans', system-ui, sans-serif; color: #1E1B2E">Take states</h1>
+
+<section aria-labelledby="s-a" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-a" class="h2">Not uploaded yet</h2>
+<div class="card">
+<div class="qrow"><span class="badge">E2</span><span style="flex: 1; font-size: 13px; line-height: 16px; color: #166534">Question take · 3:12</span><button class="kebab" aria-label="More for E2" aria-haspopup="menu" aria-expanded="false"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg></button></div>
+<p class="q">Which stages require the highest level of skill, precision or are hardest for beginners to learn, and why?</p>
+<div class="trow">
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; line-height: 16px; color: #615D7A">Saved on this phone · uploading 40%</span><span role="progressbar" aria-label="Uploading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="40" style="width: 120px; height: 4px; border-radius: 2px; background: #E9E6F5; overflow: hidden; display: flex"><span style="width: 40%; height: 100%; background: #762CB1"></span></span></span>
+<button class="chev" aria-label="Collapse E2 take" aria-expanded="true" aria-controls="a-take"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"></path></svg></button>
+</div>
+<div id="a-take" role="region" aria-label="E2 take, on this phone" style="display: flex; flex-direction: column; gap: 12px; margin-top: 4px">
+<section class="player" aria-label="Player">
+<div class="wv" role="img" aria-label="Waveform, 0:00 of 3:12"><sc-for list="{{barsA}}" as="b" hint-placeholder-count="59"><i style="{{b.s}}"></i></sc-for></div>
+<div style="display: flex; justify-content: space-between; font-size: 12px; color: #615d7a"><strong style="color: #1e1b2e">0:00</strong><span>On this phone</span><span>3:12</span></div>
+<div style="display: flex; align-items: center; justify-content: space-between">
+<button class="spd" aria-label="Speed, 1×">1×</button>
+<button class="sm" aria-label="Back 10 seconds"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"></path><path d="M4 4v4.5h4.5"></path></svg>10</button>
+<button class="big" aria-label="Play"><svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M8 5.5v13l10.5-6.5z"></path></svg></button>
+<button class="sm" aria-label="Forward 10 seconds">10<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.4-5.7"></path><path d="M20 4v4.5h-4.5"></path></svg></button>
+<span aria-hidden="true" style="width: 52px"></span>
+</div>
+</section>
+<p class="note" role="status" style="margin: 0"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 1px"><path d="M7 18a4.5 4.5 0 01-.5-9 6 6 0 0111.5 1.5A3.75 3.75 0 0117.5 18z"></path><path d="M12 15v-5M9.5 12.5L12 10l2.5 2.5"></path></svg>Transcript after upload</p>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="s-b" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-b" class="h2">Transcript in progress</h2>
+<div class="card">
+<div class="qrow"><span class="badge">E2</span><span style="flex: 1; font-size: 13px; line-height: 16px; color: #166534">Question take · 3:12</span><button class="kebab" aria-label="More for E2" aria-haspopup="menu" aria-expanded="false"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg></button></div>
+<p class="q">Which stages require the highest level of skill, precision or are hardest for beginners to learn, and why?</p>
+<div class="trow">
+<span style="flex: 1; min-width: 0; font-size: 13px; line-height: 16px; color: #615D7A">15 Nov · 10:42</span>
+<button class="full" aria-haspopup="dialog">Open full view</button>
+<button class="chev" aria-label="Collapse E2 take" aria-expanded="true" aria-controls="b-take"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"></path></svg></button>
+</div>
+<div id="b-take" role="region" aria-label="E2 take" style="display: flex; flex-direction: column; margin-top: 4px">
+<section class="player" aria-label="Player">
+<div class="wv" role="img" aria-label="Waveform, 0:00 of 3:12"><sc-for list="{{barsB}}" as="b" hint-placeholder-count="59"><i style="{{b.s}}"></i></sc-for></div>
+<div style="display: flex; justify-content: space-between; font-size: 12px; color: #615d7a"><strong style="color: #1e1b2e">0:00</strong><span></span><span>3:12</span></div>
+<div style="display: flex; align-items: center; justify-content: space-between">
+<button class="spd" aria-label="Speed, 1×">1×</button>
+<button class="sm" aria-label="Back 10 seconds"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"></path><path d="M4 4v4.5h4.5"></path></svg>10</button>
+<button class="big" aria-label="Play"><svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M8 5.5v13l10.5-6.5z"></path></svg></button>
+<button class="sm" aria-label="Forward 10 seconds">10<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.4-5.7"></path><path d="M20 4v4.5h-4.5"></path></svg></button>
+<button class="spd" role="switch" aria-checked="false">Clear</button>
+</div>
+</section>
+<div style="padding: 12px 0 6px; display: flex; flex-direction: column; gap: 8px">
+<div class="tabs" role="tablist" aria-label="Transcript language">
+<button class="tab" role="tab" aria-selected="true">Odia</button>
+</div>
+</div>
+<div role="status" style="display: flex; align-items: center; gap: 10px; min-height: 64px; padding: 0 12px; font-size: 14px; line-height: 20px; color: #615d7a">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" style="flex: none"><circle cx="12" cy="12" r="8.5" stroke="#E9E6F5"></circle><path d="M12 3.5a8.5 8.5 0 018.5 8.5" stroke="#762CB1"></path></svg>Transcribing
+</div>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="s-c" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-c" class="h2">Transcribe only</h2>
+<div class="card">
+<div class="qrow"><span class="badge">E2</span><span style="flex: 1; font-size: 13px; line-height: 16px; color: #166534">Question take · 3:12</span><button class="kebab" aria-label="More for E2" aria-haspopup="menu" aria-expanded="false"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg></button></div>
+<p class="q">Which stages require the highest level of skill, precision or are hardest for beginners to learn, and why?</p>
+<div class="trow">
+<span style="flex: 1; min-width: 0; font-size: 13px; line-height: 16px; color: #615D7A">15 Nov · 10:42</span>
+<button class="full" aria-haspopup="dialog">Open full view</button>
+<button class="chev" aria-label="Collapse E2 take" aria-expanded="true" aria-controls="c-take"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"></path></svg></button>
+</div>
+<div id="c-take" role="region" aria-label="E2 take" style="display: flex; flex-direction: column; margin-top: 4px">
+<section class="player" aria-label="Player">
+<div class="wv" role="img" aria-label="Waveform, 0:48 of 3:12"><sc-for list="{{barsC}}" as="b" hint-placeholder-count="59"><i style="{{b.s}}"></i></sc-for></div>
+<div style="display: flex; justify-content: space-between; font-size: 12px; color: #615d7a"><strong style="color: #1e1b2e">0:48</strong><span>Meera speaking</span><span>3:12</span></div>
+<div style="display: flex; align-items: center; justify-content: space-between">
+<button class="spd" aria-label="Speed, 1×">1×</button>
+<button class="sm" aria-label="Back 10 seconds"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"></path><path d="M4 4v4.5h4.5"></path></svg>10</button>
+<button class="big" aria-label="Play"><svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M8 5.5v13l10.5-6.5z"></path></svg></button>
+<button class="sm" aria-label="Forward 10 seconds">10<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.4-5.7"></path><path d="M20 4v4.5h-4.5"></path></svg></button>
+<button class="spd" role="switch" aria-checked="false">Clear</button>
+</div>
+</section>
+<div style="padding: 12px 0 6px; display: flex; flex-direction: column; gap: 8px">
+<div class="tabs" role="tablist" aria-label="Transcript language">
+<button class="tab" role="tab" aria-selected="true">Odia</button>
+<button class="tab" role="tab" aria-selected="false">Find<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6"></circle><path d="M15 15l5 5"></path></svg></button>
+</div>
+<div style="display: flex; align-items: center; gap: 6px">
+<span class="chip" style="background: #f2e9fe; color: #762cb1"><span style="width: 8px; height: 8px; border-radius: 4px; background: #762cb1"></span>Interviewer</span>
+<span class="chip" style="background: #ccfbf1; color: #0f766e"><span style="width: 8px; height: 8px; border-radius: 4px; background: #0f766e"></span>Meera</span>
+<span style="margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: #15803d"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>Follows playback</span>
+</div>
+</div>
+<div role="region" aria-label="E2 transcript, Odia" tabindex="0" style="position: relative; height: 260px; overflow: hidden; margin: 0 -6px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<sc-for list="{{odia}}" as="t" hint-placeholder-count="3">
+<div class="seg" style="{{t.bg}}"><span class="ts">{{t.time}}</span><div><div class="sp" style="{{t.who}}">{{t.speaker}}</div><span lang="or" style="font-family: 'Noto Sans Oriya', Inter, sans-serif">{{t.text}}</span></div></div>
+</sc-for>
+</div>
+<div aria-hidden="true" style="position: absolute; left: 0; right: 0; bottom: 0; height: 48px; background: linear-gradient(180deg, rgba(255,255,255,0), #FFFFFF)"></div>
+</div>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="s-d" style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="s-d" class="h2">Withheld for this account</h2>
+<div class="card">
+<div class="qrow"><span class="badge">E2</span><span style="flex: 1; font-size: 13px; line-height: 16px; color: #166534">Question take · 3:12</span><button class="kebab" aria-label="More for E2" aria-haspopup="menu" aria-expanded="false"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg></button></div>
+<p class="q">Which stages require the highest level of skill, precision or are hardest for beginners to learn, and why?</p>
+<div class="trow">
+<span style="flex: 1; min-width: 0; font-size: 13px; line-height: 16px; color: #615D7A">15 Nov · 10:42</span>
+<button class="full" aria-haspopup="dialog">Open full view</button>
+<button class="chev" aria-label="Collapse E2 take" aria-expanded="true" aria-controls="d-take"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"></path></svg></button>
+</div>
+<div id="d-take" role="region" aria-label="E2 take" style="display: flex; flex-direction: column; gap: 12px; margin-top: 4px">
+<section class="player" aria-label="Player">
+<div class="wv" role="img" aria-label="Waveform, 0:48 of 3:12"><sc-for list="{{barsD}}" as="b" hint-placeholder-count="59"><i style="{{b.s}}"></i></sc-for></div>
+<div style="display: flex; justify-content: space-between; font-size: 12px; color: #615d7a"><strong style="color: #1e1b2e">0:48</strong><span></span><span>3:12</span></div>
+<div style="display: flex; align-items: center; justify-content: space-between">
+<button class="spd" aria-label="Speed, 1×">1×</button>
+<button class="sm" aria-label="Back 10 seconds"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"></path><path d="M4 4v4.5h4.5"></path></svg>10</button>
+<button class="big" aria-label="Play"><svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M8 5.5v13l10.5-6.5z"></path></svg></button>
+<button class="sm" aria-label="Forward 10 seconds">10<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.4-5.7"></path><path d="M20 4v4.5h-4.5"></path></svg></button>
+<button class="spd" role="switch" aria-checked="false">Clear</button>
+</div>
+</section>
+<p class="note" style="margin: 0"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 1px"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 018 0v3"></path></svg>Consent refused: nothing said is shown or downloaded.</p>
+</div>
+</div>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":2380}}'>
+class Component extends DCLogic {
+renderVals() {
+var h = [14,26,38,22,44,30,18,40,32,20,42,28,14,36,46,30,20,38,44,26,16,40,30,46,22,36,18,42,32,24,44,28,14,38,34,20,40,26,46,18,36,28,42,22,32,16,38,24,44,30,20,40,26,34,18,42,30,22,36];
+function bars(played) {
+var out = [];
+h.forEach(function (v, i) {
+if (i === played) out.push({ s: 'width: 2px; height: 48px; background: #1e1b2e' });
+out.push({ s: 'height: ' + v + 'px; background: ' + (i < played ? '#762cb1' : '#d9c4e9') });
+});
+return out;
+}
+var iv = 'color: #762cb1';
+var me = 'color: #0f766e';
+var odia = [
+{ time: '0:31', speaker: 'Interviewer', who: iv, bg: '', text: 'ନୂଆ ଶିଖୁଥିବା ଲୋକଙ୍କ ପାଇଁ କେଉଁ ପର୍ଯ୍ୟାୟ ସବୁଠୁ କଷ୍ଟ?' },
+{ time: '0:44', speaker: 'Meera', who: me, bg: 'background: #f2e9fe', text: 'ଛେଣିରେ ମୋଟାମୋଟି କାଟିବା। ଗୋଟିଏ ଭୁଲ ଚୋଟରେ ପଥର ଫାଟିଯାଏ।' },
+{ time: '1:12', speaker: 'Meera', who: me, bg: '', text: 'ଘଷିବା ଆଗରୁ ପଥରକୁ ରାତିସାରା ପାଣିରେ ଭିଜାଉ।' }
+];
+return { barsA: bars(0), barsB: bars(0), barsC: bars(15), barsD: bars(15), odia: odia };
+}
+}
+</script>
+</body>
+</html>

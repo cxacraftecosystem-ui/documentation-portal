@@ -27,14 +27,14 @@ Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType
 
 ## API surface
 
-**386 operations** in the working tree — 184 GET, 127 POST, 30 DELETE,
+**382 operations** in the working tree — 181 GET, 126 POST, 30 DELETE,
 22 PATCH, 23 PUT. 2 of them (`/health`, `/health/ready`) are declared
 on the app rather than on a router; the rest are spread across `backend/app/api/routes/`:
 
 | Route module | Operations |
 |---|---|
 | `questionnaire_v2.py` | 53 |
-| `data_explorer.py` | 26 |
+| `data_explorer.py` | 22 |
 | `media.py` | 22 |
 | `transcripts.py` | 21 |
 | `workshops.py` | 21 |
@@ -128,8 +128,8 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 283 | 3153 `def test_` | `python -m pytest -q` from `backend/` |
-| Web end-to-end (`frontend/e2e/`) | 187 | 1865 `test(` | Playwright, `frontend/playwright.config.ts` |
+| Backend unit (`backend/tests/`) | 283 | 3155 `def test_` | `python -m pytest -q` from `backend/` |
+| Web end-to-end (`frontend/e2e/`) | 188 | 1874 `test(` | Playwright, `frontend/playwright.config.ts` |
 | Android unit (`android/app/src/test/`) | 240 | 1797 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | 67 | 300 `@Test` | not run in CI |
 
@@ -141,10 +141,10 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 357 | 93,499 | 357 | 93,499 |
+| `backend/app` | 357 | 93,516 | 357 | 93,516 |
 | `frontend/app` | 95 | 17,282 | 95 | 17,282 |
-| `frontend/components` | 367 | 73,459 | 367 | 73,459 |
-| `frontend/lib` | 210 | 40,704 | 210 | 40,704 |
+| `frontend/components` | 368 | 73,701 | 368 | 73,701 |
+| `frontend/lib` | 211 | 40,775 | 211 | 40,775 |
 | `android/app/src/main/java` | 349 | 108,178 | 349 | 108,178 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is

@@ -59,6 +59,10 @@ async function refresh() {
   emit({ units: unitsOwnedBy(all, owner), held: heldUnits(all, owner) });
 }
 
+export function queuedBlob(key: string): Promise<Blob | null> {
+  return getStore().getBlob(key);
+}
+
 export function setQueueOwner(userId: string | null) {
   if (owner === (userId || null)) return;
   owner = userId || null;

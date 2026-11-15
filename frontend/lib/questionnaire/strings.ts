@@ -478,6 +478,10 @@ export const questionnaireStrings = {
   registerArtisan: "Register artisan",
   more: "More",
   fillFromProfile: "Fill from profile",
+  playTake: "Play",
+  openFullView: "Open full view",
+  collapseTake: "Collapse take",
+  transcriptAfterUpload: "Transcript after upload",
 } as const;
 
 export type QuestionnaireStringKey = keyof typeof questionnaireStrings;

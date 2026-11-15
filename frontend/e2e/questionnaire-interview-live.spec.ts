@@ -303,3 +303,30 @@ test("@qf:Q7 the sessions list leads with today's open session and filters by st
   await expect(page).toHaveURL(new RegExp(escape(open.id)));
   await expect(sectionHeader(page, "E")).toHaveAttribute("aria-expanded", "true");
 });
+
+test("a designer plays a recorded take in place through the Data explorer's own routes, and starting a recording collapses it", async ({ page }) => {
+  const session = await boardSession();
+  const detail = await as().getSession(session.id);
+  const take = detail.recordings.find((r) => r.targets.some((t) => t.questionLineageId === lineage("E2")))!;
+  const asked: { path: string; status: number }[] = [];
+  page.on("response", (response) => {
+    const path = new URL(response.url()).pathname;
+    if (path.includes(`/data/media/${take.mediaFileId}/`) || path.endsWith(`/transcripts/${take.mediaFileId}`)) asked.push({ path, status: response.status() });
+  });
+  await openSession(page, session);
+  await openSection(page, "E");
+  const e2 = page.locator("[data-question='E2']");
+  await e2.locator("[data-take-play]").click();
+  const region = e2.locator("[data-take-region]");
+  await expect(region.getByTestId("preview-controls")).toBeVisible({ timeout: 30_000 });
+  await expect(region.locator("audio")).toHaveAttribute("src", `/api/data/media/${take.mediaFileId}/preview`);
+  await expect.poll(() => asked.filter((a) => a.path.endsWith("/peaks")).length, { timeout: 30_000 }).toBeGreaterThan(0);
+  await expect.poll(() => asked.filter((a) => a.path.endsWith("/preview")).length, { timeout: 30_000 }).toBeGreaterThan(0);
+  expect(asked.filter((a) => a.status === 401 || a.status === 403), "the explorer's routes let the take's researcher in").toEqual([]);
+  await page.getByRole("button", { name: S.recordSection }).first().click();
+  await expect(page.getByText(S.recordingSection({ code: "E" }))).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("[data-take-region]")).toHaveCount(0);
+  await page.getByRole("button", { name: S.stop, exact: true }).click();
+  await page.goto(`/questionnaire/sessions/${encodeURIComponent(session.id)}/view?recording=${encodeURIComponent(take.id)}`);
+  await expect(page.locator(`[data-take-region='${take.id}']`).getByTestId("preview-controls")).toBeVisible({ timeout: 30_000 });
+});

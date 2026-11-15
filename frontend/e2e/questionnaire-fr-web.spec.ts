@@ -574,3 +574,54 @@ for (const theme of ["light", "dark"] as const) {
     await page.screenshot({ path: `${SHOTS}/session-360-${theme}.png`, fullPage: false });
   });
 }
+
+
+test("a recorded take plays in place in the Data explorer's own preview, one take open at a time, with its full view one tap away", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaire/sessions/s-1");
+  await openSection(page, "A");
+  const sectionTakes = page.locator("[data-section-takes='A']");
+  await expect(sectionTakes.locator("[data-take-row-in-place]")).toHaveCount(1);
+  await expect(sectionTakes.locator("[data-section-take='rec-1']")).toContainText("2 min");
+  const a1 = page.locator("[data-question='A1']");
+  const a2 = page.locator("[data-question='A2']");
+  await a1.locator("[data-take-play]").click();
+  const region = a1.locator("[data-take-region='rec-1']");
+  await expect(region.getByTestId("preview-body")).toBeVisible();
+  await expect(region.getByTestId("preview-controls")).toBeVisible();
+  await expect(region.getByRole("tablist", { name: "Transcript view" })).toBeVisible();
+  await expect(region.locator("audio")).toHaveAttribute("src", /\/api\/data\/media\/m-rec-1\/preview$/);
+  await expect(region.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
+  await expect(region.getByRole("button", { name: "Previous file" })).toHaveCount(0);
+  await expect.poll(() => fake.calledWith("GET", "/transcripts/m-rec-1").length).toBeGreaterThan(0);
+  await expect.poll(() => fake.calledWith("GET", "/data/media/m-rec-1/peaks").length).toBeGreaterThan(0);
+  await a2.locator("[data-take-play]").click();
+  await expect(a1.locator("[data-take-region]")).toHaveCount(0);
+  await expect(a2.locator("[data-take-region='rec-1']")).toBeVisible();
+  await sectionTakes.locator("[data-take-play]").click();
+  await expect(a2.locator("[data-take-region]")).toHaveCount(0);
+  await expect(sectionTakes.locator("[data-take-region='rec-1']")).toBeVisible();
+  await sectionTakes.getByRole("button", { name: "Collapse take" }).click();
+  await expect(page.locator("[data-take-region]")).toHaveCount(0);
+  await a1.locator("[data-take-play]").click();
+  await a1.locator("[data-take-full]").click();
+  const full = page.getByRole("dialog");
+  await expect(full.getByTestId("preview-body")).toBeVisible();
+  await expect(page.locator("[data-take-region]")).toHaveCount(0);
+  await full.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(full).toHaveCount(0);
+  await a1.locator("[data-question-state='SECTION_TAKE']").click();
+  await expect(page.locator("[data-take-sheet]")).toBeVisible();
+});
+
+test("the read view plays each take in place with the explorer's preview and opens the take a link points at", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaire/sessions/s-1/view?recording=rec-1");
+  const take = page.locator("[data-recording='rec-1']");
+  await expect(take.locator("[data-take-region='rec-1'] [data-testid='preview-body']")).toBeVisible();
+  await expect(take.locator("[data-recording-chips]")).toContainText("Giriraj Prasad Chhipa");
+  await take.getByRole("button", { name: "Collapse take" }).click();
+  await expect(take.locator("[data-take-region]")).toHaveCount(0);
+  await take.locator("[data-take-play]").click();
+  await expect(take.locator("[data-take-region='rec-1'] audio")).toHaveAttribute("src", /\/api\/data\/media\/m-rec-1\/preview$/);
+});
