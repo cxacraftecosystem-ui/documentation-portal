@@ -28,6 +28,7 @@ from app.questionnaire.live import live_media_where, live_session_where
 from app.questionnaire.schemas import CompleteRequest as V2CompleteRequest
 from app.questionnaire.schemas import MultipartCreateRequest as V2MultipartCreateRequest
 from app.questionnaire.schemas import PresignRequest as V2PresignRequest
+from app.questionnaire.schemas import ShaLookupRequest as V2ShaLookupRequest
 from app.schemas.media import (
     MediaCompleteRequest,
     MediaRelinkRequest,
@@ -372,6 +373,11 @@ async def complete_multipart(
         "bucket": settings.aws_s3_bucket,
         "publicUrl": None,
     }
+
+
+@router.post("/sha-lookup")
+async def sha_lookup(request: Request, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await v2_recordings.sha_lookup(await _v2(V2ShaLookupRequest, await _body(request)), current_user)
 
 
 @router.get("/uploads/{client_clip_key}")

@@ -103,3 +103,29 @@ def test_a_stale_edit_whose_every_field_already_matches_is_applied(monkeypatch: 
         assert again["version"] == first["version"] + 1
 
     _world(monkeypatch, body)
+
+
+def test_record_by_follows_the_session_and_a_stale_switch_is_refused_only_on_record_by(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.questionnaire import sessions
+    from app.questionnaire.schemas import SessionPatch
+
+    async def body(client, ids, session) -> None:
+        loaded = session["version"]
+        assert session["recordBy"] == "SECTION"
+        noted = await sessions.patch_session(session["id"], SessionPatch(version=loaded, note="Second visit"), ids.lead)
+        with pytest.raises(HTTPException) as stale:
+            await sessions.patch_session(session["id"], SessionPatch(version=loaded, recordBy="QUESTION"), ids.lead)
+        assert stale.value.detail["code"] == "STALE_VERSION"
+        assert stale.value.detail["diff"] == {"recordBy": {"current": "SECTION", "yours": "QUESTION"}}
+        assert stale.value.detail["current"]["recordBy"] == "SECTION"
+        switched = await sessions.patch_session(session["id"], SessionPatch(version=noted["version"], recordBy="QUESTION"), ids.lead)
+        assert switched["recordBy"] == "QUESTION" and switched["note"] == "Second visit"
+        again = await sessions.patch_session(session["id"], SessionPatch(version=loaded, recordBy="QUESTION"), ids.prof)
+        assert again["recordBy"] == "QUESTION" and again["version"] == switched["version"] + 1
+        with pytest.raises(HTTPException) as back:
+            await sessions.patch_session(session["id"], SessionPatch(version=loaded, recordBy="SECTION"), ids.lead)
+        assert back.value.detail["diff"] == {"recordBy": {"current": "QUESTION", "yours": "SECTION"}}
+        read = await sessions.session_payload(client, session["id"], ids.lead)
+        assert read["recordBy"] == "QUESTION"
+
+    _world(monkeypatch, body)

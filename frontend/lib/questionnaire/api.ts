@@ -581,6 +581,23 @@ export type CompleteRequest = {
   linkedRecordId: string;
   recording: CompleteRecording;
 };
+export type ShaMatch = {
+  sha: string;
+  recordingId: string | null;
+  sessionId: string | null;
+  sameSession: boolean;
+  uploadedAt: string | null;
+  pending: boolean;
+};
+export type SessionReview = {
+  sessionId: string;
+  answered: number;
+  total: number;
+  sectionsDone: number;
+  pendingUploads: number;
+  needsDecision: { recordingId: string; capturedAt: string | null; codes: string[] }[];
+  stillToAsk: { sectionId: string; code: string; title: string; answered: number; total: number; lineages: string[] }[];
+};
 
 export type AnswerItem = {
   artisanId?: string | null;
@@ -710,6 +727,7 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
     join: (joinCode: string) => fetchJson<Session>(`${Q}/sessions/join`, json("POST", { joinCode })),
     joinByKey: (clientKey: string) => fetchJson<Session>(`${Q}/sessions/join-by-key`, json("POST", { clientKey })),
     finish: (id: string) => fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}/finish`, json("POST", {})),
+    review: (id: string) => fetchJson<SessionReview>(`${Q}/sessions/${encodeURIComponent(id)}/review`),
     mergeInto: (id: string, targetId: string) =>
       fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}/merge-into/${encodeURIComponent(targetId)}`, json("POST", {})),
     continueSessions: (body: { fromSessionId: string; artisanIds: string[]; split: "ONE" | "EACH"; sessionDate: string }) =>
@@ -812,6 +830,8 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
     multipartComplete: (body: { objectKey: string; uploadId: string; parts: UploadPart[] }) =>
       fetchJson<{ objectKey: string }>(`/media/multipart/complete`, json("POST", body)),
     uploadState: (clientClipKey: string) => fetchJson<UploadState>(`/media/uploads/${encodeURIComponent(clientClipKey)}`),
+    shaLookup: (sha256s: string[], sessionId?: string | null) =>
+      fetchJson<{ items: ShaMatch[] }>(`/media/sha-lookup`, json("POST", { sha256s, sessionId: sessionId ?? null })),
     complete: (body: CompleteRequest) => fetchJson<Recording>(`/media/complete`, json("POST", body, body.clientClipKey))
   };
 }

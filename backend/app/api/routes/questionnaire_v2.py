@@ -315,6 +315,11 @@ async def sessions_finish(session_id: str, user: Any = Depends(get_current_user)
     return await sessions.finish(session_id, user)
 
 
+@router.get("/sessions/{session_id}/review", dependencies=V2)
+async def sessions_review(session_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await sessions.review(session_id, user)
+
+
 @router.post("/sessions/{session_id}/merge-into/{target_id}", dependencies=V2)
 async def sessions_merge(session_id: str, target_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     return await sessions.merge_into(session_id, target_id, user)

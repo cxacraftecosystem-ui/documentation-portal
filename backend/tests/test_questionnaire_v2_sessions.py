@@ -246,3 +246,42 @@ def test_an_empty_session_with_an_upload_on_its_way_is_not_deleted(monkeypatch) 
         await client.disconnect()
 
     run(go())
+
+
+def test_progress_counts_questions_once_for_the_group_and_a_section_take_answers_all(monkeypatch) -> None:
+    from app.questionnaire import answers, sessions
+    from app.questionnaire.schemas import AnswersPut
+    from qv2_fixtures import record_take, t
+
+    async def go() -> None:
+        client = await connect()
+        patch_db(monkeypatch, client)
+        no_outside_calls(monkeypatch)
+        try:
+            ids = await seed(client)
+            a, b = ids.artisans[0], ids.artisans[1]
+            s, _ = await sessions.create_session(session_create(ids, [a, b]), ids.lead)
+            assert s["progress"]["answeredQuestions"] == 0 and s["progress"]["totalQuestions"] == 13
+            assert s["counts"]["answeredQuestions"] == 0 and s["counts"]["totalQuestions"] == 13
+            await record_take(client, ids, s["id"], ids.lead, targets=[{"sectionId": ids.sections["D"]}], at=t(0),
+                              subjects=[{"artisanId": a, "role": "ANSWERED"}, {"artisanId": b, "role": "PRESENT"}])
+            await record_take(client, ids, s["id"], ids.lead, targets=[{"questionLineageId": ids.questions["F2"]}], at=t(1),
+                              subjects=[{"artisanId": b, "role": "ANSWERED"}])
+            typed = lambda artisan, code: {"artisanId": artisan, "questionLineageId": ids.questions[code], "text": "Teak", "sessionId": s["id"]}
+            await answers.put_answers(AnswersPut.model_validate({"items": [typed(a, "F2"), typed(b, "D1"), typed(a, "B1")]}), ids.lead)
+            read = await sessions.session_payload(client, s["id"], ids.lead)
+            by = {row["sectionId"]: row for row in read["progress"]["sections"]}
+            assert by[ids.sections["D"]] == {"sectionId": ids.sections["D"], "answeredQuestions": 4, "totalQuestions": 4, "inSectionTake": True}
+            assert by[ids.sections["F"]]["answeredQuestions"] == 1 and not by[ids.sections["F"]]["inSectionTake"]
+            assert by[ids.sections["B"]]["answeredQuestions"] == 1
+            assert read["progress"]["answeredQuestions"] == 6 and read["progress"]["totalQuestions"] == 13
+            assert read["counts"]["answeredQuestions"] == 6 and read["counts"]["sections"] == 2
+            listed = await sessions.list_sessions(viewer=ids.lead, workshopId=ids.workshop, questionnaireId=ids.q)
+            row = next(item for item in listed["items"] if item["id"] == s["id"])
+            assert row["counts"]["answeredQuestions"] == 6 and row["counts"]["totalQuestions"] == 13 and "progress" not in row
+            later, _ = await sessions.create_session(session_create(ids, [a, b], day="2026-06-21"), ids.lead)
+            assert later["progress"]["answeredQuestions"] == 0, "progress belongs to one session"
+        finally:
+            await client.disconnect()
+
+    run(go())

@@ -42,7 +42,7 @@ def _client(client: Any) -> Any:
 async def load_session_row(client: Any, session_id: str) -> dict[str, Any] | None:
     rows = await client.query_raw(
         'SELECT i.*, i."state"::text AS state_t, i."purpose"::text AS purpose_t, i."origin"::text AS origin_t, '
-        'i."status"::text AS status_t FROM "QuestionnaireInterview" i WHERE i."id" = $1',
+        'i."status"::text AS status_t, i."recordBy"::text AS record_by_t FROM "QuestionnaireInterview" i WHERE i."id" = $1',
         session_id,
     )
     return rows[0] if rows else None
@@ -96,10 +96,13 @@ async def assert_can_work_in(client: Any, user: Any, session: dict[str, Any]) ->
         fail("FORBIDDEN", "Only the session's researchers can change it.")
 
 
-async def _counts(client: Any, session_ids: list[str]) -> dict[str, dict[str, int]]:
-    if not session_ids:
-        return {}
-    rows = await client.query_raw(
+async def _counts(client: Any, rows: list[dict[str, Any]]) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, Any]]]:
+    from app.questionnaire import coverage
+
+    if not rows:
+        return {}, {}
+    session_ids = [str(r["id"]) for r in rows]
+    takes = await client.query_raw(
         'SELECT m."questionnaireInterviewId" AS sid, count(DISTINCT r."id") AS takes, '
         'count(DISTINCT r."id") FILTER (WHERE r."filing" = \'NEEDS_DECISION\') AS nd '
         'FROM "QuestionnaireRecording" r JOIN "MediaFile" m ON m."id" = r."mediaFileId" '
@@ -107,18 +110,17 @@ async def _counts(client: Any, session_ids: list[str]) -> dict[str, dict[str, in
         'GROUP BY 1',
         session_ids,
     )
-    sections = await client.query_raw(
-        'SELECT tv."sessionId" AS sid, count(DISTINCT COALESCE(tv."sectionId", q."sectionId")) AS n '
-        'FROM questionnaire_take_v tv LEFT JOIN "QuestionnaireQuestion" q ON q."id" = tv."questionLineageId" '
-        'WHERE tv."sessionId" = ANY($1::text[]) GROUP BY 1',
-        session_ids,
-    )
-    out = {sid: {"sections": 0, "takes": 0, "needsDecision": 0} for sid in session_ids}
-    for r in rows:
+    progress = await coverage.session_progress(client, {str(r["id"]): str(r["questionnaireId"]) for r in rows})
+    out = {
+        sid: {
+            "sections": int(progress[sid].pop("touchedSections")), "takes": 0, "needsDecision": 0,
+            "answeredQuestions": progress[sid]["answeredQuestions"], "totalQuestions": progress[sid]["totalQuestions"],
+        }
+        for sid in session_ids
+    }
+    for r in takes:
         out[str(r["sid"])].update(takes=int(r["takes"]), needsDecision=int(r["nd"]))
-    for r in sections:
-        out[str(r["sid"])]["sections"] = int(r["n"])
-    return out
+    return out, progress
 
 
 JOIN_SECRETS = ("joinCode", "joinQr", "clientKey")
@@ -183,7 +185,8 @@ async def _session_locations(client: Any, rows: list[dict[str, Any]]) -> dict[st
     }
 
 
-async def serialize_sessions(client: Any, rows: list[dict[str, Any]], viewer: Any = None) -> list[dict[str, Any]]:
+async def serialize_sessions(client: Any, rows: list[dict[str, Any]], viewer: Any = None, *,
+                             with_progress: bool = False) -> list[dict[str, Any]]:
     if not rows:
         return []
     sids = [str(r["id"]) for r in rows]
@@ -208,7 +211,7 @@ async def serialize_sessions(client: Any, rows: list[dict[str, Any]], viewer: An
     )
     artisan_ids = list({str(p["artisanId"]) for p in parts})
     consent = await consent_gate.current_states("ARTISAN", artisan_ids, client=client)
-    counts = await _counts(client, sids)
+    counts, progress = await _counts(client, rows)
     places = await _session_locations(client, rows)
     reason_by = {str(r["sid"]): r for r in reasons}
     out: list[dict[str, Any]] = []
@@ -275,8 +278,9 @@ async def serialize_sessions(client: Any, rows: list[dict[str, Any]], viewer: An
                 "submittedAt": iso(row.get("submittedAt")),
                 "reviewReasons": [last_review["reason"]] if last_review and last_review.get("reason")
                 and last_review.get("status") != "APPROVED" else [],
-                "counts": counts.get(sid, {"sections": 0, "takes": 0, "needsDecision": 0}),
+                "counts": counts[sid],
                 "source": enum_text(row.get("source")) or "APP",
+                "recordBy": row.get("record_by_t") or enum_text(row.get("recordBy")) or "SECTION",
                 "deletedAt": iso(row.get("deletedAt")),
                 "chips": chips.build(
                     meta=m or None, targets=[], subjects=[{"artisanId": p["artisanId"], "name": p["name"], "role": "ANSWERED"} for p in participants],
@@ -285,6 +289,8 @@ async def serialize_sessions(client: Any, rows: list[dict[str, Any]], viewer: An
                 ),
             }
         )
+        if with_progress:
+            out[-1]["progress"] = progress[sid]
     for row, item in zip(rows, out, strict=True):
         if not _sees_join_secrets(viewer, row, researchers):
             for key in JOIN_SECRETS:
@@ -296,7 +302,7 @@ async def session_payload(client: Any, session_id: str, viewer: Any = None) -> d
     from app.questionnaire import respondents
 
     row = await require_session(client, session_id)
-    out = (await serialize_sessions(client, [row], viewer))[0]
+    out = (await serialize_sessions(client, [row], viewer, with_progress=True))[0]
     out["respondents"] = await respondents.list_for(client, session_id)
     return out
 
@@ -498,6 +504,7 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
                         "craftsByHand": clean_crafts(getattr(payload, "craftsByHand", None)),
                         "legacyTitle": legacy_title,
                         "source": getattr(payload, "source", None) or "APP",
+                        "recordBy": getattr(payload, "recordBy", None) or "SECTION",
                         "status": data["status"],
                         "createdById": user.id,
                         **({"locationId": location_id} if location_id else {}),
@@ -571,7 +578,8 @@ def _json(value: Any) -> Any:
     return Json(value)
 
 
-PATCHABLE = ("place", "languageCode", "languageOther", "note", "sessionDate", "workshopId", "designWorkshopId", "purpose")
+PATCHABLE = ("place", "languageCode", "languageOther", "note", "sessionDate", "workshopId", "designWorkshopId", "purpose", "recordBy")
+NOT_NULL = ("recordBy",)
 DETAIL_KEYS = (*PATCHABLE, "questionnaireId", "crafts", "craftsByHand", "location")
 LOCATION_COMPARED = ("latitude", "longitude", "accuracy", "altitude", *LOCATION_TEXT, "subjectLatitude", "subjectLongitude")
 
@@ -614,7 +622,7 @@ def _sent_details(payload: Any) -> dict[str, Any]:
     sent = payload.model_fields_set
     out: dict[str, Any] = {}
     for key in PATCHABLE:
-        if key in sent:
+        if key in sent and not (key in NOT_NULL and getattr(payload, key) is None):
             value = _plain(getattr(payload, key))
             out[key] = ((value or "").strip() or None) if key in ("place", "note") else value
     if "questionnaireId" in sent and payload.questionnaireId:
@@ -662,6 +670,8 @@ async def patch_session(session_id: str, payload: Any, user: Any, *, client: Any
     for key in PATCHABLE:
         if key in sent:
             value = getattr(payload, key)
+            if key in NOT_NULL and value is None:
+                continue
             if key == "sessionDate" and value is not None:
                 data["sessionDate"] = datetime(value.year, value.month, value.day, tzinfo=UTC)
                 data["sessionDateEstimated"] = False
@@ -871,6 +881,55 @@ async def finish(session_id: str, user: Any, *, client: Any = None) -> dict[str,
     return out
 
 
+async def review(session_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
+    from app.questionnaire import coverage
+
+    db = _client(client)
+    row = await require_session(db, session_id)
+    questionnaire_id = str(row["questionnaireId"])
+    sections = (await coverage.instrument_sections(db, [questionnaire_id])).get(questionnaire_id, [])
+    found = (await coverage.session_answers(db, [session_id]))[session_id]
+    progress = coverage.progress_of(sections, found["sectionTakes"], found["done"])
+    still = []
+    for section, counted in zip(sections, progress["sections"], strict=True):
+        left = [] if counted["inSectionTake"] else [lin for lin in section["lineages"] if lin not in found["done"]]
+        if left:
+            still.append({
+                "sectionId": section["sectionId"], "code": section["code"], "title": section["title"],
+                "answered": counted["answeredQuestions"], "total": counted["totalQuestions"], "lineages": left,
+            })
+    waiting = await db.query_raw(
+        'SELECT r."id", r."capturedAt", s."code" AS "sectionCode", q."displayCode" FROM "QuestionnaireRecording" r '
+        'JOIN "MediaFile" m ON m."id" = r."mediaFileId" '
+        'LEFT JOIN "QuestionnaireRecordingTarget" t ON t."recordingId" = r."id" '
+        'LEFT JOIN "QuestionnaireSection" s ON s."id" = t."sectionId" '
+        'LEFT JOIN "QuestionnaireQuestion" q ON q."id" = COALESCE(t."askedQuestionId", t."questionLineageId") '
+        "WHERE m.\"questionnaireInterviewId\" = $1 AND r.\"removedAt\" IS NULL AND m.\"removedAt\" IS NULL "
+        "AND r.\"filing\" = 'NEEDS_DECISION' ORDER BY r.\"capturedAt\", r.\"id\"",
+        session_id,
+    )
+    decisions: dict[str, dict[str, Any]] = {}
+    for w in waiting:
+        item = decisions.setdefault(str(w["id"]), {"recordingId": str(w["id"]), "capturedAt": iso(w.get("capturedAt")), "codes": []})
+        code = w.get("displayCode") or w.get("sectionCode")
+        if code and code not in item["codes"]:
+            item["codes"].append(code)
+    pending = await db.query_raw(
+        'SELECT count(*) AS n FROM "MediaUploadIntent" WHERE "sessionId" = $1 AND "closedAt" IS NULL '
+        "AND \"expiresAt\" > (now() AT TIME ZONE 'UTC')",
+        session_id,
+    )
+    return {
+        "sessionId": session_id,
+        "answered": progress["answeredQuestions"],
+        "total": progress["totalQuestions"],
+        "sectionsDone": sum(1 for s in progress["sections"] if s["totalQuestions"] and s["answeredQuestions"] >= s["totalQuestions"]),
+        "pendingUploads": int(pending[0]["n"]) if pending else 0,
+        "needsDecision": list(decisions.values()),
+        "stillToAsk": still,
+    }
+
+
 async def merge_into(source_id: str, target_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
     default_db = ports.db()
 
@@ -990,7 +1049,7 @@ async def list_sessions(
         where.append(f"{key} < ({b.p(day)}::date, {b.p(created)}::timestamp, {b.p(cid)})")
     sql = (
         'SELECT i.*, i."state"::text AS state_t, i."purpose"::text AS purpose_t, i."origin"::text AS origin_t, '
-        'i."status"::text AS status_t FROM "QuestionnaireInterview" i WHERE ' + " AND ".join(where)
+        'i."status"::text AS status_t, i."recordBy"::text AS record_by_t FROM "QuestionnaireInterview" i WHERE ' + " AND ".join(where)
         + ' ORDER BY COALESCE(i."sessionDate", DATE \'1900-01-01\') DESC, i."createdAt" DESC, i."id" DESC'
         + f" LIMIT {limit + 1}"
     )
@@ -1050,6 +1109,7 @@ async def continue_sessions(payload: Any, user: Any, *, client: Any = None) -> d
             workshopId=source.get("workshopId"), designWorkshopId=source.get("designWorkshopId"),
             sessionDate=payload.sessionDate, purpose="FOLLOW_UP", place=source.get("place"),
             languageCode=source.get("languageCode"), languageOther=source.get("languageOther"),
+            recordBy=source.get("record_by_t") or "SECTION",
             participants=[ParticipantInput(artisanId=a) for a in group],
         )
         session, _created = await create_session(create, user, client=client, check_instrument=False)

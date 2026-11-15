@@ -237,3 +237,44 @@ def test_the_override_is_the_shared_status_and_the_old_alias_is_read_as_complete
     assert kinds.normalise_section_status(None) is None and kinds.normalise_section_status(" ") is None
     with pytest.raises(ValueError):
         kinds.normalise_section_status("DONE")
+
+
+def test_a_section_take_answers_every_question_and_a_typed_answer_inside_it_is_not_counted_twice() -> None:
+    from app.questionnaire import coverage
+
+    sections = [{"sectionId": "secB", "lineages": ["b1", "b2"]}, {"sectionId": "secD", "lineages": ["d1", "d2", "d3", "d4"]},
+                {"sectionId": "secF", "lineages": ["f1", "f2", "f3"]}]
+    progress = coverage.progress_of(sections, {"secD"}, {"d1", "f2", "b1", "gone"})
+    assert progress["answeredQuestions"] == 6 and progress["totalQuestions"] == 9
+    assert progress["sections"] == [
+        {"sectionId": "secB", "answeredQuestions": 1, "totalQuestions": 2, "inSectionTake": False},
+        {"sectionId": "secD", "answeredQuestions": 4, "totalQuestions": 4, "inSectionTake": True},
+        {"sectionId": "secF", "answeredQuestions": 1, "totalQuestions": 3, "inSectionTake": False},
+    ]
+    assert coverage.answered(5, True, set(), {"a"}) == 5
+    assert coverage.answered(5, False, {"a", "z"}, {"a", "b"}) == 1
+
+
+def test_record_by_is_a_session_field_a_patch_can_change_and_never_null() -> None:
+    from pydantic import ValidationError
+
+    from app.questionnaire import schemas as S, sessions
+
+    assert "recordBy" in sessions.PATCHABLE
+    assert S.SessionCreate.model_fields["recordBy"].default == "SECTION"
+    assert sessions._sent_details(S.SessionPatch(version=2, recordBy="QUESTION")) == {"recordBy": "QUESTION"}
+    assert sessions._sent_details(S.SessionPatch(version=2, recordBy=None)) == {}
+    with pytest.raises(ValidationError):
+        S.SessionPatch(version=2, recordBy="ARTISAN")
+
+
+def test_a_sha_lookup_takes_up_to_fifty_hex_digests_and_lowers_them() -> None:
+    from pydantic import ValidationError
+
+    from app.questionnaire.schemas import ShaLookupRequest
+
+    sha = "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    assert ShaLookupRequest(sha256s=[sha]).sha256s == [sha.lower()]
+    for bad in ([], ["abc"], [sha] * 51):
+        with pytest.raises(ValidationError):
+            ShaLookupRequest(sha256s=bad)
