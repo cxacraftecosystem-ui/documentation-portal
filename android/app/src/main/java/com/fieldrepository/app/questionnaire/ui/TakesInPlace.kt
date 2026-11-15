@@ -78,8 +78,6 @@ data class LocalClip(val take: OverlayTake, val line: String, val path: String?)
 object InPlaceTakes {
     private const val LOCAL = "local:"
 
-    fun downloadPath(recordingId: String): String = "/api/questionnaire/recordings/$recordingId/download"
-
     fun localKey(clientClipKey: String): String = LOCAL + clientClipKey
 
     fun whenLine(capturedAt: String?): String? = capturedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }?.let {
@@ -128,14 +126,9 @@ object InPlaceTakes {
         }
     }
 
-    fun entry(take: InPlaceTake, name: String): ExplorerEntry {
-        val recordingId = take.recordingId
-        return if (recordingId != null) {
-            ExplorerAudioExpand.entry(take.mediaKey, name).copy(previewPath = downloadPath(recordingId))
-        } else {
-            ExplorerEntry(name = name, path = take.mediaKey, mediaId = take.mediaKey, mediaType = "AUDIO", previewPath = take.localPath?.let { File(it).toURI().toString() })
-        }
-    }
+    fun entry(take: InPlaceTake, name: String): ExplorerEntry =
+        if (!take.local) ExplorerAudioExpand.entry(take.mediaKey, name)
+        else ExplorerEntry(name = name, path = take.mediaKey, mediaId = take.mediaKey, mediaType = "AUDIO", previewPath = take.localPath?.let { File(it).toURI().toString() })
 
     fun openKey(scope: String, take: InPlaceTake): String = "$scope|${take.key}"
 
@@ -144,6 +137,11 @@ object InPlaceTakes {
     fun openIn(open: String?, scope: String): Boolean = open?.startsWith("$scope|") == true
 
     fun mediaOf(open: String?, takes: List<InPlaceTake>): String? = open?.substringAfter('|')?.let { key -> takes.firstOrNull { it.key == key }?.mediaKey }
+
+    fun openMedia(open: String?, recordings: List<QRecording>, clips: List<LocalClip>): String? {
+        val scope = open?.substringBefore('|', "")?.ifEmpty { null } ?: return null
+        return mediaOf(open, found(scope, recordings, clips).map { build(it, "", null) })
+    }
 }
 
 private class LocalTakeLoader(private val uri: String?) : ExplorerMediaLoader {
@@ -165,6 +163,12 @@ internal fun StopTakesWhenClosed(media: String?) {
             if (now != null && now in opened) ExplorerAudio.stop()
         }
     }
+}
+
+@Composable
+internal fun OpenTakeGuard(open: String?, media: String?, hidden: Boolean, close: () -> Unit) {
+    StopTakesWhenClosed(media)
+    LaunchedEffect(open, media, hidden) { if (open != null && (media == null || hidden)) close() }
 }
 
 @Composable

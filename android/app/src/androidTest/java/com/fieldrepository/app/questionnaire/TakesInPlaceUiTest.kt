@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -11,7 +13,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
@@ -35,7 +40,12 @@ import com.fieldrepository.app.explorer.ui.audioLines
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.ui.InPlaceTake
 import com.fieldrepository.app.questionnaire.ui.InPlaceTakes
-import com.fieldrepository.app.questionnaire.ui.StopTakesWhenClosed
+import com.fieldrepository.app.questionnaire.ui.InstrumentQuestion
+import com.fieldrepository.app.questionnaire.ui.OpenTakeGuard
+import com.fieldrepository.app.questionnaire.ui.OverflowItem
+import com.fieldrepository.app.questionnaire.ui.QuestionRow
+import com.fieldrepository.app.questionnaire.ui.QuestionState
+import com.fieldrepository.app.questionnaire.ui.QuestionStatus
 import com.fieldrepository.app.questionnaire.ui.TakeRow
 import com.fieldrepository.app.questionnaire.ui.TakeSheet
 import com.fieldrepository.app.questionnaire.ui.TakesList
@@ -64,6 +74,8 @@ class TakesInPlaceUiTest {
     }
 
     private var recording by mutableStateOf(false)
+    private var reviewing by mutableStateOf(false)
+    private var sectionShown by mutableStateOf(listOf(sectionTake, partTwo))
     private var opened: String? = null
     private var managed = 0
 
@@ -83,10 +95,10 @@ class TakesInPlaceUiTest {
             MaterialTheme {
                 var open by remember { mutableStateOf<String?>(null) }
                 opened = open
-                StopTakesWhenClosed(InPlaceTakes.mediaOf(open, listOf(sectionTake, partTwo, questionTake, localTake)))
+                OpenTakeGuard(open, InPlaceTakes.mediaOf(open, sectionShown + listOf(questionTake, localTake)), hidden = reviewing) { open = null }
                 LaunchedEffect(recording) { if (recording) open = null }
-                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
-                    TakesList(QuestionnaireCopy.t("takesHeading"), listOf(sectionTake, partTwo), "S:secE", open, "Section E", { open = it }, onManage = { managed++ }, loader = loader)
+                if (!reviewing) Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                    TakesList(QuestionnaireCopy.t("takesHeading"), sectionShown, "S:secE", open, "Section E", { open = it }, onManage = { managed++ }, loader = loader)
                     TakesList(null, listOf(questionTake), "Q:lE2", open, "E2", { open = it }, loader = loader)
                     TakesList(null, listOf(localTake), "Q:lE3", open, "E3", { open = it })
                 }
@@ -145,6 +157,51 @@ class TakesInPlaceUiTest {
         compose.waitForIdle()
         compose.onAllNodesWithTag("questionnaire.take.preview").assertCountEquals(0)
         assertNull(ExplorerAudio.state.value.item)
+    }
+
+    @QFeature("TP6")
+    @Test fun aTakeThatLeavesTheListWhileOpenStopsPlaying() {
+        session()
+        compose.onNodeWithTag("questionnaire.take.r1.head").performClick()
+        compose.waitForIdle()
+        assertEquals(DesignBoards.AUDIO_ID, ExplorerAudio.state.value.item?.mediaId)
+        sectionShown = listOf(partTwo)
+        compose.waitForIdle()
+        compose.onAllNodesWithTag("questionnaire.take.preview").assertCountEquals(0)
+        assertNull(ExplorerAudio.state.value.item)
+        assertNull(opened)
+    }
+
+    @QFeature("TP3")
+    @Test fun openingReviewStopsTheOpenTake() {
+        session()
+        compose.onNodeWithTag("questionnaire.take.r1.head").performClick()
+        compose.waitForIdle()
+        assertEquals(DesignBoards.AUDIO_ID, ExplorerAudio.state.value.item?.mediaId)
+        reviewing = true
+        compose.waitForIdle()
+        assertNull(ExplorerAudio.state.value.item)
+        assertNull(opened)
+        reviewing = false
+        compose.waitForIdle()
+        compose.onAllNodesWithTag("questionnaire.take.preview").assertCountEquals(0)
+    }
+
+    @QFeature("TP7")
+    @Test fun theQuestionPlayControlKeepsA48dpTargetBySection() {
+        val question = InstrumentQuestion("lE2", "E2", "Which stages require the highest level of skill?", "secE")
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.fillMaxWidth()) {
+                    QuestionRow(
+                        question = question, status = QuestionStatus(QuestionState.IN_SECTION_TAKE), byQuestion = false, locked = false,
+                        typedPreview = null, typing = false, overflow = listOf(OverflowItem(QuestionnaireCopy.t("typeAnAnswer"), Icons.Filled.Keyboard) {}),
+                        showPair = false, showUpload = true, onRecord = {}, onUpload = {}, onOpenTyped = {}, onOpenTakes = {}
+                    ) {}
+                }
+            }
+        }
+        compose.onNodeWithTag("questionnaire.question.E2.play").assertHeightIsAtLeast(48.dp).assertWidthIsAtLeast(48.dp)
     }
 
     @QFeature("TP5")

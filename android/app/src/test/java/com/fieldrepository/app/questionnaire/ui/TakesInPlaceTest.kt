@@ -1,5 +1,7 @@
 package com.fieldrepository.app.questionnaire.ui
 
+import com.fieldrepository.app.explorer.data.ExplorerPaths
+import com.fieldrepository.app.explorer.ui.ExplorerAudioExpand
 import com.fieldrepository.app.questionnaire.data.OverlayTake
 import com.fieldrepository.app.questionnaire.data.QRecording
 import com.fieldrepository.app.questionnaire.data.QTarget
@@ -72,13 +74,25 @@ class TakesInPlaceTest {
         assertEquals(listOf("15 Nov · 10:42", "On this device"), two.map { it.subtitle })
     }
 
-    @Test fun `an uploaded take plays through its download route and loads its transcript like the explorer`() {
+    @Test fun `an uploaded take is the explorer's own entry, played through the explorer's preview and gate`() {
         val take = InPlaceTakes.question("q1", listOf(rec("r1", "Q:q1", "2026-11-15T05:12:00Z", 192_000)), emptyList()).single()
         val entry = InPlaceTakes.entry(take, "E2")
-        assertEquals("m-r1", entry.mediaId)
-        assertEquals("AUDIO", entry.mediaType)
-        assertEquals("/api/questionnaire/recordings/r1/download", entry.previewPath)
+        assertEquals(ExplorerAudioExpand.entry("m-r1", "E2"), entry)
+        assertNull(entry.previewPath)
+        assertEquals("/api/data/media/m-r1/preview", ExplorerPaths.preview(entry))
         assertTrue(entry.transcriptAvailable)
+    }
+
+    @Test fun `the open take's media is what the list still shows`() {
+        val local = listOf(clip("c1", "S:s1", "2026-11-15T05:12:00Z", 30_000))
+        val open = "S:s1|local:c1"
+        assertEquals("local:c1", InPlaceTakes.openMedia(open, emptyList(), local))
+        assertNull(InPlaceTakes.openMedia(open, listOf(rec("r1", "S:s1", "2026-11-15T05:12:00Z", 30_000, clip = "c1")), local))
+        val server = listOf(rec("r1", "Q:q1", "2026-11-15T05:12:00Z", 60_000))
+        assertEquals("m-r1", InPlaceTakes.openMedia("Q:q1|r1", server, emptyList()))
+        assertNull(InPlaceTakes.openMedia("Q:q1|r1", listOf(rec("r1", "Q:q1", "2026-11-15T05:12:00Z", 60_000, removed = "2026-11-15T07:00:00Z")), emptyList()))
+        assertNull(InPlaceTakes.openMedia("Q:q1|r1", emptyList(), emptyList()))
+        assertNull(InPlaceTakes.openMedia(null, server, emptyList()))
     }
 
     @Test fun `a take still on the phone plays its file and asks for no transcript`() {

@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -383,8 +384,8 @@ fun SessionWorkspace(
             LocalClip(o, if (o.uploading) OutboxTrayModel.uploadLine(clip?.uploadedPercent ?: 0) else QuestionnaireCopy.s("upload.onDevice"), clip?.localPath?.takeIf { File(it).isFile })
         }
     }
-    val openMedia = openTake?.substringAfter('|')?.let { key -> if (key.startsWith("local:")) key else liveRecordings.firstOrNull { it.id == key }?.mediaFileId }
-    StopTakesWhenClosed(openMedia)
+    val openMedia = InPlaceTakes.openMedia(openTake, liveRecordings, localClips)
+    OpenTakeGuard(openTake, openMedia, hidden = reviewing) { openTake = null }
     val anyRecording = recorderState is RecordingService.State.Recording
     LaunchedEffect(anyRecording) { if (anyRecording) openTake = null }
     LaunchedEffect(takeSheet) { if (takeSheet != null) openTake = null }
@@ -1373,7 +1374,7 @@ internal fun QuestionRow(
     val tappable = status.hasTake || status.state == QuestionState.IN_SECTION_TAKE
     val play: @Composable () -> Unit = {
         if (tappable) Box(
-            Modifier.size(48.dp).clip(CircleShape)
+            Modifier.requiredSize(48.dp).clip(CircleShape)
                 .clickable(role = Role.Button, onClickLabel = QuestionnaireCopy.t(if (playOpen) "collapseTake" else "playTake"), onClick = onOpenTakes)
                 .semantics {
                     contentDescription = if (status.state == QuestionState.IN_SECTION_TAKE) QuestionnaireCopy.t("playInSectionTake", "code" to question.displayCode) else status.line()
