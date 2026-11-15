@@ -3,6 +3,8 @@ package com.fieldrepository.app.explorer
 import com.fieldrepository.app.explorer.data.ExplorerTranscriptItem
 import com.fieldrepository.app.explorer.ui.ExplorerTranscriptStatus
 import com.fieldrepository.app.explorer.ui.TranscriptStatus
+import com.fieldrepository.app.transcript.data.DataRecording
+import com.fieldrepository.app.transcript.data.TranscriptStrings
 import com.fieldrepository.app.transcript.data.TranscriptSummary
 import com.fieldrepository.app.transcript.data.TranscriptTranslationProgress
 import org.junit.Assert.assertEquals
@@ -34,6 +36,18 @@ class ExplorerTranscriptRowsTest {
         assertEquals(TranscriptStatus.FAILED, row.status)
         assertEquals("No speech found in the recording", row.message)
         assertNull(ExplorerTranscriptStatus.row(item, TranscriptSummary(mediaId = "m1", status = "NEEDS_ATTENTION", statusMessage = " ")).message)
+    }
+
+    @QFeature("X9")
+    @Test fun `a recording with no speech reads as finished, never failed or transcribing`() {
+        val row = ExplorerTranscriptStatus.row(item.copy(hasText = false), TranscriptSummary(mediaId = "m1", status = "NO_SPEECH", statusMessage = TranscriptStrings.noSpeechFound))
+        assertEquals(TranscriptStatus.NO_SPEECH, row.status)
+        assertEquals("No speech was found in this recording.", row.message)
+        assertEquals(TranscriptStatus.NO_SPEECH, ExplorerTranscriptStatus.of("NO_SPEECH"))
+        assertEquals(TranscriptStatus.NO_SPEECH, ExplorerTranscriptStatus.row(DataRecording(mediaId = "m2", transcriptStatus = "EMPTY")).status)
+        assertEquals(TranscriptStatus.FAILED, ExplorerTranscriptStatus.row(DataRecording(mediaId = "m3", transcriptStatus = "FAILED")).status)
+        assertEquals(TranscriptStatus.TRANSCRIBING, ExplorerTranscriptStatus.row(DataRecording(mediaId = "m4", transcriptStatus = "QUEUED")).status)
+        assertEquals("No speech", TranscriptStrings.statusNoSpeech)
     }
 
     @QFeature("X12")

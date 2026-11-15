@@ -55,7 +55,8 @@ const STATUS_OPTIONS = [
   { value: "COMPLETED", label: "Transcribed" },
   { value: "PENDING", label: "Waiting" },
   { value: "PROCESSING", label: "Transcribing" },
-  { value: "FAILED", label: "Failed" }
+  { value: "FAILED", label: "Failed" },
+  { value: "EMPTY", label: "No speech" }
 ];
 
 const ENGLISH_OPTIONS = [

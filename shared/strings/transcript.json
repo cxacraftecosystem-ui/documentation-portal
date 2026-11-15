@@ -18,6 +18,8 @@
     "statusTranslating": "Translating",
     "statusReady": "Ready",
     "statusNeedsAttention": "Needs attention",
+    "statusNoSpeech": "No speech",
+    "noSpeechFound": "No speech was found in this recording.",
     "queuePaused": "Transcription is paused.",
     "queueBudgetPaused": "Paused for this month's budget.",
     "queueWindow": "Runs in tonight's window.",

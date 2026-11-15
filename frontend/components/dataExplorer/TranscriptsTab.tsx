@@ -29,6 +29,7 @@ import {
 import { availableKeys, LIST_DEFAULT, parseSort, readSort, sortParam, writeSort, type SortChoice } from "@/lib/dataExplorer/sorting";
 import { apiUrl, type QueryParams } from "@/lib/dataExplorer/wire";
 import { TRANSCRIPT_ROUTES, retryTranscript } from "@/lib/transcript/api";
+import { statusLabel, statusNote } from "@/lib/transcript/status";
 
 export const TRANSCRIPTS_FIRST = 5;
 const SEARCH_DEBOUNCE_MS = 350;
@@ -80,6 +81,8 @@ function StatePill({ row }: { row: Row }) {
       return <span className={`${PILL} bg-card text-red-700 dark:text-red-200`}>Failed</span>;
     case "waiting":
       return <span className={`${PILL} bg-surface-50 text-ink-700`}>Waiting</span>;
+    case "noSpeech":
+      return <span className={`${PILL} bg-surface-50 text-ink-700`}>{statusLabel("NO_SPEECH")}</span>;
     default:
       return <span className={`${PILL} bg-surface-50 text-ink-500`}>No transcript</span>;
   }
@@ -381,7 +384,7 @@ export function TranscriptsTab({
             </div>
             <ul className={`${stale || loading ? "opacity-70" : ""}`} aria-busy={loading || undefined} aria-label="Transcripts list" data-testid="transcript-rows">
               {shown.map((row) => {
-                const sub = row.snippet && needle ? null : row.state === "failed" ? row.summary?.statusMessage?.trim() || "The transcript couldn't be made." : row.state === "working" ? workingLine(row.summary) : [languagesLine(row.summary?.languages ?? []), speakersLine(row.summary?.speakerCount ?? 0)].filter(Boolean).join(" · ");
+                const sub = row.snippet && needle ? null : row.state === "failed" ? row.summary?.statusMessage?.trim() || "The transcript couldn't be made." : row.state === "working" ? workingLine(row.summary) : row.state === "noSpeech" ? statusNote({ status: "NO_SPEECH", queueReason: null, statusMessage: row.summary?.statusMessage?.trim() || null }) : [languagesLine(row.summary?.languages ?? []), speakersLine(row.summary?.speakerCount ?? 0)].filter(Boolean).join(" · ");
                 const length = row.summary?.durationMs ? shortClock(row.summary.durationMs) : "";
                 const failed = row.state === "failed";
                 const tag = row.mediaType === "VIDEO" ? "VID" : "AUD";

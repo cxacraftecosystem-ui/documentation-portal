@@ -209,6 +209,7 @@ object PipelineStatus {
     const val TRANSLATING = "TRANSLATING"
     const val READY = "READY"
     const val NEEDS_ATTENTION = "NEEDS_ATTENTION"
+    const val NO_SPEECH = "NO_SPEECH"
 
     fun working(status: String) = status == QUEUED || status == TRANSCRIBING || status == TRANSLATING
 }

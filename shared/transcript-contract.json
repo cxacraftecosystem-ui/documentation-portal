@@ -1,11 +1,12 @@
 {
   "contract": "transcript-v1-api",
-  "contractVersion": 5,
+  "contractVersion": 6,
   "changes": [
     "2 (0.0.6, 1 Nov 2026): Speaker.colorKey and Turn.colorKey (speakerPalette, fixtures.speakerColor); TranscriptPreview on list rows (questionnaire Recording.transcript.preview, media list rows' transcriptPreview; fixtures.preview); coverage cells list their recordings (questionnaire coverage cell.recordings: [CoverageRecording]). Additive: a v1 client ignores them.",
     "3 (0.0.9, 3 Nov 2026, D38): TranscriptView.englishNotice and TranscriptView.manualEnglish, permissions.addEnglish, POST /api/transcripts/{mediaId}/english (EnglishBody), DataRecording.english, fixtures.manualEnglish. Additive: a v2 client ignores them.",
     "4 (0.0.3, 13 Nov 2026): TranscriptView.spokenLanguage (SpokenLanguage), permissions.retranscribe, POST /api/transcripts/{mediaId}/retranscribe (RetranscribeBody), GET /api/transcripts/spoken-language (SpokenLanguageSuggestion). The spoken language is never read from a state or place. Additive: a v3 client ignores them.",
-    "5 (0.0.5, 15 Nov 2026): englishNotice NOT_AUTOMATIC and translation status NOT_REQUESTED, both only while an administrator has chosen Transcribe only (GET/PUT /settings/transcription transcribeOnly). A v4 client shows no notice and no per-turn note for them."
+    "5 (0.0.5, 15 Nov 2026): englishNotice NOT_AUTOMATIC and translation status NOT_REQUESTED, both only while an administrator has chosen Transcribe only (GET/PUT /settings/transcription transcribeOnly). A v4 client shows no notice and no per-turn note for them.",
+    "6 (0.0.6, 15 Nov 2026): pipelineStatus NO_SPEECH, with statusMessage 'No speech was found in this recording.': speech-to-text finished and heard no speech (MediaFile.transcriptStatus EMPTY). It is finished, so it offers no action. A finished TRANSCRIPTION job (FAILED or COMPLETED) now outranks a QUEUED left on the recording: no text then reads NEEDS_ATTENTION with the job's error. A v5 client shows its fallback label and the statusMessage."
   ],
   "owner": "feature/transcript-pipeline stream T1 (backend). WEB (T2) and ANDROID (T3) copy this file verbatim and load their mocks from `examples` and `fixtures`.",
   "source": "C:/dev/IIT/docs/transcription/DESIGN_2026-10-31_Scribe-Gemini-Pipeline.md sections 2-4, 9, 10",
@@ -37,9 +38,10 @@
       {"value": "TRANSCRIBING", "label": "Transcribing", "action": null},
       {"value": "TRANSLATING", "label": "Translating", "action": null},
       {"value": "READY", "label": "Ready", "action": null},
-      {"value": "NEEDS_ATTENTION", "label": "Needs attention", "action": "RETRY"}
+      {"value": "NEEDS_ATTENTION", "label": "Needs attention", "action": "RETRY"},
+      {"value": "NO_SPEECH", "label": "No speech", "action": null}
     ],
-    "pipelineStatusNotes": "WAITING_FOR_CONSENT: a subject refused external processing; nothing was sent. QUEUED also covers 'paused' and 'outside the nightly window' (see view.queueReason). TRANSCRIBE_NOW is shown to admins only (view.permissions.transcribeNow). RETRY is shown to whoever may edit (view.permissions.retry). READY with translation FAILED on some turns still reads READY; those turns carry translation.status FAILED.",
+    "pipelineStatusNotes": "WAITING_FOR_CONSENT: a subject refused external processing; nothing was sent. QUEUED also covers 'paused' and 'outside the nightly window' (see view.queueReason). TRANSCRIBE_NOW is shown to admins only (view.permissions.transcribeNow). RETRY is shown to whoever may edit (view.permissions.retry). READY with translation FAILED on some turns still reads READY; those turns carry translation.status FAILED. NO_SPEECH: speech-to-text finished and heard no speech; it is finished, offers no action, and its statusMessage is the noSpeechFound string. A QUEUED left on the recording never outlives its TRANSCRIPTION job: once that job has ended without text the status is NEEDS_ATTENTION.",
     "queueReason": ["PAUSED", "BUDGET_PAUSED", "WINDOW", "WAITING", null],
     "translationStatus": [
       {"value": "TRANSLATED", "label": null},
@@ -118,7 +120,7 @@
       "title": "string  e.g. 'Interview · Giriraj Prasad Chhipa · 24 Jun 2026'",
       "status": "pipelineStatus",
       "queueReason": "queueReason",
-      "statusMessage": "string|null  one calm sentence for NEEDS_ATTENTION / WAITING_FOR_CONSENT",
+      "statusMessage": "string|null  one calm sentence for NEEDS_ATTENTION / WAITING_FOR_CONSENT / NO_SPEECH",
       "version": "int|null  null before the first run",
       "languages": "[{code: 'hi', label: 'Hindi'}]  in order of share of speech",
       "spokenLanguage": "SpokenLanguage  (4) what this version was transcribed as, what was detected, and how sure",

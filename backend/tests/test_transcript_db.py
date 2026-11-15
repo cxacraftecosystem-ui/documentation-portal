@@ -632,6 +632,44 @@ def test_a_recording_declined_before_the_marker_reads_declined_from_its_job(wire
     _run(scenario)
 
 
+def test_no_speech_reads_finished_and_a_failed_job_outranks_a_stale_queued(wired: Any) -> None:
+    from app.core.db import db
+    from app.services import transcript_pipeline as pipeline
+
+    async def scenario() -> None:
+        seed = await _seed()
+        media = seed["media"]
+        try:
+            await db.mediafile.update(where={"id": media.id}, data={"transcriptStatus": "EMPTY", "transcriptError": None})
+            await db.mediaprocessingjob.create(data={
+                "jobType": "TRANSCRIPTION", "status": "COMPLETED", "mediaFileId": media.id,
+            })
+            empty = await db.mediafile.find_unique(where={"id": media.id})
+            view = await pipeline.build_view(empty, seed["researcher"])
+            assert (view["status"], view["statusMessage"]) == ("NO_SPEECH", "No speech was found in this recording.")
+            assert view["permissions"]["retranscribe"] is False
+            [summary] = await pipeline.summary_items([empty], seed["researcher"])
+            assert (summary["status"], summary["statusMessage"]) == ("NO_SPEECH", "No speech was found in this recording.")
+
+            await db.mediaprocessingjob.delete_many(where={"mediaFileId": media.id})
+            await db.mediafile.update(where={"id": media.id}, data={"transcriptStatus": "QUEUED", "transcriptError": None})
+            await db.mediaprocessingjob.create(data={
+                "jobType": "TRANSCRIPTION", "status": "FAILED", "mediaFileId": media.id, "attempts": 3,
+                "error": "Speech-to-text could not read this file.",
+            })
+            stale = await db.mediafile.find_unique(where={"id": media.id})
+            view = await pipeline.build_view(stale, seed["researcher"])
+            assert (view["status"], view["statusMessage"]) == ("NEEDS_ATTENTION", "Speech-to-text could not read this file.")
+            assert view["permissions"]["retry"] is True
+            [summary] = await pipeline.summary_items([stale], seed["researcher"])
+            assert summary["status"] == "NEEDS_ATTENTION"
+        finally:
+            await db.mediaprocessingjob.delete_many(where={"mediaFileId": media.id})
+            await _cleanup(seed)
+
+    _run(scenario)
+
+
 def test_the_english_route_takes_whoever_may_edit_and_refuses_a_stale_revision(wired: Any) -> None:
     import httpx
     from fastapi import FastAPI

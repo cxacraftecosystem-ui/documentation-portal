@@ -80,7 +80,7 @@ object ExplorerUiText {
     const val retryFailed = "That didn't start. Try again."
     const val exportCsv = "Export"
     const val moreTranscripts = "Show more"
-    const val noSpeech = "No speech found in the recording"
+    const val transcriptNotMade = "The transcript couldn't be made."
     const val loadingFolder = "Loading folder"
     const val noFolderPicker = "This phone has no folder picker. Files go to Downloads."
     const val allFiles = "All files"

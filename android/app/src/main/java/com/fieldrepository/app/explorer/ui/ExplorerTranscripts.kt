@@ -68,13 +68,14 @@ import java.time.LocalDate
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import com.fieldrepository.app.transcript.data.PipelineStatus
+import com.fieldrepository.app.transcript.data.TranscriptStrings
 import com.fieldrepository.app.transcript.data.TranscriptSummary
 import com.fieldrepository.app.explorer.data.ExplorerMore
 import com.fieldrepository.app.explorer.data.ExplorerMoreApi
 import com.fieldrepository.app.explorer.data.ExplorerTranscriptItem
 import com.fieldrepository.app.explorer.data.ExplorerTranscriptList
 
-enum class TranscriptStatus { READY, TRANSLATING, TRANSCRIBING, FAILED }
+enum class TranscriptStatus { READY, TRANSLATING, TRANSCRIBING, FAILED, NO_SPEECH }
 
 data class TranscriptRowModel(
     val mediaId: String,
@@ -103,6 +104,7 @@ object ExplorerTranscriptStatus {
     fun of(r: DataRecording): Pair<TranscriptStatus, Int?> {
         val status = r.transcriptStatus?.uppercase()
         if (status == "FAILED") return TranscriptStatus.FAILED to null
+        if (status == "EMPTY" && r.turns.isEmpty()) return TranscriptStatus.NO_SPEECH to null
         if (status != null && status !in finished && r.turns.isEmpty()) return TranscriptStatus.TRANSCRIBING to null
         val waiting = r.turns.count { it.translationStatus?.uppercase() in pending }
         if (r.turns.isNotEmpty() && waiting > 0) return TranscriptStatus.TRANSLATING to ((r.turns.size - waiting) * 100 / r.turns.size)
@@ -113,6 +115,7 @@ object ExplorerTranscriptStatus {
         PipelineStatus.READY, null -> TranscriptStatus.READY
         PipelineStatus.TRANSLATING -> TranscriptStatus.TRANSLATING
         PipelineStatus.NEEDS_ATTENTION, "FAILED" -> TranscriptStatus.FAILED
+        PipelineStatus.NO_SPEECH -> TranscriptStatus.NO_SPEECH
         else -> TranscriptStatus.TRANSCRIBING
     }
 
@@ -403,7 +406,8 @@ private fun TranscriptRow(
             Column(Modifier.weight(1f)) {
                 Text(r.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = content, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 val line = when (r.status) {
-                    TranscriptStatus.FAILED -> r.message ?: ExplorerUiText.noSpeech
+                    TranscriptStatus.FAILED -> r.message ?: ExplorerUiText.transcriptNotMade
+                    TranscriptStatus.NO_SPEECH -> r.message ?: TranscriptStrings.noSpeechFound
                     TranscriptStatus.TRANSLATING -> ExplorerUiText.translating
                     TranscriptStatus.TRANSCRIBING -> ExplorerUiText.transcribing
                     TranscriptStatus.READY -> listOfNotNull(
@@ -430,6 +434,7 @@ private fun TranscriptRow(
                     colors = ButtonDefaults.buttonColors(containerColor = tone?.accent ?: MaterialTheme.colorScheme.error, contentColor = tone?.onAccent ?: MaterialTheme.colorScheme.onError),
                     modifier = Modifier.heightIn(min = 40.dp).testTag("explorer.transcripts.retry.${r.mediaId}"),
                 ) { Text(ExplorerUiText.tryAgain) }
+                TranscriptStatus.NO_SPEECH -> Unit
                 TranscriptStatus.TRANSLATING, TranscriptStatus.TRANSCRIBING -> OutlinedButton(onClick = onRead, enabled = r.hasText, modifier = Modifier.heightIn(min = 40.dp)) { Text(ExplorerUiText.readOriginal) }
                 TranscriptStatus.READY -> {
                     OutlinedButton(onClick = onRead, modifier = Modifier.heightIn(min = 40.dp).testTag("explorer.transcripts.read.${r.mediaId}")) { Text(ExplorerUiText.read) }
@@ -450,6 +455,7 @@ private fun StatusPill(status: TranscriptStatus, percent: Int?) {
         TranscriptStatus.TRANSLATING -> Triple(warn.container, warn.muted, percent?.let { ExplorerUiText.translatingPercent(it) } ?: ExplorerUiText.translating)
         TranscriptStatus.TRANSCRIBING -> Triple(warn.container, warn.muted, ExplorerUiText.transcribing)
         TranscriptStatus.FAILED -> Triple(MaterialTheme.colorScheme.surface, failed.accent, ExplorerUiText.failed)
+        TranscriptStatus.NO_SPEECH -> Triple(MaterialTheme.field.surface100, MaterialTheme.field.body, TranscriptStrings.statusNoSpeech)
     }
     Box(Modifier.heightIn(min = 40.dp), contentAlignment = Alignment.Center) {
         Box(Modifier.background(bg, MaterialTheme.shapes.extraLarge).padding(horizontal = 10.dp, vertical = 4.dp)) {

@@ -17,6 +17,8 @@ object TranscriptStrings {
     const val statusTranslating = "Translating"
     const val statusReady = "Ready"
     const val statusNeedsAttention = "Needs attention"
+    const val statusNoSpeech = "No speech"
+    const val noSpeechFound = "No speech was found in this recording."
     const val queuePaused = "Transcription is paused."
     const val queueBudgetPaused = "Paused for this month's budget."
     const val queueWindow = "Runs in tonight's window."
@@ -181,6 +183,8 @@ object TranscriptStrings {
         "statusTranslating" to "Translating",
         "statusReady" to "Ready",
         "statusNeedsAttention" to "Needs attention",
+        "statusNoSpeech" to "No speech",
+        "noSpeechFound" to "No speech was found in this recording.",
         "queuePaused" to "Transcription is paused.",
         "queueBudgetPaused" to "Paused for this month's budget.",
         "queueWindow" to "Runs in tonight's window.",

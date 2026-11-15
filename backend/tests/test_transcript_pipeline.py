@@ -445,6 +445,42 @@ def test_the_six_states() -> None:
     assert _status(translate_job="FAILED", version_ready=False) == "NEEDS_ATTENTION"
 
 
+def _state(**overrides: Any) -> insight.Status:
+    base = {
+        "transcript_status": "COMPLETED", "transcript_error": None, "has_text": True, "stt_job": "COMPLETED",
+        "translate_job": None, "translate_error": None, "version_ready": False, "pending_turns": 0,
+        "paused": False, "budget_paused": False, "in_window": True, "consent_refused": False,
+    }
+    base.update(overrides)
+    return insight.pipeline_status(**base)
+
+
+def test_a_recording_with_no_speech_is_finished_and_asks_for_nothing() -> None:
+    state = _state(has_text=False, transcript_status="EMPTY", stt_job="COMPLETED")
+    assert state == insight.Status(insight.NO_SPEECH, None, "No speech was found in this recording.")
+    assert insight.NO_SPEECH in insight.STATUSES
+    assert _state(has_text=False, transcript_status="empty", stt_job=None).status == insight.NO_SPEECH
+    assert _state(has_text=False, transcript_status="EMPTY", stt_job="FAILED").status == insight.NO_SPEECH
+    assert _state(has_text=False, transcript_status="EMPTY", stt_job="QUEUED").status == insight.QUEUED
+    assert _state(has_text=False, transcript_status="EMPTY", stt_job="PROCESSING").status == insight.TRANSCRIBING
+    assert _state(has_text=False, transcript_status="EMPTY", consent_refused=True).status == insight.WAITING_FOR_CONSENT
+    assert _state(has_text=True, transcript_status="EMPTY").status == insight.READY
+
+
+def test_a_failed_job_outranks_a_stale_queued_on_the_recording() -> None:
+    failed = _state(has_text=False, transcript_status="QUEUED", stt_job="FAILED", stt_error="The provider refused the file.")
+    assert failed == insight.Status(insight.NEEDS_ATTENTION, None, "The provider refused the file.")
+    plain = _state(has_text=False, transcript_status="QUEUED", transcript_error="Busy; will retry.", stt_job="FAILED")
+    assert plain == insight.Status(insight.NEEDS_ATTENTION, None, "The transcription didn't finish.")
+    for stored in ("PENDING", "", None):
+        assert _state(has_text=False, transcript_status=stored, stt_job="FAILED", stt_error=" ").status == insight.NEEDS_ATTENTION
+    assert _state(has_text=False, transcript_status="QUEUED", stt_job="COMPLETED").status == insight.NEEDS_ATTENTION
+    kept = _state(has_text=False, transcript_status="FAILED", transcript_error="Too large.", stt_job="FAILED", stt_error="x")
+    assert kept.message == "Too large."
+    assert _state(has_text=False, transcript_status="QUEUED", stt_job="QUEUED").status == insight.QUEUED
+    assert _state(has_text=False, transcript_status="QUEUED", stt_job=None).status == insight.QUEUED
+
+
 class _T:
     def __init__(self, id: str, start: int, end: int, text: str, english: str = "") -> None:
         self.id, self.start_ms, self.end_ms, self.text, self.english = id, start, end, text, english

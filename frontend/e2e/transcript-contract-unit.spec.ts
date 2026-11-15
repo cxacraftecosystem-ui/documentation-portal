@@ -11,7 +11,7 @@ import { englishPlan } from "../lib/transcript/api";
 import { copyAll, copySelected, copySingle } from "../lib/transcript/markdown";
 import { downloadWhat, nameForView, QUOTE_CARD_WHAT } from "../lib/transcript/names";
 import { safeUrl } from "../lib/transcript/sanitize";
-import { statusAction, statusLabel } from "../lib/transcript/status";
+import { inFlight, statusAction, statusLabel, statusNote, statusTone } from "../lib/transcript/status";
 import { ts } from "../lib/transcript/strings";
 
 const REPO = join(__dirname, "..", "..");
@@ -83,6 +83,17 @@ test("each status carries the contract's label and one action", () => {
     expect(action === "retry" ? "RETRY" : action === "transcribeNow" ? "TRANSCRIBE_NOW" : null).toBe(row.action);
   }
   expect(statusAction({ status: "QUEUED", permissions: { ...VIEW.permissions, transcribeNow: false } })).toBeNull();
+});
+
+test("no speech reads as its own finished state and offers no retry", () => {
+  const permissions = { ...VIEW.permissions, retry: true, transcribeNow: true };
+  expect(statusLabel("NO_SPEECH")).toBe("No speech");
+  expect(statusTone("NO_SPEECH")).toBe("neutral");
+  expect(inFlight("NO_SPEECH")).toBe(false);
+  expect(statusAction({ status: "NO_SPEECH", permissions })).toBeNull();
+  expect(statusNote({ status: "NO_SPEECH", queueReason: null, statusMessage: null })).toBe("No speech was found in this recording.");
+  expect(statusNote({ status: "NO_SPEECH", queueReason: null, statusMessage: ts("noSpeechFound") })).toBe("No speech was found in this recording.");
+  expect(statusAction({ status: "NEEDS_ATTENTION", permissions })).toBe("retry");
 });
 
 test("karaoke finds the turn and the word being spoken", () => {

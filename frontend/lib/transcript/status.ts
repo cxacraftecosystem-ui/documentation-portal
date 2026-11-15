@@ -9,7 +9,8 @@ const LABEL: Record<TranscriptStatus, TranscriptStringKey> = {
   TRANSCRIBING: "statusTranscribing",
   TRANSLATING: "statusTranslating",
   READY: "statusReady",
-  NEEDS_ATTENTION: "statusNeedsAttention"
+  NEEDS_ATTENTION: "statusNeedsAttention",
+  NO_SPEECH: "statusNoSpeech"
 };
 
 const TONE: Record<TranscriptStatus, StatusTone> = {
@@ -18,7 +19,8 @@ const TONE: Record<TranscriptStatus, StatusTone> = {
   TRANSCRIBING: "progress",
   TRANSLATING: "progress",
   READY: "done",
-  NEEDS_ATTENTION: "error"
+  NEEDS_ATTENTION: "error",
+  NO_SPEECH: "neutral"
 };
 
 const QUEUE: Record<Exclude<QueueReason, null>, TranscriptStringKey> = {
@@ -37,6 +39,7 @@ export function statusNote(transcript: Pick<Transcript, "status" | "queueReason"
   if (transcript.statusMessage) return transcript.statusMessage;
   if (transcript.status === "QUEUED" && transcript.queueReason) return ts(QUEUE[transcript.queueReason]);
   if (transcript.status === "WAITING_FOR_CONSENT") return ts("consentRefused");
+  if (transcript.status === "NO_SPEECH") return ts("noSpeechFound");
   return null;
 }
 
