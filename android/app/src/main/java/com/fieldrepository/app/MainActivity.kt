@@ -6231,7 +6231,7 @@ private fun ArtisanForm(
                 onRecord = storedAadhaarMask?.takeIf { aadhaar.isBlank() }
             ) { aadhaar = it; aadhaarError = null }
         }
-        if (notSharedOffered && !aadhaarLocked) AppToggle(
+        if (notSharedOffered) AppToggle(
             label = "Not shared by artisan",
             description = if (aadhaarNotShared) "Saved without an Aadhaar and flagged for follow-up." else "The artisan declined to give their Aadhaar.",
             checked = aadhaarNotShared,

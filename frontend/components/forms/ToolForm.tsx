@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useRef, useState, useEffect } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -237,9 +237,13 @@ function ToolFormBody({
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [keptAfterRefusal, setKeptAfterRefusal] = useState(false);
-  useEffect(() => {
-    return lockFilledFields(formRef.current, initial, FILLED_TOOL_FIELDS, FILLED_FIELD_REASON);
-  }, [initial]);
+  const attachForm = useCallback(
+    (node: HTMLFormElement | null) => {
+      formRef.current = node;
+      return lockFilledFields(node, initial, FILLED_TOOL_FIELDS, FILLED_FIELD_REASON);
+    },
+    [initial]
+  );
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
   const [craftIds, setCraftIds] = useState<string[]>(() => {
@@ -665,7 +669,7 @@ function ToolFormBody({
     <>
       <form
         key={formKey}
-        ref={formRef}
+        ref={attachForm}
         onSubmit={submit}
         onInput={() => {
           markDirty();
