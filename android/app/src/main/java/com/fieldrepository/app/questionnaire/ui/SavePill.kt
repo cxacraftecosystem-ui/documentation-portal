@@ -39,7 +39,7 @@ fun SavePill(state: SavePillState, onOpen: () -> Unit, onRetry: () -> Unit, modi
         SaveTone.SAVED, SaveTone.ON_PHONE -> MaterialTheme.field.success
         SaveTone.UPLOADING -> MaterialTheme.colorScheme.primary
         SaveTone.WAITING -> MaterialTheme.field.warning
-        SaveTone.FAILED -> MaterialTheme.colorScheme.error
+        SaveTone.FAILED, SaveTone.CONFLICT -> MaterialTheme.colorScheme.error
     }
     val label = state.text + ". " + QuestionnaireCopy.t("openUploads")
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {

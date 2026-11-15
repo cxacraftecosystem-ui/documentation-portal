@@ -363,7 +363,8 @@ object QuestionnaireCopy {
         "openTypedAnswer" to "Open typed answer for {code}",
         "registerArtisan" to "Register artisan",
         "more" to "More",
-        "fillFromProfile" to "Fill from profile"
+        "fillFromProfile" to "Fill from profile",
+        "editSession" to "Edit details"
     )
 
     val sharedKeyOf: Map<String, String> = linkedMapOf(

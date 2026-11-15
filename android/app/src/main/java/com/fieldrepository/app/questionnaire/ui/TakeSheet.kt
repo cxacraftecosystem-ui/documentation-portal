@@ -68,7 +68,8 @@ fun TakeSheet(
     onPropose: (TakeRow) -> Unit = {},
     onHistory: (TakeRow) -> Unit = {},
     onTranscript: (TakeRow) -> Unit = {},
-    note: String? = null
+    note: String? = null,
+    recording: Boolean = false
 ) {
     var showRemoved by remember { mutableStateOf(false) }
     val live = takes.filterNot { it.removed }
@@ -121,9 +122,9 @@ fun TakeSheet(
             playing?.let { AudioPlayer(it) }
             if (!locked) {
                 PromptButtons(
-                    listOf(
+                    listOfNotNull(
                         PromptButton(QuestionnaireCopy.s("workspace.recordTake"), primary = true, onClick = onRecord),
-                        PromptButton(QuestionnaireCopy.s("workspace.uploadFile"), onClick = onUpload)
+                        if (recording) null else PromptButton(QuestionnaireCopy.s("workspace.uploadFile"), onClick = onUpload)
                     )
                 )
             }
