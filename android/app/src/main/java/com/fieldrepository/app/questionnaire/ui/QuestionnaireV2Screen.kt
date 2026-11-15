@@ -100,6 +100,7 @@ import com.fieldrepository.app.ui.FieldTextStyles
 import com.fieldrepository.app.ui.LocalMayDelete
 import com.fieldrepository.app.ui.SelectOption
 import com.fieldrepository.app.ui.field
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
@@ -427,7 +428,7 @@ fun QuestionnaireHome(
     suspend fun openServerId(sessionId: String) {
         runCatching { v2.api.sessionSummary(sessionId) }
             .onSuccess { openServer(it) }
-            .onFailure { onError(QuestionnaireCopy.s("record.error")) }
+            .onFailure { if (it !is CancellationException) onError(QuestionnaireCopy.s("record.error")) }
     }
 
     val scannedSession by QuestionnaireV2Nav.openSession.collectAsState()
@@ -435,7 +436,7 @@ fun QuestionnaireHome(
         val key = scannedSession ?: return@LaunchedEffect
         QuestionnaireV2Nav.openSession.value = null
         tab = QuestionnaireTab.SESSIONS
-        openUnit(key)
+        scope.launch { openUnit(key) }
     }
     val serverSession by QuestionnaireV2Nav.openServerSession.collectAsState()
     LaunchedEffect(serverSession) {
@@ -444,7 +445,7 @@ fun QuestionnaireHome(
         noteOrigin()
         if (onLeaveSession != null) origin.noteHost()
         tab = QuestionnaireTab.SESSIONS
-        openServerId(id)
+        scope.launch { openServerId(id) }
     }
     val chipToShow by QuestionnaireV2Nav.showRecordings.collectAsState()
     LaunchedEffect(chipToShow) {
