@@ -250,6 +250,9 @@ export function SessionStartSheet({
   const [instruments, setInstruments] = useState<PortalForm[]>([]);
   const [resolved, setResolved] = useState<FormFor | null>(null);
   const [artisans, setArtisans] = useState<Artisan[]>([]);
+  const [artisansSettled, setArtisansSettled] = useState(false);
+  const [resolving, setResolving] = useState(true);
+  const [coverageSettled, setCoverageSettled] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [craftNames, setCraftNames] = useState<string[]>([]);
@@ -328,12 +331,14 @@ export function SessionStartSheet({
           if (cancelled) return;
           artisanPage.current = items;
           setArtisans((prev) => mergeById(prev.filter((a) => artisanIdsRef.current.includes(a.id)), items));
+          setArtisansSettled(true);
         })
         .catch(() => {
           const found = searchCachedArtisans(readStartLists().artisans, search, workshopId) as unknown as Artisan[];
           if (cancelled) return;
           artisanPage.current = found;
           setArtisans((prev) => mergeById(prev.filter((a) => artisanIdsRef.current.includes(a.id)), found));
+          setArtisansSettled(true);
         });
     }, 250);
     return () => {
@@ -365,15 +370,19 @@ export function SessionStartSheet({
   useEffect(() => {
     let cancelled = false;
     const workshopId = form.workshopId && form.workshopId !== FIELD_VISIT ? form.workshopId : null;
+    setResolving(true);
     void questionnaireApi
       .formFor({ ...workshopScope(workshopId), questionnaireId: initialQuestionnaireId })
       .then((r) => {
         if (cancelled) return;
+        setResolving(false);
         setResolved(r);
         if (r.questionnaireId) setForm((f) => ({ ...f, questionnaireId: r.questionnaireId! }));
       })
       .catch(() => {
-        if (!cancelled) setResolved(null);
+        if (cancelled) return;
+        setResolving(false);
+        setResolved(null);
       });
     return () => {
       cancelled = true;
@@ -419,10 +428,12 @@ export function SessionStartSheet({
         if (cancelled) return;
         setCoverageHeld(null);
         setCoverageGrid({ ids: artisanIds, grid });
+        setCoverageSettled(`${questionnaireId}|${artisanKey}`);
       })
       .catch(() => {
         if (cancelled) return;
         setCoverageGrid(null);
+        setCoverageSettled(`${questionnaireId}|${artisanKey}`);
         const workshopId = form.workshopId && form.workshopId !== FIELD_VISIT ? form.workshopId : null;
         const held = readSnapshot(questionnaireId, workshopId);
         const sections = readStartLists().sections[questionnaireId];
@@ -456,6 +467,21 @@ export function SessionStartSheet({
     }));
   }, [coverageGrid, coverageHeld, artisans]);
   const coverageAge = coverageHeld?.age ?? null;
+  const consentLoading = form.artisanIds.some((id) => !consentAsked[id]);
+  const artisansPending = !artisansSettled && form.artisanIds.some((id) => !artisans.some((a) => a.id === id));
+  const coveragePending =
+    coverage.length === 0 && form.artisanIds.length > 0 && (form.questionnaireId ? coverageSettled !== `${form.questionnaireId}|${artisanKey}` : resolving);
+  const slotsLoading = consentLoading || coveragePending || artisansPending;
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (slotsLoading) {
+      setSettled(false);
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => setSettled(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, [slotsLoading]);
+  const settling = slotsLoading || !settled;
 
   const workshop = workshops.find((w) => w.id === form.workshopId) ?? null;
   const autoPlace = workshopPlace(workshop);
@@ -681,110 +707,133 @@ export function SessionStartSheet({
           <p className="text-sm text-ink-500" data-coverage-line>
             {coverageLine(coverage, coverageAge)}
           </p>
+        ) : coveragePending ? (
+          <p aria-hidden className="invisible text-sm" data-coverage-pending>
+            {"\u00a0"}
+          </p>
         ) : null}
-        {chosen
-          .filter((a) => consentAsked[a.id] === "ASK" || consentAsked[a.id] === "REFUSED")
-          .map((a) => (
-            <ConsentQuestion
-              key={a.id}
-              artisanId={a.id}
-              name={a.name}
-              refused={consentAsked[a.id] === "REFUSED"}
-              onDismiss={() => setConsentAsked((m) => ({ ...m, [a.id]: "DONE" }))}
-            />
-          ))}
+        <div className="contents" inert={settling} data-settling={settling ? "" : undefined}>
+          {form.artisanIds.map((id) => {
+            const artisan = chosen.find((a) => a.id === id);
+            if (!consentAsked[id]) {
+              return (
+                <div key={id} aria-hidden inert className="invisible" data-consent-pending={id}>
+                  <ConsentQuestion artisanId={id} name={artisan?.name ?? ""} />
+                </div>
+              );
+            }
+            if (!artisan || (consentAsked[id] !== "ASK" && consentAsked[id] !== "REFUSED")) return null;
+            return (
+              <ConsentQuestion
+                key={id}
+                artisanId={id}
+                name={artisan.name}
+                refused={consentAsked[id] === "REFUSED"}
+                onDismiss={() => setConsentAsked((m) => ({ ...m, [id]: "DONE" }))}
+              />
+            );
+          })}
+        </div>
       </div>
 
-      <div className="grid gap-1">
-        <span className="field-label">{qs("fieldPurpose")}</span>
-        <SegmentedChoice
-          label={qs("fieldPurpose")}
-          value={form.purpose}
-          options={SESSION_PURPOSES.map((p) => ({ value: p, label: qs(PURPOSE_KEY[p]) }))}
-          onChange={(v) => set("purpose", v as SessionPurpose)}
-        />
-      </div>
-
-      <div className="grid gap-1" data-session-crafts-field>
-        <span className="field-label">{qs("fieldCrafts")}</span>
-        <SearchableMultiSelect
-          values={form.crafts ?? []}
-          onChange={(values) => setForm((f) => ({ ...f, crafts: values, craftsByHand: values.filter((v) => !autoCrafts.some((a) => a.toLowerCase() === v.toLowerCase())) }))}
-          options={craftOptions}
-          searchable
-          ariaLabel={qs("fieldCrafts")}
-        />
-        {provenance.crafts ? <ProvenanceTag id={`${ids.tag}-c`} text={qs("fromRecordOf", { name: provenance.crafts })} /> : null}
-      </div>
-
-      <SessionPlaceField id={ids.place} place={form.place} onPlace={(v) => set("place", v)} provenance={provenance.place ? qs("fromThisWorkshop") : null} />
-
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="contents" inert={settling} data-settling={settling ? "" : undefined}>
         <div className="grid gap-1">
-          <label htmlFor={ids.language} className="field-label">
-            {qs("fieldLanguage")}
-          </label>
-          <SearchableSelect id={ids.language} value={form.languageCode} onChange={(v) => set("languageCode", v)} options={languageOptions} clearable ariaLabel={qs("fieldLanguage")} />
-          {form.languageCode === "other" ? (
-            <input
-              id={ids.other}
-              className="field-input mt-2"
-              aria-label={qs("languageOtherLabel")}
-              placeholder={qs("languageOtherLabel")}
-              value={form.languageOther}
-              maxLength={40}
-              onChange={(e) => set("languageOther", e.target.value)}
-            />
+          <span className="field-label">{qs("fieldPurpose")}</span>
+          <SegmentedChoice
+            label={qs("fieldPurpose")}
+            value={form.purpose}
+            options={SESSION_PURPOSES.map((p) => ({ value: p, label: qs(PURPOSE_KEY[p]) }))}
+            onChange={(v) => set("purpose", v as SessionPurpose)}
+          />
+        </div>
+
+        <div className="grid gap-1" data-session-crafts-field>
+          <span className="field-label">{qs("fieldCrafts")}</span>
+          <SearchableMultiSelect
+            values={form.crafts ?? []}
+            onChange={(values) => setForm((f) => ({ ...f, crafts: values, craftsByHand: values.filter((v) => !autoCrafts.some((a) => a.toLowerCase() === v.toLowerCase())) }))}
+            options={craftOptions}
+            searchable
+            ariaLabel={qs("fieldCrafts")}
+          />
+          {provenance.crafts ? (
+            <ProvenanceTag id={`${ids.tag}-c`} text={qs("fromRecordOf", { name: provenance.crafts })} />
+          ) : artisansPending ? (
+            <span aria-hidden className="invisible text-xs" data-provenance-pending>
+              {"\u00a0"}
+            </span>
           ) : null}
         </div>
-        <div className="grid min-w-0 gap-1">
-          <SpokenLanguagePicker value={spoken.value} onChange={spoken.choose} suggestion={spoken.suggestion?.source === "artisan" ? null : spoken.suggestion} />
-          {provenance.spoken ? <ProvenanceTag id={`${ids.tag}-s`} text={qs("fromRecordOf", { name: provenance.spoken })} /> : null}
+
+        <SessionPlaceField id={ids.place} place={form.place} onPlace={(v) => set("place", v)} provenance={provenance.place ? qs("fromThisWorkshop") : null} />
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-1">
+            <label htmlFor={ids.language} className="field-label">
+              {qs("fieldLanguage")}
+            </label>
+            <SearchableSelect id={ids.language} value={form.languageCode} onChange={(v) => set("languageCode", v)} options={languageOptions} clearable ariaLabel={qs("fieldLanguage")} />
+            {form.languageCode === "other" ? (
+              <input
+                id={ids.other}
+                className="field-input mt-2"
+                aria-label={qs("languageOtherLabel")}
+                placeholder={qs("languageOtherLabel")}
+                value={form.languageOther}
+                maxLength={40}
+                onChange={(e) => set("languageOther", e.target.value)}
+              />
+            ) : null}
+          </div>
+          <div className="grid min-w-0 gap-1">
+            <SpokenLanguagePicker value={spoken.value} onChange={spoken.choose} suggestion={spoken.suggestion?.source === "artisan" ? null : spoken.suggestion} />
+            {provenance.spoken ? <ProvenanceTag id={`${ids.tag}-s`} text={qs("fromRecordOf", { name: provenance.spoken })} /> : null}
+          </div>
         </div>
-      </div>
 
-      <div className="grid gap-1">
-        <label htmlFor={ids.note} className="field-label">
-          {qs("fieldNote")}
-        </label>
-        <input
-          id={ids.note}
-          className="field-input"
-          maxLength={80}
-          placeholder={qs("notePlaceholder")}
-          value={form.note}
-          onChange={(e) => set("note", e.target.value)}
-        />
-      </div>
+        <div className="grid gap-1">
+          <label htmlFor={ids.note} className="field-label">
+            {qs("fieldNote")}
+          </label>
+          <input
+            id={ids.note}
+            className="field-input"
+            maxLength={80}
+            placeholder={qs("notePlaceholder")}
+            value={form.note}
+            onChange={(e) => set("note", e.target.value)}
+          />
+        </div>
 
-      <div className="grid gap-1" data-record-by>
-        <span className="field-label">{qs("fieldRecordBy")}</span>
-        <SegmentedChoice
-          label={qs("fieldRecordBy")}
-          value={form.recordBy ?? "SECTION"}
-          options={RECORD_BY.map((v) => ({ value: v, label: qs(v === "QUESTION" ? "recordByQuestion" : "recordBySection") }))}
-          onChange={(v) => set("recordBy", v as RecordBy)}
-        />
-      </div>
+        <div className="grid gap-1" data-record-by>
+          <span className="field-label">{qs("fieldRecordBy")}</span>
+          <SegmentedChoice
+            label={qs("fieldRecordBy")}
+            value={form.recordBy ?? "SECTION"}
+            options={RECORD_BY.map((v) => ({ value: v, label: qs(v === "QUESTION" ? "recordByQuestion" : "recordBySection") }))}
+            onChange={(v) => set("recordBy", v as RecordBy)}
+          />
+        </div>
 
-      <div className="grid gap-1 text-center">
-        <span className="field-label">{qs("titlePreviewLabel")}</span>
-        <p className="break-all font-display text-sm text-ink-900" data-title-preview>
-          {preview}
-        </p>
-      </div>
+        <div className="grid gap-1 text-center">
+          <span className="field-label">{qs("titlePreviewLabel")}</span>
+          <p className="break-all font-display text-sm text-ink-900" data-title-preview>
+            {preview}
+          </p>
+        </div>
 
-      {error ? <p className="text-center text-sm text-error-600">{error}</p> : null}
-      <ButtonRow>
-        <button type="submit" className="field-button" disabled={busy || startBlocked(form)} aria-describedby={startBlocked(form) ? `${ids.note}-needs` : undefined}>
-          {qs("startSession")}
-        </button>
-      </ButtonRow>
-      {startBlocked(form) ? (
-        <p id={`${ids.note}-needs`} className="text-center text-xs text-ink-500">
-          {qs("startNeeds")}
-        </p>
-      ) : null}
+        {error ? <p className="text-center text-sm text-error-600">{error}</p> : null}
+        <ButtonRow>
+          <button type="submit" className="field-button" disabled={busy || consentLoading || startBlocked(form)} aria-describedby={startBlocked(form) ? `${ids.note}-needs` : undefined}>
+            {qs("startSession")}
+          </button>
+        </ButtonRow>
+        {startBlocked(form) ? (
+          <p id={`${ids.note}-needs`} className="text-center text-xs text-ink-500">
+            {qs("startNeeds")}
+          </p>
+        ) : null}
+      </div>
 
       {adding === "artisan" ? (
         <NewArtisanDialog

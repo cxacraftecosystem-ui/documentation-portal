@@ -1,16 +1,21 @@
 "use client";
 
 import { Download, Mic, Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import { TakeRegion, TakeRow, type TakePlayer } from "@/components/questionnaire/TakeInPlace";
 import { TranscriptStatus } from "@/components/questionnaire/TranscriptStatus";
+import { FillFromRecording } from "@/components/transcript/FillFromRecording";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { questionnaireApi, type Recording, type RecordingEvent, type SectionOverride } from "@/lib/questionnaire/api";
 import { shortDate, takeRowLabel } from "@/lib/questionnaire/prompts";
 import { qs } from "@/lib/questionnaire/qs";
+import { regionId } from "@/lib/questionnaire/takeInPlace";
+import { fetchTranscript } from "@/lib/transcript/api";
+import type { Transcript } from "@/lib/transcript/contract";
+import { inFlight } from "@/lib/transcript/status";
 import { RecordingChips } from "@/components/questionnaire/RecordingChips";
 import { useChipNavigator } from "@/components/questionnaire/useUrlFilters";
 
@@ -39,6 +44,71 @@ const OVERRIDE_KEY: Record<SectionOverride | "", "overrideNone" | "stateMarkedCo
 };
 
 const SHEET_SLOT = "sheet";
+
+const SEEK_TRIES = 40;
+const TRANSCRIPT_POLL_MS = 15_000;
+
+function seekInPlace(player: TakePlayer, key: string, ms: number) {
+  if (!player.isOpen(SHEET_SLOT, key)) player.show(SHEET_SLOT, key);
+  let tries = 0;
+  const attempt = () => {
+    const media = document.getElementById(regionId(SHEET_SLOT, key))?.querySelector<HTMLMediaElement>("audio, video");
+    if (!media) {
+      if (++tries < SEEK_TRIES) window.requestAnimationFrame(attempt);
+      return;
+    }
+    media.currentTime = Math.max(0, ms / 1000);
+    void media.play().catch(() => undefined);
+  };
+  attempt();
+}
+
+function TakeFill({
+  recording,
+  player,
+  itemKey,
+  shown,
+  onReview
+}: {
+  recording: Recording;
+  player: TakePlayer;
+  itemKey: string;
+  shown: boolean;
+  onReview?: () => void;
+}) {
+  const mediaId = recording.mediaFileId;
+  const [seen, setSeen] = useState(shown);
+  if (shown && !seen) setSeen(true);
+  const [loaded, setLoaded] = useState<{ mediaId: string; transcript: Transcript | null } | null>(null);
+  useEffect(() => {
+    if (!seen) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    const load = () => {
+      fetchTranscript(mediaId)
+        .then((transcript) => {
+          if (cancelled) return;
+          setLoaded({ mediaId, transcript });
+          if (transcript && inFlight(transcript.status)) timer = window.setTimeout(load, TRANSCRIPT_POLL_MS);
+        })
+        .catch(() => {
+          if (!cancelled) setLoaded({ mediaId, transcript: null });
+        });
+    };
+    load();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [mediaId, seen]);
+  const transcript = loaded && loaded.mediaId === mediaId ? loaded.transcript : null;
+  if (!seen || !transcript || !transcript.permissions.autodraft || transcript.status !== "READY") return null;
+  return (
+    <div hidden={!shown} data-take-fill={recording.id}>
+      <FillFromRecording mediaId={mediaId} onSeek={(ms) => seekInPlace(player, itemKey, ms)} onReview={onReview} />
+    </div>
+  );
+}
 
 export function TakeSheet({
   open,
@@ -142,6 +212,15 @@ export function TakeSheet({
               </div>
               <RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />
               <TakeRegion player={player} slot={SHEET_SLOT} item={item} className="-mx-3 sm:mx-0" />
+              {r.mediaFileId ? (
+                <TakeFill
+                  recording={r}
+                  player={player}
+                  itemKey={item.key}
+                  shown={player.isOpen(SHEET_SLOT, item.key)}
+                  onReview={onUseAsAnswer ? () => onUseAsAnswer(r) : undefined}
+                />
+              ) : null}
               <ButtonRow
                 size="sm"
                 align="start"

@@ -257,6 +257,7 @@ class DesignShotsTest {
             widthDp = if (tablet) 1280 else 390, heightDp = if (tablet) 800 else 844, density = if (tablet) 1f else 2f,
             prepare = {
                 compose.waitUntil(10_000) { api.calls.any { it.startsWith("tree:${ExplorerFiltersUiTest.ROOT}:") } }
+                compose.waitUntil(10_000) { held?.files?.isNotEmpty() == true }
                 compose.waitForIdle()
                 held?.let(setUp)
                 compose.waitForIdle()
