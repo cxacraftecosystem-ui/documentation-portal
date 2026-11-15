@@ -99,7 +99,7 @@ export function UploadSheet({
     return () => {
       cancelled = true;
     };
-  }, [shaKey]);
+  }, [shaKey, sessionId]);
 
   const flagged = flagDuplicates(picked, found.matches, queuedShas, sessionDate);
   const rows = picked.map((r) => ({ ...r, duplicateOn: flagged[r.key] ?? null }));

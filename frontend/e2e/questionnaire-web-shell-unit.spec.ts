@@ -154,8 +154,9 @@ test("@qf:Q7 All, Open and Finished count and filter the loaded sessions", () =>
   expect(byStatus(rows, "OPEN").map((s) => s.id)).toEqual(["s1"]);
   expect(byStatus(rows, "FINISHED").map((s) => s.id)).toEqual(["s2", "s3"]);
   expect(byStatus(rows, "ALL")).toHaveLength(3);
-  expect(LIST).toContain('qs("showingOf", { shown: shown.length, total: filtered.length })');
-  expect(LIST).toContain('qs("showAll", { count: filtered.length })');
+  expect(LIST).toContain('qs("showingOf", { shown: shown.length, total })');
+  expect(LIST).toContain('qs("showAll", { count: total })');
+  expect(LIST).toContain("const counts = totals ? totalsCounts(totals) : statusCounts(all);");
 });
 
 test("@qf:Q7 rows show question progress, names and crafts with the workshop", () => {
