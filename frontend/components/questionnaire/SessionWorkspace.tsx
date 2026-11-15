@@ -1519,7 +1519,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                                 onAction={(action) => questionAction(s.id, q, action)}
                               />
                             ) : null}
-                            {take ? <TakeRegion player={takePlayer} slot={`Q:${q.lineageId}`} item={take} className="basis-full" /> : null}
+                            {take ? <TakeRegion player={takePlayer} slot={`Q:${q.lineageId}`} item={take} className="basis-full max-sm:-mx-3 max-sm:grow" /> : null}
                           </li>
                         );
                       })}

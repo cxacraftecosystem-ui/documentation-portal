@@ -242,7 +242,7 @@ export function SessionReadView({ id }: { id: string }) {
                   <TakeRow player={takePlayer} slot={READ_SLOT} item={item} playLabel={targetLabel(r)} lead={<p className="text-sm text-ink-900">{item.label}</p>} />
                   <TranscriptStatus recording={r} paused={config?.transcriptionPaused ?? true} />
                   <RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />
-                  <TakeRegion player={takePlayer} slot={READ_SLOT} item={item} className="mt-1" />
+                  <TakeRegion player={takePlayer} slot={READ_SLOT} item={item} className="mt-1 max-sm:-mx-4" />
                 </li>
               );
             })}

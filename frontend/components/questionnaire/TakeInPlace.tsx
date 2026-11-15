@@ -156,7 +156,7 @@ function OpenRegion({ player, slot, item, className }: { player: TakePlayer; slo
       id={regionId(slot, item.key)}
       role="region"
       aria-label={item.label}
-      className={`min-w-0 overflow-hidden rounded-lg border border-line-200 bg-card ${className}`}
+      className={`min-w-0 overflow-hidden border-y border-line-200 bg-card sm:rounded-lg sm:border-x ${className}`}
       style={REGION_MARGINS}
       data-take-region={item.key}
     >
@@ -169,7 +169,7 @@ export function TakeInPlace({ player, slot, item, lead, playLabel }: { player: T
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-2" data-take-in-place={item.key}>
       <TakeRow player={player} slot={slot} item={item} lead={lead} playLabel={playLabel} />
-      <TakeRegion player={player} slot={slot} item={item} />
+      <TakeRegion player={player} slot={slot} item={item} className="max-sm:-mx-3" />
     </div>
   );
 }
