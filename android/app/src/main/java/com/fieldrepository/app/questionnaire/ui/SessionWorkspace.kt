@@ -30,11 +30,13 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
@@ -42,6 +44,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -76,6 +79,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -194,7 +198,8 @@ fun SessionWorkspace(
     var p8 by remember { mutableStateOf<PendingAnswer?>(null) }
     var takeSheet by remember { mutableStateOf<Pair<String, String?>?>(null) }
     var takeQuestion by remember { mutableStateOf<String?>(null) }
-    var playing by remember { mutableStateOf<Uri?>(null) }
+    var openTake by rememberSaveable(clientKey) { mutableStateOf<String?>(null) }
+    val foreignMedia = remember { mutableStateMapOf<String, String>() }
     var leaving by remember { mutableStateOf(false) }
     var addingArtisan by remember { mutableStateOf(false) }
     var addingGuest by remember { mutableStateOf(false) }
@@ -372,6 +377,26 @@ fun SessionWorkspace(
     val serverSessionId = unit?.sessionId ?: detail?.id
     val pill = SavePillModel.of(unit)
     val recording = (recorderState as? RecordingService.State.Recording)?.takeIf { it.draft.sessionKey == clientKey }
+    val liveRecordings = detail?.recordings.orEmpty()
+    val localClips = remember(overlay, unit, sessionKeys) {
+        overlay.filter { it.sessionKey in sessionKeys }.map { o ->
+            val clip = unit?.steps?.firstOrNull { it.clip?.clientClipKey == o.clientClipKey }?.clip
+            LocalClip(o, if (o.uploading) OutboxTrayModel.uploadLine(clip?.uploadedPercent ?: 0) else QuestionnaireCopy.s("upload.onDevice"), clip?.localPath?.takeIf { File(it).isFile })
+        }
+    }
+    val openMedia = InPlaceTakes.openMedia(openTake, liveRecordings, localClips)
+    OpenTakeGuard(openTake, openMedia, hidden = reviewing) { openTake = null }
+    val anyRecording = recorderState is RecordingService.State.Recording
+    LaunchedEffect(anyRecording) { if (anyRecording) openTake = null }
+    LaunchedEffect(takeSheet) { if (takeSheet != null) openTake = null }
+    LaunchedEffect(takeSheet, known.size) {
+        val sid = takeSheet?.first ?: return@LaunchedEffect
+        val keys = setOf("S:$sid") + instrument?.section(sid)?.questions?.map { "Q:${it.lineageId}" }.orEmpty()
+        val mine = liveRecordings.map { it.id }.toSet()
+        known.filter { it.targetKey in keys && it.recordingId !in mine && it.recordingId !in foreignMedia }.mapNotNull { it.sessionId }.distinct().forEach { other ->
+            runCatching { v2.api.recordings(emptyMap(), sessionId = other, limit = 200).items }.getOrNull()?.forEach { r -> r.mediaFileId?.let { foreignMedia[r.id] = it } }
+        }
+    }
 
     fun startRecording(req: RecordRequest, reasons: Map<String, String>, acked: List<String>, continuationOf: String? = null, replaces: String? = null) {
         val u = unit ?: return
@@ -627,14 +652,25 @@ fun SessionWorkspace(
                             )
                         }
                     ) {
+                        val sectionScope = "S:${section.id}"
+                        val sectionTakes = InPlaceTakes.section(section.id, liveRecordings, localClips)
+                        TakesList(
+                            heading = QuestionnaireCopy.t("takesHeading"), takes = sectionTakes, scope = sectionScope, open = openTake,
+                            name = "Section ${section.code}", onOpen = { openTake = it },
+                            onManage = { takeSheet = section.id to null; takeQuestion = null }
+                        )
                         section.questions.forEach { q ->
                             val qStatus = evidence.question(q)
+                            val questionScope = "Q:${q.lineageId}"
+                            val questionTakes = InPlaceTakes.question(q.lineageId, liveRecordings, localClips)
+                            val manage: () -> Unit = { takeSheet = section.id to null; takeQuestion = q.lineageId }
                             val lines = AnswerModel.lines(roster.map { it.artisanId }, q.lineageId, answers, unit, meId, leadOrAdmin) { recId -> detail?.recordings?.firstOrNull { it.id == recId }?.rosterCount }
                             val overflow = buildList {
                                 if (!locked && !byQuestion) {
                                     add(OverflowItem(QuestionnaireCopy.t("recordThisQuestion"), Icons.Filled.Mic) { requestRecord(questionRequest(q)) })
                                     if (recording == null) add(OverflowItem(QuestionnaireCopy.t("uploadForThisQuestion"), Icons.Filled.FileUpload) { openUpload(section.id, q.lineageId) })
                                 }
+                                if (qStatus.hasTake || qStatus.state == QuestionState.IN_SECTION_TAKE) add(OverflowItem(QuestionnaireCopy.t("manageTakes"), Icons.Filled.LibraryMusic) { manage() })
                                 if (!locked) add(OverflowItem(QuestionnaireCopy.t("typeAnAnswer"), Icons.Filled.Keyboard) { typing = q.lineageId })
                                 if (!locked && q.artisanField != null && roster.any { !it.guest }) add(OverflowItem(QuestionnaireCopy.s("answer.prefill"), Icons.Filled.AutoFixHigh) {
                                     val items = AnswerModel.prefillItems(roster.map { it.artisanId }.toSet(), q.lineageId, unit?.sessionId ?: clientKey, answers)
@@ -648,7 +684,25 @@ fun SessionWorkspace(
                                 onRecord = { requestRecord(questionRequest(q)) },
                                 onUpload = { openUpload(section.id, q.lineageId) },
                                 onOpenTyped = { typing = if (typing == q.lineageId) null else q.lineageId },
-                                onOpenTakes = { takeSheet = section.id to null; takeQuestion = q.lineageId }
+                                onOpenTakes = {
+                                    val sectionTake = sectionTakes.firstOrNull()
+                                    when {
+                                        qStatus.state == QuestionState.IN_SECTION_TAKE && sectionTake != null -> {
+                                            openTake = if (InPlaceTakes.openIn(openTake, sectionScope)) null else InPlaceTakes.openKey(sectionScope, sectionTake)
+                                        }
+                                        qStatus.state != QuestionState.IN_SECTION_TAKE && questionTakes.isNotEmpty() -> {
+                                            openTake = if (InPlaceTakes.openIn(openTake, questionScope)) null else InPlaceTakes.openKey(questionScope, questionTakes.last())
+                                        }
+                                        else -> manage()
+                                    }
+                                },
+                                playOpen = InPlaceTakes.openIn(openTake, if (qStatus.state == QuestionState.IN_SECTION_TAKE) sectionScope else questionScope),
+                                inPlace = {
+                                    if (InPlaceTakes.openIn(openTake, questionScope)) TakesList(
+                                        heading = null, takes = questionTakes, scope = questionScope, open = openTake,
+                                        name = q.displayCode, onOpen = { openTake = it }
+                                    )
+                                }
                             ) {
                                 AnswerEditor(
                                     question = q, roster = roster, answerLines = lines,
@@ -830,12 +884,13 @@ fun SessionWorkspace(
         val keys = setOf("S:$sid") + section?.questions?.map { "Q:${it.lineageId}" }.orEmpty()
         val rows = known.filter { it.targetKey in keys && (artisanId == null || it.artisanId == artisanId) && it.role == SubjectRole.ANSWERED.wire }
             .distinctBy { it.recordingId }.sortedBy { it.capturedAt ?: "" }
-            .map { t -> takeRow(t, detail, paused, mayDelete && !locked, canMakePrimary && artisanId != null && !QSubjects.isGuest(artisanId)) } +
+            .map { t -> takeRow(t, detail, paused, mayDelete && !locked, canMakePrimary && artisanId != null && !QSubjects.isGuest(artisanId), foreignMedia[t.recordingId]) } +
             overlay.filter { it.targetKey in keys && (artisanId == null || it.artisanId == artisanId) }
                 .distinctBy { it.clientClipKey }.map { o ->
                     val clip = unit?.steps?.firstOrNull { it.clip?.clientClipKey == o.clientClipKey }?.clip
                     TakeRow("local:${o.clientClipKey}", 0, QuestionnaireCopy.minutes(o.durationMs),
-                        if (o.uploading) OutboxTrayModel.uploadLine(clip?.uploadedPercent ?: 0) else QuestionnaireCopy.s("upload.onDevice"), null, local = true, removable = false)
+                        if (o.uploading) OutboxTrayModel.uploadLine(clip?.uploadedPercent ?: 0) else QuestionnaireCopy.s("upload.onDevice"), null, local = true, removable = false,
+                        localPath = clip?.localPath?.takeIf { File(it).isFile }, durationMs = o.durationMs)
                 } +
             removed.filter { r -> r.targets.any { it.targetKey in keys } && (artisanId == null || r.allSubjects.any { it.artisanId == artisanId }) }.map { r ->
                 TakeRow(r.id, 0, listOfNotNull(QuestionnaireCopy.minutes(r.durationMs), r.recordedBy?.name?.ifBlank { null }).joinToString("  "), "", null, local = false, removable = mayDelete, removed = true)
@@ -843,16 +898,8 @@ fun SessionWorkspace(
         val missing = section?.let { s -> s.questions.count { q -> artisanId != null && (artisanId to q.lineageId) in typed } }
         TakeSheet(
             heading = listOfNotNull("Section ${section?.code.orEmpty()}", artisanId?.let { QuestionnaireCopy.firstName(participantName(it)) }).joinToString(" · "),
-            takes = rows, locked = locked, playing = playing, recording = recording != null,
+            takes = rows, locked = locked, recording = recording != null,
             note = if (rows.none { !it.removed } && (missing ?: 0) > 0) QuestionnaireCopy.s("mark.addRecording") else null,
-            onPlay = { row ->
-                scope.launch {
-                    playing = if (row.local) {
-                        val key = row.recordingId.removePrefix("local:")
-                        v2.outbox.units().flatMap { it.steps }.firstOrNull { it.clip?.clientClipKey == key }?.clip?.localPath?.let { File(it) }?.takeIf { it.isFile }?.let { Uri.fromFile(it) }
-                    } else v2.playbackUrl(row.recordingId)?.let(Uri::parse)
-                }
-            },
             onRemove = { removeTake = it },
             onRecord = {
                 takeSheet = null
@@ -865,7 +912,7 @@ fun SessionWorkspace(
                 takeQuestion = null
                 section?.let { openUpload(it.id, from) }
             },
-            onDismiss = { takeSheet = null; takeQuestion = null; playing = null },
+            onDismiss = { takeSheet = null; takeQuestion = null },
             onRetry = { row -> online { v2.api.transcribe(row.recordingId) } },
             onRecordConsent = { row ->
                 detail?.recordings?.firstOrNull { it.id == row.recordingId }?.let { rec -> consentFor = ParticipantModel.refusingSubject(rec, detail) }
@@ -1319,16 +1366,30 @@ internal fun QuestionRow(
     onUpload: () -> Unit,
     onOpenTyped: () -> Unit,
     onOpenTakes: () -> Unit,
+    playOpen: Boolean = false,
+    inPlace: @Composable () -> Unit = {},
     editor: @Composable () -> Unit
 ) {
     val answered = status.answered
     val tappable = status.hasTake || status.state == QuestionState.IN_SECTION_TAKE
+    val play: @Composable () -> Unit = {
+        if (tappable) Box(
+            Modifier.requiredSize(48.dp).clip(CircleShape)
+                .clickable(role = Role.Button, onClickLabel = QuestionnaireCopy.t(if (playOpen) "collapseTake" else "playTake"), onClick = onOpenTakes)
+                .semantics {
+                    contentDescription = if (status.state == QuestionState.IN_SECTION_TAKE) QuestionnaireCopy.t("playInSectionTake", "code" to question.displayCode) else status.line()
+                    stateDescription = if (playOpen) "expanded" else "collapsed"
+                }
+                .testTag("questionnaire.question.${question.displayCode}.play"),
+            contentAlignment = Alignment.Center
+        ) { TakePlayDot(Modifier.size(32.dp), active = playOpen) }
+    }
     Column(
         Modifier.fillMaxWidth().testTag("questionnaire.question.${question.displayCode}")
             .padding(top = if (byQuestion) 14.dp else 8.dp, bottom = if (byQuestion) 14.dp else 12.dp),
         verticalArrangement = Arrangement.spacedBy(if (byQuestion) 10.dp else 4.dp)
     ) {
-        if (byQuestion) {
+        if (byQuestion) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 androidx.compose.ui.text.buildAnnotatedString {
                     pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.SemiBold, color = MaterialTheme.field.body))
@@ -1338,8 +1399,9 @@ internal fun QuestionRow(
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (answered) MaterialTheme.field.success else MaterialTheme.field.muted,
-                modifier = if (tappable) Modifier.clickable(onClick = onOpenTakes) else Modifier
+                modifier = Modifier.weight(1f).then(if (tappable) Modifier.clickable(onClick = onOpenTakes) else Modifier)
             )
+            play()
         } else Row(Modifier.fillMaxWidth().height(32.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 question.displayCode,
@@ -1353,6 +1415,7 @@ internal fun QuestionRow(
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (answered) MaterialTheme.field.success else MaterialTheme.field.muted, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
+            play()
             QuestionOverflow(question.displayCode, overflow, Modifier.offset(x = 12.dp))
         }
         Text(
@@ -1361,6 +1424,7 @@ internal fun QuestionRow(
             color = MaterialTheme.colorScheme.onBackground
         )
         question.helpText?.ifBlank { null }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted) }
+        inPlace()
         if (typedPreview != null && !typing) Row(
             Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onOpenTyped)
                 .semantics(mergeDescendants = true) { contentDescription = QuestionnaireCopy.t("openTypedAnswer", "code" to question.displayCode) },
@@ -1482,7 +1546,7 @@ internal fun answerForOptions(roster: List<HeaderParticipant>): List<SelectOptio
 internal fun answerForIds(roster: List<HeaderParticipant>, choice: String): Set<String> =
     if (choice == ALL_ARTISANS || roster.none { it.artisanId == choice }) roster.map { it.artisanId }.toSet() else setOf(choice)
 
-private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, mayRemove: Boolean, mayMakePrimary: Boolean): TakeRow {
+private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, mayRemove: Boolean, mayMakePrimary: Boolean, foreignMedia: String? = null): TakeRow {
     val rec = detail?.recordings?.firstOrNull { it.id == t.recordingId }
     val at = t.capturedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
     val first = listOfNotNull(
@@ -1501,7 +1565,8 @@ private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, 
         chips = rec?.chips,
         canMakePrimary = mayMakePrimary,
         canPropose = rec?.transcript?.status == "COMPLETED",
-        mediaFileId = rec?.mediaFileId
+        mediaFileId = rec?.mediaFileId ?: foreignMedia,
+        durationMs = rec?.durationMs ?: t.durationMs
     )
 }
 

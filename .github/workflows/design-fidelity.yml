@@ -185,6 +185,7 @@ jobs:
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package $APP_ID.explorer.shots $APP_ID.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/shots.txt" 2>&1; cat "$RUNNER_TEMP/shots.txt"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package $APP_ID.explorer.capture $APP_ID.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/capture.txt" 2>&1; cat "$RUNNER_TEMP/capture.txt"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e class $APP_ID.questionnaire.SessionPlaceFieldUiTest $APP_ID.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/place.txt" 2>&1; cat "$RUNNER_TEMP/place.txt"
+            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e class $APP_ID.questionnaire.TakesInPlaceShotsTest $APP_ID.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/takes.txt" 2>&1; cat "$RUNNER_TEMP/takes.txt"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e class $APP_ID.questionnaire.FilterSheetSwipeUiTest,$APP_ID.questionnaire.HomeFabClearanceUiTest $APP_ID.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/bottom.txt" 2>&1; cat "$RUNNER_TEMP/bottom.txt"
             mkdir -p "$SHOTS" && "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" pull "/sdcard/Android/data/$APP_ID/files/design-fidelity/." "$SHOTS/"
             ls -R "$SHOTS"
@@ -209,7 +210,23 @@ jobs:
             test -s "$SHOTS/AndroidTicks/impl-android-marks.png"
             test -s "$SHOTS/AndroidTicks/impl-android-include-phone.png"
             grep -q "^OK (" "$RUNNER_TEMP/shots.txt"
+            test -s "$SHOTS/takes-Main/impl-android.png"
+            test -s "$SHOTS/takes-Main/impl-android-embed.png"
+            test -s "$SHOTS/takes-Main/impl-android-explorer.png"
+            test -s "$SHOTS/takes-Main/impl-android-tablet.png"
+            test -s "$SHOTS/takes-Main/impl-android-explorer-tablet.png"
+            test -s "$SHOTS/takes-AndroidSectionTake/impl-android.png"
+            test -s "$SHOTS/takes-AndroidSectionTake/impl-android-tablet.png"
+            test -s "$SHOTS/takes-AndroidSectionTake/impl-android-dark.png"
+            test -s "$SHOTS/takes-AndroidDark/impl-android-dark.png"
+            test -s "$SHOTS/takes-AndroidDark/impl-android-tablet-dark.png"
+            test -s "$SHOTS/takes-AndroidDark/impl-android-explorer-dark.png"
+            test -s "$SHOTS/takes-AndroidStates/impl-android-local.png"
+            test -s "$SHOTS/takes-AndroidStates/impl-android-local-dark.png"
+            test -s "$SHOTS/takes-AndroidStates/impl-android-withheld.png"
+            test -s "$SHOTS/takes-AndroidStates/impl-android-withheld-dark.png"
             grep -q "^OK (" "$RUNNER_TEMP/place.txt"
+            grep -q "^OK (" "$RUNNER_TEMP/takes.txt"
             grep -q "^OK (" "$RUNNER_TEMP/bottom.txt"
 
       - name: Keep the Android screens
@@ -456,6 +473,13 @@ jobs:
           for device in "$DEVICE"; do
             for theme in "" "-dark"; do
               test -s "design-fidelity/interview-States/impl-android-read-only-$device$theme.png" || { echo "::error::missing interview-States/impl-android-read-only-$device$theme.png"; missing=1; }
+            done
+          done
+          for board in Main AndroidSectionTake; do
+            for variant in live live-explorer; do
+              for theme in "" "-dark"; do
+                test -s "design-fidelity/takes-$board/impl-android-$variant-$DEVICE$theme.png" || { echo "::error::missing takes-$board/impl-android-$variant-$DEVICE$theme.png"; missing=1; }
+              done
             done
           done
           exit "$missing"
