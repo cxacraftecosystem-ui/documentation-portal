@@ -199,7 +199,7 @@ class TakesInPlaceUiTest {
                 )
             }
         }
-        compose.onNodeWithContentDescription(QuestionnaireCopy.t("playTake", "take" to "Take 1  41 min")).performClick()
+        compose.onNodeWithContentDescription(QuestionnaireCopy.t("playTake")).performClick()
         compose.waitForIdle()
         compose.onNodeWithTag("questionnaire.take.preview").assertExists()
         compose.onNodeWithTag("explorer.audio.card").assertExists()

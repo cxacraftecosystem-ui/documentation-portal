@@ -409,11 +409,8 @@ export const questionnaireStrings = {
   takesHeading: "Takes",
   sectionTake: "Section take",
   takePart: ({ n }: { n: string | number }): string => `Part ${n}`,
-  openFullView: "Open full view",
-  transcriptAfterUpload: "Transcript after upload",
   manageTakes: "Manage takes",
   playInSectionTake: ({ code }: { code: string | number }): string => `Play ${code} in the section take`,
-  playTake: ({ take }: { take: string | number }): string => `Play ${take}`,
   typedPreview: ({ text }: { text: string | number }): string => `Typed · ${text}`,
   upload: "Upload",
   recordThisQuestion: "Record this question",
@@ -486,6 +483,10 @@ export const questionnaireStrings = {
   registerArtisan: "Register artisan",
   more: "More",
   fillFromProfile: "Fill from profile",
+  playTake: "Play",
+  openFullView: "Open full view",
+  collapseTake: "Collapse take",
+  transcriptAfterUpload: "Transcript after upload",
 } as const;
 
 export type QuestionnaireStringKey = keyof typeof questionnaireStrings;

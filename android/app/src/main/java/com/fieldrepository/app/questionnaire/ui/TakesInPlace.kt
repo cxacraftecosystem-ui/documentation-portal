@@ -230,10 +230,10 @@ internal fun TakeInPlaceRow(
     var full by rememberSaveable(take.key) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().then(modifier).testTag("questionnaire.take.${take.key}")) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Button, onClick = onToggle)
+            Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                .clickable(role = Role.Button, onClickLabel = QuestionnaireCopy.t(if (open) "collapseTake" else "playTake"), onClick = onToggle)
                 .semantics(mergeDescendants = true) {
-                    val label = listOfNotNull(take.title.ifBlank { null }, take.subtitle).joinToString(", ")
-                    contentDescription = if (open) label else QuestionnaireCopy.t("playTake", "take" to label)
+                    contentDescription = listOfNotNull(take.title.ifBlank { null }, take.subtitle).joinToString(", ")
                     stateDescription = if (open) "expanded" else "collapsed"
                 }
                 .padding(vertical = 6.dp)

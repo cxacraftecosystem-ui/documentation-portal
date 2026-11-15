@@ -105,7 +105,7 @@ fun TakeSheet(
                         )
                     }
                     if (take != null) IconButton(onClick = { full = false; open = if (open == t.recordingId) null else t.recordingId }) {
-                        Icon(if (open == t.recordingId) Icons.Filled.ExpandLess else Icons.Filled.PlayArrow, contentDescription = QuestionnaireCopy.t("playTake", "take" to t.first))
+                        Icon(if (open == t.recordingId) Icons.Filled.ExpandLess else Icons.Filled.PlayArrow, contentDescription = QuestionnaireCopy.t(if (open == t.recordingId) "collapseTake" else "playTake"))
                     }
                 }
                 if (take != null && open == t.recordingId) TakePreview(take, heading, full, { full = it }, fullButton = true)

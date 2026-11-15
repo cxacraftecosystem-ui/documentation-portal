@@ -413,11 +413,8 @@
     "takesHeading": "Takes",
     "sectionTake": "Section take",
     "takePart": "Part {n}",
-    "openFullView": "Open full view",
-    "transcriptAfterUpload": "Transcript after upload",
     "manageTakes": "Manage takes",
     "playInSectionTake": "Play {code} in the section take",
-    "playTake": "Play {take}",
     "typedPreview": "Typed · {text}",
     "upload": "Upload",
     "recordThisQuestion": "Record this question",
@@ -489,6 +486,10 @@
     "openTypedAnswer": "Open typed answer for {code}",
     "registerArtisan": "Register artisan",
     "more": "More",
-    "fillFromProfile": "Fill from profile"
+    "fillFromProfile": "Fill from profile",
+    "playTake": "Play",
+    "openFullView": "Open full view",
+    "collapseTake": "Collapse take",
+    "transcriptAfterUpload": "Transcript after upload"
   }
 }

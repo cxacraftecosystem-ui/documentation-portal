@@ -298,7 +298,7 @@ class InterviewShotsTest {
     private fun questionTake(dark: Boolean) {
         openSession("CI board by question", dark)
         openSection("E", "Process of making and workflow")
-        tapPlay(t("playTake", "take" to t("questionTake", "duration" to "3:12")))
+        tapPlay(t("questionTake", "duration" to "3:12"))
         takeInPlace("Main", dark)
     }
 

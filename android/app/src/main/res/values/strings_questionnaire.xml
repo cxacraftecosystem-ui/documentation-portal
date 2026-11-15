@@ -406,6 +406,11 @@
     <string name="q_in_section_take">In the section take</string>
     <string name="q_not_asked">Not asked</string>
     <string name="q_question_take">Question take · %1$s</string>
+    <string name="q_takes_heading">Takes</string>
+    <string name="q_section_take">Section take</string>
+    <string name="q_take_part">Part %1$s</string>
+    <string name="q_manage_takes">Manage takes</string>
+    <string name="q_play_in_section_take">Play %1$s in the section take</string>
     <string name="q_typed_preview">Typed · %1$s</string>
     <string name="q_upload">Upload</string>
     <string name="q_record_this_question">Record this question</string>
@@ -478,4 +483,8 @@
     <string name="q_register_artisan">Register artisan</string>
     <string name="q_more">More</string>
     <string name="q_fill_from_profile">Fill from profile</string>
+    <string name="q_play_take">Play</string>
+    <string name="q_open_full_view">Open full view</string>
+    <string name="q_collapse_take">Collapse take</string>
+    <string name="q_transcript_after_upload">Transcript after upload</string>
 </resources>
