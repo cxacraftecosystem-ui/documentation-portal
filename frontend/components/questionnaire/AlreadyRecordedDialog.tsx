@@ -80,26 +80,32 @@ export function AlreadyRecordedDialog({
         </div>
         {more ? (
           <div className="grid gap-2" data-p2-more>
-            {(spec.more ?? [])
-              .filter((b) => b.id !== "different")
-              .map((b) => (
-                <button key={b.id} type="button" className="field-button-secondary w-full" onClick={() => onChoose({ kind: b.id as "part2" | "replace" })}>
+            {(spec.more ?? []).map((b) =>
+              b.id === "different" ? (
+                <div key={b.id} className="grid gap-1">
+                  <span className="field-label">{b.label}</span>
+                  <SearchableSelect
+                    value={target}
+                    onChange={(v) => {
+                      setTarget(v);
+                      if (v) onChoose({ kind: "different", targetValue: v });
+                    }}
+                    options={otherTargets}
+                    searchable
+                    ariaLabel={b.label}
+                  />
+                </div>
+              ) : (
+                <button
+                  key={b.id}
+                  type="button"
+                  className={`field-button-secondary w-full${b.tone === "danger" ? " text-error-600" : ""}`}
+                  onClick={() => onChoose({ kind: b.id as "part2" | "replace" })}
+                >
                   {b.label}
                 </button>
-              ))}
-            <div className="grid gap-1">
-              <span className="field-label">{qs("useDifferentQuestion")}</span>
-              <SearchableSelect
-                value={target}
-                onChange={(v) => {
-                  setTarget(v);
-                  if (v) onChoose({ kind: "different", targetValue: v });
-                }}
-                options={otherTargets}
-                searchable
-                ariaLabel={qs("useDifferentQuestion")}
-              />
-            </div>
+              )
+            )}
           </div>
         ) : null}
       </div>

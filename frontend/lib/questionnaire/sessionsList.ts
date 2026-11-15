@@ -87,7 +87,28 @@ export function openToday<T extends Pick<Session, "state" | "sessionDate" | "sta
 
 export type ContinuePoint = { sectionId: string; code: string };
 
-export function continuePoint(detail: Pick<SessionDetail, "recordings" | "grid" | "progress">): ContinuePoint | null {
+export type ContinueQuestions = Record<string, { lineageId: string; displayCode: string }[]>;
+
+function nextQuestion(
+  detail: Pick<SessionDetail, "recordings"> & { answers?: SessionDetail["answers"] },
+  list: { lineageId: string; displayCode: string }[],
+  after: { questionLineageId: string | null; displayCode: string | null }
+): string | null {
+  const done = new Set<string>();
+  for (const take of detail.recordings ?? []) {
+    if (take.removedAt || take.filing === "NEEDS_DECISION") continue;
+    for (const t of take.targets) if (t.questionLineageId) done.add(t.questionLineageId);
+  }
+  for (const a of detail.answers ?? []) if (a.questionLineageId && (a.text ?? "").trim()) done.add(a.questionLineageId);
+  const at = list.findIndex((q) => q.lineageId === after.questionLineageId || q.displayCode === after.displayCode);
+  const open = (q: { lineageId: string }) => !done.has(q.lineageId);
+  return (list.slice(at + 1).find(open) ?? list.find(open))?.displayCode ?? null;
+}
+
+export function continuePoint(
+  detail: Pick<SessionDetail, "recordings" | "grid" | "progress"> & { answers?: SessionDetail["answers"] },
+  questions?: ContinueQuestions
+): ContinuePoint | null {
   const sections = detail.grid?.sections ?? [];
   if (sections.length === 0) return null;
   const sectionOf = (sectionId: string | null, code: string | null) => {
@@ -102,7 +123,10 @@ export function continuePoint(detail: Pick<SessionDetail, "recordings" | "grid" 
   for (const take of takes) {
     for (const target of take.targets) {
       const section = sectionOf(target.sectionId, target.displayCode);
-      if (section) return { sectionId: section.sectionId, code: target.displayCode || section.code };
+      if (!section) continue;
+      const list = questions?.[section.sectionId];
+      if (list && !target.sectionId) return { sectionId: section.sectionId, code: nextQuestion(detail, list, target) ?? section.code };
+      return { sectionId: section.sectionId, code: target.displayCode || section.code };
     }
   }
   const done = new Set((detail.progress?.sections ?? []).filter((s) => s.totalQuestions > 0 && s.answeredQuestions >= s.totalQuestions).map((s) => s.sectionId));

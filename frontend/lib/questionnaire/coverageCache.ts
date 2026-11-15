@@ -269,6 +269,7 @@ export type QuestionProgress = { answered: number; total: number; sectionsDone: 
 type ProgressTake = {
   id?: string;
   removedAt?: string | null;
+  filing?: string | null;
   durationMs?: number | null;
   targets: { sectionId?: string | null; questionLineageId?: string | null }[];
   subjects: { role: string }[];
@@ -284,7 +285,7 @@ export function questionProgress(input: {
   answers: { questionLineageId?: string | null; text?: string | null }[];
   pending?: ProgressTake[];
 }): QuestionProgress {
-  const live = [...input.recordings.filter((r) => !r.removedAt), ...(input.pending ?? [])].filter(answers);
+  const live = [...input.recordings.filter((r) => !r.removedAt && r.filing !== "NEEDS_DECISION"), ...(input.pending ?? [])].filter(answers);
   const sectionTakes = new Set<string>();
   const questionTakes = new Map<string, { durationMs: number | null; recordingId: string | null }>();
   for (const take of live) {

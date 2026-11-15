@@ -15,6 +15,7 @@ import { formatDate } from "@/lib/format";
 import { questionnaireApi, type Session, type SessionTotals } from "@/lib/questionnaire/api";
 import { coverageCell } from "@/lib/questionnaire/view";
 import { FilterBar } from "@/components/questionnaire/FilterBar";
+import { loadInstrumentQuestions } from "@/components/questionnaire/instrumentQuestions";
 import { OutboxTray } from "@/components/questionnaire/OutboxTray";
 import { useInboxCount } from "@/components/questionnaire/useInboxCount";
 import { useSessionQueue } from "@/components/questionnaire/useSessionQueue";
@@ -355,11 +356,15 @@ function OpenTodayCard({ session, workshopNames }: { session: Session; workshopN
   const [progress, setProgress] = useState(() => questionProgress(session));
   useEffect(() => {
     let cancelled = false;
+    const questions = loadInstrumentQuestions(session.questionnaire.id)
+      .then(({ byId }) => byId)
+      .catch(() => undefined);
     void questionnaireApi
       .getSession(session.id)
-      .then((detail) => {
+      .then(async (detail) => {
+        const byId = await questions;
         if (cancelled) return;
-        setPoint(continuePoint(detail));
+        setPoint(continuePoint(detail, byId));
         setSections(sectionsDone(detail));
         setProgress(questionProgress(detail) ?? questionProgress(session));
       })

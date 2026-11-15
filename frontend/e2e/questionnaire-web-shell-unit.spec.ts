@@ -191,6 +191,10 @@ test("@qf:Q7 the open-today card picks today's open session and continues at the
   const detail = { grid, progress, recordings: [take("2026-11-15T04:00:00Z", "secA", "A"), take("2026-11-15T05:00:00Z", null, "E3")] } as unknown as SessionDetail;
   expect(continuePoint(detail)).toEqual({ sectionId: "secE", code: "E3" });
   expect(continuePoint({ ...detail, recordings: [] })).toEqual({ sectionId: "secD", code: "D" });
+  const questions = { secE: ["E1", "E2", "E3", "E4"].map((code) => ({ lineageId: `l${code}`, displayCode: code })) };
+  const worked = { ...detail, recordings: [take("2026-11-15T05:00:00Z", null, "E2")], answers: [{ questionLineageId: "lE3", text: "Typed" }] } as unknown as SessionDetail;
+  expect(continuePoint(worked, questions)).toEqual({ sectionId: "secE", code: "E4" });
+  expect(continuePoint({ ...worked, answers: [] } as unknown as SessionDetail, questions)).toEqual({ sectionId: "secE", code: "E3" });
   expect(sectionsDone(detail)).toEqual({ done: 1, total: 3 });
   expect(LIST).toContain('qs("continueAt", { code: point.code })');
   expect(LIST).toContain('qs("questionsOfTotal", progress)');
