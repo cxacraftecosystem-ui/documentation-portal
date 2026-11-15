@@ -25,7 +25,7 @@ export function RecordUploadPair({
   disabled?: boolean;
   label?: string;
 }) {
-  const height = size === "lg" ? "min-h-13! text-[0.9375rem]" : "min-h-11!";
+  const height = size === "lg" ? "min-h-13! text-[0.9375rem] max-sm:gap-1.5 max-sm:px-2 max-sm:text-sm" : "min-h-11! max-sm:gap-1.5 max-sm:px-2";
   return (
     <ButtonRow fill label={label}>
       <button type="button" className={`field-button ${height} font-semibold`} disabled={disabled} onClick={onRecord} data-record-button>

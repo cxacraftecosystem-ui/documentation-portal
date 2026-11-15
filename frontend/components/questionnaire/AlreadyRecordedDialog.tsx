@@ -38,7 +38,7 @@ export function AlreadyRecordedDialog({
 
   return (
     <FieldDialog open={open} onClose={() => onChoose({ kind: "cancel" })} title={spec.title ?? ""} description={spec.body} showClose={false}>
-      <div data-prompt="P2" className="grid gap-3">
+      <div data-prompt="P2" className="mt-2 grid gap-3">
         {covered.length > 1 || first.length ? (
           <ul className="grid gap-1 text-sm text-ink-700">
             {covered.map((row) => (

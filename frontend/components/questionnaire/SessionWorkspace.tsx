@@ -1379,7 +1379,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                   )}
                 </button>
                 {open ? (
-                  <div id={`section-body-${s.id}`} className="grid grid-cols-[minmax(0,1fr)] gap-4 px-4 pb-2 pt-5 sm:px-6" data-section-body={s.code}>
+                  <div id={`section-body-${s.id}`} className="grid grid-cols-[minmax(0,1fr)] gap-4 px-3 pb-2 pt-5 sm:px-6" data-section-body={s.code}>
                     {live && recordBy === "SECTION" && !recording ? (
                       <RecordUploadPair
                         recordLabel={qs("recordSection")}
