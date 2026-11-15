@@ -26,7 +26,7 @@ docker exec interview-minio mcli mb --ignore-existing "local/${bucket}"
 
 python ../scripts/ci/seed_interview_stack.py "$seed_out"
 
-nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 > "$logs/interview-api.log" 2>&1 &
+AI_FEATURES_ENABLED="${AI_FEATURES_ENABLED:-true}" AI_TRANSCRIPT_INSIGHTS_ENABLED="${AI_TRANSCRIPT_INSIGHTS_ENABLED:-true}" nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 > "$logs/interview-api.log" 2>&1 &
 for _ in $(seq 1 90); do
   if curl -fsS http://127.0.0.1:8000/health > /dev/null 2>&1; then
     echo "The interview stack is up."
