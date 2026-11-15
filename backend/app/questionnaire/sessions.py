@@ -90,11 +90,12 @@ async def can_work_in(client: Any, user: Any, session: dict[str, Any]) -> bool:
         return True
     if str(user.id) in await researcher_ids(client, str(session["id"])):
         return True
-    return bool(await ports.access.record_edit_privilege(session, user, "questionnaire"))
+    return bool(await ports.access.record_edit_privilege(session, user, "questionnaire", client=client))
 
 
-async def may_override_answers(user: Any, session: dict[str, Any]) -> bool:
-    return bool(await ports.access.record_edit_privilege(session, user, "questionnaire"))
+async def may_override_answers(user: Any, session: dict[str, Any], *, client: Any = None) -> bool:
+    via = {"client": client} if client is not None else {}
+    return bool(await ports.access.may_change_others_answers(session, user, "questionnaire", **via))
 
 
 async def can_add_answers_in(client: Any, user: Any, session: dict[str, Any]) -> bool:
@@ -103,7 +104,7 @@ async def can_add_answers_in(client: Any, user: Any, session: dict[str, Any]) ->
     workshop_id = session.get("workshopId")
     if not workshop_id:
         return False
-    access = await ports.workshop_access.resolve_workshop_access(user, str(workshop_id))
+    access = await ports.workshop_access.resolve_workshop_access(user, str(workshop_id), client=client)
     return bool(access.at_least("CONTRIBUTE"))
 
 
@@ -320,7 +321,7 @@ async def session_payload(client: Any, session_id: str, viewer: Any = None) -> d
     row = await require_session(client, session_id)
     out = (await serialize_sessions(client, [row], viewer, with_progress=True))[0]
     out["respondents"] = await respondents.list_for(client, session_id)
-    out["mayOverrideAnswers"] = bool(viewer) and await may_override_answers(viewer, row)
+    out["mayOverrideAnswers"] = bool(viewer) and await may_override_answers(viewer, row, client=client)
     return out
 
 

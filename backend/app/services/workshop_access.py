@@ -87,8 +87,8 @@ def workshop_is_curated(rows: Any) -> bool:
     return any(enum_str(r.status) == "GRANTED" and get_value(r, "assignedById") for r in rows)
 
 
-async def resolve_workshop_access(user: Any, workshop_id: str) -> WorkshopAccess:
-    rows = await db.workshopassignment.find_many(where={"workshopId": workshop_id})
+async def resolve_workshop_access(user: Any, workshop_id: str, *, client: Any = None) -> WorkshopAccess:
+    rows = await (client or db).workshopassignment.find_many(where={"workshopId": workshop_id})
     return access_from_rows(user, rows)
 
 
@@ -125,10 +125,10 @@ async def workshop_assignee_ids(workshop_id: str) -> set[str]:
     return {r.userId for r in rows}
 
 
-async def workshop_edit_privilege(user: Any, workshop_id: str | None) -> bool:
+async def workshop_edit_privilege(user: Any, workshop_id: str | None, *, client: Any = None) -> bool:
     if not workshop_id:
         return False
-    access = await resolve_workshop_access(user, workshop_id)
+    access = await (resolve_workshop_access(user, workshop_id, client=client) if client is not None else resolve_workshop_access(user, workshop_id))
     return access.at_least("EDIT")
 
 

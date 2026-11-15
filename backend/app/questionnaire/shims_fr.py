@@ -170,7 +170,7 @@ async def responses_to_answers(
     override = False
     if strict:
         session_row = await sessions.load_session_row(db, session_id)
-        override = bool(session_row) and await sessions.may_override_answers(user, session_row)
+        override = bool(session_row) and await sessions.may_override_answers(user, session_row, client=db)
     wanted = [r for r in responses if (getattr(r, "answerText", None) or "").strip()] if artisans else []
     lineage_of: dict[str, str] = {}
     if wanted:

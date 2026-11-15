@@ -40,10 +40,10 @@ from app.services import credential_links
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-async def may_edit_lower_ranked_record(user: Any, creator_id: str | None) -> bool:
+async def may_edit_lower_ranked_record(user: Any, creator_id: str | None, *, client: Any = None) -> bool:
     if not creator_id or not has_rank(user, "PROFESSOR"):
         return False
-    creator = await db.user.find_unique(where={"id": creator_id})
+    creator = await (client or db).user.find_unique(where={"id": creator_id})
     return can_edit_others_record(user, get_value(creator, "role") if creator else None)
 
 

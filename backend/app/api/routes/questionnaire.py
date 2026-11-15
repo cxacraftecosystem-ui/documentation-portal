@@ -66,6 +66,7 @@ from app.services import answer_drafts, cross_portal_codes, csv_safe, naming, qu
 from app.services import completeness as completeness_module
 from app.services.access import (
     guard_record_edit,
+    may_change_others_answers,
     owner_download_scope,
     record_edit_privilege,
 )
@@ -1254,7 +1255,7 @@ async def update_interview(
             payload.responses,
             current_user,
             get_value(interview, "questionnaireId"),
-            privileged=privileged,
+            privileged=await may_change_others_answers(interview, current_user, "questionnaire"),
         )
     if v2_on:
         await v2_shims.patch_interview_shim(interview, payload, current_user)

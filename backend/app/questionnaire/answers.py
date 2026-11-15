@@ -204,7 +204,7 @@ async def _may_override(client: Any, session: dict[str, Any], user: Any) -> bool
     if await _is_lead(client, session, user):
         return True
     if "_override" not in session:
-        session["_override"] = await sessions.may_override_answers(user, session)
+        session["_override"] = await sessions.may_override_answers(user, session, client=client)
     return bool(session["_override"])
 
 
