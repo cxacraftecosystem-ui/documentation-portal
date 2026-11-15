@@ -5,12 +5,15 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
@@ -30,12 +33,32 @@ import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TestWatcher
+import org.junit.runner.Description
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class InterviewShotsTest {
-    @get:Rule
+    @get:Rule(order = 0)
     val compose = createComposeRule()
+
+    private val errors = mutableListOf<String>()
+
+    @get:Rule(order = 1)
+    val evidence = object : TestWatcher() {
+        override fun failed(e: Throwable?, description: Description) {
+            val root = File(app.getExternalFilesDir(null), "design-fidelity/interview-failures")
+            root.mkdirs()
+            val name = "${description.methodName}-$device"
+            runCatching {
+                instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
+                    File(root, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                }
+            }
+            val tree = runCatching { compose.onRoot(useUnmergedTree = true).printToString(maxDepth = Int.MAX_VALUE) }.getOrElse { "tree unavailable: $it" }
+            File(root, "$name.txt").writeText(listOf("errors: $errors", tree).joinToString("\n\n"))
+        }
+    }
 
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val app: Context = instrumentation.targetContext
@@ -61,7 +84,7 @@ class InterviewShotsTest {
     private fun home(dark: Boolean) {
         compose.setContent {
             FieldRepositoryTheme(darkTheme = dark) {
-                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).systemBarsPadding()) {
                     QuestionnaireHome(
                         artisans = artisans,
                         meId = arg("interviewUserId"),
@@ -69,7 +92,7 @@ class InterviewShotsTest {
                         formsTab = {},
                         onNewForm = {},
                         onUpdateApp = {},
-                        onError = {},
+                        onError = { errors += it },
                         modifier = Modifier.fillMaxSize()
                     )
                 }

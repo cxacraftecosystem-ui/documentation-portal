@@ -547,7 +547,8 @@ jobs:
             -no-window -gpu swiftshader_indirect -no-boot-anim
             -no-snapshot-save -no-snapshot-load -camera-back none -camera-front none
           disable-animations: true
-          script: bash scripts/ci/interview_device.sh
+          script: |
+            bash scripts/ci/interview_device.sh || { "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" logcat -d -v time > "$INTERVIEW_OUT/logcat.txt"; exit 1; }
 
       - name: The API log
         if: ${{ failure() }}

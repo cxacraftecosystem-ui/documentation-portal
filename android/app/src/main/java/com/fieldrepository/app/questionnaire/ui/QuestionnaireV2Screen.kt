@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -471,26 +472,23 @@ fun QuestionnaireHome(
                     if (onBack != null) IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = QuestionnaireCopy.s("home.back"))
                     }
-                    SegmentedChoice(
-                        label = "",
-                        options = listOf(SelectOption(QuestionnaireTab.SESSIONS.name, QuestionnaireCopy.s("home.sessions")), SelectOption(QuestionnaireTab.FORMS.name, QuestionnaireCopy.s("home.forms"))),
-                        selectedValue = tab.name
-                    ) { tab = QuestionnaireTab.valueOf(it) }
-                    if (config?.updateRequired(BuildConfig.VERSION_CODE) == true) UpdateBanner(onUpdateApp)
-                }
-                if (tab == QuestionnaireTab.FORMS) Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(formsScroll).padding(16.dp).testTag("questionnaire.forms")) {
-                    CompositionLocalProvider(LocalScreenMemory provides homeMemory.child("forms"), LocalFormsScroll provides formsScroll) {
-                        formsTab { questionnaireId -> prefillForm = questionnaireId; tab = QuestionnaireTab.SESSIONS; starting = true }
-                    }
-                    Spacer(Modifier.height(fabClearance).testTag("questionnaire.listEnd"))
-                } else Column(Modifier.fillMaxWidth().verticalScroll(sessionsScroll).padding(16.dp).testTag("questionnaire.sessions"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(QuestionnaireCopy.s("sessions.title"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                        BadgedBox(badge = { if (inboxCount > 0) Badge { Text("$inboxCount") } }) {
-                            TextButton(onClick = { route = QRoute.Inbox }) { Text(QuestionnaireCopy.s("sessions.inbox")) }
+                    if (tab == QuestionnaireTab.SESSIONS) Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            QuestionnaireCopy.s("sessions.title"), modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onBackground
+                        )
+                        IconButton(onClick = { route = QRoute.Inbox }) {
+                            BadgedBox(badge = {
+                                if (inboxCount > 0) Badge(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) { Text("$inboxCount") }
+                            }) {
+                                Icon(
+                                    Icons.Outlined.Inbox, tint = MaterialTheme.field.body,
+                                    contentDescription = QuestionnaireCopy.s("sessions.inbox") + if (inboxCount > 0) ", $inboxCount" else ""
+                                )
+                            }
                         }
                         Box {
-                            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = QuestionnaireCopy.s("session.more")) }
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, tint = MaterialTheme.field.body, contentDescription = QuestionnaireCopy.s("session.more")) }
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                                 sessionsMenu().forEach { key ->
                                     DropdownMenuItem(text = { Text(if (key == "recordings") QuestionnaireCopy.t("recordingsTitle") else QuestionnaireCopy.s(key)) }, onClick = {
@@ -505,6 +503,19 @@ fun QuestionnaireHome(
                             }
                         }
                     }
+                    SegmentedChoice(
+                        label = "",
+                        options = listOf(SelectOption(QuestionnaireTab.SESSIONS.name, QuestionnaireCopy.s("home.sessions")), SelectOption(QuestionnaireTab.FORMS.name, QuestionnaireCopy.s("home.forms"))),
+                        selectedValue = tab.name
+                    ) { tab = QuestionnaireTab.valueOf(it) }
+                    if (config?.updateRequired(BuildConfig.VERSION_CODE) == true) UpdateBanner(onUpdateApp)
+                }
+                if (tab == QuestionnaireTab.FORMS) Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(formsScroll).padding(16.dp).testTag("questionnaire.forms")) {
+                    CompositionLocalProvider(LocalScreenMemory provides homeMemory.child("forms"), LocalFormsScroll provides formsScroll) {
+                        formsTab { questionnaireId -> prefillForm = questionnaireId; tab = QuestionnaireTab.SESSIONS; starting = true }
+                    }
+                    Spacer(Modifier.height(fabClearance).testTag("questionnaire.listEnd"))
+                } else Column(Modifier.fillMaxWidth().verticalScroll(sessionsScroll).padding(16.dp).testTag("questionnaire.sessions"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (unsent.isNotEmpty()) UnsentBanner(unsent.size) { scope.launch { openUnit(unsent.first()) } }
                     if (!showDeleted) today?.let { card ->
                         OpenTodayCard(
@@ -617,6 +628,8 @@ fun QuestionnaireHome(
         if (route == QRoute.List) {
             ExtendedFloatingActionButton(
                 onClick = { if (tab == QuestionnaireTab.FORMS) onNewForm() else starting = true },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
                 icon = { Icon(Icons.Filled.Add, contentDescription = null) },
                 text = { Text(QuestionnaireCopy.s(if (tab == QuestionnaireTab.FORMS) "home.newForm" else "sessions.new")) },
                 modifier = Modifier.align(Alignment.BottomCenter).padding(HOME_FAB_MARGIN)
