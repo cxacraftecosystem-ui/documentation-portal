@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.CallMerge
@@ -89,11 +91,11 @@ fun SessionTopBar(
             }
             Column(Modifier.weight(1f)) {
                 Text(
-                    title, style = MaterialTheme.typography.titleLarge,
+                    title, style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
                 if (subline.isNotBlank()) Text(
-                    subline, style = MaterialTheme.typography.bodyMedium,
+                    subline, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 16.sp),
                     color = MaterialTheme.field.muted, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
@@ -212,7 +214,7 @@ fun SessionMenuSheet(
         containerColor = MaterialTheme.colorScheme.surface
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 24.dp).navigationBarsPadding().testTag("questionnaire.session.options"),
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 24.dp).navigationBarsPadding().testTag("questionnaire.session.options"),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Column(Modifier.padding(start = 4.dp, end = 4.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

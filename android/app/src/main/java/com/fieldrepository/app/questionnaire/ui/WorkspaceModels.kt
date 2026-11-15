@@ -138,10 +138,12 @@ data class ReviewModel(
             } else {
                 instrument.sections.map { it to evidence.section(it) }.filter { !it.second.done }.map { StillToAskRow(it.first, it.second) }
             }
-            val summary = QuestionnaireCopy.t(
+            val uploading = maxOf(pending, served?.pendingUploads ?: 0)
+            val full = QuestionnaireCopy.t(
                 "reviewSummary", "sections" to tally.sectionsDone, "names" to names.joinToString(", ").ifBlank { "—" },
-                "pending" to maxOf(pending, served?.pendingUploads ?: 0)
+                "pending" to uploading
             )
+            val summary = if (uploading == 0) full.substringBeforeLast(". ") + "." else full
             return ReviewModel(tally, summary, decisions + failed, still)
         }
     }

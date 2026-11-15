@@ -223,7 +223,7 @@ fun SessionConflictPrompt(fields: List<SessionFieldDiff>, onDismiss: () -> Unit)
 fun EditSessionDialog(initial: SessionEdit, onDismiss: () -> Unit, extra: @Composable () -> Unit = {}, onSave: (SessionEdit) -> Unit) {
     var form by remember { mutableStateOf(initial) }
     QuestionnairePromptContent(
-        title = QuestionnaireCopy.s("session.edit"),
+        title = QuestionnaireCopy.t("editSession"),
         onDismiss = onDismiss,
         content = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {

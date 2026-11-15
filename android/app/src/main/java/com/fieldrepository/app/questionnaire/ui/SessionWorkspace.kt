@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -672,7 +673,7 @@ fun SessionWorkspace(
     if (menu) SessionMenuSheet(
         recordBy = recordBy, recordByEnabled = !locked, onRecordBy = { setRecordBy(it) },
         items = listOfNotNull(
-            if (!locked) SessionMenuItem(QuestionnaireCopy.s("session.edit"), SessionMenuIcons.edit) { editing = true } else null,
+            if (!locked) SessionMenuItem(QuestionnaireCopy.t("editSession"), SessionMenuIcons.edit) { editing = true } else null,
             if (serverSessionId != null && !locked) SessionMenuItem(QuestionnaireCopy.s("researcher.add"), SessionMenuIcons.researcher) { addingResearcher = true } else null,
             if (joinQr != null) SessionMenuItem(QuestionnaireCopy.t("joinCodeAndQr"), SessionMenuIcons.join) { showQr = true } else null,
             if (serverSessionId != null) SessionMenuItem(QuestionnaireCopy.t("readView"), SessionMenuIcons.read) { onOpenReadView(serverSessionId) } else null,
@@ -1277,10 +1278,10 @@ internal fun SectionCard(
                 SectionLetter(section.code, status.tile)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        section.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
+                        section.title, style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp), fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
-                    Text(status.subline(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
+                    Text(status.subline(), style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 16.sp), color = MaterialTheme.field.muted)
                 }
                 Icon(Icons.Filled.ExpandMore, contentDescription = null, tint = MaterialTheme.field.muted)
             }
@@ -1357,7 +1358,7 @@ internal fun QuestionRow(
                 .semantics(mergeDescendants = true) { contentDescription = QuestionnaireCopy.t("openTypedAnswer", "code" to question.displayCode) },
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(Icons.Filled.Keyboard, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(18.dp))
+            Icon(Icons.Outlined.Edit, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(16.dp))
             Text(
                 QuestionnaireCopy.t("typedPreview", "text" to typedPreview), modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted, maxLines = 1, overflow = TextOverflow.Ellipsis
