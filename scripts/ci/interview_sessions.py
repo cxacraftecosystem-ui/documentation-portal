@@ -10,9 +10,10 @@ import sys
 import uuid
 import urllib.error
 import urllib.request
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 API = "http://127.0.0.1:8000/api"
+IST = timezone(timedelta(hours=5, minutes=30))
 
 TYPED = {
     "C1": "Moved from Puri to Bhubaneswar for work",
@@ -58,7 +59,7 @@ def create(seed: dict, artisans: list[str], record_by: str, note: str) -> dict:
         "questionnaireId": seed["questionnaireId"],
         "workshopId": seed["workshopId"] if seed["workshopField"] == "workshopId" else None,
         "designWorkshopId": seed["workshopId"] if seed["workshopField"] == "designWorkshopId" else None,
-        "sessionDate": date.today().isoformat(),
+        "sessionDate": datetime.now(IST).date().isoformat(),
         "startedAt": datetime.now(UTC).isoformat(),
         "purpose": "FIRST_SITTING",
         "place": seed["place"],
