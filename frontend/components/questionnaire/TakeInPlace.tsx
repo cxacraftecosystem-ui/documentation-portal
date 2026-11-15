@@ -1,11 +1,9 @@
 "use client";
 
 import { ChevronUp, Expand, Play } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 
-import { DownloadsTray } from "@/components/dataExplorer/DownloadsTray";
 import { PreviewDialog, PreviewInline } from "@/components/dataExplorer/PreviewDialog";
-import { useDownloads } from "@/components/dataExplorer/useDownloads";
 import { queuedBlob } from "@/components/questionnaire/useSessionQueue";
 import type { TreeEntry } from "@/lib/dataExplorer/contract";
 import type { DownloadRequest } from "@/lib/dataExplorer/downloads";
@@ -13,6 +11,8 @@ import { qs } from "@/lib/questionnaire/qs";
 import { fullEntry, localTakeEntry, nextOpen, regionId, takeEntry, type OpenTake, type TakeItem } from "@/lib/questionnaire/takeInPlace";
 
 export type { TakeItem };
+
+const TakeDownloads = lazy(() => import("@/components/questionnaire/TakeDownloads"));
 
 export type TakePlayer = {
   isOpen: (slot: string, key: string) => boolean;
@@ -28,7 +28,7 @@ export function useTakePlayer(collapse: unknown): TakePlayer {
   const [open, setOpen] = useState<OpenTake | null>(null);
   const [full, setFull] = useState<TreeEntry | null>(null);
   const [held, setHeld] = useState(collapse);
-  const downloads = useDownloads();
+  const [requests, setRequests] = useState<DownloadRequest[]>([]);
   if (held !== collapse) {
     setHeld(collapse);
     if (collapse) setOpen(null);
@@ -41,10 +41,14 @@ export function useTakePlayer(collapse: unknown): TakePlayer {
     setOpen(null);
     setFull(entry);
   }, []);
-  const onDownload = useCallback((request: DownloadRequest) => void downloads.enqueue(request), [downloads]);
+  const onDownload = useCallback((request: DownloadRequest) => setRequests((list) => [...list, request]), []);
   const overlay = (
     <>
-      <DownloadsTray downloads={downloads} />
+      {requests.length ? (
+        <Suspense fallback={null}>
+          <TakeDownloads requests={requests} />
+        </Suspense>
+      ) : null}
       <PreviewDialog entry={full} siblings={full ? [full] : []} onNavigate={() => undefined} onClose={() => setFull(null)} recordHref={null} onDownload={onDownload} />
     </>
   );
