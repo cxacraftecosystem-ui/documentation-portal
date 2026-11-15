@@ -131,8 +131,10 @@ test("the explorer's own dialog renders the preview unchanged and only the embed
 test("the take sheet keeps 0.0.5's fill from recording beside the explorer's preview, gated as the transcript viewer gated it", () => {
   const sheet = read("components/questionnaire/TakeSheet.tsx");
   expect(sheet).toContain('import { FillFromRecording } from "@/components/transcript/FillFromRecording";');
-  expect(sheet).toContain('loaded.permissions.autodraft && loaded.status === "READY"');
-  expect(sheet).toMatch(/player\.isOpen\(SHEET_SLOT, item\.key\) \? \(\s+<TakeFill recording=\{r\} player=\{player\} itemKey=\{item\.key\} onReview=\{onUseAsAnswer \? \(\) => onUseAsAnswer\(r\) : undefined\} \/>/);
+  expect(sheet).toContain('if (!seen || !transcript || !transcript.permissions.autodraft || transcript.status !== "READY") return null;');
+  expect(sheet).toContain("shown={player.isOpen(SHEET_SLOT, item.key)}");
+  expect(sheet).toContain("<div hidden={!shown} data-take-fill={recording.id}>");
+  expect(sheet).toContain("if (transcript && inFlight(transcript.status)) timer = window.setTimeout(load, TRANSCRIPT_POLL_MS);");
   expect(sheet).toContain('querySelector<HTMLMediaElement>("audio, video")');
   expect(read("components/dataExplorer/PreviewDialog.tsx")).not.toMatch(/FillFromRecording|autodraft/);
   expect(read("components/questionnaire/TakeInPlace.tsx")).not.toMatch(/FillFromRecording|autodraft/);
