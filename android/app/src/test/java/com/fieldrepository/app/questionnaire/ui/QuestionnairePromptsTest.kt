@@ -33,7 +33,7 @@ class QuestionnairePromptsTest {
     @Test
     fun `the group body, the take lines and the first-take line`() {
         val model = AlreadyRecorded.model(response("a1" to "2026-07-07", "a2" to "2026-07-02"), "Section D", "D", names, listOf("a1", "a2", "a3"), SessionPurpose.FIRST_SITTING.wire, false, now)!!
-        assertEquals("Already recorded", model.title)
+        assertEquals("D is already recorded", model.title)
         assertEquals("Section D is recorded for 2 of 3 here.", model.body)
         assertEquals(listOf("Giriraj · 14 min · Nandini · 7 Jul · Group of 3", "Meena · 9 min · Ankur · 2 Jul · Solo"), model.lines.map { it.text })
         assertEquals(listOf("Ravi hasn't been recorded for D. Their take will be their first."), model.firstTakes)
@@ -45,9 +45,11 @@ class QuestionnairePromptsTest {
     @Test
     fun `one subject, and a question covered by its section`() {
         val one = AlreadyRecorded.model(response("a1" to "2026-07-07"), "Section D", "D", names, listOf("a1"), SessionPurpose.FIRST_SITTING.wire, false, now)!!
-        assertEquals("Section D was recorded for Giriraj on 7 Jul.", one.body)
+        assertEquals("D is already recorded", one.title)
+        assertEquals("Recorded for Giriraj Prasad Chhipa on 7 Jul.", one.body)
         val whole = AlreadyRecorded.model(response("a1" to "2026-07-07", via = true), "Section D", "D3", names, listOf("a1"), SessionPurpose.FIRST_SITTING.wire, false, now)!!
-        assertEquals("Section D was recorded whole for Giriraj on 7 Jul.", whole.body)
+        assertEquals("D3 is already recorded", whole.title)
+        assertEquals("Recorded for Giriraj Prasad Chhipa on 7 Jul.", whole.body)
     }
 
     @Test

@@ -215,6 +215,7 @@ data class QSessionCounts(
 )
 
 @Serializable
+<<<<<<< HEAD
 data class QSectionProgress(
     val sectionId: String,
     val answeredQuestions: Int = 0,
@@ -230,6 +231,12 @@ data class QSessionProgress(
 ) {
     fun section(sectionId: String): QSectionProgress? = sections.firstOrNull { it.sectionId == sectionId }
 }
+=======
+data class QSectionProgress(val sectionId: String, val answeredQuestions: Int = 0, val totalQuestions: Int = 0, val inSectionTake: Boolean = false)
+
+@Serializable
+data class QSessionProgress(val answeredQuestions: Int = 0, val totalQuestions: Int = 0, val sections: List<QSectionProgress> = emptyList())
+>>>>>>> origin/qv5/android-session
 
 @Serializable
 data class QSession(

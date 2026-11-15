@@ -25,7 +25,11 @@ object StepKind {
     const val CLIP = "CLIP"
     const val ANSWERS = "ANSWERS"
     const val FINISH = "FINISH"
+    const val SESSION_PATCH = "SESSION_PATCH"
 }
+
+@Serializable
+data class QueuedSessionPatch(val recordBy: String, val before: String? = null)
 
 object StepState {
     const val PENDING = "PENDING"
@@ -115,7 +119,7 @@ data class SessionUnit(
     private fun rank(kind: String) = when (kind) {
         StepKind.ARTISAN -> 0
         StepKind.SESSION -> 1
-        StepKind.RESPONDENT -> 2
+        StepKind.RESPONDENT, StepKind.SESSION_PATCH -> 2
         StepKind.PARTICIPANT, StepKind.CLIP -> 3
         StepKind.ANSWERS -> 4
         else -> 5
@@ -187,6 +191,8 @@ interface SessionTransport {
     suspend fun complete(idempotencyKey: String, body: QCompleteRequest): QRecording
     suspend fun putAnswers(body: QAnswersPut): QAnswersPutResponse
     suspend fun finish(sessionId: String)
+    suspend fun sessionRecordBy(sessionId: String): Pair<Int, String>
+    suspend fun patchSession(sessionId: String, body: QSessionPatch)
 }
 
 class PermanentStepFailure(message: String, val code: String? = null) : Exception(message)
@@ -211,6 +217,7 @@ class SessionOutbox(
         const val SLOW_LINK_BYTES_PER_SECOND = 6_250.0
         val STALE_AFTER: java.time.Duration = java.time.Duration.ofDays(14)
         const val COMPLETE_RESTART_AFTER = 3
+        const val RECORD_BY_CONFLICT = "RECORD_BY_CONFLICT"
 
         fun missingFileMessage(label: String): String {
             val open = label.lastIndexOf(" (")
@@ -364,6 +371,31 @@ class SessionOutbox(
             })
         }
         return changed
+    }
+
+    suspend fun setRecordBy(clientKey: String, recordBy: String, before: String?) = mutate(clientKey) { unit ->
+        val sessionStep = unit.steps.firstOrNull { it.kind == StepKind.SESSION && it.state == StepState.PENDING }
+        if (sessionStep != null) {
+            val frozen = outboxJson.decodeFromString(QSessionCreate.serializer(), sessionStep.bodyJson!!)
+            unit.copy(steps = unit.steps.map {
+                if (it.id == sessionStep.id) it.copy(bodyJson = outboxJson.encodeToString(QSessionCreate.serializer(), frozen.copy(recordBy = recordBy))) else it
+            })
+        } else {
+            val earlier = unit.steps.filter { it.kind == StepKind.SESSION_PATCH && it.state != StepState.DONE }
+            val base = earlier.firstOrNull()?.bodyJson?.let { runCatching { outboxJson.decodeFromString(QueuedSessionPatch.serializer(), it) }.getOrNull() }?.before ?: before
+            unit.copy(steps = unit.steps.filterNot { it in earlier } + SessionStep(
+                newKey(), StepKind.SESSION_PATCH, clock().toString(), newKey(),
+                bodyJson = outboxJson.encodeToString(QueuedSessionPatch.serializer(), QueuedSessionPatch(recordBy, base))
+            ))
+        }
+    }
+
+    fun queuedRecordBy(unit: SessionUnit?): String? {
+        unit ?: return null
+        unit.steps.lastOrNull { it.kind == StepKind.SESSION_PATCH && it.state != StepState.DONE }?.bodyJson
+            ?.let { runCatching { outboxJson.decodeFromString(QueuedSessionPatch.serializer(), it) }.getOrNull() }?.let { return it.recordBy }
+        return unit.steps.firstOrNull { it.kind == StepKind.SESSION && it.state == StepState.PENDING }?.bodyJson
+            ?.let { runCatching { outboxJson.decodeFromString(QSessionCreate.serializer(), it) }.getOrNull() }?.recordBy
     }
 
     suspend fun forget(clientKey: String) = lockFor(clientKey).withLock { store.delete(clientKey) }
@@ -581,6 +613,12 @@ class SessionOutbox(
                         )
                     }
                 }
+                StepKind.SESSION_PATCH -> {
+                    val sessionId = unit.sessionId ?: return false
+                    val queued = outboxJson.decodeFromString(QueuedSessionPatch.serializer(), step.bodyJson!!)
+                    if (!sendRecordBy(transport, clientKey, stepId, sessionId, queued)) return false
+                    updateStep(clientKey, stepId) { it.copy(state = StepState.DONE) }
+                }
                 StepKind.FINISH -> {
                     val sessionId = unit.sessionId ?: return false
                     if (unit.steps.any { it.kind != StepKind.FINISH && it.state == StepState.PENDING }) return false
@@ -597,6 +635,29 @@ class SessionOutbox(
             updateStep(clientKey, stepId) { it.copy(attempts = it.attempts + 1) }
             false
         }
+    }
+
+    private suspend fun sendRecordBy(transport: SessionTransport, clientKey: String, stepId: String, sessionId: String, queued: QueuedSessionPatch): Boolean {
+        repeat(2) { attempt ->
+            val (version, server) = transport.sessionRecordBy(sessionId)
+            if (server == queued.recordBy) return true
+            if (queued.before != null && server != queued.before) {
+                updateStep(clientKey, stepId) {
+                    it.copy(
+                        state = StepState.FAILED, failure = QuestionnaireCopy.s("p9.title"), failureCode = RECORD_BY_CONFLICT, attempts = it.attempts + 1,
+                        bodyJson = outboxJson.encodeToString(QueuedSessionPatch.serializer(), queued.copy(before = server))
+                    )
+                }
+                return false
+            }
+            try {
+                transport.patchSession(sessionId, QSessionPatch(version = version, recordBy = queued.recordBy))
+                return true
+            } catch (refused: PermanentStepFailure) {
+                if (refused.code != QErrorCodes.STALE_VERSION || attempt == 1) throw refused
+            }
+        }
+        return false
     }
 
     private suspend fun runClip(transport: SessionTransport, clientKey: String, stepId: String): Boolean {

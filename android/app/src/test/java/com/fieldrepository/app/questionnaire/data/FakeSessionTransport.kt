@@ -103,6 +103,28 @@ class FakeSessionTransport : SessionTransport {
 
     override suspend fun finish(sessionId: String) { record("finish") }
 
+    var serverRecordBy = "SECTION"
+    var serverVersion = 1
+    var staleOnce = false
+
+    override suspend fun sessionRecordBy(sessionId: String): Pair<Int, String> {
+        record("session-read")
+        return serverVersion to serverRecordBy
+    }
+
+    override suspend fun patchSession(sessionId: String, body: QSessionPatch) {
+        record("session-patch:${body.recordBy}")
+        bodies += outboxJson.encodeToString(QSessionPatch.serializer(), body)
+        if (staleOnce) {
+            staleOnce = false
+            serverVersion++
+            throw PermanentStepFailure("Someone else changed this session", QErrorCodes.STALE_VERSION)
+        }
+        if (body.version != serverVersion) throw PermanentStepFailure("Someone else changed this session", QErrorCodes.STALE_VERSION)
+        body.recordBy?.let { serverRecordBy = it }
+        serverVersion++
+    }
+
     companion object {
         const val PART = 1024L
     }

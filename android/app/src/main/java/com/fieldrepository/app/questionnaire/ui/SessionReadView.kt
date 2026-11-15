@@ -124,6 +124,16 @@ fun SessionReadView(
                 LocalSessionReaders.current?.invoke(sessionId, attempt)
                 HorizontalDivider(color = MaterialTheme.field.hairline)
                 val ins = instrument
+                val subjects = d.subjectIds
+                if (ins != null && subjects.isNotEmpty()) {
+                    val grid = d.grid?.let { runCatching { com.fieldrepository.app.questionnaire.portal.QuestionnairePortal.json.decodeFromJsonElement(com.fieldrepository.app.questionnaire.data.QGrid.serializer(), it) }.getOrNull() }
+                    CoverageGrid(
+                        CoverageGridModel.rows(ins, subjects, CoverageGridModel.takesOf(d.recordings), emptyList(), AnswerModel.typedPairs(d.answers, null), grid),
+                        names = subjects.associateWith { d.nameOf(it).orEmpty() }, currentSectionId = null,
+                        onOpenSection = {}, onOpenCell = { _, _ -> }
+                    )
+                    HorizontalDivider(color = MaterialTheme.field.hairline)
+                }
                 val live = d.recordings.filter { it.removedAt == null }
                 ins?.sections.orEmpty().forEach { section ->
                     val keys = setOf("S:${section.id}") + section.questions.map { "Q:${it.lineageId}" }
