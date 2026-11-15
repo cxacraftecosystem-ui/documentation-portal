@@ -320,8 +320,8 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
       const wanted = searchFromParams(new URLSearchParams(window.location.search));
       popped.current = searchToParams(wanted.state, wanted.focus, "");
     };
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
+    window.addEventListener("popstate", onPop, true);
+    return () => window.removeEventListener("popstate", onPop, true);
   }, []);
 
   const writeSearch = useCallback(
