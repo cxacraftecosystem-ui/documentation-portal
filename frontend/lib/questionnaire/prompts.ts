@@ -50,7 +50,7 @@ export function alreadyRecorded(input: P2Input): {
   let body: string;
   if (per.length === 1 && covered.length === 1) {
     const take = covered[0].takes[covered[0].takes.length - 1];
-    body = qs("recordedForOn", { name: nameOf(covered[0].artisanId), date: shortDate(take.session.date ?? take.capturedAt) });
+    body = qs("recordedForOn", { name: (input.names[covered[0].artisanId] ?? "").trim(), date: shortDate(take.session.date ?? take.capturedAt) });
   } else {
     body = qs("alreadyRecordedBody", { target: input.targetLabel, covered: covered.length, count: per.length });
   }

@@ -1379,7 +1379,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                   )}
                 </button>
                 {open ? (
-                  <div id={`section-body-${s.id}`} className="grid gap-4 px-4 pb-2 pt-5 sm:px-6" data-section-body={s.code}>
+                  <div id={`section-body-${s.id}`} className="grid grid-cols-[minmax(0,1fr)] gap-4 px-4 pb-2 pt-5 sm:px-6" data-section-body={s.code}>
                     {live && recordBy === "SECTION" && !recording ? (
                       <RecordUploadPair
                         recordLabel={qs("recordSection")}
@@ -1387,7 +1387,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                         onUpload={() => setUploadFor({ kind: "SECTION", sectionId: s.id })}
                       />
                     ) : null}
-                    <ol className="grid border-t border-line-200">
+                    <ol className="grid grid-cols-[minmax(0,1fr)] border-t border-line-200">
                       {(s.questions ?? []).map((q) => {
                         const mark = p?.marks[q.lineageId];
                         const done = Boolean(mark && mark.kind !== "NONE");
@@ -1401,7 +1401,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                             >
                               {q.displayCode}
                             </span>
-                            <div className="grid min-w-0 flex-1 gap-2">
+                            <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-2">
                               <p className="text-base leading-6 text-ink-900">
                                 {q.prompt}
                                 {required(q.lineageId) ? (

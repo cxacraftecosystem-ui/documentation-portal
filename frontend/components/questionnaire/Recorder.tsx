@@ -230,7 +230,7 @@ export function Recorder({
       <div className="grid gap-2.5" data-recorder-state={state} role="region" aria-label={heading}>
         <div className="flex items-center gap-3">
           <span aria-hidden className={`h-2.5 w-2.5 shrink-0 rounded-full ${state === "recording" ? "bg-error-600 motion-safe:animate-pulse" : "border-2 border-error-600"}`} />
-          <span className="min-w-0 flex-1 truncate text-[0.8125rem] font-medium text-ink-500">{heading}</span>
+          <span className="min-w-0 flex-1 truncate text-[0.8125rem] font-semibold text-error-600 dark:text-red-400">{heading}</span>
           <span className="font-display text-2xl font-bold tabular-nums text-ink-900" role="timer" aria-live="off">
             {clock(elapsed)}
           </span>
@@ -266,8 +266,8 @@ export function Recorder({
                 {qs("pause")}
               </button>
             )}
-            <button type="button" className="field-button min-h-12!" disabled={state === "saving"} onClick={stop}>
-              <Square className="h-4 w-4" aria-hidden />
+            <button type="button" className="field-button min-h-12! bg-error-600! text-white! hover:bg-error-600/90!" disabled={state === "saving"} onClick={stop}>
+              <Square className="h-4 w-4 fill-current" aria-hidden />
               {qs("stop")}
             </button>
           </ButtonRow>
