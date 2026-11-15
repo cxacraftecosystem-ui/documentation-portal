@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 
+from app import shared_vocab as V
 from app.questionnaire.schemas import LANGUAGE_OTHER_MAX, NOTE_MAX, SessionCreate
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,7 +28,7 @@ def _portal() -> str:
 
 def test_the_start_sheet_has_no_title_and_the_agreed_fields_in_order() -> None:
     assert SHEET["contract"] == "questionnaire-session-start-sheet"
-    assert SHEET["version"] == 2 and SHEET["titleField"] is False
+    assert SHEET["version"] == 3 and SHEET["titleField"] is False
     keys = [field["key"] for field in SHEET["fields"]]
     assert "title" not in keys
     assert keys == [
@@ -40,6 +41,7 @@ def test_the_start_sheet_has_no_title_and_the_agreed_fields_in_order() -> None:
         "place",
         "languageCode",
         "note",
+        "recordBy",
     ]
 
 
@@ -53,6 +55,9 @@ def test_every_field_is_a_server_field_and_the_limits_agree() -> None:
     assert sheet["languageCode"]["other"]["maxLength"] == LANGUAGE_OTHER_MAX
     assert "other" in {lang["code"] for lang in LANGUAGES["languages"]}
     assert sheet["purpose"]["options"] == ["FIRST_SITTING", "FOLLOW_UP", "REDO"]
+    assert sheet["recordBy"]["control"] == "segmented"
+    assert sheet["recordBy"]["options"] == list(V.RecordBy) == ["SECTION", "QUESTION"]
+    assert sheet["recordBy"]["default"] == SessionCreate.model_fields["recordBy"].default == "SECTION"
 
 
 def test_the_workshop_is_stored_where_this_portal_files_a_session() -> None:

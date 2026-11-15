@@ -180,6 +180,15 @@ enum class SessionMode(val wire: String) {
     }
 }
 
+enum class RecordBy(val wire: String) {
+    SECTION("SECTION"),
+    QUESTION("QUESTION");
+
+    companion object {
+        fun fromWire(value: String?): RecordBy? = entries.firstOrNull { it.wire == value }
+    }
+}
+
 enum class ResearcherRole(val wire: String) {
     LEAD("LEAD"),
     CONTRIBUTOR("CONTRIBUTOR"),

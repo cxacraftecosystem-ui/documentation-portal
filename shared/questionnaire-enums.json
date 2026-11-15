@@ -14,6 +14,10 @@
       "UPLOAD",
       "HANDOFF"
     ],
+    "RecordBy": [
+      "SECTION",
+      "QUESTION"
+    ],
     "RespondentKind": [
       "GUEST",
       "SELF"

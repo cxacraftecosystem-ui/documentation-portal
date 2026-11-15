@@ -180,6 +180,15 @@ enum class SessionMode(val wire: String) {
     }
 }
 
+enum class RecordBy(val wire: String) {
+    SECTION("SECTION"),
+    QUESTION("QUESTION");
+
+    companion object {
+        fun fromWire(value: String?): RecordBy? = entries.firstOrNull { it.wire == value }
+    }
+}
+
 enum class ResearcherRole(val wire: String) {
     LEAD("LEAD"),
     CONTRIBUTOR("CONTRIBUTOR"),
@@ -386,6 +395,7 @@ object QuestionnaireVocabulary {
         "SessionState" to SessionState.entries.map { it.wire },
         "SessionOrigin" to SessionOrigin.entries.map { it.wire },
         "SessionMode" to SessionMode.entries.map { it.wire },
+        "RecordBy" to RecordBy.entries.map { it.wire },
         "ResearcherRole" to ResearcherRole.entries.map { it.wire },
         "CapturedAtSource" to CapturedAtSource.entries.map { it.wire },
         "RecordingFiling" to RecordingFiling.entries.map { it.wire },

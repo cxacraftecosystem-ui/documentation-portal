@@ -290,6 +290,11 @@ enum SessionSource {
   HANDOFF
 }
 
+enum RecordBy {
+  SECTION
+  QUESTION
+}
+
 enum MediaProcessingJobStatus {
   QUEUED
   PROCESSING
@@ -2166,6 +2171,7 @@ model QuestionnaireInterview {
   deletedAt       DateTime?
   deletedById     String?
   source          SessionSource  @default(APP)
+  recordBy        RecordBy       @default(SECTION)
 
   createdBy User                             @relation("QuestionnaireCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   location  Location?                        @relation(fields: [locationId], references: [id], onDelete: SetNull)

@@ -47,7 +47,6 @@ export const WEB_ONLY_STRINGS = {
   inboxPrimaryRow: "A main take changed after a late upload, {date}",
   inboxPickArtisans: "Who was there",
   fileItTarget: "Question or section",
-  saveTake: "Save take",
   takeNotSaved: "The take wasn't saved on this device. Keep it from the prompt to try again.",
   answerPinned: "{name}'s answer to {code} is pinned",
   inboxBadge: "{count} in the inbox",
