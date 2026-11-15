@@ -13,7 +13,7 @@ import {
   audioFile,
   boardSession,
   createSession,
-  escape,
+  fillStartSheet,
   openSection,
   openSession,
   section,
@@ -76,13 +76,7 @@ capture("WebSessions", "sessions list", async (page, width, theme) => {
 
 capture("WebNew", "new session", async (page, width, theme) => {
   await page.goto("/questionnaire/sessions/new");
-  const sheet = page.locator("[data-start-sheet]");
-  await expect(sheet).toBeVisible({ timeout: 30_000 });
-  await sheet.getByRole("combobox", { name: /workshop/i }).first().click();
-  await page.getByRole("option", { name: /4th Craft Toolkit Workshop/ }).first().click();
-  await sheet.getByRole("combobox", { name: /^Artisans?$/ }).first().click();
-  await page.getByRole("option", { name: new RegExp(escape(MEERA)) }).first().click();
-  await page.keyboard.press("Escape");
+  const sheet = await fillStartSheet(page, [MEERA]);
   await expect(sheet.getByRole("radiogroup", { name: S.fieldRecordBy })).toBeVisible();
   await shoot(page, "WebNew", width, theme, "", true);
   await shoot(page, "New", width, theme, "", true);

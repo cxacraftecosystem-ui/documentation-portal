@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { expect, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
 
 import { ApiError, describeApiDetail } from "@/lib/api";
 import { mintKey, questionnaireClient, type JsonFetcher, type Session, type SessionCreate } from "@/lib/questionnaire/api";
@@ -243,6 +243,24 @@ export async function openSession(page: Page, session: Pick<Session, "id">) {
 export async function openSection(page: Page, code: string) {
   const title = seed().sectionTitles[code];
   await page.getByRole("button", { name: new RegExp(`^${code},? ${escape(title)}`) }).first().click();
+}
+
+async function chooseIfUnset(page: Page, trigger: Locator, wanted: RegExp) {
+  if (wanted.test((await trigger.textContent()) ?? "")) return;
+  await trigger.click();
+  await page.getByRole("option", { name: wanted }).first().click();
+}
+
+export async function fillStartSheet(page: Page, names: string[]): Promise<Locator> {
+  const sheet = page.locator("[data-start-sheet]");
+  await expect(sheet).toBeVisible({ timeout: 30_000 });
+  await chooseIfUnset(page, sheet.getByRole("button", { name: /workshop$/i }).first(), /4th Craft Toolkit Workshop/);
+  await chooseIfUnset(page, sheet.getByRole("button", { name: S.fieldInstrument, exact: true }).first(), /^4th Craft Toolkit$/);
+  if (names.length > 1) await sheet.getByRole("button", { name: S.modeGroup, exact: true }).first().click();
+  await sheet.getByRole("button", { name: /^Artisans?$/ }).first().click();
+  for (const name of names) await page.getByRole("option", { name: new RegExp(escape(name)) }).first().click();
+  await page.keyboard.press("Escape");
+  return sheet;
 }
 
 export function escape(text: string): string {

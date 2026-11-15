@@ -14,6 +14,7 @@ import {
   boardSession,
   createSession,
   escape,
+  fillStartSheet,
   lineage,
   openSection,
   openSession,
@@ -60,19 +61,9 @@ async function serverRecordBy(id: string): Promise<string | undefined> {
   return detail.recordBy;
 }
 
-async function pickStartSheetArtisans(page: Page, names: string[]) {
-  const sheet = page.locator("[data-start-sheet]");
-  await sheet.getByRole("combobox", { name: /workshop/i }).first().click();
-  await page.getByRole("option", { name: /4th Craft Toolkit Workshop/ }).first().click();
-  await sheet.getByRole("combobox", { name: /^Artisans?$/ }).first().click();
-  for (const name of names) await page.getByRole("option", { name: new RegExp(escape(name)) }).first().click();
-  await page.keyboard.press("Escape");
-  return sheet;
-}
-
 test("@qf:Q1 a session started by section sends recordBy SECTION and opens at no questions answered", async ({ page }) => {
   await page.goto("/questionnaire/sessions/new");
-  const sheet = await pickStartSheetArtisans(page, [MEERA]);
+  const sheet = await fillStartSheet(page, [MEERA]);
   const group = sheet.getByRole("radiogroup", { name: S.fieldRecordBy });
   await expect(group.getByRole("radio", { name: S.recordBySection })).toBeChecked();
   await expect(sheet.getByText(S.fromThisWorkshop).first()).toBeVisible();
@@ -89,7 +80,7 @@ test("@qf:Q1 a session started by section sends recordBy SECTION and opens at no
 
 test("@qf:Q1 @qf:Q3 a session started by question sends recordBy QUESTION and every question carries Record and Upload", async ({ page }) => {
   await page.goto("/questionnaire/sessions/new");
-  const sheet = await pickStartSheetArtisans(page, [MEERA]);
+  const sheet = await fillStartSheet(page, [MEERA]);
   await sheet.getByRole("radiogroup", { name: S.fieldRecordBy }).getByRole("radio", { name: S.recordByQuestion }).click();
   const created = page.waitForResponse((r) => r.request().method() === "POST" && /\/questionnaire\/sessions$/.test(new URL(r.url()).pathname));
   await sheet.getByRole("button", { name: S.startSession }).click();

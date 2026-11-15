@@ -76,11 +76,16 @@ class InterviewShotsTest {
         }
     }
 
+    private fun shown(text: String) = hasText(text, substring = true) or hasContentDescription(text, substring = true)
+
     private fun waitFor(text: String, timeout: Long = 30_000) {
-        compose.waitUntil(timeout) { compose.onAllNodesWithText(text, substring = true, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(timeout) { compose.onAllNodes(shown(text), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
     }
 
-    private fun node(text: String): SemanticsNodeInteraction = compose.onAllNodesWithText(text, substring = true).onFirst()
+    private fun node(text: String): SemanticsNodeInteraction {
+        val merged = compose.onAllNodes(shown(text))
+        return if (merged.fetchSemanticsNodes().isNotEmpty()) merged.onFirst() else compose.onAllNodes(shown(text), useUnmergedTree = true).onFirst()
+    }
 
     private fun tap(text: String) {
         waitFor(text)
