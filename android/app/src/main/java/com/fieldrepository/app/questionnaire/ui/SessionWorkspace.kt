@@ -1278,10 +1278,10 @@ internal fun SectionCard(
                 SectionLetter(section.code, status.tile)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        section.title, style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp), fontWeight = FontWeight.SemiBold,
+                        section.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
-                    Text(status.subline(), style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 16.sp), color = MaterialTheme.field.muted)
+                    Text(status.subline(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
                 }
                 Icon(Icons.Filled.ExpandMore, contentDescription = null, tint = MaterialTheme.field.muted)
             }

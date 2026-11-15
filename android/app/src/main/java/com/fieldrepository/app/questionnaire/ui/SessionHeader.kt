@@ -91,11 +91,11 @@ fun SessionTopBar(
             }
             Column(Modifier.weight(1f)) {
                 Text(
-                    title, style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold),
+                    title, style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
                 if (subline.isNotBlank()) Text(
-                    subline, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                    subline, style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.field.muted, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }

@@ -77,7 +77,7 @@ fun ReviewScreen(
             ) {
                 Text(
                     QuestionnaireCopy.t("questionsAnswered", "answered" to model.tally.answered, "total" to model.tally.total),
-                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface
+                    style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface
                 )
                 FieldLinearProgressIndicator(
                     progress = { model.tally.fraction }, modifier = Modifier.fillMaxWidth().height(6.dp),
@@ -155,10 +155,10 @@ private fun StillToAskLine(row: StillToAskRow, onOpen: () -> Unit) {
         ) {
             SectionLetter(row.section.code, if (row.status.answered == 0) SectionTile.FRESH else SectionTile.STARTED, size = 36.dp, corner = 10.dp)
             Text(
-                row.section.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp),
+                row.section.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
-            Text(row.trailing, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp), color = MaterialTheme.field.muted)
+            Text(row.trailing, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.field.muted)
         }
         HorizontalDivider(color = MaterialTheme.field.hairline)
