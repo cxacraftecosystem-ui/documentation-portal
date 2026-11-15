@@ -297,6 +297,7 @@ export const questionnaireStrings = {
   outboxStepTake: ({ label }: { label: string | number }): string => `Take: ${label}`,
   outboxStepAnswers: ({ count }: { count: string | number }): string => `Answers: ${count}`,
   outboxStepParticipant: "Artisan change",
+  outboxStepRecordBy: "Record by change",
   outboxDiscardTitle: "Discard this?",
   outboxDiscardBody: "It was never sent and can't be brought back.",
   outboxKeep: "Keep",

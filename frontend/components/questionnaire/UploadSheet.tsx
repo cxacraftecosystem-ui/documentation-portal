@@ -55,6 +55,10 @@ export function uploadButtonLabel(count: number): string {
   return count === 1 ? qs("uploadOneFile") : qs("uploadFiles", { count });
 }
 
+export function uploadBlocked(v: { ready: number; hashing: boolean; shaKey: string; checkedKey: string; online: boolean }): boolean {
+  return !v.ready || v.hashing || (v.online && Boolean(v.shaKey) && v.checkedKey !== v.shaKey);
+}
+
 export function UploadSheet({
   sessionId,
   sessionDate,
@@ -95,7 +99,9 @@ export function UploadSheet({
       .then((matches) => {
         if (!cancelled) setFound({ key: shaKey, matches: matches.filter((m) => !m.pending) });
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setFound({ key: shaKey, matches: [] });
+      });
     return () => {
       cancelled = true;
     };
@@ -122,7 +128,8 @@ export function UploadSheet({
   const ready = toUpload(rows).filter((r) => r.sha !== null);
   const hashing = rows.some((r) => r.sha === null);
   const chosen: UploadTarget = target.kind === "QUESTION" ? { kind: "QUESTION", lineageId: question } : target;
-  const blocked = !ready.length || hashing || (chosen.kind === "QUESTION" && !chosen.lineageId);
+  const online = typeof navigator === "undefined" || navigator.onLine !== false;
+  const blocked = uploadBlocked({ ready: ready.length, hashing, shaKey, checkedKey: found.key, online }) || (chosen.kind === "QUESTION" && !chosen.lineageId);
   const options: { kind: UploadTarget["kind"]; label: string }[] = [
     ...(section ? [{ kind: "SECTION" as const, label: qs("chipSection", { code: section.code }) }] : []),
     { kind: "QUESTION", label: qs("attachQuestion") },

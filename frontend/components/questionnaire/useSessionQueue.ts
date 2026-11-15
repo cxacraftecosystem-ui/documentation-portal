@@ -11,6 +11,7 @@ import {
   discardStep,
   discardUnits,
   drainableUnits,
+  dropQueuedRecordBy,
   enqueueStep,
   existingSessionUnit,
   fetchTransport,
@@ -168,6 +169,11 @@ export async function queueRecordBy(session: Pick<Session, "id" | "clientKey"> |
   await mutateUnit(getStore(), base.id, (current) => withRecordBy(current ?? base, recordBy, version));
   await refresh();
   void drainQueue();
+}
+
+export async function clearQueuedRecordBy(session: Pick<Session, "id" | "clientKey">) {
+  await mutateUnit(getStore(), sessionUnitKey(session), (current) => (current ? dropQueuedRecordBy(current) : null));
+  await refresh();
 }
 
 export async function enqueueUnit(unit: SessionUnit) {
