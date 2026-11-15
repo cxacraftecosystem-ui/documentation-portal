@@ -4167,6 +4167,318 @@
         "fr-web": "exists",
         "fr-android": "exists"
       }
+    },
+    {
+      "id": "Q1",
+      "name": "record-by: Record by (Section | Question) per session, chosen on the start sheet and changed only from the session menu, synced across devices and offline (SPEC 1, 2)",
+      "source": "owner, 15 Nov 2026 (Take interview redesign 0.0.5, redesign-0.0.5/SPEC.md)",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/sessions",
+          "PATCH /questionnaire/sessions/{id}",
+          "GET /questionnaire/sessions/{id}"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/sessions",
+          "PATCH /questionnaire/sessions/{id}",
+          "GET /questionnaire/sessions/{id}"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "qv5/web-shell",
+        "dr-android": "qv5/android-shell",
+        "fr-web": "qv5/web-shell",
+        "fr-android": "qv5/android-shell"
+      },
+      "today": {}
+    },
+    {
+      "id": "Q2",
+      "name": "accordion-session: sections open in place as an accordion, one at a time, scrolled under the sticky session header; the code strip and coverage grid leave the session screen (SPEC 3)",
+      "source": "owner, 15 Nov 2026 (Take interview redesign 0.0.5, redesign-0.0.5/SPEC.md)",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/sessions/{id}"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/sessions/{id}"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "qv5/web-session",
+        "dr-android": "qv5/android-session",
+        "fr-web": "qv5/web-session",
+        "fr-android": "qv5/android-session"
+      },
+      "today": {}
+    },
+    {
+      "id": "Q3",
+      "name": "record-upload-pair: Record and Upload as an equal pair, a section dock that becomes the recorder, per-question overflow and an inline typed answer (SPEC 3)",
+      "source": "owner, 15 Nov 2026 (Take interview redesign 0.0.5, redesign-0.0.5/SPEC.md)",
+      "api": {
+        "designer-portal": [
+          "POST /media/presign",
+          "POST /media/complete"
+        ],
+        "documentation-portal": [
+          "POST /media/presign",
+          "POST /media/complete"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "qv5/web-session",
+        "dr-android": "qv5/android-session",
+        "fr-web": "qv5/web-session",
+        "fr-android": "qv5/android-session"
+      },
+      "today": {}
+    },
+    {
+      "id": "Q4",
+      "name": "upload-sheet: several audio or video files at once with length and recorded date, already-uploaded files flagged and skipped, Attach to section, question or whole session (SPEC 5)",
+      "source": "owner, 15 Nov 2026 (Take interview redesign 0.0.5, redesign-0.0.5/SPEC.md)",
+      "api": {
+        "designer-portal": [
+          "POST /media/presign",
+          "POST /media/complete",
+          "POST /media/sha-lookup"
+        ],
+        "documentation-portal": [
+          "POST /media/presign",
+          "POST /media/complete",
+          "POST /media/sha-lookup"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "qv5/web-session",
+        "dr-android": "qv5/android-session",
+        "fr-web": "qv5/web-session",
+        "fr-android": "qv5/android-session"
+      },
+      "today": {}
+    },
+    {
+      "id": "Q5",
+      "name": "question-progress: progress counts questions, a whole-section take answers every question in it, group questions count when every present artisan is answered (SPEC 4)",
+      "source": "owner, 15 Nov 2026 (Take interview redesign 0.0.5, redesign-0.0.5/SPEC.md)",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/sessions/{id}",
+          "GET /questionnaire/sessions"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/sessions/{id}",
+          "GET /questionnaire/sessions"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "qv5/web-session",
+        "dr-android": "qv5/android-session",
+        "fr-web": "qv5/web-session",
+        "fr-android": "qv5/android-session"
+      },
+      "today": {}
+    },
+    {
+      "id": "Q6",
+      "name": "review-finish: Review screen with questions answered, Needs you, Still to ask, Keep going and Finish (SPEC 8)",
+      "source": "owner, 15 Nov 2026 (Take interview redesign 0.0.5, redesign-0.0.5/SPEC.md)",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/sessions/{id}/review",
+          "POST /questionnaire/sessions/{id}/finish"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/sessions/{id}/review",
+          "POST /questionnaire/sessions/{id}/finish"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "qv5/web-session",
+        "dr-android": "qv5/android-session",
+        "fr-web": "qv5/web-session",
+        "fr-android": "qv5/android-session"
+      },
+      "today": {}
+    },
+    {
+      "id": "Q7",
+      "name": "sessions-list-filters: Open today card with Continue at, All, Open and Finished filters with counts, question progress on every row (SPEC 9)",
+      "source": "owner, 15 Nov 2026 (Take interview redesign 0.0.5, redesign-0.0.5/SPEC.md)",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/sessions"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/sessions"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "qv5/web-shell",
+        "dr-android": "qv5/android-shell",
+        "fr-web": "qv5/web-shell",
+        "fr-android": "qv5/android-shell"
+      },
+      "today": {}
+    },
+    {
+      "id": "Q8",
+      "name": "session-menu: the session three-dot menu in the agreed order, Record by first, destructive items last in the error colour (SPEC 6)",
+      "source": "owner, 15 Nov 2026 (Take interview redesign 0.0.5, redesign-0.0.5/SPEC.md)",
+      "api": {
+        "designer-portal": [
+          "PATCH /questionnaire/sessions/{id}",
+          "POST /questionnaire/sessions/{id}/researchers",
+          "POST /questionnaire/sessions/continue",
+          "POST /questionnaire/sessions/{id}/merge-into/{target_id}",
+          "DELETE /questionnaire/sessions/{id}",
+          "DELETE /questionnaire/sessions/{id}/participants/{artisan_id}"
+        ],
+        "documentation-portal": [
+          "PATCH /questionnaire/sessions/{id}",
+          "POST /questionnaire/sessions/{id}/researchers",
+          "POST /questionnaire/sessions/continue",
+          "POST /questionnaire/sessions/{id}/merge-into/{target_id}",
+          "DELETE /questionnaire/sessions/{id}",
+          "DELETE /questionnaire/sessions/{id}/participants/{artisan_id}"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "qv5/web-session",
+        "dr-android": "qv5/android-session",
+        "fr-web": "qv5/web-session",
+        "fr-android": "qv5/android-session"
+      },
+      "today": {}
     }
   ]
 }
