@@ -314,11 +314,11 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
     if (typed) setDraft((previous) => (previous === typed ? previous : typed));
   }, []);
 
-  const popped = useRef<string | null>(null);
+  const popped = useRef<{ key: string; at: number } | null>(null);
   useEffect(() => {
     const onPop = () => {
       const wanted = searchFromParams(new URLSearchParams(window.location.search));
-      popped.current = searchToParams(wanted.state, wanted.focus, "");
+      popped.current = { key: searchToParams(wanted.state, wanted.focus, ""), at: Date.now() };
     };
     window.addEventListener("popstate", onPop, true);
     return () => window.removeEventListener("popstate", onPop, true);
@@ -337,7 +337,6 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
   const latestSearch = useRef({ state, focus });
   useEffect(() => {
     latestSearch.current = { state, focus };
-    popped.current = null;
     lastSearch.current = searchToParams(state, focus, "");
     writeSearch(state, focus);
   }, [state, focus, writeSearch]);
@@ -346,17 +345,22 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
   useEffect(() => {
     const wanted = searchFromParams(new URLSearchParams(paramsText));
     const key = searchToParams(wanted.state, wanted.focus, "");
-    const navigated = popped.current !== null && popped.current === key;
-    popped.current = null;
     if (key === lastSearch.current) return;
-    if (!navigated) {
-      writeSearch(latestSearch.current.state, latestSearch.current.focus);
-      return;
-    }
-    lastSearch.current = key;
-    setState((previous) => (sameSearch({ state: previous, focus: null }, { state: wanted.state, focus: null }) ? previous : wanted.state));
-    setFocus((previous) => (previous === wanted.focus ? previous : wanted.focus));
-    setDraft((previous) => (previous.trim() === wanted.state.q.trim() ? previous : wanted.state.q));
+    const settle = () => {
+      if (key === lastSearch.current) return;
+      const pop = popped.current;
+      if (!pop || pop.key !== key || Date.now() - pop.at > 2000) {
+        writeSearch(latestSearch.current.state, latestSearch.current.focus);
+        return;
+      }
+      popped.current = null;
+      lastSearch.current = key;
+      setState((previous) => (sameSearch({ state: previous, focus: null }, { state: wanted.state, focus: null }) ? previous : wanted.state));
+      setFocus((previous) => (previous === wanted.focus ? previous : wanted.focus));
+      setDraft((previous) => (previous.trim() === wanted.state.q.trim() ? previous : wanted.state.q));
+    };
+    const timer = window.setTimeout(settle, 0);
+    return () => window.clearTimeout(timer);
   }, [paramsText, writeSearch]);
 
   const ownFilterCount = activeFilters(state);
