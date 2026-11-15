@@ -19,6 +19,7 @@ async function openSection(page: Page, code: string) {
 
 async function sessionMenu(page: Page, item: string) {
   await page.getByRole("button", { name: "Session options" }).click();
+  await expect(page.locator("[data-session-actions]")).toBeVisible();
   await page.locator("[data-session-actions]").getByRole("menuitem", { name: item, exact: true }).click();
 }
 
@@ -196,6 +197,8 @@ test("@qf:B6 @qf:A17 @qf:B9 a researcher is added, a guest's name corrected, and
   await page.locator("[data-guest-name-edit]").fill("");
   await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
   await expect.poll(() => fake.calledWith("PATCH", "/questionnaire/sessions/s-1/respondents/r1").length).toBe(1);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator("[data-session-people] [data-guest='r1']")).toBeVisible();
 
   await sessionMenu(page, "Delete session");
   await expect(page.getByRole("alertdialog")).toContainText("Admins can restore it from Deleted.");
