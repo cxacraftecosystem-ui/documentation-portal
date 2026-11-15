@@ -83,6 +83,8 @@ def transcript_text(media: Any, has_text: bool) -> tuple[str, str | None]:
     error = str(_v(media, "transcriptError") or "").strip() or None
     if status in ("PENDING", "QUEUED", "PROCESSING", "RUNNING"):
         return "Transcribing", None
+    if status == "EMPTY":
+        return "No speech", None
     if status in ("FAILED", "ERROR"):
         reason = error or "Speech-to-text failed."
         return f"Failed: {reason}", reason
@@ -152,6 +154,7 @@ def localise(t: Any, text: str) -> str:
         "Already English": "status.alreadyEnglish",
         "Not requested": "status.notRequested",
         "Transcribing": "status.transcribing",
+        "No speech": "status.noSpeech",
         "Withheld: consent refused": "status.withheld",
     }
     key = keys.get(text)

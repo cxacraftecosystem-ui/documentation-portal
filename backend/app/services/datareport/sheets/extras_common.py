@@ -340,6 +340,8 @@ def transcript_state(fact: dict[str, Any] | None, media_type: str) -> str:
     state = str(fact.get("transcriptStatus") or "").upper()
     if state == "FAILED":
         return "Failed"
+    if state == "EMPTY" and not fact.get("hasText"):
+        return "No speech"
     if state in ("QUEUED", "PROCESSING", "PENDING", "RUNNING") or fact.get("translating"):
         return "Translating"
     if fact.get("hasText") or state == "COMPLETED":
