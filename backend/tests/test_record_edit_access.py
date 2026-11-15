@@ -397,3 +397,47 @@ def test_an_append_keeps_the_stored_text_exactly():
     assert not appended("Teak 10", "Teak 100 kg")
     assert not appended("First.\n\nSecond.", "First. Second. Third.")
     assert not appended("Teak 10", "teak 10 more")
+
+
+PROFESSOR = _Row(id="usr_prof", name="Prof", role="PROFESSOR")
+
+
+def test_a_workshop_response_names_the_viewers_edit_level(world):
+    from app.api.routes import workshops
+
+    workshop = _Row(id=WORKSHOP_ID, createdById=MASTER_ADMIN_ID, title="Bagru", place="Bagru")
+
+    def level_for(user: Any) -> str:
+        return asyncio.run(workshops._with_workshop_edit_access({}, workshop, user))["editAccess"]
+
+    assert level_for(RESEARCHER) == "NONE"
+    assert level_for(PROFESSOR) == "FILL_EMPTY"
+    world["level"] = "EDIT"
+    assert level_for(PROFESSOR) == "FULL"
+    world["level"] = "VIEW"
+    assert level_for(PROFESSOR) == "NONE"
+
+
+def test_a_craft_response_names_the_viewers_edit_level(world, monkeypatch):
+    from app.api.routes import crafts
+
+    craft = _Row(id="crf_1", createdById=MASTER_ADMIN_ID, name="Stone carving", workshopId=None)
+
+    async def _found(*_args, **_kwargs):
+        return craft
+
+    async def _nothing(*_args, **_kwargs):
+        return None
+
+    async def _as_is(payload):
+        return dict(payload)
+
+    monkeypatch.setattr(crafts, "require_record", _found)
+    monkeypatch.setattr(crafts, "hydrate_relations", _nothing)
+    monkeypatch.setattr(crafts, "_with_taxonomy", _as_is)
+    monkeypatch.setattr(crafts, "public_encode", lambda record, *_a, **_k: {"id": record.id})
+
+    assert asyncio.run(crafts.get_craft("crf_1", RESEARCHER))["editAccess"] == "NONE"
+    assert asyncio.run(crafts.get_craft("crf_1", PROFESSOR))["editAccess"] == "FILL_EMPTY"
+    world["tier"] = "EDIT"
+    assert asyncio.run(crafts.get_craft("crf_1", PROFESSOR))["editAccess"] == "FULL"

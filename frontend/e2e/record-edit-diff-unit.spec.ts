@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { changedResponses, editedFields, fillsOnly, sameAsStored, submissionRefusal, viewOnly } from "@/lib/recordDiff";
+import { changedResponses, editedFields, fillsOnly, keepFilledFields, sameAsStored, submissionRefusal, viewOnly } from "@/lib/recordDiff";
 import { artisanBody } from "@/lib/recordPayloads";
 
 const STORED = {
@@ -149,4 +149,30 @@ test("the filled-field lock is set again whenever the form remounts", () => {
     const source = readFileSync(join(__dirname, "..", "components", "forms", `${name}.tsx`), "utf8");
     expect(source, name).toMatch(/return lockFilledFields\(formRef\.current, initial, FILLED_\w+_FIELDS, FILLED_FIELD_REASON\);\n {2}\}, \[initial, formKey\]\);/);
   }
+});
+
+test("measurement methods travel only with the measurements that changed", () => {
+  const stored = { lengthInches: 10, breadthInches: 4, productName: "Tray" };
+  const marks = { lengthInches: { method: "PHOTO" }, breadthInches: { method: "TAPE" } };
+  expect(editedFields({ lengthInches: 10, breadthInches: 4, measurementMethods: marks, productName: "Tray" }, stored)).toEqual({});
+  expect(editedFields({ lengthInches: 12, breadthInches: 4, measurementMethods: marks }, stored)).toEqual({
+    lengthInches: 12,
+    measurementMethods: { lengthInches: { method: "PHOTO" } }
+  });
+});
+
+test("a linked-portal refresh fills only empty fields when the viewer can only fill", () => {
+  const values = { name: "Meena Devi", localName: "मीना देवी", dateOfBirth: "1980-05-01" };
+  expect(keepFilledFields(values, { editAccess: "FILL_EMPTY", name: "Meena", localName: null, dateOfBirth: "" })).toEqual({
+    localName: "मीना देवी",
+    dateOfBirth: "1980-05-01"
+  });
+  expect(keepFilledFields(values, { editAccess: "FULL", name: "Meena" })).toEqual(values);
+});
+
+test("existing process steps stay as recorded for a fill-only viewer, and new steps can still be added", () => {
+  const source = readFileSync(join(__dirname, "..", "components", "forms", "ProcessForm.tsx"), "utf8");
+  expect(source).toContain("disabled={fillsOnly(initial) && Boolean(step.serverId)}");
+  expect(source).toContain('<p data-testid="step-locked" className="mt-1 text-xs text-ink-500">{FILLED_FIELD_REASON}</p>');
+  expect(source).toContain("{fillsOnly(initial) && step.serverId ? null : (");
 });

@@ -8,6 +8,7 @@ const val EDIT_ACCESS_NONE = "NONE"
 
 const val FILL_EMPTY_NOTE = "You can fill empty fields and add media. Filled fields stay as recorded."
 const val VIEW_ONLY_NOTE = "You can view this record. Your workshop access doesn't allow changes to it."
+const val FILLED_FIELD_REASON = "Filled in by the person who recorded it. Only they, an admin or someone with Edit access can change it."
 const val KEPT_AFTER_REFUSAL = "Your entries and media are still here. Fix it and save again."
 
 fun fillsOnly(editAccess: String?): Boolean = editAccess == EDIT_ACCESS_FILL_EMPTY

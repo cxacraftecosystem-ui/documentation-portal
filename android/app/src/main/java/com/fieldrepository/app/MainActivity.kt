@@ -144,6 +144,8 @@ import com.fieldrepository.app.data.OutboxStep
 import com.fieldrepository.app.data.refusalReason
 import com.fieldrepository.app.data.editAccessNote
 import com.fieldrepository.app.data.fieldLocked
+import com.fieldrepository.app.data.fillsOnly
+import com.fieldrepository.app.data.FILLED_FIELD_REASON
 import com.fieldrepository.app.data.viewOnly
 import com.fieldrepository.app.data.isEditRefusal
 import com.fieldrepository.app.data.KEPT_AFTER_REFUSAL
@@ -5596,6 +5598,11 @@ private fun CraftForm(
     val isEdit = editing != null
     var name by remember(editing) { mutableStateOf(editing?.name ?: "") }.drafted(draft, "name")
     var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }.drafted(draft, "localName")
+    var access by remember(editing?.id) { mutableStateOf(editing?.editAccess) }
+    LaunchedEffect(editing?.id) {
+        val id = editing?.id ?: return@LaunchedEffect
+        if (access == null) access = runCatching { repository.craft(id).editAccess }.getOrNull()
+    }
     val craftCatalogue by CraftCatalogueCache.catalogue.collectAsState()
     val craftListContext = LocalContext.current.applicationContext
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { CraftCatalogueCache.cached(craftListContext) } }
@@ -5694,9 +5701,12 @@ private fun CraftForm(
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
+        EditAccessNote(access)
         WorkshopField(state = workshop, saving = saving)
-        RequiredInput("Craft name", name, nameError, nameFocus, titleCased = true, dictate = dictates("name")) { name = it }
-        TextInput("Local name", localName, dictate = dictates("localName")) { localName = it }
+        if (fieldLocked(access, editing?.name)) LockedField("Craft name", name)
+        else RequiredInput("Craft name", name, nameError, nameFocus, titleCased = true, dictate = dictates("name")) { name = it }
+        if (fieldLocked(access, editing?.localName)) LockedField("Local name", localName)
+        else TextInput("Local name", localName, dictate = dictates("localName")) { localName = it }
         SearchableSelectField(
             label = "Category",
             options = craftCatalogue?.categories.orEmpty().map { SelectOption(it.id, it.name) },
@@ -5748,7 +5758,8 @@ private fun CraftForm(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
             idleLabel = if (isEdit) "Update craft" else "Save craft",
             onSave = { another = false; refusal = null; submit() },
-            onSaveAnother = if (!isEdit && onCreated != null) ({ another = true; refusal = null; submit() }) else null
+            onSaveAnother = if (!isEdit && onCreated != null) ({ another = true; refusal = null; submit() }) else null,
+            enabled = !viewOnly(access)
         )
     }
 }
@@ -6336,6 +6347,11 @@ private fun WorkshopForm(
     var title by remember(editing) { mutableStateOf(editing?.title ?: "") }.drafted(draft, "title")
     var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }.drafted(draft, "place")
     var description by remember(editing) { mutableStateOf(editing?.description ?: "") }.drafted(draft, "description")
+    var access by remember(editing?.id) { mutableStateOf(editing?.editAccess) }
+    LaunchedEffect(editing?.id) {
+        val id = editing?.id ?: return@LaunchedEffect
+        if (access == null) access = runCatching { repository.workshop(id).editAccess }.getOrNull()
+    }
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }.drafted(draft, "notes")
     var startDate by remember(editing) { mutableStateOf(parseIsoToLocalDate(editing?.startDate)) }.drafted(draft, "startDate")
     var endDate by remember(editing) { mutableStateOf(parseIsoToLocalDate(editing?.endDate)) }.drafted(draft, "endDate")
@@ -6458,8 +6474,11 @@ private fun WorkshopForm(
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
-        RequiredInput("Workshop title", title, titleError, titleFocus, titleCased = true, dictate = dictates("title")) { title = it }
-        RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
+        EditAccessNote(access)
+        if (fieldLocked(access, editing?.title)) LockedField("Workshop title", title)
+        else RequiredInput("Workshop title", title, titleError, titleFocus, titleCased = true, dictate = dictates("title")) { title = it }
+        if (fieldLocked(access, editing?.place)) LockedField("Place", place)
+        else RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
         CompletenessAnchor("startDate") {
             CompletenessAnchor("endDate") {
                 FieldDateRangeField(
@@ -6506,7 +6525,8 @@ private fun WorkshopForm(
         SaveRefusalNote(refusal)
         SaveButton(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
-            idleLabel = if (isEdit) "Update workshop" else "Save workshop"
+            idleLabel = if (isEdit) "Update workshop" else "Save workshop",
+            enabled = !viewOnly(access)
         ) { refusal = null; submit() }
     }
 }
@@ -8050,9 +8070,14 @@ private fun ProcessForm(
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Text("Step ${index + 1} · ${step.stepTypeLabel()}", color = Body, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { steps.removeAt(index) }) { Text("Remove") }
+                        if (!(fillsOnly(access) && step.serverId != null)) TextButton(onClick = { steps.removeAt(index) }) { Text("Remove") }
                     }
-                    TextInput("Name of the step", step.name, dictate = dictates("stepName")) { step.name = it }
+                    if (fillsOnly(access) && step.serverId != null) {
+                        LockedField("Name of the step", step.name)
+                        Text(FILLED_FIELD_REASON, color = Muted, style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        TextInput("Name of the step", step.name, dictate = dictates("stepName")) { step.name = it }
+                    }
                     when {
                         step.name.isBlank() -> Text("Unnamed step. Name it now or later.", color = MaterialTheme.field.warning, style = MaterialTheme.typography.bodySmall)
                         step.templateName != null && step.name == step.templateName ->

@@ -167,6 +167,10 @@ async def responses_to_answers(
     from app.questionnaire.schemas import AnswerItem, AnswersPut
 
     artisans = await sessions.participant_ids(db, session_id)
+    override = False
+    if strict:
+        session_row = await sessions.load_session_row(db, session_id)
+        override = bool(session_row) and await sessions.may_override_answers(user, session_row)
     wanted = [r for r in responses if (getattr(r, "answerText", None) or "").strip()] if artisans else []
     lineage_of: dict[str, str] = {}
     if wanted:
@@ -201,7 +205,7 @@ async def responses_to_answers(
                 artisanId=artisan_id, questionLineageId=lineage_id, text=text,
                 origin="TRANSCRIPT" if getattr(response, "answerSource", None) == "TRANSCRIPT" else "TYPED",
                 attribution="GROUP_SHARED" if len(artisans) > 1 else "INDIVIDUAL", sessionId=session_id,
-                baseVersion=int(current["version"]) if own else None,
+                baseVersion=int(current["version"]) if current and (own or override) else None,
             ))
     if items:
         result = await answers.put_answers(AnswersPut(items=items), user)

@@ -160,4 +160,35 @@ class RecordEditDiffTest {
             ),
         )
     }
+
+    @Test
+    fun `measurement methods travel only with the measurements that changed`() {
+        val methods = JsonObject(
+            mapOf(
+                "lengthInches" to JsonObject(mapOf("method" to JsonPrimitive("PHOTO"))),
+                "breadthInches" to JsonObject(mapOf("method" to JsonPrimitive("TAPE"))),
+            )
+        )
+        val body = JsonObject(
+            mapOf(
+                "lengthInches" to JsonPrimitive(12),
+                "breadthInches" to JsonPrimitive(4),
+                MEASUREMENT_METHODS_KEY to methods,
+                "formContract" to JsonPrimitive(2),
+            )
+        )
+        val changed = restrictEditBody(body, setOf("lengthInches", MEASUREMENT_METHODS_KEY))
+        assertEquals(setOf("lengthInches", MEASUREMENT_METHODS_KEY, "formContract"), changed.keys)
+        assertEquals(setOf("lengthInches"), (changed[MEASUREMENT_METHODS_KEY] as JsonObject).keys)
+        val untouched = restrictEditBody(body, setOf(MEASUREMENT_METHODS_KEY))
+        assertFalse(MEASUREMENT_METHODS_KEY in untouched.keys)
+    }
+
+    @Test
+    fun `fill-only access locks a filled field and leaves a blank one open`() {
+        assertTrue(fieldLocked(EDIT_ACCESS_FILL_EMPTY, "Ramesh"))
+        assertFalse(fieldLocked(EDIT_ACCESS_FILL_EMPTY, " "))
+        assertFalse(fieldLocked(EDIT_ACCESS_FULL, "Ramesh"))
+        assertTrue(FILLED_FIELD_REASON.isNotBlank())
+    }
 }

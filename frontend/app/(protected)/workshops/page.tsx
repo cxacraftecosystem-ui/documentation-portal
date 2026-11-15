@@ -47,6 +47,7 @@ import { locationFromForm, requiredText, sameIdSet, useFocusField } from "@/lib/
 import { handleFormEnter } from "@/lib/formNav";
 import { uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
+import { FILL_EMPTY_NOTE, FILLED_FIELD_REASON, fillsOnly, lockFilledFields, VIEW_ONLY_NOTE, viewOnly } from "@/lib/recordDiff";
 import { workshopBody } from "@/lib/recordPayloads";
 import { invalidateWorkshopList } from "@/lib/workshopList";
 import { canManageWorkshops, hasRank, isAdmin } from "@/lib/permissions";
@@ -79,6 +80,9 @@ const WORKSHOP_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "DESIGN_PROTOTYPE", label: "Design & Prototype Development Workshop" },
   { value: "OTHER", label: "Other workshop" }
 ];
+
+
+const FILLED_WORKSHOP_FIELDS = ["title", "place"] as const;
 
 export default function WorkshopsPage() {
   return (
@@ -120,6 +124,21 @@ function WorkshopsPageBody() {
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
   const [saving, setSaving] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    return lockFilledFields(formRef.current, editing, FILLED_WORKSHOP_FIELDS, FILLED_FIELD_REASON);
+  }, [editing, formKey]);
+  useEffect(() => {
+    if (!editing || editing.editAccess !== undefined) return;
+    let cancelled = false;
+    apiFetch<Workshop>(`/workshops/${encodeURIComponent(editing.id)}`)
+      .then((record) => {
+        if (!cancelled) setEditing((current) => (current && current.id === record.id ? { ...current, editAccess: record.editAccess ?? null } : current));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [editing]);
   const afterSaveRef = useRef<(() => void) | null>(null);
   const skipFirstDebounce = useRef(true);
   const [assigning, setAssigning] = useState<Workshop | null>(null);
@@ -283,6 +302,7 @@ function WorkshopsPageBody() {
         endpoint: editing ? `/workshops/${editing.id}` : "/workshops",
         method: editing ? "PATCH" : "POST",
         body: payload,
+        base: editing,
         media: [
           {
             files: mediaFiles,
@@ -398,6 +418,11 @@ function WorkshopsPageBody() {
         onKeyDown={handleFormEnter}
         className="panel mb-5 grid scroll-mt-28 gap-4 p-4"
       >
+        {viewOnly(editing) ? (
+          <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700 md:col-span-2 lg:col-span-4">{VIEW_ONLY_NOTE}</p>
+        ) : fillsOnly(editing) ? (
+          <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700 md:col-span-2 lg:col-span-4">{FILL_EMPTY_NOTE}</p>
+        ) : null}
         {editing ? (
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-field-200 px-2.5 py-1 text-xs font-medium text-ink-900">
@@ -516,7 +541,7 @@ function WorkshopsPageBody() {
           onDirty={() => setDirty(true)}
         />
         <ButtonRow>
-          <button className="field-button" disabled={saving}>
+          <button className="field-button" disabled={saving || viewOnly(editing)}>
             {saving ? "Saving..." : editing ? "Update workshop" : "Create workshop"}
           </button>
           {editing ? (

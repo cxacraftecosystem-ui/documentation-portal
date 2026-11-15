@@ -35,6 +35,7 @@ import { countNoun } from "@/lib/format";
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
+import { FILL_EMPTY_NOTE, FILLED_FIELD_REASON, fillsOnly, lockFilledFields, VIEW_ONLY_NOTE, viewOnly } from "@/lib/recordDiff";
 import { craftBody } from "@/lib/recordPayloads";
 import { canManageCrafts } from "@/lib/permissions";
 import { UnmappedCraftsPanel } from "@/components/crafts/UnmappedCraftsPanel";
@@ -69,6 +70,9 @@ const CRAFTS_TABS: { id: CraftsTab; label: string }[] = [
   { id: "review", label: "Needs review" }
 ];
 const CRAFTS_PAGE_SIZE = 50;
+
+
+const FILLED_CRAFT_FIELDS = ["name", "localName"] as const;
 
 export default function CraftsPage() {
   return (
@@ -119,6 +123,21 @@ function CraftsPageBody() {
   const [saving, setSaving] = useState(false);
   const [savedCraft, setSavedCraft] = useState<Craft | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    return lockFilledFields(formRef.current, editing, FILLED_CRAFT_FIELDS, FILLED_FIELD_REASON);
+  }, [editing, formKey]);
+  useEffect(() => {
+    if (!editing || editing.editAccess !== undefined) return;
+    let cancelled = false;
+    apiFetch<Craft>(`/crafts/${encodeURIComponent(editing.id)}`)
+      .then((record) => {
+        if (!cancelled) setEditing((current) => (current && current.id === record.id ? { ...current, editAccess: record.editAccess ?? null } : current));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [editing]);
   const afterSaveRef = useRef<(() => void) | null>(null);
   const skipFirstDebounce = useRef(true);
   const workshop = useWorkshopSelection({
@@ -316,6 +335,7 @@ function CraftsPageBody() {
         endpoint: editing ? `/crafts/${editing.id}` : "/crafts",
         method: editing ? "PATCH" : "POST",
         body: payload,
+        base: editing,
         media: [
           {
             files: mediaFiles,
@@ -474,6 +494,11 @@ function CraftsPageBody() {
         onKeyDown={handleFormEnter}
         className="panel mb-5 grid scroll-mt-28 gap-3 p-4 md:grid-cols-2 lg:grid-cols-4"
       >
+        {viewOnly(editing) ? (
+          <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700 md:col-span-2 lg:col-span-4">{VIEW_ONLY_NOTE}</p>
+        ) : fillsOnly(editing) ? (
+          <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700 md:col-span-2 lg:col-span-4">{FILL_EMPTY_NOTE}</p>
+        ) : null}
         {editing ? (
           <div className="flex flex-wrap items-center gap-2 md:col-span-2 lg:col-span-4">
             <span className="rounded-full bg-field-200 px-2.5 py-1 text-xs font-medium text-ink-900">
@@ -596,7 +621,7 @@ function CraftsPageBody() {
           </div>
         ) : null}
         <ButtonRow className="md:col-span-2 lg:col-span-4">
-          <button className="field-button" disabled={saving}>
+          <button className="field-button" disabled={saving || viewOnly(editing)}>
             {saving ? "Saving..." : editing ? "Update craft" : "Create craft"}
           </button>
           <button type="button" className="field-button-secondary" onClick={() => guard(() => resetForm(null))}>

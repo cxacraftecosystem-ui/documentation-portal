@@ -200,6 +200,14 @@ def _added_only(item: Any, user: Any, session: dict[str, Any], current: dict[str
     return not ((current.get("text") or "") == item.text and (current.get("origin") or "") == item.origin)
 
 
+async def _may_override(client: Any, session: dict[str, Any], user: Any) -> bool:
+    if await _is_lead(client, session, user):
+        return True
+    if "_override" not in session:
+        session["_override"] = await sessions.may_override_answers(user, session)
+    return bool(session["_override"])
+
+
 async def _is_lead(client: Any, session: dict[str, Any], user: Any) -> bool:
     if "_lead" not in session:
         rows = await client.query_raw(
@@ -265,7 +273,7 @@ async def _write_one(
         if snapshot and settled is None:
             current = await current_answer(client, item.artisanId, item.questionLineageId)
             settled = _settled_without_write(item, user, base, current)
-        if _locked_for(item, user, current) and not await _is_lead(client, session, user):
+        if _locked_for(item, user, current) and not await _may_override(client, session, user):
             return {**base, "status": "FORBIDDEN", "code": ANSWER_LOCKED, "current": answer_out(current)}
     if _added_only(item, user, session, current):
         return {**base, "status": "FORBIDDEN", "code": ANSWER_LOCKED, "current": answer_out(current)}
@@ -361,7 +369,7 @@ async def _write_respondent(item: Any, user: Any, client: Any, session_cache: di
         return {**base, "status": "FORBIDDEN"}
     current = await current_respondent_answer(client, item.respondentId, item.questionLineageId)
     settled = _settled_without_write(item, user, base, current)
-    if _locked_for(item, user, current) and not await _is_lead(client, session, user):
+    if _locked_for(item, user, current) and not await _may_override(client, session, user):
         return {**base, "status": "FORBIDDEN", "code": ANSWER_LOCKED, "current": answer_out(current)}
     if _added_only(item, user, session, current):
         return {**base, "status": "FORBIDDEN", "code": ANSWER_LOCKED, "current": answer_out(current)}

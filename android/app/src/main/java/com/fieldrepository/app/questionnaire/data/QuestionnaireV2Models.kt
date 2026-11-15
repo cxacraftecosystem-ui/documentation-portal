@@ -297,6 +297,7 @@ data class QSessionDetail(
     val joinQr: String? = null,
     val participants: List<QParticipant> = emptyList(),
     val researchers: List<QResearcher> = emptyList(),
+    val mayOverrideAnswers: Boolean = false,
     val status: String = "PENDING",
     val counts: QSessionCounts = QSessionCounts(),
     val recordings: List<QRecording> = emptyList(),

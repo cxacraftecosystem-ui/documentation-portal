@@ -78,6 +78,12 @@ export function editedFields<T extends Plain>(body: T, record: object | null | u
     if (value === undefined) continue;
     if (ALWAYS_SENT.has(key) || !sameField(key, value, stored)) out[key] = value;
   }
+  const methods = out.measurementMethods;
+  if (methods && typeof methods === "object" && !Array.isArray(methods)) {
+    const kept = Object.fromEntries(Object.entries(methods as Plain).filter(([field]) => field in out));
+    if (Object.keys(kept).length) out.measurementMethods = kept;
+    else delete out.measurementMethods;
+  }
   return out as Partial<T>;
 }
 
@@ -155,4 +161,10 @@ export function changedResponses<T extends ResponseInput>(responses: readonly T[
     if (!previous) return true;
     return (previous.answerText ?? "").trim() !== (response.answerText ?? "").trim() || (previous.notes ?? "") !== (response.notes ?? previous.notes ?? "");
   });
+}
+
+export function keepFilledFields<T extends object>(values: T, record: object | null | undefined): T {
+  if (!record || !fillsOnly(record as { editAccess?: EditAccess | null })) return values;
+  const stored = record as Plain;
+  return Object.fromEntries(Object.entries(values).filter(([key]) => isBlankValue(stored[key]))) as T;
 }

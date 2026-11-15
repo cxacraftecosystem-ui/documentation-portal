@@ -485,11 +485,23 @@ async def decide_workshop_access_request(
     return await _hydrate_assignment(row.id)
 
 
+async def _with_workshop_edit_access(payload: Any, workshop: Any, user: Any) -> Any:
+    from app.core.deps import can_manage_workshops
+    from app.services.access import record_edit_access
+
+    if isinstance(payload, dict):
+        payload["editAccess"] = (
+            await record_edit_access(workshop, user, "workshop") if can_manage_workshops(user) else "NONE"
+        )
+    return payload
+
+
 @router.get("/{workshop_id}")
 async def get_workshop(workshop_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     workshop = await require_record(db.workshop, workshop_id)
     await hydrate_relations([workshop], RELATIONS)
-    return await completeness_module.attach("workshop", public_encode(workshop), client=db)
+    payload = await completeness_module.attach("workshop", public_encode(workshop), client=db)
+    return await _with_workshop_edit_access(payload, workshop, current_user)
 
 
 @router.patch("/{workshop_id}")

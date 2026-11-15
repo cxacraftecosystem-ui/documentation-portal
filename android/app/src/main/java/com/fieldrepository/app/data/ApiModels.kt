@@ -163,7 +163,8 @@ data class CraftDto(
     val createdById: String? = null,
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
-    val extraMetadata: JsonObject? = null
+    val extraMetadata: JsonObject? = null,
+    val editAccess: String? = null
 )
 
 @Serializable
@@ -1073,7 +1074,8 @@ data class WorkshopDetailDto(
     val questionnaireId: String? = null,
     val questionnaire: QuestionnaireDto? = null,
     val extraMetadata: JsonObject? = null,
-    val completeness: CompletenessDto? = null
+    val completeness: CompletenessDto? = null,
+    val editAccess: String? = null
 )
 
 @Serializable

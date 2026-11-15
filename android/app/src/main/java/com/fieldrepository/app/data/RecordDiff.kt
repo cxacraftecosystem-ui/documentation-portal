@@ -63,8 +63,17 @@ fun <T> editPatchBody(
 
 fun restrictEditBody(body: JsonObject, changed: Set<String>?): JsonObject {
     if (changed == null) return body
-    return JsonObject(body.filterKeys { it in changed || it in RECORD_EDIT_ALWAYS_SENT })
+    val kept = body.filterKeys { it in changed || it in RECORD_EDIT_ALWAYS_SENT }.toMutableMap()
+    val methods = body[MEASUREMENT_METHODS_KEY] as? JsonObject
+    kept.remove(MEASUREMENT_METHODS_KEY)
+    if (methods != null) {
+        val changedMethods = methods.filterKeys { it in changed }
+        if (changedMethods.isNotEmpty()) kept[MEASUREMENT_METHODS_KEY] = JsonObject(changedMethods)
+    }
+    return JsonObject(kept)
 }
+
+const val MEASUREMENT_METHODS_KEY = "measurementMethods"
 
 fun isBlankRecordValue(value: JsonElement?): Boolean = when (value) {
     null, JsonNull -> true
