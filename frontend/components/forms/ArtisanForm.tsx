@@ -276,7 +276,9 @@ export function ArtisanForm({ initial, onCreated, onQueued }: { initial?: Artisa
   const completenessCounts = useMemo(() => ({ photos: photosPicked(mediaFiles) }), [mediaFiles]);
   const [error, setError] = useState<string | null>(null);
   const [keptAfterRefusal, setKeptAfterRefusal] = useState(false);
-  useEffect(() => lockFilledFields(formRef.current, initial, FILLED_ARTISAN_FIELDS, FILLED_FIELD_REASON), [initial]);
+  useEffect(() => {
+    return lockFilledFields(formRef.current, initial, FILLED_ARTISAN_FIELDS, FILLED_FIELD_REASON);
+  }, [initial]);
   const [conflict, setConflict] = useState<ArtisanIdentityConflict | null>(null);
   const [duplicatePromptOpen, setDuplicatePromptOpen] = useState(false);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);

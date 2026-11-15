@@ -120,7 +120,9 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
   const completenessCounts = useMemo(() => ({ photos: photosPicked(mediaFiles) }), [mediaFiles]);
   const [error, setError] = useState<string | null>(null);
   const [keptAfterRefusal, setKeptAfterRefusal] = useState(false);
-  useEffect(() => lockFilledFields(formRef.current, initial, FILLED_PRODUCT_FIELDS, FILLED_FIELD_REASON), [initial]);
+  useEffect(() => {
+    return lockFilledFields(formRef.current, initial, FILLED_PRODUCT_FIELDS, FILLED_FIELD_REASON);
+  }, [initial]);
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
   const [craftId, setCraftId] = useState(initial?.craftId ?? searchParams.get("craftId") ?? "");
