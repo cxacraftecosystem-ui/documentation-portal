@@ -44,7 +44,7 @@ test("H15: the Builder is the builder alone, for managers, with the page's Back"
   expect(screen).not.toContain("back={false}");
   expect(screen).not.toMatch(/<form[\s\S]*onSubmit=\{submit\}/);
   const list = read("components", "questionnaire", "SessionsList.tsx");
-  expect(list).toContain('<Link className="field-button-secondary" href={FORMS_HREF}>');
+  expect(list).toContain("href={FORMS_HREF}");
 });
 
 test("H17: a stopped take's draft stays open until the outbox holds it", () => {

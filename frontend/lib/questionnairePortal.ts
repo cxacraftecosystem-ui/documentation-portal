@@ -127,3 +127,4 @@ export async function coverageScope(workshopId: string): Promise<CoverageScope> 
 export { AnswerTextEditor, answerEditorValue, answerParts } from "@/components/questionnaires/AnswerTextEditor";
 
 export { FilterMultiSelect, type FilterMultiSelectProps } from "@/components/questionnaires/FilterMultiSelect";
+export { NewArtisanDialog } from "@/components/questionnaires/NewArtisanDialog";

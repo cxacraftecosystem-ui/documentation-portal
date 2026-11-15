@@ -57,7 +57,10 @@ export const WEB_ONLY_STRINGS = {
   chooseRecording: "Which recording?",
   takesLoadError: "Couldn't load the recordings. Try again.",
   coverageLoadError: "Couldn't load coverage. Try again.",
-  coverageNoArtisans: "No artisans in this workshop yet."
+  coverageNoArtisans: "No artisans in this workshop yet.",
+  registerArtisan: "Register artisan",
+  andOthers: "{name} and {count} others",
+  more: "More"
 } as const;
 
 type SharedKey = keyof typeof questionnaireStrings;

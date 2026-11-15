@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { Link as LinkIcon, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -10,6 +11,7 @@ import { PromptDialog } from "@/components/questionnaire/Prompts";
 import { placeFromLocation, SessionPlaceField, sessionLocationFromForm } from "@/components/questionnaire/SessionPlaceField";
 import { enqueueUnit, onSessionLanded, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
 import { SearchInput } from "@/components/SearchInput";
+import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import { CalendarField } from "@/components/ui/CalendarField";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SearchableMultiSelect, SearchableSelect } from "@/components/ui/SearchableSelect";
@@ -18,18 +20,32 @@ import { listResource } from "@/lib/api";
 import { agoLabel, coveredSectionsOffline, coverageLine, overlayFromUnits, readSnapshot, withTakes, type ArtisanCoverage } from "@/lib/questionnaire/coverageCache";
 import { LANGUAGES } from "@/lib/questionnaire/languages";
 import { sessionTitle } from "@/lib/naming";
-import { mintKey, questionnaireApi, SESSION_PURPOSES, type FormFor, type OpenMatchItem, type Session, type SessionCreate, type SessionLocation, type SessionPurpose } from "@/lib/questionnaire/api";
+import {
+  mintKey,
+  questionnaireApi,
+  RECORD_BY,
+  SESSION_PURPOSES,
+  type FormFor,
+  type OpenMatchItem,
+  type RecordBy,
+  type RespondentKind,
+  type Session,
+  type SessionCreate,
+  type SessionLocation,
+  type SessionPurpose
+} from "@/lib/questionnaire/api";
 import { prompts } from "@/lib/questionnaire/prompts";
 import { newSessionUnit } from "@/lib/questionnaire/queue";
 import { readStartLists, searchCachedArtisans, titleWorkshop, trimArtisan, trimWorkshop, writeStartLists } from "@/lib/questionnaire/startSheetCache";
 import { PURPOSE_KEY, qs } from "@/lib/questionnaire/qs";
 import { SpokenLanguagePicker, useSpokenLanguageChoice } from "@/components/transcript/SpokenLanguagePicker";
-import { rememberSessionSpokenLanguage } from "@/lib/transcript/spokenLanguage";
+import { rememberSessionSpokenLanguage, spokenChoiceOf } from "@/lib/transcript/spokenLanguage";
 import {
   artisanFilter,
   defaultWorkshopId,
   listForms,
   listWorkshops,
+  NewArtisanDialog,
   NO_WORKSHOP_LABEL,
   WORKSHOP_LABEL,
   workshopScope,
@@ -40,13 +56,18 @@ import type { Artisan } from "@/lib/types";
 
 export const FIELD_VISIT = "__field_visit__";
 
+export type StartMode = "INDIVIDUAL" | "GROUP";
+
+export type StartGuest = { localId: string; name: string; kind: RespondentKind; notes: string };
+
 export type StartSheetState = {
   workshopId: string;
   questionnaireId: string;
   sessionDate: string;
-  mode: "INDIVIDUAL" | "GROUP" | "GUEST";
-  guestName: string;
+  mode: StartMode;
   artisanIds: string[];
+  guests?: StartGuest[];
+  recordBy?: RecordBy;
   purpose: SessionPurpose;
   place: string;
   location?: SessionLocation | null;
@@ -63,18 +84,51 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export function startBlocked(form: Pick<StartSheetState, "questionnaireId" | "sessionDate" | "artisanIds"> & Partial<Pick<StartSheetState, "mode" | "guestName">>): boolean {
-  if (!form.questionnaireId || !form.sessionDate) return true;
-  if (form.mode === "GUEST") return !(form.guestName ?? "").trim();
-  return form.artisanIds.length === 0;
+export function guestNamed(guest: StartGuest): boolean {
+  return guest.kind === "SELF" || guest.name.trim().length > 0;
 }
 
-export function constrainArtisans(mode: StartSheetState["mode"], ids: string[]): string[] {
-  if (mode === "GUEST") return [];
+export function startBlocked(form: Pick<StartSheetState, "questionnaireId" | "sessionDate" | "artisanIds"> & Partial<Pick<StartSheetState, "guests">>): boolean {
+  if (!form.questionnaireId || !form.sessionDate) return true;
+  return form.artisanIds.length === 0 && !(form.guests ?? []).some(guestNamed);
+}
+
+export function constrainArtisans(mode: StartMode, ids: string[]): string[] {
   return mode === "INDIVIDUAL" ? ids.slice(0, 1) : ids;
 }
 
-export function sessionCreateBody(form: StartSheetState, clientKey: string, now = new Date()): SessionCreate {
+type Subjects = Pick<StartSheetState, "mode" | "artisanIds" | "guests">;
+
+export function withMode<T extends Subjects>(form: T, mode: StartMode): T {
+  const artisanIds = constrainArtisans(mode, form.artisanIds);
+  const guests = mode === "INDIVIDUAL" && form.artisanIds.length > 0 ? [] : form.guests ?? [];
+  return { ...form, mode, artisanIds, guests };
+}
+
+export function withGuest<T extends Subjects>(form: T, guest: StartGuest): T {
+  if (form.mode === "GROUP") return { ...form, guests: [...(form.guests ?? []), guest] };
+  return { ...form, artisanIds: [], guests: [guest] };
+}
+
+export function withArtisans<T extends Subjects>(form: T, ids: string[]): T {
+  if (form.mode === "GROUP") return { ...form, artisanIds: ids };
+  return { ...form, artisanIds: ids.slice(0, 1), guests: ids.length ? [] : form.guests ?? [] };
+}
+
+export function withNewArtisan<T extends Subjects>(form: T, id: string): T {
+  if (form.mode === "GROUP") return { ...form, artisanIds: [...form.artisanIds.filter((a) => a !== id), id] };
+  return { ...form, artisanIds: [id], guests: [] };
+}
+
+export function respondentsFor(guests: StartGuest[], meName: string | null = null): NonNullable<SessionCreate["respondents"]> {
+  return guests.filter(guestNamed).map((g) => {
+    const raw = g.kind === "SELF" ? g.name.trim() || (meName ?? "").trim() : g.name.trim();
+    const notes = g.notes.trim();
+    return { name: raw.replace(/\s+/g, " ").slice(0, 120), kind: g.kind, notes: notes || null };
+  });
+}
+
+export function sessionCreateBody(form: StartSheetState, clientKey: string, now = new Date(), meName: string | null = null): SessionCreate {
   const note = form.note.trim().slice(0, 80);
   return {
     clientKey,
@@ -90,9 +144,48 @@ export function sessionCreateBody(form: StartSheetState, clientKey: string, now 
     languageCode: form.languageCode || null,
     languageOther: form.languageCode === "other" ? form.languageOther.trim() || null : null,
     note: note || null,
-    participants: form.mode === "GUEST" ? [] : form.artisanIds.map((artisanId) => ({ artisanId })),
-    respondents: form.mode === "GUEST" ? [{ name: form.guestName.trim().slice(0, 120), kind: "GUEST" }] : []
+    participants: form.artisanIds.map((artisanId) => ({ artisanId })),
+    respondents: respondentsFor(form.guests ?? [], meName),
+    recordBy: form.recordBy ?? "SECTION"
   };
+}
+
+export type Provenance = { questionnaire: boolean; place: boolean; crafts: string | null; spoken: string | null };
+
+export function workshopPlace(workshop: Pick<PortalWorkshop, "locality" | "district"> | null | undefined): string {
+  return (workshop?.locality ?? "").trim() || (workshop?.district ?? "").trim();
+}
+
+const BOUND_REASONS = new Set(["PRIMARY_BINDING", "ONLY_BINDING"]);
+
+export function provenanceOf(input: {
+  workshopChosen: boolean;
+  resolved: Pick<FormFor, "questionnaireId" | "reason"> | null;
+  questionnaireId: string;
+  questionnaireTouched: boolean;
+  place: string;
+  placeAuto: string | null;
+  crafts: string[];
+  craftsByHand: string[];
+  craftSources: { name: string; craft: string | null | undefined }[];
+  spoken: { value: string; code: string | null; source: "artisan" | "researcher" | null };
+}): Provenance {
+  const questionnaire =
+    input.workshopChosen &&
+    !input.questionnaireTouched &&
+    Boolean(input.resolved?.questionnaireId) &&
+    input.resolved?.questionnaireId === input.questionnaireId &&
+    BOUND_REASONS.has(input.resolved?.reason ?? "");
+  const place = Boolean(input.placeAuto) && input.place === input.placeAuto;
+  const auto = craftsFor(input.craftSources.map((s) => s.craft), []);
+  const lower = (list: string[]) => list.map((c) => c.toLowerCase()).join("|");
+  const sameCrafts = auto.length > 0 && input.craftsByHand.length === 0 && lower(auto) === lower(input.crafts);
+  const owners = [...new Set(input.craftSources.filter((s) => (s.craft ?? "").trim() && s.name.trim()).map((s) => s.name.trim()))];
+  const crafts = sameCrafts && owners.length ? joinNames(owners) : null;
+  const names = [...new Set(input.craftSources.map((s) => s.name.trim()).filter(Boolean))];
+  const spokenFromRecord = input.spoken.source === "artisan" && input.spoken.code !== null && input.spoken.code === input.spoken.value;
+  const spoken = spokenFromRecord && names.length ? joinNames(names) : null;
+  return { questionnaire, place, crafts, spoken };
 }
 
 export const ALL_ARTISANS = "__all_records__";
@@ -152,7 +245,7 @@ export function SessionStartSheet({
   const router = useRouter();
   const { user } = useAuth();
   const queue = useSessionQueue(null);
-  const ids = { workshop: useId(), instrument: useId(), date: useId(), artisans: useId(), place: useId(), language: useId(), other: useId(), note: useId() };
+  const ids = { workshop: useId(), instrument: useId(), date: useId(), artisans: useId(), place: useId(), language: useId(), other: useId(), note: useId(), tag: useId() };
   const [workshops, setWorkshops] = useState<PortalWorkshop[]>([]);
   const [instruments, setInstruments] = useState<PortalForm[]>([]);
   const [resolved, setResolved] = useState<FormFor | null>(null);
@@ -166,8 +259,9 @@ export function SessionStartSheet({
     questionnaireId: initialQuestionnaireId ?? "",
     sessionDate: todayLocal(),
     mode: initialArtisanIds.length > 1 ? "GROUP" : "INDIVIDUAL",
-    guestName: "",
     artisanIds: initialArtisanIds,
+    guests: [],
+    recordBy: "SECTION",
     purpose: "FIRST_SITTING",
     place: "",
     languageCode: "",
@@ -180,6 +274,10 @@ export function SessionStartSheet({
   const [openMatch, setOpenMatch] = useState<OpenMatchItem | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [questionnaireTouched, setQuestionnaireTouched] = useState(Boolean(initialQuestionnaireId));
+  const [placeAuto, setPlaceAuto] = useState<string | null>(null);
+  const placeAutoRef = useRef<string | null>(null);
+  const [adding, setAdding] = useState<null | "artisan" | "guest">(null);
 
   const set = <K extends keyof StartSheetState>(key: K, value: StartSheetState[K]) => setForm((f) => ({ ...f, [key]: value }));
   const spoken = useSpokenLanguageChoice(form.artisanIds, { fallback: form.languageCode || null });
@@ -360,6 +458,13 @@ export function SessionStartSheet({
   const coverageAge = coverageHeld?.age ?? null;
 
   const workshop = workshops.find((w) => w.id === form.workshopId) ?? null;
+  const autoPlace = workshopPlace(workshop);
+  useEffect(() => {
+    const previous = placeAutoRef.current;
+    placeAutoRef.current = autoPlace || null;
+    setPlaceAuto(autoPlace || null);
+    setForm((f) => (f.place.trim() && f.place !== previous ? f : f.place === autoPlace ? f : { ...f, place: autoPlace }));
+  }, [autoPlace]);
   const chosen = form.artisanIds.map((id) => artisans.find((a) => a.id === id)).filter((a): a is Artisan => Boolean(a));
   const preview = useMemo(
     () => sessionTitle(titlePreviewInput({ sessionDate: form.sessionDate, place: form.place, workshop, artisans: chosen })),
@@ -387,11 +492,26 @@ export function SessionStartSheet({
   function pickArtisans(values: string[]) {
     if (values.includes(ALL_ARTISANS) || values.includes(WORKSHOP_ARTISANS)) {
       setShowAll(values.includes(ALL_ARTISANS));
-      set("artisanIds", values.filter((v) => v !== ALL_ARTISANS && v !== WORKSHOP_ARTISANS));
+      const rest = values.filter((v) => v !== ALL_ARTISANS && v !== WORKSHOP_ARTISANS);
+      setForm((f) => (f.mode === "GROUP" ? { ...f, artisanIds: rest } : f));
       return;
     }
-    set("artisanIds", values);
+    setForm((f) => withArtisans(f, values));
   }
+  const guests = form.guests ?? [];
+  const hasSelf = guests.some((g) => g.kind === "SELF");
+  const provenance = provenanceOf({
+    workshopChosen,
+    resolved,
+    questionnaireId: form.questionnaireId,
+    questionnaireTouched,
+    place: form.place,
+    placeAuto,
+    crafts: form.crafts ?? [],
+    craftsByHand: form.craftsByHand ?? [],
+    craftSources: chosen.map((a) => ({ name: a.name, craft: a.craft?.name })),
+    spoken: { value: spoken.value, code: spokenChoiceOf(spoken.suggestion?.code), source: spoken.suggestion?.source ?? null }
+  });
   const languageOptions = LANGUAGES.map((l) => ({ value: l.code, label: l.label }));
 
   async function start(skipMatch = false) {
@@ -399,7 +519,7 @@ export function SessionStartSheet({
     setError(null);
     setBusy(true);
     try {
-      if (!skipMatch && form.mode !== "GUEST" && navigator.onLine !== false) {
+      if (!skipMatch && form.artisanIds.length > 0 && navigator.onLine !== false) {
         const match = await questionnaireApi
           .openMatch({ questionnaireId: form.questionnaireId, ...workshopScope(form.workshopId === FIELD_VISIT ? null : form.workshopId || null), artisanIds: form.artisanIds, date: form.sessionDate })
           .catch(() => ({ items: [] as OpenMatchItem[] }));
@@ -412,7 +532,7 @@ export function SessionStartSheet({
       const clientKey = mintKey("c");
       rememberSessionSpokenLanguage(clientKey, spoken.value);
       const location = formRef.current ? sessionLocationFromForm(new FormData(formRef.current)) : null;
-      const unit = newSessionUnit(sessionCreateBody({ ...form, location }, clientKey));
+      const unit = newSessionUnit(sessionCreateBody({ ...form, location }, clientKey, new Date(), user?.name ?? null));
       const landed = new Promise<Session | null>((resolve) => {
         const off = onSessionLanded((s) => {
           if (s.clientKey === clientKey) {
@@ -461,7 +581,19 @@ export function SessionStartSheet({
           <label htmlFor={ids.instrument} className="field-label">
             {qs("fieldInstrument")}
           </label>
-          <SearchableSelect id={ids.instrument} value={form.questionnaireId} onChange={(v) => set("questionnaireId", v)} options={instrumentOptions} searchable ariaLabel={qs("fieldInstrument")} />
+          <SearchableSelect
+            id={ids.instrument}
+            value={form.questionnaireId}
+            onChange={(v) => {
+              setQuestionnaireTouched(true);
+              set("questionnaireId", v);
+            }}
+            options={instrumentOptions}
+            searchable
+            ariaLabel={qs("fieldInstrument")}
+            describedBy={provenance.questionnaire ? `${ids.tag}-q` : undefined}
+          />
+          {provenance.questionnaire ? <ProvenanceTag id={`${ids.tag}-q`} text={qs("fromThisWorkshop")} /> : null}
         </div>
         <div className="grid gap-1">
           <label htmlFor={ids.date} className="field-label">
@@ -476,32 +608,13 @@ export function SessionStartSheet({
             value={form.mode}
             options={[
               { value: "INDIVIDUAL", label: qs("modeIndividual") },
-              { value: "GROUP", label: qs("modeGroup") },
-              { value: "GUEST", label: qs("modeSomeoneElse") }
+              { value: "GROUP", label: qs("modeGroup") }
             ]}
-            onChange={(v) => setForm((f) => ({ ...f, mode: v as StartSheetState["mode"], artisanIds: constrainArtisans(v as StartSheetState["mode"], f.artisanIds) }))}
+            onChange={(v) => setForm((f) => withMode(f, v as StartMode))}
           />
         </div>
       </div>
 
-      {form.mode === "GUEST" ? (
-        <div className="grid gap-1">
-          <label htmlFor={ids.artisans} className="field-label">
-            {qs("fieldGuestName")}
-          </label>
-          <input
-            id={ids.artisans}
-            className="field-input"
-            value={form.guestName}
-            maxLength={120}
-            autoComplete="off"
-            placeholder={qs("guestNamePlaceholder")}
-            onChange={(e) => set("guestName", e.target.value)}
-            data-guest-name
-          />
-          <p className="text-xs text-ink-500">{qs("guestHint")}</p>
-        </div>
-      ) : (
       <div className="grid gap-1">
         <label htmlFor={ids.artisans} className="field-label">
           {form.mode === "GROUP" ? qs("fieldArtisans") : qs("fieldArtisan")}
@@ -522,6 +635,48 @@ export function SessionStartSheet({
             ariaLabel={qs("fieldArtisan")}
           />
         )}
+        {guests.length ? (
+          <ul className="mt-1 flex flex-wrap gap-1.5" aria-label={qs("modeSomeoneElse")} data-start-guests>
+            {guests.map((g) => {
+              const label = g.kind === "SELF" ? qs("myself") : g.name.trim();
+              return (
+                <li
+                  key={g.localId}
+                  className="inline-flex items-center gap-0.5 rounded-full border border-purple-200 bg-purple-50 pl-3 text-sm font-medium text-purple-800 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-200"
+                  data-start-guest={g.kind}
+                >
+                  {label}
+                  <button
+                    type="button"
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-full text-purple-800 hover:bg-purple-100 dark:text-purple-200 dark:hover:bg-purple-900/60"
+                    aria-label={qs("removeNamed", { name: label })}
+                    onClick={() => setForm((f) => ({ ...f, guests: (f.guests ?? []).filter((x) => x.localId !== g.localId) }))}
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+        <div className="flex flex-wrap gap-2" data-start-subject-actions>
+          <button type="button" className={SUBJECT_ACTION} onClick={() => setAdding("artisan")} data-new-artisan>
+            {qs("newArtisan")}
+          </button>
+          <button type="button" className={SUBJECT_ACTION} onClick={() => setAdding("guest")} data-someone-else>
+            {qs("modeSomeoneElse")}
+          </button>
+          {hasSelf ? null : (
+            <button
+              type="button"
+              className={SUBJECT_ACTION}
+              data-myself
+              onClick={() => setForm((f) => withGuest(f, { localId: mintKey("g"), name: user?.name ?? "", kind: "SELF", notes: "" }))}
+            >
+              {qs("myself")}
+            </button>
+          )}
+        </div>
         {coverage.length ? (
           <p className="text-sm text-ink-500" data-coverage-line>
             {coverageLine(coverage, coverageAge)}
@@ -539,7 +694,6 @@ export function SessionStartSheet({
             />
           ))}
       </div>
-      )}
 
       <div className="grid gap-1">
         <span className="field-label">{qs("fieldPurpose")}</span>
@@ -560,9 +714,10 @@ export function SessionStartSheet({
           searchable
           ariaLabel={qs("fieldCrafts")}
         />
+        {provenance.crafts ? <ProvenanceTag id={`${ids.tag}-c`} text={qs("fromRecordOf", { name: provenance.crafts })} /> : null}
       </div>
 
-      <SessionPlaceField id={ids.place} place={form.place} onPlace={(v) => set("place", v)} />
+      <SessionPlaceField id={ids.place} place={form.place} onPlace={(v) => set("place", v)} provenance={provenance.place ? qs("fromThisWorkshop") : null} />
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="grid gap-1">
@@ -582,7 +737,10 @@ export function SessionStartSheet({
             />
           ) : null}
         </div>
-        <SpokenLanguagePicker value={spoken.value} onChange={spoken.choose} suggestion={spoken.suggestion} />
+        <div className="grid min-w-0 gap-1">
+          <SpokenLanguagePicker value={spoken.value} onChange={spoken.choose} suggestion={spoken.suggestion?.source === "artisan" ? null : spoken.suggestion} />
+          {provenance.spoken ? <ProvenanceTag id={`${ids.tag}-s`} text={qs("fromRecordOf", { name: provenance.spoken })} /> : null}
+        </div>
       </div>
 
       <div className="grid gap-1">
@@ -596,6 +754,16 @@ export function SessionStartSheet({
           placeholder={qs("notePlaceholder")}
           value={form.note}
           onChange={(e) => set("note", e.target.value)}
+        />
+      </div>
+
+      <div className="grid gap-1" data-record-by>
+        <span className="field-label">{qs("fieldRecordBy")}</span>
+        <SegmentedChoice
+          label={qs("fieldRecordBy")}
+          value={form.recordBy ?? "SECTION"}
+          options={RECORD_BY.map((v) => ({ value: v, label: qs(v === "QUESTION" ? "recordByQuestion" : "recordBySection") }))}
+          onChange={(v) => set("recordBy", v as RecordBy)}
         />
       </div>
 
@@ -618,6 +786,27 @@ export function SessionStartSheet({
         </p>
       ) : null}
 
+      {adding === "artisan" ? (
+        <NewArtisanDialog
+          title={qs("registerArtisan")}
+          onClose={() => setAdding(null)}
+          onCreated={(artisan) => {
+            setAdding(null);
+            setArtisans((prev) => mergeById(prev, [artisan]));
+            setForm((f) => withNewArtisan(f, artisan.id));
+          }}
+        />
+      ) : null}
+      {adding === "guest" ? (
+        <GuestDialog
+          onClose={() => setAdding(null)}
+          onSave={(name, notes) => {
+            setAdding(null);
+            setForm((f) => withGuest(f, { localId: mintKey("g"), name, kind: "GUEST", notes }));
+          }}
+        />
+      ) : null}
+
       {p1 && openMatch ? (
         <PromptDialog
           spec={p1}
@@ -635,6 +824,60 @@ export function SessionStartSheet({
         />
       ) : null}
     </form>
+  );
+}
+
+const SUBJECT_ACTION =
+  "inline-flex min-h-11 items-center rounded-md px-3 text-sm font-semibold text-purple-700 hover:bg-purple-50 dark:text-purple-300 dark:hover:bg-purple-950/40";
+
+function ProvenanceTag({ id, text }: { id: string; text: string }) {
+  return (
+    <span id={id} className="flex items-center gap-1 text-xs text-ink-500" data-provenance>
+      <LinkIcon className="h-3 w-3 shrink-0" aria-hidden />
+      {text}
+    </span>
+  );
+}
+
+function GuestDialog({ onClose, onSave }: { onClose: () => void; onSave: (name: string, notes: string) => void }) {
+  const [name, setName] = useState("");
+  const [notes, setNotes] = useState("");
+  const nameId = useId();
+  const notesId = useId();
+  return (
+    <FieldDialog open onClose={onClose} title={qs("modeSomeoneElse")}>
+      <div className="grid gap-3">
+        <div className="grid gap-1">
+          <label htmlFor={nameId} className="field-label">
+            {qs("fieldGuestName")}
+          </label>
+          <input
+            id={nameId}
+            className="field-input"
+            value={name}
+            maxLength={120}
+            autoComplete="off"
+            placeholder={qs("guestNamePlaceholder")}
+            onChange={(e) => setName(e.target.value)}
+            data-guest-name
+          />
+        </div>
+        <div className="grid gap-1">
+          <label htmlFor={notesId} className="field-label">
+            {qs("guestNotes")}
+          </label>
+          <textarea id={notesId} className="field-input min-h-16" value={notes} maxLength={2000} onChange={(e) => setNotes(e.target.value)} />
+        </div>
+      </div>
+      <ButtonRow className="mt-4">
+        <button type="button" className="field-button-secondary" onClick={onClose}>
+          {qs("cancel")}
+        </button>
+        <button type="button" className="field-button" disabled={!name.trim()} onClick={() => onSave(name.trim(), notes.trim())} data-guest-save>
+          {qs("save")}
+        </button>
+      </ButtonRow>
+    </FieldDialog>
   );
 }
 

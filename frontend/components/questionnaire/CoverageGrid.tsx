@@ -104,7 +104,7 @@ export function CoverageGrid({
         </thead>
         <tbody>
           {grid.sections.map((section) => (
-            <tr key={section.id} className={`border-t border-line-200 ${activeSectionId === section.id ? "bg-purple-50" : ""}`}>
+            <tr key={section.id} className={`border-t border-line-200 ${activeSectionId === section.id ? "bg-purple-50 dark:bg-purple-950/30" : ""}`}>
               <th scope="row" className={`py-2 pr-3 text-left font-normal text-ink-900 ${recordings ? "sticky left-0 z-10 bg-card" : ""}`}>
                 <span className="mr-2 font-semibold">{section.code}</span>
                 {section.title}
