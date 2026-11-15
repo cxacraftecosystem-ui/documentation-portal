@@ -25,10 +25,11 @@ TYPE_LABELS = {
     "DOCUMENT": "Documents",
 }
 TYPE_ORDER = ("Photos", "Videos", "Recordings", "Documents", "Other")
-TRANSCRIPT_ORDER = ("Ready", "Translating", "Failed", "Not transcribed")
+TRANSCRIPT_ORDER = ("Ready", "Translating", "No speech", "Failed", "Not transcribed")
 STATUS_KEYS = {
     "Ready": "status.ready",
     "Translating": "status.translating",
+    "No speech": "status.noSpeech",
     "Failed": "status.failed",
     "Not transcribed": "status.notTranscribed",
 }

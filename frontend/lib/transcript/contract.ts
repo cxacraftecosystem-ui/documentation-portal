@@ -4,7 +4,8 @@ export type TranscriptStatus =
   | "TRANSCRIBING"
   | "TRANSLATING"
   | "READY"
-  | "NEEDS_ATTENTION";
+  | "NEEDS_ATTENTION"
+  | "NO_SPEECH";
 
 export type QueueReason = "PAUSED" | "BUDGET_PAUSED" | "WINDOW" | "WAITING" | null;
 

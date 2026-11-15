@@ -155,9 +155,16 @@ TRANSCRIBING = "TRANSCRIBING"
 TRANSLATING = "TRANSLATING"
 READY = "READY"
 NEEDS_ATTENTION = "NEEDS_ATTENTION"
-STATUSES = (WAITING_FOR_CONSENT, QUEUED, TRANSCRIBING, TRANSLATING, READY, NEEDS_ATTENTION)
+NO_SPEECH = "NO_SPEECH"
+STATUSES = (WAITING_FOR_CONSENT, QUEUED, TRANSCRIBING, TRANSLATING, READY, NEEDS_ATTENTION, NO_SPEECH)
+
+NO_SPEECH_MESSAGE = "No speech was found in this recording."
+UNFINISHED_MESSAGE = "The transcription didn't finish."
 
 _REFUSED_TRANSCRIPT_STATUSES = {"REFUSED_CONSENT", "AWAITING_CONSENT", "CONSENT_REFUSED"}
+_WAITING_TRANSCRIPT_STATUSES = {"QUEUED", "", "PENDING"}
+_FAILED_TRANSCRIPT_STATUSES = {"FAILED", "UNAVAILABLE"}
+_ENDED_JOBS = {"FAILED", "COMPLETED"}
 
 
 @dataclass(frozen=True)
@@ -181,12 +188,18 @@ def pipeline_status(
     budget_paused: bool,
     in_window: bool,
     consent_refused: bool,
+    stt_error: str | None = None,
 ) -> Status:
-    if consent_refused or (transcript_status or "").upper() in _REFUSED_TRANSCRIPT_STATUSES:
+    stored = (transcript_status or "").upper()
+    if consent_refused or stored in _REFUSED_TRANSCRIPT_STATUSES:
         return Status(WAITING_FOR_CONSENT, None, "Consent was refused, so this recording stays on this server.")
     if stt_job == "PROCESSING":
         return Status(TRANSCRIBING)
-    if stt_job == "QUEUED" or (not has_text and (transcript_status or "").upper() in {"QUEUED", "", "PENDING"}):
+    if not has_text and stt_job != "QUEUED" and stored == "EMPTY":
+        return Status(NO_SPEECH, None, NO_SPEECH_MESSAGE)
+    if not has_text and stt_job in _ENDED_JOBS and stored not in _FAILED_TRANSCRIPT_STATUSES:
+        return Status(NEEDS_ATTENTION, None, (stt_error or "").strip() or UNFINISHED_MESSAGE)
+    if stt_job == "QUEUED" or (not has_text and stored in _WAITING_TRANSCRIPT_STATUSES):
         if budget_paused:
             reason = "BUDGET_PAUSED"
         elif paused:
@@ -197,7 +210,7 @@ def pipeline_status(
             reason = "WAITING"
         return Status(QUEUED, reason)
     if not has_text:
-        return Status(NEEDS_ATTENTION, None, transcript_error or "The transcription didn't finish.")
+        return Status(NEEDS_ATTENTION, None, transcript_error or UNFINISHED_MESSAGE)
     if translate_job in {"QUEUED", "PROCESSING"} or (version_ready and pending_turns):
         return Status(TRANSLATING)
     if translate_job == "FAILED" and not version_ready:

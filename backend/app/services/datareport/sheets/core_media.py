@@ -24,7 +24,7 @@ EXTRA = [
     Column("thumbnail", "Preview", "image", "A small preview of the picture (when Report options include thumbnails).", width=9),
     Column("attachedTo", "Attached to", "text", "The record the file belongs to.", width=26, source="MediaFile.linkedRecordType,MediaFile.linkedRecordId"),
     Column("durationMs", "Duration", "duration_ms", "Length of the recording (mm:ss), from its transcript.", total="sum", source="TranscriptVersion.durationMs"),
-    Column("transcriptState", "Transcript", "status", "Ready, Transcribing, Failed with the reason, or Not requested.", width=20, source="MediaFile.transcriptStatus,MediaFile.transcriptError"),
+    Column("transcriptState", "Transcript", "status", "Ready, Transcribing, No speech, Failed with the reason, or Not requested.", width=20, source="MediaFile.transcriptStatus,MediaFile.transcriptError"),
     Column("translationState", "Translation", "status", "Translated, Translating N%, Failed with the reason, or Not requested.", width=22, source="TranscriptVersion.translationStatus"),
     Column("summary", "Transcript summary", "longtext", "The short summary written for the transcript.", width=50, wrap=True, source="MediaFile.transcriptSummary"),
     Column("place", "Place", "text", "Where the file was captured.", width=22),

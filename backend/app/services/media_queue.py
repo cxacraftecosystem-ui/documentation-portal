@@ -63,6 +63,7 @@ _consecutive_rate_limits = 0
 logger = logging.getLogger(__name__)
 
 UNEXPECTED_JOB_FAILURE = "This file couldn't be processed. Try again."
+INTERRUPTED_ERROR = "Processing was interrupted and has stopped. Retry it to try again."
 
 
 class JobFailure(RuntimeError):
@@ -489,9 +490,10 @@ async def recover_stale_processing_jobs() -> int:
                     "lockedBy": None,
                     "openKey": None,
                     "completedAt": now,
-                    "error": "Processing was interrupted and has stopped. Retry it to try again.",
+                    "error": INTERRUPTED_ERROR,
                 },
             )
+            await _finalize_failed_clip(job, INTERRUPTED_ERROR)
             continue
         await db.mediaprocessingjob.update(
             where={"id": job.id},
@@ -899,6 +901,32 @@ async def _handle_job_failure(job_id: str, exc: Exception) -> None:
             "error": error,
         },
     )
+    if exhausted:
+        await _finalize_failed_clip(job, error)
+
+
+async def _finalize_failed_clip(job: Any, error: str) -> None:
+    if _value(job, "jobType") != TRANSCRIPTION:
+        return
+    media_id = _value(job, "mediaFileId")
+    if not media_id:
+        return
+    try:
+        await db.mediafile.update_many(
+            where={
+                "id": media_id,
+                "transcriptStatus": {"in": [QUEUED, PROCESSING]},
+                "OR": [{"transcriptText": None}, {"transcriptText": ""}],
+            },
+            data={"transcriptStatus": FAILED, "transcriptError": error},
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "media_queue: transcription job %s failed but media %s could not be marked failed (%s)",
+            _value(job, "id"),
+            media_id,
+            exc,
+        )
 
 
 _HOLD_MESSAGES = (

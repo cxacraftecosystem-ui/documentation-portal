@@ -23,6 +23,16 @@ VIEW = CONTRACT["examples"]["TranscriptView"]
 FIX = CONTRACT["fixtures"]
 
 
+def test_every_pipeline_status_is_in_the_contract_and_no_speech_offers_nothing() -> None:
+    from app.transcription.transcript import insight
+
+    rows = {s["value"]: s for s in CONTRACT["enums"]["pipelineStatus"]}
+    assert set(rows) == set(insight.STATUSES)
+    assert rows["NO_SPEECH"]["action"] is None and rows["NEEDS_ATTENTION"]["action"] == "RETRY"
+    assert STRINGS["strings"]["noSpeechFound"] == insight.NO_SPEECH_MESSAGE
+    assert CONTRACT["contractVersion"] >= 6
+
+
 def doc_from(view: dict[str, Any]) -> render.RenderDoc:
     return render.RenderDoc(
         title=view["title"],
@@ -121,6 +131,7 @@ def test_the_strings_are_complete_sentences_with_no_gap_admissions() -> None:
     strings = STRINGS["strings"]
     statuses = {s["value"]: s["label"] for s in CONTRACT["enums"]["pipelineStatus"]}
     assert strings["statusReady"] == statuses["READY"] and strings["statusNeedsAttention"] == statuses["NEEDS_ATTENTION"]
+    assert strings["statusNoSpeech"] == statuses["NO_SPEECH"]
     for key, value in strings.items():
         lowered = value.lower()
         assert value.strip() == value and value, key

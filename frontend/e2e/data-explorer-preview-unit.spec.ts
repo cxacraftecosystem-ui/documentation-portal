@@ -179,6 +179,14 @@ test.describe("transcripts tab", () => {
     expect(counts).toEqual({ all: 5, ready: 2, working: 1, failed: 1 });
   });
 
+  test("a recording with no speech is finished, never failed or ready", () => {
+    expect(rowState("NO_SPEECH", false)).toBe("noSpeech");
+    expect(rowState("NO_SPEECH", true)).toBe("noSpeech");
+    for (const filter of ["ready", "working", "failed"] as const) expect(matchesState("noSpeech", filter)).toBe(false);
+    expect(matchesState("noSpeech", "all")).toBe(true);
+    expect(stateCounts([{ state: "noSpeech" }, { state: "failed" }])).toEqual({ all: 2, ready: 0, working: 0, failed: 1 });
+  });
+
   test("a transcript count still loading is pending, never zero, and a partial list says so", () => {
     const counts = { all: 500, ready: 0, working: 0, failed: 0 };
     expect(transcriptPillCount("all", counts, { rows: false, statuses: false, more: false })).toBeNull();

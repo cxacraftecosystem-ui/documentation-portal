@@ -9,6 +9,7 @@ import com.fieldrepository.app.transcript.data.Transcript
 import com.fieldrepository.app.transcript.data.TranscriptBadge
 import com.fieldrepository.app.transcript.data.TranscriptFormat
 import com.fieldrepository.app.transcript.data.TranscriptStrings
+import com.fieldrepository.app.transcript.data.TranscriptUiText
 import com.fieldrepository.app.transcript.data.TranslationStatus
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -226,5 +227,20 @@ class TranscriptContractTest {
         assertTrue(TranscriptStrings.englishDeclined.contains("Gemini"))
         assertFalse(TranscriptStrings.englishUnavailable.contains("Gemini"))
         assertFalse(TranscriptStrings.englishUnavailable.lowercase().contains("declined"))
+    }
+
+    @Test fun `no speech reads as its own finished state with the contract's label and no action`() {
+        val rows = contract["enums"]!!.jsonObject["pipelineStatus"]!!.jsonArray.map { it.jsonObject }
+        val row = rows.single { it["value"]!!.jsonPrimitive.content == PipelineStatus.NO_SPEECH }
+        assertEquals(row["label"]!!.jsonPrimitive.content, TranscriptUiText.status(PipelineStatus.NO_SPEECH))
+        assertEquals(null, row["action"]!!.jsonPrimitive.contentOrNull)
+        assertFalse(PipelineStatus.working(PipelineStatus.NO_SPEECH))
+        val v = json.decodeFromJsonElement(
+            Transcript.serializer(),
+            json.parseToJsonElement("""{"mediaId":"m","status":"NO_SPEECH","statusMessage":null,"permissions":{"edit":true,"retry":true}}""")
+        )
+        assertEquals("No speech was found in this recording.", TranscriptUiText.statusLine(v))
+        assertEquals(TranscriptStrings.noSpeechFound, TranscriptUiText.statusLine(v.copy(statusMessage = "No speech was found in this recording.")))
+        assertEquals(TranscriptStrings.statusNeedsAttention, TranscriptUiText.status(PipelineStatus.NEEDS_ATTENTION))
     }
 }

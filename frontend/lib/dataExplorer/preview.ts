@@ -313,7 +313,7 @@ export async function fetchTranscriptSummaries(ids: readonly string[], signal?: 
   return out;
 }
 
-export type RowState = "ready" | "working" | "failed" | "waiting" | "none";
+export type RowState = "ready" | "working" | "failed" | "waiting" | "noSpeech" | "none";
 
 export function rowState(status: string | null | undefined, hasText: boolean): RowState {
   switch (status) {
@@ -324,6 +324,8 @@ export function rowState(status: string | null | undefined, hasText: boolean): R
       return "working";
     case "NEEDS_ATTENTION":
       return "failed";
+    case "NO_SPEECH":
+      return "noSpeech";
     case "QUEUED":
     case "WAITING_FOR_CONSENT":
       return "waiting";

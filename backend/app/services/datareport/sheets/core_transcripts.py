@@ -52,7 +52,7 @@ COLUMNS = [
     Column("speaker", "Speaker", "text", "Who is speaking, as named in the portal.", width=18, source="TranscriptTurn.speakerKey,TranscriptSpeaker.name,TranscriptSpeaker.role"),
     Column("language", "Language", "text", "Language of the text in this row.", width=10, source="TranscriptTurn.language,MediaFile.transcriptLanguage,TranscriptVersion.languages"),
     Column("text", "Text", "longtext", "The turn with the speaker in bold, in the original or in English; the whole-transcript rows open the full transcript from their link.", width=60, source=f"{S_TEXT},{S_ENGLISH}"),
-    Column("status", "Status", "status", "Transcript status on original rows; translation status on translation rows: Translated, Translating N%, Failed with the reason, or Not requested.", width=20, source="TranscriptTurn.translationStatus,TranscriptVersion.translationStatus,MediaFile.transcriptStatus,MediaFile.transcriptError"),
+    Column("status", "Status", "status", "Transcript status on original rows; translation status on translation rows: Translated, Translating N%, No speech, Failed with the reason, or Not requested.", width=20, source="TranscriptTurn.translationStatus,TranscriptVersion.translationStatus,MediaFile.transcriptStatus,MediaFile.transcriptError"),
     Column("playFrom", "Open", "link", "Opens the recording in the portal's player from the start, after sign-in.", width=16),
     Column("docx", "Transcript (.docx)", "link", "The bilingual transcript as a Word file.", width=16),
     Column("srt", "Subtitles (.srt)", "link", "Subtitles with speakers.", width=14),

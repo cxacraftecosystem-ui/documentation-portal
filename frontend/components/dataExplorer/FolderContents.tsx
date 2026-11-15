@@ -202,6 +202,7 @@ function detailLine(entry: TreeEntry, summary: TranscriptSummary | undefined): s
   if (state === "failed") return "Transcript failed";
   if (state === "working") return translatingLabel(summary);
   if (state === "waiting") return "Transcript waiting";
+  if (state === "noSpeech") return "No speech found";
   if (entry.mediaType === "AUDIO" && summary.durationMs) return `Transcript ready · ${shortClock(summary.durationMs)}`;
   const languages = languagesLine(summary.languages);
   return languages ? `Transcript · ${languages}` : "Transcript ready";

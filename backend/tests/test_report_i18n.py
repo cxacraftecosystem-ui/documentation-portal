@@ -37,6 +37,7 @@ REQUIRED_KEYS = [
             "saved",
             "rejected",
             "notRequested",
+            "noSpeech",
         )
     ),
     *(
@@ -179,6 +180,25 @@ def test_generated_descriptions_follow_patterns():
         hi("x.y", "Notes of the made-up thing (X.notes).")
         == "Notes of the made-up thing (X.notes)."
     )
+
+
+def test_a_recording_with_no_speech_has_its_own_label_in_both_locales():
+    from app.services.datareport import transcript_status
+    from app.services.datareport.sheets import extras_charts, extras_common
+
+    empty = {"transcriptStatus": "EMPTY", "transcriptError": None}
+    assert transcript_status.transcript_text(empty, False) == ("No speech", None)
+    assert transcript_status.transcript_text(empty, True) == ("Ready", None)
+    assert transcript_status.transcript_text({"transcriptStatus": None}, False) == ("Not requested", None)
+    assert transcript_status.localise(i18n.translator("en"), "No speech") == "No speech"
+    assert transcript_status.localise(i18n.translator("hi"), "No speech") == "कोई बोली नहीं मिली"
+    assert i18n.strings("hi")["status.noSpeech"] == "कोई बोली नहीं मिली"
+    assert extras_common.transcript_state({"transcriptStatus": "EMPTY", "hasText": False}, "AUDIO") == "No speech"
+    assert extras_common.transcript_state({"transcriptStatus": "EMPTY", "hasText": True}, "VIDEO") == "Ready"
+    media = [{"id": "a", "mediaType": "AUDIO"}, {"id": "b", "mediaType": "VIDEO"}]
+    facts = {"a": {"transcriptStatus": "EMPTY"}, "b": {"transcriptStatus": "COMPLETED", "hasText": True}}
+    chart = extras_charts.transcript_status(media, facts, i18n.translator("hi"))
+    assert chart is not None and "कोई बोली नहीं मिली" in chart.categories
 
 
 def test_translator_contract():

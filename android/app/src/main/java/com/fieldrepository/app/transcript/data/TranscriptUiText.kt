@@ -64,11 +64,13 @@ object TranscriptUiText {
         PipelineStatus.TRANSCRIBING -> TranscriptStrings.statusTranscribing
         PipelineStatus.TRANSLATING -> TranscriptStrings.statusTranslating
         PipelineStatus.READY -> TranscriptStrings.statusReady
+        PipelineStatus.NO_SPEECH -> TranscriptStrings.statusNoSpeech
         else -> TranscriptStrings.statusNeedsAttention
     }
 
     fun statusLine(view: Transcript): String? = view.statusMessage?.ifBlank { null } ?: when {
         view.status == PipelineStatus.WAITING_FOR_CONSENT -> TranscriptStrings.consentRefused
+        view.status == PipelineStatus.NO_SPEECH -> TranscriptStrings.noSpeechFound
         view.status != PipelineStatus.QUEUED -> null
         view.queueReason == "PAUSED" -> TranscriptStrings.queuePaused
         view.queueReason == "BUDGET_PAUSED" -> TranscriptStrings.queueBudgetPaused

@@ -670,6 +670,7 @@ async def _status_of(
         budget_paused=holds_translation(settings_row),
         in_window=schedule.within_window(settings_row),
         consent_refused=refused,
+        stt_error=getattr(stt_job, "error", None),
     )
 
 
