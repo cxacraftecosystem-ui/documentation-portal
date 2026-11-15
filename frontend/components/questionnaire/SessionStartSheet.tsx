@@ -250,6 +250,9 @@ export function SessionStartSheet({
   const [instruments, setInstruments] = useState<PortalForm[]>([]);
   const [resolved, setResolved] = useState<FormFor | null>(null);
   const [artisans, setArtisans] = useState<Artisan[]>([]);
+  const [artisansSettled, setArtisansSettled] = useState(false);
+  const [resolving, setResolving] = useState(true);
+  const [coverageSettled, setCoverageSettled] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [craftNames, setCraftNames] = useState<string[]>([]);
@@ -328,12 +331,14 @@ export function SessionStartSheet({
           if (cancelled) return;
           artisanPage.current = items;
           setArtisans((prev) => mergeById(prev.filter((a) => artisanIdsRef.current.includes(a.id)), items));
+          setArtisansSettled(true);
         })
         .catch(() => {
           const found = searchCachedArtisans(readStartLists().artisans, search, workshopId) as unknown as Artisan[];
           if (cancelled) return;
           artisanPage.current = found;
           setArtisans((prev) => mergeById(prev.filter((a) => artisanIdsRef.current.includes(a.id)), found));
+          setArtisansSettled(true);
         });
     }, 250);
     return () => {
@@ -365,15 +370,19 @@ export function SessionStartSheet({
   useEffect(() => {
     let cancelled = false;
     const workshopId = form.workshopId && form.workshopId !== FIELD_VISIT ? form.workshopId : null;
+    setResolving(true);
     void questionnaireApi
       .formFor({ ...workshopScope(workshopId), questionnaireId: initialQuestionnaireId })
       .then((r) => {
         if (cancelled) return;
+        setResolving(false);
         setResolved(r);
         if (r.questionnaireId) setForm((f) => ({ ...f, questionnaireId: r.questionnaireId! }));
       })
       .catch(() => {
-        if (!cancelled) setResolved(null);
+        if (cancelled) return;
+        setResolving(false);
+        setResolved(null);
       });
     return () => {
       cancelled = true;
@@ -419,10 +428,12 @@ export function SessionStartSheet({
         if (cancelled) return;
         setCoverageHeld(null);
         setCoverageGrid({ ids: artisanIds, grid });
+        setCoverageSettled(`${questionnaireId}|${artisanKey}`);
       })
       .catch(() => {
         if (cancelled) return;
         setCoverageGrid(null);
+        setCoverageSettled(`${questionnaireId}|${artisanKey}`);
         const workshopId = form.workshopId && form.workshopId !== FIELD_VISIT ? form.workshopId : null;
         const held = readSnapshot(questionnaireId, workshopId);
         const sections = readStartLists().sections[questionnaireId];
@@ -456,6 +467,10 @@ export function SessionStartSheet({
     }));
   }, [coverageGrid, coverageHeld, artisans]);
   const coverageAge = coverageHeld?.age ?? null;
+  const consentLoading = form.artisanIds.some((id) => !consentAsked[id]);
+  const artisansPending = !artisansSettled && form.artisanIds.some((id) => !artisans.some((a) => a.id === id));
+  const coveragePending =
+    coverage.length === 0 && form.artisanIds.length > 0 && (form.questionnaireId ? coverageSettled !== `${form.questionnaireId}|${artisanKey}` : resolving);
 
   const workshop = workshops.find((w) => w.id === form.workshopId) ?? null;
   const autoPlace = workshopPlace(workshop);
@@ -681,18 +696,31 @@ export function SessionStartSheet({
           <p className="text-sm text-ink-500" data-coverage-line>
             {coverageLine(coverage, coverageAge)}
           </p>
+        ) : coveragePending ? (
+          <p aria-hidden className="invisible text-sm" data-coverage-pending>
+            {"\u00a0"}
+          </p>
         ) : null}
-        {chosen
-          .filter((a) => consentAsked[a.id] === "ASK" || consentAsked[a.id] === "REFUSED")
-          .map((a) => (
+        {form.artisanIds.map((id) => {
+          const artisan = chosen.find((a) => a.id === id);
+          if (!consentAsked[id]) {
+            return (
+              <div key={id} aria-hidden inert className="invisible" data-consent-pending={id}>
+                <ConsentQuestion artisanId={id} name={artisan?.name ?? ""} />
+              </div>
+            );
+          }
+          if (!artisan || (consentAsked[id] !== "ASK" && consentAsked[id] !== "REFUSED")) return null;
+          return (
             <ConsentQuestion
-              key={a.id}
-              artisanId={a.id}
-              name={a.name}
-              refused={consentAsked[a.id] === "REFUSED"}
-              onDismiss={() => setConsentAsked((m) => ({ ...m, [a.id]: "DONE" }))}
+              key={id}
+              artisanId={id}
+              name={artisan.name}
+              refused={consentAsked[id] === "REFUSED"}
+              onDismiss={() => setConsentAsked((m) => ({ ...m, [id]: "DONE" }))}
             />
-          ))}
+          );
+        })}
       </div>
 
       <div className="grid gap-1">
@@ -714,7 +742,13 @@ export function SessionStartSheet({
           searchable
           ariaLabel={qs("fieldCrafts")}
         />
-        {provenance.crafts ? <ProvenanceTag id={`${ids.tag}-c`} text={qs("fromRecordOf", { name: provenance.crafts })} /> : null}
+        {provenance.crafts ? (
+          <ProvenanceTag id={`${ids.tag}-c`} text={qs("fromRecordOf", { name: provenance.crafts })} />
+        ) : artisansPending ? (
+          <span aria-hidden className="invisible text-xs" data-provenance-pending>
+            {"\u00a0"}
+          </span>
+        ) : null}
       </div>
 
       <SessionPlaceField id={ids.place} place={form.place} onPlace={(v) => set("place", v)} provenance={provenance.place ? qs("fromThisWorkshop") : null} />
@@ -776,7 +810,7 @@ export function SessionStartSheet({
 
       {error ? <p className="text-center text-sm text-error-600">{error}</p> : null}
       <ButtonRow>
-        <button type="submit" className="field-button" disabled={busy || startBlocked(form)} aria-describedby={startBlocked(form) ? `${ids.note}-needs` : undefined}>
+        <button type="submit" className="field-button" disabled={busy || consentLoading || startBlocked(form)} aria-describedby={startBlocked(form) ? `${ids.note}-needs` : undefined}>
           {qs("startSession")}
         </button>
       </ButtonRow>

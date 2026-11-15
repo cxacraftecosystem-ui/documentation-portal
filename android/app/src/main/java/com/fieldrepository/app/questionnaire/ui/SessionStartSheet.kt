@@ -1,6 +1,7 @@
 package com.fieldrepository.app.questionnaire.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -34,7 +35,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.testTag as semanticsTag
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.data.Naming
 import com.fieldrepository.app.questionnaire.data.QArtisanOption
@@ -219,6 +223,7 @@ fun SessionStartSheet(
     prefillArtisanIds: List<String> = emptyList(),
     prefillFormId: String? = null,
     defaultWorkshopId: String? = null,
+    consentOf: suspend (String) -> String? = { v2.consentState(it) },
     onDismiss: () -> Unit,
     onStarted: (clientKey: String) -> Unit,
     onJoined: (session: QSession) -> Unit,
@@ -228,6 +233,8 @@ fun SessionStartSheet(
     var registered by remember { mutableStateOf<List<Pair<String, NewArtisan>>>(emptyList()) }
     var showAll by remember { mutableStateOf(false) }
     var scoped by remember { mutableStateOf<List<QArtisanOption>?>(null) }
+    var scopedLoading by remember { mutableStateOf(true) }
+    var resolving by remember { mutableStateOf(true) }
     var craftCatalog by remember { mutableStateOf<List<String>>(emptyList()) }
     var registering by remember { mutableStateOf(false) }
     var addingGuest by remember { mutableStateOf(false) }
@@ -255,6 +262,7 @@ fun SessionStartSheet(
         mostRecentRecordableWorkshop(workshops, defaultWorkshopId)?.let { form = form.withWorkshop(it) }
     }
     LaunchedEffect(form.workshopId) {
+        resolving = true
         val resolution = withTimeoutOrNull(4_000) {
             runCatching {
                 if (QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP) v2.api.formFor(designWorkshopId = form.workshopId.ifBlank { null })
@@ -264,6 +272,7 @@ fun SessionStartSheet(
         bound = resolution?.bound?.map { it.questionnaireId }?.toSet().orEmpty()
         resolvedForm = resolution?.questionnaireId
         if (!formTouched) form = form.copy(questionnaireId = startFormFor(resolution?.questionnaireId, form.questionnaireId, forms))
+        resolving = false
     }
 
     LaunchedEffect(Unit) {
@@ -271,6 +280,7 @@ fun SessionStartSheet(
         craftCatalog = names
     }
     LaunchedEffect(form.workshopId, showAll) {
+        scopedLoading = true
         val id = form.workshopId.ifBlank { null }
         val key = if (QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP) "designWorkshopId" else "workshopId"
         val fetched = if (id == null) null else withContext(Dispatchers.IO) { runCatching {
@@ -284,6 +294,7 @@ fun SessionStartSheet(
             found.distinctBy { it.id }
         }.getOrNull() }
         scoped = fetched
+        scopedLoading = false
     }
     val autoCrafts = form.artisanIds.mapNotNull { byId[it]?.craft }
     LaunchedEffect(autoCrafts) {
@@ -292,8 +303,11 @@ fun SessionStartSheet(
     }
 
     LaunchedEffect(form.artisanIds) {
-        form.artisanIds.filter { id -> registered.none { it.first == id } }.forEach { id -> if (!consent.containsKey(id)) consent[id] = v2.consentState(id) }
+        form.artisanIds.filter { id -> registered.none { it.first == id } }.forEach { id -> if (!consent.containsKey(id)) consent[id] = consentOf(id) }
     }
+
+    val consentLoading = form.artisanIds.any { id -> registered.none { it.first == id } && !consent.containsKey(id) }
+    val artisansPending = scopedLoading && form.artisanIds.any { it !in byId }
 
     fun create() {
         val key = SessionOutbox.newKey()
@@ -391,9 +405,19 @@ fun SessionStartSheet(
                     form = if (form.group) form.copy(guests = form.guests + me) else form.copy(artisanIds = emptyList(), guests = listOf(me))
                 }) { Text(QuestionnaireCopy.s("guest.myself")) }
             }
-            coverageLine(v2, form, byId, forms.firstOrNull { it.id == form.questionnaireId }?.sectionCount)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted) }
-            form.artisanIds.filter { consent.containsKey(it) && consent[it] in setOf(null, "NOT_RECORDED", "REFUSED") }.take(3).forEach { id ->
-                ConsentQuestion(byId[id]?.name.orEmpty(), refused = consent[id] == "REFUSED", onAnswer = { state ->
+            val coverage = coverageLine(v2, form, byId, forms.firstOrNull { it.id == form.questionnaireId }?.sectionCount)
+            if (coverage != null) Text(coverage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
+            else if (form.artisanIds.isNotEmpty() && (resolving || artisansPending)) {
+                Text(" ", style = MaterialTheme.typography.bodySmall, modifier = Modifier.clearAndSetSemantics { semanticsTag = "q-coverage-pending" })
+            }
+            form.artisanIds.filter { id ->
+                if (consent.containsKey(id)) consent[id] in setOf(null, "NOT_RECORDED", "REFUSED") else registered.none { it.first == id }
+            }.take(3).forEach { id ->
+                if (!consent.containsKey(id)) {
+                    Box(Modifier.alpha(0f).clearAndSetSemantics { semanticsTag = "q-consent-pending" }) {
+                        ConsentQuestion(byId[id]?.name.orEmpty(), onAnswer = {})
+                    }
+                } else ConsentQuestion(byId[id]?.name.orEmpty(), refused = consent[id] == "REFUSED", onAnswer = { state ->
                     if (state == null) consent[id] = "SKIPPED" else {
                         consent[id] = "SKIPPED"
                         scope.launch { v2.recordConsent(id, state) }
@@ -410,8 +434,11 @@ fun SessionStartSheet(
                     val ordered = form.crafts.filter { it in chosen } + chosen.filter { it !in form.crafts }
                     form = form.copy(crafts = ordered, craftsByHand = ordered.filter { c -> autoCrafts.none { it.equals(c, ignoreCase = true) } })
                 }
-                craftsRecordOwner(form, form.artisanIds.associateWith { byId[it]?.craft }, form.artisanIds.associateWith { byId[it]?.name.orEmpty() })
-                    ?.let { ProvenanceTag(QuestionnaireCopy.t("fromRecordOf", "name" to it)) }
+                val craftsOwner = craftsRecordOwner(form, form.artisanIds.associateWith { byId[it]?.craft }, form.artisanIds.associateWith { byId[it]?.name.orEmpty() })
+                if (craftsOwner != null) ProvenanceTag(QuestionnaireCopy.t("fromRecordOf", "name" to craftsOwner))
+                else if (artisansPending) Box(Modifier.alpha(0f).clearAndSetSemantics { semanticsTag = "q-provenance-pending" }) {
+                    ProvenanceTag(QuestionnaireCopy.t("fromRecordOf", "name" to " "))
+                }
             }
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(QuestionnaireCopy.s("start.purpose"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
@@ -457,7 +484,7 @@ fun SessionStartSheet(
             Text(QuestionnaireCopy.s("start.titlePreview"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted)
             Text(form.titlePreview(workshop, byId, meName), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.field.body)
             ActionRow(Modifier.fillMaxWidth()) {
-                Button(enabled = form.canStart && !starting, onClick = {
+                Button(enabled = form.canStart && !starting && !consentLoading, onClick = {
                     starting = true
                     scope.launch {
                         val match = if (form.artisanIds.isEmpty()) null else withTimeoutOrNull(4_000) {

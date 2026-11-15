@@ -6,9 +6,12 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -20,12 +23,14 @@ import com.fieldrepository.app.questionnaire.data.QFormOption
 import com.fieldrepository.app.questionnaire.data.QSessionCreate
 import com.fieldrepository.app.questionnaire.data.QSessionLocation
 import com.fieldrepository.app.questionnaire.data.QWorkshopOption
+import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
 import com.fieldrepository.app.questionnaire.data.StepKind
 import com.fieldrepository.app.questionnaire.data.outboxJson
 import com.fieldrepository.app.questionnaire.ui.LocalSessionLocationCard
 import com.fieldrepository.app.questionnaire.ui.SessionLocationCard
 import com.fieldrepository.app.questionnaire.ui.SessionStartSheet
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -45,13 +50,8 @@ class SessionStartSheetFieldsUiTest {
         LaunchedEffect(Unit) { if (!editing && value == null) onChange(here) }
     }
 
-    @QFeature("Q1")
-    @Test fun theStartSheetFillsTheCapturedAtCardAndBothCraftsAndSendsThem() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val v2 = QuestionnaireV2.get(context)
-        val held = listOf("a1", "a2").associateWith { v2.knownConsent[it] }
-        listOf("a1", "a2").forEach { v2.knownConsent[it] = "GRANTED" }
-        var started: String? = null
+    private fun sheet(v2: QuestionnaireV2, onStarted: (String) -> Unit, consentOf: (suspend (String) -> String?)? = null) {
+        val lookup: suspend (String) -> String? = consentOf ?: { id -> v2.consentState(id) }
         compose.setContent {
             MaterialTheme {
                 CompositionLocalProvider(LocalSessionLocationCard provides card) {
@@ -63,30 +63,78 @@ class SessionStartSheetFieldsUiTest {
                         meId = null, meName = "Nandini",
                         prefillArtisanIds = listOf("a1", "a2"),
                         defaultWorkshopId = "w-fields",
-                        onDismiss = {}, onStarted = { started = it }, onJoined = {}, onError = {}
+                        consentOf = lookup,
+                        onDismiss = {}, onStarted = onStarted, onJoined = {}, onError = {}
                     )
                 }
             }
         }
-        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Captured at 26.8105, 75.5466")).fetchSemanticsNodes().isNotEmpty() }
-        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Dokra", substring = true)).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("q-crafts").performScrollTo()
-        compose.onNodeWithText("Hand Block Printing", substring = true).assertExists()
-        compose.onNodeWithText("From Giriraj and Meena's record").assertExists()
-        compose.onNodeWithText("From this workshop").assertExists()
-        compose.onNodeWithTag("q-record-by").performScrollTo()
-        compose.onNodeWithText("Record by").assertExists()
-        compose.onNodeWithText("Question").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Question") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    private fun pending(tag: String) = compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().size
+
+    private fun waitForLateSlots() {
+        compose.waitUntil(15_000) { pending("q-coverage-pending") == 0 && pending("q-provenance-pending") == 0 }
+    }
+
+    private fun startAndRead(v2: QuestionnaireV2, started: () -> String?): QSessionCreate {
+        compose.waitUntil(30_000) { compose.onAllNodes(hasText("Start session") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Start session").performScrollTo().performClick()
-        compose.waitUntil(15_000) { started != null }
-        val unit = runBlocking { v2.outbox.unit(started!!) }!!
-        val body = outboxJson.decodeFromString(QSessionCreate.serializer(), unit.steps.first { it.kind == StepKind.SESSION }.bodyJson!!)
-        assertEquals(here, body.location)
-        assertEquals(listOf("Hand Block Printing", "Dokra"), body.crafts)
-        assertTrue(body.craftsByHand.orEmpty().isEmpty())
-        assertEquals("QUESTION", body.recordBy)
-        runBlocking { v2.outbox.forget(started!!) }
-        held.forEach { (id, state) -> if (state == null) v2.knownConsent.remove(id) else v2.knownConsent[id] = state }
+        compose.waitUntil(15_000) { started() != null }
+        val unit = runBlocking { v2.outbox.unit(started()!!) }!!
+        return outboxJson.decodeFromString(QSessionCreate.serializer(), unit.steps.first { it.kind == StepKind.SESSION }.bodyJson!!)
+    }
+
+    @QFeature("Q1")
+    @Test fun theStartSheetFillsTheCapturedAtCardAndBothCraftsAndSendsThem() {
+        val v2 = QuestionnaireV2.get(InstrumentationRegistry.getInstrumentation().targetContext)
+        var started: String? = null
+        sheet(v2, onStarted = { started = it })
+        try {
+            compose.waitUntil(10_000) { compose.onAllNodes(hasText("Captured at 26.8105, 75.5466")).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10_000) { compose.onAllNodes(hasText("Dokra", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+            waitForLateSlots()
+            compose.onNodeWithTag("q-crafts").performScrollTo()
+            compose.onNodeWithText("Hand Block Printing", substring = true).assertExists()
+            compose.onNodeWithText("From Giriraj and Meena's record").assertExists()
+            compose.onNodeWithText("From this workshop").assertExists()
+            compose.onNodeWithTag("q-record-by").performScrollTo()
+            compose.onNodeWithText("Record by").assertExists()
+            compose.onNodeWithText("Question").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodes(hasText("Question") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+            val body = startAndRead(v2) { started }
+            assertEquals(here, body.location)
+            assertEquals(listOf("Hand Block Printing", "Dokra"), body.crafts)
+            assertTrue(body.craftsByHand.orEmpty().isEmpty())
+            assertEquals("QUESTION", body.recordBy)
+        } finally {
+            started?.let { runBlocking { v2.outbox.forget(it) } }
+        }
+    }
+
+    @QFeature("Q1")
+    @Test fun recordByStaysUnderTheTapWhenConsentArrivesLateAndStartWaitsForIt() {
+        val v2 = QuestionnaireV2.get(InstrumentationRegistry.getInstrumentation().targetContext)
+        val consentArrives = CompletableDeferred<Unit>()
+        var started: String? = null
+        sheet(v2, onStarted = { started = it }, consentOf = { consentArrives.await(); "NOT_RECORDED" })
+        try {
+            compose.waitUntil(10_000) { compose.onAllNodes(hasText("Dokra", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+            waitForLateSlots()
+            assertEquals(2, pending("q-consent-pending"))
+            compose.onNodeWithTag("q-record-by").performScrollTo()
+            compose.onNodeWithText("Start session").assertIsNotEnabled()
+            val before = compose.onNodeWithText("Question").fetchSemanticsNode().boundsInRoot
+            consentArrives.complete(Unit)
+            compose.waitUntil(10_000) { pending("q-consent-pending") == 0 }
+            compose.waitUntil(10_000) { compose.onAllNodes(hasText(QuestionnaireCopy.consentNotice("Giriraj"))).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitForIdle()
+            assertEquals(before, compose.onNodeWithText("Question").fetchSemanticsNode().boundsInRoot)
+            compose.onNodeWithText("Question").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodes(hasText("Question") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+            assertEquals("QUESTION", startAndRead(v2) { started }.recordBy)
+        } finally {
+            started?.let { runBlocking { v2.outbox.forget(it) } }
+        }
     }
 }
