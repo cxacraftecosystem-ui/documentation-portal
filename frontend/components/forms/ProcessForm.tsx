@@ -897,8 +897,8 @@ export function ProcessForm({
               </div>
               <div>
                 <DictatedTextInput
-                  disabled={fillsOnly(initial) && Boolean(step.serverId)}
                   id={`step-name-${step.key}`}
+                  disabled={fillsOnly(initial) && Boolean(step.serverId)}
                   label="Name of the step"
                   placeholder="Add a name when you can"
                   explainWhenUnavailable={false}
