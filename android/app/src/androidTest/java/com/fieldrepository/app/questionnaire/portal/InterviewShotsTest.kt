@@ -11,6 +11,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -23,6 +24,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.fieldrepository.app.data.TokenStore
 import com.fieldrepository.app.data.UserDto
+import com.fieldrepository.app.explorer.ui.ExplorerUiText
 import com.fieldrepository.app.questionnaire.QFeature
 import com.fieldrepository.app.questionnaire.data.QArtisanOption
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
@@ -134,11 +136,11 @@ class InterviewShotsTest {
         compose.waitForIdle()
     }
 
-    private fun shot(board: String, dark: Boolean, variant: String = "") {
+    private fun shot(board: String, dark: Boolean, variant: String = "", prefix: String = "interview-") {
         compose.waitForIdle()
         Thread.sleep(600)
         val bitmap = instrumentation.uiAutomation.takeScreenshot() ?: error("no screenshot")
-        val root = File(app.getExternalFilesDir(null), "design-fidelity/interview-$board")
+        val root = File(app.getExternalFilesDir(null), "design-fidelity/$prefix$board")
         root.mkdirs()
         val name = listOf("impl-android", variant, device, if (dark) "dark" else "").filter { it.isNotEmpty() }.joinToString("-")
         File(root, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -268,6 +270,49 @@ class InterviewShotsTest {
         shot("States", dark, "read-only")
     }
 
+    private fun waitTag(tag: String, timeout: Long = 30_000) {
+        compose.waitUntil(timeout) { compose.onAllNodes(hasTestTag(tag), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    private fun tapPlay(description: String) {
+        compose.waitUntil(30_000) { compose.onAllNodes(hasContentDescription(description)).fetchSemanticsNodes().isNotEmpty() }
+        runCatching { compose.onAllNodes(hasContentDescription(description)).onFirst().performScrollTo() }
+        compose.onAllNodes(hasContentDescription(description)).onFirst().performClick()
+        compose.waitForIdle()
+    }
+
+    private fun takeInPlace(board: String, dark: Boolean) {
+        waitTag("questionnaire.take.preview")
+        waitTag("explorer.audio.card")
+        compose.waitUntil(30_000) { compose.onAllNodes(hasText(ExplorerUiText.loadingTranscript, substring = true), useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
+        check(compose.onAllNodes(hasTestTag("explorer.preview.close"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty()) { "the take plays in place, without the explorer's own header" }
+        shot(board, dark, "live", prefix = "takes-")
+        tap(t("openFullView"))
+        waitTag("explorer.preview.close")
+        waitTag("explorer.audio.card")
+        shot(board, dark, "live-explorer", prefix = "takes-")
+        compose.onAllNodes(hasTestTag("explorer.preview.close"), useUnmergedTree = true).onFirst().performClick()
+        compose.waitForIdle()
+    }
+
+    private fun questionTake(dark: Boolean) {
+        openSession("CI board by question", dark)
+        openSection("E", "Process of making and workflow")
+        tapPlay(t("playTake", "take" to t("questionTake", "duration" to "3:12")))
+        takeInPlace("Main", dark)
+    }
+
+    private fun sectionTake(dark: Boolean) {
+        openSession("CI board by section", dark)
+        openSection("A", "Origin, history, place and personal journey")
+        tapPlay(t("playInSectionTake", "code" to "A1"))
+        takeInPlace("AndroidSectionTake", dark)
+    }
+
+    @QFeature("TP1") @Test fun questionTakeLight() = questionTake(false)
+    @QFeature("TP1") @Test fun questionTakeDark() = questionTake(true)
+    @QFeature("TP1") @Test fun sectionTakeLight() = sectionTake(false)
+    @QFeature("TP1") @Test fun sectionTakeDark() = sectionTake(true)
     @QFeature("Q7") @Test fun listLight() = list(false)
     @QFeature("Q7") @Test fun listDark() = list(true)
     @QFeature("Q1") @Test fun newSessionLight() = newSession(false)

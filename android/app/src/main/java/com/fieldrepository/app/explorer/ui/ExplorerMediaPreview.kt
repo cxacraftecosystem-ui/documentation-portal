@@ -144,6 +144,8 @@ internal fun ExplorerMediaContent(
     onOpenRecord: ((ExplorerEntry) -> Unit)? = null,
     knownDurationMs: Long? = null,
     positioned: Boolean = true,
+    embedded: Boolean = false,
+    noTranscript: String = ExplorerUiText.noTranscript,
 ) {
     var index by rememberSaveable { mutableStateOf(start.coerceIn(0, (entries.size - 1).coerceAtLeast(0))) }
     val entry = entries.getOrNull(index) ?: return
@@ -164,6 +166,8 @@ internal fun ExplorerMediaContent(
                     loader = loader,
                     find = if (index == start) find else "",
                     onOpenRecord = onOpenRecord?.takeIf { entry.mediaId != null }?.let { open -> { open(entry) } },
+                    embedded = embedded,
+                    noTranscript = noTranscript,
                 )
             }
         }
@@ -185,6 +189,8 @@ private fun ColumnScope.MediaPane(
     loader: ExplorerMediaLoader? = null,
     find: String = "",
     onOpenRecord: (() -> Unit)? = null,
+    embedded: Boolean = false,
+    noTranscript: String = ExplorerUiText.noTranscript,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -220,7 +226,7 @@ private fun ColumnScope.MediaPane(
     val length = if (audioType) (ready?.view?.durationMs?.takeIf { it > 0 } ?: knownDurationMs ?: 0L).takeIf { it > 0 }?.let { ExplorerAudioLines.clock(it) } else null
     val meta = listOfNotNull(entry.mediaType?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "File", ExplorerBytes.format(entry.sizeBytes), length, position).joinToString(" · ")
 
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    if (!embedded) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(
             Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onDismiss)
                 .semantics { contentDescription = ExplorerUiText.close }.testTag("explorer.preview.close"),
@@ -247,7 +253,7 @@ private fun ColumnScope.MediaPane(
     }
 
     val bottomBar: @Composable () -> Unit = {
-        NavBar(
+        if (!embedded) NavBar(
             canPrevious, canNext, onPrevious, onNext,
             onDocx = if (ready != null && mediaId != null && !exporting) ({
                 exporting = true
@@ -273,14 +279,14 @@ private fun ColumnScope.MediaPane(
         Box(Modifier.fillMaxWidth().weight(1f).padding(16.dp), contentAlignment = Alignment.Center) {
             if (source == null) FieldCircularProgressIndicator() else coil3.compose.AsyncImage(model = source, contentDescription = entry.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
         }
-        NavBar(canPrevious, canNext, onPrevious, onNext, null, null)
+        if (!embedded) NavBar(canPrevious, canNext, onPrevious, onNext, null, null)
         return
     }
     if (audioType) {
         if (transcript is TranscriptState.Loading) {
             Box(Modifier.fillMaxWidth().weight(1f)) { LoadingLine(ExplorerUiText.loadingTranscript) }
         } else {
-            AudioPane(entry, ready?.view, startSeconds, find)
+            AudioPane(entry, ready?.view, startSeconds, find, noTranscript)
         }
         bottomBar()
         return
@@ -378,7 +384,7 @@ private fun ColumnScope.MediaPane(
         when {
             tab == PreviewTab.DETAILS -> Box(Modifier.padding(horizontal = 8.dp)) { Details(entry, ready?.view) }
             transcript is TranscriptState.Loading -> LoadingLine(ExplorerUiText.loadingTranscript)
-            ready == null -> HintLine(ExplorerUiText.noTranscript)
+            ready == null -> HintLine(noTranscript)
             else -> {
                 val list = rememberLazyListState()
                 LaunchedEffect(active, follow) {

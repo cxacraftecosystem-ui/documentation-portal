@@ -1,11 +1,11 @@
 package com.fieldrepository.app.questionnaire.ui
 
-import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -21,9 +21,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.questionnaire.data.QRecording
 import com.fieldrepository.app.questionnaire.data.QReviewAction
@@ -32,8 +34,6 @@ import com.fieldrepository.app.questionnaire.data.QSessionDetail
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
 import com.fieldrepository.app.questionnaire.data.SharedLanguages
-import com.fieldrepository.app.ui.AudioExpand
-import com.fieldrepository.app.ui.AudioPlayer
 import com.fieldrepository.app.transcript.data.TranscriptUiText
 import com.fieldrepository.app.transcript.ui.TranscriptDialog
 import com.fieldrepository.app.ui.FieldLinearProgressIndicator
@@ -77,8 +77,9 @@ fun SessionReadView(
     var attempt by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     var returning by remember { mutableStateOf(false) }
-    var playing by remember { mutableStateOf<Uri?>(null) }
-    var expandFor by remember { mutableStateOf<AudioExpand?>(null) }
+    var openTake by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    var full by rememberSaveable(sessionId) { mutableStateOf(false) }
+    StopTakesWhenClosed(detail?.recordings?.firstOrNull { it.id == openTake }?.mediaFileId)
     LaunchedEffect(sessionId, attempt) {
         failed = false
         runCatching { v2.api.session(sessionId) }.onSuccess { d ->
@@ -143,7 +144,7 @@ fun SessionReadView(
                     }
                     if (takes.isEmpty() && answered.isEmpty()) return@forEach
                     Text("${section.code}  ${section.title}", style = MaterialTheme.typography.titleMedium)
-                    takes.forEach { r -> TakeLine(r) { scope.launch { playing = v2.playbackUrl(r.id)?.let(Uri::parse); expandFor = r.audioExpand() } } }
+                    takes.forEach { r -> TakeLine(r, openTake == r.id, "Section ${section.code}", full, { full = it }) { full = false; openTake = if (openTake == r.id) null else r.id } }
                     answered.forEach { (q, list) ->
                         Text(q.displayCode + "  " + q.prompt, style = MaterialTheme.typography.labelLarge)
                         list.forEach { a ->
@@ -154,9 +155,8 @@ fun SessionReadView(
                 }
                 live.filter { it.targets.isEmpty() }.takeIf { it.isNotEmpty() }?.let { whole ->
                     Text(QuestionnaireCopy.s("record.wholeSession"), style = MaterialTheme.typography.titleMedium)
-                    whole.forEach { r -> TakeLine(r) { scope.launch { playing = v2.playbackUrl(r.id)?.let(Uri::parse); expandFor = r.audioExpand() } } }
+                    whole.forEach { r -> TakeLine(r, openTake == r.id, QuestionnaireCopy.s("record.wholeSession"), full, { full = it }) { full = false; openTake = if (openTake == r.id) null else r.id } }
                 }
-                playing?.let { AudioPlayer(it, expand = expandFor) }
                 if (canReview && d.status != "APPROVED") {
                     HorizontalDivider(color = MaterialTheme.field.hairline)
                     Text(reviewFlags(d), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
@@ -196,10 +196,10 @@ fun SessionReadView(
 }
 
 @Composable
-private fun TakeLine(r: QRecording, onPlay: () -> Unit) {
+private fun TakeLine(r: QRecording, open: Boolean, name: String, full: Boolean, onFull: (Boolean) -> Unit, onPlay: () -> Unit) {
     var transcript by remember { mutableStateOf(false) }
     if (transcript) r.mediaFileId?.let { id -> TranscriptDialog(id, audio = null, onDismiss = { transcript = false }) }
-    Row(Modifier.fillMaxWidth().clickable(onClick = onPlay), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onPlay).testTag("questionnaire.read.take.${r.id}"), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
             listOfNotNull(
                 ArtisanTimeline.targetsLabel(r.targets), QuestionnaireCopy.minutes(r.durationMs), r.recordedBy?.name?.ifBlank { null }?.let(QuestionnaireCopy::firstName),
@@ -208,8 +208,10 @@ private fun TakeLine(r: QRecording, onPlay: () -> Unit) {
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f)
         )
         if (r.mediaFileId != null) TextButton(onClick = { transcript = true }) { Text(TranscriptUiText.open, style = MaterialTheme.typography.labelSmall) }
-        Text("▶", style = MaterialTheme.typography.bodySmall)
+        if (r.mediaFileId != null) TakePlayDot(active = open)
     }
+    val take = r.mediaFileId?.let { InPlaceTake(r.id, it, r.id, ArtisanTimeline.targetsLabel(r.targets), dayAndTime(r.capturedAt), r.durationMs) }
+    if (open && take != null) TakePreview(take, name, full, onFull, fullButton = true)
     r.transcript?.shownPreview()?.let { com.fieldrepository.app.transcript.ui.TranscriptPreviewText(it, maxLines = 2) }
     RecordingChips(r.chips, onChip = QuestionnaireV2Nav::openRecordings)
 }

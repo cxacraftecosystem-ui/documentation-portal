@@ -238,8 +238,8 @@ class MediaTranscribeUiTest {
                 TakeSheet(
                     heading = "Section D · Giriraj",
                     takes = listOf(TakeRow("r1", 1, "Take 1  14 min", "Solo", null, local = false, removable = false)),
-                    locked = false, playing = null,
-                    onPlay = {}, onRemove = {}, onRecord = { recorded++ }, onUpload = {}, onDismiss = {},
+                    locked = false,
+                    onRemove = {}, onRecord = { recorded++ }, onUpload = {}, onDismiss = {},
                     onRestore = {}, onHistory = {},
                     note = "Add a recording?"
                 )

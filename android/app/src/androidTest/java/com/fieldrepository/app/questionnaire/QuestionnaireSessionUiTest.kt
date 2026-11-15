@@ -151,8 +151,8 @@ class QuestionnaireSessionUiTest {
                         TakeRow("r2", 0, "3 min", "", null, local = false, removable = true, removed = true),
                         TakeRow("r3", 0, "2 min", "", null, local = false, removable = false, removed = true)
                     ),
-                    locked = false, playing = null,
-                    onPlay = {}, onRemove = {}, onRecord = {}, onUpload = {}, onDismiss = {},
+                    locked = false,
+                    onRemove = {}, onRecord = {}, onUpload = {}, onDismiss = {},
                     onRestore = { picked += "restore:${it.recordingId}" },
                     onHistory = { picked += "history:${it.recordingId}" },
                     note = "Add a recording?"
@@ -174,8 +174,8 @@ class QuestionnaireSessionUiTest {
                 TakeSheet(
                     heading = "Section E",
                     takes = listOf(TakeRow("r1", 1, "Take 1  14 min", "Solo", null, local = false, removable = false)),
-                    locked = false, playing = null,
-                    onPlay = {}, onRemove = {}, onRecord = {}, onUpload = {}, onDismiss = {},
+                    locked = false,
+                    onRemove = {}, onRecord = {}, onUpload = {}, onDismiss = {},
                     recording = true
                 )
             }

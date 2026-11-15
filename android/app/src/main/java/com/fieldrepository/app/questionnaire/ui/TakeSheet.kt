@@ -1,6 +1,5 @@
 package com.fieldrepository.app.questionnaire.ui
 
-import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -24,13 +24,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.transcript.data.TranscriptUiText
-import com.fieldrepository.app.ui.AudioPlayer
 import com.fieldrepository.app.ui.field
 
 data class TakeRow(
@@ -46,8 +46,17 @@ data class TakeRow(
     val canMakePrimary: Boolean = false,
     val removed: Boolean = false,
     val canPropose: Boolean = false,
-    val mediaFileId: String? = null
-)
+    val mediaFileId: String? = null,
+    val localPath: String? = null,
+    val durationMs: Long = 0
+) {
+    fun inPlace(): InPlaceTake? = when {
+        removed -> null
+        local -> if (localPath == null) null else InPlaceTake(recordingId, recordingId, null, first, second.ifBlank { null }, durationMs, localPath)
+        mediaFileId != null -> InPlaceTake(recordingId, mediaFileId, recordingId, first, second.ifBlank { null }, durationMs)
+        else -> null
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,8 +64,6 @@ fun TakeSheet(
     heading: String,
     takes: List<TakeRow>,
     locked: Boolean,
-    playing: Uri?,
-    onPlay: (TakeRow) -> Unit,
     onRemove: (TakeRow) -> Unit,
     onRecord: () -> Unit,
     onUpload: () -> Unit,
@@ -72,6 +79,9 @@ fun TakeSheet(
     recording: Boolean = false
 ) {
     var showRemoved by remember { mutableStateOf(false) }
+    var open by rememberSaveable { mutableStateOf<String?>(null) }
+    var full by rememberSaveable { mutableStateOf(false) }
+    StopTakesWhenClosed(takes.firstOrNull { it.recordingId == open }?.inPlace()?.mediaKey)
     val live = takes.filterNot { it.removed }
     val removed = takes.filter { it.removed }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
@@ -82,6 +92,7 @@ fun TakeSheet(
             Text(heading, style = MaterialTheme.typography.titleMedium)
             note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted) }
             live.forEach { t ->
+                val take = t.inPlace()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(t.first, style = MaterialTheme.typography.bodyMedium)
@@ -93,8 +104,11 @@ fun TakeSheet(
                             onRecordConsent = if (t.local) null else ({ onRecordConsent(t) })
                         )
                     }
-                    IconButton(onClick = { onPlay(t) }) { Icon(Icons.Filled.PlayArrow, contentDescription = "Play") }
+                    if (take != null) IconButton(onClick = { full = false; open = if (open == t.recordingId) null else t.recordingId }) {
+                        Icon(if (open == t.recordingId) Icons.Filled.ExpandLess else Icons.Filled.PlayArrow, contentDescription = QuestionnaireCopy.t("playTake", "take" to t.first))
+                    }
                 }
+                if (take != null && open == t.recordingId) TakePreview(take, heading, full, { full = it }, fullButton = true)
                 if (!t.local) {
                     val actions = buildList {
                         if (t.mediaFileId != null) add(PromptButton(TranscriptUiText.open) { onTranscript(t) })
@@ -119,7 +133,6 @@ fun TakeSheet(
                     }
                 }
             }
-            playing?.let { AudioPlayer(it) }
             if (!locked) {
                 PromptButtons(
                     listOfNotNull(

@@ -160,7 +160,7 @@ internal fun audioHighlight(text: String, needle: String, mark: Color, onMark: C
 }
 
 @Composable
-internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, startSeconds: Double, find: String = "") {
+internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, startSeconds: Double, find: String = "", noTranscript: String = ExplorerUiText.noTranscript) {
     val context = LocalContext.current
     val audio by ExplorerAudio.state.collectAsState()
     val lines = audioLines(view)
@@ -294,7 +294,7 @@ internal fun ColumnScope.AudioPane(entry: ExplorerEntry, view: Transcript?, star
 
     Box(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp)) {
         if (lines.isEmpty()) {
-            HintLine(ExplorerUiText.noTranscript)
+            HintLine(noTranscript)
         } else {
             val list = rememberLazyListState()
             val focus = (if (stepped) found.current else null) ?: active
