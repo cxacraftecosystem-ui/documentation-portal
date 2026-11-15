@@ -75,7 +75,8 @@ data class PendingEntry(
     val existingRecordId: String? = null,
     val existingRecordLabel: String? = null,
     val duplicateCandidates: List<OutboxDuplicateCandidate> = emptyList(),
-    val attachedToExisting: Boolean = false
+    val attachedToExisting: Boolean = false,
+    val changedKeys: Set<String>? = null
 )
 
 @Serializable

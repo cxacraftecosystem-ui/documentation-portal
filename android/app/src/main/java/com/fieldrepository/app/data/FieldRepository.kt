@@ -1274,8 +1274,8 @@ class FieldRepository(
     suspend fun workshopsByOccurrence(): List<WorkshopDetailDto> =
         workshops().sortedByDescending { it.occurrenceDate() }
 
-    suspend fun workshopSubmissionCheck(workshopId: String): WorkshopSubmissionCheckDto? =
-        runCatching { api.workshopSubmissionCheck(workshopId) }.getOrNull()
+    suspend fun workshopSubmissionCheck(workshopId: String, fresh: Boolean = false): WorkshopSubmissionCheckDto? =
+        runCatching { api.workshopSubmissionCheck(workshopId, if (fresh) "no-cache" else null) }.getOrNull()
 
     suspend fun unmappedRecords(): WorkshopMappingPlanDto = api.unmappedRecords()
 
@@ -1303,7 +1303,9 @@ class FieldRepository(
     suspend fun lookupArtisanByAadhaar(number: String): AadhaarLookupDto =
         api.lookupArtisanByAadhaar(AadhaarLookupRequest(number.trim()))
 
-    suspend fun updateArtisan(id: String, body: ArtisanCreateRequest): ArtisanDetailDto = api.updateArtisan(id, body)
+    suspend fun updateArtisan(id: String, body: ArtisanCreateRequest, changed: Set<String>? = null): ArtisanDetailDto =
+        if (changed == null) api.updateArtisan(id, body)
+        else api.updateArtisanFields(id, editPatchBody(ArtisanCreateRequest.serializer(), body, changed, ARTISAN_CLEARABLE_COLUMNS))
 
     suspend fun artisanQuestionnaire(id: String): ArtisanQuestionnaireDto = api.artisanQuestionnaire(id)
 
@@ -1562,35 +1564,45 @@ class FieldRepository(
     suspend fun createProcess(body: ProcessCreateRequest, idempotencyKey: String? = null): ProcessDetailDto =
         api.createProcess(idempotencyKey, body)
 
-    suspend fun updateProcess(id: String, body: ProcessCreateRequest): ProcessDetailDto = api.updateProcess(id, body)
+    suspend fun updateProcess(id: String, body: ProcessCreateRequest, changed: Set<String>? = null): ProcessDetailDto =
+        if (changed == null) api.updateProcess(id, body)
+        else api.updateProcessFields(id, editPatchBody(ProcessCreateRequest.serializer(), body, changed))
 
     suspend fun createCraft(body: CraftCreateRequest, idempotencyKey: String? = null): CreatedRecordDto =
         api.createCraft(idempotencyKey, body)
 
     suspend fun craft(id: String): CraftDto = api.craft(id)
 
-    suspend fun updateCraft(id: String, body: CraftCreateRequest): CraftDto = api.updateCraft(id, body)
+    suspend fun updateCraft(id: String, body: CraftCreateRequest, changed: Set<String>? = null): CraftDto =
+        if (changed == null) api.updateCraft(id, body)
+        else api.updateCraftFields(id, editPatchBody(CraftCreateRequest.serializer(), body, changed))
 
     suspend fun createWorkshop(body: WorkshopCreateRequest, idempotencyKey: String? = null): CreatedRecordDto =
         api.createWorkshop(idempotencyKey, body)
 
     suspend fun workshop(id: String): WorkshopDetailDto = api.workshop(id)
 
-    suspend fun updateWorkshop(id: String, body: WorkshopCreateRequest): WorkshopDetailDto = api.updateWorkshop(id, body)
+    suspend fun updateWorkshop(id: String, body: WorkshopCreateRequest, changed: Set<String>? = null): WorkshopDetailDto =
+        if (changed == null) api.updateWorkshop(id, body)
+        else api.updateWorkshopFields(id, editPatchBody(WorkshopCreateRequest.serializer(), body, changed))
 
     suspend fun createProduct(body: ProductCreateRequest, idempotencyKey: String? = null): CreatedRecordDto =
         api.createProduct(idempotencyKey, body)
 
     suspend fun product(id: String): ProductDetailDto = api.product(id)
 
-    suspend fun updateProduct(id: String, body: ProductCreateRequest): ProductDetailDto = api.updateProduct(id, body)
+    suspend fun updateProduct(id: String, body: ProductCreateRequest, changed: Set<String>? = null): ProductDetailDto =
+        if (changed == null) api.updateProduct(id, body)
+        else api.updateProductFields(id, editPatchBody(ProductCreateRequest.serializer(), body, changed))
 
     suspend fun createTool(body: ToolCreateRequest, idempotencyKey: String? = null): CreatedRecordDto =
         api.createTool(idempotencyKey, body)
 
     suspend fun tool(id: String): ToolDetailDto = api.tool(id)
 
-    suspend fun updateTool(id: String, body: ToolCreateRequest): ToolDetailDto = api.updateTool(id, body)
+    suspend fun updateTool(id: String, body: ToolCreateRequest, changed: Set<String>? = null): ToolDetailDto =
+        if (changed == null) api.updateTool(id, body)
+        else api.updateToolFields(id, editPatchBody(ToolCreateRequest.serializer(), body, changed))
 
     suspend fun questionnaires(): List<QuestionnaireDto> = api.questionnaires()
 
@@ -2153,14 +2165,16 @@ class FieldRepository(
         recordName: String?,
         caption: String?,
         location: LocationRequest? = null,
-        editOf: String? = null
+        editOf: String? = null,
+        changedKeys: Set<String>? = null
     ) = queueOfflineEntry(
         context, type, payloadJson, label,
         mediaUris.mapIndexed { index, uri ->
             OfflineMediaSpec(uri = uri, caption = caption, recordName = recordName, batchIndex = index + 1, location = location)
         },
         kind = if (editOf != null) OutboxKind.UPDATE else OutboxKind.CREATE,
-        targetId = editOf
+        targetId = editOf,
+        changedKeys = if (editOf != null) changedKeys else null
     )
 
     suspend fun queueAttachments(
@@ -2192,7 +2206,8 @@ class FieldRepository(
         kind: String = OutboxKind.CREATE,
         targetId: String? = null,
         idempotencyKey: String? = null,
-        steps: List<OutboxStep> = emptyList()
+        steps: List<OutboxStep> = emptyList(),
+        changedKeys: Set<String>? = null
     ) = withContext(Dispatchers.IO) {
         val media = items.map { spec ->
             OfflineOutbox.stageMedia(
@@ -2228,7 +2243,8 @@ class FieldRepository(
                 } else {
                     null
                 },
-                steps = steps
+                steps = steps,
+                changedKeys = if (kind == OutboxKind.UPDATE) changedKeys else null
             )
         )
         OutboxSyncWorker.schedule(context)
@@ -2525,12 +2541,12 @@ class FieldRepository(
     private suspend fun updateFromEntry(entry: PendingEntry): CreatedRecord {
         val id = entry.targetId ?: throw SerializationException("Queued edit has no record id")
         return when (entry.type) {
-            "artisan" -> CreatedRecord(api.updateArtisan(id, offlineJson.decodeFromString<ArtisanCreateRequest>(entry.payloadJson)).id)
-            "product" -> CreatedRecord(api.updateProduct(id, offlineJson.decodeFromString<ProductCreateRequest>(entry.payloadJson)).id)
-            "tool" -> CreatedRecord(api.updateTool(id, offlineJson.decodeFromString<ToolCreateRequest>(entry.payloadJson)).id)
-            "workshop" -> CreatedRecord(api.updateWorkshop(id, offlineJson.decodeFromString<WorkshopCreateRequest>(entry.payloadJson)).id)
-            "craft" -> CreatedRecord(api.updateCraft(id, offlineJson.decodeFromString<CraftCreateRequest>(entry.payloadJson)).id)
-            "process" -> api.updateProcess(id, offlineJson.decodeFromString<ProcessCreateRequest>(entry.payloadJson))
+            "artisan" -> CreatedRecord(updateArtisan(id, offlineJson.decodeFromString<ArtisanCreateRequest>(entry.payloadJson), entry.changedKeys).id)
+            "product" -> CreatedRecord(updateProduct(id, offlineJson.decodeFromString<ProductCreateRequest>(entry.payloadJson), entry.changedKeys).id)
+            "tool" -> CreatedRecord(updateTool(id, offlineJson.decodeFromString<ToolCreateRequest>(entry.payloadJson), entry.changedKeys).id)
+            "workshop" -> CreatedRecord(updateWorkshop(id, offlineJson.decodeFromString<WorkshopCreateRequest>(entry.payloadJson), entry.changedKeys).id)
+            "craft" -> CreatedRecord(updateCraft(id, offlineJson.decodeFromString<CraftCreateRequest>(entry.payloadJson), entry.changedKeys).id)
+            "process" -> updateProcess(id, offlineJson.decodeFromString<ProcessCreateRequest>(entry.payloadJson), entry.changedKeys)
                 .let { detail -> CreatedRecord(detail.id, detail.steps.map { it.id }) }
             else -> throw SerializationException("Unknown offline edit type: ${entry.type}")
         }

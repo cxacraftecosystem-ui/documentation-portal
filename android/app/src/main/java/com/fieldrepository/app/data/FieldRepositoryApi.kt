@@ -260,6 +260,9 @@ interface FieldRepositoryApi {
     @PATCH("artisans/{id}")
     suspend fun updateArtisan(@Path("id") id: String, @Body body: ArtisanCreateRequest): ArtisanDetailDto
 
+    @PATCH("artisans/{id}")
+    suspend fun updateArtisanFields(@Path("id") id: String, @Body body: JsonObject): ArtisanDetailDto
+
     @GET("artisans/{id}/questionnaire")
     suspend fun artisanQuestionnaire(@Path("id") id: String): ArtisanQuestionnaireDto
 
@@ -271,6 +274,9 @@ interface FieldRepositoryApi {
 
     @PATCH("crafts/{id}")
     suspend fun updateCraft(@Path("id") id: String, @Body body: CraftCreateRequest): CraftDto
+
+    @PATCH("crafts/{id}")
+    suspend fun updateCraftFields(@Path("id") id: String, @Body body: JsonObject): CraftDto
 
     @GET("products")
     suspend fun products(
@@ -290,6 +296,9 @@ interface FieldRepositoryApi {
     @PATCH("products/{id}")
     suspend fun updateProduct(@Path("id") id: String, @Body body: ProductCreateRequest): ProductDetailDto
 
+    @PATCH("products/{id}")
+    suspend fun updateProductFields(@Path("id") id: String, @Body body: JsonObject): ProductDetailDto
+
     @GET("tools")
     suspend fun tools(
         @Query("page") page: Int = 1,
@@ -305,6 +314,9 @@ interface FieldRepositoryApi {
 
     @PATCH("tools/{id}")
     suspend fun updateTool(@Path("id") id: String, @Body body: ToolCreateRequest): ToolDetailDto
+
+    @PATCH("tools/{id}")
+    suspend fun updateToolFields(@Path("id") id: String, @Body body: JsonObject): ToolDetailDto
 
     @GET("tools/{id}/artisans")
     suspend fun toolArtisans(@Path("id") id: String): List<ArtisanDto>
@@ -330,8 +342,14 @@ interface FieldRepositoryApi {
     @PATCH("workshops/{id}")
     suspend fun updateWorkshop(@Path("id") id: String, @Body body: WorkshopCreateRequest): WorkshopDetailDto
 
+    @PATCH("workshops/{id}")
+    suspend fun updateWorkshopFields(@Path("id") id: String, @Body body: JsonObject): WorkshopDetailDto
+
     @GET("workshops/{id}/submission-check")
-    suspend fun workshopSubmissionCheck(@Path("id") id: String): WorkshopSubmissionCheckDto
+    suspend fun workshopSubmissionCheck(
+        @Path("id") id: String,
+        @Header("Cache-Control") cacheControl: String? = null,
+    ): WorkshopSubmissionCheckDto
 
     @GET("workshops/unmapped")
     suspend fun unmappedRecords(): WorkshopMappingPlanDto
@@ -471,6 +489,9 @@ interface FieldRepositoryApi {
 
     @PATCH("processes/{id}")
     suspend fun updateProcess(@Path("id") id: String, @Body body: ProcessCreateRequest): ProcessDetailDto
+
+    @PATCH("processes/{id}")
+    suspend fun updateProcessFields(@Path("id") id: String, @Body body: JsonObject): ProcessDetailDto
 
     @POST("workshops")
     suspend fun createWorkshop(@Header("Idempotency-Key") idempotencyKey: String?, @Body body: WorkshopCreateRequest): CreatedRecordDto
