@@ -165,7 +165,11 @@ def _appends_text(stored: Any, incoming: Any) -> bool:
         return len(after) >= len(before) and after[: len(before)] == before
     if before is not None or after is not None:
         return False
-    return " ".join(incoming.split()).startswith(" ".join(stored.split()))
+    kept = stored.rstrip()
+    if not incoming.startswith(kept):
+        return False
+    added = incoming[len(kept):]
+    return not added.strip() or added[0].isspace()
 
 
 def adds_only(field: str, stored: Any, incoming: Any) -> bool:
@@ -193,7 +197,7 @@ def _locked_extra(stored: Any, incoming: Any) -> list[str]:
         f"extraMetadata.{key}"
         for key, value in incoming.items()
         if key not in SERVER_EXTRA_KEYS
-        and key not in ADDITIVE_EXTRA_KEYS
+        and not (key in ADDITIVE_EXTRA_KEYS and isinstance(value, list))
         and not is_empty_value(stored.get(key))
         and (
             is_empty_value(value)

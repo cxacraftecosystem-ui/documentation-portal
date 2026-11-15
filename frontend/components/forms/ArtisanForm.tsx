@@ -276,9 +276,6 @@ export function ArtisanForm({ initial, onCreated, onQueued }: { initial?: Artisa
   const completenessCounts = useMemo(() => ({ photos: photosPicked(mediaFiles) }), [mediaFiles]);
   const [error, setError] = useState<string | null>(null);
   const [keptAfterRefusal, setKeptAfterRefusal] = useState(false);
-  useEffect(() => {
-    return lockFilledFields(formRef.current, initial, FILLED_ARTISAN_FIELDS, FILLED_FIELD_REASON);
-  }, [initial]);
   const [conflict, setConflict] = useState<ArtisanIdentityConflict | null>(null);
   const [duplicatePromptOpen, setDuplicatePromptOpen] = useState(false);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
@@ -296,6 +293,9 @@ export function ArtisanForm({ initial, onCreated, onQueued }: { initial?: Artisa
   const [localName, setLocalName] = useState(initial?.localName ?? "");
   const [place, setPlace] = useState(initial?.place ?? "");
   const [formKey, setFormKey] = useState(0);
+  useEffect(() => {
+    return lockFilledFields(formRef.current, initial, FILLED_ARTISAN_FIELDS, FILLED_FIELD_REASON);
+  }, [initial, formKey]);
   const [lookup, setLookup] = useState<ArtisanLookupStart | null>(initial ? { name: "", aadhaar: "" } : null);
   const [aadhaarNotShared, setAadhaarNotShared] = useState(Boolean(initial?.aadhaarNotShared));
   const [retry, setRetry] = useState<{ files: File[]; upload: (files: File[]) => Promise<{ failed: Array<{ name: string; error?: string }> }> } | null>(null);

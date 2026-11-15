@@ -415,7 +415,7 @@ test.describe("@qf:X4 thumbnails", () => {
     const { context, page, fake } = await openExplorer(browser, { path: "workshops/bagru" });
     try {
       await expect(page.locator('img[src*="/thumbnail"]').first()).toBeVisible();
-      expect(fake.calledWith("GET", "/data/media/img1/thumbnail").length).toBeGreaterThan(0);
+      await expect.poll(() => fake.calledWith("GET", "/data/media/img1/thumbnail").length).toBeGreaterThan(0);
       expect(fake.servedFiles.filter((id) => id.startsWith("original-"))).toEqual([]);
     } finally {
       await context.close();

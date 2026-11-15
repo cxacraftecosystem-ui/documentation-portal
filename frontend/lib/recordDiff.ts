@@ -145,3 +145,14 @@ export function lockFilledFields(form: HTMLFormElement | null, record: object | 
 }
 
 export const FILLED_FIELD_REASON = "Filled in by the person who recorded it. Only they, an admin or someone with Edit access can change it.";
+
+export type ResponseInput = { questionId: string; answerText?: string | null; notes?: string | null };
+
+export function changedResponses<T extends ResponseInput>(responses: readonly T[], stored: readonly ResponseInput[] | null | undefined): T[] {
+  const before = new Map((stored ?? []).map((row) => [row.questionId, row]));
+  return responses.filter((response) => {
+    const previous = before.get(response.questionId);
+    if (!previous) return true;
+    return (previous.answerText ?? "").trim() !== (response.answerText ?? "").trim() || (previous.notes ?? "") !== (response.notes ?? previous.notes ?? "");
+  });
+}

@@ -344,7 +344,12 @@ def source_of(response: Any) -> str | None:
 
 
 async def upsert_responses(
-    interview_id: str, responses: list[Any], current_user: Any, questionnaire_id: str
+    interview_id: str,
+    responses: list[Any],
+    current_user: Any,
+    questionnaire_id: str,
+    *,
+    privileged: bool = False,
 ) -> None:
     if not responses:
         return
@@ -385,17 +390,18 @@ async def upsert_responses(
                 }
             )
             continue
+        if existing.answerText == response.answerText and existing.notes == response.notes:
+            continue
         if (
             existing.answerText
             and existing.answeredById != current_user.id
+            and not privileged
             and not is_content_admin(current_user)
         ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only the original answer contributor or an admin can change this response",
             )
-        if existing.answerText == response.answerText and existing.notes == response.notes:
-            continue
         to_update.append(
             (
                 existing.id,
@@ -1244,7 +1250,11 @@ async def update_interview(
             await replace_interview_artisans(interview_id, payload.artisanIds)
     if payload.responses is not None and not v2_on:
         await upsert_responses(
-            interview_id, payload.responses, current_user, get_value(interview, "questionnaireId")
+            interview_id,
+            payload.responses,
+            current_user,
+            get_value(interview, "questionnaireId"),
+            privileged=privileged,
         )
     if v2_on:
         await v2_shims.patch_interview_shim(interview, payload, current_user)

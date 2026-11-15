@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { expect, test } from "@playwright/test";
 
-import { editedFields, fillsOnly, sameAsStored, submissionRefusal, viewOnly } from "@/lib/recordDiff";
+import { changedResponses, editedFields, fillsOnly, sameAsStored, submissionRefusal, viewOnly } from "@/lib/recordDiff";
 import { artisanBody } from "@/lib/recordPayloads";
 
 const STORED = {
@@ -124,4 +127,26 @@ test("a workshop refusal names the real reason", () => {
   expect(submissionRefusal({ canSubmit: false, requestStatus: "REVOKED" })).toMatch(/revoked/);
   expect(submissionRefusal({ canSubmit: false, requestStatus: "GRANTED", accessLevel: "VIEW" })).toMatch(/View only/);
   expect(submissionRefusal({ canSubmit: false, assigned: false })).toMatch(/not assigned/);
+});
+
+test("an interview edit sends only new or changed answers, matched by question", () => {
+  const stored = [
+    { questionId: "q1", answerText: "Teak" },
+    { questionId: "q2", answerText: "Sheesham", notes: "seasoned" }
+  ];
+  const typed = [
+    { questionId: "q2", answerText: "Sheesham" },
+    { questionId: "q1", answerText: "Teak " },
+    { questionId: "q3", answerText: "Brass" }
+  ];
+  expect(changedResponses(typed, stored)).toEqual([{ questionId: "q3", answerText: "Brass" }]);
+  expect(changedResponses([{ questionId: "q1", answerText: "Rosewood" }], stored)).toEqual([{ questionId: "q1", answerText: "Rosewood" }]);
+  expect(changedResponses(typed, null)).toEqual(typed);
+});
+
+test("the filled-field lock is set again whenever the form remounts", () => {
+  for (const name of ["ArtisanForm", "ProductForm"]) {
+    const source = readFileSync(join(__dirname, "..", "components", "forms", `${name}.tsx`), "utf8");
+    expect(source, name).toMatch(/return lockFilledFields\(formRef\.current, initial, FILLED_\w+_FIELDS, FILLED_FIELD_REASON\);\n {2}\}, \[initial, formKey\]\);/);
+  }
 });

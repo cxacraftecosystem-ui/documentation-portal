@@ -688,7 +688,9 @@ def merge_field_provenance(new_data: dict[str, Any], user: Any, previous: Any | 
     base_extra.update({key: value for key, value in incoming_extra.items() if key != "fieldProvenance"})
     earlier_exif = previous_extra.get("mediaExif")
     added_exif = incoming_extra.get("mediaExif")
-    if isinstance(earlier_exif, list) and isinstance(added_exif, list):
+    if isinstance(earlier_exif, list) and not isinstance(added_exif, list):
+        base_extra["mediaExif"] = earlier_exif
+    elif isinstance(earlier_exif, list) and isinstance(added_exif, list):
         base_extra["mediaExif"] = earlier_exif + [entry for entry in added_exif if entry not in earlier_exif]
 
     stamps = method_stamps(new_data.pop(MARKER_BODY_KEY, None), fields=new_data.keys())

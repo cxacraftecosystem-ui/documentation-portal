@@ -66,6 +66,7 @@ import {
   type BatchProgress
 } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
+import { changedResponses } from "@/lib/recordDiff";
 import { interviewBody, interviewTitle as interviewTitleFor } from "@/lib/recordPayloads";
 import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import { canManageQuestionnaire, hasRank, isContentAdmin, mayDeleteQuestionnaire, mayEditQuestionnaire } from "@/lib/permissions";
@@ -903,15 +904,18 @@ function QuestionnairePageBody() {
       const recordedTimezone = recordedTimezoneFromForm(form);
       const interviewTitle = interviewTitleFor(form, automaticTitle);
       const editingId = editing?.id ?? null;
-      const interviewPayload = interviewBody(form, {
+      const sentResponses = editing ? changedResponses(responses, editing.responses) : responses;
+      const builtPayload = interviewBody(form, {
         editingId,
         automaticTitle,
         canPickStatus,
         workshopId: workshop.workshopId,
         artisanIds,
-        responses,
+        responses: sentResponses,
         questionnaireId
       });
+      const { responses: builtResponses, ...withoutResponses } = builtPayload;
+      const interviewPayload = editing && !builtResponses.length ? withoutResponses : builtPayload;
       const outcome = await saveOrQueue<QuestionnaireInterview>({
         label: editingId ? `Interview (edit) · ${interviewTitle}` : `Interview · ${interviewTitle}`,
         endpoint: editingId ? `/questionnaire/interviews/${editingId}` : "/questionnaire/interviews",

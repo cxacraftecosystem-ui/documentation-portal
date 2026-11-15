@@ -15,6 +15,7 @@ MODULES = (
     "records",
     "answer_drafts",
     "codes",
+    "access",
 )
 
 REQUIRED = (
@@ -99,6 +100,7 @@ workshop_access = _Module("workshop_access")
 records = _Module("records")
 answer_drafts = _Module("answer_drafts")
 codes = _Module("codes")
+access = _Module("access")
 
 
 async def enforce_workshop_submission(*args: Any, **kwargs: Any) -> Any:

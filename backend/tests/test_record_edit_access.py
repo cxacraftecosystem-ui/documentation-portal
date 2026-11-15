@@ -363,3 +363,37 @@ def test_a_reposted_location_keeps_the_stored_one(monkeypatch):
 
     assert unchanged == {"locationId"}
     assert "locationId" not in data
+
+
+def test_a_contributor_cannot_wipe_the_photo_exif_list(world):
+    from app.services.record_changes import locked_fields
+
+    stored = _stored_artisan()
+    for wipe in (None, {}, "gone"):
+        assert locked_fields(stored, {"extraMetadata": {"mediaExif": wipe}}) == ["extraMetadata.mediaExif"]
+    assert locked_fields(stored, {"extraMetadata": {"mediaExif": []}}) == []
+    assert locked_fields(stored, {"extraMetadata": {"mediaExif": [{"filename": "second.jpg"}]}}) == []
+
+
+def test_a_non_list_exif_never_replaces_the_stored_list():
+    from app.services.records import merge_field_provenance
+
+    for wipe in (None, {}, "gone"):
+        stored = _stored_artisan()
+        data = {"extraMetadata": {"mediaExif": wipe}}
+        merge_field_provenance(data, RESEARCHER, previous=stored)
+        assert data["extraMetadata"].data["mediaExif"] == stored.extraMetadata["mediaExif"]
+
+
+def test_an_append_keeps_the_stored_text_exactly():
+    from app.services.record_changes import locked_fields
+
+    def appended(before: str, after: str) -> bool:
+        return locked_fields(_Row(id="t1", notes=before), {"notes": after}) == []
+
+    assert appended("Teak 10", "Teak 10\n\nWeighs 100 kg")
+    assert appended("Teak 10", "Teak 10 and sheesham")
+    assert appended("First.\n\nSecond.", "First.\n\nSecond.\n\nThird.")
+    assert not appended("Teak 10", "Teak 100 kg")
+    assert not appended("First.\n\nSecond.", "First. Second. Third.")
+    assert not appended("Teak 10", "teak 10 more")

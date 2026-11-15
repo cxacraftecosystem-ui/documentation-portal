@@ -120,9 +120,6 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
   const completenessCounts = useMemo(() => ({ photos: photosPicked(mediaFiles) }), [mediaFiles]);
   const [error, setError] = useState<string | null>(null);
   const [keptAfterRefusal, setKeptAfterRefusal] = useState(false);
-  useEffect(() => {
-    return lockFilledFields(formRef.current, initial, FILLED_PRODUCT_FIELDS, FILLED_FIELD_REASON);
-  }, [initial]);
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
   const [craftId, setCraftId] = useState(initial?.craftId ?? searchParams.get("craftId") ?? "");
@@ -136,6 +133,9 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
   const artisanSearch = useServerSearchList<Artisan>("/artisans", "artisans");
   const [savedProduct, setSavedProduct] = useState<ProductDocumentation | null>(null);
   const [formKey, setFormKey] = useState(0);
+  useEffect(() => {
+    return lockFilledFields(formRef.current, initial, FILLED_PRODUCT_FIELDS, FILLED_FIELD_REASON);
+  }, [initial, formKey]);
   const [retry, setRetry] = useState<{ files: File[]; upload: (files: File[]) => Promise<{ failed: Array<{ name: string; error?: string }> }> } | null>(null);
   const [productName, setProductName] = useState(initial?.productName ?? "");
   const [localName, setLocalName] = useState(initial?.localName ?? "");

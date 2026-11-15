@@ -88,7 +88,19 @@ async def can_work_in(client: Any, user: Any, session: dict[str, Any]) -> bool:
         return True
     if str(session.get("createdById")) == str(user.id):
         return True
-    return str(user.id) in await researcher_ids(client, str(session["id"]))
+    if str(user.id) in await researcher_ids(client, str(session["id"])):
+        return True
+    return bool(await ports.access.record_edit_privilege(session, user, "questionnaire"))
+
+
+async def can_add_answers_in(client: Any, user: Any, session: dict[str, Any]) -> bool:
+    if await can_work_in(client, user, session):
+        return True
+    workshop_id = session.get("workshopId")
+    if not workshop_id:
+        return False
+    access = await ports.workshop_access.resolve_workshop_access(user, str(workshop_id))
+    return bool(access.at_least("CONTRIBUTE"))
 
 
 async def assert_can_work_in(client: Any, user: Any, session: dict[str, Any]) -> None:
