@@ -111,7 +111,7 @@
       "method": "GET",
       "path": "/data/media/{media_id}/transcript",
       "response": "{mediaId, name, content: string, language: string | null}",
-      "notes": "One transcript, fetched when the user opens it (A3). 404 for a removed or unreadable recording. Clients cache it for the session; never fetch twice for one open (W16)."
+      "notes": "One transcript, fetched when the user opens it (A3). 404 for a removed or unreadable recording. Clients cache it for the session; never fetch twice for one open (W16). Open to anyone who may read the file under the transcript read rules (dataset download access, or the uploader and the scopes granted to them), so a questionnaire take plays in place; the rest of /data needs dataset download access."
     },
     {
       "id": "stats",
@@ -173,7 +173,7 @@
       "method": "GET",
       "path": "/data/media/{media_id}/preview",
       "response": "302 to a signed inline URL (Content-Disposition: inline, Range supported by storage); Cache-Control: private, max-age=1800.",
-      "notes": "Video, audio, image and PDF (W12). 415 for other types.",
+      "notes": "Video, audio, image and PDF (W12). 415 for other types. Open to anyone who may read the file under the transcript read rules (dataset download access, or the uploader and the scopes granted to them), so a questionnaire take plays in place; the rest of /data needs dataset download access.",
       "query": {
         "variant": "original | isolated, default original; isolated signs the clear-voices copy, 404 when there is none"
       }
@@ -322,7 +322,7 @@
       "method": "GET",
       "path": "/data/media/{media_id}/peaks",
       "response": "{peaks: number[] (800 values, 0..1), durationMs: int | null, isolated: bool, canIsolate: bool}",
-      "notes": "Computed once with ffmpeg and stored. 404 when the file is not audio or video or cannot be decoded; 503 with Retry-After while another waveform is being made. isolated: a clear-voices copy exists (play it from preview?variant=isolated). canIsolate: POST isolate would be accepted (audio, no copy yet, the admin switch on and keyed, the caller uploaded it or is a content admin, consent allows)."
+      "notes": "Computed once with ffmpeg and stored. 404 when the file is not audio or video or cannot be decoded; 503 with Retry-After while another waveform is being made. isolated: a clear-voices copy exists (play it from preview?variant=isolated). canIsolate: POST isolate would be accepted (audio, no copy yet, the admin switch on and keyed, the caller uploaded it or is a content admin, consent allows). Open to anyone who may read the file under the transcript read rules (dataset download access, or the uploader and the scopes granted to them), so a questionnaire take plays in place; the rest of /data needs dataset download access."
     },
     {
       "id": "visits",
@@ -383,7 +383,7 @@
       "method": "POST",
       "path": "/data/media/{media_id}/isolate",
       "response": "202 {status: queued | running | ready, isolated: bool}",
-      "notes": "Queues the existing audio-isolation job for one recording. 403 when canIsolate is false, 404 when the file is not visible or not audio."
+      "notes": "Queues the existing audio-isolation job for one recording. 403 when canIsolate is false, 404 when the file is not visible or not audio. Open to anyone who may read the file under the transcript read rules (dataset download access, or the uploader and the scopes granted to them), so a questionnaire take plays in place; the rest of /data needs dataset download access."
     },
     {
       "id": "report-schedules-list",

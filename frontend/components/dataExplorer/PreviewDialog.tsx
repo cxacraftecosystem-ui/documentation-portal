@@ -82,6 +82,12 @@ const MARK_AMBER = "rounded bg-[#fde68a] px-0.5 text-[#78350f] dark:bg-amber-900
 
 const MARK_PURPLE = "rounded bg-[#f2e9fe] px-0.5 text-[#5f2491] dark:bg-purple-900 dark:text-purple-100";
 
+const EMBED_HEIGHT = "h-[clamp(20rem,calc(100dvh-24rem),36rem)]";
+
+const EMBED_WIDE = `flex ${EMBED_HEIGHT} flex-col`;
+
+const EMBED_PHONE = `flex ${EMBED_HEIGHT} flex-col bg-card pt-3`;
+
 
 function lessMotion(): boolean {
   if (typeof window === "undefined") return true;
@@ -338,7 +344,9 @@ function PreviewBody({
   find,
   onDownload,
   onMinimise,
-  closerRef
+  closerRef,
+  embedded = false,
+  emptyText
 }: {
   entry: TreeEntry;
   siblings: TreeEntry[];
@@ -351,6 +359,8 @@ function PreviewBody({
   onDownload: (request: DownloadRequest) => void;
   onMinimise?: (track: MiniTrack) => void;
   closerRef: MutableRefObject<(() => void) | null>;
+  embedded?: boolean;
+  emptyText?: string | null;
 }) {
   const tabsId = useId();
   const narrow = useNarrow();
@@ -868,7 +878,7 @@ function PreviewBody({
   );
 
   const emptyNote = loaded && !lines.length && !loaded.text ? (
-    <p className="p-4 text-sm text-ink-500">{loaded.error ?? (transcript && transcript.status !== "READY" ? (transcript.statusMessage ?? "The transcript isn't ready yet.") : "No transcript for this file.")}</p>
+    <p className="p-4 text-sm text-ink-500">{loaded.error ?? (transcript && transcript.status !== "READY" ? (transcript.statusMessage ?? "The transcript isn't ready yet.") : (emptyText ?? "No transcript for this file."))}</p>
   ) : null;
 
   const textPanel = (variant: "wide" | "stacked" | "phone") => (
@@ -1020,9 +1030,9 @@ function PreviewBody({
 
   if (audio && !narrow) {
     return (
-      <div className="flex h-[calc(100dvh-5rem)] flex-col" data-testid="preview-body">
+      <div className={embedded ? EMBED_WIDE : "flex h-[calc(100dvh-5rem)] flex-col"} data-testid="preview-body">
         {audioElement}
-        {header}
+        {embedded ? null : header}
         <section className="flex flex-col gap-2.5 border-b border-line-200 bg-linear-to-b from-[#faf5ff] to-card px-6 pb-3.5 pt-[18px] dark:from-purple-950/40" data-testid="preview-controls">
           <div className="flex items-center gap-4">
             <button type="button" className={`${ROUND} h-11 w-11`} aria-label={`Back ${SEEK_STEP_SECONDS} seconds`} onClick={() => seek(position - SEEK_STEP_SECONDS * 1000)}>
@@ -1125,9 +1135,9 @@ function PreviewBody({
 
   if (audio && narrow) {
     return (
-      <div className="flex h-dvh flex-col bg-card" data-testid="preview-body">
+      <div className={embedded ? EMBED_PHONE : "flex h-dvh flex-col bg-card"} data-testid="preview-body">
         {audioElement}
-        {phoneHeader}
+        {embedded ? null : phoneHeader}
         <section className="mx-3 flex flex-col gap-2.5 rounded-[20px] bg-linear-160 from-[#f2e9fe] to-[#fff7ed] p-3.5 dark:from-purple-950/70 dark:to-surface-100" data-testid="preview-controls">
           <Waveform peaks={peaks} progress={progress} markers={markers} height={48} label={`Waveform, ${shortClock(position)} of ${shortClock(total)}`} onSeek={(fraction) => total && seek(fraction * total)} />
           <div className="flex justify-between gap-2 text-xs text-ink-500">
@@ -1171,7 +1181,7 @@ function PreviewBody({
         </div>
         {textPanel("phone")}
         {status}
-        {phoneBar}
+        {embedded ? null : phoneBar}
       </div>
     );
   }
@@ -1242,8 +1252,8 @@ function PreviewBody({
       ) : null;
     if (narrow) {
       return (
-        <div className="flex h-dvh flex-col bg-card" data-testid="preview-body">
-          {phoneHeader}
+        <div className={embedded ? EMBED_PHONE : "flex h-dvh flex-col bg-card"} data-testid="preview-body">
+          {embedded ? null : phoneHeader}
           {stage(true)}
           <div className="flex flex-col gap-2.5 px-4 pb-2 pt-3">
             {tabStrip("min-h-10", "text-[13px]")}
@@ -1252,13 +1262,13 @@ function PreviewBody({
           </div>
           {textPanel("phone")}
           {status}
-          {phoneBar}
+          {embedded ? null : phoneBar}
         </div>
       );
     }
     return (
-      <div className="grid h-[calc(100dvh-5rem)] grid-cols-[minmax(0,1fr)_380px] grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_440px]" data-testid="preview-body">
-        <div className="col-span-full">{header}</div>
+      <div className={`grid ${embedded ? EMBED_HEIGHT : "h-[calc(100dvh-5rem)]"} grid-cols-[minmax(0,1fr)_380px] grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_440px]`} data-testid="preview-body">
+        {embedded ? null : <div className="col-span-full">{header}</div>}
         {stage(false)}
         <aside className="flex min-h-0 flex-col border-l border-line-200" aria-label="Transcript panel">
           <div className="flex flex-col gap-2.5 border-b border-line-200 px-4 py-3.5">
@@ -1305,11 +1315,11 @@ function PreviewBody({
     );
 
   return (
-    <div className={`flex flex-col ${narrow ? "h-dvh bg-card" : "h-[calc(100dvh-5rem)]"}`} data-testid="preview-body">
-      {narrow ? phoneHeader : header}
+    <div className={`flex flex-col ${embedded ? EMBED_HEIGHT : narrow ? "h-dvh bg-card" : "h-[calc(100dvh-5rem)]"}`} data-testid="preview-body">
+      {embedded ? null : narrow ? phoneHeader : header}
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] place-items-center overflow-hidden bg-surface-50 p-4" data-testid="preview-stage">{still}</div>
       {broken && !fallback ? <p className="px-5 py-2 text-xs text-red-800 dark:text-red-200">The preview didn&apos;t load.</p> : null}
-      {narrow ? phoneBar : null}
+      {narrow && !embedded ? phoneBar : null}
     </div>
   );
 }
@@ -1400,3 +1410,20 @@ export function PreviewDialog({
   );
 }
 
+export function PreviewInline({ entry, onDownload, emptyText }: { entry: TreeEntry; onDownload: (request: DownloadRequest) => void; emptyText?: string | null }) {
+  const closerRef = useRef<(() => void) | null>(null);
+  return (
+    <PreviewBody
+      key={entry.path}
+      entry={entry}
+      siblings={[]}
+      onNavigate={() => undefined}
+      onClose={() => undefined}
+      recordHref={null}
+      onDownload={onDownload}
+      closerRef={closerRef}
+      embedded
+      emptyText={emptyText}
+    />
+  );
+}

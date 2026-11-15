@@ -935,3 +935,64 @@ def test_the_waveform_trusts_the_configured_bucket_hosts(monkeypatch) -> None:
     assert "media-bucket.s3.dualstack.ap-south-1.amazonaws.com" in hosts
     assert "d1234.cloudfront.net" in hosts
     assert "evil.example" not in hosts
+
+
+def _route_calls(dependant: Any) -> set[Any]:
+    found: set[Any] = set()
+    for child in dependant.dependencies:
+        if child.call is not None:
+            found.add(child.call)
+        found |= _route_calls(child)
+    return found
+
+
+def test_a_take_plays_in_place_for_anyone_who_may_read_it_and_the_rest_of_the_explorer_stays_gated() -> None:
+    from app.api.routes import data_explorer
+    from app.core.deps import get_current_user, require_dataset_downloader
+
+    open_paths = {
+        ("GET", "/data/media/{media_id}/preview"),
+        ("GET", "/data/media/{media_id}/peaks"),
+        ("POST", "/data/media/{media_id}/isolate"),
+        ("GET", "/data/media/{media_id}/transcript"),
+    }
+    readable = {(next(iter(route.methods)), route.path): route for route in data_explorer.media_router.routes}
+    assert set(readable) == open_paths
+    for key, route in readable.items():
+        calls = _route_calls(route.dependant)
+        assert get_current_user in calls, key
+        assert require_dataset_downloader not in calls, key
+    assert require_dataset_downloader in {d.dependency for d in data_explorer.router.dependencies}
+    gated = {(next(iter(route.methods)), route.path) for route in data_explorer.router.routes}
+    assert not gated & open_paths
+    assert ("GET", "/data/media/{media_id}/download") in gated
+
+
+def test_a_researcher_reads_only_the_takes_the_transcript_rules_let_them_read(monkeypatch) -> None:
+    from app.api.routes import data_explorer
+    from app.services import transcript_portal
+
+    rows = {"mine": Row(id="mine", removedAt=None), "theirs": Row(id="theirs", removedAt=None)}
+    asked: list[Any] = []
+
+    async def find_one(**kwargs: Any) -> Any:
+        asked.append(kwargs["where"])
+        wanted = kwargs["where"]["AND"][0]["id"]
+        return rows.get(wanted)
+
+    async def readable_ids(found: list[Any], viewer: Any) -> set[str]:
+        return {str(r.id) for r in found if r.id == "mine"}
+
+    async def no_scope(_user: Any) -> Any:
+        raise AssertionError("a researcher never reaches the dataset scope")
+
+    monkeypatch.setattr(data_explorer.slim, "find_one", find_one)
+    monkeypatch.setattr(transcript_portal, "readable_ids", readable_ids)
+    monkeypatch.setattr(data_explorer, "download_scope", no_scope)
+    researcher = Row(id="u-r", role="RESEARCHER", canDownloadDataset=False)
+    assert asyncio.run(data_explorer.media_for(researcher, "mine", named=False)).id == "mine"
+    for refused in ("theirs", "missing"):
+        with pytest.raises(Exception) as caught:
+            asyncio.run(data_explorer.media_for(researcher, refused, named=False))
+        assert getattr(caught.value, "status_code", None) == 404
+    assert all({"removedAt": None} in where["AND"] for where in asked)

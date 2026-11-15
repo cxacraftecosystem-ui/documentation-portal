@@ -19,7 +19,9 @@ import { RecordUploadPair } from "@/components/questionnaire/RecordUploadPair";
 import { ReviewFinish, reviewSummary, type FailedUpload } from "@/components/questionnaire/ReviewFinish";
 import { SavePill, saveState } from "@/components/questionnaire/SavePill";
 import { SessionHeader } from "@/components/questionnaire/SessionHeader";
-import { TakeSheet } from "@/components/questionnaire/TakeSheet";
+import { TakeInPlace, TakeRegion, TakeRow, useTakePlayer, type TakeItem } from "@/components/questionnaire/TakeInPlace";
+import { takeRow, TakeSheet } from "@/components/questionnaire/TakeSheet";
+import { questionTake as findQuestionTake, sectionTakes, takeMedia, withLanded } from "@/lib/questionnaire/takeInPlace";
 import { UploadSheet, type UploadTarget } from "@/components/questionnaire/UploadSheet";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 import { clearQueuedRecordBy, enqueue, onRecordingLanded, onSessionLanded, queueRecordBy, resolveQueuedAnswer, trayAct, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
@@ -244,6 +246,13 @@ export function SessionWorkspace({ id }: { id: string }) {
   const [dockHeight, setDockHeight] = useState(0);
   const dockRef = useRef<HTMLDivElement | null>(null);
   const wantedSection = useRef<string | null>(null);
+  const takePlayer = useTakePlayer(recording);
+  const [landed, setLanded] = useState<Recording[]>([]);
+  const [landedFor, setLandedFor] = useState(detail);
+  if (landedFor !== detail) {
+    setLandedFor(detail);
+    if (detail && landed.some((r) => detail.recordings.some((d) => d.id === r.id))) setLanded(landed.filter((r) => !detail.recordings.some((d) => d.id === r.id)));
+  }
 
   const openSection = useCallback((sectionId: string | null) => {
     setActiveSection(sectionId);
@@ -333,7 +342,9 @@ export function SessionWorkspace({ id }: { id: string }) {
 
   useEffect(() => {
     const offR = onRecordingLanded((r) => {
-      if (detail && r.sessionId === detail.id) void load();
+      if (!detail || r.sessionId !== detail.id) return;
+      setLanded((list) => [...list.filter((x) => x.id !== r.id), r]);
+      void load();
     });
     const offS = onSessionLanded((s) => {
       if (s.clientKey === id) router.replace(`/questionnaire/sessions/${encodeURIComponent(s.id)}`);
@@ -915,8 +926,45 @@ export function SessionWorkspace({ id }: { id: string }) {
         else queue.retry();
       }
     }));
+  const clipWords = (s: ClipStep) => {
+    const state = clipUploadState(s, queue.progress[s.clientClipKey], queue.online);
+    if (s.error === "MISSING_FILE") return qs("missingOutboxFile", { target: s.label ?? qs("wholeSession"), date: shortDate(s.recording.deviceCapturedAt) });
+    if (state.kind === "UPLOADING") return qs("uploadingPercent", { percent: state.percent });
+    if (state.kind === "WAITING") return qs("waitingForSignal");
+    if (state.kind === "UPLOADED") return qs("uploaded");
+    return qs("uploadFailedRetrying");
+  };
+  const outboxTakes = myClips
+    .filter((s) => s.error !== "MISSING_FILE")
+    .map((s) => ({
+      clientClipKey: s.clientClipKey,
+      targets: s.recording.targets,
+      item: {
+        key: s.clientClipKey,
+        label: [s.label ?? qs("wholeSession"), shortDate(s.recording.deviceCapturedAt), clipWords(s)].filter(Boolean).join(" · "),
+        blobKey: s.blobKey,
+        mediaType: takeMedia(s.contentType),
+        capturedAt: s.recording.deviceCapturedAt
+      } satisfies TakeItem
+    }));
+  const serverTake = (r: Recording): TakeItem => ({ key: r.clientClipKey, label: takeRow(r, soloArtisan), recording: r, capturedAt: r.capturedAt });
+  const takeRecordings = withLanded(detail.recordings, landed);
+  const sectionTakeItems = (sectionId: string): TakeItem[] => {
+    const found = sectionTakes(sectionId, takeRecordings, outboxTakes);
+    return [...found.server.map(serverTake), ...found.local.map((x) => x.item)];
+  };
+  const questionTakeItem = (lineageId: string, recordingId: string | null): TakeItem | null => {
+    const found = findQuestionTake(lineageId, recordingId, takeRecordings, outboxTakes);
+    if (!found) return null;
+    return "item" in found ? found.item : serverTake(found);
+  };
   const decisions = detail.recordings.filter((r) => !r.removedAt && r.filing === "NEEDS_DECISION");
   const awayPeople = session.participants.filter((p) => p.leftAt);
+
+  const closeSheet = () => {
+    takePlayer.close();
+    setSheet(null);
+  };
 
   const dialogs = (
     <>
@@ -992,18 +1040,19 @@ export function SessionWorkspace({ id }: { id: string }) {
           artisanId={sheet.artisanId}
           paused={paused}
           canRecord={live}
-          onClose={() => setSheet(null)}
+          player={takePlayer}
+          onClose={closeSheet}
           onRecord={() => {
-            setSheet(null);
+            closeSheet();
             press([{ sectionId: sheetSection.id }], `Section ${sheetSection.code}`, sheetSection.code);
           }}
           onUpload={(file) => {
-            setSheet(null);
+            closeSheet();
             press([{ sectionId: sheetSection.id }], `Section ${sheetSection.code}`, sheetSection.code, file);
           }}
           onRemove={canDeleteRecords ? (r) => setRemoveTake(r) : undefined}
           onUseAsAnswer={(r) => {
-            setSheet(null);
+            closeSheet();
             void offerAnswers(r);
           }}
           sessionId={session.version > 0 ? session.id : undefined}
@@ -1062,16 +1111,7 @@ export function SessionWorkspace({ id }: { id: string }) {
               <ul className="grid gap-1.5" data-upload-states>
                 {myClips.map((s) => {
                   const state = clipUploadState(s, queue.progress[s.clientClipKey], queue.online);
-                  const words =
-                    s.error === "MISSING_FILE"
-                      ? qs("missingOutboxFile", { target: s.label ?? qs("wholeSession"), date: shortDate(s.recording.deviceCapturedAt) })
-                      : state.kind === "UPLOADING"
-                        ? qs("uploadingPercent", { percent: state.percent })
-                        : state.kind === "WAITING"
-                          ? qs("waitingForSignal")
-                          : state.kind === "UPLOADED"
-                            ? qs("uploaded")
-                            : qs("uploadFailedRetrying");
+                  const words = clipWords(s);
                   const bad = state.kind === "RETRYING" || state.kind === "FAILED";
                   return (
                     <li key={s.clientClipKey} className="flex flex-wrap items-center justify-between gap-2 text-sm" data-upload-state={state.kind}>
@@ -1166,6 +1206,7 @@ export function SessionWorkspace({ id }: { id: string }) {
             const r = removeTake;
             setRemoveTake(null);
             if (choice === "remove") {
+              setLanded((list) => list.filter((x) => x.id !== r.id));
               await questionnaireApi.removeRecording(r.id).catch(() => undefined);
               void load();
             }
@@ -1217,7 +1258,9 @@ export function SessionWorkspace({ id }: { id: string }) {
           open={live}
           onChoose={(r) => {
             const sectionId = r.targets[0]?.sectionId ?? (r.targets[0]?.questionLineageId ? sectionOf(r.targets[0].questionLineageId) : null);
-            if (sectionId) setSheet({ sectionId, artisanId: soloArtisan });
+            if (!sectionId) return;
+            takePlayer.close();
+            setSheet({ sectionId, artisanId: soloArtisan });
           }}
           onOpenSection={(sectionId) => {
             setView("session");
@@ -1231,27 +1274,38 @@ export function SessionWorkspace({ id }: { id: string }) {
     );
   }
 
+  const questionTake = (sectionId: string, q: GridQuestion, mark: QuestionMark | undefined): TakeItem | null =>
+    mark?.kind === "SECTION_TAKE" ? (sectionTakeItems(sectionId)[0] ?? null) : mark?.kind === "QUESTION_TAKE" ? questionTakeItem(q.lineageId, mark.recordingId) : null;
+
   const statusLine = (sectionId: string, q: GridQuestion, mark: QuestionMark | undefined) => {
     const text = typedText(q.lineageId);
-    const openTakes = () => setSheet({ sectionId, artisanId: soloArtisan });
+    const openTakes = () => {
+      takePlayer.close();
+      setSheet({ sectionId, artisanId: soloArtisan });
+    };
+    const take = questionTake(sectionId, q, mark);
+    const sectionLabel =
+      mark?.kind === "SECTION_TAKE" ? (
+        <button type="button" className="min-h-8 w-fit text-left text-[0.8125rem] font-semibold text-success-600 dark:text-green-400" onClick={openTakes} data-question-state="SECTION_TAKE">
+          {qs("inSectionTake")}
+        </button>
+      ) : null;
+    const questionLabel =
+      mark?.kind === "QUESTION_TAKE" ? (
+        <button
+          type="button"
+          className="flex min-h-8 w-fit items-center gap-1.5 text-left text-[0.8125rem] font-semibold text-success-600 dark:text-green-400"
+          onClick={openTakes}
+          data-question-state="QUESTION_TAKE"
+        >
+          <Mic className="h-4 w-4" aria-hidden />
+          {qs("questionTake", { duration: mark.durationMs ? recorderClock(mark.durationMs) : "—" })}
+        </button>
+      ) : null;
+    const label = sectionLabel ?? questionLabel;
     return (
       <>
-        {mark?.kind === "SECTION_TAKE" ? (
-          <button type="button" className="min-h-8 w-fit text-left text-[0.8125rem] font-semibold text-success-600 dark:text-green-400" onClick={openTakes} data-question-state="SECTION_TAKE">
-            {qs("inSectionTake")}
-          </button>
-        ) : null}
-        {mark?.kind === "QUESTION_TAKE" ? (
-          <button
-            type="button"
-            className="flex min-h-8 w-fit items-center gap-1.5 text-left text-[0.8125rem] font-semibold text-success-600 dark:text-green-400"
-            onClick={openTakes}
-            data-question-state="QUESTION_TAKE"
-          >
-            <Mic className="h-4 w-4" aria-hidden />
-            {qs("questionTake", { duration: mark.durationMs ? recorderClock(mark.durationMs) : "—" })}
-          </button>
-        ) : null}
+        {label && take ? <TakeRow player={takePlayer} slot={`Q:${q.lineageId}`} item={take} lead={label} playLabel={q.displayCode} /> : label}
         {text && !typing[q.lineageId] ? (
           <button
             type="button"
@@ -1402,12 +1456,32 @@ export function SessionWorkspace({ id }: { id: string }) {
                         onUpload={() => setUploadFor({ kind: "SECTION", sectionId: s.id })}
                       />
                     ) : null}
+                    {sectionTakeItems(s.id).length ? (
+                      <ul className="grid grid-cols-[minmax(0,1fr)] gap-3" data-section-takes={s.code}>
+                        {sectionTakeItems(s.id).map((item) => (
+                          <li key={item.key}>
+                            <TakeInPlace
+                              player={takePlayer}
+                              slot={`S:${s.id}`}
+                              item={item}
+                              playLabel={item.label}
+                              lead={
+                                <p className="text-[0.8125rem] font-semibold text-ink-900" data-section-take={item.key}>
+                                  {item.label}
+                                </p>
+                              }
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                     <ol className="grid grid-cols-[minmax(0,1fr)] border-t border-line-200">
                       {(s.questions ?? []).map((q) => {
                         const mark = p?.marks[q.lineageId];
                         const done = Boolean(mark && mark.kind !== "NONE");
+                        const take = questionTake(s.id, q, mark);
                         return (
-                          <li key={q.lineageId} className="flex gap-3 border-b border-line-200 py-4 sm:gap-4" data-question={q.displayCode}>
+                          <li key={q.lineageId} className="flex flex-wrap gap-3 border-b border-line-200 py-4 sm:gap-4" data-question={q.displayCode}>
                             <span
                               aria-hidden
                               className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md font-display text-sm font-bold ${
@@ -1467,6 +1541,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                                 onAction={(action) => questionAction(s.id, q, action)}
                               />
                             ) : null}
+                            {take ? <TakeRegion player={takePlayer} slot={`Q:${q.lineageId}`} item={take} className="basis-full max-sm:-mx-3 max-sm:grow" /> : null}
                           </li>
                         );
                       })}
@@ -1537,6 +1612,7 @@ export function SessionWorkspace({ id }: { id: string }) {
       ) : null}
 
       {dialogs}
+      {takePlayer.overlay}
     </div>
   );
 }

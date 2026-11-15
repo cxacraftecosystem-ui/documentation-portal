@@ -4,9 +4,8 @@ import { Download, Mic, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
+import { TakeRegion, TakeRow, type TakePlayer } from "@/components/questionnaire/TakeInPlace";
 import { TranscriptStatus } from "@/components/questionnaire/TranscriptStatus";
-import { AudioPlayer } from "@/components/ui/AudioPlayer";
-import { TranscriptViewer } from "@/components/transcript/TranscriptViewer";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { questionnaireApi, type Recording, type RecordingEvent, type SectionOverride } from "@/lib/questionnaire/api";
@@ -39,6 +38,8 @@ const OVERRIDE_KEY: Record<SectionOverride | "", "overrideNone" | "stateMarkedCo
   NEEDS_REDO: "stateNeedsRedo"
 };
 
+const SHEET_SLOT = "sheet";
+
 export function TakeSheet({
   open,
   title,
@@ -46,6 +47,7 @@ export function TakeSheet({
   artisanId,
   paused,
   canRecord,
+  player,
   onClose,
   onRecord,
   onUpload,
@@ -63,6 +65,7 @@ export function TakeSheet({
   artisanId: string | null;
   paused: boolean;
   canRecord: boolean;
+  player: TakePlayer;
   onClose: () => void;
   onRecord: () => void;
   onUpload: (file: File) => void;
@@ -123,10 +126,11 @@ export function TakeSheet({
         {live.map((r) => {
           const subject = artisan ? r.subjects.find((s) => s.artisanId === artisan) : null;
           const target = r.targets[0];
+          const item = { key: r.clientClipKey, label: takeRow(r, artisan), recording: r, capturedAt: r.capturedAt };
           return (
-            <li key={r.id} className="rounded-md border border-line-200 p-3" data-take-row={r.id}>
-              <p className="text-sm text-ink-900">{takeRow(r, artisan)}</p>
-              <div className="mt-1 flex flex-wrap items-center gap-3">
+            <li key={r.id} className="grid grid-cols-[minmax(0,1fr)] gap-2 rounded-md border border-line-200 p-3" data-take-row={r.id}>
+              <TakeRow player={player} slot={SHEET_SLOT} item={item} playLabel={item.label} lead={<p className="text-sm text-ink-900">{item.label}</p>} />
+              <div className="flex flex-wrap items-center gap-3">
                 <TranscriptStatus
                   recording={r}
                   paused={paused}
@@ -136,22 +140,10 @@ export function TakeSheet({
                 {r.filing === "NEEDS_DECISION" ? <span className="text-xs font-medium text-amber-800">{qs("needsDecision")}</span> : null}
                 {r.estimated ? <span className="text-xs text-ink-500">{qs("estimatedDate")}</span> : null}
               </div>
-              <TranscriptViewer
-                mediaId={r.mediaFileId}
-                chips={<RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />}
-                audioUrl={questionnaireApi.downloadHref(r.id)}
-                initiallyOpen={false}
-                questionnaire={{ onReview: onUseAsAnswer ? () => onUseAsAnswer(r) : undefined }}
-                fallback={
-                  <>
-                    <RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />
-                    <AudioPlayer src={questionnaireApi.downloadHref(r.id)} className="mt-2" />
-                  </>
-                }
-              />
+              <RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />
+              <TakeRegion player={player} slot={SHEET_SLOT} item={item} className="-mx-3 sm:mx-0" />
               <ButtonRow
                 size="sm"
-                className="mt-2"
                 align="start"
                 destructive={
                   onRemove ? (

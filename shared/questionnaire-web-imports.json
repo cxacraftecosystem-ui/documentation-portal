@@ -53,6 +53,11 @@
     "@/components/transcript/TranscriptPreview",
     "@/components/transcript/SpokenLanguagePicker",
     "@/lib/transcript/spokenLanguage",
-    "@/lib/transcript/contract"
+    "@/lib/transcript/contract",
+    "@/components/dataExplorer/PreviewDialog",
+    "@/components/dataExplorer/DownloadsTray",
+    "@/components/dataExplorer/useDownloads",
+    "@/lib/dataExplorer/contract",
+    "@/lib/dataExplorer/downloads"
   ]
 }

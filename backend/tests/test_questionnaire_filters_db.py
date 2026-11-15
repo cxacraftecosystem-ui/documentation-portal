@@ -300,6 +300,11 @@ def test_the_recordings_list_filters_pages_and_carries_chips(monkeypatch: pytest
         chips2 = by_id[ids.t2]["chips"]
         assert chips2["targets"][0]["kind"] == "QUESTION" and chips2["targets"][0]["sectionTitle"] == f"Tools {ids.tag}"
         assert chips2["capturedOn"] == "2026-10-22", "captured on the 22nd in India, its session is the 20th's"
+        assert {r["mediaType"] for r in by_id.values()} == {"AUDIO"}
+        await c.execute_raw('UPDATE "MediaFile" SET "mimeType" = $2 WHERE "id" = $1', by_id[ids.t2]["mediaFileId"], "video/mp4")
+        again = {r["id"]: r for r in (await filters.list_recordings(filters.parse({"questionnaireId": ids.form}), ids.lead, client=c))["items"]}
+        assert again[ids.t2]["mediaType"] == "VIDEO", "a video take plays as video"
+        assert again[ids.t1]["mediaType"] == "AUDIO"
 
     _run(monkeypatch, body)
 

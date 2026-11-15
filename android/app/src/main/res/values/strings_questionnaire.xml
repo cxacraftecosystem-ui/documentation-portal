@@ -478,4 +478,8 @@
     <string name="q_register_artisan">Register artisan</string>
     <string name="q_more">More</string>
     <string name="q_fill_from_profile">Fill from profile</string>
+    <string name="q_play_take">Play</string>
+    <string name="q_open_full_view">Open full view</string>
+    <string name="q_collapse_take">Collapse take</string>
+    <string name="q_transcript_after_upload">Transcript after upload</string>
 </resources>

@@ -2,18 +2,17 @@
 
 import Link from "next/link";
 import { ClipboardList } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { PageHeader } from "@/components/PageHeader";
 import { PromptDialog } from "@/components/questionnaire/Prompts";
 import { TranscriptStatus } from "@/components/questionnaire/TranscriptStatus";
 import { CoverageGrid } from "@/components/questionnaire/CoverageGrid";
+import { TakeRegion, TakeRow, useTakePlayer } from "@/components/questionnaire/TakeInPlace";
 import { takeRow } from "@/components/questionnaire/TakeSheet";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 import { ButtonRow } from "@/components/ui/ButtonRow";
-import { AudioPlayer } from "@/components/ui/AudioPlayer";
-import { TranscriptViewer } from "@/components/transcript/TranscriptViewer";
 import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { languageLabel } from "@/lib/questionnaire/languages";
@@ -86,6 +85,8 @@ export function answersBySection(
   return groups.map((g) => ({ key: g.key, label: g.label, rows: g.rows.map(({ key, code, prompt, who, text }) => ({ key, code, prompt, who, text })) }));
 }
 
+const READ_SLOT = "read";
+
 export function SessionReadView({ id }: { id: string }) {
   const goChip = useChipNavigator();
   const { user } = useAuth();
@@ -99,6 +100,15 @@ export function SessionReadView({ id }: { id: string }) {
   const [questions, setQuestions] = useState<Record<string, GridQuestion[]>>({});
   const [focusId, setFocusId] = useState<string | null>(null);
   const [focusSection, setFocusSection] = useState<string | null>(null);
+  const takePlayer = useTakePlayer(null);
+  const { show } = takePlayer;
+  const shownFocus = useRef<string | null>(null);
+  useEffect(() => {
+    if (!detail || !focusId || shownFocus.current === focusId) return;
+    if (!detail.recordings.some((r) => r.id === focusId && !r.removedAt)) return;
+    shownFocus.current = focusId;
+    show(READ_SLOT, focusId);
+  }, [detail, focusId, show]);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setFocusId(params.get("recording"));
@@ -219,32 +229,23 @@ export function SessionReadView({ id }: { id: string }) {
         <section key={group.key} className="panel mb-3 grid gap-2 p-4">
           <h2 className="display-title text-base">{group.label}</h2>
           <ul className="grid gap-2">
-            {group.recordings.map((r) => (
-              <li
-                key={r.id}
-                id={`recording-${r.id}`}
-                className={`grid scroll-mt-28 gap-1 ${focusId === r.id ? "rounded-md outline-2 outline-offset-4 outline-purple-700" : ""}`}
-                data-recording={r.id}
-                data-focused={focusId === r.id ? "true" : undefined}
-              >
-                <p className="text-sm text-ink-900">
-                  {targetLabel(r)} · {takeRow(r, null)}
-                </p>
-                <TranscriptStatus recording={r} paused={config?.transcriptionPaused ?? true} />
-                <TranscriptViewer
-                  mediaId={r.mediaFileId}
-                  chips={<RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />}
-                  audioUrl={questionnaireApi.downloadHref(r.id)}
-                  initiallyOpen={focusId === r.id}
-                  fallback={
-                    <>
-                      <RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />
-                      <AudioPlayer src={questionnaireApi.downloadHref(r.id)} />
-                    </>
-                  }
-                />
-              </li>
-            ))}
+            {group.recordings.map((r) => {
+              const item = { key: r.id, label: `${targetLabel(r)} · ${takeRow(r, null)}`, recording: r, capturedAt: r.capturedAt };
+              return (
+                <li
+                  key={r.id}
+                  id={`recording-${r.id}`}
+                  className={`grid scroll-mt-28 grid-cols-[minmax(0,1fr)] gap-1 ${focusId === r.id ? "rounded-md outline-2 outline-offset-4 outline-purple-700" : ""}`}
+                  data-recording={r.id}
+                  data-focused={focusId === r.id ? "true" : undefined}
+                >
+                  <TakeRow player={takePlayer} slot={READ_SLOT} item={item} playLabel={targetLabel(r)} lead={<p className="text-sm text-ink-900">{item.label}</p>} />
+                  <TranscriptStatus recording={r} paused={config?.transcriptionPaused ?? true} />
+                  <RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />
+                  <TakeRegion player={takePlayer} slot={READ_SLOT} item={item} className="mt-1 max-sm:-mx-4" />
+                </li>
+              );
+            })}
           </ul>
         </section>
       ))}
@@ -330,6 +331,7 @@ export function SessionReadView({ id }: { id: string }) {
           ) : null}
         </PromptDialog>
       ) : null}
+      {takePlayer.overlay}
     </>
   );
 }

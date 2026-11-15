@@ -11,7 +11,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.core.db import db
-from app.core.deps import require_dataset_downloader
+from app.core.deps import can_download_dataset, get_current_user, require_dataset_downloader
 from app.services import naming, transcript_export, transcript_pipeline
 from app.services.data_explorer import (
     browse,
@@ -39,6 +39,8 @@ router = APIRouter(
     tags=["data-explorer"],
     dependencies=[Depends(require_dataset_downloader)],
 )
+
+media_router = APIRouter(prefix="/data", tags=["data-explorer"])
 
 MANIFEST_MAX_PATHS = 50
 MANIFEST_MAX_MEDIA_IDS = 2000
@@ -84,9 +86,23 @@ def _live_media_where(scope: Any, media_id: str | list[str]) -> dict[str, Any]:
     return {"AND": parts}
 
 
+async def _readable_media(user: Any, kwargs: dict[str, Any], lean: bool) -> Any:
+    from app.services import transcript_portal
+
+    media = await (slim.find_one(**kwargs) if lean else db.mediafile.find_first(**kwargs))
+    if media is None or str(media.id) not in await transcript_portal.readable_ids([media], user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found")
+    return media
+
+
 async def media_for(user: Any, media_id: str, *, named: bool = True, lean: bool = True) -> Any:
+    if not can_download_dataset(user):
+        kwargs: dict[str, Any] = {"where": _live_media_where(None, media_id)}
+        if named:
+            kwargs["include"] = _browser()._NAMING_INCLUDE
+        return await _readable_media(user, kwargs, lean)
     scope = await download_scope(user)
-    kwargs: dict[str, Any] = {"where": _live_media_where(scope, media_id)}
+    kwargs = {"where": _live_media_where(scope, media_id)}
     if named:
         kwargs["include"] = _browser()._NAMING_INCLUDE
     media = await (slim.find_one(**kwargs) if lean else db.mediafile.find_first(**kwargs))
@@ -253,9 +269,9 @@ async def selection_manifest(
     return await manifest_response(files, truncated, stream=stream)
 
 
-@router.get("/media/{media_id}/transcript")
+@media_router.get("/media/{media_id}/transcript")
 async def media_transcript(
-    media_id: str, current_user: Any = Depends(require_dataset_downloader)
+    media_id: str, current_user: Any = Depends(get_current_user)
 ) -> dict[str, Any]:
     media = await media_for(current_user, media_id)
     if str(media.id) in await transcript_export.withheld_ids([str(media.id)]):
@@ -292,11 +308,11 @@ async def media_download(
     )
 
 
-@router.get("/media/{media_id}/preview")
+@media_router.get("/media/{media_id}/preview")
 async def media_preview(
     media_id: str,
     variant: str | None = Query(None, pattern="^(original|isolated)$"),
-    current_user: Any = Depends(require_dataset_downloader),
+    current_user: Any = Depends(get_current_user),
 ) -> Response:
     media = await media_for(current_user, media_id)
     if variant == "isolated":
@@ -989,8 +1005,8 @@ def _peaks_source(media: Any) -> str:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No waveform")
 
 
-@router.get("/media/{media_id}/peaks")
-async def media_peaks(media_id: str, current_user: Any = Depends(require_dataset_downloader)) -> dict[str, Any]:
+@media_router.get("/media/{media_id}/peaks")
+async def media_peaks(media_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     from prisma import Json
 
     media = await media_for(current_user, media_id, named=False)
@@ -1021,8 +1037,8 @@ async def media_peaks(media_id: str, current_user: Any = Depends(require_dataset
     return {"peaks": values, "durationMs": duration, **voices}
 
 
-@router.post("/media/{media_id}/isolate", status_code=status.HTTP_202_ACCEPTED)
-async def media_isolate(media_id: str, current_user: Any = Depends(require_dataset_downloader)) -> dict[str, Any]:
+@media_router.post("/media/{media_id}/isolate", status_code=status.HTTP_202_ACCEPTED)
+async def media_isolate(media_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     media = await media_for(current_user, media_id, named=False)
     if downloads.kind_of(media) != "AUDIO":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not a recording")
