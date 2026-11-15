@@ -297,6 +297,7 @@
     <string name="q_outbox_step_take">Take: %1$s</string>
     <string name="q_outbox_step_answers">Answers: %1$s</string>
     <string name="q_outbox_step_participant">Artisan change</string>
+    <string name="q_outbox_step_record_by">Record by change</string>
     <string name="q_outbox_discard_title">Discard this?</string>
     <string name="q_outbox_discard_body">It was never sent and can\'t be brought back.</string>
     <string name="q_outbox_keep">Keep</string>
