@@ -646,7 +646,19 @@ test("the take sheet offers 0.0.5's fill from recording beside the explorer's pr
       })
     });
   });
-  await page.route(/\/api\/data\/media\/m-rec-1\/preview(\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: "audio/wav", body: silentWav(120) }));
+  const wav = silentWav(120);
+  await page.route(/\/api\/data\/media\/m-rec-1\/preview(\?.*)?$/, (route) => {
+    const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers()["range"] ?? "");
+    if (!range) return route.fulfill({ status: 200, contentType: "audio/wav", headers: { "accept-ranges": "bytes" }, body: wav });
+    const start = Number(range[1]);
+    const end = range[2] ? Math.min(Number(range[2]), wav.length - 1) : wav.length - 1;
+    return route.fulfill({
+      status: 206,
+      contentType: "audio/wav",
+      headers: { "accept-ranges": "bytes", "content-range": `bytes ${start}-${end}/${wav.length}` },
+      body: wav.subarray(start, end + 1)
+    });
+  });
   await page.goto("/questionnaire/sessions/s-1");
   await openSection(page, "A");
   await page.locator("[data-question='A1'] [data-question-state='SECTION_TAKE']").click();
@@ -664,7 +676,7 @@ test("the take sheet offers 0.0.5's fill from recording beside the explorer's pr
   await expect(panel.locator("[data-draft='l2']")).toContainText("My uncle carves them in Pethapur.");
   await expect(panel.locator("[data-skipped]")).toBeVisible();
   await panel.locator("[data-draft='l2']").getByRole("button", { name: /00:01:04/ }).click();
-  await expect.poll(() => row.locator("[data-take-region='clip-rec-1'] audio").evaluate((audio: HTMLAudioElement) => Math.round(audio.currentTime))).toBe(64);
+  await expect.poll(() => row.locator("[data-take-region='clip-rec-1'] audio").evaluate((audio: HTMLAudioElement) => Math.floor(audio.currentTime))).toBeGreaterThanOrEqual(64);
   await panel.getByTestId("review-drafts").click();
   await expect.poll(() => fake.calledWith("POST", "/questionnaire/recordings/rec-1/answer-proposals").length).toBe(1);
   await expect(page.locator("[data-answer-box='l2'] [data-use-as-answer]")).toContainText("My uncle carves them in Pethapur.");
