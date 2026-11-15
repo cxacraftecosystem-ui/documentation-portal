@@ -192,6 +192,7 @@ fun SessionWorkspace(
     var p7 by remember { mutableStateOf<Pair<RecordRequest, P2Model>?>(null) }
     var p8 by remember { mutableStateOf<PendingAnswer?>(null) }
     var takeSheet by remember { mutableStateOf<Pair<String, String?>?>(null) }
+    var takeQuestion by remember { mutableStateOf<String?>(null) }
     var playing by remember { mutableStateOf<Uri?>(null) }
     var leaving by remember { mutableStateOf(false) }
     var addingArtisan by remember { mutableStateOf(false) }
@@ -342,7 +343,7 @@ fun SessionWorkspace(
     )
     val tally = instrument?.let(evidence::tally) ?: SessionTally(0, 0, 0, 0)
     val leadOrAdmin = isAdmin || detail?.researchers.orEmpty().any { it.userId == meId && it.role == "LEAD" }
-    val recordBy = v2.outbox.queuedRecordBy(unit) ?: detail?.recordBy ?: frozen?.recordBy ?: RecordBy.SECTION.wire
+    val recordBy = v2.outbox.queuedRecordBy(unit) ?: detail?.recordBy ?: v2.outbox.offlineRecordBy(unit) ?: frozen?.recordBy ?: RecordBy.SECTION.wire
     val byQuestion = recordBy == RecordBy.QUESTION.wire
     val title = detail?.title?.ifBlank { null } ?: frozen?.let { f ->
         Naming.sessionTitle(Naming.SessionFields(
@@ -512,7 +513,7 @@ fun SessionWorkspace(
 
     fun setRecordBy(value: String) {
         if (value == recordBy) return
-        val before = detail?.recordBy ?: frozen?.recordBy ?: RecordBy.SECTION.wire
+        val before = detail?.recordBy ?: v2.outbox.offlineRecordBy(unit) ?: frozen?.recordBy ?: RecordBy.SECTION.wire
         withUnit { key -> v2.outbox.setRecordBy(key, value, before) }
     }
 
@@ -538,13 +539,17 @@ fun SessionWorkspace(
     }
 
     if (reviewing && instrument != null) {
-        val model = ReviewModel.of(instrument, evidence, people, pendingCount, trayRows, served)
+        val required = instrument.requiredUnanswered(participantIds) { subject, lineage ->
+            (subject to lineage) in typed || known.any { it.artisanId == subject && (it.targetKey == "Q:$lineage" || it.targetKey == "S:${instrument.sectionOfQuestion[lineage]}") }
+        }
+        val model = ReviewModel.of(instrument, evidence, people, pendingCount, trayRows, served, required)
         ReviewScreen(
             model = model, locked = locked,
             onBack = { reviewing = false },
             onNeedsYou = { row ->
                 val step = row.stepId
-                if (step != null) withUnit { key -> v2.outbox.retryStep(key, step) }
+                if (row.conflict) { reviewing = false; trayOpen = true }
+                else if (step != null) withUnit { key -> v2.outbox.retryStep(key, step) }
                 else row.code?.let { code ->
                     val section = instrument.sections.firstOrNull { it.code == code } ?: instrument.sections.firstOrNull { s -> s.questions.any { it.displayCode == code } }
                     section?.let { reviewing = false; openSection = it.id; takeSheet = it.id to null }
@@ -642,7 +647,7 @@ fun SessionWorkspace(
                                 onRecord = { requestRecord(questionRequest(q)) },
                                 onUpload = { openUpload(section.id, q.lineageId) },
                                 onOpenTyped = { typing = if (typing == q.lineageId) null else q.lineageId },
-                                onOpenTakes = { takeSheet = section.id to null }
+                                onOpenTakes = { takeSheet = section.id to null; takeQuestion = q.lineageId }
                             ) {
                                 AnswerEditor(
                                     question = q, roster = roster, answerLines = lines,
@@ -672,7 +677,7 @@ fun SessionWorkspace(
     if (menu) SessionMenuSheet(
         recordBy = recordBy, recordByEnabled = !locked, onRecordBy = { setRecordBy(it) },
         items = listOfNotNull(
-            if (!locked) SessionMenuItem(QuestionnaireCopy.s("session.edit"), SessionMenuIcons.edit) { editing = true } else null,
+            if (!locked) SessionMenuItem(QuestionnaireCopy.t("editSession"), SessionMenuIcons.edit) { editing = true } else null,
             if (serverSessionId != null && !locked) SessionMenuItem(QuestionnaireCopy.s("researcher.add"), SessionMenuIcons.researcher) { addingResearcher = true } else null,
             if (joinQr != null) SessionMenuItem(QuestionnaireCopy.t("joinCodeAndQr"), SessionMenuIcons.join) { showQr = true } else null,
             if (serverSessionId != null) SessionMenuItem(QuestionnaireCopy.t("readView"), SessionMenuIcons.read) { onOpenReadView(serverSessionId) } else null,
@@ -690,8 +695,8 @@ fun SessionWorkspace(
         onDismiss = { trayOpen = false },
         onSendAgain = { row -> withUnit { key -> v2.outbox.retryStep(key, row.stepId) } },
         onDiscard = { row -> discard = PendingDiscard(row) },
-        onKeepTheirs = { row -> row.conflict?.let { c -> withUnit { key -> v2.outbox.resolveConflict(key, row.stepId, c.artisanId, c.questionLineageId, keepMine = false) } } },
-        onKeepMine = { row -> row.conflict?.let { c -> withUnit { key -> v2.outbox.resolveConflict(key, row.stepId, c.artisanId, c.questionLineageId, keepMine = true) } } },
+        onKeepTheirs = { row -> if (row.choice) withUnit { key -> v2.outbox.discardStep(key, row.stepId) } else row.conflict?.let { c -> withUnit { key -> v2.outbox.resolveConflict(key, row.stepId, c.artisanId, c.questionLineageId, keepMine = false) } } },
+        onKeepMine = { row -> if (row.choice) withUnit { key -> v2.outbox.retryStep(key, row.stepId) } else row.conflict?.let { c -> withUnit { key -> v2.outbox.resolveConflict(key, row.stepId, c.artisanId, c.questionLineageId, keepMine = true) } } },
         onSendWithoutConflicts = { stepId -> withUnit { key -> v2.outbox.dropConflicts(key, stepId) } }
     )
     uploadOpen?.let { open ->
@@ -837,7 +842,7 @@ fun SessionWorkspace(
         val missing = section?.let { s -> s.questions.count { q -> artisanId != null && (artisanId to q.lineageId) in typed } }
         TakeSheet(
             heading = listOfNotNull("Section ${section?.code.orEmpty()}", artisanId?.let { QuestionnaireCopy.firstName(participantName(it)) }).joinToString(" · "),
-            takes = rows, locked = locked, playing = playing,
+            takes = rows, locked = locked, playing = playing, recording = recording != null,
             note = if (rows.none { !it.removed } && (missing ?: 0) > 0) QuestionnaireCopy.s("mark.addRecording") else null,
             onPlay = { row ->
                 scope.launch {
@@ -850,13 +855,16 @@ fun SessionWorkspace(
             onRemove = { removeTake = it },
             onRecord = {
                 takeSheet = null
+                takeQuestion = null
                 section?.let { requestRecord(RecordRequest(QTargetRef(sectionId = it.id), "Section ${it.code}", it.code)) }
             },
             onUpload = {
                 takeSheet = null
-                section?.let { openUpload(it.id, null) }
+                val from = takeQuestion?.takeIf { byQuestion }
+                takeQuestion = null
+                section?.let { openUpload(it.id, from) }
             },
-            onDismiss = { takeSheet = null; playing = null },
+            onDismiss = { takeSheet = null; takeQuestion = null; playing = null },
             onRetry = { row -> online { v2.api.transcribe(row.recordingId) } },
             onRecordConsent = { row ->
                 detail?.recordings?.firstOrNull { it.id == row.recordingId }?.let { rec -> consentFor = ParticipantModel.refusingSubject(rec, detail) }
@@ -1140,7 +1148,7 @@ internal fun OutboxTray(
             Text(QuestionnaireCopy.s("tray.title") + " (${rows.size})", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
             rows.forEach { row ->
                 Text(row.title, style = MaterialTheme.typography.bodyMedium)
-                if (row.conflict != null) {
+                if (row.conflict != null || row.choice) {
                     Text(QuestionnaireCopy.s("p9.title"), style = MaterialTheme.typography.labelLarge)
                     Text(QuestionnaireCopy.s("tray.theirs") + ": " + row.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body)
                     row.mine?.let { Text(QuestionnaireCopy.s("tray.mine") + ": " + it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body) }

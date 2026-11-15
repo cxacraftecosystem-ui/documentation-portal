@@ -212,6 +212,9 @@ internal fun totalsCounts(totals: QSessionTotals, localOpen: Int): Map<SessionSt
     SessionStatus.FINISHED to totals.finished
 )
 
+internal fun listedLocal(local: List<SessionListRow>, status: SessionStatus): List<SessionListRow> =
+    if (status == SessionStatus.FINISHED) emptyList() else local
+
 internal fun byStatus(rows: List<SessionListRow>, status: SessionStatus): List<SessionListRow> =
     if (status == SessionStatus.ALL) rows else rows.filter { statusOf(it) == status }
 
@@ -321,6 +324,7 @@ fun QuestionnaireHome(
     var refresh by remember { mutableIntStateOf(0) }
     var batteryAsk by remember { mutableStateOf(false) }
     var unsent by remember { mutableStateOf<List<String>>(emptyList()) }
+    var localOpen by remember { mutableIntStateOf(0) }
     val names = remember(artisans) { artisans.associate { it.id to it.name } + v2.localArtisanNames() }
     val config by v2.config.collectAsState()
     val density = LocalDensity.current
@@ -353,11 +357,13 @@ fun QuestionnaireHome(
         }
         val units = v2.outbox.units()
         val search = filters.q
-        val local = if (!filters.without("q").isEmpty || status == SessionStatus.FINISHED) emptyList() else units.filter { it.sessionId == null }.mapNotNull { localRow(it, names) }
+        val localAll = if (!filters.without("q").isEmpty) emptyList() else units.filter { it.sessionId == null }.mapNotNull { localRow(it, names) }
             .filter { search.isBlank() || it.title.contains(search, ignoreCase = true) || it.note.orEmpty().contains(search, ignoreCase = true) }
+        val local = listedLocal(localAll, status)
         val result = runCatching { page(null) }.getOrNull()
         kept = ListPaging.arrive(kept, filters, appendPage(local, result?.items.orEmpty()), result?.nextCursor) { it.key }
         totals = result?.totals
+        localOpen = localAll.size
         offline = result?.offline == true
         unsent = units.filter { it.failedSteps.isNotEmpty() }.map { it.clientKey }
         loading = false
@@ -413,7 +419,7 @@ fun QuestionnaireHome(
     fun openRow(row: SessionListRow, section: String? = null) {
         scope.launch {
             val s = row.session
-            if (s != null && v2.outbox.unit(row.key) == null) v2.outbox.adoptSession(s, s.questionnaire?.id.orEmpty(), meId)
+            if (s != null) v2.outbox.adoptSession(s, s.questionnaire?.id.orEmpty(), meId)
             QuestionnaireV2Nav.openSection.value = section
             openUnit(row.key)
         }
@@ -518,7 +524,6 @@ fun QuestionnaireHome(
                             onContinue = { openRow(card, todayAt?.sectionId) }
                         )
                     }
-                    val localOpen = rows.count { it.local }
                     val counts = totals?.let { totalsCounts(it, localOpen) } ?: statusCounts(rows).takeIf { cursor == null }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         SessionStatus.entries.forEach { st ->

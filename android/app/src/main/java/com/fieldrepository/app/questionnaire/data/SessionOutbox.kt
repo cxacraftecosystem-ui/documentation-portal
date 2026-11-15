@@ -29,7 +29,7 @@ object StepKind {
 }
 
 @Serializable
-data class QueuedSessionPatch(val recordBy: String, val before: String? = null)
+data class QueuedSessionPatch(val recordBy: String, val before: String? = null, val mine: String? = null)
 
 object StepState {
     const val PENDING = "PENDING"
@@ -102,7 +102,8 @@ data class SessionUnit(
     val artisanIds: Map<String, String> = emptyMap(),
     val touchedAt: String? = null,
     val savedAnswerVersions: Map<String, Int> = emptyMap(),
-    val respondentIds: Map<String, String> = emptyMap()
+    val respondentIds: Map<String, String> = emptyMap(),
+    val recordBy: String? = null
 ) {
     fun resolve(subjectId: String): String = artisanIds[subjectId] ?: respondentIds[subjectId] ?: subjectId
 
@@ -287,11 +288,13 @@ class SessionOutbox(
 
     suspend fun adoptSession(session: QSession, questionnaireId: String, ownerUserId: String?): SessionUnit {
         val key = session.clientKey ?: session.id
-        store.read(key)?.let { return it }
+        store.read(key)?.let { known ->
+            return if (known.recordBy == session.recordBy) known else mutate(key) { it.copy(recordBy = session.recordBy) }
+        }
         val unit = SessionUnit(
             clientKey = key, ownerUserId = ownerUserId, createdAt = clock().toString(),
             questionnaireId = questionnaireId, workshopId = session.workshop?.id, sessionId = session.id,
-            touchedAt = clock().toString()
+            touchedAt = clock().toString(), recordBy = session.recordBy
         )
         store.write(unit)
         return unit
@@ -382,12 +385,32 @@ class SessionOutbox(
             })
         } else {
             val earlier = unit.steps.filter { it.kind == StepKind.SESSION_PATCH && it.state != StepState.DONE }
-            val base = earlier.firstOrNull()?.bodyJson?.let { runCatching { outboxJson.decodeFromString(QueuedSessionPatch.serializer(), it) }.getOrNull() }?.before ?: before
+            val first = earlier.firstOrNull()?.let(::patchOf)
+            val inFlight = earlier.lastOrNull { it.state == StepState.PENDING }?.let(::patchOf)?.recordBy
+            val base = first?.before ?: before
             unit.copy(steps = unit.steps.filterNot { it in earlier } + SessionStep(
                 newKey(), StepKind.SESSION_PATCH, clock().toString(), newKey(),
-                bodyJson = outboxJson.encodeToString(QueuedSessionPatch.serializer(), QueuedSessionPatch(recordBy, base))
+                bodyJson = outboxJson.encodeToString(QueuedSessionPatch.serializer(), QueuedSessionPatch(recordBy, base, inFlight ?: lastSentRecordBy(unit)))
             ))
         }
+    }
+
+    private fun patchOf(step: SessionStep): QueuedSessionPatch? =
+        step.bodyJson?.let { runCatching { outboxJson.decodeFromString(QueuedSessionPatch.serializer(), it) }.getOrNull() }
+
+    fun lastSentRecordBy(unit: SessionUnit?): String? {
+        unit ?: return null
+        unit.steps.filter { it.kind == StepKind.SESSION_PATCH && it.state == StepState.DONE }.maxByOrNull { it.deviceTime }
+            ?.let(::patchOf)?.let { return it.recordBy }
+        return unit.steps.firstOrNull { it.kind == StepKind.SESSION && it.state == StepState.DONE }?.bodyJson
+            ?.let { runCatching { outboxJson.decodeFromString(QSessionCreate.serializer(), it) }.getOrNull() }?.recordBy
+    }
+
+    fun offlineRecordBy(unit: SessionUnit?): String? {
+        unit ?: return null
+        unit.steps.filter { it.kind == StepKind.SESSION_PATCH && it.state == StepState.DONE }.maxByOrNull { it.deviceTime }
+            ?.let(::patchOf)?.let { return it.recordBy }
+        return unit.recordBy
     }
 
     fun queuedRecordBy(unit: SessionUnit?): String? {
@@ -553,17 +576,17 @@ class SessionOutbox(
                         )
                     }
                 }
-                StepKind.SESSION -> {
-                    val frozen = outboxJson.decodeFromString(QSessionCreate.serializer(), step.bodyJson!!)
-                    val body = frozen.copy(participants = frozen.participants.map { QArtisanRef(unit.resolve(it.artisanId)) })
-                    val session = transport.createSession(step.idempotencyKey, body)
-                    val guests = matchRespondents(step.respondentLocalIds, frozen.respondents, session.respondents)
-                    mutate(clientKey) { u ->
-                        u.copy(
-                            sessionId = session.id, respondentIds = u.respondentIds + guests,
-                            steps = u.steps.map { if (it.id == stepId) it.copy(state = StepState.DONE, resultId = session.id) else it }
-                        )
-                    }
+                StepKind.SESSION -> lockFor(clientKey).withLock {
+                    val u = store.read(clientKey) ?: return false
+                    val sending = u.steps.firstOrNull { it.id == stepId && it.state == StepState.PENDING } ?: return false
+                    val frozen = outboxJson.decodeFromString(QSessionCreate.serializer(), sending.bodyJson!!)
+                    val body = frozen.copy(participants = frozen.participants.map { QArtisanRef(u.resolve(it.artisanId)) })
+                    val session = transport.createSession(sending.idempotencyKey, body)
+                    val guests = matchRespondents(sending.respondentLocalIds, frozen.respondents, session.respondents)
+                    store.write(u.copy(
+                        sessionId = session.id, respondentIds = u.respondentIds + guests, touchedAt = clock().toString(),
+                        steps = u.steps.map { if (it.id == stepId) it.copy(state = StepState.DONE, resultId = session.id) else it }
+                    ))
                 }
                 StepKind.RESPONDENT -> {
                     val sessionId = unit.sessionId ?: return false
@@ -641,7 +664,7 @@ class SessionOutbox(
         repeat(2) { attempt ->
             val (version, server) = transport.sessionRecordBy(sessionId)
             if (server == queued.recordBy) return true
-            if (queued.before != null && server != queued.before) {
+            if (queued.before != null && server != queued.before && server != queued.mine) {
                 updateStep(clientKey, stepId) {
                     it.copy(
                         state = StepState.FAILED, failure = QuestionnaireCopy.s("p9.title"), failureCode = RECORD_BY_CONFLICT, attempts = it.attempts + 1,

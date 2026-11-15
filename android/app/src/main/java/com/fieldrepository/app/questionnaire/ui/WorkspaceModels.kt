@@ -7,7 +7,10 @@ import com.fieldrepository.app.questionnaire.data.QAnswersPut
 import com.fieldrepository.app.questionnaire.data.QRecording
 import com.fieldrepository.app.questionnaire.data.QSessionDetail
 import com.fieldrepository.app.questionnaire.data.QSessionReview
+import com.fieldrepository.app.questionnaire.data.QueuedSessionPatch
+import com.fieldrepository.app.questionnaire.data.RecordBy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
+import com.fieldrepository.app.questionnaire.data.SessionOutbox
 import com.fieldrepository.app.questionnaire.data.SessionStep
 import com.fieldrepository.app.questionnaire.data.SessionUnit
 import com.fieldrepository.app.questionnaire.data.StepKind
@@ -23,8 +26,15 @@ data class TrayRow(
     val conflict: QAnswerResult? = null,
     val mine: String? = null,
     val sendAgain: Boolean = true,
-    val files: Int = 0
+    val files: Int = 0,
+    val choice: Boolean = false
 )
+
+internal fun SessionStep.isConflict(): Boolean =
+    state == StepState.FAILED && (failureCode == SessionOutbox.RECORD_BY_CONFLICT || (kind == StepKind.ANSWERS && failureCode == "CONFLICT" && conflicts.isNotEmpty()))
+
+internal fun recordByLabel(wire: String?): String =
+    QuestionnaireCopy.t(if (wire == RecordBy.QUESTION.wire) "recordByQuestion" else "recordBySection")
 
 object OutboxTrayModel {
     fun rows(unit: SessionUnit, nameOf: (String) -> String, codeOf: (String) -> String): List<TrayRow> =
@@ -54,7 +64,12 @@ object OutboxTrayModel {
             }
             StepKind.SESSION -> listOf(TrayRow(step.id, step.kind, QuestionnaireCopy.s("tray.session"), reason))
             StepKind.ARTISAN -> listOf(TrayRow(step.id, step.kind, QuestionnaireCopy.s("tray.newArtisan"), reason))
-            StepKind.SESSION_PATCH -> listOf(TrayRow(step.id, step.kind, QuestionnaireCopy.t("fieldRecordBy"), reason))
+            StepKind.SESSION_PATCH -> {
+                val queued = step.bodyJson?.let { runCatching { outboxJson.decodeFromString(QueuedSessionPatch.serializer(), it) }.getOrNull() }
+                if (step.failureCode == SessionOutbox.RECORD_BY_CONFLICT && queued != null) listOf(
+                    TrayRow(step.id, step.kind, QuestionnaireCopy.t("fieldRecordBy"), recordByLabel(queued.before), mine = recordByLabel(queued.recordBy), sendAgain = false, choice = true)
+                ) else listOf(TrayRow(step.id, step.kind, QuestionnaireCopy.t("fieldRecordBy"), reason))
+            }
             StepKind.PARTICIPANT -> listOf(
                 TrayRow(step.id, step.kind, listOfNotNull(QuestionnaireCopy.s("tray.participant"), step.participant?.artisanId?.let { QuestionnaireCopy.firstName(nameOf(unit.resolve(it))) }?.ifBlank { null }).joinToString(" · "), reason)
             )
@@ -68,15 +83,16 @@ object OutboxTrayModel {
     fun uploadLine(percent: Int): String = if (percent <= 0) QuestionnaireCopy.s("upload.waiting") else QuestionnaireCopy.uploading(percent)
 }
 
-enum class SaveTone { SAVED, ON_PHONE, UPLOADING, WAITING, FAILED }
+enum class SaveTone { SAVED, ON_PHONE, UPLOADING, WAITING, FAILED, CONFLICT }
 
 data class SavePillState(val tone: SaveTone, val text: String, val percent: Int = 0, val failedSteps: List<String> = emptyList())
 
 object SavePillModel {
     fun of(unit: SessionUnit?): SavePillState {
         if (unit == null) return SavePillState(SaveTone.SAVED, QuestionnaireCopy.t("saved"))
-        val failed = unit.failedSteps
+        val failed = unit.failedSteps.filterNot { it.isConflict() }
         if (failed.isNotEmpty()) return SavePillState(SaveTone.FAILED, QuestionnaireCopy.s("upload.failed"), failedSteps = failed.map { it.id })
+        if (unit.failedSteps.isNotEmpty()) return SavePillState(SaveTone.CONFLICT, QuestionnaireCopy.s("p9.title"))
         val uploading = unit.uploadingClips
         if (uploading.isNotEmpty()) {
             val percent = uploading.mapNotNull { it.clip?.uploadedPercent }.let { if (it.isEmpty()) 0 else it.sum() / it.size }
@@ -89,7 +105,7 @@ object SavePillModel {
     }
 }
 
-data class NeedsYouRow(val key: String, val title: String, val detail: String, val action: String, val stepId: String? = null, val code: String? = null)
+data class NeedsYouRow(val key: String, val title: String, val detail: String, val action: String, val stepId: String? = null, val code: String? = null, val conflict: Boolean = false)
 
 data class StillToAskRow(val section: InstrumentSection, val status: SectionStatus) {
     val trailing: String get() =
@@ -111,7 +127,8 @@ data class ReviewModel(
             names: List<String>,
             pending: Int,
             tray: List<TrayRow>,
-            served: QSessionReview? = null
+            served: QSessionReview? = null,
+            required: Int = 0
         ): ReviewModel {
             val local = evidence.tally(instrument)
             val tally = served?.let { s ->
@@ -126,7 +143,13 @@ data class ReviewModel(
                     val code = row.title.substringBefore(" (").removePrefix("Section ")
                     NeedsYouRow("step:${row.stepId}", QuestionnaireCopy.t("takeDidNotUpload", "code" to code), QuestionnaireCopy.t("uploadFailed"), QuestionnaireCopy.t("retry"), stepId = row.stepId)
                 } else {
-                    NeedsYouRow("step:${row.stepId}", row.title, row.reason, if (row.sendAgain) QuestionnaireCopy.t("retry") else "", stepId = row.stepId)
+                    val conflict = row.choice || row.conflict != null
+                    val action = when {
+                        conflict -> QuestionnaireCopy.t("choose")
+                        row.sendAgain -> QuestionnaireCopy.t("retry")
+                        else -> ""
+                    }
+                    NeedsYouRow("step:${row.stepId}", row.title, if (row.choice) QuestionnaireCopy.s("p9.title") else row.reason, action, stepId = row.stepId, conflict = conflict)
                 }
             }
             val still = if (served != null) {
@@ -141,7 +164,7 @@ data class ReviewModel(
             val summary = QuestionnaireCopy.t(
                 "reviewSummary", "sections" to tally.sectionsDone, "names" to names.joinToString(", ").ifBlank { "—" },
                 "pending" to maxOf(pending, served?.pendingUploads ?: 0)
-            )
+            ).let { line -> listOfNotNull(line, QuestionnaireCopy.requiredUnanswered(required)).joinToString(" ") }
             return ReviewModel(tally, summary, decisions + failed, still)
         }
     }

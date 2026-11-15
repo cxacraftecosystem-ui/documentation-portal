@@ -167,6 +167,43 @@ class QuestionnaireSessionUiTest {
         assertEquals(listOf("history:r1", "restore:r2"), picked)
     }
 
+    @QFeature("Q4")
+    @Test fun theTakeSheetHidesUploadWhileATakeIsRecording() {
+        compose.setContent {
+            MaterialTheme {
+                TakeSheet(
+                    heading = "Section E",
+                    takes = listOf(TakeRow("r1", 1, "Take 1  14 min", "Solo", null, local = false, removable = false)),
+                    locked = false, playing = null,
+                    onPlay = {}, onRemove = {}, onRecord = {}, onUpload = {}, onDismiss = {},
+                    recording = true
+                )
+            }
+        }
+        compose.onNodeWithText("Record take").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodesWithText("Upload file").fetchSemanticsNodes().size)
+    }
+
+    @QFeature("B39")
+    @Test fun aRecordByConflictInTheTrayAsksKeepMineOrKeepTheirs() {
+        val picked = mutableListOf<String>()
+        compose.setContent {
+            MaterialTheme {
+                OutboxTray(
+                    rows = listOf(TrayRow("p1", StepKind.SESSION_PATCH, "Record by", "Question", mine = "Section", sendAgain = false, choice = true)),
+                    onSendAgain = { picked += "again:${it.stepId}" },
+                    onDiscard = { picked += "discard:${it.stepId}" },
+                    onKeepTheirs = { picked += "theirs:${it.stepId}" },
+                    onKeepMine = { picked += "mine:${it.stepId}" }
+                )
+            }
+        }
+        assertEquals(0, compose.onAllNodesWithText("Send again").fetchSemanticsNodes().size)
+        compose.onNodeWithText("Keep theirs").performClick()
+        compose.onNodeWithText("Keep mine").performClick()
+        assertEquals(listOf("theirs:p1", "mine:p1"), picked)
+    }
+
     @QFeature("D4")
     @Test fun theGridMarksRecordedTypedAndTheOverrides() {
         val section = InstrumentSection("secD", "D", "Process", emptyList())
