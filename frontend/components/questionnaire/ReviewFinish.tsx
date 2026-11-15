@@ -7,6 +7,7 @@ import { ButtonRow } from "@/components/ui/ButtonRow";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import type { Recording, SessionReview } from "@/lib/questionnaire/api";
 import type { QuestionProgress } from "@/lib/questionnaire/coverageCache";
+import { dropZeroUploading } from "@/lib/questionnaire/prompts";
 import { qs } from "@/lib/questionnaire/qs";
 
 export type StillToAsk = { sectionId: string; code: string; title: string; left: number; total: number };
@@ -101,7 +102,7 @@ export function ReviewFinish({
         <div className="grid min-w-0 flex-[1_1_20rem] gap-2.5">
           <span className="font-display text-[1.375rem] font-bold leading-[1.875rem] text-ink-900">{qs("questionsAnswered", { answered, total })}</span>
           <ProgressBar percent={percent} className="h-2" aria-hidden />
-          <span className="text-sm text-ink-700">{qs("reviewSummary", { sections: sectionsDone, names, pending })}</span>
+          <span className="text-sm text-ink-700">{dropZeroUploading(qs("reviewSummary", { sections: sectionsDone, names, pending }), pending)}</span>
         </div>
         <ButtonRow className="max-sm:w-full">
           <button type="button" className="field-button-secondary min-h-12 rounded-full px-6 font-semibold" onClick={onKeepGoing}>

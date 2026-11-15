@@ -41,6 +41,7 @@
     "finish": "Finish",
     "finishTitle": "Finish session",
     "finishBody": "{sections} sections recorded for {artisans} artisans. {pending} takes still uploading.",
+    "finishBodyOne": "{sections} sections recorded for 1 artisan. {pending} takes still uploading.",
     "joinCode": "Join code {code}",
     "present": "Present",
     "away": "Away",

@@ -37,6 +37,7 @@
     <string name="q_finish">Finish</string>
     <string name="q_finish_title">Finish session</string>
     <string name="q_finish_body">%1$s sections recorded for %2$s artisans. %3$s takes still uploading.</string>
+    <string name="q_finish_body_one">%1$s sections recorded for 1 artisan. %2$s takes still uploading.</string>
     <string name="q_join_code">Join code %1$s</string>
     <string name="q_present">Present</string>
     <string name="q_away">Away</string>

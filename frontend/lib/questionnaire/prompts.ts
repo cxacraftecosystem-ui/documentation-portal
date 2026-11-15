@@ -204,7 +204,7 @@ export const prompts = {
   finish: (v: { sections: number; artisans: number; pending: number }): PromptSpec => ({
     id: "FINISH",
     title: qs("finishTitle"),
-    body: qs("finishBody", v),
+    body: dropZeroUploading(qs(v.artisans === 1 ? "finishBodyOne" : "finishBody", v), v.pending),
     buttons: [{ id: "finish", label: qs("finish"), tone: "primary" }],
     dismiss: null
   })
@@ -228,4 +228,10 @@ export function takeRowLabel(take: {
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+export function dropZeroUploading(text: string, pending: number): string {
+  if (pending > 0) return text;
+  const cut = text.lastIndexOf(". ");
+  return cut < 0 ? text : `${text.slice(0, cut)}.`;
 }

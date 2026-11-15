@@ -37,6 +37,7 @@ export const questionnaireStrings = {
   finish: "Finish",
   finishTitle: "Finish session",
   finishBody: ({ sections, artisans, pending }: { sections: string | number; artisans: string | number; pending: string | number }): string => `${sections} sections recorded for ${artisans} artisans. ${pending} takes still uploading.`,
+  finishBodyOne: ({ sections, pending }: { sections: string | number; pending: string | number }): string => `${sections} sections recorded for 1 artisan. ${pending} takes still uploading.`,
   joinCode: ({ code }: { code: string | number }): string => `Join code ${code}`,
   present: "Present",
   away: "Away",
