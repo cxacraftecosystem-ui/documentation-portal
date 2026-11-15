@@ -64,7 +64,7 @@ export function SessionHeader({
   }, []);
   const percent = total > 0 ? Math.round((answered / total) * 100) : 0;
   return (
-    <header ref={ref} className="sticky top-0 z-10 -mx-4 grid gap-3 border-b border-line-200 bg-bg-0 px-4 py-3 lg:top-17" data-session-header>
+    <header ref={ref} className="sticky top-0 z-10 -mx-4 grid gap-3 border-b border-line-200 bg-bg-0 px-4 py-3 lg:top-17 lg:before:pointer-events-none lg:before:absolute lg:before:inset-x-0 lg:before:bottom-full lg:before:h-17 lg:before:bg-bg-0 lg:before:content-['']" data-session-header>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <Link
           href="/questionnaire"
@@ -73,15 +73,20 @@ export function SessionHeader({
         >
           <ChevronLeft className="h-5 w-5" aria-hidden />
         </Link>
-        <div className="grid min-w-0 flex-[1_1_14rem] gap-0.5">
+        <div className="grid min-w-0 flex-[1_1_0%] gap-0.5 md:flex-[1_1_14rem]">
           <h1 className="display-title truncate text-xl leading-7 md:text-[2rem] md:leading-10" data-session-title title={session.title}>
             {headerNames(session)}
           </h1>
           <span className="truncate text-sm text-ink-500">{headerLine(session)}</span>
         </div>
-        <div className="flex shrink-0 items-center gap-2.5 md:order-last">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2.5 md:order-last">
           {onReview ? (
-            <button type="button" className="field-button min-h-11 px-4 font-semibold sm:px-5" onClick={onReview} data-review-link>
+            <button
+              type="button"
+              className="field-button min-h-11 max-sm:bg-transparent max-sm:px-2 max-sm:text-base max-sm:font-semibold max-sm:text-purple-700 max-sm:hover:bg-purple-50 max-sm:hover:shadow-none sm:px-5 sm:font-semibold dark:max-sm:text-purple-300 dark:max-sm:hover:bg-purple-700/20"
+              onClick={onReview}
+              data-review-link
+            >
               <span className="sm:hidden">{qs("review")}</span>
               <span className="hidden sm:inline">{qs("reviewAndFinish")}</span>
             </button>

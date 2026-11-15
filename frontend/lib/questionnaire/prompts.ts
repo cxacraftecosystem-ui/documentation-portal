@@ -50,11 +50,7 @@ export function alreadyRecorded(input: P2Input): {
   let body: string;
   if (per.length === 1 && covered.length === 1) {
     const take = covered[0].takes[covered[0].takes.length - 1];
-    body = qs(covered[0].viaSection ? "alreadyRecordedWhole" : "alreadyRecordedOne", {
-      target: input.targetLabel,
-      name: nameOf(covered[0].artisanId),
-      date: shortDate(take.session.date ?? take.capturedAt)
-    });
+    body = qs("recordedForOn", { name: (input.names[covered[0].artisanId] ?? "").trim(), date: shortDate(take.session.date ?? take.capturedAt) });
   } else {
     body = qs("alreadyRecordedBody", { target: input.targetLabel, covered: covered.length, count: per.length });
   }
@@ -76,12 +72,12 @@ export function alreadyRecorded(input: P2Input): {
   const first = per.length > 1 ? fresh.map((p) => qs("firstTakeFor", { name: nameOf(p.artisanId), target: input.code })) : [];
   const more: PromptButton[] = [];
   if (input.part2Allowed) more.push({ id: "part2", label: qs("continueAsPart2") });
-  if (input.replaceAllowed) more.push({ id: "replace", label: qs("replaceEarlierTake") });
   more.push({ id: "different", label: qs("useDifferentQuestion") });
+  if (input.replaceAllowed) more.push({ id: "replace", label: qs("replaceEarlierTake"), tone: "danger" });
   return {
     spec: {
       id: "P2",
-      title: qs("alreadyRecordedTitle"),
+      title: input.code ? qs("alreadyRecordedCode", { code: input.code }) : qs("alreadyRecordedTitle"),
       body,
       buttons: [
         { id: "cancel", label: qs("cancel"), tone: "secondary" },

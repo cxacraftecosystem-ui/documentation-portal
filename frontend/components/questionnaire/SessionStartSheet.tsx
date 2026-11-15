@@ -571,13 +571,13 @@ export function SessionStartSheet({
       }}
     >
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="grid gap-1">
+        <div className="grid content-start gap-1">
           <label htmlFor={ids.workshop} className="field-label">
             {WORKSHOP_LABEL}
           </label>
           <SearchableSelect id={ids.workshop} value={form.workshopId} onChange={(v) => set("workshopId", v)} options={workshopOptions} searchable ariaLabel={WORKSHOP_LABEL} />
         </div>
-        <div className="grid gap-1">
+        <div className="grid content-start gap-1">
           <label htmlFor={ids.instrument} className="field-label">
             {qs("fieldInstrument")}
           </label>
@@ -595,13 +595,13 @@ export function SessionStartSheet({
           />
           {provenance.questionnaire ? <ProvenanceTag id={`${ids.tag}-q`} text={qs("fromThisWorkshop")} /> : null}
         </div>
-        <div className="grid gap-1">
+        <div className="grid content-start gap-1">
           <label htmlFor={ids.date} className="field-label">
             {qs("fieldDate")}
           </label>
           <CalendarField id={ids.date} value={form.sessionDate} onChange={(v) => set("sessionDate", v)} required clearable={false} />
         </div>
-        <div className="grid gap-1">
+        <div className="grid content-start gap-1">
           <span className="field-label">{qs("fieldMode")}</span>
           <SegmentedChoice
             label={qs("fieldMode")}

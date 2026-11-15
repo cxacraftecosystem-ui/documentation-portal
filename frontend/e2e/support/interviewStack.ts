@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { expect, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
@@ -24,6 +24,8 @@ export type InterviewSeed = {
   sectionTitles: Record<string, string>;
   questions: Record<string, string>;
   artisans: Record<string, string>;
+  pool?: Record<string, string[]>;
+  poolPlace?: string;
   users: Record<Who, { id: string; name: string; email: string; role: string }>;
   tokens: Record<Who, string>;
 };
@@ -36,6 +38,7 @@ export const INTERVIEW_SEED_MISSING = SEED_PATH ? "" : "Set INTERVIEW_SEED to th
 
 export const MEERA = "Meera Devi";
 export const GROUP = ["Ramesh Maharana", "Sushila Sahoo", "Bhagirathi Nayak"] as const;
+export const LALITA = "Lalita Behera";
 
 let cached: InterviewSeed | null = null;
 
@@ -73,6 +76,26 @@ export async function raw<T>(who: Who, method: string, path: string, body?: unkn
 export const today = () => new Date().toISOString().slice(0, 10);
 export const artisan = (name: string) => seed().artisans[name];
 export const section = (code: string) => seed().sections[code];
+
+export function freshArtisan(name: string): string {
+  const ids = seed().pool?.[name] ?? [];
+  if (!ids.length) return artisan(name);
+  const dir = `${SEED_PATH}.claims`;
+  mkdirSync(dir, { recursive: true });
+  for (const id of ids) {
+    try {
+      closeSync(openSync(join(dir, id), "wx"));
+      return id;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error(`the interview seed's pool of ${name} is used up; raise INTERVIEW_POOL`);
+}
+
+export function artisanIn(session: Pick<Session, "participants">, name: string): string {
+  return session.participants.find((p) => p.name === name)?.artisanId ?? artisan(name);
+}
 export const lineage = (code: string) => seed().questions[code];
 
 export async function signInAs(context: BrowserContext, who: Who = "lead") {
@@ -111,7 +134,7 @@ export async function createSession(options: SessionOptions = {}): Promise<Sessi
     languageCode: "or",
     languageOther: null,
     note: options.note ?? null,
-    participants: (options.artisans ?? [MEERA]).map((name) => ({ artisanId: artisan(name) })),
+    participants: (options.artisans ?? [MEERA]).map((name) => ({ artisanId: freshArtisan(name) })),
     respondents: (options.guests ?? []).map((name) => ({ name, kind: "GUEST" as const })),
     recordBy: options.recordBy ?? "SECTION"
   };
@@ -166,10 +189,10 @@ export async function uploadTake(session: Session, target: Target | null, option
     sizeBytes: bytes.byteLength,
     contentType: "audio/wav",
     extension: "wav",
-    presign: { contentSha256: hash, targets, subjectArtisanIds: names.map(artisan), deviceCapturedAt: at, clockOffsetMs: 0 },
+    presign: { contentSha256: hash, targets, subjectArtisanIds: names.map((name) => artisanIn(session, name)), deviceCapturedAt: at, clockOffsetMs: 0 },
     recording: {
       targets,
-      subjects: names.map((name) => ({ artisanId: artisan(name), role: "ANSWERED" as const, named: true, repeatReason: null })),
+      subjects: names.map((name) => ({ artisanId: artisanIn(session, name), role: "ANSWERED" as const, named: true, repeatReason: null })),
       deviceCapturedAt: at,
       clockOffsetMs: 0,
       capturedAtSource: "DEVICE",
@@ -193,7 +216,7 @@ export async function uploadTake(session: Session, target: Target | null, option
 }
 
 export async function typeAnswers(session: Session, answers: Record<string, string>, options: { who?: Who; artisan?: string } = {}) {
-  const owner = artisan(options.artisan ?? MEERA);
+  const owner = artisanIn(session, options.artisan ?? MEERA);
   const api = as(options.who ?? "lead");
   const items = Object.entries(answers).map(([code, text]) => ({
     artisanId: owner,
@@ -265,7 +288,11 @@ export async function fillStartSheet(page: Page, names: string[]): Promise<Locat
   await chooseIfUnset(page, sheet.getByRole("button", { name: S.fieldInstrument, exact: true }).first(), /4th Craft Toolkit(?! Workshop)/);
   if (names.length > 1) await sheet.getByRole("button", { name: S.modeGroup, exact: true }).first().click();
   await sheet.getByRole("button", { name: /^Artisans?$/ }).first().click();
-  for (const name of names) await page.getByRole("option", { name: new RegExp(escape(name)) }).first().click();
+  const place = seed().poolPlace;
+  for (const name of names) {
+    const options = page.getByRole("option", { name: new RegExp(escape(name)) });
+    await (place ? options.filter({ hasNotText: place }) : options).first().click();
+  }
   await page.keyboard.press("Escape");
   return sheet;
 }

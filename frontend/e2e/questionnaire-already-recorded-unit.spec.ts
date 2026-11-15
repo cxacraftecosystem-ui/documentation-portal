@@ -32,7 +32,7 @@ test("@qf:B11 the contract's check response renders P2 for a group: summary, row
     targets: [{ ...base.targets[0], perArtisan: [...base.targets[0].perArtisan, { artisanId: "a2", state: "NOT_RECORDED", viaSection: false, takes: [] }] }]
   };
   const { spec, covered, first } = alreadyRecorded({ check, names, targetLabel: "Section D", code: "D", part2Allowed: false, replaceAllowed: false });
-  expect(spec.title).toBe("Already recorded");
+  expect(spec.title).toBe("D is already recorded");
   expect(spec.body).toBe("Section D is recorded for 1 of 2 here.");
   expect(covered[0].line).toBe("Giriraj · 14 min · Nandini · 7 Jul · Group of 3");
   expect(first).toEqual(["Meena hasn't been recorded for D. Their take will be their first."]);
@@ -47,12 +47,12 @@ test("one subject, a whole-section cover, and a file pick", () => {
     targets: [{ targetKey: "S:secD", label: "Section D", perArtisan: [{ artisanId: "a1", state: "RECORDED", viaSection: false, takes: [take()] }] }]
   };
   const base = { names, targetLabel: "Section D", code: "D", part2Allowed: false, replaceAllowed: false };
-  expect(alreadyRecorded({ ...base, check: one }).spec.body).toBe("Section D was recorded for Giriraj on 7 Jul.");
+  expect(alreadyRecorded({ ...base, check: one }).spec.body).toBe("Recorded for Giriraj Prasad Chhipa on 7 Jul.");
   const via: CoverageCheckResponse = {
     ...one,
     targets: [{ ...one.targets[0], perArtisan: [{ ...one.targets[0].perArtisan[0], viaSection: true, state: "VIA_SECTION" }] }]
   };
-  expect(alreadyRecorded({ ...base, check: via }).spec.body).toBe("Section D was recorded whole for Giriraj on 7 Jul.");
+  expect(alreadyRecorded({ ...base, check: via }).spec.body).toBe("Recorded for Giriraj Prasad Chhipa on 7 Jul.");
   expect(alreadyRecorded({ ...base, check: one, filePick: true }).spec.buttons[1].label).toBe("Upload again");
 });
 
@@ -62,7 +62,7 @@ test("More options: part 2 only when its rule holds, replace only for your own t
     alreadyRecorded({ check, names, targetLabel: "Section D", code: "D", part2Allowed: p2, replaceAllowed: rep }).spec.more!.map((b) => b.id);
   expect(ids(false, false)).toEqual(["different"]);
   expect(ids(true, false)).toEqual(["part2", "different"]);
-  expect(ids(true, true)).toEqual(["part2", "replace", "different"]);
+  expect(ids(true, true)).toEqual(["part2", "different", "replace"]);
   expect(WS).toContain("void begin({ ...current.pending, targets, label: labelOf(choice.targetValue)");
   expect(WS).toContain('if (!current || choice.kind === "cancel") return;');
   expect(WS.indexOf("const answer = await check(pending, sha);")).toBeLessThan(WS.indexOf("setRecording({"));

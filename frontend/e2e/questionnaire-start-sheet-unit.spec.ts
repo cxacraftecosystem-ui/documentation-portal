@@ -39,7 +39,7 @@ test("the segmented mode constrains the picker", () => {
 });
 
 test("the coverage line for 1, 3 and 8 artisans", () => {
-  expect(coverageLine([{ name: "Giriraj Prasad Chhipa", covered: 9, total: 24 }])).toBe("Giriraj has 9 of 24 sections.");
+  expect(coverageLine([{ name: "Giriraj Prasad Chhipa", covered: 9, total: 24 }])).toBe("Giriraj Prasad Chhipa has 9 of 24 sections.");
   expect(
     coverageLine([
       { name: "Giriraj", covered: 9, total: 24 },

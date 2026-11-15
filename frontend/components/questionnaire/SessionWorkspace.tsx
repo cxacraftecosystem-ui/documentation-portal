@@ -65,7 +65,7 @@ import {
   type SessionDetail,
   type SessionReview
 } from "@/lib/questionnaire/api";
-import { durationLabel, prompts, shortDate, type P2Input, type PromptSpec } from "@/lib/questionnaire/prompts";
+import { prompts, shortDate, type P2Input, type PromptSpec } from "@/lib/questionnaire/prompts";
 import { clipUploadState, isPermanent, isRecordByConflict, queuedRecordBy, sendDetails, sessionUnitKey, stepKey, type ClipStep, type SessionUnit } from "@/lib/questionnaire/queue";
 import { consentSubject, pickedFileMeta, rosterArtisans, takesFor, takeSubjects } from "@/lib/questionnaire/view";
 import { assembleTake, recorderStore, recoverable, recoveredMinutes, type TakeChunk, type TakeDraft } from "@/lib/questionnaire/recorderStore";
@@ -916,7 +916,6 @@ export function SessionWorkspace({ id }: { id: string }) {
       }
     }));
   const decisions = detail.recordings.filter((r) => !r.removedAt && r.filing === "NEEDS_DECISION");
-  const firstNames = session.participants.map((p) => shortName(p.name)).filter(Boolean);
   const awayPeople = session.participants.filter((p) => p.leftAt);
 
   const dialogs = (
@@ -1210,7 +1209,7 @@ export function SessionWorkspace({ id }: { id: string }) {
           answered={summary.answered}
           total={summary.total}
           sectionsDone={summary.sectionsDone}
-          names={firstNames.join(", ")}
+          names={session.participants.map((p) => p.name.trim()).filter(Boolean).join(", ")}
           pending={pendingCount}
           decisions={decisions}
           failed={failedUploads}
@@ -1250,7 +1249,7 @@ export function SessionWorkspace({ id }: { id: string }) {
             data-question-state="QUESTION_TAKE"
           >
             <Mic className="h-4 w-4" aria-hidden />
-            {qs("questionTake", { duration: durationLabel(mark.durationMs) || "—" })}
+            {qs("questionTake", { duration: mark.durationMs ? recorderClock(mark.durationMs) : "—" })}
           </button>
         ) : null}
         {text && !typing[q.lineageId] ? (
@@ -1261,7 +1260,10 @@ export function SessionWorkspace({ id }: { id: string }) {
             onClick={() => setTyping((held) => ({ ...held, [q.lineageId]: true }))}
             data-typed-preview={q.lineageId}
           >
-            <span className="min-w-0 truncate">{qs("typedPreview", { text })}</span>
+            <span className="min-w-0 truncate">
+              <span className="font-semibold text-success-600 dark:text-green-400">{qs("stateTyped")}</span>
+              {qs("typedPreview", { text }).slice(qs("stateTyped").length)}
+            </span>
           </button>
         ) : null}
         {!mark || mark.kind === "NONE" ? (
@@ -1392,7 +1394,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                   )}
                 </button>
                 {open ? (
-                  <div id={`section-body-${s.id}`} className="grid gap-4 px-4 pb-2 pt-5 sm:px-6" data-section-body={s.code}>
+                  <div id={`section-body-${s.id}`} className="grid grid-cols-[minmax(0,1fr)] gap-4 px-3 pb-2 pt-5 sm:px-6" data-section-body={s.code}>
                     {live && recordBy === "SECTION" && !recording ? (
                       <RecordUploadPair
                         recordLabel={qs("recordSection")}
@@ -1400,7 +1402,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                         onUpload={() => setUploadFor({ kind: "SECTION", sectionId: s.id })}
                       />
                     ) : null}
-                    <ol className="grid border-t border-line-200">
+                    <ol className="grid grid-cols-[minmax(0,1fr)] border-t border-line-200">
                       {(s.questions ?? []).map((q) => {
                         const mark = p?.marks[q.lineageId];
                         const done = Boolean(mark && mark.kind !== "NONE");
@@ -1414,7 +1416,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                             >
                               {q.displayCode}
                             </span>
-                            <div className="grid min-w-0 flex-1 gap-2">
+                            <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-2">
                               <p className="text-base leading-6 text-ink-900">
                                 {q.prompt}
                                 {required(q.lineageId) ? (

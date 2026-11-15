@@ -193,6 +193,7 @@ jobs:
       MEDIA_QUEUE_WORKER_ENABLED: "false"
       QUESTIONNAIRE_V2: "true"
       INTERVIEW_SEED: ${{ github.workspace }}/interview-seed.json
+      INTERVIEW_POOL: "200"
       E2E_BASE_URL: "http://localhost:3000"
       E2E_API_URL: "http://localhost:8000"
       NEXT_PUBLIC_API_URL: "http://localhost:8000"
