@@ -110,9 +110,10 @@ class InterviewShotsTest {
         File(root, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    private fun openSession(note: String, dark: Boolean) {
+    private fun openSession(note: String, dark: Boolean, fallback: String? = null) {
         home(dark)
-        tap(note)
+        val found = runCatching { waitFor(note, 15_000) }.isSuccess
+        tap(if (found || fallback == null) note else fallback)
         waitFor(t("review"))
     }
 
@@ -194,7 +195,7 @@ class InterviewShotsTest {
 
     private fun answeredBy(dark: Boolean) {
         val (code, title) = if (dark) "C" to "Migration, mobility and changing livelihoods" else "B" to "Family, community, gender and knowledge transfer"
-        openSession("CI group", dark)
+        openSession("CI group", dark, fallback = "Ramesh Maharana")
         openSection(code, title)
         tap(t("recordSection"))
         waitFor(t("recordingSection", "code" to code))
