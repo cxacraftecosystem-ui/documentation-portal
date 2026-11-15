@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -684,7 +685,7 @@ fun SessionWorkspace(
             if (serverSessionId != null && participantIds.any { !QSubjects.isGuest(it) }) SessionMenuItem(QuestionnaireCopy.s("session.continue"), SessionMenuIcons.continueDay) { continuing = true } else null,
             if (!locked && participantIds.size > 1) SessionMenuItem(QuestionnaireCopy.t("removeArtisan"), SessionMenuIcons.removeArtisan, destructive = true) { removingArtisan = true } else null,
             if (mayDelete && serverSessionId != null) SessionMenuItem(QuestionnaireCopy.t("mergeIntoAnotherSession"), SessionMenuIcons.merge, destructive = true) { merging = true } else null,
-            if (mayDelete && serverSessionId != null) SessionMenuItem(QuestionnaireCopy.s("session.delete"), SessionMenuIcons.delete, destructive = true) { deleting = true } else null
+            if (mayDelete && serverSessionId != null) SessionMenuItem(QuestionnaireCopy.t("deleteSession"), SessionMenuIcons.delete, destructive = true) { deleting = true } else null
         ),
         onDismiss = { menu = false }
     )
@@ -1365,7 +1366,7 @@ internal fun QuestionRow(
                 .semantics(mergeDescendants = true) { contentDescription = QuestionnaireCopy.t("openTypedAnswer", "code" to question.displayCode) },
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(Icons.Filled.Keyboard, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(18.dp))
+            Icon(Icons.Outlined.Edit, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(16.dp))
             Text(
                 QuestionnaireCopy.t("typedPreview", "text" to typedPreview), modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted, maxLines = 1, overflow = TextOverflow.Ellipsis

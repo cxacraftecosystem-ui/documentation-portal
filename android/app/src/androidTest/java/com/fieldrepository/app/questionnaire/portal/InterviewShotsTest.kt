@@ -5,12 +5,16 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
@@ -25,17 +29,38 @@ import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.ui.QuestionnaireHome
 import com.fieldrepository.app.questionnaire.ui.QuestionnaireV2Nav
 import com.fieldrepository.app.ui.FieldRepositoryTheme
+import com.fieldrepository.app.ui.LocalMayDelete
 import java.io.File
 import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TestWatcher
+import org.junit.runner.Description
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class InterviewShotsTest {
-    @get:Rule
+    @get:Rule(order = 0)
     val compose = createComposeRule()
+
+    private val errors = mutableListOf<String>()
+
+    @get:Rule(order = 1)
+    val evidence = object : TestWatcher() {
+        override fun failed(e: Throwable?, description: Description) {
+            val root = File(app.getExternalFilesDir(null), "design-fidelity/interview-failures")
+            root.mkdirs()
+            val name = "${description.methodName}-$device"
+            runCatching {
+                instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
+                    File(root, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                }
+            }
+            val tree = runCatching { compose.onAllNodes(isRoot(), useUnmergedTree = true).printToString(maxDepth = Int.MAX_VALUE) }.getOrElse { "tree unavailable: $it" }
+            File(root, "$name.txt").writeText(listOf("errors: $errors", tree).joinToString("\n\n"))
+        }
+    }
 
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val app: Context = instrumentation.targetContext
@@ -58,10 +83,11 @@ class InterviewShotsTest {
 
     private fun t(key: String, vararg values: Pair<String, Any?>) = QuestionnaireCopy.t(key, *values)
 
-    private fun home(dark: Boolean) {
+    private fun home(dark: Boolean, admin: Boolean = false) {
         compose.setContent {
+            CompositionLocalProvider(LocalMayDelete provides admin) {
             FieldRepositoryTheme(darkTheme = dark) {
-                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).systemBarsPadding()) {
                     QuestionnaireHome(
                         artisans = artisans,
                         meId = arg("interviewUserId"),
@@ -69,10 +95,11 @@ class InterviewShotsTest {
                         formsTab = {},
                         onNewForm = {},
                         onUpdateApp = {},
-                        onError = {},
+                        onError = { errors += it },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
+            }
             }
         }
     }
@@ -117,10 +144,10 @@ class InterviewShotsTest {
         File(root, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    private fun openSession(note: String, dark: Boolean, fallback: String? = null) {
+    private fun openSession(note: String, dark: Boolean, fallback: String? = null, admin: Boolean = false) {
         val id = sessionIds[note]
         if (id != null) QuestionnaireV2Nav.openServerSession.value = id
-        home(dark)
+        home(dark, admin)
         if (id == null) {
             val found = runCatching { waitFor(note, 15_000) }.isSuccess
             tap(if (found || fallback == null) note else fallback)
@@ -130,8 +157,10 @@ class InterviewShotsTest {
 
     private fun openSection(code: String, title: String) {
         compose.waitUntil(30_000) { compose.onAllNodes(hasText(title, substring = true)).fetchSemanticsNodes().isNotEmpty() }
-        tap(title)
-        waitFor(t("chipSection", "code" to code))
+        node(title).performClick()
+        compose.waitForIdle()
+        waitFor(t("closeSection"))
+        waitFor("${code}1")
     }
 
     private fun list(dark: Boolean) {
@@ -177,7 +206,7 @@ class InterviewShotsTest {
     }
 
     private fun menu(dark: Boolean) {
-        openSession("CI board by section", dark)
+        openSession("CI board by section", dark, admin = true)
         tapDescribed(t("sessionOptions"))
         waitFor(t("recordByHelper"))
         waitFor(t("joinCodeAndQr"))

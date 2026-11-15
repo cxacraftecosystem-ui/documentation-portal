@@ -64,7 +64,7 @@ fun ReviewScreen(
             IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = QuestionnaireCopy.t("backToInterview"), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
             }
-            Text(QuestionnaireCopy.t("review"), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
+            Text(QuestionnaireCopy.t("review"), style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onBackground)
         }
         Column(
             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),

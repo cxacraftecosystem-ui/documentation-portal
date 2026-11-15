@@ -67,7 +67,9 @@ fun FieldLinearProgressIndicator(
         modifier = modifier,
         color = color,
         trackColor = trackColor,
-        strokeCap = StrokeCap.Round
+        strokeCap = StrokeCap.Round,
+        gapSize = 0.dp,
+        drawStopIndicator = {}
     )
 }
 
