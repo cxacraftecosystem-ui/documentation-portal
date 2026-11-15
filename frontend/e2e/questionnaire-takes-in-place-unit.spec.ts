@@ -65,14 +65,14 @@ test("a section lists its takes oldest first with the device's unsent ones after
   const outbox = [
     { clientClipKey: "clip-late", targets: [{ sectionId: "s-e" }] },
     { clientClipKey: "clip-new", targets: [{ sectionId: "s-e" }] },
-    { clientClipKey: "clip-q", targets: [{ questionLineageId: "l-e3" }] }
+    { clientClipKey: "clip-e3", targets: [{ questionLineageId: "l-e3" }] }
   ];
   const found = sectionTakes("s-e", recordings, outbox);
   expect(found.server.map((r) => r.id)).toEqual(["early", "late"]);
   expect(found.local.map((s) => s.clientClipKey)).toEqual(["clip-new"]);
   expect(questionTake("l-e2", "q", recordings, outbox)).toMatchObject({ id: "q" });
   expect(questionTake("l-e2", "gone", recordings, outbox)).toBeNull();
-  expect(questionTake("l-e3", null, recordings, outbox)).toMatchObject({ clientClipKey: "clip-q" });
+  expect(questionTake("l-e3", null, recordings, outbox)).toMatchObject({ clientClipKey: "clip-e3" });
 });
 
 test("the questionnaire reuses the Data explorer's preview and adds no player or transcript viewer of its own", () => {
