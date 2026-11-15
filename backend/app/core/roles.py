@@ -1,3 +1,4 @@
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -114,11 +115,30 @@ def enum_or_raw(value: Any) -> Any:
     return getattr(value, "value", value)
 
 
+def as_instant(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.strip())
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return None
+
+
 def values_match(current_value: Any, next_value: Any) -> bool:
     current_value = enum_or_raw(current_value)
     next_value = enum_or_raw(next_value)
     if current_value == next_value:
         return True
+    if isinstance(current_value, date) or isinstance(next_value, date):
+        current_instant = as_instant(current_value)
+        next_instant = as_instant(next_value)
+        if current_instant is not None and next_instant is not None:
+            return current_instant == next_instant
     try:
         return Decimal(str(current_value)) == Decimal(str(next_value))
     except (InvalidOperation, ValueError):

@@ -671,19 +671,31 @@ PROVENANCE_SKIP_FIELDS = {
 }
 
 
+_EXTRA_NOT_CARRIED = frozenset({"workshopSubmission", "fieldProvenance"})
+
+
 def merge_field_provenance(new_data: dict[str, Any], user: Any, previous: Any | None = None) -> None:
     from app.core.roles import get_value, is_empty_value, values_match
 
+    previous_extra = get_value(previous, "extraMetadata") if previous is not None else None
+    if not isinstance(previous_extra, dict):
+        previous_extra = {}
     incoming_extra = new_data.get("extraMetadata")
-    base_extra: dict[str, Any] = dict(incoming_extra) if isinstance(incoming_extra, dict) else {}
+    incoming_extra = incoming_extra if isinstance(incoming_extra, dict) else {}
+    base_extra: dict[str, Any] = {
+        key: value for key, value in previous_extra.items() if key not in _EXTRA_NOT_CARRIED
+    }
+    base_extra.update({key: value for key, value in incoming_extra.items() if key != "fieldProvenance"})
+    earlier_exif = previous_extra.get("mediaExif")
+    added_exif = incoming_extra.get("mediaExif")
+    if isinstance(earlier_exif, list) and isinstance(added_exif, list):
+        base_extra["mediaExif"] = earlier_exif + [entry for entry in added_exif if entry not in earlier_exif]
 
     stamps = method_stamps(new_data.pop(MARKER_BODY_KEY, None), fields=new_data.keys())
 
     provenance: dict[str, Any] = {}
-    if previous is not None:
-        previous_extra = get_value(previous, "extraMetadata")
-        if isinstance(previous_extra, dict) and isinstance(previous_extra.get("fieldProvenance"), dict):
-            provenance = dict(previous_extra["fieldProvenance"])
+    if isinstance(previous_extra.get("fieldProvenance"), dict):
+        provenance = dict(previous_extra["fieldProvenance"])
 
     stamp = {
         "by": get_value(user, "id"),

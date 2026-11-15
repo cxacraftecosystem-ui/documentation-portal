@@ -41,6 +41,7 @@ import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 
 type PendingItem = {
+  canEdit?: boolean;
   recordType: string;
   id: string;
   label: string;
@@ -322,7 +323,7 @@ export default function ReviewPage() {
         >
           Approve
         </button>
-        {editLocked(item) || reviewEditableFields(item.recordType).length === 0 ? null : (
+        {editLocked(item) || item.canEdit === false || reviewEditableFields(item.recordType).length === 0 ? null : (
           <button
             className={rowAction("edit", activeAction === "edit" ? "bg-field-100" : undefined)}
             onClick={() => toggleAction(item, "edit")}

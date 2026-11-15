@@ -917,6 +917,7 @@ function QuestionnairePageBody() {
         endpoint: editingId ? `/questionnaire/interviews/${editingId}` : "/questionnaire/interviews",
         method: editingId ? "PATCH" : "POST",
         body: interviewPayload,
+        base: editing,
         media: [
           {
             files: mediaFiles,
@@ -1040,6 +1041,7 @@ function QuestionnairePageBody() {
     } catch (err) {
       const handled = editing && isContentAdmin(user) ? await offerMergeOnConflict(err, editing.id) : false;
       if (!handled) setError(err instanceof Error ? err.message : "Unable to save interview");
+      if (err instanceof ApiError && err.status === 403) void workshop.recheck();
     } finally {
       setSaving(false);
       setInterviewProgress(null);

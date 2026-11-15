@@ -132,6 +132,13 @@ async def workshop_edit_privilege(user: Any, workshop_id: str | None) -> bool:
     return access.at_least("EDIT")
 
 
+async def edit_workshop_ids(user: Any) -> set[str]:
+    rows = await db.workshopassignment.find_many(
+        where={"userId": get_value(user, "id"), "status": "GRANTED", "accessLevel": "EDIT"}
+    )
+    return {get_value(row, "workshopId") for row in rows}
+
+
 async def assert_workshop_access(user: Any, workshop_id: str | None, minimum: str = "CONTRIBUTE") -> WorkshopAccess:
     if not workshop_id:
         return WorkshopAccess()

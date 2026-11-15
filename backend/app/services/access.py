@@ -109,8 +109,17 @@ async def record_revision(record: Any, user: Any, data: dict[str, Any], record_t
     )
 
 
+def record_workshop_id(record: Any, record_type: str) -> str | None:
+    from app.core.deps import get_value
+
+    if record_type.lower() == "workshop":
+        return get_value(record, "id")
+    return get_value(record, "workshopId")
+
+
 async def record_edit_privilege(record: Any, user: Any, record_type: str) -> bool:
     from app.core.deps import get_value, is_content_admin, may_edit_lower_ranked_record
+    from app.services import workshop_access
 
     owner_id = get_value(record, "createdById")
     uid = get_value(user, "id")
@@ -118,7 +127,28 @@ async def record_edit_privilege(record: Any, user: Any, record_type: str) -> boo
         return True
     if await may_edit_lower_ranked_record(user, owner_id):
         return True
-    return await effective_tier_for_record(user, owner_id, record_type, get_value(record, "id")) == "EDIT"
+    if await effective_tier_for_record(user, owner_id, record_type, get_value(record, "id")) == "EDIT":
+        return True
+    return await workshop_access.workshop_edit_privilege(user, record_workshop_id(record, record_type))
+
+
+async def record_edit_access(record: Any, user: Any, record_type: str) -> str:
+    from app.services import workshop_access
+
+    if await record_edit_privilege(record, user, record_type):
+        return "FULL"
+    workshop_id = record_workshop_id(record, record_type)
+    if workshop_id and not (
+        await workshop_access.resolve_workshop_access(user, workshop_id)
+    ).at_least("CONTRIBUTE"):
+        return "NONE"
+    return "FILL_EMPTY"
+
+
+async def with_edit_access(payload: Any, record: Any, user: Any, record_type: str) -> Any:
+    if isinstance(payload, dict):
+        payload["editAccess"] = await record_edit_access(record, user, record_type)
+    return payload
 
 
 async def guard_record_edit(
@@ -130,11 +160,17 @@ async def guard_record_edit(
     privileged: bool | None = None,
 ) -> bool:
     from app.core.deps import assert_can_contribute_fields
+    from app.services import workshop_access
+    from app.services.record_changes import settle_location
 
     if privileged is None:
         privileged = await record_edit_privilege(record, user, record_type)
     if not privileged:
-        assert_can_contribute_fields(record, user, data)
+        await workshop_access.assert_workshop_access(
+            user, record_workshop_id(record, record_type), "CONTRIBUTE"
+        )
+        unchanged = await settle_location(record, data)
+        assert_can_contribute_fields(record, user, data, unchanged=unchanged)
     await record_revision(record, user, data, record_type)
     return privileged
 

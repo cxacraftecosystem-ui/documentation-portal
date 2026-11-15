@@ -11,7 +11,7 @@ from app.core.deps import (
     get_current_user,
     require_record_creator,
 )
-from app.services.access import guard_record_edit, record_edit_privilege
+from app.services.access import guard_record_edit, record_edit_privilege, with_edit_access
 from app.schemas.records import ProcessCreate, ProcessStepInput, ProcessUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
@@ -235,7 +235,7 @@ async def create_process(
 async def get_process(process_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     process = await require_record(db.process, process_id)
     await hydrate_relations([process], RELATIONS)
-    return await _hydrate(process)
+    return await with_edit_access(await _hydrate(process), process, current_user, "process")
 
 
 @router.patch("/{process_id}")

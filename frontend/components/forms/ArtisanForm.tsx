@@ -61,6 +61,7 @@ import {
   type PossibleDuplicateHold
 } from "@/lib/duplicates";
 import { saveOrQueue } from "@/lib/offline";
+import { FILL_EMPTY_NOTE, FILLED_FIELD_REASON, fillsOnly, isBlankValue, KEPT_AFTER_REFUSAL, lockFilledFields, VIEW_ONLY_NOTE, viewOnly } from "@/lib/recordDiff";
 import { artisanBody, PEHCHAN_NO } from "@/lib/recordPayloads";
 import { canManageCrafts, hasRank } from "@/lib/permissions";
 import type { AadhaarLookupResult, Artisan, ArtisanIdentityConflict, ArtisanIdentityMatch, RecordStatus } from "@/lib/types";
@@ -259,6 +260,9 @@ function StatusField({
 
 const ARTISAN_DRAFT_FORM_FIELDS = ["gender", "dateOfBirth", "craftStartDate", "experienceYears", "experienceMonths", "phone", "phoneCountryCode", "address", "notes", "dos", "donts"];
 
+
+const FILLED_ARTISAN_FIELDS = ["name", "localName", "place", "gender", "dateOfBirth", "craftStartDate", "experienceYears", "experienceMonths", "phone", "email", "address", "aadhaarNumber", "pehchanCardNumber"] as const;
+
 export function ArtisanForm({ initial, onCreated, onQueued }: { initial?: Artisan; onCreated?: (saved: Artisan) => void; onQueued?: () => void }) {
   const router = useRouter();
   const { user } = useAuth();
@@ -271,6 +275,8 @@ export function ArtisanForm({ initial, onCreated, onQueued }: { initial?: Artisa
   useFocusField();
   const completenessCounts = useMemo(() => ({ photos: photosPicked(mediaFiles) }), [mediaFiles]);
   const [error, setError] = useState<string | null>(null);
+  const [keptAfterRefusal, setKeptAfterRefusal] = useState(false);
+  useEffect(() => lockFilledFields(formRef.current, initial, FILLED_ARTISAN_FIELDS, FILLED_FIELD_REASON), [initial]);
   const [conflict, setConflict] = useState<ArtisanIdentityConflict | null>(null);
   const [duplicatePromptOpen, setDuplicatePromptOpen] = useState(false);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
@@ -432,6 +438,7 @@ export function ArtisanForm({ initial, onCreated, onQueued }: { initial?: Artisa
     setDuplicatePromptOpen(false);
     setConflict(null);
     setError(null);
+    setKeptAfterRefusal(false);
     setDuplicateCandidates([]);
     setDuplicateHold(null);
     dismissedRef.current = [];
@@ -453,6 +460,7 @@ export function ArtisanForm({ initial, onCreated, onQueued }: { initial?: Artisa
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setError(null);
+    setKeptAfterRefusal(false);
     setConflict(null);
     setCheckingDuplicate(true);
     const existing = aadhaarNotShared ? null : await findArtisanByAadhaar(textValue(form, "aadhaarNumber"), initial?.id ?? null);
@@ -476,7 +484,7 @@ export function ArtisanForm({ initial, onCreated, onQueued }: { initial?: Artisa
     setSaving(true);
     try {
       const exifItems = await collectExifMetadata(mediaFiles);
-      const exifRemark = exifMetadataToRemark(exifItems);
+      const exifRemark = fillsOnly(initial) && !isBlankValue(initial?.notes) ? "" : exifMetadataToRemark(exifItems);
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
       const location = locationFromForm(form);
@@ -512,6 +520,7 @@ export function ArtisanForm({ initial, onCreated, onQueued }: { initial?: Artisa
         endpoint: initial ? `/artisans/${initial.id}` : "/artisans",
         method: initial ? "PATCH" : "POST",
         body: payload,
+        base: initial ?? null,
         media: [
           {
             files: mediaFiles,
@@ -585,6 +594,8 @@ export function ArtisanForm({ initial, onCreated, onQueued }: { initial?: Artisa
         if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
       } else {
         setError(readableError(err, "Unable to save artisan"));
+        setKeptAfterRefusal(true);
+        if (err instanceof ApiError && err.status === 403) void workshop.recheck();
       }
     } finally {
       setSaving(false);
@@ -674,7 +685,12 @@ export function ArtisanForm({ initial, onCreated, onQueued }: { initial?: Artisa
         onKeyDown={handleFormEnter}
         className="panel grid gap-4 p-4"
       >
-        {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        {error && !keptAfterRefusal ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        {viewOnly(initial) ? (
+          <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700">{VIEW_ONLY_NOTE}</p>
+        ) : fillsOnly(initial) ? (
+          <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700">{FILL_EMPTY_NOTE}</p>
+        ) : null}
         <DraftOfferCard draft={draft} />
         <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
         <LiveCompleteness
@@ -942,6 +958,12 @@ export function ArtisanForm({ initial, onCreated, onQueued }: { initial?: Artisa
             candidates={shownDuplicates}
             onDifferent={() => dismissDuplicates(shownDuplicates.map((c) => c.artisan.id))}
           />
+        ) : null}
+        {error && keptAfterRefusal ? (
+          <div role="alert" data-testid="save-refusal" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p>{error}</p>
+            <p className="mt-1 text-xs">{KEPT_AFTER_REFUSAL}</p>
+          </div>
         ) : null}
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}
         <ButtonRow align="end">

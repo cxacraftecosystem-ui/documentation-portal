@@ -7,7 +7,7 @@ from app.core.db import db
 from app.services.artisan_merge import redirect_merged_artisans
 from app.core.deps import require_record_creator, assert_can_delete, get_current_user
 from app.schemas.records import ProductCreate, ProductUpdate
-from app.services.access import guard_record_edit
+from app.services.access import guard_record_edit, with_edit_access
 from app.services import craft_master
 from app.services.linked_names import fill_product_names
 from app.services.workshop_access import (
@@ -184,7 +184,12 @@ async def create_product(
 async def get_product(product_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     product = await require_record(db.productdocumentation, product_id)
     await hydrate_relations([product], RELATIONS)
-    return await completeness_module.attach("product", public_encode(product), client=db)
+    return await with_edit_access(
+        await completeness_module.attach("product", public_encode(product), client=db),
+        product,
+        current_user,
+        "product",
+    )
 
 
 @router.patch("/{product_id}")

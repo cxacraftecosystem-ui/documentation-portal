@@ -505,7 +505,7 @@ def test_an_ordinary_contributor_cannot_blank_a_populated_link_set(monkeypatch):
         )
 
     assert refusal.value.status_code == 403
-    assert "craftIds" in refusal.value.detail
+    assert "crafts" in refusal.value.detail
 
 
 def test_the_blanking_refusal_lands_before_the_row_and_the_links_are_touched(monkeypatch):
@@ -609,7 +609,7 @@ def test_a_reordered_list_is_refused_by_the_guard_that_owns_what_changed(monkeyp
         )
 
     assert refusal.value.status_code == 403
-    assert "craftName" in refusal.value.detail
+    assert "craft name" in refusal.value.detail
 
 
 def test_the_relation_guard_is_raised_above_both_writes():

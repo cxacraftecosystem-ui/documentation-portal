@@ -25,10 +25,11 @@ import { RichTextField } from "@/components/richtext/RichTextField";
 import { StatusBadge } from "@/components/StatusBadge";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
-import { apiFetch, listResource } from "@/lib/api";
+import { ApiError, apiFetch, listResource } from "@/lib/api";
 import { handleFormEnter } from "@/lib/formNav";
 import { describePreProcess, describeProcessStep, extractImageExifMetadata, renameMediaFile, uploadMediaFile } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
+import { FILL_EMPTY_NOTE, FILLED_FIELD_REASON, fillsOnly, KEPT_AFTER_REFUSAL, lockFilledFields, VIEW_ONLY_NOTE, viewOnly, type EditAccess } from "@/lib/recordDiff";
 import { processBody } from "@/lib/recordPayloads";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, ExtraMetadata, MediaFile, ProductDocumentation, RecordStatus, User, Workshop } from "@/lib/types";
@@ -49,6 +50,7 @@ export type ProcessStepRecord = {
 };
 
 export type ProcessRecord = {
+  editAccess?: EditAccess | null;
   id: string;
   name: string;
   productId: string;
@@ -223,6 +225,9 @@ function MultiNoteInput({ label, value, onChange }: { label: string; value: stri
   );
 }
 
+
+const FILLED_PROCESS_FIELDS = ["name"] as const;
+
 export function ProcessForm({
   initial,
   onDone,
@@ -268,6 +273,9 @@ export function ProcessForm({
   const [productLoadError, setProductLoadError] = useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
+  const [keptAfterRefusal, setKeptAfterRefusal] = useState(false);
+  const lockRef = useRef<HTMLFormElement>(null);
+  useEffect(() => lockFilledFields(lockRef.current, initial, FILLED_PROCESS_FIELDS, FILLED_FIELD_REASON), [initial]);
   const [nameError, setNameError] = useState<string | null>(null);
   const [artisanError, setArtisanError] = useState<string | null>(null);
   const [productError, setProductError] = useState<string | null>(null);
@@ -504,6 +512,7 @@ export function ProcessForm({
 
   async function submit(): Promise<void> {
     setError(null);
+    setKeptAfterRefusal(false);
     setNameError(null);
     setArtisanError(null);
     setProductError(null);
@@ -564,6 +573,7 @@ export function ProcessForm({
         endpoint: isEdit ? `/processes/${initial!.id}` : "/processes",
         method: isEdit ? "PATCH" : "POST",
         body: payload,
+        base: isEdit ? initial : null,
         media: [
           {
             files: preProcessAvailable
@@ -685,6 +695,8 @@ export function ProcessForm({
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save process");
+      setKeptAfterRefusal(true);
+      if (err instanceof ApiError && err.status === 403) void workshop.recheck();
       setGuardOpen(false);
     } finally {
       setSaving(false);
@@ -702,6 +714,7 @@ export function ProcessForm({
 
   return (
     <form
+      ref={lockRef}
       className="panel grid gap-4 p-5"
       noValidate
       onKeyDown={handleFormEnter}
@@ -720,7 +733,12 @@ export function ProcessForm({
       </div>
       {initial ? <FieldProvenance extraMetadata={initial.extraMetadata} /> : null}
       <DraftOfferCard draft={draft} />
-      {error ? <div className="rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div> : null}
+      {error && !keptAfterRefusal ? <div className="rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div> : null}
+        {viewOnly(initial) ? (
+          <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700">{VIEW_ONLY_NOTE}</p>
+        ) : fillsOnly(initial) ? (
+          <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700">{FILL_EMPTY_NOTE}</p>
+        ) : null}
       <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
 
       <DictationUnavailableNotice />
@@ -999,6 +1017,12 @@ export function ProcessForm({
         Document each process yourself, even if a colleague has — every perspective is kept.
       </div>
 
+        {error && keptAfterRefusal ? (
+          <div role="alert" data-testid="save-refusal" className="rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">
+            <p>{error}</p>
+            <p className="mt-1 text-xs">{KEPT_AFTER_REFUSAL}</p>
+          </div>
+        ) : null}
       {uploadNote ? <p className="text-xs text-ink-500">{uploadNote}</p> : null}
       <ButtonRow align="end">
         <button type="button" className="field-button-secondary" onClick={requestCancel}>
