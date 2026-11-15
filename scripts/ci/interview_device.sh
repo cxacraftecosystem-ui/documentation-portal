@@ -13,6 +13,7 @@ token=$(field 'd["tokens"]["lead"]')
 user_id=$(field 'd["users"]["lead"]["id"]')
 user_name=$(field 'd["users"]["lead"]["name"]')
 user_email=$(field 'd["users"]["lead"]["email"]')
+user_role=$(field 'd["users"]["lead"]["role"]')
 artisans=$(field '";".join(f"{v}|{k}" for k, v in d["artisans"].items())')
 
 "$adb" install -r -t "$RUNNER_TEMP/app-debug.apk"
@@ -33,7 +34,7 @@ for device in $devices; do
     "$adb" shell wm density reset
   fi
   sleep 3
-  "$adb" shell "am instrument -w -e class $app.questionnaire.portal.InterviewShotsTest -e interviewDevice $device -e interviewToken '$token' -e interviewUserId '$user_id' -e interviewUserName '$user_name' -e interviewUserEmail '$user_email' -e interviewArtisans '$artisans' $app.test/androidx.test.runner.AndroidJUnitRunner" > "$out/interview-$device.txt" 2>&1
+  "$adb" shell "am instrument -w -e class $app.questionnaire.portal.InterviewShotsTest -e interviewDevice $device -e interviewToken '$token' -e interviewUserId '$user_id' -e interviewUserName '$user_name' -e interviewUserEmail '$user_email' -e interviewUserRole '$user_role' -e interviewArtisans '$artisans' $app.test/androidx.test.runner.AndroidJUnitRunner" > "$out/interview-$device.txt" 2>&1
   cat "$out/interview-$device.txt"
   grep -q "^OK (" "$out/interview-$device.txt" || status=1
 done

@@ -255,7 +255,7 @@ export async function fillStartSheet(page: Page, names: string[]): Promise<Locat
   const sheet = page.locator("[data-start-sheet]");
   await expect(sheet).toBeVisible({ timeout: 30_000 });
   await chooseIfUnset(page, sheet.getByRole("button", { name: /workshop$/i }).first(), /4th Craft Toolkit Workshop/);
-  await chooseIfUnset(page, sheet.getByRole("button", { name: S.fieldInstrument, exact: true }).first(), /^4th Craft Toolkit$/);
+  await chooseIfUnset(page, sheet.getByRole("button", { name: S.fieldInstrument, exact: true }).first(), /4th Craft Toolkit(?! Workshop)/);
   if (names.length > 1) await sheet.getByRole("button", { name: S.modeGroup, exact: true }).first().click();
   await sheet.getByRole("button", { name: /^Artisans?$/ }).first().click();
   for (const name of names) await page.getByRole("option", { name: new RegExp(escape(name)) }).first().click();

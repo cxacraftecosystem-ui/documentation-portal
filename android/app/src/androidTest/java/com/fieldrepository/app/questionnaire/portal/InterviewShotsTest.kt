@@ -51,7 +51,7 @@ class InterviewShotsTest {
         assumeTrue("runs only against the interview CI stack (pass -e interviewToken)", arg("interviewToken") != null)
         val store = TokenStore(app)
         store.setToken(arg("interviewToken"))
-        store.setUser(UserDto(id = arg("interviewUserId")!!, email = arg("interviewUserEmail")!!, name = arg("interviewUserName")!!, role = "RESEARCHER"))
+        store.setUser(UserDto(id = arg("interviewUserId")!!, email = arg("interviewUserEmail")!!, name = arg("interviewUserName")!!, role = arg("interviewUserRole") ?: "RESEARCHER"))
         app.getSharedPreferences("questionnaire-v2", Context.MODE_PRIVATE).edit().putBoolean("batteryAsked", true).commit()
     }
 

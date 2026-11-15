@@ -114,10 +114,11 @@ async def main() -> dict:
         for n, name in enumerate(ARTISANS):
             aid = f"iva{n}{tag}"
             await db.execute_raw(
-                'INSERT INTO "Artisan" ("id", "name", "place", "status", "createdById", "updatedAt", "submittedAt", "craftId") '
-                "VALUES ($1, $2, 'Puri', 'APPROVED', $3, now(), now(), $4)",
-                aid, name, users["admin"]["id"], craft,
+                'INSERT INTO "Artisan" ("id", "name", "place", "status", "createdById", "updatedAt", "submittedAt", "craftId", "workshopId") '
+                "VALUES ($1, $2, 'Puri', 'APPROVED', $3, now(), now(), $4, $5)",
+                aid, name, users["admin"]["id"], craft, workshop,
             )
+            await db.execute_raw('INSERT INTO "WorkshopArtisan" ("workshopId", "artisanId") VALUES ($1, $2)', workshop, aid)
             artisans[name] = aid
         rows = await db.query_raw(
             'SELECT "lineageId", "displayCode" FROM "QuestionnaireQuestion" WHERE "questionnaireId" = $1 ORDER BY "displayCode"', form
