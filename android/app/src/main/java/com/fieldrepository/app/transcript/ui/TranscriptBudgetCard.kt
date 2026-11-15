@@ -197,7 +197,7 @@ fun TranscriptAutoSwitchesCard(canChange: Boolean, modifier: Modifier = Modifier
     val transcribeOnly = current.transcribeOnly == true
     Column(modifier.fillMaxWidth().testTag("transcript.autoSwitches"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (current.transcribeOnly != null) {
-            Text(TranscriptStrings.settingsModeTitle, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+            Text(TranscriptStrings.settingsModeTitle, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             Column(Modifier.selectableGroup().testTag("transcript.mode")) {
                 TranscriptModeRow(
                     title = TranscriptStrings.settingsModeTranslate,
