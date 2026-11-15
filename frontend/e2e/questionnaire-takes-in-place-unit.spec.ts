@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 
 import { qs } from "@/lib/questionnaire/qs";
-import { fullEntry, localTakeEntry, nextOpen, questionTake, regionId, sectionTakes, takeEntry } from "@/lib/questionnaire/takeInPlace";
+import { fullEntry, localTakeEntry, nextOpen, questionTake, regionId, sectionTakes, takeEntry, takeMedia, withLanded } from "@/lib/questionnaire/takeInPlace";
 
 const ROOT = join(__dirname, "..");
 const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
@@ -37,11 +37,34 @@ test("a recorded take becomes the explorer's own media entry, so the explorer pr
   expect(fullEntry({ key: "r1", label: "Take", recording: take("r1") })).toEqual(entry);
 });
 
+test("a video take opens in the explorer's video stage, from the server and from this device", () => {
+  expect(takeEntry({ ...take("v1"), mediaType: "VIDEO" }).mediaType).toBe("VIDEO");
+  expect(takeEntry({ ...take("a1"), mediaType: "AUDIO" }).mediaType).toBe("AUDIO");
+  expect(localTakeEntry({ key: "c1", label: "Section E", mediaType: takeMedia("video/mp4") }, "blob:take").mediaType).toBe("VIDEO");
+  expect(localTakeEntry({ key: "c2", label: "Section E", mediaType: takeMedia("audio/webm;codecs=opus") }, "blob:take").mediaType).toBe("AUDIO");
+  expect([takeMedia("VIDEO"), takeMedia("Video/QuickTime"), takeMedia(null), takeMedia("audio/mp4")]).toEqual(["VIDEO", "VIDEO", "AUDIO", "AUDIO"]);
+});
+
+test("a take that just uploaded stays listed and keeps its key until the session reloads with it", () => {
+  const before = [take("old")];
+  const landed = [take("new", { clientClipKey: "clip-new" })];
+  expect(withLanded(before, landed).map((r) => r.id)).toEqual(["old", "new"]);
+  expect(withLanded([...before, take("new", { clientClipKey: "clip-new" })], landed).map((r) => r.id)).toEqual(["old", "new"]);
+  const outbox = [{ clientClipKey: "clip-new", targets: [{ sectionId: "s-e" }] }];
+  expect(sectionTakes("s-e", [], outbox).local.map((s) => s.clientClipKey)).toEqual(["clip-new"]);
+  expect(sectionTakes("s-e", withLanded([], landed), outbox).server.map((r) => r.clientClipKey)).toEqual(["clip-new"]);
+  const workspace = read("components/questionnaire/SessionWorkspace.tsx");
+  expect(workspace).toContain("key: s.clientClipKey,");
+  expect(workspace).toContain("key: r.clientClipKey, label: takeRow(r, soloArtisan)");
+  expect(workspace).toContain("withLanded(detail.recordings, landed)");
+  expect(read("components/questionnaire/TakeInPlace.tsx")).toContain("const [heldBlob] = useState(item.recording ? null : (item.blobKey ?? null));");
+});
+
 test("a take still on this device plays from its own file and has no full view", () => {
-  const entry = localTakeEntry({ key: "local:c1", label: "Section E · 15 Nov · Waiting for signal", capturedAt: "2026-11-15T10:42:00Z" }, "blob:take");
-  expect(entry).toMatchObject({ path: "take:local:c1", url: "blob:take", mediaType: "AUDIO" });
+  const entry = localTakeEntry({ key: "c1", label: "Section E · 15 Nov · Waiting for signal", capturedAt: "2026-11-15T10:42:00Z" }, "blob:take");
+  expect(entry).toMatchObject({ path: "take:c1", url: "blob:take", mediaType: "AUDIO" });
   expect(entry.mediaId).toBeUndefined();
-  expect(fullEntry({ key: "local:c1", label: "x", blobKey: "b1" })).toBeNull();
+  expect(fullEntry({ key: "c1", label: "x", blobKey: "b1" })).toBeNull();
   expect(qs("transcriptAfterUpload")).toBe("Transcript after upload");
 });
 
@@ -85,6 +108,12 @@ test("the questionnaire reuses the Data explorer's preview and adds no player or
   const workspace = read("components/questionnaire/SessionWorkspace.tsx");
   expect(workspace).toContain("useTakePlayer(recording)");
   expect(workspace).toContain("TakeRegion");
+  const sheet = read("components/questionnaire/TakeSheet.tsx");
+  expect(sheet).toContain("TakeRegion");
+  expect(sheet).not.toMatch(/<audio|<video|AudioPlayer|TranscriptViewer|Waveform/);
+  expect(workspace).toMatch(/const openTakes = \(\) => \{\s+takePlayer\.close\(\);\s+setSheet\(/);
+  expect(workspace).toMatch(/const closeSheet = \(\) => \{\s+takePlayer\.close\(\);\s+setSheet\(null\);/);
+  expect(workspace.match(/setSheet\(null\)/g)).toHaveLength(1);
 });
 
 test("the explorer's own dialog renders the preview unchanged and only the embed drops its chrome", () => {

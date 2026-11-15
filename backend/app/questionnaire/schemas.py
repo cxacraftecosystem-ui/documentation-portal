@@ -384,6 +384,7 @@ class ConsentVerdictOut(Strict):
 class Recording(Strict):
     id: str
     mediaFileId: str
+    mediaType: str = "AUDIO"
     clientClipKey: str
     sessionId: str | None
     version: int

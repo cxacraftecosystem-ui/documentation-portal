@@ -249,6 +249,7 @@ export type Recording = {
   respondents?: RecordingGuest[];
   id: string;
   mediaFileId: string;
+  mediaType?: string;
   clientClipKey: string;
   sessionId: string;
   version: number;

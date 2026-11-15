@@ -825,7 +825,8 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
             t.pop("_sectionCode", None)
         status = r.get("transcriptStatus")
         out.append({
-            "id": rid, "mediaFileId": str(r["mediaFileId"]), "clientClipKey": r["clientClipKey"], "sessionId": sid,
+            "id": rid, "mediaFileId": str(r["mediaFileId"]), "mediaType": _media_type(str(r.get("mimeType") or "")),
+            "clientClipKey": r["clientClipKey"], "sessionId": sid,
             "version": int(r.get("version") or 1), "capturedAt": iso(r["capturedAt"]), "capturedAtSource": r.get("source"),
             "estimated": r.get("source") in ESTIMATED, "durationMs": r.get("durationMs"), "rosterCount": int(r.get("rosterCount") or 0),
             "recordedBy": {"id": str(r["recordedById"]), "name": r.get("recordedByName") or ""},

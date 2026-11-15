@@ -21,7 +21,7 @@ import { SavePill, saveState } from "@/components/questionnaire/SavePill";
 import { SessionHeader } from "@/components/questionnaire/SessionHeader";
 import { TakeInPlace, TakeRegion, TakeRow, useTakePlayer, type TakeItem } from "@/components/questionnaire/TakeInPlace";
 import { takeRow, TakeSheet } from "@/components/questionnaire/TakeSheet";
-import { questionTake as findQuestionTake, sectionTakes } from "@/lib/questionnaire/takeInPlace";
+import { questionTake as findQuestionTake, sectionTakes, takeMedia, withLanded } from "@/lib/questionnaire/takeInPlace";
 import { UploadSheet, type UploadTarget } from "@/components/questionnaire/UploadSheet";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 import { clearQueuedRecordBy, enqueue, onRecordingLanded, onSessionLanded, queueRecordBy, resolveQueuedAnswer, trayAct, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
@@ -247,6 +247,12 @@ export function SessionWorkspace({ id }: { id: string }) {
   const dockRef = useRef<HTMLDivElement | null>(null);
   const wantedSection = useRef<string | null>(null);
   const takePlayer = useTakePlayer(recording);
+  const [landed, setLanded] = useState<Recording[]>([]);
+  const [landedFor, setLandedFor] = useState(detail);
+  if (landedFor !== detail) {
+    setLandedFor(detail);
+    if (detail && landed.some((r) => detail.recordings.some((d) => d.id === r.id))) setLanded(landed.filter((r) => !detail.recordings.some((d) => d.id === r.id)));
+  }
 
   const openSection = useCallback((sectionId: string | null) => {
     setActiveSection(sectionId);
@@ -336,7 +342,9 @@ export function SessionWorkspace({ id }: { id: string }) {
 
   useEffect(() => {
     const offR = onRecordingLanded((r) => {
-      if (detail && r.sessionId === detail.id) void load();
+      if (!detail || r.sessionId !== detail.id) return;
+      setLanded((list) => [...list.filter((x) => x.id !== r.id), r]);
+      void load();
     });
     const offS = onSessionLanded((s) => {
       if (s.clientKey === id) router.replace(`/questionnaire/sessions/${encodeURIComponent(s.id)}`);
@@ -932,24 +940,31 @@ export function SessionWorkspace({ id }: { id: string }) {
       clientClipKey: s.clientClipKey,
       targets: s.recording.targets,
       item: {
-        key: `local:${s.clientClipKey}`,
+        key: s.clientClipKey,
         label: [s.label ?? qs("wholeSession"), shortDate(s.recording.deviceCapturedAt), clipWords(s)].filter(Boolean).join(" · "),
         blobKey: s.blobKey,
+        mediaType: takeMedia(s.contentType),
         capturedAt: s.recording.deviceCapturedAt
       } satisfies TakeItem
     }));
-  const serverTake = (r: Recording): TakeItem => ({ key: r.id, label: takeRow(r, soloArtisan), recording: r, capturedAt: r.capturedAt });
+  const serverTake = (r: Recording): TakeItem => ({ key: r.clientClipKey, label: takeRow(r, soloArtisan), recording: r, capturedAt: r.capturedAt });
+  const takeRecordings = withLanded(detail.recordings, landed);
   const sectionTakeItems = (sectionId: string): TakeItem[] => {
-    const found = sectionTakes(sectionId, detail.recordings, outboxTakes);
+    const found = sectionTakes(sectionId, takeRecordings, outboxTakes);
     return [...found.server.map(serverTake), ...found.local.map((x) => x.item)];
   };
   const questionTakeItem = (lineageId: string, recordingId: string | null): TakeItem | null => {
-    const found = findQuestionTake(lineageId, recordingId, detail.recordings, outboxTakes);
+    const found = findQuestionTake(lineageId, recordingId, takeRecordings, outboxTakes);
     if (!found) return null;
     return "item" in found ? found.item : serverTake(found);
   };
   const decisions = detail.recordings.filter((r) => !r.removedAt && r.filing === "NEEDS_DECISION");
   const awayPeople = session.participants.filter((p) => p.leftAt);
+
+  const closeSheet = () => {
+    takePlayer.close();
+    setSheet(null);
+  };
 
   const dialogs = (
     <>
@@ -1025,18 +1040,19 @@ export function SessionWorkspace({ id }: { id: string }) {
           artisanId={sheet.artisanId}
           paused={paused}
           canRecord={live}
-          onClose={() => setSheet(null)}
+          player={takePlayer}
+          onClose={closeSheet}
           onRecord={() => {
-            setSheet(null);
+            closeSheet();
             press([{ sectionId: sheetSection.id }], `Section ${sheetSection.code}`, sheetSection.code);
           }}
           onUpload={(file) => {
-            setSheet(null);
+            closeSheet();
             press([{ sectionId: sheetSection.id }], `Section ${sheetSection.code}`, sheetSection.code, file);
           }}
           onRemove={canDeleteRecords ? (r) => setRemoveTake(r) : undefined}
           onUseAsAnswer={(r) => {
-            setSheet(null);
+            closeSheet();
             void offerAnswers(r);
           }}
           sessionId={session.version > 0 ? session.id : undefined}
@@ -1190,6 +1206,7 @@ export function SessionWorkspace({ id }: { id: string }) {
             const r = removeTake;
             setRemoveTake(null);
             if (choice === "remove") {
+              setLanded((list) => list.filter((x) => x.id !== r.id));
               await questionnaireApi.removeRecording(r.id).catch(() => undefined);
               void load();
             }
@@ -1241,7 +1258,9 @@ export function SessionWorkspace({ id }: { id: string }) {
           open={live}
           onChoose={(r) => {
             const sectionId = r.targets[0]?.sectionId ?? (r.targets[0]?.questionLineageId ? sectionOf(r.targets[0].questionLineageId) : null);
-            if (sectionId) setSheet({ sectionId, artisanId: soloArtisan });
+            if (!sectionId) return;
+            takePlayer.close();
+            setSheet({ sectionId, artisanId: soloArtisan });
           }}
           onOpenSection={(sectionId) => {
             setView("session");
@@ -1260,7 +1279,10 @@ export function SessionWorkspace({ id }: { id: string }) {
 
   const statusLine = (sectionId: string, q: GridQuestion, mark: QuestionMark | undefined) => {
     const text = typedText(q.lineageId);
-    const openTakes = () => setSheet({ sectionId, artisanId: soloArtisan });
+    const openTakes = () => {
+      takePlayer.close();
+      setSheet({ sectionId, artisanId: soloArtisan });
+    };
     const take = questionTake(sectionId, q, mark);
     const sectionLabel =
       mark?.kind === "SECTION_TAKE" ? (

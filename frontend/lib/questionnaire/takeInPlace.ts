@@ -1,31 +1,46 @@
 import type { TreeEntry } from "@/lib/dataExplorer/contract";
 import type { Recording } from "@/lib/questionnaire/api";
 
+type TakeRecording = Pick<Recording, "id" | "mediaFileId" | "mediaType" | "downloadName" | "capturedAt">;
+
+export type TakeMedia = "AUDIO" | "VIDEO";
+
 export type TakeItem = {
   key: string;
   label: string;
-  recording?: Pick<Recording, "id" | "mediaFileId" | "downloadName" | "capturedAt"> | null;
+  recording?: TakeRecording | null;
   blobKey?: string | null;
+  mediaType?: TakeMedia;
   capturedAt?: string | null;
 };
 
 export type OpenTake = { slot: string; key: string };
 
-export function takeEntry(recording: Pick<Recording, "id" | "mediaFileId" | "downloadName" | "capturedAt">): TreeEntry {
+export function takeMedia(value: string | null | undefined): TakeMedia {
+  const base = (value ?? "").split(";")[0].trim().toUpperCase();
+  return base === "VIDEO" || base.startsWith("VIDEO/") ? "VIDEO" : "AUDIO";
+}
+
+export function takeEntry(recording: TakeRecording): TreeEntry {
   return {
     name: recording.downloadName || recording.mediaFileId,
     path: `media:${recording.mediaFileId}`,
     kind: "file",
     mediaId: recording.mediaFileId,
-    mediaType: "AUDIO",
+    mediaType: takeMedia(recording.mediaType),
     downloadPath: `/questionnaire/recordings/${encodeURIComponent(recording.id)}/download`,
     capturedAt: recording.capturedAt,
     transcriptAvailable: true
   };
 }
 
-export function localTakeEntry(item: Pick<TakeItem, "key" | "label" | "capturedAt">, url: string): TreeEntry {
-  return { name: item.label, path: `take:${item.key}`, kind: "file", mediaType: "AUDIO", url, capturedAt: item.capturedAt ?? null };
+export function localTakeEntry(item: Pick<TakeItem, "key" | "label" | "capturedAt" | "mediaType">, url: string): TreeEntry {
+  return { name: item.label, path: `take:${item.key}`, kind: "file", mediaType: takeMedia(item.mediaType), url, capturedAt: item.capturedAt ?? null };
+}
+
+export function withLanded<R extends { id: string }>(recordings: R[], landed: R[]): R[] {
+  const known = new Set(recordings.map((r) => r.id));
+  return [...recordings, ...landed.filter((r) => !known.has(r.id))];
 }
 
 export function fullEntry(item: TakeItem): TreeEntry | null {

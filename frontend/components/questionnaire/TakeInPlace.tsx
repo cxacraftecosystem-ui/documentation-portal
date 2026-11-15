@@ -80,8 +80,9 @@ function useLocalUrl(blobKey: string | null | undefined): string | null | undefi
 }
 
 function TakePreview({ item, player }: { item: TakeItem; player: TakePlayer }) {
-  const local = useLocalUrl(item.recording ? null : item.blobKey);
-  if (item.recording) return <PreviewInline entry={takeEntry(item.recording)} onDownload={player.onDownload} />;
+  const [heldBlob] = useState(item.recording ? null : (item.blobKey ?? null));
+  const local = useLocalUrl(heldBlob);
+  if (item.recording && (!heldBlob || local === null)) return <PreviewInline entry={takeEntry(item.recording)} onDownload={player.onDownload} />;
   if (local === undefined) return <p className="p-4 text-sm text-ink-500">{qs("loading")}</p>;
   if (!local) return <p className="p-4 text-sm text-ink-500">{qs("transcriptAfterUpload")}</p>;
   return <PreviewInline entry={localTakeEntry(item, local)} onDownload={player.onDownload} emptyText={qs("transcriptAfterUpload")} />;
