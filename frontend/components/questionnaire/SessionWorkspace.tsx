@@ -1,8 +1,8 @@
 "use client";
 
-import { ChevronDown, ChevronUp, Mic } from "lucide-react";
+import { AudioLines, ChevronDown, ChevronUp, Mic } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
@@ -19,16 +19,17 @@ import { RecordUploadPair } from "@/components/questionnaire/RecordUploadPair";
 import { ReviewFinish, reviewSummary, type FailedUpload } from "@/components/questionnaire/ReviewFinish";
 import { SavePill, saveState } from "@/components/questionnaire/SavePill";
 import { SessionHeader } from "@/components/questionnaire/SessionHeader";
-import { TakeInPlace, TakeRegion, TakeRow, useTakePlayer, type TakeItem } from "@/components/questionnaire/TakeInPlace";
+import { REVEAL_MARGINS, TakeInPlace, TakeRegion, TakeRow, useTakePlayer, type TakeItem } from "@/components/questionnaire/TakeInPlace";
 import { takeRow, TakeSheet } from "@/components/questionnaire/TakeSheet";
-import { questionTake as findQuestionTake, sectionTakes, takeMedia, withLanded } from "@/lib/questionnaire/takeInPlace";
-import { UploadSheet, type UploadTarget } from "@/components/questionnaire/UploadSheet";
+import { questionLocalTakes, questionTake as findQuestionTake, sectionTakes, takeMedia, takeSlot, wholeSessionTakes, withLanded, type TakeMedia } from "@/lib/questionnaire/takeInPlace";
+import { UploadSheet, type DuplicateOpen, type UploadTarget } from "@/components/questionnaire/UploadSheet";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 import { clearQueuedRecordBy, enqueue, onRecordingLanded, onSessionLanded, queueRecordBy, resolveQueuedAnswer, trayAct, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
 import { useSpokenLanguageChoice } from "@/components/transcript/SpokenLanguagePicker";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
+import { useToast } from "@/components/ui/Toast";
 import { ApiError, clockOffset, listResource } from "@/lib/api";
 import { loadInstrumentQuestions, requiredUnanswered, type InstrumentQuestion, type InstrumentSection } from "@/components/questionnaire/instrumentQuestions";
 import { SessionActions, SessionPeople } from "@/components/questionnaire/SessionActions";
@@ -71,7 +72,7 @@ import { prompts, shortDate, type P2Input, type PromptSpec } from "@/lib/questio
 import { clipUploadState, isPermanent, isRecordByConflict, queuedRecordBy, sendDetails, sessionUnitKey, stepKey, type ClipStep, type SessionUnit } from "@/lib/questionnaire/queue";
 import { consentSubject, pickedFileMeta, rosterArtisans, takesFor, takeSubjects } from "@/lib/questionnaire/view";
 import { assembleTake, recorderStore, recoverable, recoveredMinutes, type TakeChunk, type TakeDraft } from "@/lib/questionnaire/recorderStore";
-import { settleBatch, type UploadRow } from "@/lib/questionnaire/uploads";
+import { batchOutcome, settleBatch, uploadedLine, type QueuedCopy, type UploadRow } from "@/lib/questionnaire/uploads";
 import { qs } from "@/lib/questionnaire/qs";
 import { sessionSpokenLanguage } from "@/lib/transcript/spokenLanguage";
 import { artisanFilter } from "@/lib/questionnairePortal";
@@ -89,6 +90,8 @@ type TakeContext = {
   source: string;
 };
 type HeldTake = { take: FinishedTake; context: TakeContext };
+type StagedTake = { clientClipKey: string; targets: Target[]; label: string; capturedAt: string; mediaType: TakeMedia };
+type Reveal = { keys: string[]; fallback: string | null };
 
 export const SECTIONS_SHOWN = 12;
 
@@ -243,6 +246,11 @@ export function SessionWorkspace({ id }: { id: string }) {
   const [proposals, setProposals] = useState<Record<string, AnswerProposal>>({});
   const [proposalNote, setProposalNote] = useState<string | null>(null);
   const [revealLineage, setRevealLineage] = useState<string | null>(null);
+  const [staged, setStaged] = useState<StagedTake[]>([]);
+  const [reveal, setReveal] = useState<Reveal | null>(null);
+  const [batch, setBatch] = useState<{ keys: string[]; target: string } | null>(null);
+  const { toast } = useToast();
+  const wantedRecording = useRef<string | null>(null);
   const [dockHeight, setDockHeight] = useState(0);
   const dockRef = useRef<HTMLDivElement | null>(null);
   const wantedSection = useRef<string | null>(null);
@@ -275,7 +283,9 @@ export function SessionWorkspace({ id }: { id: string }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    wantedSection.current = new URLSearchParams(window.location.search).get("section");
+    const wanted = new URLSearchParams(window.location.search);
+    wantedSection.current = wanted.get("section");
+    wantedRecording.current = wanted.get("recording");
   }, []);
 
   useEffect(() => {
@@ -288,6 +298,57 @@ export function SessionWorkspace({ id }: { id: string }) {
   }, [grid, openSection]);
 
   const queue = useSessionQueue(detail ?? id);
+  const showTake = takePlayer.show;
+  const landedKeyText = useMemo(() => withLanded(detail?.recordings ?? [], landed).map((r) => r.clientClipKey).join("|"), [detail, landed]);
+  const unitClips = useMemo(() => (queue.unit?.steps ?? []).filter((s): s is ClipStep => s.kind === "clip"), [queue.unit]);
+  const failedKeyText = unitClips.filter((s) => s.status === "FAILED").map((s) => s.clientClipKey).join("|");
+  const rowKeyText = [...unitClips.map((s) => s.clientClipKey), ...staged.map((s) => s.clientClipKey)].join("|");
+
+  const revealTake = useCallback(
+    (recording: Recording) => {
+      const sectionOfLineage = (lineageId: string) => grid?.sections.find((s) => s.questions?.some((q) => q.lineageId === lineageId))?.id ?? null;
+      const { slot, sectionId } = takeSlot(recording.targets, sectionOfLineage);
+      if (sectionId) setActiveSection(sectionId);
+      const lineage = recording.targets[0]?.questionLineageId ?? null;
+      const code = lineage ? grid?.sections.flatMap((s) => s.questions ?? []).find((q) => q.lineageId === lineage)?.displayCode : null;
+      const fallback = code ? `[data-question="${code}"]` : sectionId ? `#section-${sectionId}` : "[data-whole-session]";
+      setReveal({ keys: [recording.clientClipKey], fallback });
+      showTake(slot, recording.clientClipKey);
+    },
+    [grid, showTake]
+  );
+
+  useEffect(() => {
+    const wanted = wantedRecording.current;
+    if (!wanted || !detail || !grid) return;
+    const match = detail.recordings.find((r) => r.id === wanted && !r.removedAt);
+    if (!match) return;
+    wantedRecording.current = null;
+    revealTake(match);
+  }, [detail, grid, revealTake]);
+
+  useEffect(() => {
+    if (!reveal || view !== "session") return;
+    const frame = requestAnimationFrame(() => {
+      const row = reveal.keys
+        .map((key) => document.querySelector<HTMLElement>(`[data-take-row-in-place="${CSS.escape(key)}"]`))
+        .find((node): node is HTMLElement => Boolean(node));
+      const node = row ?? (reveal.fallback ? document.querySelector<HTMLElement>(reveal.fallback) : null);
+      if (!node) return;
+      node.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+      setReveal(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [reveal, view, reduce, rowKeyText, activeSection]);
+
+  useEffect(() => {
+    if (!batch) return;
+    const outcome = batchOutcome(batch.keys, new Set(landedKeyText.split("|")), new Set(failedKeyText.split("|")));
+    if (!outcome.settled) return;
+    setBatch(null);
+    if (outcome.landed > 0) toast({ title: uploadedLine(outcome.landed, batch.target), tone: "success" });
+  }, [batch, landedKeyText, failedKeyText, toast]);
+
   const unitsRef = useRef<SessionUnit[]>(queue.units);
   useEffect(() => {
     unitsRef.current = queue.units;
@@ -743,16 +804,40 @@ export function SessionWorkspace({ id }: { id: string }) {
   }
 
   async function queueTakes(takes: HeldTake[], answered: ReadonlySet<string>) {
+    const picked = takes.length > 0 && takes.every((t) => t.take.blob instanceof File);
+    const keys = takes.map((t) => t.take.clientClipKey);
+    const first = takes[0]?.context.pending;
+    if (picked && first) {
+      setStaged((list) => [
+        ...list,
+        ...takes.map((t) => ({
+          clientClipKey: t.take.clientClipKey,
+          targets: t.context.pending.targets,
+          label: t.context.pending.label,
+          capturedAt: t.take.deviceCapturedAt,
+          mediaType: takeMedia(t.take.mimeType)
+        }))
+      ]);
+      const where = sectionOfTargets(first.targets);
+      if (where !== "whole") setActiveSection(where);
+      setReveal({ keys, fallback: null });
+    }
+    const queued: string[] = [];
     const files = takes.map((t) => (t.take.blob instanceof File ? t.take.blob : new File([t.take.blob], t.take.takeKey)));
     const outcome = await settleBatch(files, async () => {
       const uploaded: string[] = [];
       const failed: { name: string; error: string }[] = [];
       for (const [index, held] of takes.entries()) {
-        if (await queueClip(held.take, held.context, answered)) uploaded.push(held.take.takeKey);
-        else failed.push({ name: files[index].name, error: qs("takeNotSaved") });
+        if (await queueClip(held.take, held.context, answered)) {
+          uploaded.push(held.take.takeKey);
+          queued.push(held.take.clientClipKey);
+        } else failed.push({ name: files[index].name, error: qs("takeNotSaved") });
       }
       return { uploaded, failed };
     });
+    setStaged((list) => list.filter((s) => !keys.includes(s.clientClipKey)));
+    if (picked && first && queued.length) setBatch({ keys: queued, target: first.targets.length ? first.label : qs("wholeSessionTarget") });
+    if (picked && !queued.length) setReveal(null);
     if (takes.length > 1 && outcome.left.length) setTakeError(`${qs("takeNotSaved")} ${outcome.left.map((f) => f.name).join(", ")}`);
   }
 
@@ -844,6 +929,17 @@ export function SessionWorkspace({ id }: { id: string }) {
     void begin({ ...t, roster, files: rows });
   }
 
+  function openDuplicate(open: DuplicateOpen) {
+    setUploadFor(null);
+    if (open.kind === "SESSION") {
+      const query = open.recordingId ? `?recording=${encodeURIComponent(open.recordingId)}` : "";
+      router.push(`/questionnaire/sessions/${encodeURIComponent(open.sessionId)}${query}`);
+      return;
+    }
+    const match = takeRecordings.find((r) => r.id === open.recordingId);
+    if (match) revealTake(match);
+  }
+
   async function offerAnswers(recording: Recording) {
     setProposalNote(null);
     try {
@@ -904,8 +1000,20 @@ export function SessionWorkspace({ id }: { id: string }) {
   const myClips = (queue.unit?.steps ?? []).filter((s): s is ClipStep => s.kind === "clip" && s.status !== "DONE");
   const conflict = queue.conflicts[0] ?? null;
   const save = saveState(queue.unit?.steps ?? [], queue.progress, queue.online);
-  const queuedShas: Record<string, string> = Object.fromEntries(
-    queue.units.flatMap((u) => u.steps.filter((s): s is ClipStep => s.kind === "clip").map((s) => [s.presign.contentSha256 ?? "", s.recording.deviceCapturedAt] as const)).filter(([sha]) => sha)
+  const queuedCopies: Record<string, QueuedCopy> = Object.fromEntries(
+    queue.units
+      .flatMap((u) =>
+        u.steps
+          .filter((s): s is ClipStep => s.kind === "clip")
+          .map(
+            (s) =>
+              [
+                s.presign.contentSha256 ?? "",
+                { at: s.recording.deviceCapturedAt, uploaded: s.status === "DONE", sessionId: u.sessionId ?? null, sameSession: u.id === queue.unit?.id }
+              ] as const
+          )
+      )
+      .filter(([sha]) => sha)
   );
   const openIndex = activeSection ? shownGrid.sections.findIndex((s) => s.id === activeSection) : -1;
   const shownCount = sectionsToShow(shownGrid.sections.length, openIndex, allSections);
@@ -916,15 +1024,16 @@ export function SessionWorkspace({ id }: { id: string }) {
       ? qs("recordingSection", { code: recording.context.pending.code })
       : qs("recordingTarget", { target: recording.context.pending.label })
     : "";
+  const retryClip = (s: ClipStep) => {
+    if (s.status === "FAILED" && queue.unit) void trayAct(queue.unit.id, stepKey(s), "again");
+    else queue.retry();
+  };
   const failedUploads: FailedUpload[] = myClips
     .filter((s) => s.error !== "MISSING_FILE" && (s.status === "FAILED" || Boolean(s.error)))
     .map((s) => ({
       key: s.clientClipKey,
       code: s.label ?? qs("wholeSession"),
-      onRetry: () => {
-        if (s.status === "FAILED" && queue.unit) void trayAct(queue.unit.id, stepKey(s), "again");
-        else queue.retry();
-      }
+      onRetry: () => retryClip(s)
     }));
   const clipWords = (s: ClipStep) => {
     const state = clipUploadState(s, queue.progress[s.clientClipKey], queue.online);
@@ -934,19 +1043,39 @@ export function SessionWorkspace({ id }: { id: string }) {
     if (state.kind === "UPLOADED") return qs("uploaded");
     return qs("uploadFailedRetrying");
   };
-  const outboxTakes = myClips
+  const queuedOutbox = myClips
     .filter((s) => s.error !== "MISSING_FILE")
-    .map((s) => ({
-      clientClipKey: s.clientClipKey,
-      targets: s.recording.targets,
-      item: {
+    .map((s) => {
+      const state = clipUploadState(s, queue.progress[s.clientClipKey], queue.online);
+      const bad = state.kind === "RETRYING" || state.kind === "FAILED";
+      const item: TakeItem = {
         key: s.clientClipKey,
         label: [s.label ?? qs("wholeSession"), shortDate(s.recording.deviceCapturedAt), clipWords(s)].filter(Boolean).join(" · "),
         blobKey: s.blobKey,
         mediaType: takeMedia(s.contentType),
-        capturedAt: s.recording.deviceCapturedAt
-      } satisfies TakeItem
-    }));
+        capturedAt: s.recording.deviceCapturedAt,
+        upload:
+          state.kind === "UPLOADED"
+            ? null
+            : { state: state.kind, percent: state.kind === "UPLOADING" ? state.percent : 0, words: clipWords(s), retry: bad && queue.online ? () => retryClip(s) : undefined }
+      };
+      return { clientClipKey: s.clientClipKey, targets: s.recording.targets, item };
+    });
+  const queuedKeys = new Set(queuedOutbox.map((s) => s.clientClipKey));
+  const stagedOutbox = staged
+    .filter((s) => !queuedKeys.has(s.clientClipKey))
+    .map((s) => {
+      const item: TakeItem = {
+        key: s.clientClipKey,
+        label: [s.label, shortDate(s.capturedAt), qs("uploadingPercent", { percent: 0 })].filter(Boolean).join(" · "),
+        blobKey: null,
+        mediaType: s.mediaType,
+        capturedAt: s.capturedAt,
+        upload: { state: "UPLOADING", percent: 0, words: qs("uploadingPercent", { percent: 0 }) }
+      };
+      return { clientClipKey: s.clientClipKey, targets: s.targets, item };
+    });
+  const outboxTakes = [...queuedOutbox, ...stagedOutbox];
   const serverTake = (r: Recording): TakeItem => ({ key: r.clientClipKey, label: takeRow(r, soloArtisan), recording: r, capturedAt: r.capturedAt });
   const takeRecordings = withLanded(detail.recordings, landed);
   const sectionTakeItems = (sectionId: string): TakeItem[] => {
@@ -958,6 +1087,14 @@ export function SessionWorkspace({ id }: { id: string }) {
     if (!found) return null;
     return "item" in found ? found.item : serverTake(found);
   };
+  const wholeTakeItems = (): TakeItem[] => {
+    const found = wholeSessionTakes(takeRecordings, outboxTakes);
+    return [...found.server.map(serverTake), ...found.local.map((x) => x.item)];
+  };
+  const questionExtras = (lineageId: string, shown: TakeItem | null): TakeItem[] =>
+    questionLocalTakes(lineageId, takeRecordings, outboxTakes)
+      .map((x) => x.item)
+      .filter((item) => item.key !== shown?.key);
   const decisions = detail.recordings.filter((r) => !r.removedAt && r.filing === "NEEDS_DECISION");
   const awayPeople = session.participants.filter((p) => p.leftAt);
 
@@ -1086,9 +1223,10 @@ export function SessionWorkspace({ id }: { id: string }) {
           sections={uploadSections}
           sectionId={uploadFor.kind === "SECTION" ? uploadFor.sectionId : uploadFor.kind === "QUESTION" ? sectionOf(uploadFor.lineageId) : activeSection}
           defaultTarget={uploadFor}
-          queuedShas={queuedShas}
+          queued={queuedCopies}
           onClose={() => setUploadFor(null)}
           onUpload={uploadFiles}
+          onOpenDuplicate={openDuplicate}
         />
       ) : null}
 
@@ -1231,7 +1369,7 @@ export function SessionWorkspace({ id }: { id: string }) {
 
       {leaveOpen ? (
         <PromptDialog
-          spec={prompts.leave({ count: guarded })}
+          spec={prompts.leave({ count: pendingCount, recording: inHand > 0 })}
           open
           onChoose={(choice) => {
             setLeaveOpen(false);
@@ -1305,7 +1443,7 @@ export function SessionWorkspace({ id }: { id: string }) {
     const label = sectionLabel ?? questionLabel;
     return (
       <>
-        {label && take ? <TakeRow player={takePlayer} slot={`Q:${q.lineageId}`} item={take} lead={label} playLabel={q.displayCode} /> : label}
+        {label && take ? <TakeRow player={takePlayer} slot={`Q:${q.lineageId}`} item={take} lead={label} playLabel={q.displayCode} uploadWords /> : label}
         {text && !typing[q.lineageId] ? (
           <button
             type="button"
@@ -1331,8 +1469,11 @@ export function SessionWorkspace({ id }: { id: string }) {
     );
   };
 
+  const wholeItems = wholeTakeItems();
+  const workspaceVars = { "--session-dock-h": `${showDock ? dockHeight : 0}px` } as CSSProperties;
+
   return (
-    <div className="grid gap-4" data-session-workspace>
+    <div className="grid gap-4" style={workspaceVars} data-session-workspace>
       <SessionHeader
         session={session}
         answered={progress.answered}
@@ -1481,7 +1622,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                         const done = Boolean(mark && mark.kind !== "NONE");
                         const take = questionTake(s.id, q, mark);
                         return (
-                          <li key={q.lineageId} className="flex flex-wrap gap-3 border-b border-line-200 py-4 sm:gap-4" data-question={q.displayCode}>
+                          <li key={q.lineageId} className={`flex flex-wrap gap-3 border-b border-line-200 py-4 sm:gap-4 ${REVEAL_MARGINS}`} data-question={q.displayCode}>
                             <span
                               aria-hidden
                               className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md font-display text-sm font-bold ${
@@ -1500,6 +1641,20 @@ export function SessionWorkspace({ id }: { id: string }) {
                                 ) : null}
                               </p>
                               {statusLine(s.id, q, mark)}
+                              {questionExtras(q.lineageId, take).map((item) => (
+                                <TakeInPlace
+                                  key={item.key}
+                                  player={takePlayer}
+                                  slot={`Q:${q.lineageId}`}
+                                  item={item}
+                                  playLabel={item.label}
+                                  lead={
+                                    <p className="text-[0.8125rem] font-semibold text-ink-900" data-question-take={item.key}>
+                                      {item.label}
+                                    </p>
+                                  }
+                                />
+                              ))}
                               {live && recordBy === "QUESTION" && !recording ? (
                                 <RecordUploadPair
                                   size="sm"
@@ -1560,12 +1715,56 @@ export function SessionWorkspace({ id }: { id: string }) {
             </div>
           ) : null}
         </div>
-      ) : live ? (
-        <ButtonRow>
-          <button type="button" className="field-button" onClick={() => press([], qs("wholeSession"), "")}>
-            {qs("record")}
-          </button>
-        </ButtonRow>
+      ) : null}
+
+      {live || wholeItems.length ? (
+        <section
+          id="section-whole"
+          aria-labelledby="whole-session-title"
+          className={`mx-auto grid w-full max-w-[55rem] grid-cols-[minmax(0,1fr)] gap-4 rounded-lg border border-line-200 bg-card px-3 py-4 sm:px-6 ${REVEAL_MARGINS}`}
+          data-whole-session
+        >
+          <div className="flex items-center gap-3.5">
+            <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-field-100 text-purple-800 dark:text-purple-200">
+              <AudioLines className="h-5 w-5" />
+            </span>
+            <h2 id="whole-session-title" className="min-w-0 flex-1 text-[0.9375rem] font-semibold leading-5 text-ink-900">
+              {qs("wholeSession")}
+            </h2>
+            {wholeItems.length ? (
+              <span className="shrink-0 text-[0.8125rem] leading-[1.125rem] text-ink-500" data-whole-session-count>
+                {wholeItems.length === 1 ? qs("takeCountOne") : qs("takeCount", { count: wholeItems.length })}
+              </span>
+            ) : null}
+          </div>
+          {live && !recording ? (
+            <RecordUploadPair
+              recordLabel={qs("record")}
+              label={qs("wholeSessionActions")}
+              onRecord={() => press([], qs("wholeSession"), "")}
+              onUpload={() => setUploadFor({ kind: "SESSION" })}
+            />
+          ) : null}
+          {wholeItems.length ? (
+            <ul className="grid grid-cols-[minmax(0,1fr)] gap-3" data-whole-session-takes>
+              {wholeItems.map((item) => (
+                <li key={item.key}>
+                  <TakeInPlace
+                    player={takePlayer}
+                    slot="W"
+                    item={item}
+                    playLabel={item.label}
+                    lead={
+                      <p className="text-[0.8125rem] font-semibold text-ink-900" data-whole-take={item.key}>
+                        {item.label}
+                      </p>
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
       ) : null}
 
       {showDock ? (

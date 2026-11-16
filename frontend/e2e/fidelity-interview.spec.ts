@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,6 +16,8 @@ import {
   createSession,
   escape,
   fillStartSheet,
+  holdUploads,
+  LALITA,
   lineage,
   openSection,
   openSession,
@@ -138,6 +140,90 @@ capture("WebUpload", "upload recordings", async (page, width, theme) => {
   await expect(dialog.getByText(/^Already uploaded on /)).toBeVisible({ timeout: 30_000 });
   await shoot(page, "WebUpload", width, theme);
   await shoot(page, "Upload", width, theme);
+});
+
+async function partShot(part: Locator, board: string, width: Width, theme: Theme, variant: string) {
+  await settle(part.page());
+  const dir = join(OUT, `interview-${board}`);
+  mkdirSync(dir, { recursive: true });
+  const name = ["impl-web", variant, String(width), theme === "dark" ? "dark" : ""].filter(Boolean).join("-");
+  await part.screenshot({ path: join(dir, `${name}.png`) });
+}
+
+capture("WholeSession", "whole session block, an uploaded take and one uploading", async (page, width, theme) => {
+  const session = await createSession({ artisans: [MEERA] });
+  await uploadTake(session, null, { durationMs: 192_000 });
+  const file = audioFile(FILES, `whole-${width}-${theme}.wav`, 1);
+  await openSession(page, session);
+  const release = await holdUploads(page);
+  try {
+    const whole = page.locator("[data-whole-session]");
+    await whole.getByRole("button", { name: S.upload, exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: S.uploadRecordings });
+    await dialog.locator("input[type=file]").setInputFiles([file.path]);
+    const confirm = dialog.getByRole("button", { name: S.uploadOneFile });
+    await expect(confirm).toBeEnabled({ timeout: 30_000 });
+    await confirm.click();
+    await expect(whole.locator("[data-take-upload='UPLOADING']")).toHaveCount(1, { timeout: 30_000 });
+    await expect(whole.locator("[data-whole-take]")).toHaveCount(2);
+    await shoot(page, "WholeSession", width, theme);
+    await partShot(whole, "WholeSession", width, theme, "block");
+  } finally {
+    release();
+  }
+});
+
+capture("UploadDuplicates", "upload sheet, every duplicate state", async (page, width, theme) => {
+  const other = await createSession({ artisans: [LALITA] });
+  const theirs = audioFile(FILES, `Sandesh-13-Nov-${width}-${theme}.wav`, 2);
+  await uploadTake(other, { sectionId: section("B") }, { bytes: new Uint8Array(readFileSync(theirs.path)), artisans: [LALITA] });
+  const session = await createSession({ artisans: [MEERA] });
+  const mine = audioFile(FILES, `Meera-D-${width}-${theme}.wav`, 2);
+  await uploadTake(session, { sectionId: section("D") }, { bytes: new Uint8Array(readFileSync(mine.path)) });
+  const sending = audioFile(FILES, `Meera-sending-${width}-${theme}.wav`, 1);
+  const fresh = audioFile(FILES, `Meera-E-${width}-${theme}.wav`, 1);
+  const twice = join(FILES, `Meera-E-copy-${width}-${theme}.wav`);
+  writeFileSync(twice, readFileSync(fresh.path));
+  await openSession(page, session);
+  await openSection(page, "E");
+  const release = await holdUploads(page);
+  try {
+    await page.getByRole("button", { name: S.upload, exact: true }).first().click();
+    const dialog = page.getByRole("dialog", { name: S.uploadRecordings });
+    await dialog.locator("input[type=file]").setInputFiles([sending.path]);
+    const confirm = dialog.getByRole("button", { name: S.uploadOneFile });
+    await expect(confirm).toBeEnabled({ timeout: 30_000 });
+    await confirm.click();
+    await expect(page.locator("[data-section-takes='E'] [data-take-upload='UPLOADING']")).toHaveCount(1, { timeout: 30_000 });
+    await page.getByRole("button", { name: S.upload, exact: true }).first().click();
+    await dialog.locator("input[type=file]").setInputFiles([mine.path, theirs.path, sending.path, fresh.path, twice]);
+    await expect(dialog.locator("[data-duplicate='SERVER']")).toHaveCount(2, { timeout: 30_000 });
+    await expect(dialog.locator("[data-duplicate='QUEUED']")).toHaveCount(1);
+    await expect(dialog.locator("[data-duplicate='LIST']")).toHaveCount(1);
+    await expect(dialog.getByRole("button", { name: S.uploadOneFile })).toBeEnabled();
+    await shoot(page, "UploadDuplicates", width, theme);
+    await partShot(dialog.locator("[data-upload-rows]"), "UploadDuplicates", width, theme, "rows");
+  } finally {
+    release();
+  }
+});
+
+capture("RecordingsSort", "recordings list, added then recorded", async (page, width, theme) => {
+  const session = await createSession({ artisans: [GROUP[2]] });
+  const artisanId = session.participants[0].artisanId;
+  await uploadTake(session, { sectionId: section("A") }, { artisans: [GROUP[2]], durationMs: 192_000 });
+  await uploadTake(session, { sectionId: section("B") }, { artisans: [GROUP[2]], capturedAt: "2026-11-01T05:00:00.000Z", durationMs: 61_000 });
+  await page.goto(`/questionnaire/recordings?artisanId=${encodeURIComponent(artisanId)}`);
+  const toggle = page.getByRole("group", { name: S.sortRecordingsBy });
+  await expect(toggle.getByRole("button", { name: S.sortAdded, exact: true })).toHaveAttribute("aria-pressed", "true", { timeout: 30_000 });
+  await expect(page.locator("[data-recording-row]")).toHaveCount(2, { timeout: 30_000 });
+  await shoot(page, "RecordingsSort", width, theme, "added");
+  const answered = page.waitForResponse((r) => r.url().includes("/questionnaire/recordings") && r.url().includes("sort=recorded"));
+  await toggle.getByRole("button", { name: S.sortRecorded, exact: true }).click();
+  await answered;
+  await expect(page.locator("[data-recordings-sort='recorded']")).toBeVisible();
+  await expect(page.locator("[data-recording-row]")).toHaveCount(2, { timeout: 30_000 });
+  await shoot(page, "RecordingsSort", width, theme, "recorded");
 });
 
 capture("AnsweredBy", "who answered", async (page, width, theme) => {

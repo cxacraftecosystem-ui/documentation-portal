@@ -35,6 +35,7 @@ import { EMPTY_SELECTION, selectionLabel, selectionSource, toggled, withAll, typ
 import { availableKeys, LIST_DEFAULT, readSort, sortParam, treeLevel, writeSort, type SortChoice } from "@/lib/dataExplorer/sorting";
 import { ancestorsOf, readUrlState, recallScroll, rememberScroll, writeUrlState, type ExplorerUrlState, type ExplorerView } from "@/lib/dataExplorer/urlState";
 import { clampTreeWidth, mergeNavigation, readTreeWidth, TREE_WIDTH, TREE_WIDTH_KEY, treeWidthBounds, treeWidthForKey, type WidthBounds } from "@/lib/dataExplorer/explorerView";
+import { addressSearch, askAddress } from "@/lib/dataExplorer/address";
 import type { QueryParams } from "@/lib/dataExplorer/wire";
 import { exportFilename } from "@/lib/naming";
 
@@ -336,9 +337,9 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
     (next: Partial<ExplorerUrlState>, mode: "push" | "replace" = "replace") => {
       const merged = mergeNavigation(latest.current, next);
       latest.current = merged;
-      const base = new URLSearchParams(typeof window !== "undefined" ? window.location.search : params.toString());
+      const base = new URLSearchParams(addressSearch(params.toString()));
       base.delete("viewId");
-      const href = `${pathname}${writeUrlState(merged, base)}`;
+      const href = askAddress(`${pathname}${writeUrlState(merged, base)}`);
       if (typeof window !== "undefined") rememberScroll(search, window.scrollY);
       if (mode === "push") router.push(href, { scroll: false });
       else router.replace(href, { scroll: false });
@@ -416,10 +417,10 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
 
   const dropBundle = useCallback(() => {
     setBundle(null);
-    const base = new URLSearchParams(window.location.search);
+    const base = new URLSearchParams(addressSearch());
     base.delete("bundle");
     const text = base.toString();
-    router.replace(`${pathname}${text ? `?${text}` : ""}`, { scroll: false });
+    router.replace(askAddress(`${pathname}${text ? `?${text}` : ""}`), { scroll: false });
   }, [router, pathname]);
 
   const startBundle = useCallback(
@@ -442,10 +443,10 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
     (view: SavedView, mode: "push" | "replace") => {
       const merged = mergeNavigation(latest.current, { path: view.path, view: view.state.view, sheet: view.state.sheet, q: view.state.q, preview: "", t: 0, find: "" });
       latest.current = merged;
-      const base = new URLSearchParams(typeof window !== "undefined" ? window.location.search : params.toString());
+      const base = new URLSearchParams(addressSearch(params.toString()));
       base.delete("viewId");
       const withFilters = writeFilters(readFilters(new URLSearchParams(view.state.filters ?? {})), base);
-      const href = `${pathname}${writeUrlState(merged, withFilters)}`;
+      const href = askAddress(`${pathname}${writeUrlState(merged, withFilters)}`);
       if (mode === "push") router.push(href, { scroll: false });
       else router.replace(href, { scroll: false });
     },
@@ -528,11 +529,11 @@ export function DataExplorer({ config }: { config: ExplorerConfig }) {
 
   const changeFilters = useCallback(
     (next: ExplorerFilters) => {
-      const base = new URLSearchParams(typeof window !== "undefined" ? window.location.search : params.toString());
+      const base = new URLSearchParams(addressSearch(params.toString()));
       base.delete("viewId");
       base.delete("page");
       const text = writeFilters(next, base).toString();
-      router.replace(`${pathname}${text ? `?${text}` : ""}`, { scroll: false });
+      router.replace(askAddress(`${pathname}${text ? `?${text}` : ""}`), { scroll: false });
     },
     [params, pathname, router]
   );

@@ -10,7 +10,9 @@ import { questionnaireApi, mintKey, type ShaMatch } from "@/lib/questionnaire/ap
 import { sha256Hex } from "@/lib/questionnaire/hashFile";
 import { shortDate } from "@/lib/questionnaire/prompts";
 import { qs } from "@/lib/questionnaire/qs";
-import { flagDuplicates, recordedAtOf, toUpload, type UploadRow } from "@/lib/questionnaire/uploads";
+import { duplicateStates, duplicateView, recordedAtOf, toUpload, type DuplicateOpen, type QueuedCopy, type UploadRow } from "@/lib/questionnaire/uploads";
+
+export type { DuplicateOpen };
 
 export type UploadTarget = { kind: "SECTION"; sectionId: string } | { kind: "QUESTION"; lineageId: string } | { kind: "SESSION" };
 
@@ -65,18 +67,20 @@ export function UploadSheet({
   sections,
   sectionId,
   defaultTarget,
-  queuedShas,
+  queued,
   onClose,
-  onUpload
+  onUpload,
+  onOpenDuplicate
 }: {
   sessionId: string | null;
   sessionDate: string | null;
   sections: UploadSection[];
   sectionId: string | null;
   defaultTarget: UploadTarget;
-  queuedShas: Record<string, string>;
+  queued: Record<string, QueuedCopy>;
   onClose: () => void;
   onUpload: (rows: UploadRow[], target: UploadTarget) => void;
+  onOpenDuplicate?: (open: DuplicateOpen) => void;
 }) {
   const inputId = useId();
   const labelId = useId();
@@ -107,8 +111,8 @@ export function UploadSheet({
     };
   }, [shaKey, sessionId]);
 
-  const flagged = flagDuplicates(picked, found.matches, queuedShas, sessionDate);
-  const rows = picked.map((r) => ({ ...r, duplicateOn: flagged[r.key] ?? null }));
+  const states = duplicateStates(picked, found.matches, queued, sessionDate);
+  const rows = picked.map((r) => ({ ...r, duplicateOn: states[r.key]?.at ?? null, duplicate: states[r.key] ?? null }));
 
   async function add(files: FileList | File[] | null) {
     const picked = Array.from(files ?? []).filter((f) => f.type.startsWith("audio/") || f.type.startsWith("video/") || !f.type);
@@ -179,8 +183,11 @@ export function UploadSheet({
 
         {rows.length ? (
           <ul className="grid gap-2.5" data-upload-rows>
-            {rows.map((row) => (
-              <li key={row.key} className="grid gap-2.5 rounded-md border border-line-200 py-3 pl-3.5 pr-2" data-upload-row={row.file.name} data-duplicate={row.duplicateOn ? "" : undefined}>
+            {rows.map((row) => {
+              const view = row.duplicate ? duplicateView(row.duplicate) : null;
+              const open = view?.open && onOpenDuplicate ? view.open : null;
+              return (
+              <li key={row.key} className="grid gap-2.5 rounded-md border border-line-200 py-3 pl-3.5 pr-2" data-upload-row={row.file.name} data-duplicate={row.duplicate ? row.duplicate.kind : undefined}>
                 <div className="flex items-center gap-3">
                   <span
                     aria-hidden
@@ -211,13 +218,34 @@ export function UploadSheet({
                     </button>
                   )}
                 </div>
-                {row.duplicateOn ? (
-                  <span className="ml-12 w-fit rounded-sm bg-amber-100 px-2.5 py-1 text-[0.8125rem] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-100" data-already-uploaded>
-                    {qs("alreadyUploadedOn", { date: shortDate(row.duplicateOn) })}
-                  </span>
+                {view ? (
+                  <div className="ml-12 grid min-w-0 justify-items-start gap-1">
+                    <span className="w-fit rounded-sm bg-amber-100 px-2.5 py-1 text-[0.8125rem] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-100" data-already-uploaded>
+                      {view.chip}
+                    </span>
+                    {view.where ? (
+                      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-3" data-duplicate-where>
+                        <span className="min-w-0 max-w-full truncate text-[0.8125rem] text-ink-700" title={view.where}>
+                          {view.where}
+                        </span>
+                        {open ? (
+                          <button
+                            type="button"
+                            className="min-h-11 text-sm font-semibold text-purple-700 underline underline-offset-2 dark:text-purple-300"
+                            aria-label={qs("openDuplicateNamed", { name: row.file.name })}
+                            onClick={() => onOpenDuplicate?.(open)}
+                            data-duplicate-open={open.kind}
+                          >
+                            {qs("openDuplicate")}
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
               </li>
-            ))}
+              );
+            })}
           </ul>
         ) : null}
 

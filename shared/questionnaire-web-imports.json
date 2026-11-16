@@ -44,6 +44,7 @@
     "@/components/ui/ProgressBar",
     "@/components/ui/AnchoredPopover",
     "@/components/ui/Toggle",
+    "@/components/ui/Toast",
     "@/components/forms/PlaceSearchBox",
     "@/components/forms/MapPointPicker",
     "@/components/forms/LocationFields",

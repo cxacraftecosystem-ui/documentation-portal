@@ -35,7 +35,7 @@ test("exact copy (§4.5)", () => {
   expect(byId.P12.body).toBe("Locked once recording starts.");
   expect(byId.P14.body).toBe("Update when you have Wi-Fi. Your recordings are safe.");
   expect(byId.LEAVE.title).toBe("Leave this session?");
-  expect(byId.LEAVE.body).toBe("2 takes haven't uploaded. They stay on this device and upload when you return.");
+  expect(byId.LEAVE.body).toBe("2 takes are still uploading. They keep going while this tab is open; if you close it, they finish next time you open your sessions.");
   expect(byId.FINISH.body).toBe("6 sections recorded for 3 artisans. 2 takes still uploading.");
 });
 

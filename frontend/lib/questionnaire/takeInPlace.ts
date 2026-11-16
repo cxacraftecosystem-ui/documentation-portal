@@ -5,6 +5,8 @@ type TakeRecording = Pick<Recording, "id" | "mediaFileId" | "mediaType" | "downl
 
 export type TakeMedia = "AUDIO" | "VIDEO";
 
+export type TakeUpload = { state: "UPLOADING" | "WAITING" | "RETRYING" | "FAILED"; percent: number; words: string; retry?: () => void };
+
 export type TakeItem = {
   key: string;
   label: string;
@@ -12,6 +14,7 @@ export type TakeItem = {
   blobKey?: string | null;
   mediaType?: TakeMedia;
   capturedAt?: string | null;
+  upload?: TakeUpload | null;
 };
 
 export type OpenTake = { slot: string; key: string };
@@ -78,4 +81,27 @@ export function questionTake<R extends SectionTake, L extends OutboxTake>(lineag
   if (found) return found;
   const landed = new Set(recordings.map((r) => r.clientClipKey));
   return outbox.find((s) => !landed.has(s.clientClipKey) && s.targets.some((t) => "questionLineageId" in t && t.questionLineageId === lineageId)) ?? null;
+}
+
+export function wholeSessionTakes<R extends SectionTake, L extends OutboxTake>(recordings: R[], outbox: L[]): { server: R[]; local: L[] } {
+  const landed = new Set(recordings.map((r) => r.clientClipKey));
+  return {
+    server: recordings.filter((r) => !r.removedAt && r.targets.length === 0).sort((a, b) => a.capturedAt.localeCompare(b.capturedAt)),
+    local: outbox.filter((s) => !landed.has(s.clientClipKey) && s.targets.length === 0)
+  };
+}
+
+export function questionLocalTakes<R extends SectionTake, L extends OutboxTake>(lineageId: string, recordings: R[], outbox: L[]): L[] {
+  const landed = new Set(recordings.map((r) => r.clientClipKey));
+  return outbox.filter((s) => !landed.has(s.clientClipKey) && s.targets.some((t) => "questionLineageId" in t && t.questionLineageId === lineageId));
+}
+
+export type TakeSlot = { slot: string; sectionId: string | null };
+
+export function takeSlot(targets: { sectionId?: string | null; questionLineageId?: string | null }[], sectionOf: (lineageId: string) => string | null): TakeSlot {
+  const first = targets[0];
+  if (!first) return { slot: "W", sectionId: null };
+  if (first.sectionId) return { slot: `S:${first.sectionId}`, sectionId: first.sectionId };
+  if (first.questionLineageId) return { slot: `Q:${first.questionLineageId}`, sectionId: sectionOf(first.questionLineageId) };
+  return { slot: "W", sectionId: null };
 }

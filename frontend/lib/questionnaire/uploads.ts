@@ -1,3 +1,6 @@
+import { shortDate } from "@/lib/questionnaire/prompts";
+import { qs } from "@/lib/questionnaire/qs";
+
 export type BatchOutcome<T> = {
   uploaded: T[];
   left: File[];
@@ -63,22 +66,87 @@ export function recordedAtOf(file: { lastModified?: number }, sessionDate: strin
   return { at: now.toISOString(), source: "UPLOAD_TIME" };
 }
 
-export function flagDuplicates<T extends { key: string; sha: string | null }>(
+export type ServerCopy = {
+  sha: string;
+  uploadedAt?: string | null;
+  sameSession?: boolean;
+  sessionId?: string | null;
+  sessionTitle?: string | null;
+  recordingId?: string | null;
+};
+
+export type QueuedCopy = { at: string; uploaded: boolean; sessionId: string | null; sameSession: boolean };
+
+export type Duplicate =
+  | { kind: "LIST"; at: string }
+  | { kind: "QUEUED"; at: string }
+  | { kind: "SERVER"; at: string; sameSession: boolean; sessionId: string | null; sessionTitle: string | null; recordingId: string | null };
+
+export function duplicateStates<T extends { key: string; sha: string | null }>(
   rows: T[],
-  found: { sha: string; uploadedAt?: string | null }[],
-  queued: Record<string, string>,
-  fallbackDate: string | null
-): Record<string, string> {
-  const byServer = new Map(found.map((f) => [f.sha, f.uploadedAt ?? fallbackDate ?? ""] as const));
-  const out: Record<string, string> = {};
+  found: ServerCopy[],
+  queued: Record<string, QueuedCopy>,
+  fallbackDate: string | null,
+  now: Date = new Date()
+): Record<string, Duplicate> {
+  const byServer = new Map(found.map((f) => [f.sha, f] as const));
+  const out: Record<string, Duplicate> = {};
   const seen = new Set<string>();
   for (const row of rows) {
     if (!row.sha) continue;
-    const at = queued[row.sha] ?? byServer.get(row.sha) ?? (seen.has(row.sha) ? new Date().toISOString() : null);
-    if (at !== null && at !== undefined) out[row.key] = at;
+    const server = byServer.get(row.sha);
+    const local = queued[row.sha];
+    if (seen.has(row.sha)) out[row.key] = { kind: "LIST", at: now.toISOString() };
+    else if (server)
+      out[row.key] = {
+        kind: "SERVER",
+        at: server.uploadedAt ?? fallbackDate ?? "",
+        sameSession: Boolean(server.sameSession),
+        sessionId: server.sessionId ?? null,
+        sessionTitle: server.sessionTitle?.trim() || null,
+        recordingId: server.recordingId ?? null
+      };
+    else if (local && !local.uploaded) out[row.key] = { kind: "QUEUED", at: local.at };
+    else if (local) out[row.key] = { kind: "SERVER", at: local.at, sameSession: local.sameSession, sessionId: local.sessionId, sessionTitle: null, recordingId: null };
     seen.add(row.sha);
   }
   return out;
+}
+
+export function flagDuplicates<T extends { key: string; sha: string | null }>(
+  rows: T[],
+  found: ServerCopy[],
+  queued: Record<string, string>,
+  fallbackDate: string | null
+): Record<string, string> {
+  const asQueued = Object.fromEntries(Object.entries(queued).map(([sha, at]) => [sha, { at, uploaded: false, sessionId: null, sameSession: false }] as const));
+  return Object.fromEntries(Object.entries(duplicateStates(rows, found, asQueued, fallbackDate)).map(([key, d]) => [key, d.at] as const));
+}
+
+export type DuplicateOpen = { kind: "TAKE"; recordingId: string } | { kind: "SESSION"; sessionId: string; recordingId: string | null };
+
+export type DuplicateView = { chip: string; where: string | null; open: DuplicateOpen | null };
+
+export function duplicateView(d: Duplicate): DuplicateView {
+  if (d.kind === "LIST") return { chip: qs("duplicateInList"), where: null, open: null };
+  if (d.kind === "QUEUED") return { chip: qs("duplicateQueued"), where: null, open: null };
+  const chip = qs("alreadyUploadedOn", { date: shortDate(d.at) });
+  if (d.sameSession) return { chip, where: qs("duplicateHere"), open: d.recordingId ? { kind: "TAKE", recordingId: d.recordingId } : null };
+  return {
+    chip,
+    where: d.sessionTitle ? qs("duplicateIn", { title: d.sessionTitle }) : qs("duplicateElsewhere"),
+    open: d.sessionId ? { kind: "SESSION", sessionId: d.sessionId, recordingId: d.recordingId } : null
+  };
+}
+
+export function uploadedLine(count: number, target: string): string {
+  return count === 1 ? qs("uploadedOne", { target }) : qs("uploadedMany", { count, target });
+}
+
+export function batchOutcome(keys: string[], landed: ReadonlySet<string>, failed: ReadonlySet<string>): { settled: boolean; landed: number; failed: number } {
+  const done = keys.filter((k) => landed.has(k)).length;
+  const lost = keys.filter((k) => !landed.has(k) && failed.has(k)).length;
+  return { settled: done + lost === keys.length, landed: done, failed: lost };
 }
 
 export function toUpload<T extends { duplicateOn: string | null }>(rows: T[]): T[] {

@@ -1675,6 +1675,38 @@ test.describe("a typed search is never lost", () => {
     }
   });
 
+  test("a search typed while the explorer opens its organise-by folder keeps that folder", async ({ browser }) => {
+    const { context, fake } = await freshExplorer(browser);
+    fake.searchCorpus = [{ type: "artisans", label: "Artisans", singular: "Artisan", total: 31 }];
+    const page = await context.newPage();
+    let openLanding: () => void = () => undefined;
+    const landing = new Promise<void>((resolve) => (openLanding = () => resolve()));
+    let heldLanding = false;
+    const isLanding = (url: URL) => url.pathname === "/data" && url.searchParams.get("path") === "workshops" && !url.searchParams.has("sq") && url.searchParams.has("_rsc");
+    await page.route(isLanding, async (route) => {
+      if (heldLanding) return route.fallback();
+      heldLanding = true;
+      await landing;
+      await route.fallback();
+    });
+    try {
+      const landingAsked = page.waitForRequest((request) => isLanding(new URL(request.url())), { timeout: 15_000 }).catch(() => null);
+      await page.goto("/data");
+      const box = page.getByRole("searchbox", { name: "Search all data" });
+      expect(await landingAsked, "the explorer asked for its organise-by folder").not.toBeNull();
+      await box.fill("artisan");
+      await expect(page).toHaveURL(/sq=artisan/);
+      openLanding();
+      await expect(page.getByTestId("search-group-artisans")).toBeVisible();
+      await expect(box).toHaveValue("artisan");
+      await expect(page).toHaveURL(/path=workshops/);
+      await expect(page).toHaveURL(/sq=artisan/);
+    } finally {
+      openLanding();
+      await context.close();
+    }
+  });
+
   test("text already in the box before the page took it over is kept and searched", async ({ browser }) => {
     const { context, fake } = await freshExplorer(browser);
     fake.searchCorpus = [{ type: "artisans", label: "Artisans", singular: "Artisan", total: 31 }];

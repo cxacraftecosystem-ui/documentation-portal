@@ -274,7 +274,11 @@ export type Recording = {
   chips?: RecordingChips | null;
 };
 
-export type RecordingList = { items: Recording[]; nextCursor: string | null; filters?: Record<string, unknown> };
+export type RecordingSort = "added" | "recorded";
+
+export const RECORDING_SORTS: readonly RecordingSort[] = ["added", "recorded"];
+
+export type RecordingList = { items: Recording[]; nextCursor: string | null; sort?: RecordingSort; filters?: Record<string, unknown> };
 
 export type FilterOption = {
   id: string;
@@ -603,6 +607,7 @@ export type ShaMatch = {
   recordingId: string | null;
   sessionId: string | null;
   sameSession: boolean;
+  sessionTitle?: string | null;
   uploadedAt: string | null;
   pending: boolean;
 };
@@ -727,9 +732,14 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
           [extra.deleted ? "deleted=true" : "", extra.state && extra.state !== "all" ? `state=${extra.state}` : ""].filter(Boolean).join("&")
         )}`
       ),
-    listRecordings: (filters: Filters, cursor?: string | null, sessionId?: string | null, limit?: number) =>
+    listRecordings: (filters: Filters, cursor?: string | null, sessionId?: string | null, limit?: number, sort?: RecordingSort | null) =>
       fetchJson<RecordingList>(
-        `${Q}/recordings${withQuery(filtersToQuery(filters), cursor, limit, sessionId ? `sessionId=${encodeURIComponent(sessionId)}` : "")}`
+        `${Q}/recordings${withQuery(
+          filtersToQuery(filters),
+          cursor,
+          limit,
+          [sessionId ? `sessionId=${encodeURIComponent(sessionId)}` : "", sort ? `sort=${sort}` : ""].filter(Boolean).join("&")
+        )}`
       ),
     filterOptions: (field?: FilterField | null, q?: string | null, questionnaireIds: string[] = [], limit?: number) =>
       fetchJson<FilterOptions>(

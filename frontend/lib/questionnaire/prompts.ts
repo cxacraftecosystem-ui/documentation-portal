@@ -194,10 +194,10 @@ export const prompts = {
     buttons: two({ id: "upload", label: qs("uploadInstead"), tone: "secondary" }, { id: "settings", label: qs("openSettings"), tone: "primary" }),
     dismiss: "cancel"
   }),
-  leave: (v: { count: number }): PromptSpec => ({
+  leave: (v: { count: number; recording?: boolean }): PromptSpec => ({
     id: "LEAVE",
     title: qs("leaveTitle"),
-    body: qs("leaveBodyWeb", v),
+    body: [v.count === 1 ? qs("leaveBodyWebOne") : v.count > 1 ? qs("leaveBodyWeb", { count: v.count }) : "", v.recording ? qs("leaveRecordingWeb") : ""].filter(Boolean).join(" "),
     buttons: two({ id: "stay", label: qs("stay"), tone: "secondary" }, { id: "leave", label: qs("leave"), tone: "primary" }),
     dismiss: "stay"
   }),
