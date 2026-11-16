@@ -519,12 +519,14 @@ test("@qf:Q4 a whole-session upload can cover sections: it lists under each one 
   await expect(page.getByText(S.uploadedOne({ target: S.sectionsLabel({ codes: "A, C" }) }))).toBeVisible({ timeout: 90_000 });
   const take = (await as().getSession(session.id)).recordings[0];
   expect(take.targets.map((t) => t.sectionId).sort(), "one section target per chosen section").toEqual([section("A"), section("C")].sort());
-  await expect(sectionHeader(page, "A")).toContainText(S.inSectionTake);
+  await expect(sectionHeader(page, "A")).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("[data-section-body='A'] [data-question-state='SECTION_TAKE']").first()).toBeVisible();
   await expect(sectionHeader(page, "C")).toContainText(S.inSectionTake);
   await expect(whole.locator("[data-whole-take]")).toHaveCount(0);
   await openSection(page, "C");
+  await expect(sectionHeader(page, "A")).toContainText(S.inSectionTake);
   await expect(page.locator("[data-section-takes='C'] [data-take-row-in-place]")).toHaveCount(1);
-  await expect(page.locator("[data-question] [data-question-state='SECTION_TAKE']").first()).toBeVisible();
+  await expect(page.locator("[data-section-body='C'] [data-question-state='SECTION_TAKE']").first()).toBeVisible();
 });
 
 test("@qf:Q4 Mark sections moves a whole-session take into the sections it covers, and a stale version is reloaded and said", async ({ page }) => {
@@ -545,7 +547,7 @@ test("@qf:Q4 Mark sections moves a whole-session take into the sections it cover
   await dialog.locator("[data-mark-sections-save]").click();
   await expect(dialog).toBeHidden({ timeout: 30_000 });
   await expect(sectionHeader(page, "B")).toHaveAttribute("aria-expanded", "true");
-  await expect(sectionHeader(page, "B")).toContainText(S.inSectionTake);
+  await expect(page.locator("[data-section-body='B'] [data-question-state='SECTION_TAKE']").first()).toBeVisible();
   await expect(page.locator("[data-section-takes='B'] [data-take-row-in-place]")).toHaveCount(1);
   await expect(whole.locator("[data-whole-take]")).toHaveCount(0);
   const after = (await as().getSession(session.id)) as unknown as { recordings: { targets: { sectionId: string | null }[] }[]; progress?: { answeredQuestions: number } };
