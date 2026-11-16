@@ -231,7 +231,7 @@ capture("RecordingsSort", "recordings list, added then recorded", async (page, w
 });
 
 async function pickSections(page: Page, scope: Locator, codes: string[]) {
-  await scope.getByRole("button", { name: S.attachSections }).click();
+  await scope.getByRole("button", { name: new RegExp(`^${escape(S.attachSections)}\\b`) }).click();
   for (const code of codes) await page.getByRole("option", { name: new RegExp(`^${escape(S.chipSection({ code }))} ·`) }).click();
   await page.keyboard.press("Escape");
 }
@@ -287,6 +287,7 @@ capture("PhonesHolding", "admin list of phones holding recordings", async (page,
   });
   expect(sent.ok).toBe(true);
   await signInAs(page.context(), "admin");
+  await page.context().addInitScript((key) => window.localStorage.setItem(key, "on"), `field_repo_admin_view:${seed().users.admin.id}`);
   await expect.poll(async () => (await raw<{ items: { installId: string }[] }>("admin", "GET", "/admin/outbox-reports")).items.some((i) => i.installId === install), { timeout: 30_000 }).toBe(true);
   await page.goto("/admin");
   const section = page.locator("[data-phones-holding]");

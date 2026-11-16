@@ -501,7 +501,7 @@ test("@qf:Q7 the recordings list orders by upload by default, by recording on re
 });
 
 async function chooseSections(page: Page, scope: Locator, codes: string[]) {
-  await scope.getByRole("button", { name: S.attachSections }).click();
+  await scope.getByRole("button", { name: new RegExp(`^${escape(S.attachSections)}\\b`) }).click();
   for (const code of codes) await page.getByRole("option", { name: new RegExp(`^${escape(S.chipSection({ code }))} ·`) }).click();
   await page.keyboard.press("Escape");
 }
@@ -561,7 +561,7 @@ test("@qf:Q4 Change sections moves a whole-session take into sections, a stale v
 
   const row = page.locator("[data-section-takes='B'] [data-take-row-in-place]");
   await row.locator("[data-change-sections-open]").click();
-  await expect(dialog.getByRole("button", { name: S.attachSections })).toContainText("2 selected");
+  await expect(dialog.getByRole("button", { name: new RegExp(`^${escape(S.attachSections)}\\b`) })).toContainText("2 selected");
   await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.countsForSections({ codes: "B, D" }));
   for (const code of ["B", "D"]) await dialog.getByRole("button", { name: new RegExp(`^Remove ${escape(S.chipSection({ code }))}`) }).click();
   await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.marksNoSection);
@@ -613,6 +613,7 @@ test("@qf:Q6 every request says what this browser's outbox holds, and the admin 
   const admin = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   try {
     await signInAs(admin, "admin");
+    await admin.addInitScript((key) => window.localStorage.setItem(key, "on"), `field_repo_admin_view:${seed().users.admin.id}`);
     const adminPage = await admin.newPage();
     await adminPage.goto("/admin");
     const row = adminPage.locator(`[data-phone-row='${install}']`);
