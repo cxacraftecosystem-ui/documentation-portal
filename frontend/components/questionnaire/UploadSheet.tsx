@@ -11,11 +11,25 @@ import { questionnaireApi, mintKey, type ShaMatch } from "@/lib/questionnaire/ap
 import { sha256Hex } from "@/lib/questionnaire/hashFile";
 import { shortDate } from "@/lib/questionnaire/prompts";
 import { qs } from "@/lib/questionnaire/qs";
+import { coverIds } from "@/lib/questionnaire/sectionCover";
 import { duplicateStates, duplicateView, recordedAtOf, toUpload, type DuplicateOpen, type QueuedCopy, type UploadRow } from "@/lib/questionnaire/uploads";
 
 export type { DuplicateOpen };
 
-export type UploadTarget = { kind: "SECTION"; sectionId: string } | { kind: "QUESTION"; lineageId: string } | { kind: "SESSION"; sectionIds?: string[] };
+export type UploadTarget =
+  | { kind: "SECTION"; sectionId: string }
+  | { kind: "SECTIONS"; sectionIds: string[] }
+  | { kind: "QUESTION"; lineageId: string }
+  | { kind: "SESSION" };
+
+type AttachMode = "SECTIONS" | "QUESTION" | "SESSION";
+
+export function attachDefaults(defaultTarget: UploadTarget, openSection: string | null): { mode: AttachMode; sectionIds: string[] } {
+  const sectionIds =
+    defaultTarget.kind === "SECTION" ? [defaultTarget.sectionId] : defaultTarget.kind === "SECTIONS" ? defaultTarget.sectionIds : openSection ? [openSection] : [];
+  const mode: AttachMode = defaultTarget.kind === "QUESTION" ? "QUESTION" : defaultTarget.kind === "SESSION" ? "SESSION" : "SECTIONS";
+  return { mode, sectionIds };
+}
 
 export type UploadSection = { id: string; code: string; title: string; questions: { lineageId: string; displayCode: string; prompt: string }[] };
 
@@ -87,9 +101,9 @@ export function UploadSheet({
   const labelId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [picked, setRows] = useState<UploadRow[]>([]);
-  const [target, setTarget] = useState<UploadTarget>(defaultTarget);
+  const [mode, setMode] = useState<AttachMode>(() => attachDefaults(defaultTarget, sectionId).mode);
   const [question, setQuestion] = useState<string>(defaultTarget.kind === "QUESTION" ? defaultTarget.lineageId : "");
-  const [covered, setCovered] = useState<string[]>(defaultTarget.kind === "SESSION" ? (defaultTarget.sectionIds ?? []) : []);
+  const [chosenSections, setChosenSections] = useState<string[]>(() => attachDefaults(defaultTarget, sectionId).sectionIds);
   const [dragging, setDragging] = useState(false);
   const [found, setFound] = useState<{ key: string; matches: ShaMatch[] }>({ key: "", matches: [] });
   const shaKey = [...new Set(picked.map((r) => r.sha).filter((sha): sha is string => Boolean(sha)))].sort().join(",");
@@ -134,11 +148,18 @@ export function UploadSheet({
   const ready = toUpload(rows).filter((r) => r.sha !== null);
   const hashing = rows.some((r) => r.sha === null);
   const chosen: UploadTarget =
-    target.kind === "QUESTION" ? { kind: "QUESTION", lineageId: question } : target.kind === "SESSION" ? { kind: "SESSION", sectionIds: covered } : target;
+    mode === "QUESTION"
+      ? { kind: "QUESTION", lineageId: question }
+      : mode === "SECTIONS"
+        ? { kind: "SECTIONS", sectionIds: coverIds(sections, chosenSections) }
+        : { kind: "SESSION" };
   const online = typeof navigator === "undefined" || navigator.onLine !== false;
-  const blocked = uploadBlocked({ ready: ready.length, hashing, shaKey, checkedKey: found.key, online }) || (chosen.kind === "QUESTION" && !chosen.lineageId);
-  const options: { kind: UploadTarget["kind"]; label: string }[] = [
-    ...(section ? [{ kind: "SECTION" as const, label: qs("chipSection", { code: section.code }) }] : []),
+  const blocked =
+    uploadBlocked({ ready: ready.length, hashing, shaKey, checkedKey: found.key, online }) ||
+    (chosen.kind === "QUESTION" && !chosen.lineageId) ||
+    (chosen.kind === "SECTIONS" && !chosen.sectionIds.length);
+  const options: { kind: AttachMode; label: string }[] = [
+    { kind: "SECTIONS", label: qs("attachSections") },
     { kind: "QUESTION", label: qs("attachQuestion") },
     { kind: "SESSION", label: qs("wholeSession") }
   ];
@@ -258,7 +279,7 @@ export function UploadSheet({
           </span>
           <div role="radiogroup" aria-labelledby={labelId} className="flex gap-1 rounded-md border border-line-200 bg-surface-50 p-1">
             {options.map((option) => {
-              const on = target.kind === option.kind;
+              const on = mode === option.kind;
               return (
                 <button
                   key={option.kind}
@@ -266,18 +287,15 @@ export function UploadSheet({
                   role="radio"
                   aria-checked={on}
                   className={`min-h-11 flex-1 rounded-sm px-1.5 text-sm ${on ? "bg-purple-700 font-semibold text-white" : "font-medium text-ink-700 hover:bg-field-100"}`}
-                  onClick={() => setTarget(option.kind === "SECTION" && section ? { kind: "SECTION", sectionId: section.id } : option.kind === "QUESTION" ? { kind: "QUESTION", lineageId: question } : { kind: "SESSION" })}
+                  onClick={() => setMode(option.kind)}
                 >
                   {option.label}
                 </button>
               );
             })}
           </div>
-          {target.kind === "SECTION" && section ? (
-            <span className="text-sm text-ink-500">{qs("countsForAllQuestions", { count: section.questions.length, code: section.code })}</span>
-          ) : null}
-          {target.kind === "SESSION" ? <SectionsChooser sections={sections} values={covered} onChange={setCovered} /> : null}
-          {target.kind === "QUESTION" ? (
+          {mode === "SECTIONS" ? <SectionsChooser sections={sections} values={chosenSections} onChange={setChosenSections} /> : null}
+          {mode === "QUESTION" ? (
             <SearchableSelect
               value={question}
               onChange={setQuestion}

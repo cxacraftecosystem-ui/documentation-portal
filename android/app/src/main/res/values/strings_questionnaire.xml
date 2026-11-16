@@ -505,11 +505,11 @@
     <string name="q_sort_recordings_by">Sort by</string>
     <string name="q_sort_added">Added</string>
     <string name="q_sort_recorded">Recorded</string>
-    <string name="q_covers_sections">Covers sections</string>
     <string name="q_marks_no_section">Marks no section</string>
     <string name="q_counts_for_sections">Counts for all questions in %1$s</string>
     <string name="q_sections_label">Sections %1$s</string>
-    <string name="q_mark_sections">Mark sections</string>
-    <string name="q_mark_sections_named">Mark sections for %1$s</string>
     <string name="q_take_changed_reloaded">This take changed on another device and has been reloaded. Choose again.</string>
+    <string name="q_attach_sections">Sections</string>
+    <string name="q_change_sections">Change sections</string>
+    <string name="q_change_sections_named">Change sections for %1$s</string>
 </resources>

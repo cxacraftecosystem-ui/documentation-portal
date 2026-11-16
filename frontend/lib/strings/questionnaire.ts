@@ -505,13 +505,13 @@ export const questionnaireStrings = {
   sortRecordingsBy: "Sort by",
   sortAdded: "Added",
   sortRecorded: "Recorded",
-  coversSections: "Covers sections",
   marksNoSection: "Marks no section",
   countsForSections: ({ codes }: { codes: string | number }): string => `Counts for all questions in ${codes}`,
   sectionsLabel: ({ codes }: { codes: string | number }): string => `Sections ${codes}`,
-  markSections: "Mark sections",
-  markSectionsNamed: ({ name }: { name: string | number }): string => `Mark sections for ${name}`,
   takeChangedReloaded: "This take changed on another device and has been reloaded. Choose again.",
+  attachSections: "Sections",
+  changeSections: "Change sections",
+  changeSectionsNamed: ({ name }: { name: string | number }): string => `Change sections for ${name}`,
 } as const;
 
 export type QuestionnaireStringKey = keyof typeof questionnaireStrings;

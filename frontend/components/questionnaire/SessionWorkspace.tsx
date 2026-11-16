@@ -19,7 +19,7 @@ import { RecordUploadPair } from "@/components/questionnaire/RecordUploadPair";
 import { ReviewFinish, reviewSummary, type FailedUpload } from "@/components/questionnaire/ReviewFinish";
 import { SavePill, saveState } from "@/components/questionnaire/SavePill";
 import { SessionHeader } from "@/components/questionnaire/SessionHeader";
-import { MarkSectionsDialog } from "@/components/questionnaire/SectionsChooser";
+import { ChangeSectionsDialog } from "@/components/questionnaire/SectionsChooser";
 import { REVEAL_MARGINS, TakeInPlace, TakeRegion, TakeRow, useTakePlayer, type TakeItem } from "@/components/questionnaire/TakeInPlace";
 import { takeRow, TakeSheet } from "@/components/questionnaire/TakeSheet";
 import { questionLocalTakes, questionTake as findQuestionTake, sectionTakes, takeMedia, takeSlot, wholeSessionTakes, withLanded, type TakeMedia } from "@/lib/questionnaire/takeInPlace";
@@ -921,8 +921,11 @@ export function SessionWorkspace({ id }: { id: string }) {
       const code = labelOf(questionKey(upload.lineageId));
       return { targets: [{ questionLineageId: upload.lineageId }], label: code, code };
     }
-    const codes = coverCodes(shownGrid.sections, upload.sectionIds ?? []);
-    return { targets: coverTargets(shownGrid.sections, upload.sectionIds ?? []), label: coverLabel(codes), code: codes.join(", ") };
+    if (upload.kind === "SECTIONS") {
+      const codes = coverCodes(shownGrid.sections, upload.sectionIds);
+      return { targets: coverTargets(shownGrid.sections, upload.sectionIds), label: coverLabel(codes), code: codes.join(", ") };
+    }
+    return { targets: [], label: qs("wholeSession"), code: "" };
   }
 
   async function saveSections(recordingId: string, ids: string[]) {
@@ -935,7 +938,7 @@ export function SessionWorkspace({ id }: { id: string }) {
       const saved = await questionnaireApi.patchRecording(take.id, { version: take.version, targets: coverTargets(shownGrid.sections, ids) });
       setMarking(null);
       await load();
-      if (ids.length) revealTake(saved, false);
+      revealTake(saved, false);
     } catch (error) {
       if (contractError(error)?.code === "STALE_VERSION") {
         await load();
@@ -1123,7 +1126,29 @@ export function SessionWorkspace({ id }: { id: string }) {
   const markable = (item: TakeItem): Recording | null => {
     if (!item.recording || !live) return null;
     const found = takeRecordings.find((r) => r.id === item.recording?.id) ?? null;
-    return found && !found.removedAt && mayChangeTake(found, me, session) ? found : null;
+    if (!found || found.removedAt || found.targets.some((t) => t.questionLineageId)) return null;
+    return mayChangeTake(found, me, session) ? found : null;
+  };
+  const takeLead = (item: TakeItem, attr: "data-whole-take" | "data-section-take") => {
+    const take = markable(item);
+    return (
+      <div className="grid min-w-0 justify-items-start gap-0.5">
+        <p className="text-[0.8125rem] font-semibold text-ink-900" {...{ [attr]: item.key }}>
+          {item.label}
+        </p>
+        {take ? (
+          <button
+            type="button"
+            className="min-h-11 text-sm font-semibold text-purple-700 underline underline-offset-2 dark:text-purple-300"
+            aria-label={qs("changeSectionsNamed", { name: item.label })}
+            onClick={() => setMarking({ recordingId: take.id, notice: null })}
+            data-change-sections-open={item.key}
+          >
+            {qs("changeSections")}
+          </button>
+        ) : null}
+      </div>
+    );
   };
   const decisions = detail.recordings.filter((r) => !r.removedAt && r.filing === "NEEDS_DECISION");
   const awayPeople = session.participants.filter((p) => p.leftAt);
@@ -1251,7 +1276,15 @@ export function SessionWorkspace({ id }: { id: string }) {
           sessionId={session.id}
           sessionDate={session.sessionDate}
           sections={uploadSections}
-          sectionId={uploadFor.kind === "SECTION" ? uploadFor.sectionId : uploadFor.kind === "QUESTION" ? sectionOf(uploadFor.lineageId) : activeSection}
+          sectionId={
+            uploadFor.kind === "SECTION"
+              ? uploadFor.sectionId
+              : uploadFor.kind === "SECTIONS"
+                ? (uploadFor.sectionIds[0] ?? activeSection)
+                : uploadFor.kind === "QUESTION"
+                  ? sectionOf(uploadFor.lineageId)
+                  : activeSection
+          }
           defaultTarget={uploadFor}
           queued={queuedCopies}
           onClose={() => setUploadFor(null)}
@@ -1261,7 +1294,7 @@ export function SessionWorkspace({ id }: { id: string }) {
       ) : null}
 
       {marking && markingTake ? (
-        <MarkSectionsDialog
+        <ChangeSectionsDialog
           name={serverTake(markingTake).label}
           sections={uploadSections}
           initial={sectionTargetIds(markingTake.targets)}
@@ -1647,11 +1680,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                               slot={`S:${s.id}`}
                               item={item}
                               playLabel={item.label}
-                              lead={
-                                <p className="text-[0.8125rem] font-semibold text-ink-900" data-section-take={item.key}>
-                                  {item.label}
-                                </p>
-                              }
+                              lead={takeLead(item, "data-section-take")}
                             />
                           </li>
                         ))}
@@ -1795,24 +1824,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                     slot="W"
                     item={item}
                     playLabel={item.label}
-                    lead={
-                      <div className="grid min-w-0 justify-items-start gap-0.5">
-                        <p className="text-[0.8125rem] font-semibold text-ink-900" data-whole-take={item.key}>
-                          {item.label}
-                        </p>
-                        {markable(item) ? (
-                          <button
-                            type="button"
-                            className="min-h-11 text-sm font-semibold text-purple-700 underline underline-offset-2 dark:text-purple-300"
-                            aria-label={qs("markSectionsNamed", { name: item.label })}
-                            onClick={() => setMarking({ recordingId: markable(item)!.id, notice: null })}
-                            data-mark-sections-open={item.key}
-                          >
-                            {qs("markSections")}
-                          </button>
-                        ) : null}
-                      </div>
-                    }
+                    lead={takeLead(item, "data-whole-take")}
                   />
                 </li>
               ))}

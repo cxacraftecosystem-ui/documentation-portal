@@ -227,36 +227,44 @@ capture("RecordingsSort", "recordings list, added then recorded", async (page, w
 });
 
 async function pickSections(page: Page, scope: Locator, codes: string[]) {
-  await scope.getByRole("button", { name: S.coversSections }).click();
+  await scope.getByRole("button", { name: S.attachSections }).click();
   for (const code of codes) await page.getByRole("option", { name: new RegExp(`^${escape(S.chipSection({ code }))} ·`) }).click();
   await page.keyboard.press("Escape");
 }
 
-capture("UploadCovers", "upload to the whole session covering sections", async (page, width, theme) => {
+capture("UploadSections", "upload attached to several sections", async (page, width, theme) => {
   const session = await createSession({ artisans: [MEERA] });
-  const file = audioFile(FILES, `covers-${width}-${theme}.wav`, 1);
+  const file = audioFile(FILES, `sections-${width}-${theme}.wav`, 1);
   await openSession(page, session);
-  await page.locator("[data-whole-session]").getByRole("button", { name: S.upload, exact: true }).click();
+  await openSection(page, "A");
+  await page.getByRole("button", { name: S.upload, exact: true }).first().click();
   const dialog = page.getByRole("dialog", { name: S.uploadRecordings });
   await dialog.locator("input[type=file]").setInputFiles([file.path]);
+  await expect(dialog.getByRole("radio", { name: S.attachSections, exact: true })).toBeChecked();
   await expect(dialog.getByRole("button", { name: S.uploadOneFile })).toBeEnabled({ timeout: 30_000 });
-  await pickSections(page, dialog, ["A", "C"]);
+  await pickSections(page, dialog, ["C"]);
   await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.countsForSections({ codes: "A, C" }));
   await dialog.locator("[data-sections-chooser]").scrollIntoViewIfNeeded();
-  await shoot(page, "UploadCovers", width, theme);
-  await partShot(dialog, "UploadCovers", width, theme, "dialog");
+  await shoot(page, "UploadSections", width, theme);
+  await partShot(dialog, "UploadSections", width, theme, "dialog");
 });
 
-capture("MarkSections", "mark a whole-session take with sections", async (page, width, theme) => {
+capture("ChangeSections", "change the sections of a take on two sections", async (page, width, theme) => {
   const session = await createSession({ artisans: [MEERA] });
   await uploadTake(session, null, { durationMs: 192_000 });
+  const take = (await as().getSession(session.id)).recordings[0];
+  await as().patchRecording(take.id, { version: take.version, targets: [{ sectionId: section("B") }, { sectionId: section("D") }] });
   await openSession(page, session);
-  await page.locator("[data-whole-session] [data-mark-sections-open]").click();
-  const dialog = page.getByRole("dialog", { name: S.markSections });
-  await pickSections(page, dialog, ["B"]);
-  await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.countsForSections({ codes: "B" }));
-  await shoot(page, "MarkSections", width, theme);
-  await partShot(dialog, "MarkSections", width, theme, "dialog");
+  await openSection(page, "B");
+  const row = page.locator("[data-section-takes='B'] [data-take-row-in-place]").first();
+  await row.locator("[data-change-sections-open]").click();
+  const dialog = page.getByRole("dialog", { name: S.changeSections });
+  await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.countsForSections({ codes: "B, D" }));
+  await shoot(page, "ChangeSections", width, theme, "row-open");
+  await partShot(dialog, "ChangeSections", width, theme, "dialog");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await partShot(page.locator("[data-section-takes='B']"), "ChangeSections", width, theme, "takes");
 });
 
 capture("AnsweredBy", "who answered", async (page, width, theme) => {

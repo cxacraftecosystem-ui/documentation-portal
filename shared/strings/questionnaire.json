@@ -509,12 +509,12 @@
     "sortRecordingsBy": "Sort by",
     "sortAdded": "Added",
     "sortRecorded": "Recorded",
-    "coversSections": "Covers sections",
     "marksNoSection": "Marks no section",
     "countsForSections": "Counts for all questions in {codes}",
     "sectionsLabel": "Sections {codes}",
-    "markSections": "Mark sections",
-    "markSectionsNamed": "Mark sections for {name}",
-    "takeChangedReloaded": "This take changed on another device and has been reloaded. Choose again."
+    "takeChangedReloaded": "This take changed on another device and has been reloaded. Choose again.",
+    "attachSections": "Sections",
+    "changeSections": "Change sections",
+    "changeSectionsNamed": "Change sections for {name}"
   }
 }

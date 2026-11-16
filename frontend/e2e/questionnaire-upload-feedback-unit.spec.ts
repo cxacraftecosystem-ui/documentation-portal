@@ -9,6 +9,7 @@ import { qs } from "@/lib/questionnaire/qs";
 import { DEFAULT_RECORDING_SORT, readRecordingSort, recordingSortKey, recordingSortOptions, writeRecordingSort } from "@/lib/questionnaire/recordingSort";
 import { questionLocalTakes, takeSlot, wholeSessionTakes } from "@/lib/questionnaire/takeInPlace";
 import { batchOutcome, duplicateStates, duplicateView, flagDuplicates, toUpload, uploadedLine, type QueuedCopy } from "@/lib/questionnaire/uploads";
+import { attachDefaults } from "@/components/questionnaire/UploadSheet";
 import { questionProgress } from "@/lib/questionnaire/coverageCache";
 import { coverCodes, coverHelper, coverLabel, coverOptions, coverTargets, mayChangeTake, sectionTargetIds } from "@/lib/questionnaire/sectionCover";
 
@@ -206,15 +207,22 @@ test("a whole-session take can cover sections: one section target each, named fo
   expect(progress.sections["s-c"]).toMatchObject({ answered: 2, total: 2, inSectionTake: true });
   expect(progress.sections["s-b"]).toMatchObject({ answered: 0, inSectionTake: false });
   expect(progress.answered).toBe(4);
+  expect(attachDefaults({ kind: "SECTION", sectionId: "s-e" }, null), "opened from a section: Sections, that one chosen").toEqual({ mode: "SECTIONS", sectionIds: ["s-e"] });
+  expect(attachDefaults({ kind: "QUESTION", lineageId: "q-e2" }, "s-e"), "opened from a question: A question, its section ready").toEqual({ mode: "QUESTION", sectionIds: ["s-e"] });
+  expect(attachDefaults({ kind: "SESSION" }, "s-b"), "opened from the whole session: whole session, the open section ready").toEqual({ mode: "SESSION", sectionIds: ["s-b"] });
+  expect(attachDefaults({ kind: "SESSION" }, null)).toEqual({ mode: "SESSION", sectionIds: [] });
   const sheet = read("components", "questionnaire", "UploadSheet.tsx");
-  expect(sheet).toContain('target.kind === "SESSION" ? <SectionsChooser');
-  expect(sheet).toContain('{ kind: "SESSION", sectionIds: covered }');
+  expect(sheet).toContain('mode === "SECTIONS" ? <SectionsChooser');
+  expect(sheet).toContain('{ kind: "SECTIONS", label: qs("attachSections") }');
+  expect(sheet).toContain('(chosen.kind === "SECTIONS" && !chosen.sectionIds.length)');
+  expect(sheet).not.toContain("countsForAllQuestions");
+  expect(qs("attachSections")).toBe("Sections");
   const workspace = read("components", "questionnaire", "SessionWorkspace.tsx");
-  expect(workspace).toContain("coverTargets(shownGrid.sections, upload.sectionIds ?? [])");
+  expect(workspace).toContain("coverTargets(shownGrid.sections, upload.sectionIds)");
   expect(read("components", "questionnaire", "SectionsChooser.tsx")).toContain("<SearchableMultiSelect");
 });
 
-test("Mark sections is offered to whoever the server lets change the take, PATCHes its targets and reloads on a stale version", () => {
+test("Change sections is offered on whole-session and section takes to whoever the server lets change them, PATCHes the targets and reloads on a stale version", () => {
   expect(mayChangeTake({ recordedBy: { id: "u1" } }, "u1", {}), "the uploader").toBe(true);
   expect(mayChangeTake({ recordedBy: { id: "u1" } }, "u2", { mayChangeTakes: true }), "anyone the session lets work in it").toBe(true);
   expect(mayChangeTake({ recordedBy: { id: "u1" } }, "u2", { mayChangeTakes: false })).toBe(false);
@@ -225,9 +233,14 @@ test("Mark sections is offered to whoever the server lets change the take, PATCH
   expect(save).toContain('contractError(error)?.code === "STALE_VERSION"');
   expect(save.indexOf("await load();", save.indexOf("STALE_VERSION"))).toBeGreaterThan(-1);
   expect(save).toContain('qs("takeChangedReloaded")');
-  expect(workspace).toContain("data-mark-sections-open");
+  expect(save).toContain("revealTake(saved, false);");
+  expect(workspace).toContain("data-change-sections-open");
+  expect(workspace).toContain('lead={takeLead(item, "data-whole-take")}');
+  expect(workspace).toContain('lead={takeLead(item, "data-section-take")}');
+  expect(workspace).toContain("found.targets.some((t) => t.questionLineageId)");
   expect(workspace).toContain("mayChangeTake(found, me, session)");
-  expect(qs("markSections")).toBe("Mark sections");
+  expect(qs("changeSections")).toBe("Change sections");
+  expect(qs("marksNoSection")).toBe("Marks no section");
   expect(qs("takeChangedReloaded")).toBe("This take changed on another device and has been reloaded. Choose again.");
   expect(read("components", "questionnaire", "RecordingsList.tsx")).toContain("hover:underline dark:text-purple-300");
 });

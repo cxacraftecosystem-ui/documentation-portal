@@ -186,8 +186,8 @@ test("@qf:Q4 @qf:Q3 several files upload at once, a file already uploaded is fla
   await expect(dialog).toBeVisible();
   await dialog.locator("input[type=file]").setInputFiles([dup.path, first.path, second.path]);
   await expect(dialog.getByText(/^Already uploaded on /)).toBeVisible({ timeout: 30_000 });
-  await expect(dialog.getByRole("radio", { name: S.chipSection({ code: "E" }) })).toBeChecked();
-  await expect(dialog.getByText(S.countsForAllQuestions({ count: 10, code: "E" }))).toBeVisible();
+  await expect(dialog.getByRole("radio", { name: S.attachSections, exact: true })).toBeChecked();
+  await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.countsForSections({ codes: "E" }));
   await dialog.getByRole("button", { name: S.uploadFiles({ count: 2 }) }).click();
   const again = page.getByRole("dialog", { name: S.alreadyRecordedCode({ code: "E" }) });
   await expect(again).toBeVisible();
@@ -499,26 +499,29 @@ test("@qf:Q7 the recordings list orders by upload by default, by recording on re
 });
 
 async function chooseSections(page: Page, scope: Locator, codes: string[]) {
-  await scope.getByRole("button", { name: S.coversSections }).click();
+  await scope.getByRole("button", { name: S.attachSections }).click();
   for (const code of codes) await page.getByRole("option", { name: new RegExp(`^${escape(S.chipSection({ code }))} ·`) }).click();
   await page.keyboard.press("Escape");
 }
 
-test("@qf:Q4 a whole-session upload can cover sections: it lists under each one and counts all their questions", async ({ page }) => {
+test("@qf:Q4 an upload can attach to several sections: it lists under each one and counts all their questions", async ({ page }) => {
   const session = await createSession({ recordBy: "SECTION" });
-  const file = audioFile(FILES, "Whole-covers-A-and-C.wav", 1);
+  const file = audioFile(FILES, "Sections-A-and-C.wav", 1);
   await openSession(page, session);
   const whole = page.locator("[data-whole-session]");
   const { dialog, button } = await uploadThroughSheet(page, whole.getByRole("button", { name: S.upload, exact: true }), [file.path], S.uploadOneFile);
   await expect(dialog.getByRole("radio", { name: S.wholeSession })).toBeChecked();
-  await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.marksNoSection);
+  await expect(dialog.locator("[data-sections-chooser]")).toHaveCount(0);
+  await dialog.getByRole("radio", { name: S.attachSections, exact: true }).click();
+  await expect(button, "Sections with none chosen uploads nothing").toBeDisabled();
   await chooseSections(page, dialog, ["C", "A"]);
   await expect(dialog).toBeVisible();
   await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.countsForSections({ codes: "A, C" }));
+  await expect(dialog.getByText(/\(\d+ selected\)/)).toHaveCount(0);
   await button.click();
   await expect(page.getByText(S.uploadedOne({ target: S.sectionsLabel({ codes: "A, C" }) }))).toBeVisible({ timeout: 90_000 });
   const take = (await as().getSession(session.id)).recordings[0];
-  expect(take.targets.map((t) => t.sectionId).sort(), "one section target per chosen section").toEqual([section("A"), section("C")].sort());
+  expect(take.targets.map((x) => x.sectionId).sort(), "one section target per chosen section").toEqual([section("A"), section("C")].sort());
   await expect(sectionHeader(page, "A")).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("[data-section-body='A'] [data-question-state='SECTION_TAKE']").first()).toBeVisible();
   await expect(sectionHeader(page, "C")).toContainText(S.inSectionTake);
@@ -529,28 +532,40 @@ test("@qf:Q4 a whole-session upload can cover sections: it lists under each one 
   await expect(page.locator("[data-section-body='C'] [data-question-state='SECTION_TAKE']").first()).toBeVisible();
 });
 
-test("@qf:Q4 Mark sections moves a whole-session take into the sections it covers, and a stale version is reloaded and said", async ({ page }) => {
+test("@qf:Q4 Change sections moves a whole-session take into sections, a stale version is reloaded and said, and clearing them moves it back", async ({ page }) => {
   const session = await createSession({ recordBy: "SECTION" });
   await uploadTake(session, null, { durationMs: 70_000 });
   const take = (await as().getSession(session.id)).recordings[0];
   await openSession(page, session);
   const whole = page.locator("[data-whole-session]");
   await expect(whole.locator("[data-whole-take]")).toHaveCount(1);
-  await whole.locator("[data-mark-sections-open]").click();
-  const dialog = page.getByRole("dialog", { name: S.markSections });
+  await whole.locator("[data-change-sections-open]").click();
+  const dialog = page.getByRole("dialog", { name: S.changeSections });
   await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.marksNoSection);
-  await chooseSections(page, dialog, ["B"]);
-  await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.countsForSections({ codes: "B" }));
+  await chooseSections(page, dialog, ["B", "D"]);
+  await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.countsForSections({ codes: "B, D" }));
   await as().patchRecording(take.id, { version: take.version, targets: [] });
-  await dialog.locator("[data-mark-sections-save]").click();
-  await expect(dialog.locator("[data-mark-sections-notice]")).toHaveText(S.takeChangedReloaded);
-  await dialog.locator("[data-mark-sections-save]").click();
+  await dialog.locator("[data-change-sections-save]").click();
+  await expect(dialog.locator("[data-change-sections-notice]")).toHaveText(S.takeChangedReloaded);
+  await dialog.locator("[data-change-sections-save]").click();
   await expect(dialog).toBeHidden({ timeout: 30_000 });
   await expect(sectionHeader(page, "B")).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("[data-section-body='B'] [data-question-state='SECTION_TAKE']").first()).toBeVisible();
-  await expect(page.locator("[data-section-takes='B'] [data-take-row-in-place]")).toHaveCount(1);
+  await expect(sectionHeader(page, "D")).toContainText(S.inSectionTake);
   await expect(whole.locator("[data-whole-take]")).toHaveCount(0);
-  const after = (await as().getSession(session.id)) as unknown as { recordings: { targets: { sectionId: string | null }[] }[]; progress?: { answeredQuestions: number } };
-  expect(after.recordings[0].targets.map((t) => t.sectionId)).toEqual([section("B")]);
-  expect(after.progress?.answeredQuestions ?? 0, "the session's progress counts section B").toBeGreaterThan(0);
+  const moved = (await as().getSession(session.id)) as unknown as { recordings: { targets: { sectionId: string | null }[] }[]; progress?: { answeredQuestions: number } };
+  expect(moved.recordings[0].targets.map((x) => x.sectionId).sort()).toEqual([section("B"), section("D")].sort());
+  expect(moved.progress?.answeredQuestions ?? 0, "the session's progress counts sections B and D").toBeGreaterThan(0);
+
+  const row = page.locator("[data-section-takes='B'] [data-take-row-in-place]");
+  await row.locator("[data-change-sections-open]").click();
+  await expect(dialog.getByRole("button", { name: S.attachSections })).toContainText("2 selected");
+  await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.countsForSections({ codes: "B, D" }));
+  for (const code of ["B", "D"]) await dialog.getByRole("button", { name: new RegExp(`^Remove ${escape(S.chipSection({ code }))}`) }).click();
+  await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.marksNoSection);
+  await dialog.locator("[data-change-sections-save]").click();
+  await expect(dialog).toBeHidden({ timeout: 30_000 });
+  await expect(whole.locator("[data-whole-take]")).toHaveCount(1);
+  await expect(whole.locator("[data-whole-take]")).toBeInViewport();
+  expect((await as().getSession(session.id)).recordings[0].targets, "clearing every section moves it back to the whole session").toEqual([]);
 });
