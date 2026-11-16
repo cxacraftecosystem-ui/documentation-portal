@@ -267,7 +267,7 @@ def test_the_recordings_list_filters_pages_and_carries_chips(monkeypatch: pytest
     async def body(c: Any, ids: SimpleNamespace) -> None:
         async def found(**params: Any) -> list[str]:
             f = filters.parse({"questionnaireId": ids.form, **params})
-            return [r["id"] for r in (await filters.list_recordings(f, ids.lead, limit=100, client=c))["items"]]
+            return [r["id"] for r in (await filters.list_recordings(f, ids.lead, limit=100, sort="recorded", client=c))["items"]]
 
         assert await found() == [ids.t3, ids.t2, ids.t1], "newest capture first"
         assert await found(artisanId=ids.a["a2"]) == [ids.t1], "an artisan who was only present finds the take"
@@ -283,10 +283,10 @@ def test_the_recordings_list_filters_pages_and_carries_chips(monkeypatch: pytest
         assert await found(q=f"Materials {ids.tag}") == [ids.t1], "and the section's title"
         assert await found(q=f"Ravi {ids.tag}") == [ids.t3], "and the artisans"
 
-        first = await filters.list_recordings(filters.parse({"questionnaireId": ids.form}), ids.lead, limit=2, client=c)
+        first = await filters.list_recordings(filters.parse({"questionnaireId": ids.form}), ids.lead, limit=2, sort="recorded", client=c)
         assert [r["id"] for r in first["items"]] == [ids.t3, ids.t2] and first["nextCursor"]
         rest = await filters.list_recordings(filters.parse({"questionnaireId": ids.form}), ids.lead, limit=2,
-                                             cursor=first["nextCursor"], client=c)
+                                             cursor=first["nextCursor"], sort="recorded", client=c)
         assert [r["id"] for r in rest["items"]] == [ids.t1] and rest["nextCursor"] is None
 
         by_id = {r["id"]: r for r in (await filters.list_recordings(filters.parse({"questionnaireId": ids.form}), ids.lead, client=c))["items"]}
@@ -305,6 +305,77 @@ def test_the_recordings_list_filters_pages_and_carries_chips(monkeypatch: pytest
         again = {r["id"]: r for r in (await filters.list_recordings(filters.parse({"questionnaireId": ids.form}), ids.lead, client=c))["items"]}
         assert again[ids.t2]["mediaType"] == "VIDEO", "a video take plays as video"
         assert again[ids.t1]["mediaType"] == "AUDIO"
+
+    _run(monkeypatch, body)
+
+
+def test_the_recordings_list_orders_by_upload_or_by_capture_and_pages_in_either(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import HTTPException
+
+    from app.questionnaire import filters
+
+    async def body(c: Any, ids: SimpleNamespace) -> None:
+        for rid, added in ((ids.t1, "2026-11-16T09:00:00"), (ids.t2, "2026-11-14T09:00:00"), (ids.t3, "2026-11-15T09:00:00")):
+            await c.execute_raw('UPDATE "QuestionnaireRecording" SET "createdAt" = $2::timestamp WHERE "id" = $1', rid, added)
+        f = filters.parse({"questionnaireId": ids.form})
+
+        async def listed(sort: str | None, cursor: str | None = None, limit: int = 100) -> dict[str, Any]:
+            return await filters.list_recordings(f, ids.lead, limit=limit, sort=sort, cursor=cursor, client=c)
+
+        default = await listed(None)
+        assert [r["id"] for r in default["items"]] == [ids.t1, ids.t3, ids.t2], "newest upload first unless asked otherwise"
+        assert default["sort"] == "added"
+        added = await listed("added")
+        assert [r["id"] for r in added["items"]] == [ids.t1, ids.t3, ids.t2]
+        recorded = await listed("recorded")
+        assert [r["id"] for r in recorded["items"]] == [ids.t3, ids.t2, ids.t1], "newest capture first"
+        assert recorded["sort"] == "recorded"
+        assert [r["capturedAt"][:10] for r in added["items"]] == ["2026-10-20", "2026-10-22", "2026-10-21"], "each row keeps its recorded date"
+
+        for sort, expected in (("added", [ids.t1, ids.t3, ids.t2]), ("recorded", [ids.t3, ids.t2, ids.t1])):
+            seen: list[str] = []
+            cursor = None
+            while True:
+                page = await listed(sort, cursor, limit=1)
+                seen.extend(r["id"] for r in page["items"])
+                cursor = page["nextCursor"]
+                if not cursor:
+                    break
+                assert cursor.startswith(f"{sort}|"), "the cursor carries its order"
+            assert seen == expected, f"paging by {sort} reaches every take once, in order"
+
+        one = await listed("added", limit=1)
+        with pytest.raises(HTTPException) as other_order:
+            await listed("recorded", one["nextCursor"], limit=1)
+        assert other_order.value.status_code == 422
+        newest = (await listed("recorded", limit=1))["nextCursor"]
+        legacy = newest.split("|", 1)[1]
+        assert [r["id"] for r in (await listed("recorded", legacy, limit=5))["items"]] == [ids.t2, ids.t1], "an older two-part cursor still pages by capture"
+        for bad in ("newest", "captured"):
+            with pytest.raises(HTTPException) as refused:
+                await listed(bad)
+            assert refused.value.status_code == 422
+
+    _run(monkeypatch, body)
+
+
+def test_a_sha_lookup_names_the_session_that_holds_the_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.questionnaire import recordings, schemas as S
+
+    async def body(c: Any, ids: SimpleNamespace) -> None:
+        sha = uuid.uuid4().hex * 2
+        media = (await c.query_raw('SELECT "mediaFileId" AS m FROM "QuestionnaireRecording" WHERE "id" = $1', ids.t3))[0]["m"]
+        await c.execute_raw('UPDATE "MediaFile" SET "contentSha256" = $2 WHERE "id" = $1', media, sha)
+        await c.execute_raw('UPDATE "QuestionnaireInterview" SET "title" = $2 WHERE "id" = $1', ids.s2, f"Interview_Ravi_{ids.tag}")
+        here = await recordings.sha_lookup(S.ShaLookupRequest(sha256s=[sha], sessionId=ids.s2), ids.lead, client=c)
+        assert here["items"] == [{
+            "sha": sha, "recordingId": ids.t3, "sessionId": ids.s2, "sameSession": True,
+            "sessionTitle": f"Interview_Ravi_{ids.tag}", "uploadedAt": here["items"][0]["uploadedAt"], "pending": False,
+        }]
+        elsewhere = await recordings.sha_lookup(S.ShaLookupRequest(sha256s=[sha], sessionId=ids.s1), ids.lead, client=c)
+        assert elsewhere["items"][0]["sameSession"] is False
+        assert elsewhere["items"][0]["sessionTitle"] == f"Interview_Ravi_{ids.tag}", "the other session is named, not only its id"
+        S.ShaLookup.model_validate(elsewhere)
 
     _run(monkeypatch, body)
 

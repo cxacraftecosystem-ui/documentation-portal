@@ -108,10 +108,10 @@ async def sessions_list(
 @router.get("/recordings", dependencies=V2)
 async def recordings_list(
     request: Request, sessionId: str | None = None, cursor: str | None = None, limit: int = Query(30, ge=1, le=100),
-    user: Any = Depends(get_current_user),
+    sort: str | None = None, user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     return await filters.list_recordings(
-        filters.parse(request.query_params), user, session_id=sessionId, cursor=cursor, limit=limit,
+        filters.parse(request.query_params), user, session_id=sessionId, cursor=cursor, limit=limit, sort=sort,
     )
 
 

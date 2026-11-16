@@ -593,6 +593,7 @@ class ShaMatch(Strict):
     recordingId: str | None
     sessionId: str | None
     sameSession: bool
+    sessionTitle: str | None = None
     uploadedAt: datetime | None
     pending: bool
 
