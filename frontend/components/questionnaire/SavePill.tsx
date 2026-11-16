@@ -24,7 +24,7 @@ export function saveState(steps: Step[], progress: Record<string, number>, onlin
 export function saveLine(state: SaveState): string {
   switch (state.kind) {
     case "UPLOADING":
-      return qs("takesUploadingPercent", { count: state.count, percent: state.percent });
+      return state.count === 1 ? qs("takesUploadingPercentOne", { percent: state.percent }) : qs("takesUploadingPercent", { count: state.count, percent: state.percent });
     case "WAITING":
       return qs("waitingForSignal");
     case "FAILED":

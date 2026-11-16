@@ -99,7 +99,7 @@ object SavePillModel {
             val percent = uploading.mapNotNull { it.clip?.uploadedPercent }.let { if (it.isEmpty()) 0 else it.sum() / it.size }
             val line = OutboxTrayModel.uploadLine(percent)
             return if (percent <= 0) SavePillState(SaveTone.WAITING, line)
-            else SavePillState(SaveTone.UPLOADING, QuestionnaireCopy.t("takesUploadingPercent", "count" to uploading.size, "percent" to percent), percent)
+            else SavePillState(SaveTone.UPLOADING, QuestionnaireCopy.takesUploadingPercent(uploading.size, percent), percent)
         }
         if (unit.steps.any { it.state == StepState.PENDING }) return SavePillState(SaveTone.ON_PHONE, QuestionnaireCopy.t("savedOnThisPhone"))
         return SavePillState(SaveTone.SAVED, QuestionnaireCopy.t("saved"))

@@ -391,7 +391,7 @@ function OpenTodayCard({ session, workshopNames }: { session: Session; workshopN
             <ProgressBar percent={percentOf(progress)} className="h-2" />
           </>
         ) : null}
-        {uploading ? <span className="text-[13px] text-ink-500">{qs("takesUploading", { count: uploading })}</span> : null}
+        {uploading ? <span className="text-[13px] text-ink-500">{uploading === 1 ? qs("takesUploadingOne") : qs("takesUploading", { count: uploading })}</span> : null}
       </div>
       <Link className="field-button rounded-full" href={sessionHref(session, point?.sectionId ?? null)} data-continue-at>
         {point ? qs("continueAt", { code: point.code }) : qs("continueSession")}

@@ -49,6 +49,7 @@
     <string name="q_record_take">Record take</string>
     <string name="q_upload_file">Upload file</string>
     <string name="q_takes_uploading">%1$s takes uploading</string>
+    <string name="q_takes_uploading_one">1 take uploading</string>
     <string name="q_this_sitting">This sitting</string>
     <string name="q_whole_session">Whole session</string>
     <string name="q_answered_by">Answered by</string>
@@ -428,6 +429,7 @@
     <string name="q_saved">Saved</string>
     <string name="q_saved_on_this_phone">Saved on this phone</string>
     <string name="q_takes_uploading_percent">%1$s takes uploading · %2$s%%</string>
+    <string name="q_takes_uploading_percent_one">1 take uploading · %1$s%%</string>
     <string name="q_open_uploads">Open uploads</string>
     <string name="q_upload_recordings">Upload recordings</string>
     <string name="q_choose_files">Choose files</string>

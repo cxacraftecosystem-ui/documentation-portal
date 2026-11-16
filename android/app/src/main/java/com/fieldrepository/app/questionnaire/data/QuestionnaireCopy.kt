@@ -57,6 +57,7 @@ object QuestionnaireCopy {
         "recordTake" to "Record take",
         "uploadFile" to "Upload file",
         "takesUploading" to "{count} takes uploading",
+        "takesUploadingOne" to "1 take uploading",
         "wholeSession" to "Whole session",
         "answeredBy" to "Answered by",
         "justThese" to "Just these…",
@@ -318,6 +319,7 @@ object QuestionnaireCopy {
         "saved" to "Saved",
         "savedOnThisPhone" to "Saved on this phone",
         "takesUploadingPercent" to "{count} takes uploading · {percent}%",
+        "takesUploadingPercentOne" to "1 take uploading · {percent}%",
         "openUploads" to "Open uploads",
         "uploadRecordings" to "Upload recordings",
         "chooseFiles" to "Choose files",
@@ -782,7 +784,8 @@ object QuestionnaireCopy {
 
     fun joinCode(code: String) = t("joinCode", "code" to code)
     fun uploading(percent: Int) = t("uploadingPercent", "percent" to percent)
-    fun takesUploading(count: Int) = t("takesUploading", "count" to count)
+    fun takesUploading(count: Int) = if (count == 1) t("takesUploadingOne") else t("takesUploading", "count" to count)
+    fun takesUploadingPercent(count: Int, percent: Int) = if (count == 1) t("takesUploadingPercentOne", "percent" to percent) else t("takesUploadingPercent", "count" to count, "percent" to percent)
     fun leaveBody(pending: Int) = t("leaveBodyAndroid", "count" to pending)
     fun leaveBody(pending: Int, failed: Int): String =
         listOfNotNull(if (pending > 0) leaveBody(pending) else null, if (failed > 0) t("leaveFailedAndroid", "count" to failed) else null).joinToString("\n")

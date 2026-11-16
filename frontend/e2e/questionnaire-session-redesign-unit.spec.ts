@@ -234,6 +234,7 @@ test("@qf:Q2 the save pill names the state and opens the uploads", () => {
   const clip = (over: Partial<ClipStep>): ClipStep => ({ kind: "clip", status: "PENDING", clientClipKey: "c1", blobKey: "b", sizeBytes: 1, contentType: "audio/webm", extension: "webm", presign: {} as ClipStep["presign"], recording: {} as ClipStep["recording"], ...over });
   expect(saveLine(saveState([], {}, true))).toBe("Saved");
   expect(saveLine(saveState([clip({}), clip({ clientClipKey: "c2" })], { c1: 0.8 }, true))).toBe("2 takes uploading · 40%");
+  expect(saveLine(saveState([clip({})], { c1: 0.8 }, true))).toBe("1 take uploading · 80%");
   expect(saveLine(saveState([clip({})], {}, false))).toBe("Waiting for signal");
   expect(saveLine(saveState([clip({ status: "FAILED", error: "x" })], {}, true))).toBe("Upload failed. Retrying.");
   expect(headerNames({ title: "T", participants: [{ name: "Ramesh Maharana" }, { name: "Bikash Behera" }, { name: "Sarojini Das" }], respondents: [] } as never)).toBe("Ramesh Maharana and 2 others");
