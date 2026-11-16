@@ -318,7 +318,8 @@ internal fun TakeInPlaceRow(
     loader: ExplorerMediaLoader? = null,
     onRetry: ((String) -> Unit)? = null,
     reveal: Boolean = false,
-    clearance: RevealClearance = RevealClearance()
+    clearance: RevealClearance = RevealClearance(),
+    onMark: (() -> Unit)? = null
 ) {
     var full by rememberSaveable(take.key) { mutableStateOf(false) }
     val bring = remember { BringIntoViewRequester() }
@@ -364,6 +365,12 @@ internal fun TakeInPlaceRow(
                     .padding(horizontal = 12.dp).testTag("questionnaire.take.${take.key}.retry"),
                 contentAlignment = Alignment.Center
             ) { Text(QuestionnaireCopy.t("retry"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary) }
+            if (onMark != null && !open) Box(
+                Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onMark)
+                    .semantics { contentDescription = QuestionnaireCopy.t("markSectionsNamed", "name" to take.title) }
+                    .padding(horizontal = 12.dp).testTag("questionnaire.take.${take.key}.mark"),
+                contentAlignment = Alignment.Center
+            ) { Text(QuestionnaireCopy.t("markSections"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, maxLines = 1) }
             if (take.openable) Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null, tint = MaterialTheme.field.body)
         }
         if (open && take.openable) TakePreview(take, name, full, { full = it }, loader)
@@ -406,7 +413,9 @@ internal fun TakesList(
     loader: ExplorerMediaLoader? = null,
     onRetry: ((String) -> Unit)? = null,
     reveal: String? = null,
-    clearance: RevealClearance = RevealClearance()
+    clearance: RevealClearance = RevealClearance(),
+    onMark: ((InPlaceTake) -> Unit)? = null,
+    markable: (InPlaceTake) -> Boolean = { !it.local }
 ) {
     if (takes.isEmpty()) return
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).testTag("questionnaire.takes.$scope")) {
@@ -423,7 +432,8 @@ internal fun TakesList(
             val isOpen = InPlaceTakes.isOpen(open, scope, take)
             TakeInPlaceRow(
                 take, name, isOpen, onToggle = { onOpen(if (isOpen) null else InPlaceTakes.openKey(scope, take)) }, loader = loader,
-                onRetry = onRetry, reveal = reveal == take.key, clearance = clearance
+                onRetry = onRetry, reveal = reveal == take.key, clearance = clearance,
+                onMark = onMark?.takeIf { markable(take) }?.let { mark -> { mark(take) } }
             )
         }
     }

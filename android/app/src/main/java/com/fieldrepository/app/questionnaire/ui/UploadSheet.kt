@@ -59,7 +59,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.data.Naming
 import com.fieldrepository.app.questionnaire.data.QSessionCreate
+import com.fieldrepository.app.questionnaire.data.QRecording
 import com.fieldrepository.app.questionnaire.data.QShaMatch
+import com.fieldrepository.app.questionnaire.data.QTargetRef
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.SessionUnit
 import com.fieldrepository.app.questionnaire.data.StepKind
@@ -67,6 +69,7 @@ import com.fieldrepository.app.questionnaire.data.StepState
 import com.fieldrepository.app.questionnaire.data.outboxJson
 import com.fieldrepository.app.ui.FieldCircularProgressIndicator
 import com.fieldrepository.app.ui.FieldTextStyles
+import com.fieldrepository.app.ui.SearchableMultiSelectField
 import com.fieldrepository.app.ui.SearchableSelectField
 import com.fieldrepository.app.ui.SelectOption
 import com.fieldrepository.app.ui.field
@@ -94,6 +97,45 @@ data class PickedFile(
 }
 
 enum class AttachKind { SECTION, QUESTION, WHOLE }
+
+data class SectionChoice(val id: String, val code: String, val title: String) {
+    val option: SelectOption get() = SelectOption(id, "$code · $title")
+}
+
+object SectionCover {
+    fun codes(chosen: Set<String>, sections: List<SectionChoice>): List<String> = sections.filter { it.id in chosen }.map { it.code }
+
+    fun line(chosen: Set<String>, sections: List<SectionChoice>): String = codes(chosen, sections).let { codes ->
+        if (codes.isEmpty()) QuestionnaireCopy.t("marksNoSection") else QuestionnaireCopy.t("countsForSections", "codes" to codes.joinToString(", "))
+    }
+
+    fun targets(chosen: Set<String>, sections: List<SectionChoice>): List<QTargetRef> =
+        sections.filter { it.id in chosen }.map { QTargetRef(sectionId = it.id) }
+
+    fun chosenOf(recording: QRecording, sections: List<SectionChoice>): Set<String> {
+        val known = sections.map { it.id }.toSet()
+        return recording.targets.filter { it.questionLineageId == null }
+            .mapNotNull { t -> t.sectionId ?: t.targetKey.takeIf { key -> key.startsWith("S:") }?.removePrefix("S:") }
+            .filter { it in known }.toSet()
+    }
+
+    fun mayChange(recording: QRecording, meId: String?, isAdmin: Boolean, researcherIds: Collection<String>): Boolean =
+        isAdmin || (meId != null && (recording.recordedBy?.id == meId || meId in researcherIds))
+}
+
+@Composable
+fun CoversSectionsField(sections: List<SectionChoice>, chosen: Set<String>, modifier: Modifier = Modifier, onChange: (Set<String>) -> Unit) {
+    Column(modifier.fillMaxWidth().testTag("questionnaire.covers"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SearchableMultiSelectField(
+            label = QuestionnaireCopy.t("coversSections"),
+            options = sections.map { it.option },
+            selected = chosen,
+            searchable = true,
+            onSelectedChange = { picked -> onChange(sections.map { it.id }.filter { it in picked }.toSet()) }
+        )
+        Text(SectionCover.line(chosen, sections), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted, modifier = Modifier.testTag("questionnaire.covers.line"))
+    }
+}
 
 sealed interface UploadDuplicate {
     data object InThisList : UploadDuplicate
@@ -201,7 +243,10 @@ fun UploadSheet(
     onRemove: (UploadRow) -> Unit,
     onUpload: () -> Unit,
     onDismiss: () -> Unit,
-    onOpenDuplicate: (UploadRow) -> Unit = {}
+    onOpenDuplicate: (UploadRow) -> Unit = {},
+    sections: List<SectionChoice> = emptyList(),
+    covered: Set<String> = emptySet(),
+    onCovers: (Set<String>) -> Unit = {}
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -211,7 +256,8 @@ fun UploadSheet(
         UploadSheetBody(
             rows, checking, attach, sectionCode, sectionQuestions, questionOptions, questionId, sessionDate,
             onAttach, onQuestion, onChoose, onRemove, onUpload, onDismiss, onOpenDuplicate,
-            Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding()
+            modifier = Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding(),
+            sections = sections, covered = covered, onCovers = onCovers
         )
     }
 }
@@ -233,7 +279,10 @@ fun UploadSheetBody(
     onUpload: () -> Unit,
     onDismiss: () -> Unit,
     onOpenDuplicate: (UploadRow) -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    sections: List<SectionChoice> = emptyList(),
+    covered: Set<String> = emptySet(),
+    onCovers: (Set<String>) -> Unit = {}
 ) {
     val count = UploadPlan.uploading(rows).size
     val ready = count > 0 && !checking && (attach != AttachKind.QUESTION || questionId != null) && (attach != AttachKind.SECTION || sectionCode != null)
@@ -295,7 +344,7 @@ fun UploadSheetBody(
                     label = QuestionnaireCopy.t("attachQuestion"), options = questionOptions,
                     selectedValue = questionId.orEmpty(), includeNone = false, searchable = true, onSelect = onQuestion
                 )
-                AttachKind.WHOLE -> Unit
+                AttachKind.WHOLE -> if (sections.isNotEmpty()) CoversSectionsField(sections, covered, onChange = onCovers)
             }
         }
         Button(

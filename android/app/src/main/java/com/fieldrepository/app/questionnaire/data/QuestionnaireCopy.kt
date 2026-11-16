@@ -392,6 +392,13 @@ object QuestionnaireCopy {
         "sortRecordingsBy" to "Sort by",
         "sortAdded" to "Added",
         "sortRecorded" to "Recorded",
+        "coversSections" to "Covers sections",
+        "marksNoSection" to "Marks no section",
+        "countsForSections" to "Counts for all questions in {codes}",
+        "sectionsLabel" to "Sections {codes}",
+        "markSections" to "Mark sections",
+        "markSectionsNamed" to "Mark sections for {name}",
+        "takeChangedReloaded" to "This take changed on another device and has been reloaded. Choose again.",
         "duplicateQueuedAndroid" to "Uploading from this phone",
         "leaveFailedAndroid" to "{count} takes didn't upload. They wait here for Retry."
     )

@@ -105,6 +105,7 @@ import com.fieldrepository.app.questionnaire.data.QCoverageCheckResponse
 import com.fieldrepository.app.questionnaire.data.QMakePrimaryRequest
 import com.fieldrepository.app.questionnaire.data.QProposal
 import com.fieldrepository.app.questionnaire.data.QRecording
+import com.fieldrepository.app.questionnaire.data.QRecordingPatch
 import com.fieldrepository.app.questionnaire.data.QRespondentInput
 import com.fieldrepository.app.questionnaire.data.QRespondentPatch
 import com.fieldrepository.app.questionnaire.data.QRespondentRegister
@@ -158,8 +159,10 @@ private data class RecordRequest(
     val label: String,
     val code: String,
     val pickedFiles: List<PickedFile> = emptyList(),
-    val clipKeys: List<String> = emptyList()
+    val clipKeys: List<String> = emptyList(),
+    val covers: List<QTargetRef> = emptyList()
 ) {
+    val targets: List<QTargetRef> get() = listOfNotNull(target) + covers
     val upload: Boolean get() = pickedFiles.isNotEmpty()
     fun discardFiles() = pickedFiles.forEach { File(it.path).delete() }
 }
@@ -239,6 +242,8 @@ fun SessionWorkspace(
     var uploadChecking by remember { mutableStateOf(0) }
     var uploadAttach by remember { mutableStateOf(AttachKind.WHOLE) }
     var uploadQuestion by remember { mutableStateOf<String?>(null) }
+    var uploadCovers by remember { mutableStateOf(emptySet<String>()) }
+    var marking by remember { mutableStateOf<QRecording?>(null) }
     var pendingMic by remember { mutableStateOf<UploadOpen?>(null) }
     val arriving = remember { mutableStateListOf<LocalClip>() }
     val tracked = remember { mutableStateListOf<String>() }
@@ -409,6 +414,8 @@ fun SessionWorkspace(
     val pill = SavePillModel.of(unit)
     val recording = (recorderState as? RecordingService.State.Recording)?.takeIf { it.draft.sessionKey == clientKey }
     val liveRecordings = detail?.recordings.orEmpty()
+    val sectionChoices = remember(instrument) { instrument?.sections.orEmpty().map { SectionChoice(it.id, it.code, it.title) } }
+    val researcherIds = detail?.researchers.orEmpty().map { it.userId }
     val online = remember(unit, revision) { ConnectivityObserver.isOnline(context) }
     val trackedKeys = tracked.toSet()
     val arrivingNow = arriving.toList()
@@ -453,7 +460,7 @@ fun SessionWorkspace(
                     clientClipKey = req.clipKeys.getOrNull(i) ?: SessionOutbox.newKey(), sessionKey = u.clientKey, questionnaireId = u.questionnaireId, adtsPath = picked.path,
                     deviceCapturedAt = (picked.recordedAt ?: sessionNoon ?: Instant.now()).toString(),
                     clockOffsetMs = 0, capturedAtSource = if (picked.recordedAt != null) "FILE_METADATA" else "SESSION_DATE",
-                    targets = listOfNotNull(req.target), subjects = subjects, label = req.label,
+                    targets = req.targets, subjects = subjects, label = req.label,
                     contentType = picked.mime, extension = picked.ext, continuationOfId = continuationOf, replacesRecordingId = replaces,
                     ackedRecordingIds = acked, finished = true, m4aPath = picked.path, durationMs = picked.durationMs,
                     sha256 = picked.sha256, sizeBytes = picked.size, spokenLanguage = spoken.value
@@ -476,7 +483,7 @@ fun SessionWorkspace(
                 clientClipKey = key, sessionKey = u.clientKey, questionnaireId = u.questionnaireId,
                 adtsPath = File(RecordingDrafts.dir(v2.filesDir), "$key.aac").absolutePath,
                 deviceCapturedAt = Instant.now().toString(), clockOffsetMs = ClientClock.offsetMs(), clockOffsetMeasuredAt = ClientClock.measuredAt(),
-                capturedAtSource = ClientClock.captureSource(), targets = listOfNotNull(req.target), subjects = subjects,
+                capturedAtSource = ClientClock.captureSource(), targets = req.targets, subjects = subjects,
                 label = req.label, continuationOfId = continuationOf, replacesRecordingId = replaces, ackedRecordingIds = acked,
                 spokenLanguage = spoken.value
             )
@@ -533,6 +540,7 @@ fun SessionWorkspace(
         uploadRows.clear()
         uploadAttach = UploadPlan.defaultKind(sectionId, lineageId)
         uploadQuestion = lineageId
+        uploadCovers = emptySet()
         uploadOpen = UploadOpen(sectionId, lineageId)
     }
 
@@ -562,19 +570,30 @@ fun SessionWorkspace(
     fun announce(req: RecordRequest) {
         if (!req.upload || req.clipKeys.isEmpty()) return
         val scope = UploadBatches.scopeOf(req.target)
+        val scopes = if (req.target == null && req.covers.isNotEmpty()) req.covers.map { it.targetKey } else listOf(scope)
         val keys = req.clipKeys
         val noon = sessionDay?.atTime(12, 0)?.atZone(Naming.IST)?.toInstant() ?: Instant.now()
         arriving.removeAll { it.take.clientClipKey in keys }
-        arriving += LocalTakes.arriving(keys.zip(req.pickedFiles), scope, online, noon)
+        scopes.forEach { at -> arriving += LocalTakes.arriving(keys.zip(req.pickedFiles), at, online, noon) }
         keys.filterNot { it in tracked }.forEach { tracked += it }
         batches = batches.filterNot { b -> b.keys.any { it in keys } } + UploadBatch(keys, req.target?.let { req.label })
-        val sectionId = req.target?.sectionId ?: req.target?.questionLineageId?.let { instrument?.sectionOfQuestion?.get(it) }
+        val sectionId = req.target?.sectionId ?: req.target?.questionLineageId?.let { instrument?.sectionOfQuestion?.get(it) } ?: req.covers.firstOrNull()?.sectionId
         if (sectionId != null && openSection != sectionId) openSection = sectionId
         if (req.target?.questionLineageId != null && scope !in revealed) revealed += scope
         revealKey = InPlaceTakes.localKey(keys.first())
     }
 
     fun retryClip(stepId: String) = withUnit { key -> v2.outbox.retryStep(key, stepId) }
+
+    fun markSections(rec: QRecording, chosen: Set<String>) {
+        marking = null
+        scope.launch {
+            runCatching { v2.api.patchRecording(rec.id, QRecordingPatch(rec.version, targets = SectionCover.targets(chosen, sectionChoices))) }
+                .onSuccess { notice(SectionCover.line(chosen, sectionChoices)) }
+                .onFailure { failure -> onError(if (failure.isStaleVersion()) QuestionnaireCopy.t("takeChangedReloaded") else failure.userSentence()) }
+            reload()
+        }
+    }
 
     fun openDuplicate(duplicate: UploadDuplicate.OnServer) {
         closeUpload(keepFiles = false)
@@ -616,7 +635,7 @@ fun SessionWorkspace(
         val req = when (uploadAttach) {
             AttachKind.SECTION -> instrument?.section(open?.sectionId ?: "")?.let(::sectionRequest)
             AttachKind.QUESTION -> uploadQuestion?.let { instrument?.question(it) }?.let(::questionRequest)
-            AttachKind.WHOLE -> wholeRequest()
+            AttachKind.WHOLE -> wholeRequest().copy(covers = SectionCover.targets(uploadCovers, sectionChoices))
         } ?: return
         uploadRows.filter { it.skipped }.forEach { File(it.file.path).delete() }
         closeUpload(keepFiles = true)
@@ -817,7 +836,11 @@ fun SessionWorkspace(
                         onOpen = { openTake = it },
                         onRecord = { requestRecord(wholeRequest()) },
                         onUpload = { openUpload(null, null) },
-                        onRetry = ::retryClip, reveal = revealKey, clearance = clearance
+                        onRetry = ::retryClip, reveal = revealKey, clearance = clearance,
+                        onMark = { take: InPlaceTake -> marking = liveRecordings.firstOrNull { it.id == take.recordingId } }.takeUnless { locked },
+                        markable = { take ->
+                            liveRecordings.firstOrNull { it.id == take.recordingId }?.let { SectionCover.mayChange(it, meId, isAdmin, researcherIds) } == true
+                        }
                     )
                 }
             }
@@ -863,8 +886,12 @@ fun SessionWorkspace(
             onRemove = { row -> uploadRows.remove(row); File(row.file.path).delete() },
             onUpload = { queueUpload() },
             onDismiss = { closeUpload(keepFiles = false) },
-            onOpenDuplicate = { row -> (row.duplicate as? UploadDuplicate.OnServer)?.let(::openDuplicate) }
+            onOpenDuplicate = { row -> (row.duplicate as? UploadDuplicate.OnServer)?.let(::openDuplicate) },
+            sections = sectionChoices, covered = uploadCovers, onCovers = { uploadCovers = it }
         )
+    }
+    marking?.let { rec ->
+        MarkSectionsDialog(sectionChoices, SectionCover.chosenOf(rec, sectionChoices), onDismiss = { marking = null }) { chosen -> markSections(rec, chosen) }
     }
     micOff?.let { target ->
         MicOffPrompt(

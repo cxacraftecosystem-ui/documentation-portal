@@ -184,4 +184,40 @@ class UploadFeedbackModelsTest {
         assertEquals("Uploading 1 take. They carry on in the background after you leave, and wait for signal if there is none.", QuestionnaireCopy.leaveBody(1, 0))
         assertEquals("2 takes didn't upload. They wait here for Retry.", QuestionnaireCopy.leaveBody(0, 2))
     }
+
+    private val sectionChoices = listOf(
+        SectionChoice("secE", "E", "Process of making and workflow"),
+        SectionChoice("secF", "F", "Tools and equipment"),
+        SectionChoice("secG", "G", "Markets")
+    )
+
+    @QFeature("Q4")
+    @Test fun `a whole-session take marks the sections it covers and counts in each of them`() {
+        assertEquals("Marks no section", SectionCover.line(emptySet(), sectionChoices))
+        assertEquals("Counts for all questions in E, G", SectionCover.line(setOf("secG", "secE"), sectionChoices))
+        assertEquals(listOf(QTargetRef(sectionId = "secE"), QTargetRef(sectionId = "secG")), SectionCover.targets(setOf("secG", "secE", "gone"), sectionChoices))
+        assertTrue(SectionCover.targets(emptySet(), sectionChoices).isEmpty())
+        val covering = unit(step("st1", clip("c1", listOf(QTargetRef(sectionId = "secE"), QTargetRef(sectionId = "secG")))))
+        val local = LocalTakes.of(covering, online = true, isFile = anyFile)
+        assertEquals(listOf("local:c1"), InPlaceTakes.section("secE", emptyList(), local).map { it.key })
+        assertEquals(listOf("local:c1"), InPlaceTakes.section("secG", emptyList(), local).map { it.key })
+        assertTrue(InPlaceTakes.section("secF", emptyList(), local).isEmpty())
+        assertTrue(InPlaceTakes.whole(emptyList(), local).isEmpty())
+        val marked = rec("r1", listOf("S:secE", "S:secG"), "2026-11-13T05:12:00Z", 60_000)
+        assertEquals(listOf("r1"), InPlaceTakes.section("secG", listOf(marked), emptyList()).map { it.key })
+        assertTrue(InPlaceTakes.whole(listOf(marked), emptyList()).isEmpty())
+        assertEquals(setOf("secE", "secG"), SectionCover.chosenOf(marked, sectionChoices))
+        assertEquals(setOf("secE"), SectionCover.chosenOf(rec("r2", listOf("S:secE", "Q:lE2", "S:gone"), "2026-11-13T05:12:00Z", 1), sectionChoices))
+        assertTrue(SectionCover.chosenOf(rec("r3", emptyList(), "2026-11-13T05:12:00Z", 1), sectionChoices).isEmpty())
+    }
+
+    @QFeature("Q4")
+    @Test fun `only the uploader, the session's researchers or an admin may mark a take's sections`() {
+        val take = QRecording(id = "r1", recordedBy = com.fieldrepository.app.questionnaire.data.QUserRef("u-up", "Nandini"))
+        assertTrue(SectionCover.mayChange(take, "u-up", isAdmin = false, researcherIds = emptyList()))
+        assertTrue(SectionCover.mayChange(take, "u-res", isAdmin = false, researcherIds = listOf("u-res")))
+        assertTrue(SectionCover.mayChange(take, "u-any", isAdmin = true, researcherIds = emptyList()))
+        assertFalse(SectionCover.mayChange(take, "u-other", isAdmin = false, researcherIds = listOf("u-res")))
+        assertFalse(SectionCover.mayChange(take, null, isAdmin = false, researcherIds = listOf("u-res")))
+    }
 }
