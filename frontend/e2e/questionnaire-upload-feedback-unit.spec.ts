@@ -123,7 +123,7 @@ test("the session screen lists whole-session takes under the sections with Recor
   expect(workspace).toContain('slot="W"');
   expect(workspace).toContain("<TakeInPlace");
   expect(workspace).not.toMatch(/<ButtonRow>\s*<button type="button" className="field-button" onClick=\{\(\) => press\(\[\], qs\("wholeSession"\), ""\)\}>/);
-  expect(workspace).toContain("wantedRecording.current = wanted.get(\"recording\")");
+  expect(workspace).toContain('wantedRecording.current = new URLSearchParams(window.location.search).get("recording")');
   expect(read("components", "questionnaire", "TakeInPlace.tsx")).toContain("data-take-retry");
   expect(qs("wholeSession")).toBe("Whole session");
   expect(qs("takeCount", { count: 2 })).toBe("2 takes");

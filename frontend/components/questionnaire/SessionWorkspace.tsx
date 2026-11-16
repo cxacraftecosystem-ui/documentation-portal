@@ -283,9 +283,8 @@ export function SessionWorkspace({ id }: { id: string }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const wanted = new URLSearchParams(window.location.search);
-    wantedSection.current = wanted.get("section");
-    wantedRecording.current = wanted.get("recording");
+    wantedSection.current = new URLSearchParams(window.location.search).get("section");
+    wantedRecording.current = new URLSearchParams(window.location.search).get("recording");
   }, []);
 
   useEffect(() => {
