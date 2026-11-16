@@ -512,4 +512,7 @@
     <string name="q_take_changed_reloaded">This take changed on another device and has been reloaded. Choose again.</string>
     <string name="q_duplicate_queued_android">Uploading from this phone</string>
     <string name="q_leave_failed_android">%1$s takes didn\'t upload. They wait here for Retry.</string>
+    <string name="q_attach_sections">Sections</string>
+    <string name="q_change_sections">Change sections</string>
+    <string name="q_change_sections_named">Change sections for %1$s</string>
 </resources>

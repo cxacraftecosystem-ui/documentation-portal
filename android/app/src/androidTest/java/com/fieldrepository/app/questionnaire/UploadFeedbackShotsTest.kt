@@ -41,7 +41,7 @@ import com.fieldrepository.app.questionnaire.ui.AttachKind
 import com.fieldrepository.app.questionnaire.ui.InPlaceTake
 import com.fieldrepository.app.questionnaire.ui.InstrumentQuestion
 import com.fieldrepository.app.questionnaire.ui.InstrumentSection
-import com.fieldrepository.app.questionnaire.ui.MarkSectionsChooser
+import com.fieldrepository.app.questionnaire.ui.ChangeSectionsChooser
 import com.fieldrepository.app.questionnaire.ui.PickedFile
 import com.fieldrepository.app.questionnaire.ui.RecordingRow
 import com.fieldrepository.app.questionnaire.ui.RecordingSortChoice
@@ -135,7 +135,7 @@ class UploadFeedbackShotsTest {
             sections.forEach { s ->
                 SectionCard(section = s, status = SectionStatus(s.id, 0, 10, inSectionTake = false, typedOnly = false), open = false, byQuestion = false, onToggle = {}, pair = {}) {}
             }
-            WholeSessionBlock(takes = listOf(uploaded, uploading), open = null, showPair = true, onOpen = {}, onRecord = {}, onUpload = {})
+            WholeSessionBlock(takes = listOf(uploaded, uploading), open = null, showPair = true, onOpen = {}, onRecord = {}, onUpload = {}, onMark = {})
         }
     }
 
@@ -147,9 +147,9 @@ class UploadFeedbackShotsTest {
                 modifier = Modifier.padding(top = 32.dp).widthIn(max = 640.dp).fillMaxWidth().fillMaxSize()
             ) {
                 UploadSheetBody(
-                    rows = rows, checking = false, attach = AttachKind.SECTION, sectionCode = "E", sectionQuestions = 10,
+                    rows = rows, checking = false, attach = AttachKind.SECTION, sections = choices, chosenSections = setOf("secE"),
                     questionOptions = listOf(SelectOption("lE1", "E1 · Describe the process.")), questionId = null, sessionDate = LocalDate.parse("2026-11-13"),
-                    onAttach = {}, onQuestion = {}, onChoose = {}, onRemove = {}, onUpload = {}, onDismiss = {},
+                    onAttach = {}, onSections = {}, onQuestion = {}, onChoose = {}, onRemove = {}, onUpload = {}, onDismiss = {},
                     modifier = Modifier.padding(top = 20.dp)
                 )
             }
@@ -176,10 +176,10 @@ class UploadFeedbackShotsTest {
     @Composable
     private fun covers() = sheet {
         UploadSheetBody(
-            rows = listOf(rows.first()), checking = false, attach = AttachKind.WHOLE, sectionCode = null, sectionQuestions = 0,
+            rows = listOf(rows.first()), checking = false, attach = AttachKind.SECTION, sections = choices, chosenSections = setOf("secE", "secF"),
             questionOptions = listOf(SelectOption("lE1", "E1 · Describe the process.")), questionId = null, sessionDate = LocalDate.parse("2026-11-13"),
-            onAttach = {}, onQuestion = {}, onChoose = {}, onRemove = {}, onUpload = {}, onDismiss = {},
-            modifier = Modifier.padding(top = 20.dp), sections = choices, covered = setOf("secE", "secF")
+            onAttach = {}, onSections = {}, onQuestion = {}, onChoose = {}, onRemove = {}, onUpload = {}, onDismiss = {},
+            modifier = Modifier.padding(top = 20.dp)
         )
     }
 
@@ -187,7 +187,7 @@ class UploadFeedbackShotsTest {
     private fun markSections() {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f)), contentAlignment = Alignment.Center) {
             Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(28.dp), modifier = Modifier.padding(24.dp).widthIn(max = 560.dp).fillMaxWidth()) {
-                MarkSectionsChooser(choices, setOf("secE", "secF"), onChange = {}, onCancel = {}, onSave = {})
+                ChangeSectionsChooser(choices, setOf("secE", "secF"), onChange = {}, onCancel = {}, onSave = {})
             }
         }
     }
@@ -213,13 +213,13 @@ class UploadFeedbackShotsTest {
     @QFeature("E5") @Test fun sortAddedTablet() = shoot("recordings-AndroidSort", "added", tablet = true) { recordingsList(RecordingSort.ADDED) }
     @QFeature("E5") @Test fun sortRecordedPhone() = shoot("recordings-AndroidSort", "recorded") { recordingsList(RecordingSort.RECORDED) }
     @QFeature("E5") @Test fun sortRecordedTablet() = shoot("recordings-AndroidSort", "recorded", tablet = true) { recordingsList(RecordingSort.RECORDED) }
-    @QFeature("Q4") @Test fun coversPhone() = shoot("upload-AndroidCovers") { covers() }
-    @QFeature("Q4") @Test fun coversTablet() = shoot("upload-AndroidCovers", tablet = true) { covers() }
-    @QFeature("Q4") @Test fun coversPhoneDark() = shoot("upload-AndroidCovers", dark = true) { covers() }
-    @QFeature("Q4") @Test fun coversTabletDark() = shoot("upload-AndroidCovers", tablet = true, dark = true) { covers() }
-    @QFeature("Q4") @Test fun markSectionsPhone() = shoot("whole-AndroidMarkSections") { markSections() }
-    @QFeature("Q4") @Test fun markSectionsTablet() = shoot("whole-AndroidMarkSections", tablet = true) { markSections() }
-    @QFeature("Q4") @Test fun markSectionsPhoneDark() = shoot("whole-AndroidMarkSections", dark = true) { markSections() }
-    @QFeature("Q4") @Test fun markSectionsTabletDark() = shoot("whole-AndroidMarkSections", tablet = true, dark = true) { markSections() }
+    @QFeature("Q4") @Test fun sectionsPhone() = shoot("upload-AndroidSections") { covers() }
+    @QFeature("Q4") @Test fun sectionsTablet() = shoot("upload-AndroidSections", tablet = true) { covers() }
+    @QFeature("Q4") @Test fun sectionsPhoneDark() = shoot("upload-AndroidSections", dark = true) { covers() }
+    @QFeature("Q4") @Test fun sectionsTabletDark() = shoot("upload-AndroidSections", tablet = true, dark = true) { covers() }
+    @QFeature("Q4") @Test fun changeSectionsPhone() = shoot("whole-AndroidChangeSections") { markSections() }
+    @QFeature("Q4") @Test fun changeSectionsTablet() = shoot("whole-AndroidChangeSections", tablet = true) { markSections() }
+    @QFeature("Q4") @Test fun changeSectionsPhoneDark() = shoot("whole-AndroidChangeSections", dark = true) { markSections() }
+    @QFeature("Q4") @Test fun changeSectionsTabletDark() = shoot("whole-AndroidChangeSections", tablet = true, dark = true) { markSections() }
     @QFeature("E5") @Test fun sortAddedPhoneDark() = shoot("recordings-AndroidSort", "added", dark = true) { recordingsList(RecordingSort.ADDED) }
 }

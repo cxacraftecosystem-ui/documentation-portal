@@ -242,7 +242,7 @@ fun SessionWorkspace(
     var uploadChecking by remember { mutableStateOf(0) }
     var uploadAttach by remember { mutableStateOf(AttachKind.WHOLE) }
     var uploadQuestion by remember { mutableStateOf<String?>(null) }
-    var uploadCovers by remember { mutableStateOf(emptySet<String>()) }
+    var uploadSections by remember { mutableStateOf(emptySet<String>()) }
     var marking by remember { mutableStateOf<QRecording?>(null) }
     var pendingMic by remember { mutableStateOf<UploadOpen?>(null) }
     val arriving = remember { mutableStateListOf<LocalClip>() }
@@ -416,6 +416,10 @@ fun SessionWorkspace(
     val liveRecordings = detail?.recordings.orEmpty()
     val sectionChoices = remember(instrument) { instrument?.sections.orEmpty().map { SectionChoice(it.id, it.code, it.title) } }
     val researcherIds = detail?.researchers.orEmpty().map { it.userId }
+    val changeTake: ((InPlaceTake) -> Unit)? = { take: InPlaceTake -> marking = liveRecordings.firstOrNull { it.id == take.recordingId } }.takeUnless { locked }
+    val mayChangeTake: (InPlaceTake) -> Boolean = { take ->
+        liveRecordings.firstOrNull { it.id == take.recordingId }?.let { SectionCover.mayChange(it, meId, isAdmin, researcherIds, detail?.mayChangeTakes) } == true
+    }
     val online = remember(unit, revision) { ConnectivityObserver.isOnline(context) }
     val trackedKeys = tracked.toSet()
     val arrivingNow = arriving.toList()
@@ -534,13 +538,19 @@ fun SessionWorkspace(
     fun sectionRequest(section: InstrumentSection) = RecordRequest(QTargetRef(sectionId = section.id), "Section ${section.code}", section.code)
     fun questionRequest(q: InstrumentQuestion) = RecordRequest(QTargetRef(questionLineageId = q.lineageId), q.displayCode, q.displayCode)
     fun wholeRequest() = RecordRequest(null, QuestionnaireCopy.s("record.wholeSession"), "")
+    fun sectionsRequest(chosen: Set<String>): RecordRequest? {
+        val picked = instrument?.sections.orEmpty().filter { it.id in chosen }
+        if (picked.size <= 1) return picked.firstOrNull()?.let(::sectionRequest)
+        val codes = picked.joinToString(", ") { it.code }
+        return RecordRequest(null, QuestionnaireCopy.t("sectionsLabel", "codes" to codes), codes, covers = picked.map { QTargetRef(sectionId = it.id) })
+    }
 
     fun openUpload(sectionId: String?, lineageId: String?) {
         uploadRows.forEach { File(it.file.path).delete() }
         uploadRows.clear()
         uploadAttach = UploadPlan.defaultKind(sectionId, lineageId)
         uploadQuestion = lineageId
-        uploadCovers = emptySet()
+        uploadSections = UploadPlan.preselected(sectionId, openSection)
         uploadOpen = UploadOpen(sectionId, lineageId)
     }
 
@@ -576,7 +586,7 @@ fun SessionWorkspace(
         arriving.removeAll { it.take.clientClipKey in keys }
         scopes.forEach { at -> arriving += LocalTakes.arriving(keys.zip(req.pickedFiles), at, online, noon) }
         keys.filterNot { it in tracked }.forEach { tracked += it }
-        batches = batches.filterNot { b -> b.keys.any { it in keys } } + UploadBatch(keys, req.target?.let { req.label })
+        batches = batches.filterNot { b -> b.keys.any { it in keys } } + UploadBatch(keys, req.label.takeIf { req.target != null || req.covers.isNotEmpty() })
         val sectionId = req.target?.sectionId ?: req.target?.questionLineageId?.let { instrument?.sectionOfQuestion?.get(it) } ?: req.covers.firstOrNull()?.sectionId
         if (sectionId != null && openSection != sectionId) openSection = sectionId
         if (req.target?.questionLineageId != null && scope !in revealed) revealed += scope
@@ -585,7 +595,7 @@ fun SessionWorkspace(
 
     fun retryClip(stepId: String) = withUnit { key -> v2.outbox.retryStep(key, stepId) }
 
-    fun markSections(rec: QRecording, chosen: Set<String>) {
+    fun changeSections(rec: QRecording, chosen: Set<String>) {
         marking = null
         scope.launch {
             runCatching { v2.api.patchRecording(rec.id, QRecordingPatch(rec.version, targets = SectionCover.targets(chosen, sectionChoices))) }
@@ -631,11 +641,10 @@ fun SessionWorkspace(
     fun queueUpload() {
         val files = UploadPlan.uploading(uploadRows)
         if (files.isEmpty()) return
-        val open = uploadOpen
         val req = when (uploadAttach) {
-            AttachKind.SECTION -> instrument?.section(open?.sectionId ?: "")?.let(::sectionRequest)
+            AttachKind.SECTION -> sectionsRequest(uploadSections)
             AttachKind.QUESTION -> uploadQuestion?.let { instrument?.question(it) }?.let(::questionRequest)
-            AttachKind.WHOLE -> wholeRequest().copy(covers = SectionCover.targets(uploadCovers, sectionChoices))
+            AttachKind.WHOLE -> wholeRequest()
         } ?: return
         uploadRows.filter { it.skipped }.forEach { File(it.file.path).delete() }
         closeUpload(keepFiles = true)
@@ -766,7 +775,8 @@ fun SessionWorkspace(
                             heading = QuestionnaireCopy.t("takesHeading"), takes = sectionTakes, scope = sectionScope, open = openTake,
                             name = "Section ${section.code}", onOpen = { openTake = it },
                             onManage = { takeSheet = section.id to null; takeQuestion = null },
-                            onRetry = ::retryClip, reveal = revealKey, clearance = clearance
+                            onRetry = ::retryClip, reveal = revealKey, clearance = clearance,
+                            onMark = changeTake, markable = mayChangeTake
                         )
                         section.questions.forEach { q ->
                             val qStatus = evidence.question(q)
@@ -837,10 +847,7 @@ fun SessionWorkspace(
                         onRecord = { requestRecord(wholeRequest()) },
                         onUpload = { openUpload(null, null) },
                         onRetry = ::retryClip, reveal = revealKey, clearance = clearance,
-                        onMark = { take: InPlaceTake -> marking = liveRecordings.firstOrNull { it.id == take.recordingId } }.takeUnless { locked },
-                        markable = { take ->
-                            liveRecordings.firstOrNull { it.id == take.recordingId }?.let { SectionCover.mayChange(it, meId, isAdmin, researcherIds) } == true
-                        }
+                        onMark = changeTake, markable = mayChangeTake
                     )
                 }
             }
@@ -878,20 +885,19 @@ fun SessionWorkspace(
         val questions = (section?.questions ?: instrument?.sections?.flatMap { it.questions }.orEmpty())
         UploadSheet(
             rows = uploadRows.toList(), checking = uploadChecking > 0, attach = uploadAttach,
-            sectionCode = section?.code, sectionQuestions = section?.questions?.size ?: 0,
+            sections = sectionChoices, chosenSections = uploadSections,
             questionOptions = questions.map { SelectOption(it.lineageId, "${it.displayCode} · ${it.prompt}") },
             questionId = uploadQuestion, sessionDate = sessionDay,
-            onAttach = { uploadAttach = it }, onQuestion = { uploadQuestion = it },
+            onAttach = { uploadAttach = it }, onSections = { uploadSections = it }, onQuestion = { uploadQuestion = it },
             onChoose = { pickLauncher.launch(arrayOf("audio/*", "video/*")) },
             onRemove = { row -> uploadRows.remove(row); File(row.file.path).delete() },
             onUpload = { queueUpload() },
             onDismiss = { closeUpload(keepFiles = false) },
-            onOpenDuplicate = { row -> (row.duplicate as? UploadDuplicate.OnServer)?.let(::openDuplicate) },
-            sections = sectionChoices, covered = uploadCovers, onCovers = { uploadCovers = it }
+            onOpenDuplicate = { row -> (row.duplicate as? UploadDuplicate.OnServer)?.let(::openDuplicate) }
         )
     }
     marking?.let { rec ->
-        MarkSectionsDialog(sectionChoices, SectionCover.chosenOf(rec, sectionChoices), onDismiss = { marking = null }) { chosen -> markSections(rec, chosen) }
+        ChangeSectionsDialog(sectionChoices, SectionCover.chosenOf(rec, sectionChoices), onDismiss = { marking = null }) { chosen -> changeSections(rec, chosen) }
     }
     micOff?.let { target ->
         MicOffPrompt(

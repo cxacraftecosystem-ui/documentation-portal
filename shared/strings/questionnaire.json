@@ -515,6 +515,9 @@
     "markSectionsNamed": "Mark sections for {name}",
     "takeChangedReloaded": "This take changed on another device and has been reloaded. Choose again.",
     "duplicateQueuedAndroid": "Uploading from this phone",
-    "leaveFailedAndroid": "{count} takes didn't upload. They wait here for Retry."
+    "leaveFailedAndroid": "{count} takes didn't upload. They wait here for Retry.",
+    "attachSections": "Sections",
+    "changeSections": "Change sections",
+    "changeSectionsNamed": "Change sections for {name}"
   }
 }

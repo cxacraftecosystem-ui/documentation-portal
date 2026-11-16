@@ -201,6 +201,7 @@ fun SearchableMultiSelectField(
     enabled: Boolean = true,
     showChips: Boolean = true,
     server: ServerSearch? = null,
+    labelVisible: Boolean = true,
     onSelectedChange: (Set<String>) -> Unit
 ) {
     var sheetOpen by remember { mutableStateOf(false) }
@@ -208,7 +209,7 @@ fun SearchableMultiSelectField(
     val ofTotal = if (server == null) " of ${options.size}" else ""
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(
+        if (labelVisible) Text(
             "$label (${chosen.size} selected)",
             color = MaterialTheme.field.muted,
             style = MaterialTheme.typography.bodySmall

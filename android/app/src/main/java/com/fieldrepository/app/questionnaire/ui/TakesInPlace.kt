@@ -367,10 +367,10 @@ internal fun TakeInPlaceRow(
             ) { Text(QuestionnaireCopy.t("retry"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary) }
             if (onMark != null && !open) Box(
                 Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onMark)
-                    .semantics { contentDescription = QuestionnaireCopy.t("markSectionsNamed", "name" to take.title) }
+                    .semantics { contentDescription = QuestionnaireCopy.t("changeSectionsNamed", "name" to take.title) }
                     .padding(horizontal = 12.dp).testTag("questionnaire.take.${take.key}.mark"),
                 contentAlignment = Alignment.Center
-            ) { Text(QuestionnaireCopy.t("markSections"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, maxLines = 1) }
+            ) { Text(QuestionnaireCopy.t("changeSections"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, maxLines = 1) }
             if (take.openable) Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null, tint = MaterialTheme.field.body)
         }
         if (open && take.openable) TakePreview(take, name, full, { full = it }, loader)

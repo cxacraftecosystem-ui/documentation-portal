@@ -127,8 +127,8 @@ class SessionScreenModelsTest {
         assertEquals(listOf(fresh), UploadPlan.uploading(rows))
         assertEquals("Upload 1 file", UploadPlan.button(1))
         assertEquals("Upload 3 files", UploadPlan.button(3))
-        assertEquals("42:10 · recorded 14 Nov, 4:12 pm", UploadPlan.meta(fresh, null))
-        assertEquals("18:03 · recorded 13 Nov, 12:00 pm", UploadPlan.meta(dup, LocalDate.parse("2026-11-13")))
+        assertEquals("42:10 · recorded 14\u00A0Nov,\u00A04:12\u00A0pm", UploadPlan.meta(fresh, null))
+        assertEquals("18:03 · recorded 13\u00A0Nov,\u00A012:00\u00A0pm", UploadPlan.meta(dup, LocalDate.parse("2026-11-13")))
         assertEquals("Already uploaded on 14 Nov", UploadPlan.duplicateLine(LocalDate.parse("2026-11-14")))
         assertFalse(rows[0].skipped)
     }

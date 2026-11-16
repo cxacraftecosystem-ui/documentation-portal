@@ -400,7 +400,10 @@ object QuestionnaireCopy {
         "markSectionsNamed" to "Mark sections for {name}",
         "takeChangedReloaded" to "This take changed on another device and has been reloaded. Choose again.",
         "duplicateQueuedAndroid" to "Uploading from this phone",
-        "leaveFailedAndroid" to "{count} takes didn't upload. They wait here for Retry."
+        "leaveFailedAndroid" to "{count} takes didn't upload. They wait here for Retry.",
+        "attachSections" to "Sections",
+        "changeSections" to "Change sections",
+        "changeSectionsNamed" to "Change sections for {name}"
     )
 
     val sharedKeyOf: Map<String, String> = linkedMapOf(

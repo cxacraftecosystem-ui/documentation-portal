@@ -136,9 +136,9 @@ class WholeSessionUiTest {
         compose.setContent {
             MaterialTheme {
                 UploadSheetBody(
-                    rows = emptyList(), checking = false, attach = UploadPlan.defaultKind(null, null), sectionCode = null, sectionQuestions = 0,
+                    rows = emptyList(), checking = false, attach = UploadPlan.defaultKind(null, null), sections = emptyList(), chosenSections = emptySet(),
                     questionOptions = listOf(SelectOption("l1", "E1 · Process?")), questionId = null, sessionDate = null,
-                    onAttach = {}, onQuestion = {}, onChoose = {}, onRemove = {}, onUpload = {}, onDismiss = {}
+                    onAttach = {}, onSections = {}, onQuestion = {}, onChoose = {}, onRemove = {}, onUpload = {}, onDismiss = {}
                 )
             }
         }

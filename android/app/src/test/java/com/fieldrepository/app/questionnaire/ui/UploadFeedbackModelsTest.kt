@@ -220,4 +220,30 @@ class UploadFeedbackModelsTest {
         assertFalse(SectionCover.mayChange(take, "u-other", isAdmin = false, researcherIds = listOf("u-res")))
         assertFalse(SectionCover.mayChange(take, null, isAdmin = false, researcherIds = listOf("u-res")))
     }
+
+    @QFeature("Q4")
+    @Test fun `Sections attach preselects the open section and needs at least one section, Whole session needs none`() {
+        assertEquals(setOf("secE"), UploadPlan.preselected("secE", "secF"))
+        assertEquals(setOf("secF"), UploadPlan.preselected(null, "secF"))
+        assertTrue(UploadPlan.preselected(null, null).isEmpty())
+        assertEquals(AttachKind.SECTION, UploadPlan.defaultKind("secE", null))
+        assertEquals(AttachKind.WHOLE, UploadPlan.defaultKind(null, null))
+        assertTrue(UploadPlan.ready(1, false, AttachKind.SECTION, setOf("secE", "secG"), sectionChoices, null))
+        assertFalse(UploadPlan.ready(1, false, AttachKind.SECTION, emptySet(), sectionChoices, null))
+        assertFalse(UploadPlan.ready(1, false, AttachKind.SECTION, setOf("gone"), sectionChoices, null))
+        assertTrue(UploadPlan.ready(1, false, AttachKind.WHOLE, emptySet(), sectionChoices, null))
+        assertFalse(UploadPlan.ready(1, false, AttachKind.QUESTION, setOf("secE"), sectionChoices, null))
+        assertTrue(UploadPlan.ready(1, false, AttachKind.QUESTION, emptySet(), sectionChoices, "lE1"))
+        assertFalse(UploadPlan.ready(0, false, AttachKind.WHOLE, emptySet(), sectionChoices, null))
+        assertFalse(UploadPlan.ready(1, true, AttachKind.WHOLE, emptySet(), sectionChoices, null))
+    }
+
+    @QFeature("Q4")
+    @Test fun `the server's mayChangeTakes decides for researchers, the uploader and admins always may`() {
+        val take = QRecording(id = "r1", recordedBy = com.fieldrepository.app.questionnaire.data.QUserRef("u-up", "Nandini"))
+        assertFalse(SectionCover.mayChange(take, "u-res", isAdmin = false, researcherIds = listOf("u-res"), mayChangeTakes = false))
+        assertTrue(SectionCover.mayChange(take, "u-other", isAdmin = false, researcherIds = emptyList(), mayChangeTakes = true))
+        assertTrue(SectionCover.mayChange(take, "u-up", isAdmin = false, researcherIds = emptyList(), mayChangeTakes = false))
+        assertTrue(SectionCover.mayChange(take, "u-x", isAdmin = true, researcherIds = emptyList(), mayChangeTakes = false))
+    }
 }

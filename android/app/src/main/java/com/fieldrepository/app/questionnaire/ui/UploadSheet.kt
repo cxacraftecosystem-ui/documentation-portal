@@ -119,20 +119,28 @@ object SectionCover {
             .filter { it in known }.toSet()
     }
 
-    fun mayChange(recording: QRecording, meId: String?, isAdmin: Boolean, researcherIds: Collection<String>): Boolean =
-        isAdmin || (meId != null && (recording.recordedBy?.id == meId || meId in researcherIds))
+    fun mayChange(recording: QRecording, meId: String?, isAdmin: Boolean, researcherIds: Collection<String>, mayChangeTakes: Boolean? = null): Boolean =
+        isAdmin || (meId != null && (recording.recordedBy?.id == meId || (mayChangeTakes ?: (meId in researcherIds))))
 }
 
 @Composable
-fun CoversSectionsField(sections: List<SectionChoice>, chosen: Set<String>, modifier: Modifier = Modifier, onChange: (Set<String>) -> Unit) {
-    Column(modifier.fillMaxWidth().testTag("questionnaire.covers"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+fun SectionsField(
+    sections: List<SectionChoice>,
+    chosen: Set<String>,
+    modifier: Modifier = Modifier,
+    whenNone: String? = QuestionnaireCopy.t("marksNoSection"),
+    onChange: (Set<String>) -> Unit
+) {
+    Column(modifier.fillMaxWidth().testTag("questionnaire.sections"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         SearchableMultiSelectField(
-            label = QuestionnaireCopy.t("coversSections"),
+            label = QuestionnaireCopy.t("attachSections"),
             options = sections.map { it.option },
             selected = chosen,
+            labelVisible = false,
             onSelectedChange = { picked -> onChange(sections.map { it.id }.filter { it in picked }.toSet()) }
         )
-        Text(SectionCover.line(chosen, sections), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted, modifier = Modifier.testTag("questionnaire.covers.line"))
+        val line = if (SectionCover.codes(chosen, sections).isEmpty()) whenNone else SectionCover.line(chosen, sections)
+        line?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted, modifier = Modifier.testTag("questionnaire.sections.line")) }
     }
 }
 
@@ -165,11 +173,20 @@ object UploadPlan {
 
     fun uploading(rows: List<UploadRow>): List<PickedFile> = rows.filterNot { it.skipped }.map { it.file }
 
+    fun ready(count: Int, checking: Boolean, attach: AttachKind, chosenSections: Set<String>, sections: List<SectionChoice>, questionId: String?): Boolean =
+        count > 0 && !checking && when (attach) {
+            AttachKind.SECTION -> SectionCover.codes(chosenSections, sections).isNotEmpty()
+            AttachKind.QUESTION -> questionId != null
+            AttachKind.WHOLE -> true
+        }
+
+    fun preselected(sectionId: String?, openSection: String?): Set<String> = setOfNotNull(sectionId ?: openSection)
+
     fun button(count: Int): String = if (count == 1) QuestionnaireCopy.t("uploadOneFile") else QuestionnaireCopy.t("uploadFiles", "count" to count)
 
     fun recordedText(at: Instant?, sessionDate: LocalDate?): String {
         val instant = at ?: sessionDate?.atTime(12, 0)?.atZone(Naming.IST)?.toInstant() ?: return ""
-        return instant.atZone(Naming.IST).format(RECORDED).replace("AM", "am").replace("PM", "pm")
+        return instant.atZone(Naming.IST).format(RECORDED).replace("AM", "am").replace("PM", "pm").replace(' ', '\u00A0')
     }
 
     fun meta(file: PickedFile, sessionDate: LocalDate?): String =
@@ -231,21 +248,19 @@ fun UploadSheet(
     rows: List<UploadRow>,
     checking: Boolean,
     attach: AttachKind,
-    sectionCode: String?,
-    sectionQuestions: Int,
+    sections: List<SectionChoice>,
+    chosenSections: Set<String>,
     questionOptions: List<SelectOption>,
     questionId: String?,
     sessionDate: LocalDate?,
     onAttach: (AttachKind) -> Unit,
+    onSections: (Set<String>) -> Unit,
     onQuestion: (String) -> Unit,
     onChoose: () -> Unit,
     onRemove: (UploadRow) -> Unit,
     onUpload: () -> Unit,
     onDismiss: () -> Unit,
-    onOpenDuplicate: (UploadRow) -> Unit = {},
-    sections: List<SectionChoice> = emptyList(),
-    covered: Set<String> = emptySet(),
-    onCovers: (Set<String>) -> Unit = {}
+    onOpenDuplicate: (UploadRow) -> Unit = {}
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -253,10 +268,9 @@ fun UploadSheet(
         containerColor = MaterialTheme.colorScheme.surface
     ) {
         UploadSheetBody(
-            rows, checking, attach, sectionCode, sectionQuestions, questionOptions, questionId, sessionDate,
-            onAttach, onQuestion, onChoose, onRemove, onUpload, onDismiss, onOpenDuplicate,
-            modifier = Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding(),
-            sections = sections, covered = covered, onCovers = onCovers
+            rows, checking, attach, sections, chosenSections, questionOptions, questionId, sessionDate,
+            onAttach, onSections, onQuestion, onChoose, onRemove, onUpload, onDismiss, onOpenDuplicate,
+            Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding()
         )
     }
 }
@@ -266,25 +280,23 @@ fun UploadSheetBody(
     rows: List<UploadRow>,
     checking: Boolean,
     attach: AttachKind,
-    sectionCode: String?,
-    sectionQuestions: Int,
+    sections: List<SectionChoice>,
+    chosenSections: Set<String>,
     questionOptions: List<SelectOption>,
     questionId: String?,
     sessionDate: LocalDate?,
     onAttach: (AttachKind) -> Unit,
+    onSections: (Set<String>) -> Unit,
     onQuestion: (String) -> Unit,
     onChoose: () -> Unit,
     onRemove: (UploadRow) -> Unit,
     onUpload: () -> Unit,
     onDismiss: () -> Unit,
     onOpenDuplicate: (UploadRow) -> Unit = {},
-    modifier: Modifier = Modifier,
-    sections: List<SectionChoice> = emptyList(),
-    covered: Set<String> = emptySet(),
-    onCovers: (Set<String>) -> Unit = {}
+    modifier: Modifier = Modifier
 ) {
     val count = UploadPlan.uploading(rows).size
-    val ready = count > 0 && !checking && (attach != AttachKind.QUESTION || questionId != null) && (attach != AttachKind.SECTION || sectionCode != null)
+    val ready = UploadPlan.ready(count, checking, attach, chosenSections, sections, questionId)
     Column(
         modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 24.dp).testTag("questionnaire.upload"),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -326,24 +338,19 @@ fun UploadSheetBody(
             Text(QuestionnaireCopy.t("attachTo").uppercase(), style = FieldTextStyles.FieldLabel, color = MaterialTheme.field.muted)
             AttachChoice(
                 options = listOfNotNull(
-                    sectionCode?.let { AttachKind.SECTION to QuestionnaireCopy.t("chipSection", "code" to it) },
+                    if (sections.isNotEmpty()) AttachKind.SECTION to QuestionnaireCopy.t("attachSections") else null,
                     AttachKind.QUESTION to QuestionnaireCopy.t("attachQuestion"),
                     AttachKind.WHOLE to QuestionnaireCopy.t("wholeSession")
                 ),
                 selected = attach, onSelect = onAttach
             )
             when (attach) {
-                AttachKind.SECTION -> sectionCode?.let {
-                    Text(
-                        QuestionnaireCopy.t("countsForAllQuestions", "count" to sectionQuestions, "code" to it),
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted
-                    )
-                }
+                AttachKind.SECTION -> SectionsField(sections, chosenSections, whenNone = null, onChange = onSections)
                 AttachKind.QUESTION -> SearchableSelectField(
                     label = QuestionnaireCopy.t("attachQuestion"), options = questionOptions,
                     selectedValue = questionId.orEmpty(), includeNone = false, searchable = true, onSelect = onQuestion
                 )
-                AttachKind.WHOLE -> if (sections.isNotEmpty()) CoversSectionsField(sections, covered, onChange = onCovers)
+                AttachKind.WHOLE -> Unit
             }
         }
         Button(
@@ -381,9 +388,7 @@ private fun UploadFileRow(row: UploadRow, sessionDate: LocalDate?, onOpen: () ->
                 )
                 Text(UploadPlan.meta(row.file, sessionDate), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
             }
-            if (row.skipped) TextButton(onClick = onRemove, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(QuestionnaireCopy.t("remove"), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-            } else IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
+            IconButton(onClick = onRemove, modifier = Modifier.size(48.dp).testTag("questionnaire.upload.remove")) {
                 Icon(Icons.Filled.Close, contentDescription = QuestionnaireCopy.t("removeNamed", "name" to row.file.name), tint = MaterialTheme.field.body)
             }
         }

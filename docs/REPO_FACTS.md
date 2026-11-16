@@ -130,7 +130,7 @@ no key is skipped wherever it sits.
 |---|---|---|---|
 | Backend unit (`backend/tests/`) | 286 | 3197 `def test_` | `python -m pytest -q` from `backend/` |
 | Web end-to-end (`frontend/e2e/`) | 190 | 1902 `test(` | Playwright, `frontend/playwright.config.ts` |
-| Android unit (`android/app/src/test/`) | 246 | 1839 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
+| Android unit (`android/app/src/test/`) | 247 | 1845 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | 73 | 324 `@Test` | not run in CI |
 
 The backend case count is `def test_` occurrences; pytest reports a larger number because
@@ -144,8 +144,8 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 | `backend/app` | 358 | 94,085 | 358 | 94,085 |
 | `frontend/app` | 95 | 17,339 | 95 | 17,339 |
 | `frontend/components` | 369 | 74,063 | 369 | 74,063 |
-| `frontend/lib` | 212 | 41,046 | 212 | 41,046 |
-| `android/app/src/main/java` | 353 | 109,842 | 353 | 109,842 |
+| `frontend/lib` | 212 | 41,052 | 212 | 41,052 |
+| `android/app/src/main/java` | 354 | 109,947 | 354 | 109,947 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is
 uncommitted. **Tracked** is `git ls-files`, which is the figure to use in a write-up — it is

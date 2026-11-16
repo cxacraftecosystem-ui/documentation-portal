@@ -17,6 +17,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.fieldrepository.app.questionnaire.ui.AttachKind
 import com.fieldrepository.app.questionnaire.ui.PickedFile
+import com.fieldrepository.app.questionnaire.ui.SectionChoice
 import com.fieldrepository.app.questionnaire.ui.UploadDuplicate
 import com.fieldrepository.app.questionnaire.ui.UploadPlan
 import com.fieldrepository.app.questionnaire.ui.UploadRow
@@ -40,23 +41,25 @@ class UploadSheetUiTest {
         val part2 = PickedFile("/x/b.m4a", "sha2", 10, "audio/mp4", "m4a", Instant.parse("2026-11-14T11:31:00Z"), 1_083_000, name = "Meera_part2.m4a")
         var uploaded = 0
         var attach by mutableStateOf(AttachKind.SECTION)
+        var chosen by mutableStateOf(setOf("secE"))
         compose.setContent {
             MaterialTheme {
                 val rows = remember { mutableStateListOf(UploadRow(part1), UploadRow(part2, UploadDuplicate.OnServer(LocalDate.parse("2026-11-14")))) }
                 UploadSheet(
-                    rows = rows, checking = false, attach = attach, sectionCode = "E", sectionQuestions = 10,
+                    rows = rows, checking = false, attach = attach,
+                    sections = listOf(SectionChoice("secE", "E", "Process of making and workflow")), chosenSections = chosen,
                     questionOptions = listOf(SelectOption("l1", "E1 · Process?")), questionId = null, sessionDate = LocalDate.parse("2026-11-14"),
-                    onAttach = { attach = it }, onQuestion = {}, onChoose = {}, onRemove = { rows.remove(it) },
+                    onAttach = { attach = it }, onSections = { chosen = it }, onQuestion = {}, onChoose = {}, onRemove = { rows.remove(it) },
                     onUpload = { uploaded = UploadPlan.uploading(rows).size }, onDismiss = {}
                 )
             }
         }
         compose.onNodeWithText("Upload recordings").assertIsDisplayed()
         compose.onNodeWithText("Meera_part1.m4a").assertIsDisplayed()
-        compose.onNodeWithText("42:10 · recorded 14 Nov, 4:12 pm").assertIsDisplayed()
+        compose.onNodeWithText("42:10 · recorded 14\u00A0Nov,\u00A04:12\u00A0pm").assertIsDisplayed()
         compose.onNodeWithText("Already uploaded on 14 Nov").assertIsDisplayed()
-        compose.onNodeWithText("Section E").assertIsDisplayed()
-        compose.onNodeWithText("Counts for all 10 questions in E").assertIsDisplayed()
+        compose.onNodeWithText("Sections").assertIsDisplayed()
+        compose.onNodeWithText("Counts for all questions in E").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Upload 1 file").assertIsDisplayed()
         compose.onNodeWithTag("questionnaire.upload.submit").performScrollTo().assertIsEnabled().performClick()
         assertEquals(1, uploaded)

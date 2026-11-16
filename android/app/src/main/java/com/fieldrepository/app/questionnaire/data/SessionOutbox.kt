@@ -470,6 +470,15 @@ class SessionOutbox(
 
     suspend fun units(): List<SessionUnit> = store.all()
 
+    @Volatile
+    private var reported: Pair<Long, OutboxSnapshot>? = null
+
+    suspend fun snapshot(): OutboxSnapshot {
+        val revision = changes.value
+        reported?.takeIf { it.first == revision }?.let { return it.second }
+        return OutboxSnapshot.of(store.all()).also { reported = revision to it }
+    }
+
     suspend fun waiting(ownerUserId: String?): Int = store.all()
         .filterNot { it.ownerUserId != null && ownerUserId != null && it.ownerUserId != ownerUserId }
         .sumOf { unit -> unit.steps.count { it.state == StepState.PENDING } }

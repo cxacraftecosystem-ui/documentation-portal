@@ -512,6 +512,9 @@ export const questionnaireStrings = {
   takeChangedReloaded: "This take changed on another device and has been reloaded. Choose again.",
   duplicateQueuedAndroid: "Uploading from this phone",
   leaveFailedAndroid: ({ count }: { count: string | number }): string => `${count} takes didn't upload. They wait here for Retry.`,
+  attachSections: "Sections",
+  changeSections: "Change sections",
+  changeSectionsNamed: ({ name }: { name: string | number }): string => `Change sections for ${name}`,
 } as const;
 
 export type QuestionnaireStringKey = keyof typeof questionnaireStrings;

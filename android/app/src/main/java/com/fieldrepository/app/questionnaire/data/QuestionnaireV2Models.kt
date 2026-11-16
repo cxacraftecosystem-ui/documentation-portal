@@ -298,6 +298,7 @@ data class QSessionDetail(
     val participants: List<QParticipant> = emptyList(),
     val researchers: List<QResearcher> = emptyList(),
     val mayOverrideAnswers: Boolean = false,
+    val mayChangeTakes: Boolean? = null,
     val status: String = "PENDING",
     val counts: QSessionCounts = QSessionCounts(),
     val recordings: List<QRecording> = emptyList(),

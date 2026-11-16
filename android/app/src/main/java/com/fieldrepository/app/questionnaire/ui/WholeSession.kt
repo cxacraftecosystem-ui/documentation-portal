@@ -82,7 +82,7 @@ fun WholeSessionBlock(
 }
 
 @Composable
-fun MarkSectionsChooser(
+fun ChangeSectionsChooser(
     sections: List<SectionChoice>,
     chosen: Set<String>,
     onChange: (Set<String>) -> Unit,
@@ -92,10 +92,10 @@ fun MarkSectionsChooser(
 ) {
     Column(modifier.fillMaxWidth().padding(24.dp).testTag("questionnaire.mark"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
-            QuestionnaireCopy.t("markSections"), modifier = Modifier.semantics { heading() },
+            QuestionnaireCopy.t("changeSections"), modifier = Modifier.semantics { heading() },
             style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface
         )
-        CoversSectionsField(sections, chosen, onChange = onChange)
+        SectionsField(sections, chosen, onChange = onChange)
         PromptButtons(listOf(
             PromptButton(QuestionnaireCopy.t("cancel"), onClick = onCancel),
             PromptButton(QuestionnaireCopy.s("save"), primary = true, onClick = onSave)
@@ -104,14 +104,14 @@ fun MarkSectionsChooser(
 }
 
 @Composable
-fun MarkSectionsDialog(sections: List<SectionChoice>, initial: Set<String>, onDismiss: () -> Unit, onSave: (Set<String>) -> Unit) {
+fun ChangeSectionsDialog(sections: List<SectionChoice>, initial: Set<String>, onDismiss: () -> Unit, onSave: (Set<String>) -> Unit) {
     var chosen by remember(initial) { mutableStateOf(initial) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(28.dp),
             modifier = Modifier.padding(24.dp).widthIn(max = 560.dp).fillMaxWidth()
         ) {
-            MarkSectionsChooser(sections, chosen, onChange = { chosen = it }, onCancel = onDismiss, onSave = { onSave(chosen) })
+            ChangeSectionsChooser(sections, chosen, onChange = { chosen = it }, onCancel = onDismiss, onSave = { onSave(chosen) })
         }
     }
 }

@@ -25,6 +25,14 @@ class QuestionnaireV2 private constructor(context: Context) {
     val filesDir: File = app.filesDir
 
     private val prefs = app.getSharedPreferences("questionnaire-v2", Context.MODE_PRIVATE)
+
+    val installId: String = OutboxReport.installIdFrom(prefs.getString(OutboxReport.INSTALL_ID_PREF, null)) { id ->
+        prefs.edit().putString(OutboxReport.INSTALL_ID_PREF, id).apply()
+    }
+
+    init {
+        OutboxReport.attach(installId) { outbox.snapshot() }
+    }
     private val _config = MutableStateFlow(
         prefs.getString("config", null)?.let { runCatching { outboxJson.decodeFromString(QConfig.serializer(), it) }.getOrNull() }
     )
@@ -336,6 +344,11 @@ object QuestionnaireSync {
             legacyQuestionnaireWaiting = { QuestionnairePortal.legacyQuestionnaireWaiting(context) },
             v2 = { runCatching { v2.flushConsents() }; v2.outbox.sync(v2.transport, me) },
             serverAnswering = serverAnswering
-        )
+        ).also { report(v2) }
+    }
+
+    suspend fun report(v2: QuestionnaireV2) {
+        if (v2.meId() == null) return
+        runCatching { v2.api.config() }
     }
 }
