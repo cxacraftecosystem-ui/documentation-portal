@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -353,7 +354,10 @@ private fun UploadFileRow(row: UploadRow, sessionDate: LocalDate?, onOpen: () ->
                     where?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.onWarningContainer, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                 }
                 if (openable) TextButton(onClick = onOpen, modifier = Modifier.heightIn(min = 48.dp).testTag("questionnaire.upload.duplicate.open")) {
-                    Text(QuestionnaireCopy.t("openDuplicate"), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        QuestionnaireCopy.t("openDuplicate"), fontWeight = FontWeight.Bold, color = MaterialTheme.field.onWarningContainer,
+                        textDecoration = TextDecoration.Underline
+                    )
                 }
             }
         }
