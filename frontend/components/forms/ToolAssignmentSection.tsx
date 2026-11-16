@@ -14,6 +14,7 @@ import { useCraftCatalogue } from "@/lib/craftCatalogue";
 import type { Artisan, ToolDocumentation } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { countNoun } from "@/lib/format";
+import { toolArtisanNames } from "@/lib/toolArtisans";
 
 export function ToolAssignmentSection() {
   const [tools, setTools] = useState<ToolDocumentation[]>([]);
@@ -150,7 +151,7 @@ export function ToolAssignmentSection() {
               });
             }}
             placeholder="Select a tool"
-            options={tools.map((tool) => ({ value: tool.id, label: `${tool.toolkitName} — ${tool.craftName} · ${tool.artisanName}` }))}
+            options={tools.map((tool) => ({ value: tool.id, label: [`${tool.toolkitName} — ${tool.craftName}`, toolArtisanNames(tool)].filter(Boolean).join(" · ") }))}
           />
         </Field>
         <FieldBlock label="Crafts">

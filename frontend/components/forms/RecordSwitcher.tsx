@@ -14,6 +14,7 @@ import { useLeaveInterceptor } from "@/components/UnsavedChangesGuard";
 import { listResource } from "@/lib/api";
 import type { Workshop } from "@/lib/types";
 import { loadWorkshopList } from "@/lib/workshopList";
+import { toolArtisanNames } from "@/lib/toolArtisans";
 
 
 export const RECORD_KINDS = ["artisan", "craft", "process", "product", "tool"] as const;
@@ -27,6 +28,8 @@ export type SwitchableRecord = {
   productName?: string | null;
   artisanName?: string | null;
   toolkitName?: string | null;
+  artisanId?: string | null;
+  artisanLinks?: { artisan?: { id: string; name: string } | null }[] | null;
   product?: { productName?: string | null } | null;
   workshopId?: string | null;
 };
@@ -83,7 +86,7 @@ const RECORD_KIND_SPECS: Record<RecordKind, RecordKindSpec> = {
     noun: "tools in this workshop",
     plural: "tools",
     singular: "tool",
-    label: (record) => joined(record.toolkitName, record.artisanName)
+    label: (record) => joined(record.toolkitName, toolArtisanNames({ artisanId: record.artisanId ?? null, artisanName: record.artisanName ?? null, artisanLinks: record.artisanLinks ?? [] } as Parameters<typeof toolArtisanNames>[0]))
   }
 };
 

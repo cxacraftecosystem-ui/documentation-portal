@@ -342,6 +342,7 @@ async def list_tools(
             {"englishName": contains(search)},
             {"craftName": contains(search)},
             {"artisanName": contains(search)},
+            {"artisanLinks": {"some": {"artisan": {"is": {"name": contains(search)}}}}},
             {"place": contains(search)},
             {"processUsedIn": contains(search)},
             {"material": contains(search)},

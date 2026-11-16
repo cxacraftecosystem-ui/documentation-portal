@@ -66,6 +66,7 @@ import { failedFilesOf, RetryFailedUploads, type FailedUpload } from "@/componen
 import { countNoun } from "@/lib/format";
 import { recordingFilename, splitExtension } from "@/lib/naming";
 import { mediaKindWord } from "@/lib/media";
+import { toolOwnArtisans, withOwnArtisans } from "@/lib/toolArtisans";
 
 function stageStepFile(file: File, index: number, toolName: string | null | undefined): File {
   const name = recordingFilename("Tool", splitExtension(file.name)[1], {
@@ -293,12 +294,14 @@ function ToolFormBody({
   const [measurePhoto, setMeasurePhoto] = useState<{ file: File; isGrid: boolean } | null>(null);
   const heightHelpId = useId();
   const {
-    artisans,
+    artisans: offeredArtisans,
     crafts,
     referenceState,
     craftArtisanCut,
     artisansLoadedForCrafts
   } = useCraftAndArtisanOptions({ craftIds, artisanIds });
+  const ownArtisans = useMemo(() => toolOwnArtisans(initial as Parameters<typeof toolOwnArtisans<Artisan>>[0]), [initial]);
+  const artisans = useMemo(() => withOwnArtisans(offeredArtisans, ownArtisans), [offeredArtisans, ownArtisans]);
   const craftOptions = crafts;
   const { dirty, markDirty, resetDirty } = useUnsavedChanges();
   const [backPromptOpen, setBackPromptOpen] = useState(false);

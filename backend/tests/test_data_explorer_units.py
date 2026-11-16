@@ -552,6 +552,21 @@ def test_browse_labels_match_the_web_rows():
     assert browse.label("media", media) == "Media · VIDEO"
 
 
+
+def test_a_browse_row_names_every_artisan_of_a_tool_head_first_and_finds_it_by_any_of_them():
+    def link(aid: str, name: str) -> SimpleNamespace:
+        return SimpleNamespace(artisanId=aid, artisan=SimpleNamespace(id=aid, name=name))
+
+    grinder = SimpleNamespace(toolkitName="Grinder", artisanId="a0", artisanName="Salim", artisanLinks=[link("a1", "Fahim"), link("a2", "Moin Khan")])
+    assert browse.label("tool", grinder) == "Grinder · Salim, Fahim, Moin Khan"
+    linked_late = SimpleNamespace(toolkitName="Chisel", artisanId="a2", artisanName="Moin Khan", artisanLinks=[link("a1", "Fahim"), link("a2", "Moin Khan")])
+    assert browse.label("tool", linked_late) == "Chisel · Moin Khan, Fahim", "the head leads even when linked after another"
+    where = browse.where_for(browse.KINDS["tool"], SimpleNamespace(records=None), "moin", None)
+    ors = where["AND"][0]["OR"]
+    assert {"artisanLinks": {"some": {"artisan": {"is": {"name": {"contains": "moin", "mode": "insensitive"}}}}}} in ors
+    assert {"artisanName": {"contains": "moin", "mode": "insensitive"}} in ors
+
+
 def test_a_recording_over_the_conversion_ceiling_is_refused_or_sent_as_it_is(monkeypatch):
     from fastapi import HTTPException
 

@@ -94,7 +94,7 @@ async def global_search(
         planned.append((
             "tools_rows",
             db.tooldocumentation.find_many(
-                where=tool_where, include={"media": True}, skip=skip, take=page_size, order=_ORDER
+                where=tool_where, include={"media": True, "artisan": True, "artisanLinks": {"include": {"artisan": True}}}, skip=skip, take=page_size, order=_ORDER
             ),
         ))
     if "media" in selected:

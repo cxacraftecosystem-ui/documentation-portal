@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import quote
 
 from app.core.db import db
-from app.services.tool_scope import tool_workshop_ids, with_tool_scope
+from app.services.tool_scope import tool_artisan_names, tool_workshop_ids, with_tool_scope
 
 BODY_LIMIT = 100_000
 
@@ -420,12 +420,12 @@ async def _tool(entity_id: str) -> dict[str, Any] | None:
         "tools",
         row.id,
         title=row.toolkitName,
-        subtitle=_join(row.englishName, row.craftName, row.artisanName),
+        subtitle=_join(row.englishName, row.craftName, tool_artisan_names(row)),
         body=_body(
             row.localName,
             row.englishName,
             row.craftName,
-            row.artisanName,
+            tool_artisan_names(row),
             row.processUsedIn,
             row.material,
             row.remarks,

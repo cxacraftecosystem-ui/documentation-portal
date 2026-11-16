@@ -58,17 +58,14 @@ def _artisan_workshops(artisan: Any) -> Iterator[Any]:
 def tool_artisan_names(tool: Any) -> str | None:
     names: list[str] = []
     primary_id = getattr(tool, "artisanId", None)
-    linked_ids = set()
-    for link in getattr(tool, "artisanLinks", None) or []:
-        artisan = getattr(link, "artisan", None)
-        if artisan is None:
-            continue
-        linked_ids.add(getattr(artisan, "id", None))
-    primary_name = (getattr(tool, "artisanName", None) or "").strip()
-    if primary_name and (not primary_id or primary_id not in linked_ids):
-        names.append(primary_name)
-    for link in getattr(tool, "artisanLinks", None) or []:
-        name = (getattr(getattr(link, "artisan", None), "name", None) or "").strip()
+    links = getattr(tool, "artisanLinks", None) or []
+    head = next(
+        (getattr(link, "artisan", None) for link in links if primary_id and getattr(getattr(link, "artisan", None), "id", None) == primary_id),
+        None,
+    )
+    for raw in [getattr(head, "name", None) or getattr(tool, "artisanName", None),
+                *(getattr(getattr(link, "artisan", None), "name", None) for link in links)]:
+        name = (raw or "").strip()
         if name and name not in names:
             names.append(name)
     return ", ".join(names) or None

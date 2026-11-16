@@ -57,6 +57,30 @@
       "case": "nothing to name",
       "tool": { "artisanId": null, "artisanName": "", "artisanLinks": [] },
       "expected": null
+    },
+    {
+      "case": "a head left out of the link rows leads two linked artisans",
+      "tool": {
+        "artisanId": "a0",
+        "artisanName": "Salim",
+        "artisanLinks": [
+          { "artisanId": "a1", "artisan": { "id": "a1", "name": "Fahim" } },
+          { "artisanId": "a2", "artisan": { "id": "a2", "name": "Moin Khan" } }
+        ]
+      },
+      "expected": "Salim, Fahim, Moin Khan"
+    },
+    {
+      "case": "the head leads even when it was linked after another artisan",
+      "tool": {
+        "artisanId": "a2",
+        "artisanName": "Moin Khan",
+        "artisanLinks": [
+          { "artisanId": "a1", "artisan": { "id": "a1", "name": "Fahim" } },
+          { "artisanId": "a2", "artisan": { "id": "a2", "name": "Moin Khan" } }
+        ]
+      },
+      "expected": "Moin Khan, Fahim"
     }
   ],
   "linkedWorkshops": [

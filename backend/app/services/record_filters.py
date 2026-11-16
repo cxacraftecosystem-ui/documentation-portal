@@ -239,6 +239,7 @@ async def build_record_wheres(
             {"englishName": contains(q)},
             {"craftName": contains(q)},
             {"artisanName": contains(q)},
+            {"artisanLinks": {"some": {"artisan": {"is": {"name": contains(q)}}}}},
             {"place": contains(q)},
             {"remarks": contains(q)},
         ]
