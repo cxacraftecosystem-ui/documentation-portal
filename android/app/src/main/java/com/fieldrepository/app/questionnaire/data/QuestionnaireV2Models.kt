@@ -298,6 +298,7 @@ data class QSessionDetail(
     val participants: List<QParticipant> = emptyList(),
     val researchers: List<QResearcher> = emptyList(),
     val mayOverrideAnswers: Boolean = false,
+    val mayChangeTakes: Boolean? = null,
     val status: String = "PENDING",
     val counts: QSessionCounts = QSessionCounts(),
     val recordings: List<QRecording> = emptyList(),
@@ -345,7 +346,8 @@ data class QShaMatch(
     val sessionId: String? = null,
     val sameSession: Boolean = false,
     val uploadedAt: String? = null,
-    val pending: Boolean = false
+    val pending: Boolean = false,
+    val sessionTitle: String? = null
 )
 
 @Serializable
@@ -453,7 +455,8 @@ data class QRecording(
     val transcript: QTranscript? = null,
     val consent: QConsentVerdict? = null,
     val respondents: List<QRecordingRespondent> = emptyList(),
-    val chips: QChips? = null
+    val chips: QChips? = null,
+    val createdAt: String? = null
 ) {
     val allSubjects: List<QSubject> get() =
         subjects + respondents.map { QSubject(QSubjects.guest(it.respondentId), it.role, it.named) }

@@ -173,10 +173,10 @@ fun RemoveParticipantPrompt(name: String, takes: Int, onCancel: () -> Unit, onRe
 }
 
 @Composable
-fun LeaveSessionPrompt(pending: Int, onStay: () -> Unit, onLeave: () -> Unit) {
+fun LeaveSessionPrompt(pending: Int, onStay: () -> Unit, failed: Int = 0, onLeave: () -> Unit) {
     QuestionnairePrompt(
         title = QuestionnaireCopy.s("leave.title"),
-        body = QuestionnaireCopy.leaveBody(pending),
+        body = QuestionnaireCopy.leaveBody(pending, failed),
         buttons = listOf(
             PromptButton(QuestionnaireCopy.s("leave.stay"), onClick = onStay),
             PromptButton(QuestionnaireCopy.s("leave.leave"), primary = true, onClick = onLeave)

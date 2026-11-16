@@ -58,19 +58,23 @@ class OutboxSyncWorker(appContext: Context, params: WorkerParameters) : Coroutin
             AppScope.io.launch {
                 runCatching {
                     val workManager = WorkManager.getInstance(app)
-                    val running = workManager.getWorkInfosForUniqueWork(UNIQUE_NAME).get()
-                        .any { it.state == WorkInfo.State.RUNNING }
+                    val chain = workManager.getWorkInfosForUniqueWork(UNIQUE_NAME).get()
+                    val running = chain.any { it.state == WorkInfo.State.RUNNING }
+                    val queuedBehind = chain.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
                     val request = OneTimeWorkRequestBuilder<OutboxSyncWorker>()
                         .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                         .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
                         .build()
-                    workManager.enqueueUniqueWork(UNIQUE_NAME, policyFor(running), request)
+                    workManager.enqueueUniqueWork(UNIQUE_NAME, policyFor(running, queuedBehind), request)
                 }
             }
         }
 
-        internal fun policyFor(running: Boolean): ExistingWorkPolicy =
-            if (running) ExistingWorkPolicy.KEEP else ExistingWorkPolicy.REPLACE
+        internal fun policyFor(running: Boolean, queuedBehind: Boolean): ExistingWorkPolicy = when {
+            !running -> ExistingWorkPolicy.REPLACE
+            queuedBehind -> ExistingWorkPolicy.KEEP
+            else -> ExistingWorkPolicy.APPEND_OR_REPLACE
+        }
 
         fun readCacheDir(context: Context): File = File(context.noBackupFilesDir, "http-read-cache")
     }

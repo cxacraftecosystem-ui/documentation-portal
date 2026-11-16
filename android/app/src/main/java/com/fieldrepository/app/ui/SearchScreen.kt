@@ -44,6 +44,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import com.fieldrepository.app.data.toolArtisanNames
 import com.fieldrepository.app.questionnaire.ui.rememberKept
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
@@ -497,7 +498,7 @@ internal fun SearchResultsDto.toSearchBuckets(): List<SearchBucket> {
             recordType = SearchRecordTypes.TOOL,
             id = item.id,
             title = item.toolkitName.ifBlank { "Untitled toolkit" },
-            subtitle = listOf(item.craftName, item.artisanName, item.place)
+            subtitle = listOf(item.craftName, item.toolArtisanNames().orEmpty(), item.place)
                 .filter { it.isNotBlank() }
                 .joinToString(" · "),
             status = item.status,

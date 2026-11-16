@@ -26,12 +26,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -68,6 +70,7 @@ import com.fieldrepository.app.questionnaire.data.SubjectRole
 import com.fieldrepository.app.questionnaire.portal.QuestionnairePortal
 import com.fieldrepository.app.ui.ActionRow
 import com.fieldrepository.app.ui.CalendarField
+import com.fieldrepository.app.ui.LocalInputInert
 import com.fieldrepository.app.ui.SearchableMultiSelectField
 import com.fieldrepository.app.ui.SearchableSelectField
 import com.fieldrepository.app.ui.SelectOption
@@ -331,6 +334,7 @@ fun SessionStartSheet(
         }
     }
     val settling = slotsLoading || !settled
+    val inert by rememberUpdatedState(settling)
 
     fun create() {
         val key = SessionOutbox.newKey()
@@ -436,91 +440,96 @@ fun SessionStartSheet(
                 Modifier.fillMaxWidth().inertWhile(settling).testTag(if (settling) "q-start-settling" else "q-start-settled"),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                form.artisanIds.filter { id ->
-                    if (consent.containsKey(id)) consent[id] in setOf(null, "NOT_RECORDED", "REFUSED") else registered.none { it.first == id }
-                }.take(3).forEach { id ->
-                    if (!consent.containsKey(id)) {
-                        Box(Modifier.alpha(0f).clearAndSetSemantics { semanticsTag = "q-consent-pending" }) {
-                            ConsentQuestion(byId[id]?.name.orEmpty(), onAnswer = {})
-                        }
-                    } else ConsentQuestion(byId[id]?.name.orEmpty(), refused = consent[id] == "REFUSED", onAnswer = { state ->
-                        if (state == null) consent[id] = "SKIPPED" else {
-                            consent[id] = "SKIPPED"
-                            scope.launch { v2.recordConsent(id, state) }
-                        }
-                    })
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SearchableMultiSelectField(
-                        label = QuestionnaireCopy.s("start.crafts"),
-                        options = craftsFor(craftCatalog + autoCrafts, form.crafts).map { SelectOption(it, it) },
-                        selected = form.crafts.toSet(),
-                        modifier = Modifier.testTag("q-crafts")
-                    ) { chosen ->
-                        val ordered = form.crafts.filter { it in chosen } + chosen.filter { it !in form.crafts }
-                        form = form.copy(crafts = ordered, craftsByHand = ordered.filter { c -> autoCrafts.none { it.equals(c, ignoreCase = true) } })
-                    }
-                    val craftsOwner = craftsRecordOwner(form, form.artisanIds.associateWith { byId[it]?.craft }, form.artisanIds.associateWith { byId[it]?.name.orEmpty() })
-                    if (craftsOwner != null) ProvenanceTag(QuestionnaireCopy.t("fromRecordOf", "name" to craftsOwner))
-                    else if (artisansPending) Box(Modifier.alpha(0f).clearAndSetSemantics { semanticsTag = "q-provenance-pending" }) {
-                        ProvenanceTag(QuestionnaireCopy.t("fromRecordOf", "name" to " "))
-                    }
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(QuestionnaireCopy.s("start.purpose"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SessionPurpose.entries.map { it.wire }.forEach { p ->
-                            FilterChip(selected = form.purpose == p, onClick = { form = form.copy(purpose = p) }, label = { Text(QuestionnaireCopy.purposeLabel(p)) })
-                        }
-                    }
-                }
-                SessionPlaceField(
-                    value = SessionWhere(form.place, form.location),
-                    label = QuestionnaireCopy.s("start.place"),
-                    onChange = { where -> form = form.copy(place = where.place, location = where.location) },
-                    trailingIcon = { PlaceFromDevice(onPlace = { form = form.copy(place = it) }, onError = onError) },
-                    provenance = QuestionnaireCopy.t("fromThisWorkshop").takeIf { placeFromWorkshop(form, workshop) }
-                )
-                SearchableSelectField(
-                    label = QuestionnaireCopy.s("start.language"),
-                    options = SESSION_LANGUAGES,
-                    selectedValue = form.languageCode,
-                    includeNone = false,
-                    searchable = true
-                ) { form = form.copy(languageCode = it) }
-                if (form.languageCode == "other") {
-                    OutlinedTextField(
-                        value = form.languageOther, onValueChange = { form = form.copy(languageOther = it.take(40)) },
-                        label = { Text(QuestionnaireCopy.s("start.languageOther")) }, singleLine = true, modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                OutlinedTextField(
-                    value = form.note, onValueChange = { form = form.copy(note = it.take(80)) },
-                    label = { Text(QuestionnaireCopy.s("start.note")) },
-                    placeholder = { Text(QuestionnaireCopy.s("start.notePlaceholder")) },
-                    supportingText = { Text("${form.note.length}/80") },
-                    singleLine = true, modifier = Modifier.fillMaxWidth()
-                )
-                SegmentedChoice(
-                    label = QuestionnaireCopy.t("fieldRecordBy"),
-                    options = recordByOptions(),
-                    selectedValue = form.recordBy,
-                    modifier = Modifier.testTag("q-record-by")
-                ) { form = form.copy(recordBy = it) }
-                Text(QuestionnaireCopy.s("start.titlePreview"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted)
-                Text(form.titlePreview(workshop, byId, meName), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.field.body)
-                ActionRow(Modifier.fillMaxWidth()) {
-                    Button(enabled = form.canStart && !starting && !consentLoading, onClick = {
-                        starting = true
-                        scope.launch {
-                            val match = if (form.artisanIds.isEmpty()) null else withTimeoutOrNull(4_000) {
-                                runCatching {
-                                    v2.api.openMatch(form.questionnaireId, form.workshopId.ifBlank { null }.takeUnless { QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP }, form.artisanIds.joinToString(","), form.date.toString()).items.firstOrNull()
-                                }.getOrNull()
+                CompositionLocalProvider(LocalInputInert provides settling) {
+                    form.artisanIds.filter { id ->
+                        if (consent.containsKey(id)) consent[id] in setOf(null, "NOT_RECORDED", "REFUSED") else registered.none { it.first == id }
+                    }.take(3).forEach { id ->
+                        if (!consent.containsKey(id)) {
+                            Box(Modifier.alpha(0f).clearAndSetSemantics { semanticsTag = "q-consent-pending" }) {
+                                ConsentQuestion(byId[id]?.name.orEmpty(), onAnswer = {})
                             }
-                            if (match != null) { openMatch = match; starting = false } else create()
+                        } else ConsentQuestion(byId[id]?.name.orEmpty(), refused = consent[id] == "REFUSED", onAnswer = { state ->
+                            if (inert) return@ConsentQuestion
+                            if (state == null) consent[id] = "SKIPPED" else {
+                                consent[id] = "SKIPPED"
+                                scope.launch { v2.recordConsent(id, state) }
+                            }
+                        })
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        SearchableMultiSelectField(
+                            label = QuestionnaireCopy.s("start.crafts"),
+                            options = craftsFor(craftCatalog + autoCrafts, form.crafts).map { SelectOption(it, it) },
+                            selected = form.crafts.toSet(),
+                            modifier = Modifier.testTag("q-crafts")
+                        ) { chosen ->
+                            if (inert) return@SearchableMultiSelectField
+                            val ordered = form.crafts.filter { it in chosen } + chosen.filter { it !in form.crafts }
+                            form = form.copy(crafts = ordered, craftsByHand = ordered.filter { c -> autoCrafts.none { it.equals(c, ignoreCase = true) } })
                         }
-                    }) { Text(QuestionnaireCopy.s("start.submit")) }
+                        val craftsOwner = craftsRecordOwner(form, form.artisanIds.associateWith { byId[it]?.craft }, form.artisanIds.associateWith { byId[it]?.name.orEmpty() })
+                        if (craftsOwner != null) ProvenanceTag(QuestionnaireCopy.t("fromRecordOf", "name" to craftsOwner))
+                        else if (artisansPending) Box(Modifier.alpha(0f).clearAndSetSemantics { semanticsTag = "q-provenance-pending" }) {
+                            ProvenanceTag(QuestionnaireCopy.t("fromRecordOf", "name" to " "))
+                        }
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(QuestionnaireCopy.s("start.purpose"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SessionPurpose.entries.map { it.wire }.forEach { p ->
+                                FilterChip(selected = form.purpose == p, onClick = { if (!inert) form = form.copy(purpose = p) }, label = { Text(QuestionnaireCopy.purposeLabel(p)) })
+                            }
+                        }
+                    }
+                    SessionPlaceField(
+                        value = SessionWhere(form.place, form.location),
+                        label = QuestionnaireCopy.s("start.place"),
+                        onChange = { where -> form = form.copy(place = where.place, location = where.location) },
+                        trailingIcon = { PlaceFromDevice(onPlace = { if (!inert) form = form.copy(place = it) }, onError = onError) },
+                        provenance = QuestionnaireCopy.t("fromThisWorkshop").takeIf { placeFromWorkshop(form, workshop) }
+                    )
+                    SearchableSelectField(
+                        label = QuestionnaireCopy.s("start.language"),
+                        options = SESSION_LANGUAGES,
+                        selectedValue = form.languageCode,
+                        includeNone = false,
+                        searchable = true
+                    ) { if (!inert) form = form.copy(languageCode = it) }
+                    if (form.languageCode == "other") {
+                        OutlinedTextField(
+                            value = form.languageOther, onValueChange = { form = form.copy(languageOther = it.take(40)) },
+                            label = { Text(QuestionnaireCopy.s("start.languageOther")) }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    OutlinedTextField(
+                        value = form.note, onValueChange = { form = form.copy(note = it.take(80)) },
+                        label = { Text(QuestionnaireCopy.s("start.note")) },
+                        placeholder = { Text(QuestionnaireCopy.s("start.notePlaceholder")) },
+                        supportingText = { Text("${form.note.length}/80") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth()
+                    )
+                    SegmentedChoice(
+                        label = QuestionnaireCopy.t("fieldRecordBy"),
+                        options = recordByOptions(),
+                        selectedValue = form.recordBy,
+                        modifier = Modifier.testTag("q-record-by")
+                    ) { if (!inert) form = form.copy(recordBy = it) }
+                    Text(QuestionnaireCopy.s("start.titlePreview"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted)
+                    Text(form.titlePreview(workshop, byId, meName), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.field.body)
+                    ActionRow(Modifier.fillMaxWidth()) {
+                        Button(enabled = form.canStart && !starting && !consentLoading, onClick = {
+                            if (inert) return@Button
+                            starting = true
+                            scope.launch {
+                                val match = if (form.artisanIds.isEmpty()) null else withTimeoutOrNull(4_000) {
+                                    runCatching {
+                                        v2.api.openMatch(form.questionnaireId, form.workshopId.ifBlank { null }.takeUnless { QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP }, form.artisanIds.joinToString(","), form.date.toString()).items.firstOrNull()
+                                    }.getOrNull()
+                                }
+                                if (match != null) { openMatch = match; starting = false } else create()
+                            }
+                        }) { Text(QuestionnaireCopy.s("start.submit")) }
+                    }
                 }
             }
         }

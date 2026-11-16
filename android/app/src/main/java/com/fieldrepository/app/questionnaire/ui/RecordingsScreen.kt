@@ -13,6 +13,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,10 +36,12 @@ import com.fieldrepository.app.questionnaire.data.QSession
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireFilters
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
+import com.fieldrepository.app.questionnaire.data.RecordingSort
 import com.fieldrepository.app.transcript.ui.TranscriptPreviewText
 import com.fieldrepository.app.ui.AudioExpand
 import com.fieldrepository.app.ui.AudioPlayer
 import com.fieldrepository.app.ui.FieldLinearProgressIndicator
+import com.fieldrepository.app.ui.SelectOption
 import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.launch
 
@@ -63,16 +66,17 @@ fun RecordingsList(
     val scope = rememberCoroutineScope()
     val (filters, setFilters) = rememberKeptFilters(v2, screen, initial)
     val applied = merged(filters, fixed)
-    var kept by rememberKept("$screen.pages") { KeptPages<QRecording>() }
+    var sort by rememberKept("$screen.sort") { v2.recordingSort() }
+    var kept by rememberKept("$screen.pages.$sort") { KeptPages<QRecording>() }
     val rows = kept.rows
     val cursor = kept.cursor
     var offline by rememberKept("$screen.offline") { false }
     var loading by remember { mutableStateOf(true) }
     var playing by remember { mutableStateOf<Uri?>(null) }
     var expandFor by remember { mutableStateOf<AudioExpand?>(null) }
-    LaunchedEffect(applied) {
+    LaunchedEffect(applied, sort) {
         loading = true
-        val page = runCatching { v2.recordingsPage(applied) }.getOrNull()
+        val page = runCatching { v2.recordingsPage(applied, sort = sort) }.getOrNull()
         kept = ListPaging.arrive(kept, applied, page?.items, page?.nextCursor) { it.id }; offline = page?.offline == true
         loading = false
     }
@@ -84,34 +88,64 @@ fun RecordingsList(
             options = { facet, q, forms -> v2.filterOptions(facet, q, forms) },
             fixed = fixed.values.keys, offline = offline
         )
+        RecordingSortChoice(sort) { next -> sort = next; v2.keepRecordingSort(next) }
         if (loading) FieldLinearProgressIndicator(Modifier.fillMaxWidth())
         if (!loading && rows.isEmpty()) Text(QuestionnaireCopy.t("filterNoMatches"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
         rows.forEach { r ->
-            Column(
-                Modifier.fillMaxWidth().clickable { scope.launch { playing = v2.playbackUrl(r.id)?.let(Uri::parse); expandFor = r.audioExpand() } }.padding(vertical = 6.dp).testTag("recording-row"),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                r.chips?.session?.title?.ifBlank { null }?.let { title ->
-                    Text(
-                        title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable { r.sessionId?.let(onOpenSession) }
-                    )
-                }
-                r.transcript?.shownPreview()?.let { TranscriptPreviewText(it, maxLines = 3) }
-                RecordingChips(r.chips, filters = applied, onChip = onChip)
-            }
-            HorizontalDivider(color = MaterialTheme.field.hairline)
+            RecordingRow(
+                r, applied, onChip,
+                onPlay = { scope.launch { playing = v2.playbackUrl(r.id)?.let(Uri::parse); expandFor = r.audioExpand() } },
+                onOpenSession = onOpenSession
+            )
         }
         if (cursor != null) PromptButtons(listOf(PromptButton(QuestionnaireCopy.s("sessions.loadMore"), primary = true) {
             val at = cursor ?: return@PromptButton
             scope.launch {
-                runCatching { v2.recordingsPage(applied, at) }
+                runCatching { v2.recordingsPage(applied, at, sort = sort) }
                     .onSuccess { next -> kept = ListPaging.more(kept, next.items, next.nextCursor) { it.id } }
                     .onFailure { onError(QuestionnaireCopy.s("error.needsSignal")) }
             }
         }))
         playing?.let { AudioPlayer(it, expand = expandFor) }
     }
+}
+
+@Composable
+fun RecordingRow(
+    r: QRecording,
+    filters: QuestionnaireFilters?,
+    onChip: ((ChipFilter, String) -> Unit)?,
+    onPlay: () -> Unit,
+    onOpenSession: (sessionId: String) -> Unit
+) {
+    Column(
+        Modifier.fillMaxWidth().clickable(onClick = onPlay).padding(vertical = 6.dp).testTag("recording-row"),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        r.chips?.session?.title?.ifBlank { null }?.let { title ->
+            Text(
+                title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable { r.sessionId?.let(onOpenSession) }
+            )
+        }
+        r.transcript?.shownPreview()?.let { TranscriptPreviewText(it, maxLines = 3) }
+        RecordingChips(r.chips, filters = filters, onChip = onChip)
+    }
+    HorizontalDivider(color = MaterialTheme.field.hairline)
+}
+
+@Composable
+fun RecordingSortChoice(sort: String, modifier: Modifier = Modifier, onSort: (String) -> Unit) {
+    SegmentedChoice(
+        label = QuestionnaireCopy.t("sortRecordingsBy"),
+        options = listOf(
+            SelectOption(RecordingSort.ADDED, QuestionnaireCopy.t("sortAdded")),
+            SelectOption(RecordingSort.RECORDED, QuestionnaireCopy.t("sortRecorded"))
+        ),
+        selectedValue = RecordingSort.of(sort),
+        modifier = modifier.widthIn(max = 420.dp).testTag("recordings.sort"),
+        onSelect = onSort
+    )
 }
 
 internal fun QRecording.audioExpand(): AudioExpand? =

@@ -44,6 +44,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -200,14 +201,16 @@ fun SearchableMultiSelectField(
     enabled: Boolean = true,
     showChips: Boolean = true,
     server: ServerSearch? = null,
+    labelVisible: Boolean = true,
+    chipOrder: List<String>? = null,
     onSelectedChange: (Set<String>) -> Unit
 ) {
     var sheetOpen by remember { mutableStateOf(false) }
-    val chosen = options.filter { it.value in selected }
+    val chosen = orderedChips(options.filter { it.value in selected }, chipOrder)
     val ofTotal = if (server == null) " of ${options.size}" else ""
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(
+        if (labelVisible) Text(
             "$label (${chosen.size} selected)",
             color = MaterialTheme.field.muted,
             style = MaterialTheme.typography.bodySmall
@@ -312,6 +315,11 @@ private fun SelectedTick() {
     )
 }
 
+val LocalInputInert = compositionLocalOf { false }
+
+fun orderedChips(chosen: List<SelectOption>, order: List<String>?): List<SelectOption> =
+    if (order == null) chosen else order.mapNotNull { id -> chosen.firstOrNull { it.value == id } } + chosen.filter { it.value !in order }
+
 @Composable
 private fun SelectTrigger(
     speech: String,
@@ -320,8 +328,9 @@ private fun SelectTrigger(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
+    val inert = LocalInputInert.current
     OutlinedButton(
-        onClick = onClick,
+        onClick = { if (!inert) onClick() },
         enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()

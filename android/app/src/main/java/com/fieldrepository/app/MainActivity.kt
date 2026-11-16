@@ -13,6 +13,8 @@ import com.fieldrepository.app.transcript.ui.TranscribeChoiceRows
 import com.fieldrepository.app.data.workshopDisplayTitle
 import com.fieldrepository.app.data.toolArtisanNames
 import com.fieldrepository.app.data.toolRowLabel
+import com.fieldrepository.app.data.toolArtisanLabel
+import com.fieldrepository.app.data.toolArtisanIds
 import com.fieldrepository.app.data.AnswerDrafts
 import com.fieldrepository.app.ui.AnswerDraftsCard
 import com.fieldrepository.app.ui.ArtisanCardPickerScan
@@ -2321,7 +2323,8 @@ private fun HomeScreen(
                             artisans = artisans,
                             user = user,
                             onError = { showMessage(it) },
-                            modifier = Modifier.fillMaxWidth().fillMaxHeight()
+                            modifier = Modifier.fillMaxWidth().fillMaxHeight(),
+                            onNotice = { showMessage(it, AppMessageTone.SUCCESS) }
                         )
                     }
                 } else QuestionnaireForm(
@@ -4487,6 +4490,7 @@ private fun CheckboxMultiSelectField(
     emptyMessage: String = "No options available.",
     enabled: Boolean = true,
     server: ServerSearch? = null,
+    chipOrder: List<String>? = null,
     onSelectedChange: (Set<String>) -> Unit
 ) {
     SearchableMultiSelectField(
@@ -4497,6 +4501,7 @@ private fun CheckboxMultiSelectField(
         emptyMessage = emptyMessage,
         enabled = enabled,
         server = server,
+        chipOrder = chipOrder,
         onSelectedChange = onSelectedChange
     )
 }
@@ -7388,6 +7393,7 @@ private fun ToolForm(
                 emptyMessage = "No artisans recorded yet.",
                 enabled = !notOnRecord,
                 server = picker.search.asServerSearchRows(countsRows = true) { toolArtisanRows(it) },
+                chipOrder = artisanIds,
                 onSelectedChange = { selection -> onArtisansChanged(selection) }
             )
         }
@@ -8589,7 +8595,7 @@ private fun ToolAssignScreen(
             HorizontalDivider()
             Text("Currently assigned to", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
             if (assigned.isEmpty()) {
-                Text("No other artisans yet.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                Text("Not assigned to any artisan yet.", color = Muted, style = MaterialTheme.typography.bodySmall)
             } else {
                 assigned.forEach { artisan ->
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -10939,7 +10945,7 @@ private fun ViewDataDetail(
             RecordCard(title = v.toolkitName.ifBlank { "Tool" }) {
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
                 DetailRow("Craft", v.craftName)
-                DetailRow("Artisan", v.artisanName)
+                DetailRow(v.toolArtisanLabel(), v.toolArtisanNames() ?: v.artisanName)
                 DetailRow("Place", v.place)
                 DetailRow("Material", v.material)
                 DetailRow("Material type", StandardValues.materialFamilyLabel(v.materialFamily))

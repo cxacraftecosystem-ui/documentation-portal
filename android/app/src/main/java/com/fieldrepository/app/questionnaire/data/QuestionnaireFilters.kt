@@ -181,6 +181,19 @@ data class QuestionnaireFilters(
     }
 }
 
+object RecordingSort {
+    const val ADDED = "added"
+    const val RECORDED = "recorded"
+    const val PREF = "recordings.sort"
+
+    fun of(value: String?): String = if (value == RECORDED) RECORDED else ADDED
+
+    fun sorted(rows: List<QRecording>, sort: String): List<QRecording> = rows.sortedWith(
+        if (of(sort) == RECORDED) compareByDescending<QRecording> { it.capturedAt ?: "" }.thenByDescending { it.id }
+        else compareByDescending<QRecording> { it.createdAt ?: it.capturedAt ?: "" }.thenByDescending { it.id }
+    )
+}
+
 class FilterStore(private val prefs: SharedPreferences, private val owner: () -> String?) {
     @Serializable
     private data class Kept(val ownerId: String? = null, val query: String = "", val labels: Map<String, String> = emptyMap())
@@ -238,8 +251,8 @@ class OfflineRows(private val dir: File, private val owner: () -> String?, priva
     fun sessions(filters: QuestionnaireFilters): List<QSession> = read().sessions.filter(filters::matches)
         .sortedWith(compareByDescending<QSession> { it.sessionDate ?: "" }.thenByDescending { it.id })
 
-    fun recordings(filters: QuestionnaireFilters): List<QRecording> = read().recordings.filter(filters::matches)
-        .sortedWith(compareByDescending<QRecording> { it.capturedAt ?: "" }.thenByDescending { it.id })
+    fun recordings(filters: QuestionnaireFilters, sort: String = RecordingSort.ADDED): List<QRecording> =
+        RecordingSort.sorted(read().recordings.filter(filters::matches), sort)
 
     companion object {
         fun <T> mergeById(fresh: List<T>, kept: List<T>, id: (T) -> String): List<T> {

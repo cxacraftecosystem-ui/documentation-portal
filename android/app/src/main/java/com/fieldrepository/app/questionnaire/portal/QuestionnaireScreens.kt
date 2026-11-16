@@ -47,7 +47,8 @@ fun FieldQuestionnaireHome(
     onError: (String) -> Unit,
     modifier: Modifier = Modifier,
     initialTab: QuestionnaireTab = QuestionnaireTab.SESSIONS,
-    onBack: (() -> Unit)? = null
+    onBack: (() -> Unit)? = null,
+    onNotice: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val v2 = remember { QuestionnaireV2.get(context) }
@@ -76,7 +77,8 @@ fun FieldQuestionnaireHome(
             onError = onError,
             initialTab = initialTab,
             onBack = onBack,
-            modifier = modifier
+            modifier = modifier,
+            onNotice = onNotice
         )
     }
 }

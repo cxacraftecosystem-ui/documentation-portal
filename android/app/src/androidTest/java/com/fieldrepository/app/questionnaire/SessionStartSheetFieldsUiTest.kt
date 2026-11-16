@@ -16,6 +16,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.fieldrepository.app.questionnaire.data.QArtisanOption
@@ -89,6 +91,17 @@ class SessionStartSheetFieldsUiTest {
         assertFalse(questionSelected())
     }
 
+    private fun followUpSelected() = compose.onAllNodes(hasText("Follow-up") and isSelected()).fetchSemanticsNodes().isNotEmpty()
+
+    private fun activationIgnoredWhileSettling() {
+        assertTrue(compose.onAllNodesWithTag("q-start-settling").fetchSemanticsNodes().isNotEmpty())
+        compose.onNodeWithText("Question").performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Follow-up").performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitForIdle()
+        assertFalse(questionSelected())
+        assertFalse(followUpSelected())
+    }
+
     private fun startAndRead(v2: QuestionnaireV2, started: () -> String?): QSessionCreate {
         compose.waitUntil(30_000) { compose.onAllNodes(hasText("Start session") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Start session").performScrollTo().performClick()
@@ -148,6 +161,32 @@ class SessionStartSheetFieldsUiTest {
             compose.onNodeWithText("Question").performClick()
             compose.waitUntil(5_000) { questionSelected() }
             assertEquals("QUESTION", startAndRead(v2) { started }.recordBy)
+        } finally {
+            started?.let { runBlocking { v2.outbox.forget(it) } }
+        }
+    }
+
+    @QFeature("Q1")
+    @Test fun aTalkBackActivationWhileTheFormSettlesIsIgnoredLikeATapAndWorksOnceSettled() {
+        val v2 = QuestionnaireV2.get(InstrumentationRegistry.getInstrumentation().targetContext)
+        val consentArrives = CompletableDeferred<Unit>()
+        var started: String? = null
+        sheet(v2, onStarted = { started = it }, consentOf = { consentArrives.await(); "NOT_RECORDED" })
+        try {
+            compose.waitUntil(10_000) { compose.onAllNodes(hasText("Dokra", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+            waitForLateSlots()
+            assertEquals(2, pending("q-consent-pending"))
+            compose.onNodeWithTag("q-record-by").performScrollTo()
+            activationIgnoredWhileSettling()
+            consentArrives.complete(Unit)
+            compose.waitUntil(10_000) { pending("q-consent-pending") == 0 }
+            compose.waitUntil(5_000) { settled() }
+            compose.onNodeWithText("Question").performSemanticsAction(SemanticsActions.OnClick)
+            compose.onNodeWithText("Follow-up").performSemanticsAction(SemanticsActions.OnClick)
+            compose.waitUntil(5_000) { questionSelected() && followUpSelected() }
+            val body = startAndRead(v2) { started }
+            assertEquals("QUESTION", body.recordBy)
+            assertEquals("FOLLOW_UP", body.purpose)
         } finally {
             started?.let { runBlocking { v2.outbox.forget(it) } }
         }

@@ -18,6 +18,7 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
@@ -35,6 +36,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -53,11 +57,16 @@ import com.fieldrepository.app.explorer.ui.ExplorerMediaContent
 import com.fieldrepository.app.explorer.ui.ExplorerMediaDialog
 import com.fieldrepository.app.explorer.ui.ExplorerMediaLoader
 import com.fieldrepository.app.explorer.ui.ExplorerUiText
+import com.fieldrepository.app.questionnaire.data.ClipPayload
 import com.fieldrepository.app.questionnaire.data.OverlayTake
 import com.fieldrepository.app.questionnaire.data.QRecording
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
+import com.fieldrepository.app.questionnaire.data.SessionUnit
+import com.fieldrepository.app.questionnaire.data.StepKind
+import com.fieldrepository.app.questionnaire.data.StepState
 import com.fieldrepository.app.transcript.data.Transcript
 import com.fieldrepository.app.ui.field
+import kotlinx.coroutines.delay
 import java.io.File
 import java.time.Instant
 
@@ -69,15 +78,73 @@ data class InPlaceTake(
     val subtitle: String?,
     val durationMs: Long,
     val localPath: String? = null,
-    val mediaType: String = "AUDIO"
+    val mediaType: String = "AUDIO",
+    val retryStep: String? = null,
+    val openable: Boolean = true
 ) {
     val local: Boolean get() = recordingId == null
 }
 
-data class LocalClip(val take: OverlayTake, val line: String, val path: String?, val contentType: String? = null)
+data class LocalClip(
+    val take: OverlayTake,
+    val line: String,
+    val path: String?,
+    val contentType: String? = null,
+    val stepId: String? = null,
+    val failed: Boolean = false,
+    val landed: Boolean = false
+)
+
+object LocalTakes {
+    fun line(clip: ClipPayload, failed: Boolean, online: Boolean): String = when {
+        failed -> QuestionnaireCopy.t("uploadFailed")
+        clip.uploadedPercent > 0 || online -> QuestionnaireCopy.uploading(clip.uploadedPercent)
+        else -> QuestionnaireCopy.s("upload.waiting")
+    }
+
+    fun of(
+        unit: SessionUnit?,
+        tracked: Set<String> = emptySet(),
+        online: Boolean = false,
+        isFile: (String) -> Boolean = { File(it).isFile }
+    ): List<LocalClip> {
+        val steps = unit?.steps.orEmpty().filter { it.kind == StepKind.CLIP && it.clip != null }
+        val sessionKey = unit?.let { it.sessionId ?: it.clientKey }.orEmpty()
+        return steps.flatMap { step ->
+            val clip = step.clip!!
+            val failed = step.state == StepState.FAILED
+            val landed = step.state == StepState.DONE
+            if (landed && clip.clientClipKey !in tracked) return@flatMap emptyList()
+            val targets = clip.recording.targets.map { it.targetKey }.ifEmpty { listOf(InPlaceTakes.WHOLE) }
+            targets.map { target ->
+                LocalClip(
+                    OverlayTake(
+                        clip.clientClipKey, sessionKey, "", target, clip.recording.deviceCapturedAt, clip.recording.durationMs,
+                        clip.recording.rosterCount, uploading = clip.uploaded || clip.partsDone.isNotEmpty()
+                    ),
+                    if (landed) QuestionnaireCopy.s("upload.uploaded") else line(clip, failed, online),
+                    if (landed) null else clip.localPath.takeIf(isFile), clip.contentType, step.id, failed, landed
+                )
+            }
+        }
+    }
+
+    fun arriving(files: List<Pair<String, PickedFile>>, targetKey: String, online: Boolean, fallbackAt: Instant = Instant.now()): List<LocalClip> = files.map { (key, file) ->
+        LocalClip(
+            OverlayTake(key, "", "", targetKey, (file.recordedAt ?: fallbackAt).toString(), file.durationMs, 1, uploading = false),
+            if (online) QuestionnaireCopy.uploading(0) else QuestionnaireCopy.s("upload.waiting"), file.path, file.mime
+        )
+    }
+
+    fun merge(own: List<LocalClip>, arriving: List<LocalClip>): List<LocalClip> {
+        val queued = own.map { it.take.clientClipKey }.toSet()
+        return own + arriving.filter { it.take.clientClipKey !in queued }
+    }
+}
 
 object InPlaceTakes {
     private const val LOCAL = "local:"
+    const val WHOLE = "W:session"
 
     fun localKey(clientClipKey: String): String = LOCAL + clientClipKey
 
@@ -88,14 +155,16 @@ object InPlaceTakes {
     }
 
     private fun live(recordings: List<QRecording>, targetKey: String): List<QRecording> =
-        recordings.filter { r -> r.removedAt == null && r.mediaFileId != null && r.targets.any { it.targetKey == targetKey } }
+        recordings.filter { r ->
+            r.removedAt == null && r.mediaFileId != null && if (targetKey == WHOLE) r.targets.isEmpty() else r.targets.any { it.targetKey == targetKey }
+        }
 
     private class Found(val at: String, val recording: QRecording?, val clip: LocalClip?)
 
     private fun found(targetKey: String, recordings: List<QRecording>, clips: List<LocalClip>): List<Found> {
         val server = live(recordings, targetKey)
         val uploaded = server.mapNotNull { it.clientClipKey }.toSet()
-        val local = clips.filter { it.path != null && it.take.targetKey == targetKey && it.take.clientClipKey !in uploaded }.distinctBy { it.take.clientClipKey }
+        val local = clips.filter { (it.path != null || it.landed) && it.take.targetKey == targetKey && it.take.clientClipKey !in uploaded }.distinctBy { it.take.clientClipKey }
         return (server.map { Found(it.capturedAt.orEmpty(), it, null) } + local.map { Found(it.take.capturedAt, null, it) }).sortedBy { it.at }
     }
 
@@ -104,7 +173,10 @@ object InPlaceTakes {
         if (r != null) return InPlaceTake(r.id, r.mediaFileId!!, r.id, title, subtitle, r.durationMs, mediaType = r.mediaType)
         val clip = f.clip!!
         val key = localKey(clip.take.clientClipKey)
-        return InPlaceTake(key, key, null, title, subtitle, clip.take.durationMs, clip.path, mediaTypeOf(clip.contentType))
+        return InPlaceTake(
+            key, key, null, title, subtitle, clip.take.durationMs, clip.path, mediaTypeOf(clip.contentType),
+            retryStep = clip.stepId?.takeIf { clip.failed }, openable = clip.path != null
+        )
     }
 
     private fun duration(f: Found): Long = f.recording?.durationMs ?: f.clip?.take?.durationMs ?: 0L
@@ -120,6 +192,14 @@ object InPlaceTakes {
             }
             build(f, word + " · " + QuestionnaireCopy.elapsed(duration(f)), state(f))
         }
+
+    fun whole(recordings: List<QRecording>, clips: List<LocalClip>): List<InPlaceTake> =
+        found(WHOLE, recordings, clips).mapIndexed { i, f ->
+            val word = if (f.recording?.continuationOfId != null) QuestionnaireCopy.t("takePart", "n" to i + 1) else QuestionnaireCopy.t("takeN", "n" to i + 1)
+            build(f, word + " · " + QuestionnaireCopy.elapsed(duration(f)), state(f))
+        }
+
+    fun scopeOf(recording: QRecording): String = recording.targets.firstOrNull()?.targetKey ?: WHOLE
 
     fun question(lineageId: String, recordings: List<QRecording>, clips: List<LocalClip>): List<InPlaceTake> {
         val all = found("Q:$lineageId", recordings, clips)
@@ -225,6 +305,9 @@ internal fun TakePreview(
     )
 }
 
+data class RevealClearance(val top: Dp = 0.dp, val bottom: Dp = 0.dp)
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun TakeInPlaceRow(
     take: InPlaceTake,
@@ -232,40 +315,90 @@ internal fun TakeInPlaceRow(
     open: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
-    loader: ExplorerMediaLoader? = null
+    loader: ExplorerMediaLoader? = null,
+    onRetry: ((String) -> Unit)? = null,
+    reveal: Boolean = false,
+    clearance: RevealClearance = RevealClearance(),
+    onMark: (() -> Unit)? = null
 ) {
     var full by rememberSaveable(take.key) { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().then(modifier).testTag("questionnaire.take.${take.key}")) {
+    val bring = remember { BringIntoViewRequester() }
+    val density = LocalDensity.current
+    var rowHeight by remember { mutableStateOf(0) }
+    LaunchedEffect(reveal, take.key) {
+        if (!reveal) return@LaunchedEffect
+        delay(250)
+        val top = with(density) { clearance.top.toPx() }
+        val bottom = with(density) { clearance.bottom.toPx() }
+        runCatching { bring.bringIntoView(Rect(0f, -top, 1f, rowHeight + bottom)) }
+    }
+    val retry = take.retryStep?.takeIf { onRetry != null }
+    Column(Modifier.fillMaxWidth().then(modifier).bringIntoViewRequester(bring).onSizeChanged { rowHeight = it.height }.testTag("questionnaire.take.${take.key}")) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 56.dp)
-                .clickable(role = Role.Button, onClickLabel = QuestionnaireCopy.t(if (open) "collapseTake" else "playTake"), onClick = onToggle)
+                .then(
+                    if (take.openable) Modifier.clickable(role = Role.Button, onClickLabel = QuestionnaireCopy.t(if (open) "collapseTake" else "playTake"), onClick = onToggle)
+                    else Modifier
+                )
                 .semantics(mergeDescendants = true) {
                     contentDescription = listOfNotNull(take.title.ifBlank { null }, take.subtitle).joinToString(", ")
-                    stateDescription = if (open) "expanded" else "collapsed"
+                    if (take.openable) stateDescription = if (open) "expanded" else "collapsed"
                 }
                 .padding(vertical = 6.dp)
                 .testTag("questionnaire.take.${take.key}.head"),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            if (!open) TakePlayDot()
+            if (!open) TakePlayDot(enabled = take.openable)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(take.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                take.subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                take.subtitle?.let {
+                    Text(
+                        it, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = if (take.retryStep != null) MaterialTheme.colorScheme.error else MaterialTheme.field.muted
+                    )
+                }
             }
             if (open && !take.local) OpenFullViewButton { full = true }
-            Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null, tint = MaterialTheme.field.body)
+            if (retry != null) Box(
+                Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button) { onRetry?.invoke(retry) }
+                    .padding(horizontal = 12.dp).testTag("questionnaire.take.${take.key}.retry"),
+                contentAlignment = Alignment.Center
+            ) { Text(QuestionnaireCopy.t("retry"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary) }
+            if (onMark != null && !open) Box(
+                Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onMark)
+                    .semantics { contentDescription = QuestionnaireCopy.t("changeSectionsNamed", "name" to take.title) }
+                    .padding(horizontal = 12.dp).testTag("questionnaire.take.${take.key}.mark"),
+                contentAlignment = Alignment.Center
+            ) { Text(QuestionnaireCopy.t("changeSections"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, maxLines = 1) }
+            if (take.openable) Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null, tint = MaterialTheme.field.body)
         }
-        if (open) TakePreview(take, name, full, { full = it }, loader)
+        if (open && take.openable) TakePreview(take, name, full, { full = it }, loader)
     }
 }
 
 @Composable
-internal fun TakePlayDot(modifier: Modifier = Modifier, active: Boolean = false) {
+internal fun TakePlayDot(modifier: Modifier = Modifier, active: Boolean = false, enabled: Boolean = true) {
     Box(
-        modifier.size(36.dp).clip(CircleShape).background(if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer),
+        modifier.size(36.dp).clip(CircleShape).background(
+            when {
+                active -> MaterialTheme.colorScheme.primary
+                enabled -> MaterialTheme.colorScheme.primaryContainer
+                else -> MaterialTheme.field.surface200
+            }
+        ),
         contentAlignment = Alignment.Center
-    ) { Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(18.dp)) }
+    ) {
+        Icon(
+            if (enabled) Icons.Filled.PlayArrow else Icons.Filled.CloudUpload, contentDescription = null,
+            tint = when {
+                active -> MaterialTheme.colorScheme.onPrimary
+                enabled -> MaterialTheme.colorScheme.onPrimaryContainer
+                else -> MaterialTheme.field.muted
+            },
+            modifier = Modifier.size(18.dp)
+        )
+    }
 }
 
 @Composable
@@ -277,7 +410,12 @@ internal fun TakesList(
     name: String,
     onOpen: (String?) -> Unit,
     onManage: (() -> Unit)? = null,
-    loader: ExplorerMediaLoader? = null
+    loader: ExplorerMediaLoader? = null,
+    onRetry: ((String) -> Unit)? = null,
+    reveal: String? = null,
+    clearance: RevealClearance = RevealClearance(),
+    onMark: ((InPlaceTake) -> Unit)? = null,
+    markable: (InPlaceTake) -> Boolean = { !it.local }
 ) {
     if (takes.isEmpty()) return
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).testTag("questionnaire.takes.$scope")) {
@@ -292,7 +430,11 @@ internal fun TakesList(
         }
         takes.forEach { take ->
             val isOpen = InPlaceTakes.isOpen(open, scope, take)
-            TakeInPlaceRow(take, name, isOpen, onToggle = { onOpen(if (isOpen) null else InPlaceTakes.openKey(scope, take)) }, loader = loader)
+            TakeInPlaceRow(
+                take, name, isOpen, onToggle = { onOpen(if (isOpen) null else InPlaceTakes.openKey(scope, take)) }, loader = loader,
+                onRetry = onRetry, reveal = reveal == take.key, clearance = clearance,
+                onMark = onMark?.takeIf { markable(take) }?.let { mark -> { mark(take) } }
+            )
         }
     }
 }

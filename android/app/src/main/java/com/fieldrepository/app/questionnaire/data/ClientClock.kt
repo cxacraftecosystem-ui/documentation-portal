@@ -38,14 +38,19 @@ object ClientClock {
         return if (Duration.between(offset.measuredAt, now) <= FRESH_FOR) "DEVICE" else "UPLOAD_TIME"
     }
 
-    fun interceptor(appVersion: String = BuildConfig.VERSION_NAME, versionCode: Int = BuildConfig.VERSION_CODE): Interceptor = Interceptor { chain ->
+    fun interceptor(
+        appVersion: String = BuildConfig.VERSION_NAME,
+        versionCode: Int = BuildConfig.VERSION_CODE,
+        outbox: () -> Map<String, String> = OutboxReport::headers
+    ): Interceptor = Interceptor { chain ->
         val sentAt = Instant.now()
-        val request = chain.request().newBuilder()
+        val builder = chain.request().newBuilder()
             .header(CLIENT_TIME_HEADER, sentAt.toString())
             .header(APP_VERSION_HEADER, appVersion)
             .header(APP_VERSION_CODE_HEADER, versionCode.toString())
             .header(APP_PLATFORM_HEADER, PLATFORM)
-            .build()
+        runCatching { outbox() }.getOrNull().orEmpty().forEach { (name, value) -> builder.header(name, value) }
+        val request = builder.build()
         val response = chain.proceed(request)
         if (!request.cacheControl.onlyIfCached) observe(sentAt, response.header("Date"))
         response

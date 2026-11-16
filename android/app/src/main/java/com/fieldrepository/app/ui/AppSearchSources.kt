@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.fieldrepository.app.data.toolArtisanNames
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.CraftDto
 import com.fieldrepository.app.data.FieldRepository
@@ -177,7 +178,7 @@ private suspend fun appSearchLegacyItems(
         r.tools.forEach { t ->
             items += AppSearchItem(
                 AppSearchGroup.TOOLS, t.id, t.toolkitName, Icons.Filled.Build,
-                subtitle = listOf(t.artisanName, t.place).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { null }
+                subtitle = listOf(t.toolArtisanNames().orEmpty(), t.place).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { null }
             ) { openRecord(SearchRecordTypes.TOOL, t.id) }
         }
         r.media.forEach { m ->

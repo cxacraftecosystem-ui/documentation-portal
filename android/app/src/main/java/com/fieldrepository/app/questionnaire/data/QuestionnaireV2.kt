@@ -25,6 +25,14 @@ class QuestionnaireV2 private constructor(context: Context) {
     val filesDir: File = app.filesDir
 
     private val prefs = app.getSharedPreferences("questionnaire-v2", Context.MODE_PRIVATE)
+
+    val installId: String = OutboxReport.installIdFrom(prefs.getString(OutboxReport.INSTALL_ID_PREF, null)) { id ->
+        prefs.edit().putString(OutboxReport.INSTALL_ID_PREF, id).apply()
+    }
+
+    init {
+        OutboxReport.attach(installId) { outbox.snapshot() }
+    }
     private val _config = MutableStateFlow(
         prefs.getString("config", null)?.let { runCatching { outboxJson.decodeFromString(QConfig.serializer(), it) }.getOrNull() }
     )
@@ -154,11 +162,17 @@ class QuestionnaireV2 private constructor(context: Context) {
     suspend fun everyRecording(filters: QuestionnaireFilters): List<QRecording> =
         QuestionnairePages.every { cursor -> recordingsPage(filters, cursor, QuestionnairePages.PAGE).let { it.items to it.nextCursor } }
 
-    suspend fun recordingsPage(filters: QuestionnaireFilters, cursor: String? = null, limit: Int = 30): Paged<QRecording> =
-        runCatching { api.recordings(filters.toParams(), cursor, limit) }.fold(
+    suspend fun recordingsPage(filters: QuestionnaireFilters, cursor: String? = null, limit: Int = 30, sort: String? = null): Paged<QRecording> =
+        runCatching { api.recordings(filters.toParams(), cursor, limit, sort = sort) }.fold(
             { page -> runCatching { offlineRows.keepRecordings(page.items) }; Paged(page.items, page.nextCursor, false) },
-            { if (cursor != null) throw it else Paged(offlineRows.recordings(filters), null, true) }
+            { if (cursor != null) throw it else Paged(offlineRows.recordings(filters, sort ?: RecordingSort.ADDED), null, true) }
         )
+
+    fun recordingSort(): String = RecordingSort.of(prefs.getString(RecordingSort.PREF, null))
+
+    fun keepRecordingSort(sort: String) {
+        prefs.edit().putString(RecordingSort.PREF, RecordingSort.of(sort)).apply()
+    }
 
     suspend fun searchRecordings(query: String, limit: Int = 10): List<RecordingHit> =
         RecordingSearch.hits(recordingsPage(QuestionnaireFilters().withQ(query), limit = limit).items.take(limit), query)
@@ -330,6 +344,11 @@ object QuestionnaireSync {
             legacyQuestionnaireWaiting = { QuestionnairePortal.legacyQuestionnaireWaiting(context) },
             v2 = { runCatching { v2.flushConsents() }; v2.outbox.sync(v2.transport, me) },
             serverAnswering = serverAnswering
-        )
+        ).also { report(v2) }
+    }
+
+    suspend fun report(v2: QuestionnaireV2) {
+        if (v2.meId() == null) return
+        runCatching { v2.api.config() }
     }
 }

@@ -58,7 +58,8 @@ interface QuestionnaireApi {
         @QueryMap(encoded = true) filters: Map<String, String>,
         @Query("cursor") cursor: String? = null,
         @Query("limit") limit: Int? = null,
-        @Query("sessionId") sessionId: String? = null
+        @Query("sessionId") sessionId: String? = null,
+        @Query("sort") sort: String? = null
     ): QRecordingPage
 
     @GET("questionnaire/filters")

@@ -69,7 +69,7 @@ object QuestionnaireCopy {
         "waitingForSignal" to "Waiting for signal",
         "uploadFailedRetrying" to "Upload failed. Retrying.",
         "leaveTitle" to "Leave this session?",
-        "leaveBodyAndroid" to "{count} takes will keep uploading in the background.",
+        "leaveBodyAndroid" to "Uploading {count} takes. They carry on in the background after you leave, and wait for signal if there is none.",
         "stay" to "Stay",
         "leave" to "Leave",
         "alreadyRecordedTitle" to "Already recorded",
@@ -375,7 +375,32 @@ object QuestionnaireCopy {
         "registerArtisan" to "Register artisan",
         "more" to "More",
         "fillFromProfile" to "Fill from profile",
-        "editSession" to "Edit details"
+        "editSession" to "Edit details",
+        "wholeSessionActions" to "Whole session actions",
+        "takeCountOne" to "1 take",
+        "takeCount" to "{count} takes",
+        "uploadedOne" to "1 recording uploaded to {target}",
+        "uploadedMany" to "{count} recordings uploaded to {target}",
+        "wholeSessionTarget" to "the whole session",
+        "duplicateInList" to "Already in this list",
+        "duplicateQueued" to "Uploading from this device",
+        "duplicateHere" to "In this session",
+        "duplicateIn" to "In {title}",
+        "duplicateElsewhere" to "In another session",
+        "openDuplicate" to "Open",
+        "openDuplicateNamed" to "Open {name}",
+        "sortRecordingsBy" to "Sort by",
+        "sortAdded" to "Added",
+        "sortRecorded" to "Recorded",
+        "marksNoSection" to "Marks no section",
+        "countsForSections" to "Counts for all questions in {codes}",
+        "sectionsLabel" to "Sections {codes}",
+        "takeChangedReloaded" to "This take changed on another device and has been reloaded. Choose again.",
+        "duplicateQueuedAndroid" to "Uploading from this phone",
+        "leaveFailedAndroid" to "{count} takes didn't upload. They wait here for Retry.",
+        "attachSections" to "Sections",
+        "changeSections" to "Change sections",
+        "changeSectionsNamed" to "Change sections for {name}"
     )
 
     val sharedKeyOf: Map<String, String> = linkedMapOf(
@@ -759,6 +784,10 @@ object QuestionnaireCopy {
     fun uploading(percent: Int) = t("uploadingPercent", "percent" to percent)
     fun takesUploading(count: Int) = t("takesUploading", "count" to count)
     fun leaveBody(pending: Int) = t("leaveBodyAndroid", "count" to pending)
+    fun leaveBody(pending: Int, failed: Int): String =
+        listOfNotNull(if (pending > 0) leaveBody(pending) else null, if (failed > 0) t("leaveFailedAndroid", "count" to failed) else null).joinToString("\n")
+    fun uploadedTo(count: Int, target: String?): String =
+        t("uploadedMany", "count" to count, "target" to (target ?: t("wholeSessionTarget")))
 
     fun finishBody(sections: Int, artisans: Int, uploading: Int): String {
         val full = t("finishBody", "sections" to sections, "artisans" to artisans, "pending" to uploading)
