@@ -1,31 +1,42 @@
 from __future__ import annotations
 
-import asyncio
 import uuid
 from types import SimpleNamespace
 from typing import Any
 
-from conftest import needs_db
-
-from app.core.db import db
+from qv2_fixtures import connect, needs_db, patch_db, run
 
 pytestmark = needs_db
 
 STAMP = uuid.uuid4().hex[:8]
 
 
-def _private(work: Any) -> Any:
+def _db() -> Any:
+    import app.core.db as core_db
+
+    return core_db.db
+
+
+def _private(monkeypatch: Any, work: Any) -> Any:
+    from app.api.routes import data_browser, tools
+    from app.services import record_filters, search_index
+    from app.services.data_explorer import browse
+
+    assert data_browser and tools and record_filters and search_index and browse
+
     async def connected() -> Any:
-        await db.connect()
+        client = await connect()
+        patch_db(monkeypatch, client)
         try:
             return await work()
         finally:
-            await db.disconnect()
+            await client.disconnect()
 
-    return asyncio.run(connected())
+    return run(connected())
 
 
 async def _grinder() -> dict[str, Any]:
+    db = _db()
     owner = await db.user.create(
         data={"email": f"tas-{STAMP}-{uuid.uuid4().hex[:6]}@example.org", "name": f"Tool Admin {STAMP}", "role": "MASTER_ADMIN"}
     )
@@ -64,6 +75,7 @@ async def _grinder() -> dict[str, Any]:
 
 
 async def _cleanup(seed: dict[str, Any]) -> None:
+    db = _db()
     await db.mediafile.delete_many(where={"id": seed["media"].id})
     await db.toolartisan.delete_many(where={"toolId": seed["tool"].id})
     await db.tooldocumentation.delete_many(where={"id": seed["tool"].id})
@@ -71,7 +83,7 @@ async def _cleanup(seed: dict[str, Any]) -> None:
     await db.user.delete_many(where={"id": seed["owner"].id})
 
 
-def _run(check: Any) -> None:
+def _run(monkeypatch: Any, check: Any) -> None:
     async def body() -> None:
         seed = await _grinder()
         try:
@@ -79,10 +91,10 @@ def _run(check: Any) -> None:
         finally:
             await _cleanup(seed)
 
-    _private(body)
+    _private(monkeypatch, body)
 
 
-def test_the_unified_search_document_names_and_files_a_tool_under_every_artisan_head_first() -> None:
+def test_the_unified_search_document_names_and_files_a_tool_under_every_artisan_head_first(monkeypatch: Any) -> None:
     from app.services import search_index
 
     async def check(seed: dict[str, Any]) -> None:
@@ -91,10 +103,10 @@ def test_the_unified_search_document_names_and_files_a_tool_under_every_artisan_
         assert seed["every"] in (doc.get("subtitle") or ""), doc.get("subtitle")
         assert set(doc.get("artisanIds") or []) == {a.id for a in seed["artisans"].values()}
 
-    _run(check)
+    _run(monkeypatch, check)
 
 
-def test_a_browse_row_and_its_search_name_every_artisan_of_the_tool() -> None:
+def test_a_browse_row_and_its_search_name_every_artisan_of_the_tool(monkeypatch: Any) -> None:
     from app.services.data_explorer import browse
 
     async def check(seed: dict[str, Any]) -> None:
@@ -104,13 +116,14 @@ def test_a_browse_row_and_its_search_name_every_artisan_of_the_tool() -> None:
         assert rows, "a tool is found by a linked artisan's name"
         assert rows[0]["name"] == f"Grinder {STAMP} · {seed['every']}"
 
-    _run(check)
+    _run(monkeypatch, check)
 
 
-def test_the_report_sheets_name_every_artisan_of_a_tool_and_of_its_media() -> None:
+def test_the_report_sheets_name_every_artisan_of_a_tool_and_of_its_media(monkeypatch: Any) -> None:
     from app.api.routes import data_browser
 
     async def check(seed: dict[str, Any]) -> None:
+        db = _db()
         tool = await db.tooldocumentation.find_unique(where={"id": seed["tool"].id}, include=data_browser._TOOL_INCLUDE)
         _workshop, _craft, artisan = data_browser._hierarchy_of("tool", tool)
         assert artisan == seed["every"], "the All records sheet"
@@ -118,10 +131,10 @@ def test_the_report_sheets_name_every_artisan_of_a_tool_and_of_its_media() -> No
         context = data_browser._media_context(media, {}, {})
         assert context["artisan"] == seed["every"], "the media and transcript sheets"
 
-    _run(check)
+    _run(monkeypatch, check)
 
 
-def test_the_tools_list_and_the_legacy_search_find_a_tool_by_any_artisan_and_return_every_link() -> None:
+def test_the_tools_list_and_the_legacy_search_find_a_tool_by_any_artisan_and_return_every_link(monkeypatch: Any) -> None:
     from app.api.routes import tools
     from app.services.record_filters import build_record_wheres
 
@@ -134,7 +147,7 @@ def test_the_tools_list_and_the_legacy_search_find_a_tool_by_any_artisan_and_ret
         one = await tools.get_tool(seed["tool"].id, current_user=seed["owner"])
         assert one["artisanId"] == seed["artisans"]["head"].id and len(one["artisanLinks"]) == 2, "GET /tools/{id} returns the head and both links"
         wheres = await build_record_wheres(seed["owner"], q=seed["names"]["two"])
-        found = await db.tooldocumentation.find_many(where=wheres["tools"])
+        found = await _db().tooldocumentation.find_many(where=wheres["tools"])
         assert seed["tool"].id in {row.id for row in found}, "the legacy search finds a tool by a linked artisan"
 
-    _run(check)
+    _run(monkeypatch, check)

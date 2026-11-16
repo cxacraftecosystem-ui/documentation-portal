@@ -62,6 +62,14 @@ def test_the_summary_pdf_parses_and_carries_every_section():
     assert reader.metadata.title == "Bagru block printing · Report summary"
 
 
+def test_a_questionnaire_with_many_sections_runs_its_bars_onto_the_next_page():
+    sections = [pdf_summary.SectionBar(f"Section {n:02d}", n % 5, 1, 2) for n in range(90)]
+    data = pdf_summary.build(_summary(sections=sections))
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(data)).pages)
+    assert "Completion by section" in text
+    assert "Section 00" in text and "Section 89" in text
+
+
 def test_an_empty_folder_still_makes_a_summary():
     data = pdf_summary.build(
         _summary(kpis=[], media_by_type=[], transcript_status=[], sections=[], coverage=[], quotes=[], pack_files=[])
