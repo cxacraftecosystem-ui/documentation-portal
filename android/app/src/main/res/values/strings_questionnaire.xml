@@ -64,7 +64,9 @@
     <string name="q_upload_failed_retrying">Upload failed. Retrying.</string>
     <string name="q_upload_on_wifi_only">Upload on Wi-Fi only</string>
     <string name="q_leave_title">Leave this session?</string>
-    <string name="q_leave_body_web">%1$s takes haven\'t uploaded. They stay on this device and upload when you return.</string>
+    <string name="q_leave_body_web">%1$s takes are still uploading. They keep going while this tab is open; if you close it, they finish next time you open your sessions.</string>
+    <string name="q_leave_body_web_one">1 take is still uploading. It keeps going while this tab is open; if you close it, it finishes next time you open your sessions.</string>
+    <string name="q_leave_recording_web">The take you\'re recording stops. You can keep it when you reopen this session.</string>
     <string name="q_leave_body_android">%1$s takes will keep uploading in the background.</string>
     <string name="q_stay">Stay</string>
     <string name="q_leave">Leave</string>
@@ -487,4 +489,20 @@
     <string name="q_open_full_view">Open full view</string>
     <string name="q_collapse_take">Collapse take</string>
     <string name="q_transcript_after_upload">Transcript after upload</string>
+    <string name="q_whole_session_actions">Whole session actions</string>
+    <string name="q_take_count_one">1 take</string>
+    <string name="q_take_count">%1$s takes</string>
+    <string name="q_uploaded_one">1 recording uploaded to %1$s</string>
+    <string name="q_uploaded_many">%1$s recordings uploaded to %2$s</string>
+    <string name="q_whole_session_target">the whole session</string>
+    <string name="q_duplicate_in_list">Already in this list</string>
+    <string name="q_duplicate_queued">Uploading from this device</string>
+    <string name="q_duplicate_here">In this session</string>
+    <string name="q_duplicate_in">In %1$s</string>
+    <string name="q_duplicate_elsewhere">In another session</string>
+    <string name="q_open_duplicate">Open</string>
+    <string name="q_open_duplicate_named">Open %1$s</string>
+    <string name="q_sort_recordings_by">Sort by</string>
+    <string name="q_sort_added">Added</string>
+    <string name="q_sort_recorded">Recorded</string>
 </resources>
