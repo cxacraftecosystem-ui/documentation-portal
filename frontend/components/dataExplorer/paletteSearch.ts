@@ -1,4 +1,5 @@
 import { ApiError, apiFetch, buildQuery } from "@/lib/api";
+import { toolArtisanNames } from "@/lib/toolArtisans";
 
 export type PaletteHit = { id: string; title: string; subtitle?: string; type: string; path?: string | null };
 
@@ -38,7 +39,13 @@ type LegacyLike = {
   artisans?: { id: string; name: string; place?: string | null }[];
   workshops?: { id: string; title: string; place?: string | null }[];
   products?: { id: string; productName: string; artisanName?: string | null }[];
-  tools?: { id: string; toolkitName: string; artisanName?: string | null }[];
+  tools?: {
+    id: string;
+    toolkitName: string;
+    artisanId?: string | null;
+    artisanName?: string | null;
+    artisanLinks?: { artisan?: { id: string; name?: string | null } | null }[] | null;
+  }[];
   media?: { id: string; caption?: string | null; originalFilename: string }[];
 };
 
@@ -59,7 +66,7 @@ export function legacyHits(data: LegacyLike, cap = 8): PaletteHit[] {
     ...(data.artisans ?? []).map((a) => ({ id: a.id, title: a.name, subtitle: ["Artisan", a.place].filter(Boolean).join(" · "), type: "artisans" })),
     ...(data.workshops ?? []).map((w) => ({ id: w.id, title: w.title, subtitle: ["Workshop", w.place].filter(Boolean).join(" · "), type: "workshops" })),
     ...(data.products ?? []).map((p) => ({ id: p.id, title: p.productName, subtitle: ["Product", p.artisanName].filter(Boolean).join(" · "), type: "products" })),
-    ...(data.tools ?? []).map((t) => ({ id: t.id, title: t.toolkitName, subtitle: ["Tool", t.artisanName].filter(Boolean).join(" · "), type: "tools" })),
+    ...(data.tools ?? []).map((t) => ({ id: t.id, title: t.toolkitName, subtitle: ["Tool", toolArtisanNames(t)].filter(Boolean).join(" · "), type: "tools" })),
     ...(data.media ?? []).map((m) => ({ id: m.id, title: m.caption || m.originalFilename, subtitle: "File", type: "media" }))
   ];
   return out.slice(0, cap);

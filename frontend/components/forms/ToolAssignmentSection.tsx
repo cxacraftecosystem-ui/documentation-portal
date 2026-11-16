@@ -16,6 +16,8 @@ import { ButtonRow } from "@/components/ui/ButtonRow";
 import { countNoun } from "@/lib/format";
 import { toolArtisanNames } from "@/lib/toolArtisans";
 
+type AssignedArtisan = Artisan & { isHead?: boolean };
+
 export function ToolAssignmentSection() {
   const [tools, setTools] = useState<ToolDocumentation[]>([]);
   const catalogue = useCraftCatalogue();
@@ -24,7 +26,7 @@ export function ToolAssignmentSection() {
   const [toolId, setToolId] = useState("");
   const [craftIds, setCraftIds] = useState<string[]>([]);
   const [artisanIds, setArtisanIds] = useState<string[]>([]);
-  const [assigned, setAssigned] = useState<Artisan[]>([]);
+  const [assigned, setAssigned] = useState<AssignedArtisan[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +82,7 @@ export function ToolAssignmentSection() {
       setAssigned([]);
       return;
     }
-    apiFetch<Artisan[]>(`/tools/${toolId}/artisans`)
+    apiFetch<AssignedArtisan[]>(`/tools/${toolId}/artisans`)
       .then(setAssigned)
       .catch(() => setAssigned([]));
   }, [toolId]);
@@ -91,7 +93,7 @@ export function ToolAssignmentSection() {
     setMessage(null);
     setError(null);
     try {
-      const updated = await apiFetch<Artisan[]>(`/tools/${toolId}/artisans`, {
+      const updated = await apiFetch<AssignedArtisan[]>(`/tools/${toolId}/artisans`, {
         method: "POST",
         body: JSON.stringify({ artisanIds })
       });
@@ -196,9 +198,11 @@ export function ToolAssignmentSection() {
                     {artisan.name}
                     {artisan.craft?.name ? ` · ${artisan.craft.name}` : ""}
                   </span>
-                  <button type="button" aria-label={`Remove ${artisan.name}`} className="text-ink-muted hover:text-red-700" onClick={() => unassign(artisan.id)}>
-                    <X className="h-3.5 w-3.5" aria-hidden />
-                  </button>
+                  {artisan.isHead ? null : (
+                    <button type="button" aria-label={`Remove ${artisan.name}`} className="text-ink-muted hover:text-red-700" onClick={() => unassign(artisan.id)}>
+                      <X className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

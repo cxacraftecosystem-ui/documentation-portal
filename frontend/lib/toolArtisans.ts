@@ -1,6 +1,10 @@
 import type { ToolDocumentation } from "@/lib/types";
 
-type ToolNames = Pick<ToolDocumentation, "artisanId" | "artisanName" | "artisanLinks">;
+type ToolNames = {
+  artisanId?: string | null;
+  artisanName?: string | null;
+  artisanLinks?: { artisan?: { id: string; name?: string | null } | null }[] | null;
+};
 
 export function toolArtisanNames(tool: ToolNames): string | null {
   const links = tool.artisanLinks ?? [];

@@ -256,6 +256,17 @@ test.describe("@qf:X16 the command palette's search", () => {
       ["tools", "Vat stirrer", "Tool"]
     ]);
   });
+
+  test("a legacy tool hit names every artisan of the tool, head first, once each", () => {
+    const grinder = {
+      id: "t2",
+      toolkitName: "Grinder",
+      artisanId: "a-fahim",
+      artisanName: "Fahim",
+      artisanLinks: [{ artisan: { id: "a-moin", name: "Moin Khan" } }, { artisan: { id: "a-fahim", name: "Fahim" } }]
+    };
+    expect(legacyHits({ tools: [grinder] }).map((hit) => hit.subtitle)).toEqual(["Tool · Fahim, Moin Khan"]);
+  });
 });
 
 test("report filters: chips name what narrows the report, and an empty result is spotted before any download", () => {
